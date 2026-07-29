@@ -109,23 +109,27 @@ export default async function handler(req, res) {
           cliente: clientName(d.client),
           tipo: classifyPayment(p.name),
           monto: p.amount,
-          officeId: officeInfo(d).id
+          officeId: officeInfo(d).id,
+          documentTypeId: d.document_type?.id ?? null,
+          salesId: d.salesId ?? null
         }));
 
-      const porSucursal = {};
+      const porDocumentType = {};
       for (const c of cardDocs) {
-        const key = String(c.officeId);
-        porSucursal[key] = porSucursal[key] || { cantidad: 0, total: 0, ejemplos: [] };
-        porSucursal[key].cantidad += 1;
-        porSucursal[key].total += c.monto;
-        if (porSucursal[key].ejemplos.length < 3) porSucursal[key].ejemplos.push(`#${c.numero} ${c.cliente} $${c.monto}`);
+        const key = String(c.documentTypeId) + (c.salesId ? '_conSalesId' : '_sinSalesId');
+        porDocumentType[key] = porDocumentType[key] || { cantidad: 0, total: 0, ejemplos: [] };
+        porDocumentType[key].cantidad += 1;
+        porDocumentType[key].total += c.monto;
+        if (porDocumentType[key].ejemplos.length < 4) {
+          porDocumentType[key].ejemplos.push(`#${c.numero} ${c.cliente} $${c.monto} salesId=${c.salesId}`);
+        }
       }
 
       return res.status(200).json({
         date,
         docsRevisados: allDocs.length,
         totalConTarjeta: cardDocs.length,
-        porSucursal
+        porDocumentType
       });
     }
 
