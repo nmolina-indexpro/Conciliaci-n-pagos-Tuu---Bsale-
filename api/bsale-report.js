@@ -65,13 +65,21 @@ function extractPaymentsArray(doc) {
   return [];
 }
 
+function officeInfo(doc) {
+  const o = doc.office;
+  if (!o) return { id: null };
+  return { id: o.id || (o.href ? o.href.split('/').pop().replace('.json', '') : null) };
+}
+
 export default async function handler(req, res) {
-  const { date, debug } = req.query; // YYYY-MM-DD
+  const { date, debug, officeId } = req.query; // YYYY-MM-DD, officeId opcional para filtrar sucursal
 
   if (!date) return res.status(400).json({ error: 'Falta parámetro date (YYYY-MM-DD)' });
 
   const token = process.env.BSALE_ACCESS_TOKEN;
   if (!token) return res.status(500).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+
+  const effectiveOfficeId = officeId || process.env.BSALE_OFFICE_ID || null;
 
   try {
     const dayStart = Math.floor(new Date(`${date}T00:00:00-04:00`).getTime() / 1000);
@@ -93,15 +101,31 @@ export default async function handler(req, res) {
     }
 
     if (debug) {
-      const sampleWithPayments = allDocs.find(d => extractPaymentsArray(d).length > 0);
-      const paymentNamesSeen = [...new Set(
-        allDocs.flatMap(d => extractPaymentsArray(d).map(p => p.name))
-      )];
+      const cardDocs = allDocs
+        .flatMap(d => extractPaymentsArray(d).map(p => ({ p, d })))
+        .filter(({ p }) => classifyPayment(p.name) !== null)
+        .map(({ p, d }) => ({
+          numero: d.number,
+          cliente: clientName(d.client),
+          tipo: classifyPayment(p.name),
+          monto: p.amount,
+          officeId: officeInfo(d).id
+        }));
+
+      const porSucursal = {};
+      for (const c of cardDocs) {
+        const key = String(c.officeId);
+        porSucursal[key] = porSucursal[key] || { cantidad: 0, total: 0, ejemplos: [] };
+        porSucursal[key].cantidad += 1;
+        porSucursal[key].total += c.monto;
+        if (porSucursal[key].ejemplos.length < 3) porSucursal[key].ejemplos.push(`#${c.numero} ${c.cliente} $${c.monto}`);
+      }
+
       return res.status(200).json({
         date,
         docsRevisados: allDocs.length,
-        paymentNamesSeen,
-        primerDocumentoConPagos: sampleWithPayments || null
+        totalConTarjeta: cardDocs.length,
+        porSucursal
       });
     }
 
@@ -109,6 +133,7 @@ export default async function handler(req, res) {
     const debito = [];
 
     for (const doc of allDocs) {
+      if (effectiveOfficeId && String(officeInfo(doc).id) !== String(effectiveOfficeId)) continue;
       const payments = extractPaymentsArray(doc);
       const numero = doc.number ? String(doc.number) : '';
       const cliente = clientName(doc.client);
