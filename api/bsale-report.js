@@ -65,6 +65,15 @@ function extractPaymentsArray(doc) {
   return [];
 }
 
+function toChileDateStr(unixSeconds) {
+  if (!unixSeconds) return null;
+  const d = new Date(unixSeconds * 1000);
+  // America/Santiago maneja el horario de verano/invierno de Chile automáticamente
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(d);
+}
+
 function officeInfo(doc) {
   const o = doc.office;
   if (!o) return { id: null };
@@ -82,13 +91,14 @@ export default async function handler(req, res) {
   const effectiveOfficeId = officeId || process.env.BSALE_OFFICE_ID || null;
 
   try {
-    const dayStart = Math.floor(new Date(`${date}T00:00:00-04:00`).getTime() / 1000);
-    const dayEnd = Math.floor(new Date(`${date}T23:59:59-04:00`).getTime() / 1000);
+    const dayStart = Math.floor(new Date(`${date}T00:00:00Z`).getTime() / 1000) - 24 * 3600;
+    const dayEnd = Math.floor(new Date(`${date}T23:59:59Z`).getTime() / 1000) + 24 * 3600;
 
-    // Traemos los documentos del día, con sus pagos y cliente expandidos en la misma llamada
+    // Traemos los documentos del rango (más ancho de lo necesario a propósito),
+    // con sus pagos y cliente expandidos en la misma llamada
     let offset = 0;
     const limit = 50;
-    const allDocs = [];
+    let allDocs = [];
     while (true) {
       const data = await bsaleGet(
         `/documents.json?emissiondaterange=[${dayStart},${dayEnd}]&expand=payments,client&limit=${limit}&offset=${offset}`,
@@ -99,6 +109,11 @@ export default async function handler(req, res) {
       if (items.length < limit) break;
       offset += limit;
     }
+
+    // Filtro estricto: solo documentos cuya fecha real (convertida a hora de Chile)
+    // coincide exactamente con el día pedido. Esto evita que se cuelen documentos
+    // del día anterior/siguiente por el límite impreciso del filtro de Bsale.
+    allDocs = allDocs.filter(d => toChileDateStr(d.emissionDate) === date);
 
     if (debug) {
       const cardDocs = allDocs
