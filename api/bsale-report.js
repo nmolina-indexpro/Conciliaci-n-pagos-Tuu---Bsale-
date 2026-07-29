@@ -61,7 +61,7 @@ function extractPaymentsArray(doc) {
 }
 
 export default async function handler(req, res) {
-  const { date } = req.query; // YYYY-MM-DD
+  const { date, debug } = req.query; // YYYY-MM-DD
 
   if (!date) return res.status(400).json({ error: 'Falta parámetro date (YYYY-MM-DD)' });
 
@@ -95,6 +95,22 @@ export default async function handler(req, res) {
       allDocs.push(...items);
       if (items.length < limit) break;
       offset += limit;
+    }
+
+    if (debug) {
+      const sampleWithPayments = allDocs.find(d => {
+        const arr = extractPaymentsArray(d);
+        return arr.length > 0;
+      });
+      return res.status(200).json({
+        date,
+        docsRevisados: allDocs.length,
+        creditoId,
+        debitoId,
+        allTypes,
+        primerDocumentoConPagos: sampleWithPayments || null,
+        primerDocumentoCrudo: allDocs[0] || null
+      });
     }
 
     const credito = [];
