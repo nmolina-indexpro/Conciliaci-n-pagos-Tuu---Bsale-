@@ -2,13 +2,14 @@
 // Consulta la API oficial de Bsale (api.bsale.io) y devuelve los documentos pagados
 // con Tarjeta Crédito y Tarjeta Débito para un día específico.
 //
-// IMPORTANTE: /v1/payments.json no tiene un filtro de fecha soportado, así que
-// en vez de eso filtramos /v1/documents.json por emissiondaterange (que sí existe)
-// y expandimos payments + client en la misma llamada. Esto trae solo los documentos
-// del día, no el historial completo de pagos de la cuenta.
+// Notas de la API real (confirmado con datos de producción):
+// - /v1/payments.json NO tiene filtro de fecha soportado -> filtramos documentos
+//   por emissiondaterange (que sí existe) con expand=payments,client.
+// - Al expandir "payments" dentro de documents.json, cada item NO trae un
+//   payment_type anidado: viene aplanado como { href, id, name, amount },
+//   donde id/name son directamente los del medio de pago (no del pago en sí).
 //
 // El access_token vive SOLO en el servidor (variable de entorno BSALE_ACCESS_TOKEN).
-// Doc: https://docs.bsale.dev/
 
 const BSALE_BASE = 'https://api.bsale.io/v1';
 const TIMEOUT_MS = 8000;
@@ -27,9 +28,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
 }
 
 async function bsaleGet(path, token) {
-  const r = await fetchWithTimeout(`${BSALE_BASE}${path}`, {
-    headers: { access_token: token }
-  });
+  const r = await fetchWithTimeout(`${BSALE_BASE}${path}`, { headers: { access_token: token } });
   if (!r.ok) {
     const text = await r.text().catch(() => '');
     throw new Error(`Bsale HTTP ${r.status} en ${path}: ${text.slice(0, 300)}`);
@@ -37,13 +36,19 @@ async function bsaleGet(path, token) {
   return r.json();
 }
 
-// Encuentra los IDs de los tipos de pago cuyo nombre matchea "Tarjeta Crédito" / "Tarjeta Débito"
-async function getCardPaymentTypeIds(token) {
-  const data = await bsaleGet('/payment_types.json?limit=50', token);
-  const items = data.items || [];
-  const credito = items.find(p => /tarjeta.*cr[eé]dito/i.test(p.name));
-  const debito = items.find(p => /tarjeta.*d[eé]bito/i.test(p.name));
-  return { creditoId: credito?.id, debitoId: debito?.id, allTypes: items.map(i => ({ id: i.id, name: i.name })) };
+function normalize(s) {
+  return (s || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // saca tildes
+    .toUpperCase().trim();
+}
+
+// Comparación EXACTA (no "incluye"), para no confundir "TARJETA CREDITO" con
+// medios de pago parecidos como "Paga con tarjetas de débito o crédito".
+function classifyPayment(name) {
+  const n = normalize(name);
+  if (n === 'TARJETA CREDITO') return 'credito';
+  if (n === 'TARJETA DEBITO') return 'debito';
+  return null;
 }
 
 function clientName(client) {
@@ -72,16 +77,6 @@ export default async function handler(req, res) {
     const dayStart = Math.floor(new Date(`${date}T00:00:00-04:00`).getTime() / 1000);
     const dayEnd = Math.floor(new Date(`${date}T23:59:59-04:00`).getTime() / 1000);
 
-    const { creditoId, debitoId, allTypes } = await getCardPaymentTypeIds(token);
-
-    if (!creditoId && !debitoId) {
-      return res.status(502).json({
-        error: 'No se encontraron medios de pago "Tarjeta Crédito" / "Tarjeta Débito" en tu cuenta Bsale.',
-        mediosDisponibles: allTypes,
-        hint: 'Ajusta el regex en getCardPaymentTypeIds() con el nombre exacto que ves en mediosDisponibles.'
-      });
-    }
-
     // Traemos los documentos del día, con sus pagos y cliente expandidos en la misma llamada
     let offset = 0;
     const limit = 50;
@@ -98,18 +93,15 @@ export default async function handler(req, res) {
     }
 
     if (debug) {
-      const sampleWithPayments = allDocs.find(d => {
-        const arr = extractPaymentsArray(d);
-        return arr.length > 0;
-      });
+      const sampleWithPayments = allDocs.find(d => extractPaymentsArray(d).length > 0);
+      const paymentNamesSeen = [...new Set(
+        allDocs.flatMap(d => extractPaymentsArray(d).map(p => p.name))
+      )];
       return res.status(200).json({
         date,
         docsRevisados: allDocs.length,
-        creditoId,
-        debitoId,
-        allTypes,
-        primerDocumentoConPagos: sampleWithPayments || null,
-        primerDocumentoCrudo: allDocs[0] || null
+        paymentNamesSeen,
+        primerDocumentoConPagos: sampleWithPayments || null
       });
     }
 
@@ -122,13 +114,9 @@ export default async function handler(req, res) {
       const cliente = clientName(doc.client);
 
       for (const p of payments) {
-        const ptId = p.payment_type?.id ?? p.paymentTypeId;
-        if (ptId == null) continue;
-        if (String(ptId) === String(creditoId)) {
-          credito.push({ numero, cliente, monto: p.amount });
-        } else if (String(ptId) === String(debitoId)) {
-          debito.push({ numero, cliente, monto: p.amount });
-        }
+        const kind = classifyPayment(p.name);
+        if (kind === 'credito') credito.push({ numero, cliente, monto: p.amount });
+        else if (kind === 'debito') debito.push({ numero, cliente, monto: p.amount });
       }
     }
 
