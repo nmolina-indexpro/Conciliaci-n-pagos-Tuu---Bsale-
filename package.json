@@ -1,0 +1,9 @@
+{
+  "name": "cuadratura-pos-indexstore",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cuadratura diaria de ventas TUU (POS) vs documentos Bsale para IndexStore",
+  "engines": {
+    "node": ">=18"
+  }
+}
