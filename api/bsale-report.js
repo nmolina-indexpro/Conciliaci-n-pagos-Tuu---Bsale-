@@ -113,7 +113,17 @@ export default async function handler(req, res) {
     // Filtro estricto: solo documentos cuya fecha real (convertida a hora de Chile)
     // coincide exactamente con el día pedido. Esto evita que se cuelen documentos
     // del día anterior/siguiente por el límite impreciso del filtro de Bsale.
-    allDocs = allDocs.filter(d => toChileDateStr(d.emissionDate) === date);
+    // También excluimos documentos anulados/inactivos (state !== 0) y deduplicamos
+    // por id, por si la paginación llegara a traer un mismo documento dos veces.
+    const seenIds = new Set();
+    allDocs = allDocs.filter(d => {
+      if (toChileDateStr(d.emissionDate) !== date) return false;
+      if (d.state !== 0) return false; // 0 = activo, 1 = inactivo/anulado
+      if (d.cancellationStatus) return false;
+      if (seenIds.has(d.id)) return false;
+      seenIds.add(d.id);
+      return true;
+    });
 
     if (debug) {
       const cardDocs = allDocs
