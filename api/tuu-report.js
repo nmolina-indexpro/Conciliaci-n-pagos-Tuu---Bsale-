@@ -3,6 +3,21 @@
 // El API Key vive SOLO en el servidor (variable de entorno TUU_API_KEY), nunca en el navegador.
 // Doc: https://developers.tuu.cl/docs/generación-de-reporte-sucursal
 
+const TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error(`Timeout de ${timeoutMs}ms consultando TUU`);
+    throw err;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 export default async function handler(req, res) {
   const { date } = req.query; // formato YYYY-MM-DD
 
@@ -21,7 +36,7 @@ export default async function handler(req, res) {
     const rawTransactions = [];
 
     do {
-      const r = await fetch('https://integrations.payment.haulmer.com/BranchReport/branch-report', {
+      const r = await fetchWithTimeout('https://integrations.payment.haulmer.com/BranchReport/branch-report', {
         method: 'POST',
         headers: {
           'X-API-Key': apiKey,
