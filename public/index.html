@@ -106,10 +106,20 @@
     <div class="lbl"><span class="dot"></span>Traer los datos del día directo desde Bsale y TUU</div>
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <span id="autoStatus"></span>
-      <button class="btn-secondary" id="semanalBtn" onclick="fetchConsolidado('semana')">Consolidado semanal</button>
-      <button class="btn-secondary" id="mensualBtn" onclick="fetchConsolidado('mes')">Consolidado mensual</button>
+      <button class="btn-secondary" onclick="toggleConsolidado()">Consolidado por rango</button>
       <button class="btn-primary" id="autoBtn" onclick="fetchAutomatico()">Traer y cuadrar</button>
     </div>
+  </div>
+
+  <div id="consolidadoPanel" class="auto-panel" style="display:none;flex-direction:column;align-items:stretch;gap:12px;">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div class="date-field"><label for="fechaDesde">Desde</label><input type="date" id="fechaDesde"></div>
+      <div class="date-field"><label for="fechaHasta">Hasta</label><input type="date" id="fechaHasta"></div>
+      <button class="btn-ghost" onclick="setRangoRapido('semana')">Última semana</button>
+      <button class="btn-ghost" onclick="setRangoRapido('mes')">Este mes</button>
+      <button class="btn-primary" onclick="fetchConsolidado()">Generar consolidado</button>
+    </div>
+    <span id="consolidadoStatus" style="font-size:11.5px;color:var(--muted);"></span>
   </div>
 
   <span class="toggle-manual" onclick="toggleManual()">¿Preferís pegar los datos a mano? Mostrar/ocultar entrada manual</span>
@@ -168,7 +178,13 @@ $19.900
 
 <script>
 const $ = id => document.getElementById(id);
-$('fecha').value = new Date().toISOString().slice(0,10);
+// Fecha local (no UTC) — toISOString() devuelve la fecha en UTC y cerca de
+// medianoche en Chile eso muestra el día siguiente por error.
+const hoyStr = new Date().toLocaleDateString('en-CA');
+$('fecha').value = hoyStr;
+$('fecha').max = hoyStr;
+$('fechaDesde').max = hoyStr;
+$('fechaHasta').max = hoyStr;
 
 function toggleManual(){
   const s = $('manualSection');
@@ -316,7 +332,16 @@ async function fetchAutomatico(){
   }
 }
 
-// ---------- Consolidado semanal / mensual ----------
+// ---------- Consolidado por rango (máximo 30 días) ----------
+function toggleConsolidado(){
+  const p = $('consolidadoPanel');
+  const showing = p.style.display === 'flex';
+  p.style.display = showing ? 'none' : 'flex';
+  if(!showing && !$('fechaDesde').value){
+    setRangoRapido('semana');
+  }
+}
+
 function addDaysStr(dateStr, days){
   const [y,m,d] = dateStr.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m-1, d));
@@ -332,19 +357,52 @@ function lastDayOfMonthStr(dateStr){
   const dt = new Date(Date.UTC(y, m, 0)); // día 0 del mes siguiente = último día de este mes
   return dt.toISOString().slice(0,10);
 }
+function diffDays(a, b){
+  const [y1,m1,d1] = a.split('-').map(Number);
+  const [y2,m2,d2] = b.split('-').map(Number);
+  const t1 = Date.UTC(y1,m1-1,d1), t2 = Date.UTC(y2,m2-1,d2);
+  return Math.round((t2-t1)/86400000);
+}
 
-async function fetchConsolidado(periodo){
-  const fecha = $('fecha').value;
-  let startDate, endDate;
-  if(periodo === 'semana'){ endDate = fecha; startDate = addDaysStr(fecha, -6); }
-  else { startDate = firstDayOfMonthStr(fecha); endDate = lastDayOfMonthStr(fecha); }
+function setRangoRapido(tipo){
+  const hoy = $('fecha').value || new Date().toLocaleDateString('en-CA');
+  if(tipo === 'semana'){
+    $('fechaHasta').value = hoy;
+    $('fechaDesde').value = addDaysStr(hoy, -6);
+  } else {
+    let desde = firstDayOfMonthStr(hoy);
+    let hasta = lastDayOfMonthStr(hoy);
+    // tope de 30 días: si el mes tiene 31 días, recortamos el final
+    if(diffDays(desde, hasta) > 29) hasta = addDaysStr(desde, 29);
+    $('fechaDesde').value = desde;
+    $('fechaHasta').value = hasta;
+  }
+}
 
-  const btnId = periodo === 'semana' ? 'semanalBtn' : 'mensualBtn';
-  const btn = $(btnId);
-  const status = $('autoStatus');
-  btn.disabled = true;
-  status.className = '';
-  status.textContent = `Consultando ${startDate} a ${endDate}...`;
+async function fetchConsolidado(){
+  const startDate = $('fechaDesde').value;
+  const endDate = $('fechaHasta').value;
+  const cstatus = $('consolidadoStatus');
+
+  if(!startDate || !endDate){
+    cstatus.className = ''; cstatus.style.color = 'var(--red)';
+    cstatus.textContent = 'Elige ambas fechas.';
+    return;
+  }
+  if(startDate > endDate){
+    cstatus.style.color = 'var(--red)';
+    cstatus.textContent = '"Desde" no puede ser posterior a "Hasta".';
+    return;
+  }
+  const dias = diffDays(startDate, endDate) + 1;
+  if(dias > 30){
+    cstatus.style.color = 'var(--red)';
+    cstatus.textContent = `El rango elegido es de ${dias} días — el máximo permitido es 30.`;
+    return;
+  }
+
+  cstatus.style.color = 'var(--muted)';
+  cstatus.textContent = `Consultando ${startDate} a ${endDate} (${dias} días)...`;
 
   try{
     const [tuuRes, bsaleRes] = await Promise.all([
@@ -365,22 +423,20 @@ async function fetchConsolidado(periodo){
     for(const d of (bsaleRes.credito || [])) getBucket(d.fecha).credito.push(d);
     for(const d of (bsaleRes.debito || [])) getBucket(d.fecha).debito.push(d);
 
-    const dias = Object.keys(porDia).filter(Boolean).sort();
-    const filas = dias.map(f => ({ fecha: f, ...calcularDia(porDia[f].pos, porDia[f].credito, porDia[f].debito) }));
+    const diasConMovimiento = Object.keys(porDia).filter(Boolean).sort();
+    const filas = diasConMovimiento.map(f => ({ fecha: f, ...calcularDia(porDia[f].pos, porDia[f].credito, porDia[f].debito) }));
 
-    renderConsolidado({ periodo, startDate, endDate, filas });
+    renderConsolidado({ startDate, endDate, filas });
 
-    status.className = 'ok';
-    status.textContent = `Listo — ${dias.length} días con movimiento entre ${startDate} y ${endDate}`;
+    cstatus.style.color = 'var(--green)';
+    cstatus.textContent = `Listo — ${filas.length} días con movimiento entre ${startDate} y ${endDate}`;
   }catch(err){
-    status.className = 'err';
-    status.textContent = 'Error: ' + err.message;
-  }finally{
-    btn.disabled = false;
+    cstatus.style.color = 'var(--red)';
+    cstatus.textContent = 'Error: ' + err.message;
   }
 }
 
-function renderConsolidado({ periodo, startDate, endDate, filas }){
+function renderConsolidado({ startDate, endDate, filas }){
   $('results').innerHTML = '';
   const el = $('resultsConsolidado');
 
@@ -396,11 +452,10 @@ function renderConsolidado({ periodo, startDate, endDate, filas }){
   const extraCount = filas.reduce((a,f)=>a+f.bsaleExtraCount,0);
   const extraTotal = filas.reduce((a,f)=>a+f.bsaleExtraTotal,0);
   const diasCuadrados = filas.filter(f=>f.cuadra).length;
-  const label = periodo === 'semana' ? 'Consolidado semanal' : 'Consolidado mensual';
 
   el.innerHTML = `
     <div class="receipt">
-      <div class="section-title" style="margin-top:0;">${label} — ${startDate} a ${endDate}</div>
+      <div class="section-title" style="margin-top:0;">Consolidado — ${startDate} a ${endDate}</div>
       <div class="totals">
         <div class="tot"><div class="lbl">POS débito</div><div class="val">${fmt(totPosDeb)}</div></div>
         <div class="tot"><div class="lbl">Bsale débito (con match)</div><div class="val">${fmt(totBsaleDeb)}</div></div>
@@ -435,6 +490,7 @@ function renderConsolidado({ periodo, startDate, endDate, filas }){
 
 function verDetalleDia(fecha){
   $('fecha').value = fecha;
+  $('consolidadoPanel').style.display = 'none';
   fetchAutomatico();
 }
 function rowsHtml(rows, label){
