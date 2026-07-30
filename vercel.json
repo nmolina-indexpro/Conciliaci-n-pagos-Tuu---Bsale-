@@ -1,6 +1,7 @@
 {
   "functions": {
     "api/tuu-report.js": { "maxDuration": 30 },
-    "api/bsale-report.js": { "maxDuration": 30 }
+    "api/bsale-report.js": { "maxDuration": 30 },
+    "api/shopify-report.js": { "maxDuration": 30 }
   }
 }
