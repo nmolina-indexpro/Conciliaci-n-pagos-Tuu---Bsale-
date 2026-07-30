@@ -201,6 +201,10 @@ $19.900
   <div class="section-title"><span class="dot" style="background:#95bf47;"></span>Ventas Shopify vs Bsale</div>
   <div id="shopifyResults"><p class="empty-note">Se carga junto con "Traer y cuadrar".</p></div>
 
+  <div class="section-title"><span class="dot" style="background:var(--muted);"></span>Otras formas de pago a revisar</div>
+  <p class="empty-note">Documentos Bsale pagados con un medio que hoy no se cruza contra ningún sistema externo (transferencias a 30 días, abonos de cliente, crédito interno, etc). No son un error — solo quedan listados para que los revises manualmente.</p>
+  <div id="otrosPagosWrap"><p class="empty-note">Se carga junto con "Traer y cuadrar".</p></div>
+
   <div id="history">
     <h2>Historial de cuadraturas</h2>
     <div id="historyList" class="hist-empty">Sin registros guardados todavía.</div>
@@ -374,6 +378,7 @@ async function fetchAutomatico(){
     const bsaleDeb = bsaleRes.debito || [];
 
     ejecutarCuadratura(posAll, bsaleCred, bsaleDeb);
+    renderOtrosPagos(bsaleRes.otros || []);
 
     status.className = 'ok';
     status.textContent = `Listo — ${posAll.length} ventas POS, ${bsaleCred.length + bsaleDeb.length} documentos Bsale${shopifyMsg}`;
@@ -381,6 +386,48 @@ async function fetchAutomatico(){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
   }
+}
+
+function renderOtrosPagos(otros){
+  const wrap = $('otrosPagosWrap');
+  if(!otros || otros.length===0){
+    wrap.innerHTML = `<p class="empty-note">Sin otras formas de pago registradas en Bsale para esta fecha.</p>`;
+    return;
+  }
+  const porTipo = {};
+  for(const o of otros){
+    const key = o.tipo || 'Sin especificar';
+    porTipo[key] = porTipo[key] || { monto: 0, cantidad: 0, docs: [] };
+    porTipo[key].monto += o.monto;
+    porTipo[key].cantidad += 1;
+    porTipo[key].docs.push(o);
+  }
+  const filas = Object.entries(porTipo).sort((a,b)=>b[1].monto-a[1].monto);
+  const totalGeneral = otros.reduce((a,o)=>a+o.monto,0);
+
+  wrap.innerHTML = `
+    <table>
+      <thead><tr><th>Forma de pago</th><th class="amount">N° documentos</th><th class="amount">Monto</th></tr></thead>
+      <tbody>
+        ${filas.map(([tipo, d]) => `
+          <tr>
+            <td>${tipo}</td>
+            <td class="amount">${d.cantidad}</td>
+            <td class="amount">${fmt(d.monto)}</td>
+          </tr>`).join('')}
+        <tr><td><b>Total</b></td><td class="amount"><b>${otros.length}</b></td><td class="amount"><b>${fmt(totalGeneral)}</b></td></tr>
+      </tbody>
+    </table>
+    <details style="margin-top:10px;">
+      <summary style="cursor:pointer;font-size:12px;color:var(--primary);">Ver documentos individuales</summary>
+      <table style="margin-top:10px;">
+        <thead><tr><th>Doc. Bsale</th><th>Cliente</th><th>Forma de pago</th><th class="amount">Monto</th></tr></thead>
+        <tbody>
+          ${otros.map(o => `<tr><td>#${o.numero}</td><td>${o.cliente||'—'}</td><td>${o.tipo}</td><td class="amount">${fmt(o.monto)}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </details>
+  `;
 }
 
 function renderShopify(gShopify, shopifyPos, bsaleShopify){
