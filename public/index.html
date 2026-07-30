@@ -92,6 +92,7 @@
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <div class="date-field"><label for="fechaDesde">Desde</label><input type="date" id="fechaDesde"></div>
       <div class="date-field"><label for="fechaHasta">Hasta</label><input type="date" id="fechaHasta"></div>
+      <button class="btn-primary" style="padding:9px 14px;" title="Buscar este rango" onclick="cargar()">🔍</button>
       <button class="btn-ghost btn-compact" id="btnDia" title="Ver hoy en tiempo real" onclick="setRangoRapido('dia')">Día (Hoy)</button>
       <button class="btn-ghost btn-compact" id="btnSemana" onclick="setRangoRapido('semana')">Última semana</button>
       <button class="btn-ghost btn-compact" id="btnMes" onclick="setRangoRapido('mes')">Este mes</button>
@@ -353,6 +354,5 @@ async function cargar(){
 }
 
 cargar();
-</script>
-</body>
+</script></body>
 </html>
