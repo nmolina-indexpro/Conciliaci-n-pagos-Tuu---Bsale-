@@ -230,22 +230,6 @@ async function cargar(){
     for(const d of (bsaleRes.transferencia || [])) bucket(d.fecha).transferencia += d.monto;
     for(const d of (bsaleRes.efectivo || [])) bucket(d.fecha).efectivo += d.monto;
 
-    // ---- Tarjetas resumen ----
-    const hoyData = porDia[fecha] || { tarjeta:0, transferencia:0, efectivo:0 };
-    const mañana = addDaysStr(fecha, 1);
-
-    $('transferLabel').textContent = `del ${fecha}`;
-    $('transferTotal').textContent = fmt(hoyData.transferencia);
-    $('tuuTotal').textContent = fmt(hoyData.tarjeta);
-    $('tuuNote').textContent = `Ventas con tarjeta del ${fecha}, se acreditan el ${mañana}.`;
-    $('cashLabel').textContent = `del ${fecha}`;
-    $('cashTotal').textContent = fmt(hoyData.efectivo);
-
-    const ayer = addDaysStr(fecha, -1);
-    const tarjetaDeAyer = (porDia[ayer] || {tarjeta:0}).tarjeta;
-    $('todayBankTotal').textContent = fmt(hoyData.transferencia + tarjetaDeAyer);
-    $('todayBankNote').textContent = `Transferencias del ${fecha} (${fmt(hoyData.transferencia)}) + depósito TUU de ventas del ${ayer} (${fmt(tarjetaDeAyer)}).`;
-
     // ---- Calendario de caída de fondos ----
     // Cada fila = fecha de acreditación. Tarjeta acreditada = ventas del día anterior.
     // Transferencia acreditada = del mismo día (Bsale ya las registra como recibidas).
@@ -258,6 +242,35 @@ async function cargar(){
       const transferencia = (porDia[fAcreditacion] || {transferencia:0}).transferencia;
       return { fecha: fAcreditacion, tarjeta, transferencia, total: tarjeta + transferencia };
     });
+
+    // ---- Tarjetas resumen: suman TODO el rango elegido (Desde a Hasta), no solo "Hasta" ----
+    const esUnSoloDia = fechaDesde === fecha;
+    const rangoDias = [];
+    for(let d = fechaDesde; d <= fecha; d = addDaysStr(d, 1)) rangoDias.push(d);
+    const sumaRango = campo => rangoDias.reduce((a,d)=>a+((porDia[d]||{})[campo]||0),0);
+
+    const totalTransferenciasRango = sumaRango('transferencia');
+    const totalEfectivoRango = sumaRango('efectivo');
+    const totalTarjetaRango = sumaRango('tarjeta');
+    // "Ya acreditado o por acreditarse dentro del rango elegido" (excluye la fila
+    // proyectada de mañana, que queda solo en el calendario de abajo)
+    const totalBancoRango = filasCal.filter(f => f.fecha <= fecha).reduce((a,f)=>a+f.total, 0);
+
+    const rangoTexto = esUnSoloDia ? `del ${fecha}` : `del período (${fechaDesde} a ${fecha})`;
+
+    $('transferLabel').textContent = rangoTexto;
+    $('transferTotal').textContent = fmt(totalTransferenciasRango);
+    $('tuuTotal').textContent = fmt(totalTarjetaRango);
+    $('tuuNote').textContent = esUnSoloDia
+      ? `Ventas con tarjeta del ${fecha}, se acreditan el ${addDaysStr(fecha,1)}.`
+      : `Ventas con tarjeta del período elegido — cada una se acredita el día hábil siguiente a su venta.`;
+    $('cashLabel').textContent = rangoTexto;
+    $('cashTotal').textContent = fmt(totalEfectivoRango);
+
+    $('todayBankTotal').textContent = fmt(totalBancoRango);
+    $('todayBankNote').textContent = esUnSoloDia
+      ? `Transferencias del ${fecha} (${fmt(totalTransferenciasRango)}) + depósito TUU de ventas del ${addDaysStr(fecha,-1)} (${fmt(filasCal.find(f=>f.fecha===fecha)?.tarjeta||0)}).`
+      : `Transferencias del período (${fmt(totalTransferenciasRango)}) + depósitos TUU que caen dentro del período (${fmt(totalBancoRango-totalTransferenciasRango)}).`;
 
     $('calendarioWrap').innerHTML = `
       <table>
