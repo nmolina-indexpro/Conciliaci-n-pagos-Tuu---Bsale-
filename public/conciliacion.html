@@ -105,6 +105,7 @@
   .icon-btn:hover{border-color:var(--primary);color:var(--primary);}
   .icon-btn.has-comment{background:var(--blue-bg);border-color:#BFD7FB;color:var(--blue);}
   .icon-btn.is-resolved{background:var(--green-bg);border-color:#B7E4C7;color:var(--green);}
+  .suggestion{font-size:11px;color:var(--blue);margin-top:5px;font-style:italic;}
   .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;}
   .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
   .deposit-note{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:13px;margin-bottom:20px;color:var(--text);}
@@ -402,13 +403,15 @@ async function fetchAutomatico(){
 function renderShopify(gShopify, shopifyPos, bsaleShopify){
   const fecha = $('fecha').value;
   const el = $('shopifyResults');
+  const poolBsaleSueltosShopify = gShopify.unmatchedBsale;
+  const poolShopifySueltos = gShopify.rows.filter(r=>!r.matched).map(r=>r.pos);
   // El resumen (totales + estado) ya se muestra en la tabla unificada de arriba;
   // acá solo va el detalle fila por fila.
   el.innerHTML = `
-    ${rowsHtml(gShopify.rows, 'Shopify', 'shopify', fecha)}
+    ${rowsHtml(gShopify.rows, 'Shopify', 'shopify', fecha, poolBsaleSueltosShopify)}
     ${gShopify.unmatchedBsale.length>0 ? `
       <p class="empty-note">${gShopify.unmatchedBsale.length} documento(s) Bsale "SHOPIFY" sin orden correspondiente ese día:</p>
-      ${extraHtml(gShopify.unmatchedBsale, fecha)}
+      ${extraHtml(gShopify.unmatchedBsale, fecha, poolShopifySueltos)}
     ` : ''}
   `;
 }
@@ -612,7 +615,30 @@ function iconosAccion(clave, resuelto){
   `;
 }
 
-function rowsHtml(rows, label, scope, fecha){
+// ---------- Sugerencia de posible match (monto igual o parecido, mismo día) ----------
+function sugerirCandidato(monto, pool){
+  if(!pool || pool.length===0) return null;
+  const tolerancia = Math.max(1500, monto*0.03); // exacto, o hasta 3% / $1.500 de diferencia
+  let mejor = null, mejorDiff = Infinity;
+  for(const c of pool){
+    const cMonto = (c.monto ?? c.amount) || 0;
+    const diff = Math.abs(cMonto - monto);
+    if(diff <= tolerancia && diff < mejorDiff){ mejor = c; mejorDiff = diff; }
+  }
+  return mejor ? { candidato: mejor, diff: mejorDiff } : null;
+}
+function sugerenciaHtml(monto, pool, tipoCandidato){
+  const s = sugerirCandidato(monto, pool);
+  if(!s) return '';
+  const c = s.candidato;
+  const etiquetaDiff = s.diff === 0 ? 'monto exacto' : `dif. ${fmt(s.diff)}`;
+  if(tipoCandidato === 'bsale'){
+    return `<div class="suggestion">💡 ¿Será #${c.numero} ${c.cliente||'—'} (${fmt(c.monto)}, ${etiquetaDiff})?</div>`;
+  }
+  return `<div class="suggestion">💡 ¿Será la venta de las ${c.time||'—'} por ${fmt(c.amount)} (${etiquetaDiff})?</div>`;
+}
+
+function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
   if(rows.length===0) return `<p class="empty-note">Sin transacciones de ${label} para esta fecha.</p>`;
   const origenLabel = label === 'Shopify' ? 'Monto Shopify' : 'Monto TUU';
   const esShopify = scope === 'shopify';
@@ -633,6 +659,7 @@ function rowsHtml(rows, label, scope, fecha){
     } else {
       const clave = claveItem(fecha, scope, `${r.pos.time}_${r.pos.amount}`);
       const resuelto = estaResuelto(clave);
+      const sugerencia = resuelto ? '' : sugerenciaHtml(r.pos.amount, poolBsaleSueltos, 'bsale');
       html += `<tr class="${resuelto?'':'unmatched'}">
         <td>${r.pos.time||'—'}</td>
         <td class="amount">${fmt(r.pos.amount)}</td>
@@ -643,6 +670,7 @@ function rowsHtml(rows, label, scope, fecha){
         <td>
           <span class="badge ${resuelto?'ok':'no'}">${resuelto?'✓ revisado':'sin doc'}</span>
           <span class="icon-group">${iconosAccion(clave, resuelto)}</span>
+          ${sugerencia}
         </td>
       </tr>`;
     }
@@ -650,17 +678,19 @@ function rowsHtml(rows, label, scope, fecha){
   return html + `</tbody></table>`;
 }
 
-function extraHtml(unmatchedBsale, fecha){
+function extraHtml(unmatchedBsale, fecha, poolTuuSueltos){
   if(unmatchedBsale.length===0) return '';
   let html = `<table><thead><tr><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto</th><th>Estado</th></tr></thead><tbody>`;
   for(const b of unmatchedBsale){
     const clave = claveItem(fecha, 'bsaleExtra', b.numero);
     const resuelto = estaResuelto(clave);
+    const sugerencia = resuelto ? '' : sugerenciaHtml(b.monto, poolTuuSueltos, 'tuu');
     html += `<tr>
       <td>#${b.numero}</td><td>${b.cliente||'—'}</td><td class="amount">${fmt(b.monto)}</td>
       <td>
         <span class="badge ${resuelto?'ok':'no'}">${resuelto?'✓ revisado':'sin venta POS'}</span>
         <span class="icon-group">${iconosAccion(clave, resuelto)}</span>
+        ${sugerencia}
       </td>
     </tr>`;
   }
@@ -691,6 +721,12 @@ function renderResults(rCrudo){
   const bsaleExtraPendientes = [...gDeb.unmatchedBsale, ...gCred.unmatchedBsale]
     .filter(b => !estaResuelto(claveItem(fecha, 'bsaleExtra', b.numero)));
   const bsaleExtraPendienteTotal = bsaleExtraPendientes.reduce((a,b)=>a+b.monto,0);
+
+  // ---- Pools para las sugerencias "¿será esta?" (cruzan débito y crédito, mismo día) ----
+  const poolBsaleSueltos = [...gDeb.unmatchedBsale, ...gCred.unmatchedBsale];
+  const poolTuuSueltos = [...gDeb.rows, ...gCred.rows]
+    .filter(r => !r.matched)
+    .map(r => r.pos);
 
   const totalTarjetaDia = totPosDeb + totPosCred;
   const fechaDeposito = addDaysStr(fecha, 1);
@@ -730,7 +766,7 @@ function renderResults(rCrudo){
     <div class="alert-box">
       <div class="alert-title">⚠️ Revisar: ${bsaleExtraPendientes.length} documento(s) Bsale con tarjeta sin venta POS pendientes (${fmt(bsaleExtraPendienteTotal)})</div>
       <p class="alert-text">No cuentan como descuadre de caja, pero conviene confirmar el origen de cada uno. Usa 💬 para dejar un comentario y ✓ para marcarlo como revisado una vez confirmado.</p>
-      ${extraHtml([...gDeb.unmatchedBsale, ...gCred.unmatchedBsale], fecha)}
+      ${extraHtml([...gDeb.unmatchedBsale, ...gCred.unmatchedBsale], fecha, poolTuuSueltos)}
     </div>
     ` : ''}
 
@@ -739,10 +775,10 @@ function renderResults(rCrudo){
     </div>
 
     <div class="section-title"><span class="dot deb"></span>Tarjeta débito</div>
-    ${rowsHtml(gDeb.rows, 'débito', 'debito', fecha)}
+    ${rowsHtml(gDeb.rows, 'débito', 'debito', fecha, poolBsaleSueltos)}
 
     <div class="section-title"><span class="dot cred"></span>Tarjeta crédito</div>
-    ${rowsHtml(gCred.rows, 'crédito', 'credito', fecha)}
+    ${rowsHtml(gCred.rows, 'crédito', 'credito', fecha, poolBsaleSueltos)}
   `;
 }
 
