@@ -12,7 +12,7 @@
 // El access_token vive SOLO en el servidor (variable de entorno BSALE_ACCESS_TOKEN).
 
 const BSALE_BASE = 'https://api.bsale.io/v1';
-const TIMEOUT_MS = 8000;
+const TIMEOUT_MS = 15000;
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
   const controller = new AbortController();
