@@ -91,11 +91,10 @@ export default async function handler(req, res) {
   const effectiveOfficeId = officeId || process.env.BSALE_OFFICE_ID || null;
 
   try {
-    const dayStart = Math.floor(new Date(`${date}T00:00:00Z`).getTime() / 1000) - 24 * 3600;
-    const dayEnd = Math.floor(new Date(`${date}T23:59:59Z`).getTime() / 1000) + 24 * 3600;
+    const dayStart = Math.floor(new Date(`${date}T00:00:00-04:00`).getTime() / 1000);
+    const dayEnd = Math.floor(new Date(`${date}T23:59:59-04:00`).getTime() / 1000);
 
-    // Traemos los documentos del rango (más ancho de lo necesario a propósito),
-    // con sus pagos y cliente expandidos en la misma llamada
+    // Traemos los documentos del día, con sus pagos y cliente expandidos en la misma llamada
     let offset = 0;
     const limit = 50;
     let allDocs = [];
@@ -110,14 +109,15 @@ export default async function handler(req, res) {
       offset += limit;
     }
 
-    // Filtro estricto: solo documentos cuya fecha real (convertida a hora de Chile)
-    // coincide exactamente con el día pedido. Esto evita que se cuelen documentos
-    // del día anterior/siguiente por el límite impreciso del filtro de Bsale.
-    // También excluimos documentos anulados/inactivos (state !== 0) y deduplicamos
-    // por id, por si la paginación llegara a traer un mismo documento dos veces.
+    // Excluimos documentos anulados/inactivos y deduplicamos por id.
+    // OJO: ya no filtramos por igualdad estricta de fecha en huso horario de Chile
+    // (lo probamos y terminaba excluyendo documentos legítimos, porque Bsale no
+    // guarda emissionDate de forma perfectamente consistente con la hora real).
+    // El cruce por monto contra TUU más abajo es quien realmente decide qué
+    // documento corresponde a qué venta, así que un rango algo más amplio acá
+    // no es un problema — en el peor caso, aparece como "extra" informativo.
     const seenIds = new Set();
     allDocs = allDocs.filter(d => {
-      if (toChileDateStr(d.emissionDate) !== date) return false;
       if (d.state !== 0) return false; // 0 = activo, 1 = inactivo/anulado
       if (d.cancellationStatus) return false;
       if (seenIds.has(d.id)) return false;
