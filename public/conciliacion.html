@@ -77,6 +77,17 @@
   .stamp{display:inline-flex;align-items:center;gap:8px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;padding:9px 18px;border-radius:999px;letter-spacing:0.2px;}
   .stamp.ok{background:var(--green-bg);color:var(--green);}
   .stamp.bad{background:var(--red-bg);color:var(--red);}
+  .resumen-table{width:100%;border-collapse:collapse;margin:4px 0 18px;}
+  .resumen-table th{text-align:right;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:9.5px;padding:8px 10px;border-bottom:2px solid var(--line);}
+  .resumen-table th:first-child{text-align:left;}
+  .resumen-table th:last-child{text-align:center;}
+  .resumen-table td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  .resumen-table td:first-child{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;color:var(--text);}
+  .resumen-table .val-cell{font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;color:var(--text);}
+  .resumen-table .estado-cell{text-align:center;width:50px;}
+  .check-icon{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;font-size:13px;font-weight:700;}
+  .check-icon.ok{background:var(--green-bg);color:var(--green);}
+  .check-icon.no{background:var(--red-bg);color:var(--red);}
   .diff-line{font-size:12.5px;color:var(--muted);margin-top:12px;}
   .diff-line b{color:var(--text);}
 
@@ -338,6 +349,8 @@ function procesarManual(){
 }
 
 // ---------- Modo automático (APIs) ----------
+let ultimoShopifyData = null; // {gShopify, shopifyPos, bsaleShopify} o null si no está disponible
+
 async function fetchAutomatico(){
   const fecha = $('fecha').value;
   const btn = $('autoBtn');
@@ -356,22 +369,25 @@ async function fetchAutomatico(){
     if(tuuRes.error) throw new Error('TUU: ' + (tuuRes.detail || tuuRes.error));
     if(bsaleRes.error) throw new Error('Bsale: ' + (bsaleRes.detail || bsaleRes.error));
 
+    // Shopify se calcula PRIMERO para que el resumen unificado (renderResults) ya lo tenga disponible
+    let shopifyMsg = '';
+    if(shopifyRes.error){
+      ultimoShopifyData = null;
+      $('shopifyResults').innerHTML = `<p class="empty-note">Shopify no disponible: ${shopifyRes.detail || shopifyRes.error}</p>`;
+    } else {
+      const shopifyPos = (shopifyRes.ventas || []).map(v => ({ amount: v.monto, time:'', numero: v.numero, cliente: v.cliente, pasarela: v.pasarela }));
+      const bsaleShopify = bsaleRes.shopify || [];
+      const gShopify = matchGroup(shopifyPos, bsaleShopify);
+      ultimoShopifyData = { gShopify, shopifyPos, bsaleShopify };
+      renderShopify(gShopify, shopifyPos, bsaleShopify);
+      shopifyMsg = `, ${shopifyPos.length} órdenes Shopify`;
+    }
+
     const posAll = (tuuRes.transacciones || []).filter(t => t.type === 'debito' || t.type === 'credito');
     const bsaleCred = bsaleRes.credito || [];
     const bsaleDeb = bsaleRes.debito || [];
 
     ejecutarCuadratura(posAll, bsaleCred, bsaleDeb);
-
-    let shopifyMsg = '';
-    if(shopifyRes.error){
-      // Shopify es opcional: si no está configurado, no rompe el resto de la cuadratura
-      $('shopifyResults').innerHTML = `<p class="empty-note">Shopify no disponible: ${shopifyRes.detail || shopifyRes.error}</p>`;
-    } else {
-      const shopifyPos = (shopifyRes.ventas || []).map(v => ({ amount: v.monto, time:'', numero: v.numero, cliente: v.cliente }));
-      const bsaleShopify = bsaleRes.shopify || [];
-      renderShopify(matchGroup(shopifyPos, bsaleShopify), shopifyPos, bsaleShopify);
-      shopifyMsg = `, ${shopifyPos.length} órdenes Shopify`;
-    }
 
     status.className = 'ok';
     status.textContent = `Listo — ${posAll.length} ventas POS, ${bsaleCred.length + bsaleDeb.length} documentos Bsale${shopifyMsg}`;
@@ -385,18 +401,10 @@ async function fetchAutomatico(){
 
 function renderShopify(gShopify, shopifyPos, bsaleShopify){
   const fecha = $('fecha').value;
-  const totalPos = sum(shopifyPos, 'amount');
-  const totalMatch = sum(gShopify.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
-  const cuadra = gShopify.rows.every(r=>r.matched);
   const el = $('shopifyResults');
+  // El resumen (totales + estado) ya se muestra en la tabla unificada de arriba;
+  // acá solo va el detalle fila por fila.
   el.innerHTML = `
-    <div class="receipt">
-      <div class="totals">
-        <div class="tot"><div class="lbl">Órdenes Shopify (pagadas)</div><div class="val">${fmt(totalPos)}</div></div>
-        <div class="tot"><div class="lbl">Documentos Bsale "SHOPIFY" (match con Shopify)</div><div class="val">${fmt(totalMatch)}</div></div>
-      </div>
-      <span class="stamp ${cuadra?'ok':'bad'}">${cuadra ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
-    </div>
     ${rowsHtml(gShopify.rows, 'Shopify', 'shopify', fecha)}
     ${gShopify.unmatchedBsale.length>0 ? `
       <p class="empty-note">${gShopify.unmatchedBsale.length} documento(s) Bsale "SHOPIFY" sin orden correspondiente ese día:</p>
@@ -607,12 +615,16 @@ function iconosAccion(clave, resuelto){
 function rowsHtml(rows, label, scope, fecha){
   if(rows.length===0) return `<p class="empty-note">Sin transacciones de ${label} para esta fecha.</p>`;
   const origenLabel = label === 'Shopify' ? 'Monto Shopify' : 'Monto TUU';
-  let html = `<table><thead><tr><th>Hora</th><th class="amount">${origenLabel}</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
+  const esShopify = scope === 'shopify';
+  const colPasarela = esShopify ? '<th>Pasarela de pago</th>' : '';
+  let html = `<table><thead><tr><th>Hora</th><th class="amount">${origenLabel}</th>${colPasarela}<th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
   for(const r of rows){
+    const pasarelaCell = esShopify ? `<td>${r.pos.pasarela || '—'}</td>` : '';
     if(r.matched){
       html += `<tr>
         <td>${r.pos.time||'—'}</td>
         <td class="amount">${fmt(r.pos.amount)}</td>
+        ${pasarelaCell}
         <td>#${r.bsale.numero}</td>
         <td>${r.bsale.cliente||'—'}</td>
         <td class="amount">${fmt(r.bsale.monto)}</td>
@@ -624,6 +636,7 @@ function rowsHtml(rows, label, scope, fecha){
       html += `<tr class="${resuelto?'':'unmatched'}">
         <td>${r.pos.time||'—'}</td>
         <td class="amount">${fmt(r.pos.amount)}</td>
+        ${pasarelaCell}
         <td>—</td>
         <td>—</td>
         <td class="amount">—</td>
@@ -681,15 +694,35 @@ function renderResults(rCrudo){
 
   const totalTarjetaDia = totPosDeb + totPosCred;
   const fechaDeposito = addDaysStr(fecha, 1);
+
+  // ---- Filas del resumen unificado (débito, crédito, y Shopify si está disponible) ----
+  const filas = [
+    { canal: 'TUU débito', origen: totPosDeb, bsale: totBsaleDebAdj, cuadra: todoResuelto(gDeb.rows, 'debito') },
+    { canal: 'TUU crédito', origen: totPosCred, bsale: totBsaleCredAdj, cuadra: todoResuelto(gCred.rows, 'credito') }
+  ];
+  if(ultimoShopifyData){
+    const { gShopify, shopifyPos } = ultimoShopifyData;
+    const totalShopifyPos = sum(shopifyPos, 'amount');
+    const totalShopifyMatch = sum(gShopify.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
+    filas.push({ canal: 'Shopify', origen: totalShopifyPos, bsale: totalShopifyMatch, cuadra: gShopify.rows.every(r=>r.matched) });
+  }
+  const cuadraGeneral = filas.every(f => f.cuadra);
+
   el.innerHTML = `
     <div class="receipt">
-      <div class="totals">
-        <div class="tot"><div class="lbl">TUU débito</div><div class="val">${fmt(totPosDeb)}</div></div>
-        <div class="tot"><div class="lbl">Bsale débito (match con TUU)</div><div class="val">${fmt(totBsaleDebAdj)}</div></div>
-        <div class="tot"><div class="lbl">TUU crédito</div><div class="val">${fmt(totPosCred)}</div></div>
-        <div class="tot"><div class="lbl">Bsale crédito (match con TUU)</div><div class="val">${fmt(totBsaleCredAdj)}</div></div>
-      </div>
-      <span class="stamp ${cuadraAdj?'ok':'bad'}">${cuadraAdj ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
+      <table class="resumen-table">
+        <thead><tr><th></th><th class="amount">Origen</th><th class="amount">Bsale (match)</th><th>Estado</th></tr></thead>
+        <tbody>
+          ${filas.map(f => `
+            <tr>
+              <td>${f.canal}</td>
+              <td class="amount val-cell">${fmt(f.origen)}</td>
+              <td class="amount val-cell">${fmt(f.bsale)}</td>
+              <td class="estado-cell"><span class="check-icon ${f.cuadra?'ok':'no'}">${f.cuadra?'✓':'✕'}</span></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      <span class="stamp ${cuadraGeneral?'ok':'bad'}">${cuadraGeneral ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
       <div class="diff-line">${cuadraAdj ? 'Todas las ventas del TUU tienen su documento en Bsale (o quedaron marcadas como revisadas).' : `Diferencia débito: <b>${fmt(diffDebAdj)}</b> · Diferencia crédito: <b>${fmt(diffCredAdj)}</b> — hay ventas del TUU sin documento ni revisión.`}</div>
     </div>
 
