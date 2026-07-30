@@ -2,15 +2,21 @@
 // Consulta la Admin API de Shopify y devuelve las órdenes pagadas de un rango de
 // fechas, para cruzarlas contra los documentos "SHOPIFY" de Bsale.
 //
-// Requiere dos variables de entorno:
-//   SHOPIFY_STORE_DOMAIN  -> ej. "indexstore.myshopify.com" (el dominio *.myshopify.com,
-//                            no el dominio público como www.indexstore.cl)
-//   SHOPIFY_ACCESS_TOKEN  -> Admin API access token (empieza con shpat_), generado
-//                            desde una app personalizada (Configuración > Apps y
-//                            canales de venta > Desarrollar apps). NO es el
-//                            "ID de cliente"/"Secreto" de OAuth.
+// Desde 2026 Shopify ya no entrega un "Admin API access token" fijo para copiar
+// una sola vez: las apps creadas en el Dev Dashboard usan Client Credentials
+// Grant, un intercambio OAuth donde el servidor pide un token nuevo (válido
+// 24h) usando el Client ID + Client Secret de la app. Por eso esta función pide
+// un token fresco en cada consulta en vez de leer uno guardado.
 //
-// El token vive SOLO en el servidor, nunca en el navegador.
+// Requiere tres variables de entorno:
+//   SHOPIFY_STORE_DOMAIN    -> ej. "indexstore-cl.myshopify.com"
+//   SHOPIFY_CLIENT_ID       -> "ID de cliente" de la app (Dev Dashboard > tu app > Configuración)
+//   SHOPIFY_CLIENT_SECRET   -> "Secreto" de la app (empieza con shpss_)
+//
+// Client Credentials Grant solo funciona para apps de tu propia organización
+// instaladas en tiendas que tú mismo posees — que es justo nuestro caso.
+//
+// Las credenciales viven SOLO en el servidor, nunca en el navegador.
 
 const TIMEOUT_MS = 12000;
 const API_VERSION = '2024-10';
@@ -45,6 +51,26 @@ function customerName(order) {
   return (order.email || '').split('@')[0] || 'Cliente Shopify';
 }
 
+// Intercambia client_id + client_secret por un access_token válido ~24h
+async function obtenerAccessToken(dominioLimpio, clientId, clientSecret) {
+  const r = await fetchWithTimeout(`https://${dominioLimpio}/admin/oauth/access_token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'client_credentials'
+    })
+  });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok || !body.access_token) {
+    throw new Error(
+      `No se pudo obtener token de Shopify (HTTP ${r.status}): ${body.error_description || body.error || JSON.stringify(body).slice(0, 200)}`
+    );
+  }
+  return body.access_token;
+}
+
 export default async function handler(req, res) {
   const { date, startDate: qStart, endDate: qEnd } = req.query;
   const startDate = qStart || date;
@@ -56,14 +82,15 @@ export default async function handler(req, res) {
 
   // trim() por si quedó un espacio o salto de línea invisible al copiar/pegar
   const domain = (process.env.SHOPIFY_STORE_DOMAIN || '').trim();
-  const token = (process.env.SHOPIFY_ACCESS_TOKEN || '').trim();
-  if (!domain || !token) {
+  const clientId = (process.env.SHOPIFY_CLIENT_ID || '').trim();
+  const clientSecret = (process.env.SHOPIFY_CLIENT_SECRET || '').trim();
+
+  if (!domain || !clientId || !clientSecret) {
     return res.status(500).json({
-      error: 'Faltan variables de entorno SHOPIFY_STORE_DOMAIN y/o SHOPIFY_ACCESS_TOKEN en el servidor'
+      error: 'Faltan variables de entorno SHOPIFY_STORE_DOMAIN, SHOPIFY_CLIENT_ID y/o SHOPIFY_CLIENT_SECRET en el servidor'
     });
   }
-  // Validamos el formato del dominio ANTES de intentar la llamada, para dar un
-  // error claro en vez de un "fetch failed" genérico si el valor viene mal.
+
   const dominioLimpio = domain.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
   if (!/^[a-z0-9-]+\.myshopify\.com$/i.test(dominioLimpio)) {
     return res.status(500).json({
@@ -73,6 +100,8 @@ export default async function handler(req, res) {
   }
 
   try {
+    const token = await obtenerAccessToken(dominioLimpio, clientId, clientSecret);
+
     const createdMin = `${startDate}T00:00:00-04:00`;
     const createdMax = `${endDate}T23:59:59-04:00`;
 
