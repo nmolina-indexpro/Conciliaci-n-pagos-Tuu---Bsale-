@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cuadratura POS — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#13161a; --surface:#1c2126; --surface-2:#232a31; --line:#333c44;
+    --amber:#ffb020; --amber-dim:#8a6420; --green:#4ade80; --red:#f87171;
+    --text:#e8e6e1; --muted:#8b9198;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Mono', monospace;-webkit-font-smoothing:antialiased;padding:24px 16px 60px;}
+  .wrap{max-width:1000px;margin:0 auto;}
+  header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px dashed var(--line);padding-bottom:16px;margin-bottom:22px;flex-wrap:wrap;gap:12px;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:22px;letter-spacing:0.5px;margin:0 0 4px 0;}
+  h1 span{color:var(--amber);}
+  .sub{color:var(--muted);font-size:12.5px;}
+  .date-field{display:flex;align-items:center;gap:8px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
+  .page-nav{display:flex;gap:14px;margin-top:8px;}
+  .page-nav a{font-size:11.5px;color:var(--muted);text-decoration:none;padding-bottom:3px;border-bottom:2px solid transparent;}
+  .page-nav a.active{color:var(--amber);border-bottom-color:var(--amber);}
+  .page-nav a:hover{color:var(--text);}
+  .btn-ghost.active{background:rgba(255,176,32,0.12);color:var(--amber);border-color:var(--amber-dim);}
+  input[type=date]{background:var(--surface);border:1px solid var(--line);color:var(--text);font-family:'IBM Plex Mono',monospace;padding:7px 10px;border-radius:4px;font-size:13px;}
+
+  .auto-panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px 18px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+  .auto-panel .lbl{font-family:'Space Grotesk',sans-serif;font-size:13.5px;display:flex;align-items:center;gap:8px;}
+  .auto-panel .lbl .dot{width:8px;height:8px;border-radius:50%;background:var(--amber);}
+  #autoStatus{font-size:11.5px;color:var(--muted);}
+  #autoStatus.err{color:var(--red);}
+  #autoStatus.ok{color:var(--green);}
+
+  .toggle-manual{font-size:11.5px;color:var(--muted);text-decoration:underline;cursor:pointer;margin:2px 0 18px;display:inline-block;}
+  #manualSection{display:none;}
+
+  .grid-inputs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:18px;}
+  @media (max-width:820px){.grid-inputs{grid-template-columns:1fr;}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px;}
+  .card h3{margin:0 0 3px 0;font-family:'Space Grotesk',sans-serif;font-size:13.5px;display:flex;align-items:center;gap:7px;}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+  .dot.pos{background:var(--amber);} .dot.cred{background:#7dd3fc;} .dot.deb{background:#c4b5fd;}
+  .card p.hint{margin:0 0 10px 0;font-size:11px;color:var(--muted);line-height:1.5;}
+  textarea{width:100%;height:150px;background:var(--surface-2);border:1px solid var(--line);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:11.5px;border-radius:4px;padding:9px;resize:vertical;line-height:1.5;}
+  textarea:focus{outline:1px solid var(--amber);}
+
+  .actions{display:flex;gap:10px;margin-bottom:26px;flex-wrap:wrap;}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:5px;padding:11px 20px;cursor:pointer;letter-spacing:0.3px;transition:opacity .15s;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  button:hover:not(:disabled){opacity:0.85;}
+  .btn-primary{background:var(--amber);color:#1a1300;}
+  .btn-secondary{background:transparent;color:var(--text);border:1px solid var(--line);}
+  .btn-ghost{background:transparent;color:var(--muted);border:1px dashed var(--line);}
+
+  #results{display:none;}
+  .receipt{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:22px 24px;margin-bottom:20px;position:relative;overflow:hidden;}
+  .receipt::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:repeating-linear-gradient(90deg,var(--amber-dim) 0 8px, transparent 8px 16px);}
+  .totals{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin:6px 0 14px;}
+  @media (max-width:700px){.totals{grid-template-columns:1fr 1fr;}}
+  .tot{padding:10px 14px;border-right:1px dashed var(--line);}
+  .tot:last-child{border-right:none;}
+  .tot .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;}
+  .tot .val{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;}
+  .stamp{display:inline-flex;align-items:center;gap:8px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px;padding:9px 16px;border-radius:5px;border:2px solid;transform:rotate(-1.5deg);letter-spacing:1px;}
+  .stamp.ok{border-color:var(--green);color:var(--green);}
+  .stamp.bad{border-color:var(--red);color:var(--red);}
+  .diff-line{font-size:12px;color:var(--muted);margin-top:10px;}
+  .diff-line b{color:var(--text);}
+
+  .section-title{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:700;margin:26px 0 10px;display:flex;align-items:center;gap:8px;}
+  table{width:100%;border-collapse:collapse;font-size:11.5px;}
+  th{text-align:left;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:0.5px;font-size:9.5px;padding:6px 8px;border-bottom:1px solid var(--line);}
+  td{padding:7px 8px;border-bottom:1px solid #262c32;vertical-align:middle;}
+  tr.unmatched td{color:var(--red);}
+  tr.unmatched{background:rgba(248,113,113,0.05);}
+  .badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600;}
+  .badge.ok{background:rgba(74,222,128,0.15);color:var(--green);}
+  .badge.no{background:rgba(248,113,113,0.15);color:var(--red);}
+  .amount{font-variant-numeric:tabular-nums;text-align:right;}
+  .empty-note{color:var(--muted);font-size:12px;padding:10px 0;}
+  .deposit-note{background:rgba(125,211,252,0.08);border:1px solid rgba(125,211,252,0.25);border-radius:6px;padding:10px 14px;font-size:12px;margin-bottom:18px;color:var(--text);}
+  .deposit-note b{color:#7dd3fc;}
+  tr.dia-row{cursor:pointer;}
+  tr.dia-row:hover td{background:rgba(255,176,32,0.06);}
+
+  #history{margin-top:36px;border-top:1px dashed var(--line);padding-top:18px;}
+  #history h2{font-family:'Space Grotesk',sans-serif;font-size:14px;margin:0 0 12px 0;}
+  .hist-row{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:var(--surface);border:1px solid var(--line);border-radius:5px;margin-bottom:6px;font-size:12px;cursor:pointer;}
+  .hist-row:hover{border-color:var(--amber-dim);}
+  .hist-row .hd{display:flex;align-items:center;gap:12px;}
+  .hist-empty{color:var(--muted);font-size:12px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>Cuadratura <span>POS</span> — IndexStore</h1>
+      <div class="sub">Concilia las ventas de TUU (POS) con los documentos emitidos en Bsale</div>
+      <nav class="page-nav">
+        <a href="index.html">Flujo de Caja</a>
+        <a href="conciliacion.html" class="active">Conciliación</a>
+      </nav>
+    </div>
+    <div class="date-field">
+      <button class="btn-ghost" style="padding:7px 14px;" onclick="irAHoy()">Hoy</button>
+      <label for="fecha">Fecha</label>
+      <input type="date" id="fecha">
+    </div>
+  </header>
+
+  <div class="auto-panel">
+    <div class="lbl"><span class="dot"></span>Traer los datos del día directo desde Bsale y TUU</div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <span id="autoStatus"></span>
+      <button class="btn-secondary" onclick="toggleConsolidado()">Consolidado por rango</button>
+      <button class="btn-primary" id="autoBtn" onclick="fetchAutomatico()">Traer y cuadrar</button>
+    </div>
+  </div>
+
+  <div id="consolidadoPanel" class="auto-panel" style="display:none;flex-direction:column;align-items:stretch;gap:12px;">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div class="date-field"><label for="fechaDesde">Desde</label><input type="date" id="fechaDesde"></div>
+      <div class="date-field"><label for="fechaHasta">Hasta</label><input type="date" id="fechaHasta"></div>
+      <button class="btn-ghost" id="btnSemana" onclick="setRangoRapido('semana')">Última semana</button>
+      <button class="btn-ghost" id="btnMes" onclick="setRangoRapido('mes')">Este mes</button>
+      <button class="btn-primary" onclick="fetchConsolidado()">Generar consolidado</button>
+    </div>
+    <span id="consolidadoStatus" style="font-size:11.5px;color:var(--muted);"></span>
+  </div>
+
+  <span class="toggle-manual" onclick="toggleManual()">¿Preferís pegar los datos a mano? Mostrar/ocultar entrada manual</span>
+
+  <div id="manualSection">
+    <div class="grid-inputs">
+      <div class="card">
+        <h3><span class="dot pos"></span>POS — Aplicación Pagos</h3>
+        <p class="hint">Pega el listado del día (débito y crédito mezclado, tal como aparece en la app del POS).</p>
+        <textarea id="posInput" placeholder="Venta débito **** 3294
+Comprobante Afecto #600062349957
++$54.800
+18:28
+..."></textarea>
+      </div>
+      <div class="card">
+        <h3><span class="dot cred"></span>Bsale — Tarjeta Crédito</h3>
+        <p class="hint">Pega "Documentos asociados a TARJETA CREDITO" desde Bsale.</p>
+        <textarea id="creditoInput" placeholder="44218
+28 Jul 2026
+Boleta Electrónica T
+Blanca Gomez Riquelme
+$24.900
+..."></textarea>
+      </div>
+      <div class="card">
+        <h3><span class="dot deb"></span>Bsale — Tarjeta Débito</h3>
+        <p class="hint">Pega "Documentos asociados a TARJETA DEBITO" desde Bsale.</p>
+        <textarea id="debitoInput" placeholder="20164
+28 Jul 2026
+Factura Electrónica
+nancy paez
+$19.900
+..."></textarea>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn-secondary" onclick="procesarManual()">Cuadrar con datos pegados</button>
+      <button class="btn-ghost" onclick="limpiarManual()">Limpiar campos</button>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn-secondary" onclick="guardar()">Guardar en historial</button>
+  </div>
+
+  <div id="results"></div>
+  <div id="resultsConsolidado"></div>
+
+  <div class="section-title"><span class="dot" style="background:#95bf47;"></span>Ventas Shopify vs Bsale</div>
+  <div id="shopifyResults"><p class="empty-note">Se carga junto con "Traer y cuadrar".</p></div>
+
+  <div id="history">
+    <h2>Historial de cuadraturas</h2>
+    <div id="historyList" class="hist-empty">Sin registros guardados todavía.</div>
+  </div>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+// Fecha local (no UTC) — toISOString() devuelve la fecha en UTC y cerca de
+// medianoche en Chile eso muestra el día siguiente por error.
+const hoyStr = new Date().toLocaleDateString('en-CA');
+$('fecha').value = hoyStr;
+$('fecha').max = hoyStr;
+$('fechaDesde').max = hoyStr;
+$('fechaHasta').max = hoyStr;
+
+function toggleManual(){
+  const s = $('manualSection');
+  s.style.display = s.style.display === 'block' ? 'none' : 'block';
+}
+
+function parseAmount(str){
+  if(!str) return null;
+  const clean = str.replace(/[^\d]/g,'');
+  return clean ? parseInt(clean,10) : null;
+}
+function fmt(n){ return '$' + (n||0).toLocaleString('es-CL'); }
+
+// ---------- Parsers para el modo manual (copiar/pegar) ----------
+function parsePOS(text){
+  const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
+  const records = [];
+  let current = null;
+  for(const line of lines){
+    const ventaMatch = line.match(/venta\s+(d[eé]bito|cr[eé]dito)/i);
+    if(ventaMatch){
+      if(current && current.amount!=null) records.push(current);
+      current = { type: /d[eé]bito/i.test(ventaMatch[1]) ? 'debito' : 'credito', amount:null, time:'' };
+      continue;
+    }
+    if(current){
+      const amtMatch = line.match(/\+?\$\s?([\d.,]+)/);
+      if(amtMatch && current.amount===null) current.amount = parseAmount(amtMatch[1]);
+      const timeMatch = line.match(/^(\d{1,2}:\d{2})$/);
+      if(timeMatch) current.time = timeMatch[1];
+    }
+  }
+  if(current && current.amount!=null) records.push(current);
+  return records;
+}
+function parseBsale(text){
+  const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
+  const docs = [];
+  let current = null;
+  const isDate = l => /^\d{1,2}\s+\w{3,4}\s+\d{4}$/i.test(l);
+  const isDocType = l => /boleta|factura|electr[oó]nica/i.test(l);
+  for(const line of lines){
+    if(/^\d{3,7}$/.test(line)){
+      if(current && current.monto!=null) docs.push(current);
+      current = { numero: line, cliente:'', monto:null };
+      continue;
+    }
+    if(current){
+      const amtMatch = line.match(/\$\s?([\d.,]+)/);
+      if(amtMatch) current.monto = parseAmount(amtMatch[1]);
+      else if(!isDate(line) && !isDocType(line)) current.cliente = current.cliente ? current.cliente+' '+line : line;
+    }
+  }
+  if(current && current.monto!=null) docs.push(current);
+  return docs;
+}
+
+// ---------- Matching ----------
+function matchGroup(posList, bsaleList){
+  const bsalePool = bsaleList.map(d=>({...d, _used:false}));
+  const rows = [];
+  for(const p of posList){
+    const hit = bsalePool.find(b => !b._used && b.monto === p.amount);
+    if(hit){ hit._used = true; rows.push({pos:p, bsale:hit, matched:true}); }
+    else rows.push({pos:p, bsale:null, matched:false});
+  }
+  return { rows, unmatchedBsale: bsalePool.filter(b=>!b._used) };
+}
+function sum(list, key){ return list.reduce((a,x)=>a+(x[key]??0),0); }
+
+let lastResult = null;
+
+function calcularDia(posAll, bsaleCred, bsaleDeb){
+  const posDeb = posAll.filter(r=>r.type==='debito');
+  const posCred = posAll.filter(r=>r.type==='credito');
+  const gDeb = matchGroup(posDeb, bsaleDeb);
+  const gCred = matchGroup(posCred, bsaleCred);
+
+  const totPosDeb = sum(posDeb,'amount');
+  const totPosCred = sum(posCred,'amount');
+
+  // Los totales "Bsale" son SOLO los documentos que efectivamente calzaron con
+  // una venta POS (por monto). Los documentos Bsale con tarjeta sin venta POS
+  // correspondiente quedan fuera de la cuadratura: son información aparte.
+  const totBsaleDeb = sum(gDeb.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
+  const totBsaleCred = sum(gCred.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
+
+  const diffDeb = totPosDeb - totBsaleDeb;
+  const diffCred = totPosCred - totBsaleCred;
+
+  // Cuadra = toda venta POS tiene su documento Bsale (cobertura 100%).
+  const cuadra = gDeb.rows.every(r=>r.matched) && gCred.rows.every(r=>r.matched);
+
+  const bsaleExtraCount = gDeb.unmatchedBsale.length + gCred.unmatchedBsale.length;
+  const bsaleExtraTotal = sum(gDeb.unmatchedBsale,'monto') + sum(gCred.unmatchedBsale,'monto');
+
+  return { gDeb, gCred, totPosDeb, totPosCred, totBsaleDeb, totBsaleCred, diffDeb, diffCred, cuadra, bsaleExtraCount, bsaleExtraTotal, countPos: posAll.length };
+}
+
+function ejecutarCuadratura(posAll, bsaleCred, bsaleDeb){
+  const r = calcularDia(posAll, bsaleCred, bsaleDeb);
+  lastResult = { fecha: $('fecha').value, ...r, countBsale: bsaleCred.length + bsaleDeb.length, timestamp: Date.now() };
+  $('resultsConsolidado').innerHTML = '';
+  renderResults(r);
+}
+
+function procesarManual(){
+  const posAll = parsePOS($('posInput').value);
+  const bsaleCred = parseBsale($('creditoInput').value);
+  const bsaleDeb = parseBsale($('debitoInput').value);
+  ejecutarCuadratura(posAll, bsaleCred, bsaleDeb);
+}
+
+// ---------- Modo automático (APIs) ----------
+async function fetchAutomatico(){
+  const fecha = $('fecha').value;
+  const btn = $('autoBtn');
+  const status = $('autoStatus');
+  btn.disabled = true;
+  status.className = '';
+  status.textContent = 'Consultando TUU, Bsale y Shopify...';
+
+  try{
+    const [tuuRes, bsaleRes, shopifyRes] = await Promise.all([
+      fetch(`/api/tuu-report?date=${fecha}`).then(r=>r.json()),
+      fetch(`/api/bsale-report?date=${fecha}`).then(r=>r.json()),
+      fetch(`/api/shopify-report?date=${fecha}`).then(r=>r.json())
+    ]);
+
+    if(tuuRes.error) throw new Error('TUU: ' + (tuuRes.detail || tuuRes.error));
+    if(bsaleRes.error) throw new Error('Bsale: ' + (bsaleRes.detail || bsaleRes.error));
+
+    const posAll = (tuuRes.transacciones || []).filter(t => t.type === 'debito' || t.type === 'credito');
+    const bsaleCred = bsaleRes.credito || [];
+    const bsaleDeb = bsaleRes.debito || [];
+
+    ejecutarCuadratura(posAll, bsaleCred, bsaleDeb);
+
+    let shopifyMsg = '';
+    if(shopifyRes.error){
+      // Shopify es opcional: si no está configurado, no rompe el resto de la cuadratura
+      $('shopifyResults').innerHTML = `<p class="empty-note">Shopify no disponible: ${shopifyRes.detail || shopifyRes.error}</p>`;
+    } else {
+      const shopifyPos = (shopifyRes.ventas || []).map(v => ({ amount: v.monto, time:'', numero: v.numero, cliente: v.cliente }));
+      const bsaleShopify = bsaleRes.shopify || [];
+      renderShopify(matchGroup(shopifyPos, bsaleShopify), shopifyPos, bsaleShopify);
+      shopifyMsg = `, ${shopifyPos.length} órdenes Shopify`;
+    }
+
+    status.className = 'ok';
+    status.textContent = `Listo — ${posAll.length} ventas POS, ${bsaleCred.length + bsaleDeb.length} documentos Bsale${shopifyMsg}`;
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+function renderShopify(gShopify, shopifyPos, bsaleShopify){
+  const totalPos = sum(shopifyPos, 'amount');
+  const totalMatch = sum(gShopify.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
+  const cuadra = gShopify.rows.every(r=>r.matched);
+  const el = $('shopifyResults');
+  el.innerHTML = `
+    <div class="receipt">
+      <div class="totals">
+        <div class="tot"><div class="lbl">Órdenes Shopify (pagadas)</div><div class="val">${fmt(totalPos)}</div></div>
+        <div class="tot"><div class="lbl">Documentos Bsale "SHOPIFY" (con match)</div><div class="val">${fmt(totalMatch)}</div></div>
+      </div>
+      <span class="stamp ${cuadra?'ok':'bad'}">${cuadra ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
+    </div>
+    ${rowsHtml(gShopify.rows, 'Shopify')}
+    ${gShopify.unmatchedBsale.length>0 ? `
+      <p class="empty-note">${gShopify.unmatchedBsale.length} documento(s) Bsale "SHOPIFY" sin orden correspondiente ese día:</p>
+      ${extraHtml(gShopify.unmatchedBsale)}
+    ` : ''}
+  `;
+}
+
+// ---------- Consolidado por rango (máximo 30 días) ----------
+function toggleConsolidado(){
+  const p = $('consolidadoPanel');
+  const showing = p.style.display === 'flex';
+  p.style.display = showing ? 'none' : 'flex';
+  if(!showing && !$('fechaDesde').value){
+    setRangoRapido('semana');
+  }
+}
+
+function addDaysStr(dateStr, days){
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  dt.setUTCDate(dt.getUTCDate()+days);
+  return dt.toISOString().slice(0,10);
+}
+function firstDayOfMonthStr(dateStr){
+  const [y,m] = dateStr.split('-').map(Number);
+  return `${y}-${String(m).padStart(2,'0')}-01`;
+}
+function lastDayOfMonthStr(dateStr){
+  const [y,m] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m, 0)); // día 0 del mes siguiente = último día de este mes
+  return dt.toISOString().slice(0,10);
+}
+function diffDays(a, b){
+  const [y1,m1,d1] = a.split('-').map(Number);
+  const [y2,m2,d2] = b.split('-').map(Number);
+  const t1 = Date.UTC(y1,m1-1,d1), t2 = Date.UTC(y2,m2-1,d2);
+  return Math.round((t2-t1)/86400000);
+}
+
+function irAHoy(){
+  $('fecha').value = hoyStr;
+  $('resultsConsolidado').innerHTML = '';
+  fetchAutomatico();
+}
+
+function setRangoRapido(tipo){
+  const hoy = $('fecha').value || hoyStr;
+  if(tipo === 'semana'){
+    $('fechaHasta').value = hoy;
+    $('fechaDesde').value = addDaysStr(hoy, -6);
+  } else {
+    let desde = firstDayOfMonthStr(hoy);
+    let hasta = lastDayOfMonthStr(hoy);
+    // tope de 30 días: si el mes tiene 31 días, recortamos el final
+    if(diffDays(desde, hasta) > 29) hasta = addDaysStr(desde, 29);
+    $('fechaDesde').value = desde;
+    $('fechaHasta').value = hasta;
+  }
+  $('btnSemana').classList.toggle('active', tipo==='semana');
+  $('btnMes').classList.toggle('active', tipo==='mes');
+}
+
+async function fetchConsolidado(){
+  const startDate = $('fechaDesde').value;
+  const endDate = $('fechaHasta').value;
+  const cstatus = $('consolidadoStatus');
+
+  if(!startDate || !endDate){
+    cstatus.className = ''; cstatus.style.color = 'var(--red)';
+    cstatus.textContent = 'Elige ambas fechas.';
+    return;
+  }
+  if(startDate > endDate){
+    cstatus.style.color = 'var(--red)';
+    cstatus.textContent = '"Desde" no puede ser posterior a "Hasta".';
+    return;
+  }
+  const dias = diffDays(startDate, endDate) + 1;
+  if(dias > 30){
+    cstatus.style.color = 'var(--red)';
+    cstatus.textContent = `El rango elegido es de ${dias} días — el máximo permitido es 30.`;
+    return;
+  }
+
+  cstatus.style.color = 'var(--muted)';
+  cstatus.textContent = `Consultando ${startDate} a ${endDate} (${dias} días)...`;
+
+  try{
+    const [tuuRes, bsaleRes] = await Promise.all([
+      fetch(`/api/tuu-report?startDate=${startDate}&endDate=${endDate}`).then(r=>r.json()),
+      fetch(`/api/bsale-report?startDate=${startDate}&endDate=${endDate}`).then(r=>r.json())
+    ]);
+    if(tuuRes.error) throw new Error('TUU: ' + (tuuRes.detail || tuuRes.error));
+    if(bsaleRes.error) throw new Error('Bsale: ' + (bsaleRes.detail || bsaleRes.error));
+
+    // Agrupamos por día calendario
+    const porDia = {};
+    const getBucket = f => (porDia[f] = porDia[f] || { pos: [], credito: [], debito: [] });
+
+    for(const t of (tuuRes.transacciones || [])){
+      if(t.type !== 'debito' && t.type !== 'credito') continue;
+      getBucket(t.date).pos.push(t);
+    }
+    for(const d of (bsaleRes.credito || [])) getBucket(d.fecha).credito.push(d);
+    for(const d of (bsaleRes.debito || [])) getBucket(d.fecha).debito.push(d);
+
+    const diasConMovimiento = Object.keys(porDia).filter(Boolean).sort();
+    const filas = diasConMovimiento.map(f => ({ fecha: f, ...calcularDia(porDia[f].pos, porDia[f].credito, porDia[f].debito) }));
+
+    renderConsolidado({ startDate, endDate, filas });
+
+    cstatus.style.color = 'var(--green)';
+    cstatus.textContent = `Listo — ${filas.length} días con movimiento entre ${startDate} y ${endDate}`;
+  }catch(err){
+    cstatus.style.color = 'var(--red)';
+    cstatus.textContent = 'Error: ' + err.message;
+  }
+}
+
+function renderConsolidado({ startDate, endDate, filas }){
+  $('results').innerHTML = '';
+  const el = $('resultsConsolidado');
+
+  if(filas.length === 0){
+    el.innerHTML = `<p class="empty-note">No hay movimiento entre ${startDate} y ${endDate}.</p>`;
+    return;
+  }
+
+  const totPosDeb = filas.reduce((a,f)=>a+f.totPosDeb,0);
+  const totPosCred = filas.reduce((a,f)=>a+f.totPosCred,0);
+  const totBsaleDeb = filas.reduce((a,f)=>a+f.totBsaleDeb,0);
+  const totBsaleCred = filas.reduce((a,f)=>a+f.totBsaleCred,0);
+  const extraCount = filas.reduce((a,f)=>a+f.bsaleExtraCount,0);
+  const extraTotal = filas.reduce((a,f)=>a+f.bsaleExtraTotal,0);
+  const diasCuadrados = filas.filter(f=>f.cuadra).length;
+
+  el.innerHTML = `
+    <div class="receipt">
+      <div class="section-title" style="margin-top:0;">Consolidado — ${startDate} a ${endDate}</div>
+      <div class="totals">
+        <div class="tot"><div class="lbl">POS débito</div><div class="val">${fmt(totPosDeb)}</div></div>
+        <div class="tot"><div class="lbl">Bsale débito (con match)</div><div class="val">${fmt(totBsaleDeb)}</div></div>
+        <div class="tot"><div class="lbl">POS crédito</div><div class="val">${fmt(totPosCred)}</div></div>
+        <div class="tot"><div class="lbl">Bsale crédito (con match)</div><div class="val">${fmt(totBsaleCred)}</div></div>
+      </div>
+      <span class="stamp ${diasCuadrados===filas.length?'ok':'bad'}">${diasCuadrados} / ${filas.length} días cuadrados</span>
+      <div class="diff-line">${extraCount>0 ? `${extraCount} documentos Bsale sin venta POS en el período (${fmt(extraTotal)}) — no cuentan como descuadre.` : 'Sin documentos Bsale sueltos en el período.'}</div>
+    </div>
+
+    <table>
+      <thead><tr>
+        <th>Fecha</th><th class="amount">POS déb.</th><th class="amount">POS créd.</th>
+        <th class="amount">Bsale déb.</th><th class="amount">Bsale créd.</th><th>Estado</th><th>Extra</th>
+      </tr></thead>
+      <tbody>
+        ${filas.map(f => `
+          <tr class="dia-row ${f.cuadra?'':'unmatched'}" onclick="verDetalleDia('${f.fecha}')">
+            <td>${f.fecha}</td>
+            <td class="amount">${fmt(f.totPosDeb)}</td>
+            <td class="amount">${fmt(f.totPosCred)}</td>
+            <td class="amount">${fmt(f.totBsaleDeb)}</td>
+            <td class="amount">${fmt(f.totBsaleCred)}</td>
+            <td>${f.cuadra ? '<span class="badge ok">OK</span>' : '<span class="badge no">faltan doc</span>'}</td>
+            <td>${f.bsaleExtraCount>0 ? `${f.bsaleExtraCount} (${fmt(f.bsaleExtraTotal)})` : '—'}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    <p class="empty-note">Click en un día para ver el detalle completo.</p>
+  `;
+}
+
+function verDetalleDia(fecha){
+  $('fecha').value = fecha;
+  $('consolidadoPanel').style.display = 'none';
+  fetchAutomatico();
+}
+function rowsHtml(rows, label){
+  if(rows.length===0) return `<p class="empty-note">Sin transacciones de ${label} para esta fecha.</p>`;
+  let html = `<table><thead><tr><th>Hora</th><th class="amount">Monto POS</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
+  for(const r of rows){
+    html += `<tr class="${r.matched?'':'unmatched'}">
+      <td>${r.pos.time||'—'}</td>
+      <td class="amount">${fmt(r.pos.amount)}</td>
+      <td>${r.matched ? '#'+r.bsale.numero : '—'}</td>
+      <td>${r.matched ? (r.bsale.cliente||'—') : '—'}</td>
+      <td class="amount">${r.matched ? fmt(r.bsale.monto) : '—'}</td>
+      <td>${r.matched ? '<span class="badge ok">OK</span>' : '<span class="badge no">sin doc</span>'}</td>
+    </tr>`;
+  }
+  return html + `</tbody></table>`;
+}
+
+function extraHtml(unmatchedBsale){
+  if(unmatchedBsale.length===0) return '';
+  let html = `<table><thead><tr><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto</th></tr></thead><tbody>`;
+  for(const b of unmatchedBsale){
+    html += `<tr><td>#${b.numero}</td><td>${b.cliente||'—'}</td><td class="amount">${fmt(b.monto)}</td></tr>`;
+  }
+  return html + `</tbody></table>`;
+}
+
+function renderResults({gDeb, gCred, totPosDeb, totPosCred, totBsaleDeb, totBsaleCred, diffDeb, diffCred, cuadra, bsaleExtraCount, bsaleExtraTotal}){
+  const el = $('results');
+  el.style.display = 'block';
+  const totalTarjetaDia = totPosDeb + totPosCred;
+  const fechaDeposito = addDaysStr($('fecha').value, 1);
+  el.innerHTML = `
+    <div class="receipt">
+      <div class="totals">
+        <div class="tot"><div class="lbl">POS débito</div><div class="val">${fmt(totPosDeb)}</div></div>
+        <div class="tot"><div class="lbl">Bsale débito (con match)</div><div class="val">${fmt(totBsaleDeb)}</div></div>
+        <div class="tot"><div class="lbl">POS crédito</div><div class="val">${fmt(totPosCred)}</div></div>
+        <div class="tot"><div class="lbl">Bsale crédito (con match)</div><div class="val">${fmt(totBsaleCred)}</div></div>
+      </div>
+      <span class="stamp ${cuadra?'ok':'bad'}">${cuadra ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
+      <div class="diff-line">${cuadra ? 'Todas las ventas del POS tienen su documento en Bsale.' : `Diferencia débito: <b>${fmt(diffDeb)}</b> · Diferencia crédito: <b>${fmt(diffCred)}</b> — hay ventas del POS sin documento.`}</div>
+    </div>
+
+    <div class="deposit-note">
+      💳 TUU deposita al día siguiente hábil → <b>${fmt(totalTarjetaDia)}</b> de ventas con tarjeta de hoy deberían acreditarse en tu cuenta bancaria el <b>${fechaDeposito}</b>.
+    </div>
+
+    <div class="section-title"><span class="dot deb"></span>Tarjeta débito</div>
+    ${rowsHtml(gDeb.rows, 'débito')}
+
+    <div class="section-title"><span class="dot cred"></span>Tarjeta crédito</div>
+    ${rowsHtml(gCred.rows, 'crédito')}
+
+    ${bsaleExtraCount > 0 ? `
+    <div class="section-title" style="color:var(--muted);">ⓘ Documentos Bsale con tarjeta sin venta POS ese día (${bsaleExtraCount}, ${fmt(bsaleExtraTotal)})</div>
+    <p class="empty-note">No cuentan como descuadre — probablemente son de otro canal de venta (web, transferencia registrada como tarjeta, factura a 30 días, etc). Vale la pena revisarlos igual.</p>
+    ${extraHtml([...gDeb.unmatchedBsale, ...gCred.unmatchedBsale])}
+    ` : ''}
+  `;
+}
+
+function limpiarManual(){
+  $('posInput').value=''; $('creditoInput').value=''; $('debitoInput').value='';
+}
+
+// ---------- Historial ----------
+async function guardar(){
+  if(!lastResult){ alert('Primero presiona "Traer y cuadrar" o "Cuadrar con datos pegados".'); return; }
+  try{
+    await window.storage.set('reconciliacion:' + lastResult.fecha, JSON.stringify(lastResult), false);
+    await cargarHistorial();
+  }catch(e){ alert('No se pudo guardar el historial.'); }
+}
+async function cargarHistorial(){
+  const listEl = $('historyList');
+  try{
+    const res = await window.storage.list('reconciliacion:', false);
+    const keys = (res && res.keys) ? res.keys : [];
+    if(keys.length===0){ listEl.className='hist-empty'; listEl.textContent='Sin registros guardados todavía.'; return; }
+    const items = [];
+    for(const k of keys){
+      try{ const r = await window.storage.get(k, false); if(r && r.value) items.push(JSON.parse(r.value)); }catch(e){}
+    }
+    items.sort((a,b)=> b.fecha.localeCompare(a.fecha));
+    listEl.className='';
+    listEl.innerHTML = items.map(it => `
+      <div class="hist-row" onclick="alert('Fecha ${it.fecha}\\nPOS débito: ${fmt(it.totPosDeb)} / Bsale débito: ${fmt(it.totBsaleDeb)}\\nPOS crédito: ${fmt(it.totPosCred)} / Bsale crédito: ${fmt(it.totBsaleCred)}\\nDiferencia total: ${fmt(it.diffDeb+it.diffCred)}')">
+        <div class="hd"><span>${it.fecha}</span><span style="color:var(--muted);font-size:11px;">POS ${it.countPos} mov · Bsale ${it.countBsale} doc</span></div>
+        <span class="badge ${it.cuadra?'ok':'no'}">${it.cuadra ? '✓ CUADRA' : '⚠ DIFERENCIA'}</span>
+      </div>`).join('');
+  }catch(e){ console.error('Error cargando historial', e); }
+}
+cargarHistorial();
+</script>
+</body>
+</html>
