@@ -48,6 +48,8 @@ function classifyPayment(name) {
   const n = normalize(name);
   if (n === 'TARJETA CREDITO') return 'credito';
   if (n === 'TARJETA DEBITO') return 'debito';
+  if (n === 'TRANSFERENCIA BANCARIA') return 'transferencia';
+  if (n === 'EFECTIVO') return 'efectivo';
   return null;
 }
 
@@ -96,21 +98,23 @@ export default async function handler(req, res) {
   try {
     const rangeStart = Math.floor(new Date(`${startDate}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
     const rangeEnd = Math.floor(new Date(`${endDate}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
-
-    // Traemos los documentos del rango (algo más ancho de lo necesario a propósito),
-    // con sus pagos y cliente expandidos en la misma llamada
-    let offset = 0;
     const limit = 50;
-    let allDocs = [];
-    while (true) {
-      const data = await bsaleGet(
-        `/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=payments,client&limit=${limit}&offset=${offset}`,
-        token
-      );
-      const items = data.items || [];
-      allDocs.push(...items);
-      if (items.length < limit) break;
-      offset += limit;
+    const docsUrl = offset =>
+      `/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=payments,client&limit=${limit}&offset=${offset}`;
+
+    // Primera página: nos dice cuántas hay en total (campo "count") para poder
+    // pedir el resto EN PARALELO en vez de una por una. Con rangos de varios
+    // días esto puede ser bastante más rápido y evita el timeout de la función.
+    const first = await bsaleGet(docsUrl(0), token);
+    let allDocs = [...(first.items || [])];
+    const total = typeof first.count === 'number' ? first.count : allDocs.length;
+    const totalPages = Math.min(Math.ceil(total / limit), 40); // tope de seguridad: 2000 documentos
+
+    if (totalPages > 1) {
+      const pagePromises = [];
+      for (let p = 1; p < totalPages; p++) pagePromises.push(bsaleGet(docsUrl(p * limit), token));
+      const rest = await Promise.all(pagePromises);
+      for (const r of rest) allDocs.push(...(r.items || []));
     }
 
     // Excluimos documentos anulados/inactivos, deduplicamos por id, y filtramos
@@ -165,6 +169,8 @@ export default async function handler(req, res) {
 
     const credito = [];
     const debito = [];
+    const transferencia = [];
+    const efectivo = [];
 
     for (const doc of allDocs) {
       if (effectiveOfficeId && String(officeInfo(doc).id) !== String(effectiveOfficeId)) continue;
@@ -175,12 +181,15 @@ export default async function handler(req, res) {
 
       for (const p of payments) {
         const kind = classifyPayment(p.name);
-        if (kind === 'credito') credito.push({ numero, cliente, monto: p.amount, fecha });
-        else if (kind === 'debito') debito.push({ numero, cliente, monto: p.amount, fecha });
+        const row = { numero, cliente, monto: p.amount, fecha };
+        if (kind === 'credito') credito.push(row);
+        else if (kind === 'debito') debito.push(row);
+        else if (kind === 'transferencia') transferencia.push(row);
+        else if (kind === 'efectivo') efectivo.push(row);
       }
     }
 
-    return res.status(200).json({ startDate, endDate, credito, debito, docsRevisados: allDocs.length });
+    return res.status(200).json({ startDate, endDate, credito, debito, transferencia, efectivo, docsRevisados: allDocs.length });
   } catch (err) {
     return res.status(500).json({ error: 'Error consultando Bsale', detail: String(err) });
   }
