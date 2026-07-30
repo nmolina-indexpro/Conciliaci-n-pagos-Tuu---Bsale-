@@ -64,6 +64,7 @@
   .btn-secondary:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
   .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
   .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-compact{font-size:12px;padding:7px 13px;}
 
   #results{display:none;}
   .receipt{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin-bottom:20px;box-shadow:var(--shadow);}
@@ -88,10 +89,20 @@
   .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;}
   .badge.ok{background:var(--green-bg);color:var(--green);}
   .badge.no{background:var(--red-bg);color:var(--red);}
+  .icon-group{display:inline-flex;gap:4px;margin-left:8px;vertical-align:middle;}
+  .icon-btn{background:var(--surface-2);border:1px solid var(--line);color:var(--muted);border-radius:7px;padding:3px 7px;font-size:12px;line-height:1;cursor:pointer;}
+  .icon-btn:hover{border-color:var(--primary);color:var(--primary);}
+  .icon-btn.has-comment{background:var(--blue-bg);border-color:#BFD7FB;color:var(--blue);}
+  .icon-btn.is-resolved{background:var(--green-bg);border-color:#B7E4C7;color:var(--green);}
   .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;}
   .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
   .deposit-note{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:13px;margin-bottom:20px;color:var(--text);}
   .deposit-note b{color:var(--blue);}
+  .alert-box{background:var(--amber-dim);border:1.5px solid var(--amber);border-radius:14px;padding:18px 20px;margin-bottom:20px;}
+  .alert-title{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:#8A4E0A;margin-bottom:6px;}
+  .alert-text{font-size:12.5px;color:#6B5024;line-height:1.55;margin:0 0 12px 0;}
+  .alert-box table{background:var(--surface);border-radius:10px;overflow:hidden;}
+  .alert-box th{background:var(--surface-2);}
   tr.dia-row{cursor:pointer;}
   tr.dia-row:hover td{background:var(--primary-dim);}
 
@@ -119,6 +130,7 @@
       <button class="btn-ghost" style="padding:9px 16px;" onclick="irAHoy()">Hoy</button>
       <label for="fecha">Fecha</label>
       <input type="date" id="fecha">
+      <button class="btn-primary" style="padding:9px 14px;" title="Buscar esta fecha" onclick="fetchAutomatico()">🔍</button>
     </div>
   </header>
 
@@ -135,9 +147,9 @@
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <div class="date-field"><label for="fechaDesde">Desde</label><input type="date" id="fechaDesde"></div>
       <div class="date-field"><label for="fechaHasta">Hasta</label><input type="date" id="fechaHasta"></div>
-      <button class="btn-ghost" id="btnDia" onclick="setRangoRapido('dia')">Día</button>
-      <button class="btn-ghost" id="btnSemana" onclick="setRangoRapido('semana')">Última semana</button>
-      <button class="btn-ghost" id="btnMes" onclick="setRangoRapido('mes')">Este mes</button>
+      <button class="btn-ghost btn-compact" id="btnDia" onclick="setRangoRapido('dia')">Día</button>
+      <button class="btn-ghost btn-compact" id="btnSemana" onclick="setRangoRapido('semana')">Última semana</button>
+      <button class="btn-ghost btn-compact" id="btnMes" onclick="setRangoRapido('mes')">Este mes</button>
       <button class="btn-primary" onclick="fetchConsolidado()">Generar consolidado</button>
     </div>
     <span id="consolidadoStatus" style="font-size:11.5px;color:var(--muted);"></span>
@@ -308,9 +320,12 @@ function calcularDia(posAll, bsaleCred, bsaleDeb){
   return { gDeb, gCred, totPosDeb, totPosCred, totBsaleDeb, totBsaleCred, diffDeb, diffCred, cuadra, bsaleExtraCount, bsaleExtraTotal, countPos: posAll.length };
 }
 
+let ultimoResultadoDia = null; // guarda {r, fecha} para poder re-renderizar al cambiar estados/comentarios
+
 function ejecutarCuadratura(posAll, bsaleCred, bsaleDeb){
   const r = calcularDia(posAll, bsaleCred, bsaleDeb);
   lastResult = { fecha: $('fecha').value, ...r, countBsale: bsaleCred.length + bsaleDeb.length, timestamp: Date.now() };
+  ultimoResultadoDia = { r, fecha: $('fecha').value };
   $('resultsConsolidado').innerHTML = '';
   renderResults(r);
 }
@@ -369,6 +384,7 @@ async function fetchAutomatico(){
 }
 
 function renderShopify(gShopify, shopifyPos, bsaleShopify){
+  const fecha = $('fecha').value;
   const totalPos = sum(shopifyPos, 'amount');
   const totalMatch = sum(gShopify.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
   const cuadra = gShopify.rows.every(r=>r.matched);
@@ -381,10 +397,10 @@ function renderShopify(gShopify, shopifyPos, bsaleShopify){
       </div>
       <span class="stamp ${cuadra?'ok':'bad'}">${cuadra ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
     </div>
-    ${rowsHtml(gShopify.rows, 'Shopify')}
+    ${rowsHtml(gShopify.rows, 'Shopify', 'shopify', fecha)}
     ${gShopify.unmatchedBsale.length>0 ? `
       <p class="empty-note">${gShopify.unmatchedBsale.length} documento(s) Bsale "SHOPIFY" sin orden correspondiente ese día:</p>
-      ${extraHtml(gShopify.unmatchedBsale)}
+      ${extraHtml(gShopify.unmatchedBsale, fecha)}
     ` : ''}
   `;
 }
@@ -439,7 +455,7 @@ function setRangoRapido(tipo){
     let desde = firstDayOfMonthStr(hoy);
     let hasta = lastDayOfMonthStr(hoy);
     // tope de 30 días: si el mes tiene 31 días, recortamos el final
-    if(diffDays(desde, hasta) > 29) hasta = addDaysStr(desde, 29);
+    if(diffDays(desde, hasta) > 28) hasta = addDaysStr(desde, 28); // máximo 29 días (0..28)
     $('fechaDesde').value = desde;
     $('fechaHasta').value = hasta;
   }
@@ -563,64 +579,137 @@ function verDetalleDia(fecha){
   $('consolidadoPanel').style.display = 'none';
   fetchAutomatico();
 }
-function rowsHtml(rows, label){
+// ---------- Comentarios y estado "revisado" (persistidos en este navegador) ----------
+function claveItem(fecha, scope, id){ return `pos_item:${fecha}:${scope}:${id}`; }
+function estaResuelto(clave){ return localStorage.getItem('resuelto:'+clave) === '1'; }
+function toggleResuelto(clave){
+  if(estaResuelto(clave)) localStorage.removeItem('resuelto:'+clave);
+  else localStorage.setItem('resuelto:'+clave, '1');
+  if(ultimoResultadoDia) renderResults(ultimoResultadoDia.r);
+}
+function obtenerComentario(clave){ return localStorage.getItem('cmt:'+clave) || ''; }
+function pedirComentario(clave){
+  const actual = obtenerComentario(clave);
+  const nuevo = prompt('Comentario sobre este ítem (para dejar registro de por qué está así):', actual);
+  if(nuevo === null) return; // canceló
+  if(nuevo.trim()) localStorage.setItem('cmt:'+clave, nuevo.trim());
+  else localStorage.removeItem('cmt:'+clave);
+  if(ultimoResultadoDia) renderResults(ultimoResultadoDia.r);
+}
+function iconosAccion(clave, resuelto){
+  const tieneComentario = !!obtenerComentario(clave);
+  return `
+    <button type="button" class="icon-btn ${tieneComentario?'has-comment':''}" title="${tieneComentario?'Ver/editar comentario':'Agregar comentario'}" onclick="pedirComentario('${clave}')">💬</button>
+    <button type="button" class="icon-btn ${resuelto?'is-resolved':''}" title="${resuelto?'Marcar como pendiente de nuevo':'Marcar como revisado / resuelto'}" onclick="toggleResuelto('${clave}')">${resuelto?'↺':'✓'}</button>
+  `;
+}
+
+function rowsHtml(rows, label, scope, fecha){
   if(rows.length===0) return `<p class="empty-note">Sin transacciones de ${label} para esta fecha.</p>`;
   const origenLabel = label === 'Shopify' ? 'Monto Shopify' : 'Monto TUU';
   let html = `<table><thead><tr><th>Hora</th><th class="amount">${origenLabel}</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
   for(const r of rows){
-    html += `<tr class="${r.matched?'':'unmatched'}">
-      <td>${r.pos.time||'—'}</td>
-      <td class="amount">${fmt(r.pos.amount)}</td>
-      <td>${r.matched ? '#'+r.bsale.numero : '—'}</td>
-      <td>${r.matched ? (r.bsale.cliente||'—') : '—'}</td>
-      <td class="amount">${r.matched ? fmt(r.bsale.monto) : '—'}</td>
-      <td>${r.matched ? '<span class="badge ok">OK</span>' : '<span class="badge no">sin doc</span>'}</td>
+    if(r.matched){
+      html += `<tr>
+        <td>${r.pos.time||'—'}</td>
+        <td class="amount">${fmt(r.pos.amount)}</td>
+        <td>#${r.bsale.numero}</td>
+        <td>${r.bsale.cliente||'—'}</td>
+        <td class="amount">${fmt(r.bsale.monto)}</td>
+        <td><span class="badge ok">OK</span></td>
+      </tr>`;
+    } else {
+      const clave = claveItem(fecha, scope, `${r.pos.time}_${r.pos.amount}`);
+      const resuelto = estaResuelto(clave);
+      html += `<tr class="${resuelto?'':'unmatched'}">
+        <td>${r.pos.time||'—'}</td>
+        <td class="amount">${fmt(r.pos.amount)}</td>
+        <td>—</td>
+        <td>—</td>
+        <td class="amount">—</td>
+        <td>
+          <span class="badge ${resuelto?'ok':'no'}">${resuelto?'✓ revisado':'sin doc'}</span>
+          <span class="icon-group">${iconosAccion(clave, resuelto)}</span>
+        </td>
+      </tr>`;
+    }
+  }
+  return html + `</tbody></table>`;
+}
+
+function extraHtml(unmatchedBsale, fecha){
+  if(unmatchedBsale.length===0) return '';
+  let html = `<table><thead><tr><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto</th><th>Estado</th></tr></thead><tbody>`;
+  for(const b of unmatchedBsale){
+    const clave = claveItem(fecha, 'bsaleExtra', b.numero);
+    const resuelto = estaResuelto(clave);
+    html += `<tr>
+      <td>#${b.numero}</td><td>${b.cliente||'—'}</td><td class="amount">${fmt(b.monto)}</td>
+      <td>
+        <span class="badge ${resuelto?'ok':'no'}">${resuelto?'✓ revisado':'sin venta POS'}</span>
+        <span class="icon-group">${iconosAccion(clave, resuelto)}</span>
+      </td>
     </tr>`;
   }
   return html + `</tbody></table>`;
 }
 
-function extraHtml(unmatchedBsale){
-  if(unmatchedBsale.length===0) return '';
-  let html = `<table><thead><tr><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto</th></tr></thead><tbody>`;
-  for(const b of unmatchedBsale){
-    html += `<tr><td>#${b.numero}</td><td>${b.cliente||'—'}</td><td class="amount">${fmt(b.monto)}</td></tr>`;
-  }
-  return html + `</tbody></table>`;
-}
-
-function renderResults({gDeb, gCred, totPosDeb, totPosCred, totBsaleDeb, totBsaleCred, diffDeb, diffCred, cuadra, bsaleExtraCount, bsaleExtraTotal}){
+function renderResults(rCrudo){
+  const fecha = $('fecha').value;
+  const { gDeb, gCred, totPosDeb, totPosCred, totBsaleDeb, totBsaleCred } = rCrudo;
   const el = $('results');
   el.style.display = 'block';
+
+  // ---- Recalculamos totales/estado considerando los ítems marcados como "revisado" ----
+  const montoResuelto = (rows, scope) => rows
+    .filter(r => !r.matched)
+    .filter(r => estaResuelto(claveItem(fecha, scope, `${r.pos.time}_${r.pos.amount}`)))
+    .reduce((a,r) => a + r.pos.amount, 0);
+  const todoResuelto = (rows, scope) => rows
+    .filter(r => !r.matched)
+    .every(r => estaResuelto(claveItem(fecha, scope, `${r.pos.time}_${r.pos.amount}`)));
+
+  const totBsaleDebAdj = totBsaleDeb + montoResuelto(gDeb.rows, 'debito');
+  const totBsaleCredAdj = totBsaleCred + montoResuelto(gCred.rows, 'credito');
+  const diffDebAdj = totPosDeb - totBsaleDebAdj;
+  const diffCredAdj = totPosCred - totBsaleCredAdj;
+  const cuadraAdj = todoResuelto(gDeb.rows, 'debito') && todoResuelto(gCred.rows, 'credito');
+
+  const bsaleExtraPendientes = [...gDeb.unmatchedBsale, ...gCred.unmatchedBsale]
+    .filter(b => !estaResuelto(claveItem(fecha, 'bsaleExtra', b.numero)));
+  const bsaleExtraPendienteTotal = bsaleExtraPendientes.reduce((a,b)=>a+b.monto,0);
+
   const totalTarjetaDia = totPosDeb + totPosCred;
-  const fechaDeposito = addDaysStr($('fecha').value, 1);
+  const fechaDeposito = addDaysStr(fecha, 1);
   el.innerHTML = `
     <div class="receipt">
       <div class="totals">
         <div class="tot"><div class="lbl">TUU débito</div><div class="val">${fmt(totPosDeb)}</div></div>
-        <div class="tot"><div class="lbl">Bsale débito (match con TUU)</div><div class="val">${fmt(totBsaleDeb)}</div></div>
+        <div class="tot"><div class="lbl">Bsale débito (match con TUU)</div><div class="val">${fmt(totBsaleDebAdj)}</div></div>
         <div class="tot"><div class="lbl">TUU crédito</div><div class="val">${fmt(totPosCred)}</div></div>
-        <div class="tot"><div class="lbl">Bsale crédito (match con TUU)</div><div class="val">${fmt(totBsaleCred)}</div></div>
+        <div class="tot"><div class="lbl">Bsale crédito (match con TUU)</div><div class="val">${fmt(totBsaleCredAdj)}</div></div>
       </div>
-      <span class="stamp ${cuadra?'ok':'bad'}">${cuadra ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
-      <div class="diff-line">${cuadra ? 'Todas las ventas del POS tienen su documento en Bsale.' : `Diferencia débito: <b>${fmt(diffDeb)}</b> · Diferencia crédito: <b>${fmt(diffCred)}</b> — hay ventas del POS sin documento.`}</div>
+      <span class="stamp ${cuadraAdj?'ok':'bad'}">${cuadraAdj ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
+      <div class="diff-line">${cuadraAdj ? 'Todas las ventas del TUU tienen su documento en Bsale (o quedaron marcadas como revisadas).' : `Diferencia débito: <b>${fmt(diffDebAdj)}</b> · Diferencia crédito: <b>${fmt(diffCredAdj)}</b> — hay ventas del TUU sin documento ni revisión.`}</div>
     </div>
+
+    ${bsaleExtraPendientes.length > 0 || (gDeb.unmatchedBsale.length+gCred.unmatchedBsale.length) > 0 ? `
+    <div class="alert-box">
+      <div class="alert-title">⚠️ Revisar: ${bsaleExtraPendientes.length} documento(s) Bsale con tarjeta sin venta POS pendientes (${fmt(bsaleExtraPendienteTotal)})</div>
+      <p class="alert-text">No cuentan como descuadre de caja, pero conviene confirmar el origen de cada uno. Usa 💬 para dejar un comentario y ✓ para marcarlo como revisado una vez confirmado.</p>
+      ${extraHtml([...gDeb.unmatchedBsale, ...gCred.unmatchedBsale], fecha)}
+    </div>
+    ` : ''}
 
     <div class="deposit-note">
       💳 TUU deposita al día siguiente hábil → <b>${fmt(totalTarjetaDia)}</b> de ventas con tarjeta de hoy deberían acreditarse en tu cuenta bancaria el <b>${fechaDeposito}</b>.
     </div>
 
     <div class="section-title"><span class="dot deb"></span>Tarjeta débito</div>
-    ${rowsHtml(gDeb.rows, 'débito')}
+    ${rowsHtml(gDeb.rows, 'débito', 'debito', fecha)}
 
     <div class="section-title"><span class="dot cred"></span>Tarjeta crédito</div>
-    ${rowsHtml(gCred.rows, 'crédito')}
-
-    ${bsaleExtraCount > 0 ? `
-    <div class="section-title" style="color:var(--muted);">ⓘ Documentos Bsale con tarjeta sin venta POS ese día (${bsaleExtraCount}, ${fmt(bsaleExtraTotal)})</div>
-    <p class="empty-note">No cuentan como descuadre — probablemente son de otro canal de venta (web, transferencia registrada como tarjeta, factura a 30 días, etc). Vale la pena revisarlos igual.</p>
-    ${extraHtml([...gDeb.unmatchedBsale, ...gCred.unmatchedBsale])}
-    ` : ''}
+    ${rowsHtml(gCred.rows, 'crédito', 'credito', fecha)}
   `;
 }
 
@@ -629,28 +718,27 @@ function limpiarManual(){
 }
 
 // ---------- Historial ----------
-async function guardar(){
+function guardar(){
   if(!lastResult){ alert('Primero presiona "Traer y cuadrar" o "Cuadrar con datos pegados".'); return; }
   try{
-    await window.storage.set('reconciliacion:' + lastResult.fecha, JSON.stringify(lastResult), false);
-    await cargarHistorial();
+    localStorage.setItem('reconciliacion:' + lastResult.fecha, JSON.stringify(lastResult));
+    cargarHistorial();
   }catch(e){ alert('No se pudo guardar el historial.'); }
 }
-async function cargarHistorial(){
+function cargarHistorial(){
   const listEl = $('historyList');
   try{
-    const res = await window.storage.list('reconciliacion:', false);
-    const keys = (res && res.keys) ? res.keys : [];
+    const keys = Object.keys(localStorage).filter(k => k.startsWith('reconciliacion:'));
     if(keys.length===0){ listEl.className='hist-empty'; listEl.textContent='Sin registros guardados todavía.'; return; }
     const items = [];
     for(const k of keys){
-      try{ const r = await window.storage.get(k, false); if(r && r.value) items.push(JSON.parse(r.value)); }catch(e){}
+      try{ const v = localStorage.getItem(k); if(v) items.push(JSON.parse(v)); }catch(e){}
     }
     items.sort((a,b)=> b.fecha.localeCompare(a.fecha));
     listEl.className='';
     listEl.innerHTML = items.map(it => `
-      <div class="hist-row" onclick="alert('Fecha ${it.fecha}\\nPOS débito: ${fmt(it.totPosDeb)} / Bsale débito: ${fmt(it.totBsaleDeb)}\\nPOS crédito: ${fmt(it.totPosCred)} / Bsale crédito: ${fmt(it.totBsaleCred)}\\nDiferencia total: ${fmt(it.diffDeb+it.diffCred)}')">
-        <div class="hd"><span>${it.fecha}</span><span style="color:var(--muted);font-size:11px;">POS ${it.countPos} mov · Bsale ${it.countBsale} doc</span></div>
+      <div class="hist-row" onclick="alert('Fecha ${it.fecha}\\nTUU débito: ${fmt(it.totPosDeb)} / Bsale débito: ${fmt(it.totBsaleDeb)}\\nTUU crédito: ${fmt(it.totPosCred)} / Bsale crédito: ${fmt(it.totBsaleCred)}\\nDiferencia total: ${fmt(it.diffDeb+it.diffCred)}')">
+        <div class="hd"><span>${it.fecha}</span><span style="color:var(--muted);font-size:11px;">TUU ${it.countPos} mov · Bsale ${it.countBsale} doc</span></div>
         <span class="badge ${it.cuadra?'ok':'no'}">${it.cuadra ? '✓ CUADRA' : '⚠ DIFERENCIA'}</span>
       </div>`).join('');
   }catch(e){ console.error('Error cargando historial', e); }
