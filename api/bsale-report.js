@@ -80,9 +80,13 @@ function officeInfo(doc) {
 }
 
 export default async function handler(req, res) {
-  const { date, debug, officeId } = req.query; // YYYY-MM-DD, officeId opcional para filtrar sucursal
+  const { date, debug, officeId, startDate: qStart, endDate: qEnd } = req.query;
+  const startDate = qStart || date;
+  const endDate = qEnd || date;
 
-  if (!date) return res.status(400).json({ error: 'Falta parámetro date (YYYY-MM-DD)' });
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'Falta parámetro date, o startDate y endDate (YYYY-MM-DD)' });
+  }
 
   const token = process.env.BSALE_ACCESS_TOKEN;
   if (!token) return res.status(500).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
@@ -90,8 +94,8 @@ export default async function handler(req, res) {
   const effectiveOfficeId = officeId || process.env.BSALE_OFFICE_ID || null;
 
   try {
-    const dayStart = Math.floor(new Date(`${date}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
-    const dayEnd = Math.floor(new Date(`${date}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
+    const rangeStart = Math.floor(new Date(`${startDate}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
+    const rangeEnd = Math.floor(new Date(`${endDate}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
 
     // Traemos los documentos del rango (algo más ancho de lo necesario a propósito),
     // con sus pagos y cliente expandidos en la misma llamada
@@ -100,7 +104,7 @@ export default async function handler(req, res) {
     let allDocs = [];
     while (true) {
       const data = await bsaleGet(
-        `/documents.json?emissiondaterange=[${dayStart},${dayEnd}]&expand=payments,client&limit=${limit}&offset=${offset}`,
+        `/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=payments,client&limit=${limit}&offset=${offset}`,
         token
       );
       const items = data.items || [];
@@ -109,13 +113,15 @@ export default async function handler(req, res) {
       offset += limit;
     }
 
-    // Excluimos documentos anulados/inactivos, deduplicamos por id, y ahora sí
-    // filtramos por fecha exacta en UTC puro (que es como Bsale realmente guarda
+    // Excluimos documentos anulados/inactivos, deduplicamos por id, y filtramos
+    // por fecha exacta en UTC puro (que es como Bsale realmente guarda
     // emissionDate) para descartar documentos de días vecinos que se cuelan por
-    // el rango ampliado.
+    // el rango ampliado. Para rangos multi-día, exigimos que la fecha caiga
+    // dentro de [startDate, endDate] (comparación de string ISO funciona bien).
     const seenIds = new Set();
     allDocs = allDocs.filter(d => {
-      if (toUtcDateStr(d.emissionDate) !== date) return false;
+      const fecha = toUtcDateStr(d.emissionDate);
+      if (!fecha || fecha < startDate || fecha > endDate) return false;
       if (d.state !== 0) return false; // 0 = activo, 1 = inactivo/anulado
       if (d.cancellationStatus) return false;
       if (seenIds.has(d.id)) return false;
@@ -132,6 +138,7 @@ export default async function handler(req, res) {
           cliente: clientName(d.client),
           tipo: classifyPayment(p.name),
           monto: p.amount,
+          fecha: toUtcDateStr(d.emissionDate),
           officeId: officeInfo(d).id,
           documentTypeId: d.document_type?.id ?? null,
           salesId: d.salesId ?? null
@@ -149,7 +156,7 @@ export default async function handler(req, res) {
       }
 
       return res.status(200).json({
-        date,
+        startDate, endDate,
         docsRevisados: allDocs.length,
         totalConTarjeta: cardDocs.length,
         porDocumentType
@@ -164,15 +171,16 @@ export default async function handler(req, res) {
       const payments = extractPaymentsArray(doc);
       const numero = doc.number ? String(doc.number) : '';
       const cliente = clientName(doc.client);
+      const fecha = toUtcDateStr(doc.emissionDate);
 
       for (const p of payments) {
         const kind = classifyPayment(p.name);
-        if (kind === 'credito') credito.push({ numero, cliente, monto: p.amount });
-        else if (kind === 'debito') debito.push({ numero, cliente, monto: p.amount });
+        if (kind === 'credito') credito.push({ numero, cliente, monto: p.amount, fecha });
+        else if (kind === 'debito') debito.push({ numero, cliente, monto: p.amount, fecha });
       }
     }
 
-    return res.status(200).json({ date, credito, debito, docsRevisados: allDocs.length });
+    return res.status(200).json({ startDate, endDate, credito, debito, docsRevisados: allDocs.length });
   } catch (err) {
     return res.status(500).json({ error: 'Error consultando Bsale', detail: String(err) });
   }
