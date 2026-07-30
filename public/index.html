@@ -21,6 +21,11 @@
   .sub{color:var(--muted);font-size:12.5px;}
   .date-field{display:flex;align-items:center;gap:8px;}
   .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
+  .page-nav{display:flex;gap:14px;margin-top:8px;}
+  .page-nav a{font-size:11.5px;color:var(--muted);text-decoration:none;padding-bottom:3px;border-bottom:2px solid transparent;}
+  .page-nav a.active{color:var(--amber);border-bottom-color:var(--amber);}
+  .page-nav a:hover{color:var(--text);}
+  .btn-ghost.active{background:rgba(255,176,32,0.12);color:var(--amber);border-color:var(--amber-dim);}
   input[type=date]{background:var(--surface);border:1px solid var(--line);color:var(--text);font-family:'IBM Plex Mono',monospace;padding:7px 10px;border-radius:4px;font-size:13px;}
 
   .auto-panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px 18px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
@@ -77,6 +82,8 @@
   .badge.no{background:rgba(248,113,113,0.15);color:var(--red);}
   .amount{font-variant-numeric:tabular-nums;text-align:right;}
   .empty-note{color:var(--muted);font-size:12px;padding:10px 0;}
+  .deposit-note{background:rgba(125,211,252,0.08);border:1px solid rgba(125,211,252,0.25);border-radius:6px;padding:10px 14px;font-size:12px;margin-bottom:18px;color:var(--text);}
+  .deposit-note b{color:#7dd3fc;}
   tr.dia-row{cursor:pointer;}
   tr.dia-row:hover td{background:rgba(255,176,32,0.06);}
 
@@ -95,8 +102,13 @@
     <div>
       <h1>Cuadratura <span>POS</span> — IndexStore</h1>
       <div class="sub">Concilia las ventas de TUU (POS) con los documentos emitidos en Bsale</div>
+      <nav class="page-nav">
+        <a href="index.html" class="active">Cuadratura POS</a>
+        <a href="flujo-caja.html">Flujo de Caja</a>
+      </nav>
     </div>
     <div class="date-field">
+      <button class="btn-ghost" style="padding:7px 14px;" onclick="irAHoy()">Hoy</button>
       <label for="fecha">Fecha</label>
       <input type="date" id="fecha">
     </div>
@@ -115,8 +127,8 @@
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <div class="date-field"><label for="fechaDesde">Desde</label><input type="date" id="fechaDesde"></div>
       <div class="date-field"><label for="fechaHasta">Hasta</label><input type="date" id="fechaHasta"></div>
-      <button class="btn-ghost" onclick="setRangoRapido('semana')">Última semana</button>
-      <button class="btn-ghost" onclick="setRangoRapido('mes')">Este mes</button>
+      <button class="btn-ghost" id="btnSemana" onclick="setRangoRapido('semana')">Última semana</button>
+      <button class="btn-ghost" id="btnMes" onclick="setRangoRapido('mes')">Este mes</button>
       <button class="btn-primary" onclick="fetchConsolidado()">Generar consolidado</button>
     </div>
     <span id="consolidadoStatus" style="font-size:11.5px;color:var(--muted);"></span>
@@ -364,8 +376,14 @@ function diffDays(a, b){
   return Math.round((t2-t1)/86400000);
 }
 
+function irAHoy(){
+  $('fecha').value = hoyStr;
+  $('resultsConsolidado').innerHTML = '';
+  fetchAutomatico();
+}
+
 function setRangoRapido(tipo){
-  const hoy = $('fecha').value || new Date().toLocaleDateString('en-CA');
+  const hoy = $('fecha').value || hoyStr;
   if(tipo === 'semana'){
     $('fechaHasta').value = hoy;
     $('fechaDesde').value = addDaysStr(hoy, -6);
@@ -377,6 +395,8 @@ function setRangoRapido(tipo){
     $('fechaDesde').value = desde;
     $('fechaHasta').value = hasta;
   }
+  $('btnSemana').classList.toggle('active', tipo==='semana');
+  $('btnMes').classList.toggle('active', tipo==='mes');
 }
 
 async function fetchConsolidado(){
@@ -521,6 +541,8 @@ function extraHtml(unmatchedBsale){
 function renderResults({gDeb, gCred, totPosDeb, totPosCred, totBsaleDeb, totBsaleCred, diffDeb, diffCred, cuadra, bsaleExtraCount, bsaleExtraTotal}){
   const el = $('results');
   el.style.display = 'block';
+  const totalTarjetaDia = totPosDeb + totPosCred;
+  const fechaDeposito = addDaysStr($('fecha').value, 1);
   el.innerHTML = `
     <div class="receipt">
       <div class="totals">
@@ -531,6 +553,10 @@ function renderResults({gDeb, gCred, totPosDeb, totPosCred, totBsaleDeb, totBsal
       </div>
       <span class="stamp ${cuadra?'ok':'bad'}">${cuadra ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
       <div class="diff-line">${cuadra ? 'Todas las ventas del POS tienen su documento en Bsale.' : `Diferencia débito: <b>${fmt(diffDeb)}</b> · Diferencia crédito: <b>${fmt(diffCred)}</b> — hay ventas del POS sin documento.`}</div>
+    </div>
+
+    <div class="deposit-note">
+      💳 TUU deposita al día siguiente hábil → <b>${fmt(totalTarjetaDia)}</b> de ventas con tarjeta de hoy deberían acreditarse en tu cuenta bancaria el <b>${fechaDeposito}</b>.
     </div>
 
     <div class="section-title"><span class="dot deb"></span>Tarjeta débito</div>
