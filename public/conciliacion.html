@@ -35,13 +35,6 @@
   input[type=date]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
   input[type=date]:focus{outline:none;border-color:var(--primary);}
 
-  .auto-panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;box-shadow:var(--shadow);}
-  .auto-panel .lbl{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;color:var(--text);}
-  .auto-panel .lbl .dot{width:9px;height:9px;border-radius:50%;background:var(--primary);}
-  #autoStatus{font-size:12px;color:var(--muted);font-weight:500;}
-  #autoStatus.err{color:var(--red);}
-  #autoStatus.ok{color:var(--green);}
-
   .toggle-manual{font-size:12.5px;color:var(--primary);text-decoration:underline;cursor:pointer;margin:2px 0 20px;display:inline-block;font-weight:600;}
   #manualSection{display:none;}
 
@@ -65,6 +58,10 @@
   .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
   .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
   .btn-compact{font-size:12px;padding:7px 13px;}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+  #autoStatus{font-size:12px;color:var(--muted);font-weight:500;}
+  #autoStatus.err{color:var(--red);}
+  #autoStatus.ok{color:var(--green);}
 
   #results{display:none;}
   .receipt{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin-bottom:20px;box-shadow:var(--shadow);}
@@ -138,34 +135,21 @@
         <a href="conciliacion.html" class="active">Conciliación</a>
       </nav>
     </div>
-    <div class="date-field">
-      <button class="btn-ghost" style="padding:9px 16px;" onclick="irAHoy()">Hoy</button>
-      <label for="fecha">Fecha</label>
-      <input type="date" id="fecha">
-      <button class="btn-primary" style="padding:9px 14px;" title="Buscar esta fecha" onclick="fetchAutomatico()">🔍</button>
-    </div>
   </header>
 
-  <div class="auto-panel">
-    <div class="lbl"><span class="dot"></span>Traer los datos del día directo desde Bsale y TUU</div>
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <span id="autoStatus"></span>
-      <button class="btn-secondary" onclick="toggleConsolidado()">Consolidado por rango</button>
-      <button class="btn-primary" id="autoBtn" onclick="fetchAutomatico()">Traer y cuadrar</button>
-    </div>
-  </div>
-
-  <div id="consolidadoPanel" class="auto-panel" style="display:none;flex-direction:column;align-items:stretch;gap:12px;">
+  <div class="toolbar">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <div class="date-field"><label for="fechaDesde">Desde</label><input type="date" id="fechaDesde"></div>
       <div class="date-field"><label for="fechaHasta">Hasta</label><input type="date" id="fechaHasta"></div>
-      <button class="btn-ghost btn-compact" id="btnDia" onclick="setRangoRapido('dia')">Día</button>
+      <button class="btn-primary" style="padding:9px 14px;" title="Buscar este rango" onclick="buscarRango()">🔍</button>
+      <button class="btn-ghost btn-compact" id="btnDia" title="Ver hoy en tiempo real" onclick="setRangoRapido('dia')">Día (Hoy)</button>
       <button class="btn-ghost btn-compact" id="btnSemana" onclick="setRangoRapido('semana')">Última semana</button>
       <button class="btn-ghost btn-compact" id="btnMes" onclick="setRangoRapido('mes')">Este mes</button>
-      <button class="btn-primary" onclick="fetchConsolidado()">Generar consolidado</button>
+      <button class="btn-primary" onclick="buscarRango()">Actualizar</button>
     </div>
-    <span id="consolidadoStatus" style="font-size:11.5px;color:var(--muted);"></span>
+    <span id="autoStatus"></span>
   </div>
+  <input type="hidden" id="fecha">
 
   <span class="toggle-manual" onclick="toggleManual()">¿Preferís pegar los datos a mano? Mostrar/ocultar entrada manual</span>
 
@@ -231,8 +215,11 @@ const $ = id => document.getElementById(id);
 const hoyStr = new Date().toLocaleDateString('en-CA');
 $('fecha').value = hoyStr;
 $('fecha').max = hoyStr;
+$('fechaDesde').value = hoyStr;
 $('fechaDesde').max = hoyStr;
+$('fechaHasta').value = hoyStr;
 $('fechaHasta').max = hoyStr;
+$('btnDia').classList.add('active');
 
 function toggleManual(){
   const s = $('manualSection');
@@ -354,9 +341,7 @@ let ultimoShopifyData = null; // {gShopify, shopifyPos, bsaleShopify} o null si 
 
 async function fetchAutomatico(){
   const fecha = $('fecha').value;
-  const btn = $('autoBtn');
   const status = $('autoStatus');
-  btn.disabled = true;
   status.className = '';
   status.textContent = 'Consultando TUU, Bsale y Shopify...';
 
@@ -395,8 +380,6 @@ async function fetchAutomatico(){
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
-  }finally{
-    btn.disabled = false;
   }
 }
 
@@ -417,12 +400,23 @@ function renderShopify(gShopify, shopifyPos, bsaleShopify){
 }
 
 // ---------- Consolidado por rango (máximo 30 días) ----------
-function toggleConsolidado(){
-  const p = $('consolidadoPanel');
-  const showing = p.style.display === 'flex';
-  p.style.display = showing ? 'none' : 'flex';
-  if(!showing && !$('fechaDesde').value){
-    setRangoRapido('semana');
+// Decide si mostrar el detalle de un solo día (Desde = Hasta) o el consolidado
+// por rango (Desde < Hasta) — mismo patrón que la barra de Flujo de Caja.
+function buscarRango(){
+  const desde = $('fechaDesde').value;
+  const hasta = $('fechaHasta').value;
+  const status = $('autoStatus');
+
+  if(!desde || !hasta){ status.className='err'; status.textContent='Elige ambas fechas.'; return; }
+  if(desde > hasta){ status.className='err'; status.textContent='"Desde" no puede ser posterior a "Hasta".'; return; }
+
+  if(desde === hasta){
+    $('fecha').value = hasta; // sincroniza el campo interno que usa fetchAutomatico y sus derivados
+    $('resultsConsolidado').innerHTML = '';
+    fetchAutomatico();
+  } else {
+    $('results').style.display = 'none';
+    fetchConsolidado();
   }
 }
 
@@ -449,16 +443,14 @@ function diffDays(a, b){
 }
 
 function irAHoy(){
-  $('fecha').value = hoyStr;
-  $('resultsConsolidado').innerHTML = '';
-  fetchAutomatico();
+  setRangoRapido('dia');
 }
 
 function setRangoRapido(tipo){
-  const hoy = $('fecha').value || hoyStr;
+  const hoy = $('fechaHasta').value || hoyStr;
   if(tipo === 'dia'){
-    $('fechaDesde').value = hoy;
-    $('fechaHasta').value = hoy;
+    $('fechaDesde').value = hoyStr;
+    $('fechaHasta').value = hoyStr;
   } else if(tipo === 'semana'){
     $('fechaHasta').value = hoy;
     $('fechaDesde').value = addDaysStr(hoy, -6);
@@ -467,38 +459,39 @@ function setRangoRapido(tipo){
     let hasta = lastDayOfMonthStr(hoy);
     // tope de 30 días: si el mes tiene 31 días, recortamos el final
     if(diffDays(desde, hasta) > 28) hasta = addDaysStr(desde, 28); // máximo 29 días (0..28)
+    if(hasta > hoyStr) hasta = hoyStr;
     $('fechaDesde').value = desde;
     $('fechaHasta').value = hasta;
   }
   $('btnDia').classList.toggle('active', tipo==='dia');
   $('btnSemana').classList.toggle('active', tipo==='semana');
   $('btnMes').classList.toggle('active', tipo==='mes');
-  if(tipo === 'dia') fetchConsolidado();
+  buscarRango();
 }
 
 async function fetchConsolidado(){
   const startDate = $('fechaDesde').value;
   const endDate = $('fechaHasta').value;
-  const cstatus = $('consolidadoStatus');
+  const cstatus = $('autoStatus');
 
   if(!startDate || !endDate){
-    cstatus.className = ''; cstatus.style.color = 'var(--red)';
+    cstatus.className = 'err';
     cstatus.textContent = 'Elige ambas fechas.';
     return;
   }
   if(startDate > endDate){
-    cstatus.style.color = 'var(--red)';
+    cstatus.className = 'err';
     cstatus.textContent = '"Desde" no puede ser posterior a "Hasta".';
     return;
   }
   const dias = diffDays(startDate, endDate) + 1;
   if(dias > 30){
-    cstatus.style.color = 'var(--red)';
+    cstatus.className = 'err';
     cstatus.textContent = `El rango elegido es de ${dias} días — el máximo permitido es 30.`;
     return;
   }
 
-  cstatus.style.color = 'var(--muted)';
+  cstatus.className = '';
   cstatus.textContent = `Consultando ${startDate} a ${endDate} (${dias} días)...`;
 
   try{
@@ -525,10 +518,10 @@ async function fetchConsolidado(){
 
     renderConsolidado({ startDate, endDate, filas });
 
-    cstatus.style.color = 'var(--green)';
+    cstatus.className = 'ok';
     cstatus.textContent = `Listo — ${filas.length} días con movimiento entre ${startDate} y ${endDate}`;
   }catch(err){
-    cstatus.style.color = 'var(--red)';
+    cstatus.className = 'err';
     cstatus.textContent = 'Error: ' + err.message;
   }
 }
@@ -587,7 +580,12 @@ function renderConsolidado({ startDate, endDate, filas }){
 
 function verDetalleDia(fecha){
   $('fecha').value = fecha;
-  $('consolidadoPanel').style.display = 'none';
+  $('fechaDesde').value = fecha;
+  $('fechaHasta').value = fecha;
+  $('btnDia').classList.remove('active');
+  $('btnSemana').classList.remove('active');
+  $('btnMes').classList.remove('active');
+  $('resultsConsolidado').innerHTML = '';
   fetchAutomatico();
 }
 // ---------- Comentarios y estado "revisado" (persistidos en este navegador) ----------
