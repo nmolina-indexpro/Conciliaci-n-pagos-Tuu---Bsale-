@@ -56,7 +56,11 @@
   .card.c-tuu::before{background:var(--amber);}
   .card.c-cash::before{background:var(--purple);}
   .card h3{margin:0 0 4px 0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:var(--text);display:flex;align-items:center;gap:8px;}
-  .card .big{font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;margin:10px 0 6px;color:var(--text);}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;margin:10px 0 2px;color:var(--text);}
+  .card .cmp{font-size:12px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:4px;font-family:'Plus Jakarta Sans',sans-serif;}
+  .card .cmp.up{color:var(--green);}
+  .card .cmp.down{color:var(--red);}
+  .card .cmp.flat{color:var(--muted);}
   .card .note{font-size:12.5px;color:var(--muted);line-height:1.55;}
 
   .section-title{font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:700;margin:30px 0 12px;display:flex;align-items:center;gap:8px;color:var(--text);}
@@ -102,21 +106,25 @@
     <div class="card c-transfer">
       <h3>🏦 Transferencias recibidas <span id="transferLabel">el día</span></h3>
       <div class="big" id="transferTotal">$0</div>
+      <div class="cmp" id="transferCmp"></div>
       <div class="note" id="transferNote">Ya están en el banco — no requieren gestión adicional.</div>
     </div>
     <div class="card c-tuu">
       <h3>💳 Depósito TUU proyectado</h3>
       <div class="big" id="tuuTotal">$0</div>
+      <div class="cmp" id="tuuCmp"></div>
       <div class="note" id="tuuNote">Ventas con tarjeta, se acreditan el día hábil siguiente.</div>
     </div>
     <div class="card c-cash">
       <h3>💵 Efectivo en caja <span id="cashLabel">el día</span></h3>
       <div class="big" id="cashTotal">$0</div>
+      <div class="cmp" id="cashCmp"></div>
       <div class="note" id="cashNote">No cae solo al banco — hay que depositarlo manualmente.</div>
     </div>
     <div class="card" style="border-color:var(--line);">
       <h3 style="color:var(--text);">📥 Total esperado en banco</h3>
       <div class="big" id="todayBankTotal">$0</div>
+      <div class="cmp" id="todayBankCmp"></div>
       <div class="note" id="todayBankNote">Transferencias + depósito TUU de ventas del día anterior.</div>
     </div>
   </div>
@@ -158,6 +166,69 @@ function diffDays(a, b){
   const [y1,m1,d1] = a.split('-').map(Number);
   const [y2,m2,d2] = b.split('-').map(Number);
   return Math.round((Date.UTC(y2,m2-1,d2) - Date.UTC(y1,m1-1,d1))/86400000);
+}
+function shiftMonthStr(dateStr, deltaMeses){
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const primerDiaMesDestino = new Date(Date.UTC(y, m-1+deltaMeses, 1));
+  const ultimoDiaMesDestino = new Date(Date.UTC(primerDiaMesDestino.getUTCFullYear(), primerDiaMesDestino.getUTCMonth()+1, 0)).getUTCDate();
+  primerDiaMesDestino.setUTCDate(Math.min(d, ultimoDiaMesDestino));
+  return primerDiaMesDestino.toISOString().slice(0,10);
+}
+
+// Trae TUU + Bsale para un rango y devuelve los 4 totales agregados que usan las tarjetas resumen
+async function agregadosDelPeriodo(fechaDesdeR, fechaR){
+  const startDate = addDaysStr(fechaDesdeR, -1);
+  const endDate = addDaysStr(fechaR, 1);
+  const [tuuRes, bsaleRes] = await Promise.all([
+    fetch(`/api/tuu-report?startDate=${startDate}&endDate=${fechaR}`).then(r=>r.json()),
+    fetch(`/api/bsale-report?startDate=${startDate}&endDate=${fechaR}`).then(r=>r.json())
+  ]);
+  if(tuuRes.error) throw new Error('TUU: ' + (tuuRes.detail || tuuRes.error));
+  if(bsaleRes.error) throw new Error('Bsale: ' + (bsaleRes.detail || bsaleRes.error));
+
+  const porDia = {};
+  const bucket = f => (porDia[f] = porDia[f] || { tarjeta: 0, transferencia: 0, efectivo: 0 });
+  for(const t of (tuuRes.transacciones || [])){
+    if(t.type === 'debito' || t.type === 'credito') bucket(t.date).tarjeta += t.amount;
+  }
+  for(const d of (bsaleRes.transferencia || [])) bucket(d.fecha).transferencia += d.monto;
+  for(const d of (bsaleRes.efectivo || [])) bucket(d.fecha).efectivo += d.monto;
+
+  const diasCalendario = [];
+  for(let d = fechaDesdeR; d <= endDate; d = addDaysStr(d, 1)) diasCalendario.push(d);
+  const filasCal = diasCalendario.map(fAcreditacion => {
+    const fVentaTarjeta = addDaysStr(fAcreditacion, -1);
+    const tarjeta = (porDia[fVentaTarjeta] || {tarjeta:0}).tarjeta;
+    const transferencia = (porDia[fAcreditacion] || {transferencia:0}).transferencia;
+    return { fecha: fAcreditacion, tarjeta, transferencia, total: tarjeta + transferencia };
+  });
+
+  const rangoDias = [];
+  for(let d = fechaDesdeR; d <= fechaR; d = addDaysStr(d, 1)) rangoDias.push(d);
+  const sumaRango = campo => rangoDias.reduce((a,d)=>a+((porDia[d]||{})[campo]||0),0);
+
+  return {
+    porDia, filasCal,
+    transferencia: sumaRango('transferencia'),
+    tarjeta: sumaRango('tarjeta'),
+    efectivo: sumaRango('efectivo'),
+    banco: filasCal.filter(f => f.fecha <= fechaR).reduce((a,f)=>a+f.total, 0)
+  };
+}
+
+function pintarComparacion(elId, actual, anterior){
+  const el = $(elId);
+  if(!anterior && anterior !== 0){ el.textContent = ''; return; }
+  if(anterior === 0){
+    el.className = actual > 0 ? 'cmp up' : 'cmp flat';
+    el.innerHTML = actual > 0 ? '▲ nuevo vs. mes anterior ($0)' : 'Igual que el mes anterior';
+    return;
+  }
+  const delta = actual - anterior;
+  const pct = Math.round((delta / anterior) * 100);
+  const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '●';
+  el.className = delta > 0 ? 'cmp up' : delta < 0 ? 'cmp down' : 'cmp flat';
+  el.textContent = `${arrow} ${pct>0?'+':''}${pct}% vs. mes anterior (${fmt(anterior)})`;
 }
 
 function irAHoy(){
@@ -207,55 +278,18 @@ async function cargar(){
   status.className = '';
   status.textContent = 'Consultando...';
 
-  // Pedimos un día extra a cada lado: uno antes (para poder calcular el T+1 del
-  // primer día del rango) y uno después (para la proyección de mañana).
-  const startDate = addDaysStr(fechaDesde, -1);
-  const endDate = addDaysStr(fecha, 1);
+  // Rango equivalente un mes antes, para la comparación de las tarjetas resumen
+  const fechaDesdeAnt = shiftMonthStr(fechaDesde, -1);
+  const fechaAnt = shiftMonthStr(fecha, -1);
 
   try{
-    const [tuuRes, bsaleRes] = await Promise.all([
-      fetch(`/api/tuu-report?startDate=${startDate}&endDate=${fecha}`).then(r=>r.json()),
-      fetch(`/api/bsale-report?startDate=${startDate}&endDate=${fecha}`).then(r=>r.json())
+    const [actual, anterior] = await Promise.all([
+      agregadosDelPeriodo(fechaDesde, fecha),
+      agregadosDelPeriodo(fechaDesdeAnt, fechaAnt).catch(() => null) // la comparación es "nice to have", no bloquea si falla
     ]);
-    if(tuuRes.error) throw new Error('TUU: ' + (tuuRes.detail || tuuRes.error));
-    if(bsaleRes.error) throw new Error('Bsale: ' + (bsaleRes.detail || bsaleRes.error));
 
-    // Acumulamos por día: tarjeta (TUU), transferencia y efectivo (Bsale)
-    const porDia = {};
-    const bucket = f => (porDia[f] = porDia[f] || { tarjeta: 0, transferencia: 0, efectivo: 0 });
-
-    for(const t of (tuuRes.transacciones || [])){
-      if(t.type === 'debito' || t.type === 'credito') bucket(t.date).tarjeta += t.amount;
-    }
-    for(const d of (bsaleRes.transferencia || [])) bucket(d.fecha).transferencia += d.monto;
-    for(const d of (bsaleRes.efectivo || [])) bucket(d.fecha).efectivo += d.monto;
-
-    // ---- Calendario de caída de fondos ----
-    // Cada fila = fecha de acreditación. Tarjeta acreditada = ventas del día anterior.
-    // Transferencia acreditada = del mismo día (Bsale ya las registra como recibidas).
-    const diasCalendario = [];
-    for(let d = fechaDesde; d <= endDate; d = addDaysStr(d, 1)) diasCalendario.push(d);
-
-    const filasCal = diasCalendario.map(fAcreditacion => {
-      const fVentaTarjeta = addDaysStr(fAcreditacion, -1);
-      const tarjeta = (porDia[fVentaTarjeta] || {tarjeta:0}).tarjeta;
-      const transferencia = (porDia[fAcreditacion] || {transferencia:0}).transferencia;
-      return { fecha: fAcreditacion, tarjeta, transferencia, total: tarjeta + transferencia };
-    });
-
-    // ---- Tarjetas resumen: suman TODO el rango elegido (Desde a Hasta), no solo "Hasta" ----
+    const { porDia, filasCal, transferencia: totalTransferenciasRango, tarjeta: totalTarjetaRango, efectivo: totalEfectivoRango, banco: totalBancoRango } = actual;
     const esUnSoloDia = fechaDesde === fecha;
-    const rangoDias = [];
-    for(let d = fechaDesde; d <= fecha; d = addDaysStr(d, 1)) rangoDias.push(d);
-    const sumaRango = campo => rangoDias.reduce((a,d)=>a+((porDia[d]||{})[campo]||0),0);
-
-    const totalTransferenciasRango = sumaRango('transferencia');
-    const totalEfectivoRango = sumaRango('efectivo');
-    const totalTarjetaRango = sumaRango('tarjeta');
-    // "Ya acreditado o por acreditarse dentro del rango elegido" (excluye la fila
-    // proyectada de mañana, que queda solo en el calendario de abajo)
-    const totalBancoRango = filasCal.filter(f => f.fecha <= fecha).reduce((a,f)=>a+f.total, 0);
-
     const rangoTexto = esUnSoloDia ? `del ${fecha}` : `del período (${fechaDesde} a ${fecha})`;
 
     $('transferLabel').textContent = rangoTexto;
@@ -271,6 +305,15 @@ async function cargar(){
     $('todayBankNote').textContent = esUnSoloDia
       ? `Transferencias del ${fecha} (${fmt(totalTransferenciasRango)}) + depósito TUU de ventas del ${addDaysStr(fecha,-1)} (${fmt(filasCal.find(f=>f.fecha===fecha)?.tarjeta||0)}).`
       : `Transferencias del período (${fmt(totalTransferenciasRango)}) + depósitos TUU que caen dentro del período (${fmt(totalBancoRango-totalTransferenciasRango)}).`;
+
+    if(anterior){
+      pintarComparacion('transferCmp', totalTransferenciasRango, anterior.transferencia);
+      pintarComparacion('tuuCmp', totalTarjetaRango, anterior.tarjeta);
+      pintarComparacion('cashCmp', totalEfectivoRango, anterior.efectivo);
+      pintarComparacion('todayBankCmp', totalBancoRango, anterior.banco);
+    } else {
+      ['transferCmp','tuuCmp','cashCmp','todayBankCmp'].forEach(id => $(id).textContent = '');
+    }
 
     $('calendarioWrap').innerHTML = `
       <table>
@@ -288,7 +331,8 @@ async function cargar(){
     `;
 
     // ---- Efectivo acumulado pendiente ----
-    const diasEfectivo = diasCalendario.filter(f => f >= fechaDesde && f <= fecha);
+    const diasEfectivo = [];
+    for(let d = fechaDesde; d <= fecha; d = addDaysStr(d, 1)) diasEfectivo.push(d);
     const filasEf = diasEfectivo.map(f => ({ fecha: f, efectivo: (porDia[f]||{efectivo:0}).efectivo }));
     const totalEfectivoAcum = filasEf.reduce((a,f)=>a+f.efectivo,0);
 
@@ -303,7 +347,7 @@ async function cargar(){
     `;
 
     status.className = 'ok';
-    status.textContent = `Listo — ventana ${startDate} a ${endDate}`;
+    status.textContent = `Listo — ${fechaDesde} a ${fecha} (comparado con ${fechaDesdeAnt} a ${fechaAnt})`;
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
