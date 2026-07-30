@@ -65,13 +65,12 @@ function extractPaymentsArray(doc) {
   return [];
 }
 
-function toChileDateStr(unixSeconds) {
+function toUtcDateStr(unixSeconds) {
   if (!unixSeconds) return null;
-  const d = new Date(unixSeconds * 1000);
-  // America/Santiago maneja el horario de verano/invierno de Chile automáticamente
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit'
-  }).format(d);
+  // Bsale guarda emissionDate como medianoche UTC del día calendario (sin
+  // considerar que Chile está en UTC-4/UTC-3), así que comparamos en UTC puro,
+  // no convirtiendo a huso horario de Chile.
+  return new Date(unixSeconds * 1000).toISOString().slice(0, 10);
 }
 
 function officeInfo(doc) {
@@ -91,10 +90,11 @@ export default async function handler(req, res) {
   const effectiveOfficeId = officeId || process.env.BSALE_OFFICE_ID || null;
 
   try {
-    const dayStart = Math.floor(new Date(`${date}T00:00:00-04:00`).getTime() / 1000);
-    const dayEnd = Math.floor(new Date(`${date}T23:59:59-04:00`).getTime() / 1000);
+    const dayStart = Math.floor(new Date(`${date}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
+    const dayEnd = Math.floor(new Date(`${date}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
 
-    // Traemos los documentos del día, con sus pagos y cliente expandidos en la misma llamada
+    // Traemos los documentos del rango (algo más ancho de lo necesario a propósito),
+    // con sus pagos y cliente expandidos en la misma llamada
     let offset = 0;
     const limit = 50;
     let allDocs = [];
@@ -109,15 +109,13 @@ export default async function handler(req, res) {
       offset += limit;
     }
 
-    // Excluimos documentos anulados/inactivos y deduplicamos por id.
-    // OJO: ya no filtramos por igualdad estricta de fecha en huso horario de Chile
-    // (lo probamos y terminaba excluyendo documentos legítimos, porque Bsale no
-    // guarda emissionDate de forma perfectamente consistente con la hora real).
-    // El cruce por monto contra TUU más abajo es quien realmente decide qué
-    // documento corresponde a qué venta, así que un rango algo más amplio acá
-    // no es un problema — en el peor caso, aparece como "extra" informativo.
+    // Excluimos documentos anulados/inactivos, deduplicamos por id, y ahora sí
+    // filtramos por fecha exacta en UTC puro (que es como Bsale realmente guarda
+    // emissionDate) para descartar documentos de días vecinos que se cuelan por
+    // el rango ampliado.
     const seenIds = new Set();
     allDocs = allDocs.filter(d => {
+      if (toUtcDateStr(d.emissionDate) !== date) return false;
       if (d.state !== 0) return false; // 0 = activo, 1 = inactivo/anulado
       if (d.cancellationStatus) return false;
       if (seenIds.has(d.id)) return false;
