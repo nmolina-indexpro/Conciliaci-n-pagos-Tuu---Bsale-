@@ -54,11 +54,21 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Falta parámetro date, o startDate y endDate (YYYY-MM-DD)' });
   }
 
-  const domain = process.env.SHOPIFY_STORE_DOMAIN;
-  const token = process.env.SHOPIFY_ACCESS_TOKEN;
+  // trim() por si quedó un espacio o salto de línea invisible al copiar/pegar
+  const domain = (process.env.SHOPIFY_STORE_DOMAIN || '').trim();
+  const token = (process.env.SHOPIFY_ACCESS_TOKEN || '').trim();
   if (!domain || !token) {
     return res.status(500).json({
       error: 'Faltan variables de entorno SHOPIFY_STORE_DOMAIN y/o SHOPIFY_ACCESS_TOKEN en el servidor'
+    });
+  }
+  // Validamos el formato del dominio ANTES de intentar la llamada, para dar un
+  // error claro en vez de un "fetch failed" genérico si el valor viene mal.
+  const dominioLimpio = domain.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  if (!/^[a-z0-9-]+\.myshopify\.com$/i.test(dominioLimpio)) {
+    return res.status(500).json({
+      error: `SHOPIFY_STORE_DOMAIN no tiene el formato esperado: "${domain}" (largo: ${domain.length} caracteres)`,
+      hint: 'Debe verse exactamente así: indexstore-cl.myshopify.com — sin https://, sin barra al final, sin espacios.'
     });
   }
 
@@ -67,7 +77,7 @@ export default async function handler(req, res) {
     const createdMax = `${endDate}T23:59:59-04:00`;
 
     let url =
-      `https://${domain}/admin/api/${API_VERSION}/orders.json` +
+      `https://${dominioLimpio}/admin/api/${API_VERSION}/orders.json` +
       `?status=any&created_at_min=${encodeURIComponent(createdMin)}` +
       `&created_at_max=${encodeURIComponent(createdMax)}` +
       `&limit=250&fields=id,name,created_at,total_price,financial_status,customer,email,cancelled_at`;
