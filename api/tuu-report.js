@@ -3,7 +3,7 @@
 // El API Key vive SOLO en el servidor (variable de entorno TUU_API_KEY), nunca en el navegador.
 // Doc: https://developers.tuu.cl/docs/generación-de-reporte-sucursal
 
-const TIMEOUT_MS = 8000;
+const TIMEOUT_MS = 15000;
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
   const controller = new AbortController();
