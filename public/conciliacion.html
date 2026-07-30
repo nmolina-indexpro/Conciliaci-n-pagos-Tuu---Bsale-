@@ -377,7 +377,7 @@ function renderShopify(gShopify, shopifyPos, bsaleShopify){
     <div class="receipt">
       <div class="totals">
         <div class="tot"><div class="lbl">Órdenes Shopify (pagadas)</div><div class="val">${fmt(totalPos)}</div></div>
-        <div class="tot"><div class="lbl">Documentos Bsale "SHOPIFY" (con match)</div><div class="val">${fmt(totalMatch)}</div></div>
+        <div class="tot"><div class="lbl">Documentos Bsale "SHOPIFY" (match con Shopify)</div><div class="val">${fmt(totalMatch)}</div></div>
       </div>
       <span class="stamp ${cuadra?'ok':'bad'}">${cuadra ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
     </div>
@@ -527,10 +527,10 @@ function renderConsolidado({ startDate, endDate, filas }){
     <div class="receipt">
       <div class="section-title" style="margin-top:0;">Consolidado — ${startDate} a ${endDate}</div>
       <div class="totals">
-        <div class="tot"><div class="lbl">POS débito</div><div class="val">${fmt(totPosDeb)}</div></div>
-        <div class="tot"><div class="lbl">Bsale débito (con match)</div><div class="val">${fmt(totBsaleDeb)}</div></div>
-        <div class="tot"><div class="lbl">POS crédito</div><div class="val">${fmt(totPosCred)}</div></div>
-        <div class="tot"><div class="lbl">Bsale crédito (con match)</div><div class="val">${fmt(totBsaleCred)}</div></div>
+        <div class="tot"><div class="lbl">TUU débito</div><div class="val">${fmt(totPosDeb)}</div></div>
+        <div class="tot"><div class="lbl">Bsale débito (match con TUU)</div><div class="val">${fmt(totBsaleDeb)}</div></div>
+        <div class="tot"><div class="lbl">TUU crédito</div><div class="val">${fmt(totPosCred)}</div></div>
+        <div class="tot"><div class="lbl">Bsale crédito (match con TUU)</div><div class="val">${fmt(totBsaleCred)}</div></div>
       </div>
       <span class="stamp ${diasCuadrados===filas.length?'ok':'bad'}">${diasCuadrados} / ${filas.length} días cuadrados</span>
       <div class="diff-line">${extraCount>0 ? `${extraCount} documentos Bsale sin venta POS en el período (${fmt(extraTotal)}) — no cuentan como descuadre.` : 'Sin documentos Bsale sueltos en el período.'}</div>
@@ -565,7 +565,8 @@ function verDetalleDia(fecha){
 }
 function rowsHtml(rows, label){
   if(rows.length===0) return `<p class="empty-note">Sin transacciones de ${label} para esta fecha.</p>`;
-  let html = `<table><thead><tr><th>Hora</th><th class="amount">Monto POS</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
+  const origenLabel = label === 'Shopify' ? 'Monto Shopify' : 'Monto TUU';
+  let html = `<table><thead><tr><th>Hora</th><th class="amount">${origenLabel}</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
   for(const r of rows){
     html += `<tr class="${r.matched?'':'unmatched'}">
       <td>${r.pos.time||'—'}</td>
@@ -596,10 +597,10 @@ function renderResults({gDeb, gCred, totPosDeb, totPosCred, totBsaleDeb, totBsal
   el.innerHTML = `
     <div class="receipt">
       <div class="totals">
-        <div class="tot"><div class="lbl">POS débito</div><div class="val">${fmt(totPosDeb)}</div></div>
-        <div class="tot"><div class="lbl">Bsale débito (con match)</div><div class="val">${fmt(totBsaleDeb)}</div></div>
-        <div class="tot"><div class="lbl">POS crédito</div><div class="val">${fmt(totPosCred)}</div></div>
-        <div class="tot"><div class="lbl">Bsale crédito (con match)</div><div class="val">${fmt(totBsaleCred)}</div></div>
+        <div class="tot"><div class="lbl">TUU débito</div><div class="val">${fmt(totPosDeb)}</div></div>
+        <div class="tot"><div class="lbl">Bsale débito (match con TUU)</div><div class="val">${fmt(totBsaleDeb)}</div></div>
+        <div class="tot"><div class="lbl">TUU crédito</div><div class="val">${fmt(totPosCred)}</div></div>
+        <div class="tot"><div class="lbl">Bsale crédito (match con TUU)</div><div class="val">${fmt(totBsaleCred)}</div></div>
       </div>
       <span class="stamp ${cuadra?'ok':'bad'}">${cuadra ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
       <div class="diff-line">${cuadra ? 'Todas las ventas del POS tienen su documento en Bsale.' : `Diferencia débito: <b>${fmt(diffDeb)}</b> · Diferencia crédito: <b>${fmt(diffCred)}</b> — hay ventas del POS sin documento.`}</div>
