@@ -244,20 +244,30 @@ function ejecutarCuadratura(posAll, bsaleCred, bsaleDeb){
 
   const totPosDeb = sum(posDeb,'amount');
   const totPosCred = sum(posCred,'amount');
-  const totBsaleDeb = sum(bsaleDeb,'monto');
-  const totBsaleCred = sum(bsaleCred,'monto');
+
+  // Los totales "Bsale" ahora son SOLO los documentos que efectivamente calzaron
+  // con una venta POS (por monto). Los documentos Bsale con tarjeta que no tienen
+  // venta POS correspondiente ese día quedan fuera de la cuadratura: son
+  // información aparte (probablemente otro canal de venta), no un descuadre.
+  const totBsaleDeb = sum(gDeb.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
+  const totBsaleCred = sum(gCred.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
+
   const diffDeb = totPosDeb - totBsaleDeb;
   const diffCred = totPosCred - totBsaleCred;
-  const cuadra = diffDeb===0 && diffCred===0 &&
-    gDeb.unmatchedBsale.length===0 && gCred.unmatchedBsale.length===0 &&
-    gDeb.rows.every(r=>r.matched) && gCred.rows.every(r=>r.matched);
+
+  // Cuadra = toda venta POS tiene su documento Bsale (cobertura 100%).
+  // Documentos Bsale sin venta POS NO rompen la cuadratura.
+  const cuadra = gDeb.rows.every(r=>r.matched) && gCred.rows.every(r=>r.matched);
+
+  const bsaleExtraCount = gDeb.unmatchedBsale.length + gCred.unmatchedBsale.length;
+  const bsaleExtraTotal = sum(gDeb.unmatchedBsale,'monto') + sum(gCred.unmatchedBsale,'monto');
 
   lastResult = {
     fecha: $('fecha').value, totPosDeb, totPosCred, totBsaleDeb, totBsaleCred,
-    diffDeb, diffCred, cuadra,
+    diffDeb, diffCred, cuadra, bsaleExtraCount, bsaleExtraTotal,
     countPos: posAll.length, countBsale: bsaleCred.length + bsaleDeb.length, timestamp: Date.now()
   };
-  renderResults({gDeb, gCred, totPosDeb, totPosCred, totBsaleDeb, totBsaleCred, diffDeb, diffCred, cuadra});
+  renderResults({gDeb, gCred, totPosDeb, totPosCred, totBsaleDeb, totBsaleCred, diffDeb, diffCred, cuadra, bsaleExtraCount, bsaleExtraTotal});
 }
 
 function procesarManual(){
@@ -302,8 +312,8 @@ async function fetchAutomatico(){
 }
 
 // ---------- Render ----------
-function rowsHtml(rows, unmatchedBsale, label){
-  if(rows.length===0 && unmatchedBsale.length===0) return `<p class="empty-note">Sin transacciones de ${label} para esta fecha.</p>`;
+function rowsHtml(rows, label){
+  if(rows.length===0) return `<p class="empty-note">Sin transacciones de ${label} para esta fecha.</p>`;
   let html = `<table><thead><tr><th>Hora</th><th class="amount">Monto POS</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
   for(const r of rows){
     html += `<tr class="${r.matched?'':'unmatched'}">
@@ -315,30 +325,44 @@ function rowsHtml(rows, unmatchedBsale, label){
       <td>${r.matched ? '<span class="badge ok">OK</span>' : '<span class="badge no">sin doc</span>'}</td>
     </tr>`;
   }
+  return html + `</tbody></table>`;
+}
+
+function extraHtml(unmatchedBsale){
+  if(unmatchedBsale.length===0) return '';
+  let html = `<table><thead><tr><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto</th></tr></thead><tbody>`;
   for(const b of unmatchedBsale){
-    html += `<tr class="unmatched"><td>—</td><td class="amount">—</td><td>#${b.numero}</td><td>${b.cliente||'—'}</td><td class="amount">${fmt(b.monto)}</td><td><span class="badge no">sin venta POS</span></td></tr>`;
+    html += `<tr><td>#${b.numero}</td><td>${b.cliente||'—'}</td><td class="amount">${fmt(b.monto)}</td></tr>`;
   }
   return html + `</tbody></table>`;
 }
 
-function renderResults({gDeb, gCred, totPosDeb, totPosCred, totBsaleDeb, totBsaleCred, diffDeb, diffCred, cuadra}){
+function renderResults({gDeb, gCred, totPosDeb, totPosCred, totBsaleDeb, totBsaleCred, diffDeb, diffCred, cuadra, bsaleExtraCount, bsaleExtraTotal}){
   const el = $('results');
   el.style.display = 'block';
   el.innerHTML = `
     <div class="receipt">
       <div class="totals">
         <div class="tot"><div class="lbl">POS débito</div><div class="val">${fmt(totPosDeb)}</div></div>
-        <div class="tot"><div class="lbl">Bsale débito</div><div class="val">${fmt(totBsaleDeb)}</div></div>
+        <div class="tot"><div class="lbl">Bsale débito (con match)</div><div class="val">${fmt(totBsaleDeb)}</div></div>
         <div class="tot"><div class="lbl">POS crédito</div><div class="val">${fmt(totPosCred)}</div></div>
-        <div class="tot"><div class="lbl">Bsale crédito</div><div class="val">${fmt(totBsaleCred)}</div></div>
+        <div class="tot"><div class="lbl">Bsale crédito (con match)</div><div class="val">${fmt(totBsaleCred)}</div></div>
       </div>
-      <span class="stamp ${cuadra?'ok':'bad'}">${cuadra ? '✓ CUADRA' : '⚠ NO CUADRA'}</span>
-      <div class="diff-line">Diferencia débito: <b>${fmt(diffDeb)}</b> &nbsp;•&nbsp; Diferencia crédito: <b>${fmt(diffCred)}</b></div>
+      <span class="stamp ${cuadra?'ok':'bad'}">${cuadra ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
+      <div class="diff-line">${cuadra ? 'Todas las ventas del POS tienen su documento en Bsale.' : `Diferencia débito: <b>${fmt(diffDeb)}</b> · Diferencia crédito: <b>${fmt(diffCred)}</b> — hay ventas del POS sin documento.`}</div>
     </div>
+
     <div class="section-title"><span class="dot deb"></span>Tarjeta débito</div>
-    ${rowsHtml(gDeb.rows, gDeb.unmatchedBsale, 'débito')}
+    ${rowsHtml(gDeb.rows, 'débito')}
+
     <div class="section-title"><span class="dot cred"></span>Tarjeta crédito</div>
-    ${rowsHtml(gCred.rows, gCred.unmatchedBsale, 'crédito')}
+    ${rowsHtml(gCred.rows, 'crédito')}
+
+    ${bsaleExtraCount > 0 ? `
+    <div class="section-title" style="color:var(--muted);">ⓘ Documentos Bsale con tarjeta sin venta POS ese día (${bsaleExtraCount}, ${fmt(bsaleExtraTotal)})</div>
+    <p class="empty-note">No cuentan como descuadre — probablemente son de otro canal de venta (web, transferencia registrada como tarjeta, factura a 30 días, etc). Vale la pena revisarlos igual.</p>
+    ${extraHtml([...gDeb.unmatchedBsale, ...gCred.unmatchedBsale])}
+    ` : ''}
   `;
 }
 
