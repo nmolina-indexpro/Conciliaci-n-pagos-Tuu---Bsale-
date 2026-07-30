@@ -51,6 +51,23 @@ function customerName(order) {
   return (order.email || '').split('@')[0] || 'Cliente Shopify';
 }
 
+// Traduce los códigos internos que devuelve Shopify a algo legible para la persona
+const NOMBRES_PASARELA = {
+  shopify_payments: 'Shopify Payments',
+  manual: 'Manual / Transferencia',
+  bogus: 'Prueba',
+  cash: 'Efectivo (POS)',
+  'mercado pago': 'Mercado Pago',
+  webpay: 'Webpay (Transbank)',
+  paypal: 'PayPal'
+};
+function nombrePasarela(gatewayNames) {
+  if (!Array.isArray(gatewayNames) || gatewayNames.length === 0) return 'No especificada';
+  return gatewayNames
+    .map(g => NOMBRES_PASARELA[(g || '').toLowerCase().trim()] || g)
+    .join(' + ');
+}
+
 // Intercambia client_id + client_secret por un access_token válido ~24h
 async function obtenerAccessToken(dominioLimpio, clientId, clientSecret) {
   const r = await fetchWithTimeout(`https://${dominioLimpio}/admin/oauth/access_token`, {
@@ -109,7 +126,7 @@ export default async function handler(req, res) {
       `https://${dominioLimpio}/admin/api/${API_VERSION}/orders.json` +
       `?status=any&created_at_min=${encodeURIComponent(createdMin)}` +
       `&created_at_max=${encodeURIComponent(createdMax)}` +
-      `&limit=250&fields=id,name,created_at,total_price,financial_status,customer,email,cancelled_at`;
+      `&limit=250&fields=id,name,created_at,total_price,financial_status,customer,email,cancelled_at,payment_gateway_names`;
 
     const allOrders = [];
     let guard = 0;
@@ -137,7 +154,8 @@ export default async function handler(req, res) {
         numero: o.name,
         cliente: customerName(o),
         monto: Math.round(parseFloat(o.total_price)),
-        fecha: (o.created_at || '').slice(0, 10)
+        fecha: (o.created_at || '').slice(0, 10),
+        pasarela: nombrePasarela(o.payment_gateway_names)
       }));
 
     return res.status(200).json({ startDate, endDate, ventas, ordenesRevisadas: allOrders.length });
