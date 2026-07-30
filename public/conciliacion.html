@@ -625,7 +625,7 @@ function sugerirCandidato(monto, pool){
   }
   return mejor ? { candidato: mejor, diff: mejorDiff } : null;
 }
-function sugerenciaHtml(monto, pool, tipoCandidato){
+function sugerenciaHtml(monto, pool, tipoCandidato, docReferencia){
   const s = sugerirCandidato(monto, pool);
   if(!s) return '';
   const c = s.candidato;
@@ -633,7 +633,8 @@ function sugerenciaHtml(monto, pool, tipoCandidato){
   if(tipoCandidato === 'bsale'){
     return `<div class="suggestion">💡 ¿Será #${c.numero} ${c.cliente||'—'} (${fmt(c.monto)}, ${etiquetaDiff})?</div>`;
   }
-  return `<div class="suggestion">💡 ¿Será la venta de las ${c.time||'—'} por ${fmt(c.amount)} (${etiquetaDiff})?</div>`;
+  const refDoc = docReferencia ? ` para el documento #${docReferencia}` : '';
+  return `<div class="suggestion">💡 ¿Será la venta de las ${c.time||'—'} por ${fmt(c.amount)} (${etiquetaDiff})${refDoc}?</div>`;
 }
 
 function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
@@ -682,7 +683,7 @@ function extraHtml(unmatchedBsale, fecha, poolTuuSueltos){
   for(const b of unmatchedBsale){
     const clave = claveItem(fecha, 'bsaleExtra', b.numero);
     const resuelto = estaResuelto(clave);
-    const sugerencia = resuelto ? '' : sugerenciaHtml(b.monto, poolTuuSueltos, 'tuu');
+    const sugerencia = resuelto ? '' : sugerenciaHtml(b.monto, poolTuuSueltos, 'tuu', b.numero);
     html += `<tr>
       <td>#${b.numero}</td><td>${b.cliente||'—'}</td><td class="amount">${fmt(b.monto)}</td>
       <td>
