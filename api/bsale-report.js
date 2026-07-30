@@ -173,6 +173,7 @@ export default async function handler(req, res) {
     const transferencia = [];
     const efectivo = [];
     const shopify = [];
+    const otros = [];
 
     for (const doc of allDocs) {
       if (effectiveOfficeId && String(officeInfo(doc).id) !== String(effectiveOfficeId)) continue;
@@ -189,10 +190,11 @@ export default async function handler(req, res) {
         else if (kind === 'transferencia') transferencia.push(row);
         else if (kind === 'efectivo') efectivo.push(row);
         else if (kind === 'shopify') shopify.push(row);
+        else otros.push({ ...row, tipo: p.name || 'Sin especificar' }); // cualquier medio de pago que no reconocemos todavía (crédito 30 días, abono de cliente, etc.)
       }
     }
 
-    return res.status(200).json({ startDate, endDate, credito, debito, transferencia, efectivo, shopify, docsRevisados: allDocs.length });
+    return res.status(200).json({ startDate, endDate, credito, debito, transferencia, efectivo, shopify, otros, docsRevisados: allDocs.length });
   } catch (err) {
     return res.status(500).json({ error: 'Error consultando Bsale', detail: String(err) });
   }
