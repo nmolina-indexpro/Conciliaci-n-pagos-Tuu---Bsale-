@@ -96,10 +96,13 @@ export default async function handler(req, res) {
       if (tipoRaw === 'debit') return 'debito';
       if (tipoRaw === 'credit') return 'credito';
       if (tipoRaw === 'prepaid') return 'debito';
-      // Sin transactionType: TUU la clasifica por N° de cuotas (confirmado con
-      // ejemplos reales del propio dashboard: 1 cuota = débito, 2+ = crédito).
-      if (!tipoRaw) return (t.installmentCount || 1) > 1 ? 'credito' : 'debito';
-      return null; // tipo desconocido y no reconocido (caso no visto todavía)
+      // Sin transactionType: SOLO clasificamos cuando hay más de 1 cuota (eso
+      // sí está confirmado: nunca vimos débito con cuotas). "1 cuota" NO se
+      // puede asumir como débito -> se comprobó un caso real de crédito pagado
+      // en 1 sola cuota que quedó mal clasificado con esa regla. Esos casos
+      // quedan en "otras" para revisión manual en vez de adivinar.
+      if (!tipoRaw && (t.installmentCount || 0) > 1) return 'credito';
+      return null; // tipo desconocido / sin señal suficiente para clasificar
     }
 
     if (debug) {
