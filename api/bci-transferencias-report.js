@@ -3,8 +3,11 @@
 // de datos (por api/bci-webhook.js), para un rango de fechas. Mismo patrón
 // que tuu-report.js / bsale-report.js / shopify-report.js, para poder
 // enchufarlo en Conciliación y Flujo de Caja de la misma forma.
-
-import { sql } from '@vercel/postgres';
+//
+// OJO: el import de '@vercel/postgres' se hace DINÁMICO (adentro del
+// handler, después de comprobar POSTGRES_URL) porque importarlo a nivel de
+// módulo hace que la función completa se caiga con un error crudo de Vercel
+// (no un JSON controlado) cuando la variable de entorno todavía no existe.
 
 export default async function handler(req, res) {
   const { date, startDate: qStart, endDate: qEnd } = req.query;
@@ -16,10 +19,16 @@ export default async function handler(req, res) {
   }
 
   if (!process.env.POSTGRES_URL) {
-    return res.status(500).json({ error: 'POSTGRES_URL no está configurada en el servidor (falta conectar la base de datos en Vercel)' });
+    return res.status(200).json({
+      startDate, endDate, transferencias: [], totalRegistros: 0,
+      error: 'POSTGRES_URL no configurada',
+      detail: 'Falta conectar la base de datos Postgres en Vercel (Storage > Create Database)'
+    });
   }
 
   try {
+    const { sql } = await import('@vercel/postgres');
+
     const { rows } = await sql`
       SELECT id, recibido_en, monto, fecha, referencia, origen, payload
       FROM bci_notificaciones
@@ -41,6 +50,6 @@ export default async function handler(req, res) {
     if (String(err).includes('does not exist')) {
       return res.status(200).json({ startDate, endDate, transferencias: [], totalRegistros: 0, aviso: 'Todavía no ha llegado ninguna notificación de Bci.' });
     }
-    return res.status(500).json({ error: 'Error consultando notificaciones', detail: String(err) });
+    return res.status(200).json({ startDate, endDate, transferencias: [], totalRegistros: 0, error: 'Error consultando notificaciones', detail: String(err) });
   }
 }

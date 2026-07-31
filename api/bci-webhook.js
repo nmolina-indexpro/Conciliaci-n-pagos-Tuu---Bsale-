@@ -12,22 +12,10 @@
 //
 // Requiere la variable de entorno POSTGRES_URL, que Vercel agrega sola al
 // conectar una base de datos Postgres desde Storage > Create Database.
-
-import { sql } from '@vercel/postgres';
-
-async function asegurarTabla() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS bci_notificaciones (
-      id SERIAL PRIMARY KEY,
-      recibido_en TIMESTAMPTZ DEFAULT now(),
-      monto NUMERIC,
-      fecha TEXT,
-      referencia TEXT,
-      origen TEXT,
-      payload JSONB
-    );
-  `;
-}
+//
+// El import de '@vercel/postgres' se hace DINÁMICO (adentro del handler)
+// porque importarlo a nivel de módulo hace que la función se caiga con un
+// error crudo cuando POSTGRES_URL todavía no existe.
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -39,6 +27,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    const { sql } = await import('@vercel/postgres');
     const body = req.body || {};
 
     // Extracción defensiva de campos comunes -> AJUSTAR cuando se confirme el
@@ -48,7 +37,17 @@ export default async function handler(req, res) {
     const referencia = body.reference ?? body.Reference ?? body.glosa ?? body.description ?? body.id ?? null;
     const origen = body.senderName ?? body.SenderName ?? body.origen ?? body.payer ?? body.debtorName ?? null;
 
-    await asegurarTabla();
+    await sql`
+      CREATE TABLE IF NOT EXISTS bci_notificaciones (
+        id SERIAL PRIMARY KEY,
+        recibido_en TIMESTAMPTZ DEFAULT now(),
+        monto NUMERIC,
+        fecha TEXT,
+        referencia TEXT,
+        origen TEXT,
+        payload JSONB
+      );
+    `;
 
     await sql`
       INSERT INTO bci_notificaciones (monto, fecha, referencia, origen, payload)

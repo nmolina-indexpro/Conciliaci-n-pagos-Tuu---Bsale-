@@ -356,11 +356,12 @@ async function fetchAutomatico(){
   status.textContent = 'Consultando TUU, Bsale y Shopify...';
 
   try{
+    const fetchSeguro = url => fetch(url).then(r=>r.json()).catch(err => ({ error: 'No disponible', detail: err.message }));
     const [tuuRes, bsaleRes, shopifyRes, bciRes] = await Promise.all([
       fetch(`/api/tuu-report?date=${fecha}`).then(r=>r.json()),
       fetch(`/api/bsale-report?date=${fecha}`).then(r=>r.json()),
-      fetch(`/api/shopify-report?date=${fecha}`).then(r=>r.json()),
-      fetch(`/api/bci-transferencias-report?date=${fecha}`).then(r=>r.json())
+      fetchSeguro(`/api/shopify-report?date=${fecha}`),
+      fetchSeguro(`/api/bci-transferencias-report?date=${fecha}`)
     ]);
 
     if(tuuRes.error) throw new Error('TUU: ' + (tuuRes.detail || tuuRes.error));
