@@ -105,10 +105,26 @@ export default async function handler(req, res) {
         if ((t.status || '').toLowerCase() === 'completed') sumaConFiltroActual += t.totalAmount || 0;
       }
 
+      // Detalle de las transacciones que NO quedan como débito/crédito, para
+      // poder cruzarlas manualmente contra el listado de transacciones de TUU
+      // y ver cómo las clasifica su propio dashboard.
+      const noClasificadas = rawTransactions
+        .filter(t => (t.status || '').toLowerCase() === 'completed')
+        .filter(t => !['debit', 'credit'].includes((t.transactionType || '').toLowerCase()))
+        .map(t => ({
+          fecha: (t.transactionDateTime || '').slice(0, 10),
+          hora: (t.transactionDateTime || '').slice(11, 16),
+          tipo: t.transactionType || '(sin tipo)',
+          monto: t.totalAmount,
+          saleId: t.saleId || '',
+          cardBrand: t.cardBrand || '',
+          cardOrigin: t.cardOrigin || ''
+        }));
+
       return res.status(200).json({
         startDate, endDate,
         totalTransaccionesCrudas: rawTransactions.length,
-        porStatus, porTipo,
+        porStatus, porTipo, noClasificadas,
         sumaConFiltroActual,      // lo que hoy usa la app (solo status "completed")
         sumaTotalSinFiltro,       // si no filtráramos por status
         ejemploTransaccion: rawTransactions[0] || null
