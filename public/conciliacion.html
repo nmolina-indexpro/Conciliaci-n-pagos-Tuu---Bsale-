@@ -812,6 +812,16 @@ function renderResults(rCrudo){
     .filter(b => !estaResuelto(claveItem(fecha, 'bsaleExtra', b.numero)));
   const bsaleExtraPendienteTotal = bsaleExtraPendientes.reduce((a,b)=>a+b.monto,0);
 
+  // Documentos Bsale "sin venta POS" que la persona ya confirmó manualmente
+  // (✓) -> se suman a AMBOS lados (Origen y Bsale) de su sección, porque una
+  // vez confirmado a mano ya no es una diferencia, es una venta real que
+  // simplemente no se pudo clasificar sola.
+  const bsaleExtraResueltoMonto = (unmatchedBsale) => unmatchedBsale
+    .filter(b => estaResuelto(claveItem(fecha, 'bsaleExtra', b.numero)))
+    .reduce((a,b) => a + b.monto, 0);
+  const resueltoDebito = bsaleExtraResueltoMonto(gDeb.unmatchedBsale);
+  const resueltoCredito = bsaleExtraResueltoMonto(gCred.unmatchedBsale);
+
   // ---- Pools para las sugerencias "¿será esta?" (cruzan débito y crédito, mismo día) ----
   const poolBsaleSueltos = [...gDeb.unmatchedBsale, ...gCred.unmatchedBsale];
   const poolTuuSueltos = [...gDeb.rows, ...gCred.rows]
@@ -823,8 +833,8 @@ function renderResults(rCrudo){
 
   // ---- Filas del resumen unificado (débito, crédito, y Shopify si está disponible) ----
   const filas = [
-    { canal: 'TUU débito', origen: totPosDeb, bsale: totBsaleDebAdj, cuadra: todoResuelto(gDeb.rows, 'debito') },
-    { canal: 'TUU crédito', origen: totPosCred, bsale: totBsaleCredAdj, cuadra: todoResuelto(gCred.rows, 'credito') }
+    { canal: 'TUU débito', origen: totPosDeb + resueltoDebito, bsale: totBsaleDebAdj + resueltoDebito, cuadra: todoResuelto(gDeb.rows, 'debito') },
+    { canal: 'TUU crédito', origen: totPosCred + resueltoCredito, bsale: totBsaleCredAdj + resueltoCredito, cuadra: todoResuelto(gCred.rows, 'credito') }
   ];
   if(ultimoShopifyData){
     const { gShopify, shopifyPos } = ultimoShopifyData;
