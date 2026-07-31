@@ -185,7 +185,7 @@ export default async function handler(req, res) {
 
       for (const p of payments) {
         const kind = classifyPayment(p.name);
-        const row = { numero, cliente, monto: p.amount, fecha, url };
+        const row = { numero, cliente, monto: p.amount, fecha, url, medioPago: p.name || '' };
         if (kind === 'credito') credito.push(row);
         else if (kind === 'debito') debito.push(row);
         else if (kind === 'transferencia') transferencia.push(row);

@@ -710,13 +710,19 @@ function sugerirCandidato(monto, pool){
   }
   return mejor ? { candidato: mejor, diff: mejorDiff } : null;
 }
-function sugerenciaHtml(monto, pool, tipoCandidato, docReferencia){
+function sugerenciaHtml(monto, pool, tipoCandidato, docReferencia, seccionActual){
   const s = sugerirCandidato(monto, pool);
   if(!s) return '';
   const c = s.candidato;
   const etiquetaDiff = s.diff === 0 ? 'monto exacto' : `dif. ${fmt(s.diff)}`;
   if(tipoCandidato === 'bsale'){
-    return `<div class="suggestion">💡 ¿Será ${docLinkHtml(c.numero, c.url)} ${c.cliente||'—'} (${fmt(c.monto)}, ${etiquetaDiff})?</div>`;
+    const medioNorm = (c.medioPago||'').toUpperCase();
+    const noCalza = seccionActual === 'debito' && medioNorm.includes('CREDITO')
+                 || seccionActual === 'credito' && medioNorm.includes('DEBITO');
+    const alerta = noCalza
+      ? `<br><span style="color:var(--red);font-weight:600;">⚠ En Bsale está registrado como "${c.medioPago}" — revisa si se tipeó mal el medio de pago.</span>`
+      : '';
+    return `<div class="suggestion">💡 ¿Será ${docLinkHtml(c.numero, c.url)} ${c.cliente||'—'} (${fmt(c.monto)}, ${etiquetaDiff})?${alerta}</div>`;
   }
   const refDoc = docReferencia ? ` para el documento #${docReferencia}` : '';
   return `<div class="suggestion">💡 ¿Será la venta de las ${c.time||'—'} por ${fmt(c.amount)} (${etiquetaDiff})${refDoc}?</div>`;
@@ -743,7 +749,7 @@ function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
     } else {
       const clave = claveItem(fecha, scope, `${r.pos.time}_${r.pos.amount}`);
       const resuelto = estaResuelto(clave);
-      const sugerencia = resuelto ? '' : sugerenciaHtml(r.pos.amount, poolBsaleSueltos, 'bsale');
+      const sugerencia = resuelto ? '' : sugerenciaHtml(r.pos.amount, poolBsaleSueltos, 'bsale', null, scope);
       html += `<tr class="${resuelto?'':'unmatched'}">
         <td>${r.pos.time||'—'}</td>
         <td class="amount">${fmt(r.pos.amount)}</td>
