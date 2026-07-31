@@ -63,6 +63,8 @@
   .card .cmp.down{color:var(--red);}
   .card .cmp.flat{color:var(--muted);}
   .card .note{font-size:12.5px;color:var(--muted);line-height:1.55;}
+  .card .breakdown{display:flex;gap:16px;font-size:12.5px;color:var(--muted);margin-bottom:8px;}
+  .card .breakdown b{font-family:'IBM Plex Mono',monospace;color:var(--text);font-weight:600;}
 
   .section-title{font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:700;margin:30px 0 12px;display:flex;align-items:center;gap:8px;color:var(--text);}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
@@ -112,6 +114,10 @@
       <h3>💳 Depósito TUU proyectado</h3>
       <div class="big" id="tuuTotal">$0</div>
       <div class="cmp" id="tuuCmp"></div>
+      <div class="breakdown">
+        <span>Débito: <b id="tuuDebito">$0</b></span>
+        <span>Crédito: <b id="tuuCredito">$0</b></span>
+      </div>
       <div class="note" id="tuuNote">Ventas con tarjeta, se acreditan el día hábil siguiente.</div>
     </div>
     <div class="card c-cash">
@@ -186,9 +192,10 @@ async function agregadosDelPeriodo(fechaDesdeR, fechaR){
   if(bsaleRes.error) throw new Error('Bsale: ' + (bsaleRes.detail || bsaleRes.error));
 
   const porDia = {};
-  const bucket = f => (porDia[f] = porDia[f] || { tarjeta: 0, transferencia: 0, efectivo: 0 });
+  const bucket = f => (porDia[f] = porDia[f] || { tarjeta: 0, tarjetaDebito: 0, tarjetaCredito: 0, transferencia: 0, efectivo: 0 });
   for(const t of (tuuRes.transacciones || [])){
-    if(t.type === 'debito' || t.type === 'credito') bucket(t.date).tarjeta += t.amount;
+    if(t.type === 'debito'){ bucket(t.date).tarjeta += t.amount; bucket(t.date).tarjetaDebito += t.amount; }
+    else if(t.type === 'credito'){ bucket(t.date).tarjeta += t.amount; bucket(t.date).tarjetaCredito += t.amount; }
   }
   for(const d of (bsaleRes.transferencia || [])) bucket(d.fecha).transferencia += d.monto;
   for(const d of (bsaleRes.efectivo || [])) bucket(d.fecha).efectivo += d.monto;
@@ -210,6 +217,8 @@ async function agregadosDelPeriodo(fechaDesdeR, fechaR){
     porDia, filasCal,
     transferencia: sumaRango('transferencia'),
     tarjeta: sumaRango('tarjeta'),
+    tarjetaDebito: sumaRango('tarjetaDebito'),
+    tarjetaCredito: sumaRango('tarjetaCredito'),
     efectivo: sumaRango('efectivo'),
     banco: filasCal.filter(f => f.fecha <= fechaR).reduce((a,f)=>a+f.total, 0)
   };
@@ -287,13 +296,15 @@ async function cargar(){
       agregadosDelPeriodo(fechaDesdeAnt, fechaAnt).catch(() => null) // la comparación es "nice to have", no bloquea si falla
     ]);
 
-    const { porDia, filasCal, transferencia: totalTransferenciasRango, tarjeta: totalTarjetaRango, efectivo: totalEfectivoRango, banco: totalBancoRango } = actual;
+    const { porDia, filasCal, transferencia: totalTransferenciasRango, tarjeta: totalTarjetaRango, tarjetaDebito: totalTarjetaDebito, tarjetaCredito: totalTarjetaCredito, efectivo: totalEfectivoRango, banco: totalBancoRango } = actual;
     const esUnSoloDia = fechaDesde === fecha;
     const rangoTexto = esUnSoloDia ? `del ${fecha}` : `del período (${fechaDesde} a ${fecha})`;
 
     $('transferLabel').textContent = rangoTexto;
     $('transferTotal').textContent = fmt(totalTransferenciasRango);
     $('tuuTotal').textContent = fmt(totalTarjetaRango);
+    $('tuuDebito').textContent = fmt(totalTarjetaDebito);
+    $('tuuCredito').textContent = fmt(totalTarjetaCredito);
     $('tuuNote').textContent = esUnSoloDia
       ? `Ventas con tarjeta del ${fecha}, se acreditan el ${addDaysStr(fecha,1)}.`
       : `Ventas con tarjeta del período elegido — cada una se acredita el día hábil siguiente a su venta.`;
