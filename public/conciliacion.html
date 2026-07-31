@@ -203,6 +203,9 @@ $19.900
   <div class="section-title"><span class="dot" style="background:#95bf47;"></span>Ventas Shopify vs Bsale</div>
   <div id="shopifyResults"><p class="empty-note">Se carga junto con "Traer y cuadrar".</p></div>
 
+  <div class="section-title"><span class="dot" style="background:#DE2B2B;"></span>Transferencias BCI vs Bsale</div>
+  <div id="bciResults"><p class="empty-note">Se carga junto con "Traer y cuadrar".</p></div>
+
   <div class="section-title"><span class="dot" style="background:var(--muted);"></span>Otras formas de pago / transacciones sin clasificar</div>
   <p class="empty-note">Incluye documentos Bsale pagados con un medio que hoy no se cruza contra ningún sistema externo (transferencias, abonos, etc), y transacciones TUU que no llegaron marcadas como débito o crédito (prepago, sin tipo). No son un error — solo quedan listadas para revisión manual.</p>
   <div id="otrosPagosWrap"><p class="empty-note">Se carga junto con "Traer y cuadrar".</p></div>
@@ -344,6 +347,7 @@ function procesarManual(){
 
 // ---------- Modo automático (APIs) ----------
 let ultimoShopifyData = null; // {gShopify, shopifyPos, bsaleShopify} o null si no está disponible
+let ultimoBciData = null; // {gBci, bciPos, bsaleTransferencia} o null si no está disponible
 
 async function fetchAutomatico(){
   const fecha = $('fecha').value;
@@ -352,10 +356,11 @@ async function fetchAutomatico(){
   status.textContent = 'Consultando TUU, Bsale y Shopify...';
 
   try{
-    const [tuuRes, bsaleRes, shopifyRes] = await Promise.all([
+    const [tuuRes, bsaleRes, shopifyRes, bciRes] = await Promise.all([
       fetch(`/api/tuu-report?date=${fecha}`).then(r=>r.json()),
       fetch(`/api/bsale-report?date=${fecha}`).then(r=>r.json()),
-      fetch(`/api/shopify-report?date=${fecha}`).then(r=>r.json())
+      fetch(`/api/shopify-report?date=${fecha}`).then(r=>r.json()),
+      fetch(`/api/bci-transferencias-report?date=${fecha}`).then(r=>r.json())
     ]);
 
     if(tuuRes.error) throw new Error('TUU: ' + (tuuRes.detail || tuuRes.error));
@@ -375,6 +380,20 @@ async function fetchAutomatico(){
       shopifyMsg = `, ${shopifyPos.length} órdenes Shopify`;
     }
 
+    // Transferencias BCI, mismo patrón que Shopify: se calcula antes del resumen
+    let bciMsg = '';
+    if(bciRes.error){
+      ultimoBciData = null;
+      $('bciResults').innerHTML = `<p class="empty-note">Transferencias BCI no disponibles: ${bciRes.detail || bciRes.error}</p>`;
+    } else {
+      const bciPos = (bciRes.transferencias || []).map(t => ({ amount: t.monto, time: (t.recibidoEn||'').slice(11,16), numero: t.referencia || '', cliente: t.origen || '' }));
+      const bsaleTransferencia = bsaleRes.transferencia || [];
+      const gBci = matchGroup(bciPos, bsaleTransferencia);
+      ultimoBciData = { gBci, bciPos, bsaleTransferencia };
+      renderTransferenciasBci(gBci, bciPos, bsaleTransferencia);
+      bciMsg = `, ${bciPos.length} transferencias BCI`;
+    }
+
     const posAll = (tuuRes.transacciones || []).filter(t => t.type === 'debito' || t.type === 'credito');
     const bsaleCred = bsaleRes.credito || [];
     const bsaleDeb = bsaleRes.debito || [];
@@ -383,7 +402,7 @@ async function fetchAutomatico(){
     renderOtrosPagos(bsaleRes.otros || [], tuuRes.otras || []);
 
     status.className = 'ok';
-    status.textContent = `Listo — ${posAll.length} ventas POS, ${bsaleCred.length + bsaleDeb.length} documentos Bsale${shopifyMsg}`;
+    status.textContent = `Listo — ${posAll.length} ventas POS, ${bsaleCred.length + bsaleDeb.length} documentos Bsale${shopifyMsg}${bciMsg}`;
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
@@ -474,6 +493,24 @@ function renderShopify(gShopify, shopifyPos, bsaleShopify){
     ${gShopify.unmatchedBsale.length>0 ? `
       <p class="empty-note">${gShopify.unmatchedBsale.length} documento(s) Bsale "SHOPIFY" sin orden correspondiente ese día:</p>
       ${extraHtml(gShopify.unmatchedBsale, fecha, poolShopifySueltos)}
+    ` : ''}
+  `;
+}
+
+function renderTransferenciasBci(gBci, bciPos, bsaleTransferencia){
+  const fecha = $('fecha').value;
+  const el = $('bciResults');
+  const poolBsaleSueltosBci = gBci.unmatchedBsale;
+  const poolBciSueltos = gBci.rows.filter(r=>!r.matched).map(r=>r.pos);
+  if(bciPos.length === 0 && bsaleTransferencia.length === 0){
+    el.innerHTML = `<p class="empty-note">Sin transferencias BCI ni documentos Bsale "TRANSFERENCIA BANCARIA" para esta fecha.</p>`;
+    return;
+  }
+  el.innerHTML = `
+    ${rowsHtml(gBci.rows, 'BCI', 'transferencia', fecha, poolBsaleSueltosBci)}
+    ${gBci.unmatchedBsale.length>0 ? `
+      <p class="empty-note">${gBci.unmatchedBsale.length} documento(s) Bsale "TRANSFERENCIA BANCARIA" sin transferencia BCI correspondiente ese día:</p>
+      ${extraHtml(gBci.unmatchedBsale, fecha, poolBciSueltos)}
     ` : ''}
   `;
 }
@@ -730,7 +767,7 @@ function sugerenciaHtml(monto, pool, tipoCandidato, docReferencia, seccionActual
 
 function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
   if(rows.length===0) return `<p class="empty-note">Sin transacciones de ${label} para esta fecha.</p>`;
-  const origenLabel = label === 'Shopify' ? 'Monto Shopify' : 'Monto TUU';
+  const origenLabel = label === 'Shopify' ? 'Monto Shopify' : label === 'BCI' ? 'Monto BCI' : 'Monto TUU';
   const esShopify = scope === 'shopify';
   const colPasarela = esShopify ? '<th>Pasarela de pago</th>' : '';
   let html = `<table><thead><tr><th>Hora</th><th class="amount">${origenLabel}</th>${colPasarela}<th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
@@ -841,6 +878,12 @@ function renderResults(rCrudo){
     const totalShopifyPos = sum(shopifyPos, 'amount');
     const totalShopifyMatch = sum(gShopify.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
     filas.push({ canal: 'Shopify', origen: totalShopifyPos, bsale: totalShopifyMatch, cuadra: gShopify.rows.every(r=>r.matched) });
+  }
+  if(ultimoBciData){
+    const { gBci, bciPos } = ultimoBciData;
+    const totalBciPos = sum(bciPos, 'amount');
+    const totalBciMatch = sum(gBci.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
+    filas.push({ canal: 'Transferencias BCI', origen: totalBciPos, bsale: totalBciMatch, cuadra: gBci.rows.every(r=>r.matched) });
   }
   const cuadraGeneral = filas.every(f => f.cuadra);
 
