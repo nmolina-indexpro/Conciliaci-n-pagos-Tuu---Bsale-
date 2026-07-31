@@ -5,5 +5,8 @@
   "description": "Cuadratura diaria de ventas TUU (POS) vs documentos Bsale para IndexStore",
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "@vercel/postgres": "^0.10.0"
   }
 }
