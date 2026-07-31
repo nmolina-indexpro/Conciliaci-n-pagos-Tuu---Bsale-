@@ -103,6 +103,8 @@
   .icon-btn.has-comment{background:var(--blue-bg);border-color:#BFD7FB;color:var(--blue);}
   .icon-btn.is-resolved{background:var(--green-bg);border-color:#B7E4C7;color:var(--green);}
   .suggestion{font-size:11px;color:var(--blue);margin-top:5px;font-style:italic;}
+  .doc-link{color:var(--primary);text-decoration:none;font-weight:600;}
+  .doc-link:hover{text-decoration:underline;}
   .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;}
   .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
   .deposit-note{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:13px;margin-bottom:20px;color:var(--text);}
@@ -666,6 +668,12 @@ function verDetalleDia(fecha){
   fetchAutomatico();
 }
 // ---------- Comentarios y estado "revisado" (persistidos en este navegador) ----------
+// Muestra el número de documento como link directo a Bsale cuando hay URL disponible
+function docLinkHtml(numero, url){
+  if(url) return `<a href="${url}" target="_blank" rel="noopener" class="doc-link">#${numero} ↗</a>`;
+  return `#${numero}`;
+}
+
 function claveItem(fecha, scope, id){ return `pos_item:${fecha}:${scope}:${id}`; }
 function estaResuelto(clave){ return localStorage.getItem('resuelto:'+clave) === '1'; }
 function toggleResuelto(clave){
@@ -708,7 +716,7 @@ function sugerenciaHtml(monto, pool, tipoCandidato, docReferencia){
   const c = s.candidato;
   const etiquetaDiff = s.diff === 0 ? 'monto exacto' : `dif. ${fmt(s.diff)}`;
   if(tipoCandidato === 'bsale'){
-    return `<div class="suggestion">💡 ¿Será #${c.numero} ${c.cliente||'—'} (${fmt(c.monto)}, ${etiquetaDiff})?</div>`;
+    return `<div class="suggestion">💡 ¿Será ${docLinkHtml(c.numero, c.url)} ${c.cliente||'—'} (${fmt(c.monto)}, ${etiquetaDiff})?</div>`;
   }
   const refDoc = docReferencia ? ` para el documento #${docReferencia}` : '';
   return `<div class="suggestion">💡 ¿Será la venta de las ${c.time||'—'} por ${fmt(c.amount)} (${etiquetaDiff})${refDoc}?</div>`;
@@ -727,7 +735,7 @@ function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
         <td>${r.pos.time||'—'}</td>
         <td class="amount">${fmt(r.pos.amount)}</td>
         ${pasarelaCell}
-        <td>#${r.bsale.numero}</td>
+        <td>${docLinkHtml(r.bsale.numero, r.bsale.url)}</td>
         <td>${r.bsale.cliente||'—'}</td>
         <td class="amount">${fmt(r.bsale.monto)}</td>
         <td><span class="badge ok">OK</span></td>
@@ -762,7 +770,7 @@ function extraHtml(unmatchedBsale, fecha, poolTuuSueltos){
     const resuelto = estaResuelto(clave);
     const sugerencia = resuelto ? '' : sugerenciaHtml(b.monto, poolTuuSueltos, 'tuu', b.numero);
     html += `<tr>
-      <td>#${b.numero}</td><td>${b.cliente||'—'}</td><td class="amount">${fmt(b.monto)}</td>
+      <td>${docLinkHtml(b.numero, b.url)}</td><td>${b.cliente||'—'}</td><td class="amount">${fmt(b.monto)}</td>
       <td>
         <span class="badge ${resuelto?'ok':'no'}">${resuelto?'✓ revisado':'sin venta POS'}</span>
         <span class="icon-group">${iconosAccion(clave, resuelto)}</span>

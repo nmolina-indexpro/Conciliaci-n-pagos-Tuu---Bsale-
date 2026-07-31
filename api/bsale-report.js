@@ -181,10 +181,11 @@ export default async function handler(req, res) {
       const numero = doc.number ? String(doc.number) : '';
       const cliente = clientName(doc.client);
       const fecha = toUtcDateStr(doc.emissionDate);
+      const url = doc.urlPublicView || doc.urlPublicViewOriginal || '';
 
       for (const p of payments) {
         const kind = classifyPayment(p.name);
-        const row = { numero, cliente, monto: p.amount, fecha };
+        const row = { numero, cliente, monto: p.amount, fecha, url };
         if (kind === 'credito') credito.push(row);
         else if (kind === 'debito') debito.push(row);
         else if (kind === 'transferencia') transferencia.push(row);
