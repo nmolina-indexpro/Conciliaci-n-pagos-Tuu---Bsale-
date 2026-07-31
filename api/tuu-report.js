@@ -118,12 +118,14 @@ export default async function handler(req, res) {
     // Normalizamos al formato que usa el reconciliador. Incluimos "date" (día
     // calendario de la transacción) para poder agrupar por día en consolidados
     // semanales/mensuales.
-    const transacciones = rawTransactions
-      .filter(t => (t.status || '').toLowerCase() === 'completed')
+    // OJO: TUU no siempre devuelve transactionType en mayúsculas ("debit" en vez
+    // de "DEBIT" aparece en algunos registros) -> comparamos sin distinguir may/min.
+    const completadas = rawTransactions.filter(t => (t.status || '').toLowerCase() === 'completed');
+
+    const transacciones = completadas
+      .filter(t => ['debit', 'credit'].includes((t.transactionType || '').toLowerCase()))
       .map(t => ({
-        type: t.transactionType === 'DEBIT' ? 'debito'
-            : t.transactionType === 'CREDIT' ? 'credito'
-            : 'otro',
+        type: (t.transactionType || '').toLowerCase() === 'debit' ? 'debito' : 'credito',
         amount: t.totalAmount,
         date: (t.transactionDateTime || '').slice(0, 10),
         time: (t.transactionDateTime || '').slice(11, 16),
@@ -131,7 +133,20 @@ export default async function handler(req, res) {
         saleId: t.saleId || ''
       }));
 
-    return res.status(200).json({ startDate, endDate, transacciones });
+    // Transacciones completadas que NO son débito/crédito reconocido (prepago,
+    // sin tipo especificado, etc.) -> se muestran aparte, no se asume a cuál
+    // categoría pertenecen para no inflar un número con un supuesto.
+    const otras = completadas
+      .filter(t => !['debit', 'credit'].includes((t.transactionType || '').toLowerCase()))
+      .map(t => ({
+        tipo: t.transactionType || 'Sin especificar',
+        amount: t.totalAmount,
+        date: (t.transactionDateTime || '').slice(0, 10),
+        time: (t.transactionDateTime || '').slice(11, 16),
+        cardBrand: t.cardBrand || ''
+      }));
+
+    return res.status(200).json({ startDate, endDate, transacciones, otras });
   } catch (err) {
     return res.status(500).json({ error: 'Error consultando TUU', detail: String(err) });
   }
