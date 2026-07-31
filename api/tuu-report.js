@@ -19,7 +19,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
 }
 
 export default async function handler(req, res) {
-  const { date, startDate: qStart, endDate: qEnd } = req.query;
+  const { date, startDate: qStart, endDate: qEnd, debug } = req.query;
   const startDate = qStart || date;
   const endDate = qEnd || date;
 
@@ -82,6 +82,37 @@ export default async function handler(req, res) {
         const rest = await Promise.all(pagePromises);
         for (const body of rest) rawTransactions.push(...(body?.data?.transactions || []));
       }
+    }
+
+    if (debug) {
+      const porStatus = {};
+      const porTipo = {};
+      let sumaConFiltroActual = 0;
+      let sumaTotalSinFiltro = 0;
+
+      for (const t of rawTransactions) {
+        const status = t.status || '(sin status)';
+        const tipo = t.transactionType || '(sin tipo)';
+        porStatus[status] = porStatus[status] || { cantidad: 0, monto: 0 };
+        porStatus[status].cantidad += 1;
+        porStatus[status].monto += t.totalAmount || 0;
+
+        porTipo[tipo] = porTipo[tipo] || { cantidad: 0, monto: 0 };
+        porTipo[tipo].cantidad += 1;
+        porTipo[tipo].monto += t.totalAmount || 0;
+
+        sumaTotalSinFiltro += t.totalAmount || 0;
+        if ((t.status || '').toLowerCase() === 'completed') sumaConFiltroActual += t.totalAmount || 0;
+      }
+
+      return res.status(200).json({
+        startDate, endDate,
+        totalTransaccionesCrudas: rawTransactions.length,
+        porStatus, porTipo,
+        sumaConFiltroActual,      // lo que hoy usa la app (solo status "completed")
+        sumaTotalSinFiltro,       // si no filtráramos por status
+        ejemploTransaccion: rawTransactions[0] || null
+      });
     }
 
     // Normalizamos al formato que usa el reconciliador. Incluimos "date" (día
