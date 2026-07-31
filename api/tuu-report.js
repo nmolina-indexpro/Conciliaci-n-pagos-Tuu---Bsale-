@@ -91,7 +91,16 @@ export default async function handler(req, res) {
     //   (la API de TUU a veces no llena el tipo en ventas con cuotas)
     // Lo que queda fuera de estas reglas (sin tipo, sin cuotas) se deja aparte,
     // en "otras", para no adivinar.
+    // Excepciones confirmadas a mano (por saleId), para transacciones que la
+    // API de TUU no reporta con tipo claro pero que ya se verificaron
+    // directamente en el detalle de venta de TUU. Agregar acá evita tener que
+    // marcarlas como "revisado" cada vez que se corre el reporte.
+    const EXCEPCIONES_SALE_ID = {
+      '2530': 'credito' // Venta $109.900, 31/07/2026 12:07, confirmada como "Venta crédito" en TUU
+    };
+
     function inferirTipo(t) {
+      if (t.saleId && EXCEPCIONES_SALE_ID[String(t.saleId)]) return EXCEPCIONES_SALE_ID[String(t.saleId)];
       const tipoRaw = (t.transactionType || '').toLowerCase();
       if (tipoRaw === 'debit') return 'debito';
       if (tipoRaw === 'credit') return 'credito';
