@@ -96,8 +96,10 @@ export default async function handler(req, res) {
       if (tipoRaw === 'debit') return 'debito';
       if (tipoRaw === 'credit') return 'credito';
       if (tipoRaw === 'prepaid') return 'debito';
-      if (!tipoRaw && (t.installmentCount || 0) > 1) return 'credito';
-      return null;
+      // Sin transactionType: TUU la clasifica por N° de cuotas (confirmado con
+      // ejemplos reales del propio dashboard: 1 cuota = débito, 2+ = crédito).
+      if (!tipoRaw) return (t.installmentCount || 1) > 1 ? 'credito' : 'debito';
+      return null; // tipo desconocido y no reconocido (caso no visto todavía)
     }
 
     if (debug) {
