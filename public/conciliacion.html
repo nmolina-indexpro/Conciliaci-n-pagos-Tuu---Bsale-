@@ -348,6 +348,7 @@ function procesarManual(){
 // ---------- Modo automático (APIs) ----------
 let ultimoShopifyData = null; // {gShopify, shopifyPos, bsaleShopify} o null si no está disponible
 let ultimoBciData = null; // {gBci, bciPos, bsaleTransferencia} o null si no está disponible
+let vinculosShopify = {}; // { [numeroDocBsale]: {orden, cliente} } — desde la etiqueta NV-/FA- de Shopify
 
 async function fetchAutomatico(){
   const fecha = $('fecha').value;
@@ -371,9 +372,14 @@ async function fetchAutomatico(){
     let shopifyMsg = '';
     if(shopifyRes.error){
       ultimoShopifyData = null;
+      vinculosShopify = {};
       $('shopifyResults').innerHTML = `<p class="empty-note">Shopify no disponible: ${shopifyRes.detail || shopifyRes.error}</p>`;
     } else {
       const shopifyPos = (shopifyRes.ventas || []).map(v => ({ amount: v.monto, time:'', numero: v.numero, cliente: v.cliente, pasarela: v.pasarela }));
+      vinculosShopify = {};
+      for(const v of (shopifyRes.ventas || [])){
+        if(v.docBsaleVinculado) vinculosShopify[String(v.docBsaleVinculado)] = { orden: v.numero, cliente: v.cliente };
+      }
       const bsaleShopify = bsaleRes.shopify || [];
       const gShopify = matchGroup(shopifyPos, bsaleShopify);
       ultimoShopifyData = { gShopify, shopifyPos, bsaleShopify };
@@ -812,13 +818,21 @@ function extraHtml(unmatchedBsale, fecha, poolTuuSueltos){
   for(const b of unmatchedBsale){
     const clave = claveItem(fecha, 'bsaleExtra', b.numero);
     const resuelto = estaResuelto(clave);
-    const sugerencia = resuelto ? '' : sugerenciaHtml(b.monto, poolTuuSueltos, 'tuu', b.numero);
+    const vinculo = vinculosShopify[String(b.numero)];
+    let pista = '';
+    if(resuelto){
+      pista = '';
+    } else if(vinculo){
+      pista = `<div class="suggestion" style="color:var(--green);">🔗 Vinculado a la orden Shopify <b>#${vinculo.orden}</b> (${vinculo.cliente}) — etiqueta encontrada en Shopify, no es una suposición.</div>`;
+    } else {
+      pista = sugerenciaHtml(b.monto, poolTuuSueltos, 'tuu', b.numero);
+    }
     html += `<tr>
       <td>${docLinkHtml(b.numero, b.url)}</td><td>${b.cliente||'—'}</td><td class="amount">${fmt(b.monto)}</td>
       <td>
         <span class="badge ${resuelto?'ok':'no'}">${resuelto?'✓ revisado':'sin venta POS'}</span>
         <span class="icon-group">${iconosAccion(clave, resuelto)}</span>
-        ${sugerencia}
+        ${pista}
       </td>
     </tr>`;
   }
@@ -847,7 +861,8 @@ function renderResults(rCrudo){
   const cuadraAdj = todoResuelto(gDeb.rows, 'debito') && todoResuelto(gCred.rows, 'credito');
 
   const bsaleExtraPendientes = [...gDeb.unmatchedBsale, ...gCred.unmatchedBsale]
-    .filter(b => !estaResuelto(claveItem(fecha, 'bsaleExtra', b.numero)));
+    .filter(b => !estaResuelto(claveItem(fecha, 'bsaleExtra', b.numero)))
+    .filter(b => !vinculosShopify[String(b.numero)]);
   const bsaleExtraPendienteTotal = bsaleExtraPendientes.reduce((a,b)=>a+b.monto,0);
 
   // Documentos Bsale "sin venta POS" que la persona ya confirmó manualmente

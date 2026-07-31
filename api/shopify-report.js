@@ -61,6 +61,19 @@ const NOMBRES_PASARELA = {
   webpay: 'Webpay (Transbank)',
   paypal: 'PayPal'
 };
+// Busca en las etiquetas del pedido una referencia directa al documento Bsale
+// (formato visto en producción: "NV-2496" para Nota de Venta, "FA-20195"
+// para Factura). Devuelve solo el número, sin el prefijo.
+function extraerDocBsale(tags) {
+  if (!tags) return null;
+  const lista = Array.isArray(tags) ? tags : String(tags).split(',').map(t => t.trim());
+  for (const tag of lista) {
+    const m = /^(?:NV|FA|BE)-(\d+)$/i.exec(tag.trim());
+    if (m) return m[1];
+  }
+  return null;
+}
+
 function nombrePasarela(gatewayNames) {
   if (!Array.isArray(gatewayNames) || gatewayNames.length === 0) return 'No especificada';
   return gatewayNames
@@ -126,7 +139,7 @@ export default async function handler(req, res) {
       `https://${dominioLimpio}/admin/api/${API_VERSION}/orders.json` +
       `?status=any&created_at_min=${encodeURIComponent(createdMin)}` +
       `&created_at_max=${encodeURIComponent(createdMax)}` +
-      `&limit=250&fields=id,name,created_at,total_price,financial_status,customer,email,cancelled_at,payment_gateway_names`;
+      `&limit=250&fields=id,name,created_at,total_price,financial_status,customer,email,cancelled_at,payment_gateway_names,tags`;
 
     const allOrders = [];
     let guard = 0;
@@ -155,7 +168,12 @@ export default async function handler(req, res) {
         cliente: customerName(o),
         monto: Math.round(parseFloat(o.total_price)),
         fecha: (o.created_at || '').slice(0, 10),
-        pasarela: nombrePasarela(o.payment_gateway_names)
+        pasarela: nombrePasarela(o.payment_gateway_names),
+        // Cuando el pedido se paga por transferencia y Bsale genera la factura
+        // después, Shopify guarda el número de documento como etiqueta
+        // ("NV-2496", "FA-20195") -> con eso vinculamos directo, sin adivinar
+        // por monto.
+        docBsaleVinculado: extraerDocBsale(o.tags)
       }));
 
     return res.status(200).json({ startDate, endDate, ventas, ordenesRevisadas: allOrders.length });
