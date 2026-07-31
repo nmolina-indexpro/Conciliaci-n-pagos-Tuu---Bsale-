@@ -84,6 +84,22 @@ export default async function handler(req, res) {
       }
     }
 
+    // Regla de clasificación (confirmada contra el dashboard real de TUU):
+    // - transactionType "debit"/"credit" (sin distinguir mayúsculas) -> tal cual
+    // - "PREPAID" -> TUU las trata como venta débito
+    // - sin transactionType pero con más de 1 cuota -> son ventas a crédito
+    //   (la API de TUU a veces no llena el tipo en ventas con cuotas)
+    // Lo que queda fuera de estas reglas (sin tipo, sin cuotas) se deja aparte,
+    // en "otras", para no adivinar.
+    function inferirTipo(t) {
+      const tipoRaw = (t.transactionType || '').toLowerCase();
+      if (tipoRaw === 'debit') return 'debito';
+      if (tipoRaw === 'credit') return 'credito';
+      if (tipoRaw === 'prepaid') return 'debito';
+      if (!tipoRaw && (t.installmentCount || 0) > 1) return 'credito';
+      return null;
+    }
+
     if (debug) {
       const porStatus = {};
       const porTipo = {};
@@ -105,12 +121,12 @@ export default async function handler(req, res) {
         if ((t.status || '').toLowerCase() === 'completed') sumaConFiltroActual += t.totalAmount || 0;
       }
 
-      // Detalle de las transacciones que NO quedan como débito/crédito, para
-      // poder cruzarlas manualmente contra el listado de transacciones de TUU
-      // y ver cómo las clasifica su propio dashboard.
+      // Detalle de las transacciones que siguen sin poder clasificarse (ni con
+      // las reglas de débito/crédito/prepago/cuotas), para seguir cruzándolas
+      // manualmente contra el listado de TUU si hace falta.
       const noClasificadas = rawTransactions
         .filter(t => (t.status || '').toLowerCase() === 'completed')
-        .filter(t => !['debit', 'credit'].includes((t.transactionType || '').toLowerCase()))
+        .filter(t => inferirTipo(t) === null)
         .map(t => ({
           fecha: (t.transactionDateTime || '').slice(0, 10),
           hora: (t.transactionDateTime || '').slice(11, 16),
@@ -118,7 +134,8 @@ export default async function handler(req, res) {
           monto: t.totalAmount,
           saleId: t.saleId || '',
           cardBrand: t.cardBrand || '',
-          cardOrigin: t.cardOrigin || ''
+          cardOrigin: t.cardOrigin || '',
+          cuotas: t.installmentCount ?? null
         }));
 
       return res.status(200).json({
@@ -134,14 +151,13 @@ export default async function handler(req, res) {
     // Normalizamos al formato que usa el reconciliador. Incluimos "date" (día
     // calendario de la transacción) para poder agrupar por día en consolidados
     // semanales/mensuales.
-    // OJO: TUU no siempre devuelve transactionType en mayúsculas ("debit" en vez
-    // de "DEBIT" aparece en algunos registros) -> comparamos sin distinguir may/min.
     const completadas = rawTransactions.filter(t => (t.status || '').toLowerCase() === 'completed');
 
     const transacciones = completadas
-      .filter(t => ['debit', 'credit'].includes((t.transactionType || '').toLowerCase()))
-      .map(t => ({
-        type: (t.transactionType || '').toLowerCase() === 'debit' ? 'debito' : 'credito',
+      .map(t => ({ t, tipo: inferirTipo(t) }))
+      .filter(({ tipo }) => tipo !== null)
+      .map(({ t, tipo }) => ({
+        type: tipo,
         amount: t.totalAmount,
         date: (t.transactionDateTime || '').slice(0, 10),
         time: (t.transactionDateTime || '').slice(11, 16),
@@ -149,11 +165,11 @@ export default async function handler(req, res) {
         saleId: t.saleId || ''
       }));
 
-    // Transacciones completadas que NO son débito/crédito reconocido (prepago,
-    // sin tipo especificado, etc.) -> se muestran aparte, no se asume a cuál
+    // Transacciones completadas que NO calzan con ninguna regla anterior
+    // (sin tipo y sin cuotas) -> se muestran aparte, no se asume a cuál
     // categoría pertenecen para no inflar un número con un supuesto.
     const otras = completadas
-      .filter(t => !['debit', 'credit'].includes((t.transactionType || '').toLowerCase()))
+      .filter(t => inferirTipo(t) === null)
       .map(t => ({
         tipo: t.transactionType || 'Sin especificar',
         amount: t.totalAmount,
