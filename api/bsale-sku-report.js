@@ -80,10 +80,13 @@ export default async function handler(req, res) {
   // lógica de "Compradas" y "Último costo" con datos reales en vez de adivinar.
   if (debug === 'recepciones') {
     try {
-      const r = await bsaleGet('/stocks/receptions.json?expand=details&limit=5&offset=0', token);
+      const primera = await bsaleGet('/stocks/receptions.json?limit=5&offset=0', token);
+      const total = primera.count || 0;
+      const ultimoOffset = Math.max(0, total - 5);
+      const r = await bsaleGet(`/stocks/receptions.json?expand=details&limit=5&offset=${ultimoOffset}`, token);
       return res.status(200).json({
-        count: r.count,
-        primerasRecepciones: r.items || []
+        count: total,
+        ultimasRecepciones: r.items || []
       });
     } catch (err) {
       return res.status(200).json({ error: 'Error consultando recepciones', detail: String(err) });
@@ -126,50 +129,14 @@ export default async function handler(req, res) {
       stockPorSku[code] = (stockPorSku[code] || 0) + (s.quantityAvailable ?? s.quantity ?? 0);
     }
 
-    // ---- 3) Recepciones (compras a proveedores) por variante ----
-    // OJO: para "unidadesCompradas" sí filtramos por el período elegido, pero
-    // para "último costo comprado" buscamos la recepción más reciente de
-    // verdad, aunque haya sido antes del período (si no se ha vuelto a
-    // comprar ese SKU, el último costo real sigue siendo el que importa).
-    let comprasPorSku = {};
-    let ultimoCostoPorSku = {}; // { [code]: { costo, fecha } }
-    let recepcionesDisponibles = true;
-    try {
-      const recepcionesPage = (offset, limit) =>
-        `/stocks/receptions.json?expand=details&limit=${limit}&offset=${offset}`;
-      const { items: recepciones } = await fetchAllPages(recepcionesPage, token, 50, 40);
-      for (const rec of recepciones) {
-        const fecha = toUtcDateStr(rec.admissionDate || rec.generationDate || rec.receptionDate);
-        const detalles = rec.details?.items || (Array.isArray(rec.details) ? rec.details : []);
-        for (const det of detalles) {
-          const code = det.variant?.code;
-          if (!code) continue;
-
-          if (fecha && (!fecha || fecha >= startDate) && fecha <= endDate) {
-            comprasPorSku[code] = (comprasPorSku[code] || 0) + (det.quantity || 0);
-          }
-
-          // Costo unitario: probamos varios nombres de campo posibles, ya que
-          // no encontré confirmado en la doc pública cuál usa esta cuenta.
-          const costoDetectado = det.cost ?? det.unitCost ?? det.netUnitValue ?? det.unitValue ?? det.costValue ?? null;
-          if (costoDetectado != null && fecha) {
-            const actual = ultimoCostoPorSku[code];
-            if (!actual || fecha > actual.fecha) {
-              ultimoCostoPorSku[code] = { costo: costoDetectado, fecha };
-            }
-          }
-        }
-      }
-    } catch (err) {
-      recepcionesDisponibles = false;
-    }
-
-    // ---- 4) Catálogo: clasificación (producto/servicio) y categoría ----
-    // Solo pedimos esto para no arrastrar servicios (instalaciones, garantías,
-    // etc.) a un análisis de compra de mercadería física.
+    // ---- 3) Catálogo: clasificación (producto/servicio), categoría, y el
+    // mapa id de variante -> SKU (las recepciones solo traen el id interno de
+    // la variante, no el código, así que este mapa hay que tenerlo ANTES de
+    // procesar recepciones). ----
     let catalogoDisponible = true;
     const categoriaPorCode = {};
     const esServicioPorCode = {};
+    const codePorVariantId = {};
     try {
       const [tiposRes, productsRes, variantsRes] = await Promise.all([
         bsaleGet('/product_types.json?limit=50', token),
@@ -191,6 +158,7 @@ export default async function handler(req, res) {
 
       for (const v of variantsRes.items) {
         if (!v.code) continue;
+        codePorVariantId[String(v.id)] = v.code;
         const productoId = v.product?.id;
         const info = productoId != null ? infoPorProductoId[productoId] : null;
         categoriaPorCode[v.code] = info?.categoria || 'Sin categoría';
@@ -198,6 +166,81 @@ export default async function handler(req, res) {
       }
     } catch (err) {
       catalogoDisponible = false; // seguimos sin categorías/filtro de servicio si esto falla
+    }
+
+    // ---- 4) Recepciones (compras a proveedores) por variante ----
+    // OJO: para "unidadesCompradas" sí filtramos por el período elegido, pero
+    // para "último costo comprado" buscamos la recepción más reciente de
+    // verdad, aunque haya sido antes del período.
+    //
+    // Esta cuenta tiene miles de recepciones acumuladas desde 2019, y la API
+    // las devuelve de más antigua a más nueva -> hay que paginar DESDE EL
+    // FINAL (las más recientes) en vez de desde el principio, o nunca se
+    // llega a las fechas actuales dentro de un tope razonable de páginas.
+    let comprasPorSku = {};
+    let ultimoCostoPorSku = {}; // { [code]: { costo, fecha } }
+    let recepcionesDisponibles = true;
+    try {
+      const primera = await bsaleGet('/stocks/receptions.json?limit=50&offset=0', token);
+      const totalRecepciones = primera.count || 0;
+      const limit = 50;
+      const totalPaginas = Math.ceil(totalRecepciones / limit);
+      const topePaginas = 40; // ~2.000 recepciones más recientes
+      const paginasARevisar = Math.min(totalPaginas, topePaginas);
+      const offsetInicio = Math.max(0, (totalPaginas - paginasARevisar) * limit);
+
+      const promesas = [];
+      for (let off = offsetInicio; off < totalPaginas * limit; off += limit) {
+        promesas.push(bsaleGet(`/stocks/receptions.json?expand=details&limit=${limit}&offset=${off}`, token));
+      }
+      const paginas = await Promise.all(promesas);
+      let recepciones = paginas.flatMap(p => p.items || []);
+
+      // Si una recepción individual tiene más de 25 líneas de detalle (el
+      // límite por defecto de esa sub-colección), traemos el resto aparte.
+      const pendientesDetalle = recepciones.filter(r => r.details?.next);
+      if (pendientesDetalle.length > 0) {
+        const extra = await Promise.all(pendientesDetalle.slice(0, 20).map(async r => {
+          try {
+            const resto = await bsaleGet(`/stocks/receptions/${r.id}/details.json?limit=50&offset=25`, token);
+            return { id: r.id, items: resto.items || [] };
+          } catch { return { id: r.id, items: [] }; }
+        }));
+        const extraPorId = Object.fromEntries(extra.map(e => [e.id, e.items]));
+        recepciones = recepciones.map(r => {
+          if (extraPorId[r.id]) {
+            return { ...r, details: { ...r.details, items: [...(r.details.items || []), ...extraPorId[r.id]] } };
+          }
+          return r;
+        });
+      }
+
+      for (const rec of recepciones) {
+        // Las notas de crédito generan una "recepción" de reverso de stock,
+        // no son compras nuevas a proveedores -> no cuentan.
+        if (/nota de cr[eé]dito/i.test(rec.document || '')) continue;
+
+        const fecha = rec.rawAdmissionDate || toUtcDateStr(rec.admissionDate);
+        const detalles = rec.details?.items || [];
+        for (const det of detalles) {
+          const variantId = det.variant?.id;
+          const code = variantId != null ? codePorVariantId[String(variantId)] : null;
+          if (!code) continue;
+
+          if (fecha && fecha >= startDate && fecha <= endDate) {
+            comprasPorSku[code] = (comprasPorSku[code] || 0) + (det.quantity || 0);
+          }
+
+          if (det.cost != null && det.cost > 0 && fecha) {
+            const actual = ultimoCostoPorSku[code];
+            if (!actual || fecha > actual.fecha) {
+              ultimoCostoPorSku[code] = { costo: det.cost, fecha };
+            }
+          }
+        }
+      }
+    } catch (err) {
+      recepcionesDisponibles = false;
     }
 
     // ---- 5) Combinar todo por SKU ----
