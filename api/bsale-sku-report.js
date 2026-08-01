@@ -60,7 +60,7 @@ function toUtcDateStr(unixSeconds) {
 }
 
 export default async function handler(req, res) {
-  const { days, startDate: qStart, endDate: qEnd } = req.query;
+  const { days, startDate: qStart, endDate: qEnd, debug } = req.query;
   const token = process.env.BSALE_ACCESS_TOKEN;
   if (!token) {
     return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no configurada en el servidor', skus: [] });
@@ -74,6 +74,21 @@ export default async function handler(req, res) {
     d.setUTCDate(d.getUTCDate() - numDias);
     return d.toISOString().slice(0, 10);
   })();
+
+  // Modo debug: solo trae recepciones crudas, sin procesar nada, para poder
+  // ver los nombres reales de los campos (fecha, costo, detalle) y ajustar la
+  // lógica de "Compradas" y "Último costo" con datos reales en vez de adivinar.
+  if (debug === 'recepciones') {
+    try {
+      const r = await bsaleGet('/stocks/receptions.json?expand=details&limit=5&offset=0', token);
+      return res.status(200).json({
+        count: r.count,
+        primerasRecepciones: r.items || []
+      });
+    } catch (err) {
+      return res.status(200).json({ error: 'Error consultando recepciones', detail: String(err) });
+    }
+  }
 
   try {
     const rangeStart = Math.floor(new Date(`${startDate}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
