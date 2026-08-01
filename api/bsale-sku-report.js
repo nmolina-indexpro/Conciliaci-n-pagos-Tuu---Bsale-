@@ -226,8 +226,8 @@ export default async function handler(req, res) {
     // desde hoy hacia adelante (proyección de cuentas por pagar), no lo que
     // ya pasó.
     const hoyStr = endDate; // usamos endDate como "hoy" para que sea consistente si se pide un rango con fecha fin distinta a hoy
-    const ventanaVenceInicio = hoyStr;
-    const ventanaVenceFin = addDaysStr(hoyStr, 60);
+    const ventanaVenceInicio = addDaysStr(hoyStr, -2);
+    const ventanaVenceFin = addDaysStr(hoyStr, 2);
     let proximosPagos = [];
     try {
       const primera = await bsaleGet('/stocks/receptions.json?limit=50&offset=0', token);

@@ -103,6 +103,7 @@
   <div class="toolbar">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <div class="date-field"><label for="diasInput">Período (días)</label><input type="number" id="diasInput" value="120" min="7" max="365" style="width:80px;"></div>
+      <button class="btn-ghost btn-compact" onclick="setDias(7)">7 días</button>
       <button class="btn-ghost btn-compact" onclick="setDias(15)">15 días</button>
       <button class="btn-ghost btn-compact" onclick="setDias(30)">30 días</button>
       <button class="btn-ghost btn-compact" onclick="setDias(90)">90 días</button>
@@ -113,7 +114,6 @@
   </div>
 
   <div id="avisoWrap"></div>
-  <div class="note-box">💡 Una compra hecha hoy normalmente se paga a tu proveedor ~30 días después de recibida la mercadería — piensa la "Sugerencia" no solo en unidades, sino en el compromiso de pago que vas a tener en un mes más. Como en general pides pensando en los próximos días, dejamos columnas de sugerencia a <b>7</b> y <b>14</b> días, además del stock y cobertura actual.</div>
 
   <div class="card panel-colapsable" id="proximosPagosCard" style="margin-bottom:24px;">
     <div class="panel-header" onclick="togglePanel('proximosPagosCard')">
@@ -131,7 +131,7 @@
       <span class="panel-chevron">▾</span>
     </div>
     <div class="panel-body">
-      <p class="empty-note" style="margin-top:0;">Dado un monto máximo a gastar (por ejemplo, lo que tu proveedor te financia cada 30 días), prioriza los SKU más urgentes hasta agotar el presupuesto — no una lista completa, sino qué comprar primero con la plata que realmente tienes. <b>Siempre se enfoca en Pantalla Notebook + Cargador Original + Batería Original</b>, sin importar el filtro que tengas activo en la tabla de abajo.</p>
+      <p class="empty-note" style="margin-top:0;">Dado un monto máximo a gastar (por ejemplo, lo que tu proveedor te financia cada 30 días), prioriza los SKU más urgentes hasta agotar el presupuesto — no una lista completa, sino qué comprar primero con la plata que realmente tienes.</p>
       <div class="filtros" style="margin-bottom:0;">
         <label style="font-size:12px;color:var(--muted);">Presupuesto disponible:</label>
         <input type="number" id="presupuestoInput" value="8000000" step="100000" style="width:150px;">
@@ -141,7 +141,20 @@
           <option value="7" selected>7 días</option>
           <option value="14">14 días</option>
         </select>
+        <label style="font-size:12px;color:var(--muted);">Categoría:</label>
+        <select id="categoriaRecomendacion">
+          <option value="pan-car-bat" selected>PAN-CAR-BAT</option>
+          <option value="">Todas las categorías</option>
+          <option value="pantalla">Pantallas</option>
+          <option value="cargador-original">Cargadores originales</option>
+          <option value="cargador-daxis">Cargadores Daxis</option>
+          <option value="cargador-alternativo">Cargadores alternativos</option>
+          <option value="bateria-original">Baterías originales</option>
+          <option value="bateria-daxis">Baterías Daxis</option>
+          <option value="bateria-alternativo">Baterías alternativas</option>
+        </select>
         <button class="btn-primary btn-compact" onclick="calcularRecomendacionPresupuesto()">Calcular recomendación</button>
+        <button class="btn-ghost btn-compact" onclick="descargarRecomendacion()">⬇ Descargar recomendación</button>
       </div>
       <div id="recomendacionWrap" style="margin-top:14px;"></div>
     </div>
@@ -211,6 +224,7 @@ let datosSkus = [];
 let ordenActual = { campo: 'unidadesVendidas', asc: false };
 let categoriaRapidaActiva = null;
 let ultimasFilasFiltradas = [];
+let ultimaRecomendacion = null;
 
 function togglePanel(idCard){
   $(idCard).classList.toggle('colapsado');
@@ -320,7 +334,7 @@ function renderProximosPagos(pagosPorProveedor, ventana){
   }
   const total = pagosPorProveedor.reduce((a,p)=>a+p.monto,0);
   wrap.innerHTML = `
-    <p class="empty-note" style="margin-top:0;">Facturas de compra recibidas recientemente cuyo vencimiento cae entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> — cada proveedor con su propio plazo: <b>Coimco / Intcomex: 30 días</b> · <b>LaptopCenter: 45 días</b>. Agrupado por proveedor, ordenado por fecha de vencimiento más próxima.</p>
+    <p class="empty-note" style="margin-top:0;">Facturas cuyo vencimiento cae entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> (±2 días de hoy) — cada proveedor con su propio plazo: <b>Coimco / Intcomex: 30 días</b> · <b>LaptopCenter: 45 días</b>. Agrupado por proveedor, ordenado por fecha de vencimiento más próxima.</p>
     <table>
       <thead><tr><th>Proveedor</th><th class="amount">N° documentos</th><th class="amount">Monto total</th></tr></thead>
       <tbody>
@@ -357,6 +371,7 @@ function calcularRecomendacionPresupuesto(){
   const presupuesto = parseFloat($('presupuestoInput').value) || 0;
   const horizonte = $('horizontePresupuesto').value;
   const campoSugerencia = 'sugerencia' + horizonte;
+  const categoriaElegida = $('categoriaRecomendacion').value; // '' = todas, o una clave de filtrosRapidos
 
   if(presupuesto <= 0){
     wrap.innerHTML = `<p class="empty-note">Ingresa un presupuesto mayor a $0.</p>`;
@@ -367,14 +382,13 @@ function calcularRecomendacionPresupuesto(){
     return;
   }
 
-  // Esta recomendación SIEMPRE se enfoca en Pantalla Notebook + Cargador
-  // Original + Batería Original (PAN-CAR-BAT), sin importar qué filtro esté
-  // activo en la tabla de abajo — son las categorías que más importan para
-  // la decisión de compra con presupuesto limitado.
-  const base = datosSkus.filter(s => filtrosRapidos['pan-car-bat'](s));
+  // Toma la categoría elegida en el selector (por defecto PAN-CAR-BAT), sobre
+  // el catálogo completo -> no depende del filtro que tengas activo en la
+  // tabla de abajo.
+  const base = categoriaElegida ? datosSkus.filter(s => filtrosRapidos[categoriaElegida](s)) : datosSkus;
 
   if(base.length === 0){
-    wrap.innerHTML = `<p class="empty-note">No hay SKU en las categorías Pantalla Notebook / Cargador Original / Batería Original para este período.</p>`;
+    wrap.innerHTML = `<p class="empty-note">No hay SKU en la categoría elegida para este período.</p>`;
     return;
   }
 
@@ -406,6 +420,9 @@ function calcularRecomendacionPresupuesto(){
   }
 
   const sinCosto = base.filter(s => s[campoSugerencia] > 0 && s.ultimoCosto == null);
+
+  // Guardamos el resultado para poder descargarlo con descargarRecomendacion()
+  ultimaRecomendacion = { dentroPresupuesto, fueraPresupuesto, presupuesto, acumulado, horizonte, campoSugerencia };
 
   wrap.innerHTML = `
     <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px;">
@@ -547,6 +564,44 @@ function renderTabla(){
     </table>
     <p class="empty-note">Mostrando ${filas.length} de ${datosSkus.length} SKU. * Monto sugerido a comprar es una estimación usando el precio de venta promedio de cada SKU, no el costo de compra real.</p>
   `;
+}
+
+function descargarRecomendacion(){
+  if(!ultimaRecomendacion || ultimaRecomendacion.dentroPresupuesto.length === 0){
+    alert('Primero presiona "Calcular recomendación" (con al menos un SKU dentro del presupuesto).');
+    return;
+  }
+  const { dentroPresupuesto, fueraPresupuesto, presupuesto, acumulado, horizonte } = ultimaRecomendacion;
+
+  const filas = [
+    ...dentroPresupuesto.map(s => ({
+      'SKU': s.code, 'Producto': s.nombre, 'Categoría': s.categoria,
+      'Días de cobertura': s.diasCobertura === null ? '' : s.diasCobertura,
+      [`Sugerencia (${horizonte}d)`]: s[ultimaRecomendacion.campoSugerencia],
+      'Último costo': s.ultimoCosto, 'Costo línea': s.costoLinea,
+      'Decisión': 'Comprar'
+    })),
+    ...fueraPresupuesto.map(s => ({
+      'SKU': s.code, 'Producto': s.nombre, 'Categoría': s.categoria,
+      'Días de cobertura': s.diasCobertura === null ? '' : s.diasCobertura,
+      [`Sugerencia (${horizonte}d)`]: s[ultimaRecomendacion.campoSugerencia],
+      'Último costo': s.ultimoCosto, 'Costo línea': s.costoLinea,
+      'Decisión': 'Esperar (excede presupuesto)'
+    }))
+  ];
+
+  const hoja = XLSX.utils.json_to_sheet(filas);
+  hoja['!cols'] = [{wch:14},{wch:38},{wch:22},{wch:14},{wch:16},{wch:12},{wch:14},{wch:24}];
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, `Recomendacion ${horizonte}d`);
+
+  const resumenHoja = XLSX.utils.json_to_sheet([
+    { 'Presupuesto': presupuesto, 'A gastar (recomendado)': acumulado, 'Disponible sin usar': presupuesto - acumulado, 'Horizonte': horizonte + ' días' }
+  ]);
+  XLSX.utils.book_append_sheet(libro, resumenHoja, 'Resumen');
+
+  const fecha = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(libro, `recomendacion-compra-${horizonte}dias-${fecha}.xlsx`);
 }
 
 function exportarExcel(){
