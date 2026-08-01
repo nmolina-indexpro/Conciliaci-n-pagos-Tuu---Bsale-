@@ -695,6 +695,40 @@ async function fetchConsolidado(){
 
     renderConsolidado({ startDate, endDate, filas });
 
+    // Las secciones de detalle (Shopify/BCI/Efectivo) también se actualizan
+    // con los datos de TODO el rango, para que no se queden con lo del último
+    // día consultado individualmente.
+    ultimoEfectivoDocs = bsaleRes.efectivo || [];
+    renderEfectivo(ultimoEfectivoDocs);
+
+    const shopifyPosRango = shopifyRes.error ? [] : (shopifyRes.ventas || []).map(v => ({ amount: v.monto, time:'', numero: v.numero, cliente: v.cliente, pasarela: v.pasarela }));
+    const bsaleShopifyRango = bsaleRes.shopify || [];
+    vinculosShopify = {};
+    if(!shopifyRes.error){
+      for(const v of (shopifyRes.ventas || [])){
+        if(v.docBsaleVinculado) vinculosShopify[String(v.docBsaleVinculado)] = { orden: v.numero, cliente: v.cliente };
+      }
+    }
+    const gShopifyRango = matchGroup(shopifyPosRango, bsaleShopifyRango);
+    ultimoShopifyData = { gShopify: gShopifyRango, shopifyPos: shopifyPosRango, bsaleShopify: bsaleShopifyRango };
+    if(shopifyRes.error){
+      $('shopifyResults').innerHTML = `<p class="empty-note">Shopify no disponible: ${shopifyRes.detail || shopifyRes.error}</p>`;
+    } else {
+      renderShopify(gShopifyRango, shopifyPosRango, bsaleShopifyRango);
+    }
+
+    const bciPosRango = bciRes.error ? [] : (bciRes.transferencias || []).map(t => ({ amount: t.monto, time:(t.recibidoEn||'').slice(11,16), numero: t.referencia||'', cliente: t.origen||'' }));
+    const bsaleTransferenciaRango = bsaleRes.transferencia || [];
+    const gBciRango = matchGroup(bciPosRango, bsaleTransferenciaRango);
+    ultimoBciData = { gBci: gBciRango, bciPos: bciPosRango, bsaleTransferencia: bsaleTransferenciaRango };
+    if(bciRes.error){
+      $('bciResults').innerHTML = `<p class="empty-note">Transferencias BCI no disponibles: ${bciRes.detail || bciRes.error}</p>`;
+    } else {
+      renderTransferenciasBci(gBciRango, bciPosRango, bsaleTransferenciaRango);
+    }
+
+    renderOtrosPagos(bsaleRes.otros || [], tuuRes.otras || []);
+
     cstatus.className = 'ok';
     cstatus.textContent = `Listo — ${filas.length} días con movimiento entre ${startDate} y ${endDate}`;
   }catch(err){
