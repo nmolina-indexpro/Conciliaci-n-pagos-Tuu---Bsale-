@@ -115,6 +115,7 @@
 
   <div class="filtros" style="margin-bottom:8px;">
     <button class="btn-ghost btn-compact" id="catTodas" onclick="filtrarCategoriaRapida(null)">Todas las categorías</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('pan-car-bat')" title="Pantalla Notebook + Cargador Original + Batería Original" style="border-color:var(--primary);color:var(--primary);font-weight:800;">PAN-CAR-BAT</button>
     <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('pantalla')">Pantallas para notebook</button>
     <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-original')">Cargadores originales</button>
     <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-daxis')">Cargadores Daxis</button>
@@ -270,6 +271,9 @@ function renderTabla(){
     'bateria-daxis': s => (/bater[ií]a/i.test(s.categoria||'')||/bater[ií]a/i.test(s.nombre||'')) && /daxis/i.test(s.nombre||''),
     'bateria-alternativo': s => (/bater[ií]a/i.test(s.categoria||'')||/bater[ií]a/i.test(s.nombre||'')) && /alternativ/i.test(s.nombre||'')
   };
+  // Combinado: Pantallas + Cargadores originales + Baterías originales
+  filtrosRapidos['pan-car-bat'] = s =>
+    filtrosRapidos.pantalla(s) || filtrosRapidos['cargador-original'](s) || filtrosRapidos['bateria-original'](s);
 
   let filas = datosSkus.filter(s => {
     if(texto && !(s.code.toLowerCase().includes(texto) || s.nombre.toLowerCase().includes(texto))) return false;
