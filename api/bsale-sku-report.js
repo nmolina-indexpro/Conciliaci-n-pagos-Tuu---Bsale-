@@ -112,7 +112,12 @@ export default async function handler(req, res) {
     }
 
     // ---- 3) Recepciones (compras a proveedores) por variante ----
+    // OJO: para "unidadesCompradas" sí filtramos por el período elegido, pero
+    // para "último costo comprado" buscamos la recepción más reciente de
+    // verdad, aunque haya sido antes del período (si no se ha vuelto a
+    // comprar ese SKU, el último costo real sigue siendo el que importa).
     let comprasPorSku = {};
+    let ultimoCostoPorSku = {}; // { [code]: { costo, fecha } }
     let recepcionesDisponibles = true;
     try {
       const recepcionesPage = (offset, limit) =>
@@ -120,12 +125,24 @@ export default async function handler(req, res) {
       const { items: recepciones } = await fetchAllPages(recepcionesPage, token, 50, 40);
       for (const rec of recepciones) {
         const fecha = toUtcDateStr(rec.admissionDate || rec.generationDate || rec.receptionDate);
-        if (fecha && (fecha < startDate || fecha > endDate)) continue;
         const detalles = rec.details?.items || (Array.isArray(rec.details) ? rec.details : []);
         for (const det of detalles) {
           const code = det.variant?.code;
           if (!code) continue;
-          comprasPorSku[code] = (comprasPorSku[code] || 0) + (det.quantity || 0);
+
+          if (fecha && (!fecha || fecha >= startDate) && fecha <= endDate) {
+            comprasPorSku[code] = (comprasPorSku[code] || 0) + (det.quantity || 0);
+          }
+
+          // Costo unitario: probamos varios nombres de campo posibles, ya que
+          // no encontré confirmado en la doc pública cuál usa esta cuenta.
+          const costoDetectado = det.cost ?? det.unitCost ?? det.netUnitValue ?? det.unitValue ?? det.costValue ?? null;
+          if (costoDetectado != null && fecha) {
+            const actual = ultimoCostoPorSku[code];
+            if (!actual || fecha > actual.fecha) {
+              ultimoCostoPorSku[code] = { costo: costoDetectado, fecha };
+            }
+          }
         }
       }
     } catch (err) {
@@ -206,6 +223,8 @@ export default async function handler(req, res) {
           stockActual,
           diasCobertura,
           unidadesCompradas: compradas,
+          ultimoCosto: ultimoCostoPorSku[code]?.costo ?? null,
+          fechaUltimaCompra: ultimoCostoPorSku[code]?.fecha ?? null,
           sugerencia5: sugerirPara(5),
           sugerencia7: sugerirPara(7),
           sugerencia14: sugerirPara(14),

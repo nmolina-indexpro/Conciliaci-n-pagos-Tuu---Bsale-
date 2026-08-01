@@ -196,7 +196,10 @@ async function cargar(){
   $('tablaWrap').innerHTML = `<p class="empty-note">Cargando...</p>`;
 
   try{
-    const res = await fetch(`/api/bsale-sku-report?days=${dias}`).then(r=>r.json());
+    const [res, imgRes] = await Promise.all([
+      fetch(`/api/bsale-sku-report?days=${dias}`).then(r=>r.json()),
+      fetch(`/api/shopify-images-report`).then(r=>r.json()).catch(()=>({imagenes:{}}))
+    ]);
     if(res.error){
       status.className = 'err';
       status.textContent = 'Error: ' + (res.detail || res.error);
@@ -204,7 +207,8 @@ async function cargar(){
       return;
     }
 
-    datosSkus = res.skus || [];
+    const mapaImagenes = imgRes.imagenes || {};
+    datosSkus = (res.skus || []).map(s => ({ ...s, imagenUrl: mapaImagenes[s.code] || null }));
 
     // Poblar el selector de categorías con lo que realmente existe en la cuenta
     const select = $('filtroCategoria');
@@ -213,8 +217,9 @@ async function cargar(){
 
     let avisos = '';
     if(res.ventasTruncadas) avisos += `<div class="note-box">⚠ El catálogo/movimiento es grande y se truncó la consulta de documentos — los números pueden estar incompletos. Prueba con un período más corto.</div>`;
-    if(res.recepcionesDisponibles === false) avisos += `<div class="note-box">ℹ No se pudo leer el historial de recepciones de stock (compras a proveedores) de tu cuenta — la columna "Compradas" puede quedar en 0. El resto del análisis sigue siendo válido.</div>`;
+    if(res.recepcionesDisponibles === false) avisos += `<div class="note-box">ℹ No se pudo leer el historial de recepciones de stock (compras a proveedores) de tu cuenta — la columna "Compradas" y "Último costo" pueden quedar vacías. El resto del análisis sigue siendo válido.</div>`;
     if(res.catalogoDisponible === false) avisos += `<div class="note-box">⚠ No se pudo leer el catálogo de productos (categorías / servicio vs producto) — se usó una regla de respaldo (buscar "servicio" en el nombre) para excluir servicios, y las categorías pueden salir como "Sin categoría".</div>`;
+    if(imgRes.error) avisos += `<div class="note-box">ℹ No se pudieron traer las miniaturas desde Shopify: ${imgRes.detail || imgRes.error}. La tabla sigue funcionando sin imágenes.</div>`;
     $('avisoWrap').innerHTML = avisos;
 
     const totalUnidades = datosSkus.reduce((a,s)=>a+s.unidadesVendidas,0);
@@ -293,6 +298,7 @@ function renderTabla(){
   wrap.innerHTML = `
     <table>
       <thead><tr>
+        <th></th>
         <th onclick="ordenarPor('code')">SKU${flecha('code')}</th>
         <th onclick="ordenarPor('nombre')">Producto${flecha('nombre')}</th>
         <th onclick="ordenarPor('categoria')">Categoría${flecha('categoria')}</th>
@@ -301,6 +307,7 @@ function renderTabla(){
         <th class="amount" onclick="ordenarPor('stockActual')">Stock actual${flecha('stockActual')}</th>
         <th class="amount" onclick="ordenarPor('diasCobertura')">Días cobertura${flecha('diasCobertura')}</th>
         <th class="amount" onclick="ordenarPor('unidadesCompradas')">Compradas (período)${flecha('unidadesCompradas')}</th>
+        <th class="amount" onclick="ordenarPor('ultimoCosto')">Último costo comprado${flecha('ultimoCosto')}</th>
         <th class="amount" onclick="ordenarPor('sugerencia5')">Sugerencia 5 días${flecha('sugerencia5')}</th>
         <th class="amount" onclick="ordenarPor('sugerencia7')">Sugerencia 7 días${flecha('sugerencia7')}</th>
         <th class="amount" onclick="ordenarPor('sugerencia14')">Sugerencia 14 días${flecha('sugerencia14')}</th>
@@ -310,7 +317,11 @@ function renderTabla(){
         ${filas.map(s => {
           const clase = clasificar(s);
           const etiqueta = { urgente:'Urgente', pronto:'Pronto', ok:'OK', sinventa:'Sin venta' }[clase];
+          const miniatura = s.imagenUrl
+            ? `<img src="${s.imagenUrl}" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--line);display:block;">`
+            : `<div style="width:36px;height:36px;border-radius:6px;background:var(--surface-2);border:1px solid var(--line);"></div>`;
           return `<tr class="${clase==='urgente'?'urgente':clase==='pronto'?'pronto':''}">
+            <td>${miniatura}</td>
             <td>${s.code}</td>
             <td>${s.nombre}</td>
             <td>${s.categoria}</td>
@@ -319,6 +330,7 @@ function renderTabla(){
             <td class="amount">${fmtNum(s.stockActual)}</td>
             <td class="amount">${s.diasCobertura===null?'—':fmtNum(s.diasCobertura)}</td>
             <td class="amount">${fmtNum(s.unidadesCompradas)}</td>
+            <td class="amount">${s.ultimoCosto!=null?fmt(s.ultimoCosto):'—'}</td>
             <td class="amount"><b>${fmtNum(s.sugerencia5)}</b></td>
             <td class="amount"><b>${fmtNum(s.sugerencia7)}</b></td>
             <td class="amount"><b>${fmtNum(s.sugerencia14)}</b></td>
@@ -348,6 +360,7 @@ function exportarExcel(){
       'Venta diaria prom.': s.ventaDiariaPromedio,
       'Stock actual': s.stockActual,
       'Días de cobertura': s.diasCobertura === null ? '' : s.diasCobertura,
+      'Último costo comprado': s.ultimoCosto ?? '',
       [`Cantidad a pedir (${horizonte} días)`]: s[campoSugerencia],
       'Estado': { urgente:'Urgente', pronto:'Pronto', ok:'OK', sinventa:'Sin venta' }[clasificar(s)]
     }))
