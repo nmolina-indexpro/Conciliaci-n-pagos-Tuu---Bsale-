@@ -91,6 +91,14 @@
 
   .section-title{font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:700;margin:28px 0 12px;display:flex;align-items:center;gap:8px;color:var(--text);}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .data-table{table-layout:fixed;}
+  .data-table th:nth-child(1),.data-table td:nth-child(1){width:9%;}
+  .data-table th:nth-child(2),.data-table td:nth-child(2){width:14%;}
+  .data-table th:nth-child(3),.data-table td:nth-child(3){width:11%;}
+  .data-table th:nth-child(4),.data-table td:nth-child(4){width:26%;}
+  .data-table th:nth-child(5),.data-table td:nth-child(5){width:14%;}
+  .data-table th:nth-child(6),.data-table td:nth-child(6){width:26%;}
+  .data-table td:nth-child(4){overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px 10px;border-bottom:2px solid var(--line);}
   td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle;}
   tr.unmatched td{color:#B91C1C;}
@@ -521,7 +529,7 @@ function renderEfectivo(docs){
   }
   const total = sum(docs, 'monto');
   el.innerHTML = `
-    <table>
+    <table class="data-table">
       <thead><tr><th>Hora</th><th class="amount">Monto Efectivo</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead>
       <tbody>
         ${docs.map(d => `
@@ -887,7 +895,7 @@ function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
   if(rows.length===0) return `<p class="empty-note">Sin transacciones de ${label} para esta fecha.</p>`;
   const origenLabel = label === 'Shopify' ? 'Monto Shopify' : label === 'BCI' ? 'Monto BCI' : label === 'Fintoc' ? 'Monto Fintoc' : 'Monto TUU';
   const esShopify = scope === 'shopify';
-  let html = `<table><thead><tr><th>Hora</th><th class="amount">${origenLabel}</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
+  let html = `<table class="data-table"><thead><tr><th>Hora</th><th class="amount">${origenLabel}</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
   for(const r of rows){
     if(r.matched){
       const textoEstado = esShopify && r.pos.pasarela ? `${r.pos.pasarela} OK` : 'OK';
