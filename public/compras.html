@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Compras — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --purple:#7C3AED; --purple-bg:#EFE7FD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:28px 20px 60px;}
+  .wrap{max-width:1200px;margin:0 auto;}
+  header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:26px;flex-wrap:wrap;gap:16px;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;letter-spacing:0.2px;margin:0 0 5px 0;color:var(--text);}
+  h1 span{color:var(--primary);}
+  .sub{color:var(--muted);font-size:13px;}
+  .page-nav{display:flex;gap:6px;margin-top:16px;background:var(--surface-2);padding:5px;border-radius:12px;width:fit-content;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:var(--muted);text-decoration:none;padding:10px 22px;border-radius:9px;transition:all .15s;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);}
+
+  input[type=number],input[type=text]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
+  input:focus{outline:none;border-color:var(--primary);}
+  .date-field{display:flex;align-items:center;gap:8px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;border:none;border-radius:9px;padding:11px 20px;cursor:pointer;transition:all .15s;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:12px;padding:7px 13px;}
+
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+  #status{font-size:12px;color:var(--muted);font-weight:500;}
+  #status.err{color:var(--red);}
+  #status.ok{color:var(--green);}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+  @media (max-width:900px){.grid{grid-template-columns:1fr 1fr;}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;color:var(--text);}
+  .card.alert .big{color:var(--red);}
+
+  .filtros{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;}
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--surface);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:10px;border-bottom:2px solid var(--line);cursor:pointer;user-select:none;background:var(--surface-2);}
+  th:hover{color:var(--primary);}
+  th.amount, td.amount{text-align:right;}
+  td{padding:9px 10px;border-bottom:1px solid var(--line);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  tr.urgente{background:var(--red-bg);}
+  tr.pronto{background:var(--amber-dim);}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10px;padding:3px 9px;border-radius:999px;font-weight:700;white-space:nowrap;}
+  .badge.urgente{background:var(--red);color:#fff;}
+  .badge.pronto{background:var(--amber);color:#fff;}
+  .badge.ok{background:var(--green-bg);color:var(--green);}
+  .badge.sinventa{background:var(--surface-2);color:var(--muted);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:14px 0;}
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:20px;color:var(--text);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>Análisis de <span>Compras</span> — IndexStore</h1>
+      <div class="sub">Ventas, stock y recepciones por SKU en Bsale — para decidir qué reponer</div>
+      <nav class="page-nav">
+        <a href="index.html">Flujo de Caja</a>
+        <a href="conciliacion.html">Conciliación</a>
+        <a href="compras.html" class="active">Compras</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div class="date-field"><label for="diasInput">Período (días)</label><input type="number" id="diasInput" value="120" min="7" max="365" style="width:80px;"></div>
+      <button class="btn-ghost btn-compact" onclick="setDias(90)">90 días</button>
+      <button class="btn-ghost btn-compact" onclick="setDias(120)">120 días</button>
+      <button class="btn-ghost btn-compact" onclick="setDias(180)">180 días</button>
+      <button class="btn-primary" onclick="cargar()">Analizar</button>
+    </div>
+    <span id="status"></span>
+  </div>
+
+  <div id="avisoWrap"></div>
+
+  <div class="grid" id="resumenCards">
+    <div class="card"><div class="lbl">SKU analizados</div><div class="big" id="cSkus">—</div></div>
+    <div class="card"><div class="lbl">Unidades vendidas (período)</div><div class="big" id="cUnidades">—</div></div>
+    <div class="card alert"><div class="lbl">SKU a reponer urgente</div><div class="big" id="cUrgentes">—</div></div>
+    <div class="card"><div class="lbl">Monto sugerido a comprar*</div><div class="big" id="cSugerido">—</div></div>
+  </div>
+
+  <div class="filtros">
+    <input type="text" id="buscador" placeholder="Buscar por SKU o nombre..." style="width:260px;" oninput="renderTabla()">
+    <select id="filtroUrgencia" onchange="renderTabla()">
+      <option value="">Todos</option>
+      <option value="urgente">Solo urgentes</option>
+      <option value="pronto">Urgentes + pronto a agotarse</option>
+      <option value="sinventa">Sin venta en el período</option>
+    </select>
+    <span style="color:var(--muted);font-size:12px;">Click en un encabezado para ordenar</span>
+  </div>
+
+  <div id="tablaWrap"><p class="empty-note">Presiona "Analizar" para traer los datos de Bsale.</p></div>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+function fmt(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
+function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+
+let datosSkus = [];
+let ordenActual = { campo: 'unidadesVendidas', asc: false };
+
+function setDias(d){
+  $('diasInput').value = d;
+  document.querySelectorAll('.btn-ghost.btn-compact').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  cargar();
+}
+
+function clasificar(sku){
+  if(sku.unidadesVendidas === 0) return 'sinventa';
+  if(sku.diasCobertura === null) return 'ok';
+  if(sku.diasCobertura <= 15) return 'urgente';
+  if(sku.diasCobertura <= 30) return 'pronto';
+  return 'ok';
+}
+
+async function cargar(){
+  const dias = parseInt($('diasInput').value, 10) || 120;
+  const status = $('status');
+  status.className = '';
+  status.textContent = `Consultando ${dias} días en Bsale (esto puede tardar un poco con catálogos grandes)...`;
+  $('tablaWrap').innerHTML = `<p class="empty-note">Cargando...</p>`;
+
+  try{
+    const res = await fetch(`/api/bsale-sku-report?days=${dias}`).then(r=>r.json());
+    if(res.error){
+      status.className = 'err';
+      status.textContent = 'Error: ' + (res.detail || res.error);
+      $('tablaWrap').innerHTML = `<p class="empty-note">No se pudo traer la información: ${res.detail || res.error}</p>`;
+      return;
+    }
+
+    datosSkus = res.skus || [];
+
+    let avisos = '';
+    if(res.ventasTruncadas) avisos += `<div class="note-box">⚠ El catálogo/movimiento es grande y se truncó la consulta de documentos — los números pueden estar incompletos. Prueba con un período más corto.</div>`;
+    if(res.recepcionesDisponibles === false) avisos += `<div class="note-box">ℹ No se pudo leer el historial de recepciones de stock (compras a proveedores) de tu cuenta — la columna "Compradas" puede quedar en 0. El resto del análisis (ventas, stock, sugerencia) sigue siendo válido.</div>`;
+    $('avisoWrap').innerHTML = avisos;
+
+    const totalUnidades = datosSkus.reduce((a,s)=>a+s.unidadesVendidas,0);
+    const urgentes = datosSkus.filter(s => clasificar(s)==='urgente');
+    const montoSugerido = datosSkus.reduce((a,s)=>{
+      const precioProm = s.unidadesVendidas>0 ? s.montoVentas/s.unidadesVendidas : 0;
+      return a + (s.sugerenciaCompra * precioProm);
+    },0);
+
+    $('cSkus').textContent = fmtNum(datosSkus.length);
+    $('cUnidades').textContent = fmtNum(totalUnidades);
+    $('cUrgentes').textContent = fmtNum(urgentes.length);
+    $('cSugerido').textContent = fmt(montoSugerido);
+
+    renderTabla();
+
+    status.className = 'ok';
+    status.textContent = `Listo — ${res.docsRevisados} documentos revisados, ${res.startDate} a ${res.endDate}`;
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
+}
+
+function ordenarPor(campo){
+  if(ordenActual.campo === campo) ordenActual.asc = !ordenActual.asc;
+  else { ordenActual.campo = campo; ordenActual.asc = false; }
+  renderTabla();
+}
+
+function renderTabla(){
+  const wrap = $('tablaWrap');
+  if(datosSkus.length === 0){
+    wrap.innerHTML = `<p class="empty-note">Sin datos para este período.</p>`;
+    return;
+  }
+
+  const texto = ($('buscador').value || '').toLowerCase().trim();
+  const filtroUrg = $('filtroUrgencia').value;
+
+  let filas = datosSkus.filter(s => {
+    if(texto && !(s.code.toLowerCase().includes(texto) || s.nombre.toLowerCase().includes(texto))) return false;
+    const clase = clasificar(s);
+    if(filtroUrg === 'urgente' && clase !== 'urgente') return false;
+    if(filtroUrg === 'pronto' && !(clase === 'urgente' || clase === 'pronto')) return false;
+    if(filtroUrg === 'sinventa' && clase !== 'sinventa') return false;
+    return true;
+  });
+
+  filas = filas.slice().sort((a,b) => {
+    const campo = ordenActual.campo;
+    let va = a[campo], vb = b[campo];
+    if(va === null) va = -Infinity;
+    if(vb === null) vb = -Infinity;
+    if(typeof va === 'string') return ordenActual.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return ordenActual.asc ? va - vb : vb - va;
+  });
+
+  const flecha = campo => ordenActual.campo === campo ? (ordenActual.asc ? ' ▲' : ' ▼') : '';
+
+  wrap.innerHTML = `
+    <table>
+      <thead><tr>
+        <th onclick="ordenarPor('code')">SKU${flecha('code')}</th>
+        <th onclick="ordenarPor('nombre')">Producto${flecha('nombre')}</th>
+        <th class="amount" onclick="ordenarPor('unidadesVendidas')">Vendidas (período)${flecha('unidadesVendidas')}</th>
+        <th class="amount" onclick="ordenarPor('ventaDiariaPromedio')">Venta diaria prom.${flecha('ventaDiariaPromedio')}</th>
+        <th class="amount" onclick="ordenarPor('stockActual')">Stock actual${flecha('stockActual')}</th>
+        <th class="amount" onclick="ordenarPor('diasCobertura')">Días cobertura${flecha('diasCobertura')}</th>
+        <th class="amount" onclick="ordenarPor('unidadesCompradas')">Compradas (período)${flecha('unidadesCompradas')}</th>
+        <th class="amount" onclick="ordenarPor('sugerenciaCompra')">Sugerencia de compra${flecha('sugerenciaCompra')}</th>
+        <th>Estado</th>
+      </tr></thead>
+      <tbody>
+        ${filas.map(s => {
+          const clase = clasificar(s);
+          const etiqueta = { urgente:'Urgente', pronto:'Pronto', ok:'OK', sinventa:'Sin venta' }[clase];
+          return `<tr class="${clase==='urgente'?'urgente':clase==='pronto'?'pronto':''}">
+            <td>${s.code}</td>
+            <td>${s.nombre}</td>
+            <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
+            <td class="amount">${s.ventaDiariaPromedio}</td>
+            <td class="amount">${fmtNum(s.stockActual)}</td>
+            <td class="amount">${s.diasCobertura===null?'—':fmtNum(s.diasCobertura)}</td>
+            <td class="amount">${fmtNum(s.unidadesCompradas)}</td>
+            <td class="amount"><b>${fmtNum(s.sugerenciaCompra)}</b></td>
+            <td><span class="badge ${clase}">${etiqueta}</span></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    <p class="empty-note">Mostrando ${filas.length} de ${datosSkus.length} SKU. * Monto sugerido a comprar es una estimación usando el precio de venta promedio de cada SKU, no el costo de compra real.</p>
+  `;
+}
+</script>
+</body>
+</html>
