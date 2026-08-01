@@ -4,6 +4,7 @@
     "api/bsale-report.js": { "maxDuration": 30 },
     "api/shopify-report.js": { "maxDuration": 30 },
     "api/bci-webhook.js": { "maxDuration": 15 },
+    "api/fintoc-report.js": { "maxDuration": 20 },
     "api/bci-transferencias-report.js": { "maxDuration": 15 }
   }
 }
