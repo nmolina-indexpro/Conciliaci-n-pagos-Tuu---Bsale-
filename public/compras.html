@@ -262,14 +262,20 @@ function renderTabla(){
   const filtroUrg = $('filtroUrgencia').value;
   const catSeleccionada = $('filtroCategoria').value;
 
+  // Comparamos contra la categoría EXACTA de Bsale (sin tildes ni mayúsculas)
+  // en vez de buscar palabras sueltas en el nombre del producto — así
+  // "Pantalla Táctil" o "Cargador Daxis" no se cuelan en "Pantalla Notebook"
+  // o "Cargador Original" solo por compartir una palabra.
+  const normalizarCat = c => (c||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+
   const filtrosRapidos = {
-    pantalla: s => /pantalla/i.test(s.categoria||'') || /pantalla/i.test(s.nombre||''),
-    'cargador-original': s => (/cargador/i.test(s.categoria||'')||/cargador/i.test(s.nombre||'')) && !/daxis/i.test(s.nombre||'') && !/alternativ/i.test(s.nombre||''),
-    'cargador-daxis': s => (/cargador/i.test(s.categoria||'')||/cargador/i.test(s.nombre||'')) && /daxis/i.test(s.nombre||''),
-    'cargador-alternativo': s => (/cargador/i.test(s.categoria||'')||/cargador/i.test(s.nombre||'')) && /alternativ/i.test(s.nombre||''),
-    'bateria-original': s => (/bater[ií]a/i.test(s.categoria||'')||/bater[ií]a/i.test(s.nombre||'')) && !/daxis/i.test(s.nombre||'') && !/alternativ/i.test(s.nombre||''),
-    'bateria-daxis': s => (/bater[ií]a/i.test(s.categoria||'')||/bater[ií]a/i.test(s.nombre||'')) && /daxis/i.test(s.nombre||''),
-    'bateria-alternativo': s => (/bater[ií]a/i.test(s.categoria||'')||/bater[ií]a/i.test(s.nombre||'')) && /alternativ/i.test(s.nombre||'')
+    pantalla: s => normalizarCat(s.categoria) === 'pantalla notebook',
+    'cargador-original': s => normalizarCat(s.categoria) === 'cargador original',
+    'cargador-daxis': s => normalizarCat(s.categoria) === 'cargador daxis',
+    'cargador-alternativo': s => normalizarCat(s.categoria) === 'cargador alternativo',
+    'bateria-original': s => normalizarCat(s.categoria) === 'bateria original',
+    'bateria-daxis': s => normalizarCat(s.categoria) === 'bateria daxis',
+    'bateria-alternativo': s => normalizarCat(s.categoria) === 'bateria alternativa'
   };
   // Combinado: Pantallas + Cargadores originales + Baterías originales
   filtrosRapidos['pan-car-bat'] = s =>
