@@ -522,10 +522,18 @@ function renderEfectivo(docs){
   const total = sum(docs, 'monto');
   el.innerHTML = `
     <table>
-      <thead><tr><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto</th></tr></thead>
+      <thead><tr><th>Hora</th><th class="amount">Monto Efectivo</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead>
       <tbody>
-        ${docs.map(d => `<tr><td>${docLinkHtml(d.numero, d.url)}</td><td>${d.cliente||'—'}</td><td class="amount">${fmt(d.monto)}</td></tr>`).join('')}
-        <tr><td><b>Total</b></td><td></td><td class="amount"><b>${fmt(total)}</b></td></tr>
+        ${docs.map(d => `
+          <tr>
+            <td>—</td>
+            <td class="amount">${fmt(d.monto)}</td>
+            <td>${docLinkHtml(d.numero, d.url)}</td>
+            <td>${d.cliente||'—'}</td>
+            <td class="amount">${fmt(d.monto)}</td>
+            <td><span class="check-icon info" title="Sin sistema externo para comparar" style="display:inline-flex;">ℹ</span></td>
+          </tr>`).join('')}
+        <tr><td></td><td class="amount"><b>${fmt(total)}</b></td><td></td><td><b>Total</b></td><td class="amount"><b>${fmt(total)}</b></td><td></td></tr>
       </tbody>
     </table>
   `;
@@ -879,18 +887,18 @@ function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
   if(rows.length===0) return `<p class="empty-note">Sin transacciones de ${label} para esta fecha.</p>`;
   const origenLabel = label === 'Shopify' ? 'Monto Shopify' : label === 'BCI' ? 'Monto BCI' : label === 'Fintoc' ? 'Monto Fintoc' : 'Monto TUU';
   const esShopify = scope === 'shopify';
-  const colPasarela = esShopify ? '<th>Pasarela de pago</th>' : '';
-  let html = `<table><thead><tr><th>Hora</th><th class="amount">${origenLabel}</th>${colPasarela}<th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
+  let html = `<table><thead><tr><th>Hora</th><th class="amount">${origenLabel}</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
   for(const r of rows){
-    const pasarelaCell = esShopify ? `<td>${r.pos.pasarela || '—'}</td>` : '';
     if(r.matched){
       const textoEstado = esShopify && r.pos.pasarela ? `${r.pos.pasarela} OK` : 'OK';
+      const clienteCell = esShopify && r.pos.pasarela
+        ? `${r.bsale.cliente||'—'} <span style="color:var(--muted);font-size:10.5px;">(${r.pos.pasarela})</span>`
+        : (r.bsale.cliente||'—');
       html += `<tr>
         <td>${r.pos.time||'—'}</td>
         <td class="amount">${fmt(r.pos.amount)}</td>
-        ${pasarelaCell}
         <td>${docLinkHtml(r.bsale.numero, r.bsale.url)}</td>
-        <td>${r.bsale.cliente||'—'}</td>
+        <td>${clienteCell}</td>
         <td class="amount">${fmt(r.bsale.monto)}</td>
         <td><span class="badge ok">${textoEstado}</span></td>
       </tr>`;
@@ -901,7 +909,6 @@ function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
       html += `<tr class="${resuelto?'':'unmatched'}">
         <td>${r.pos.time||'—'}</td>
         <td class="amount">${fmt(r.pos.amount)}</td>
-        ${pasarelaCell}
         <td>—</td>
         <td>—</td>
         <td class="amount">—</td>
