@@ -114,7 +114,7 @@
 
   <div class="card" style="margin-bottom:24px;border:1.5px solid var(--primary);">
     <div class="lbl">🎯 Recomendación de compra con presupuesto</div>
-    <p class="empty-note" style="margin-top:0;">Dado un monto máximo a gastar (por ejemplo, lo que tu proveedor te financia cada 30 días), prioriza los SKU más urgentes hasta agotar el presupuesto — no una lista completa, sino qué comprar primero con la plata que realmente tienes.</p>
+    <p class="empty-note" style="margin-top:0;">Dado un monto máximo a gastar (por ejemplo, lo que tu proveedor te financia cada 30 días), prioriza los SKU más urgentes hasta agotar el presupuesto — no una lista completa, sino qué comprar primero con la plata que realmente tienes. <b>Siempre se enfoca en Pantalla Notebook + Cargador Original + Batería Original</b>, sin importar el filtro que tengas activo en la tabla de abajo.</p>
     <div class="filtros" style="margin-bottom:0;">
       <label style="font-size:12px;color:var(--muted);">Presupuesto disponible:</label>
       <input type="number" id="presupuestoInput" value="8000000" step="100000" style="width:150px;">
@@ -188,6 +188,26 @@ let datosSkus = [];
 let ordenActual = { campo: 'unidadesVendidas', asc: false };
 let categoriaRapidaActiva = null;
 let ultimasFilasFiltradas = [];
+
+// Comparamos contra la categoría EXACTA de Bsale (sin tildes ni mayúsculas)
+// en vez de buscar palabras sueltas en el nombre del producto — así
+// "Pantalla Táctil" o "Cargador Daxis" no se cuelan en "Pantalla Notebook"
+// o "Cargador Original" solo por compartir una palabra.
+const normalizarCat = c => (c||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+
+const filtrosRapidos = {
+  pantalla: s => normalizarCat(s.categoria) === 'pantalla notebook',
+  'cargador-original': s => normalizarCat(s.categoria) === 'cargador original',
+  'cargador-daxis': s => normalizarCat(s.categoria) === 'cargador daxis',
+  'cargador-alternativo': s => normalizarCat(s.categoria) === 'cargador alternativo',
+  'bateria-original': s => normalizarCat(s.categoria) === 'bateria original',
+  'bateria-daxis': s => normalizarCat(s.categoria) === 'bateria daxis',
+  'bateria-alternativo': s => normalizarCat(s.categoria) === 'bateria alternativa'
+};
+// Combinado: Pantallas + Cargadores originales + Baterías originales
+filtrosRapidos['pan-car-bat'] = s =>
+  filtrosRapidos.pantalla(s) || filtrosRapidos['cargador-original'](s) || filtrosRapidos['bateria-original'](s);
+
 
 function setDias(d){
   $('diasInput').value = d;
@@ -315,14 +335,25 @@ function calcularRecomendacionPresupuesto(){
     wrap.innerHTML = `<p class="empty-note">Ingresa un presupuesto mayor a $0.</p>`;
     return;
   }
-  if(!ultimasFilasFiltradas || ultimasFilasFiltradas.length === 0){
+  if(!datosSkus || datosSkus.length === 0){
     wrap.innerHTML = `<p class="empty-note">No hay datos — presiona "Analizar" primero.</p>`;
+    return;
+  }
+
+  // Esta recomendación SIEMPRE se enfoca en Pantalla Notebook + Cargador
+  // Original + Batería Original (PAN-CAR-BAT), sin importar qué filtro esté
+  // activo en la tabla de abajo — son las categorías que más importan para
+  // la decisión de compra con presupuesto limitado.
+  const base = datosSkus.filter(s => filtrosRapidos['pan-car-bat'](s));
+
+  if(base.length === 0){
+    wrap.innerHTML = `<p class="empty-note">No hay SKU en las categorías Pantalla Notebook / Cargador Original / Batería Original para este período.</p>`;
     return;
   }
 
   // Solo SKU que realmente necesitan compra (sugerencia > 0) y con costo
   // conocido (si no sabemos el costo, no podemos respetar el presupuesto).
-  const candidatos = ultimasFilasFiltradas
+  const candidatos = base
     .filter(s => s[campoSugerencia] > 0 && s.ultimoCosto != null)
     .map(s => ({ ...s, costoLinea: s[campoSugerencia] * s.ultimoCosto }));
 
@@ -347,7 +378,7 @@ function calcularRecomendacionPresupuesto(){
     }
   }
 
-  const sinCosto = ultimasFilasFiltradas.filter(s => s[campoSugerencia] > 0 && s.ultimoCosto == null);
+  const sinCosto = base.filter(s => s[campoSugerencia] > 0 && s.ultimoCosto == null);
 
   wrap.innerHTML = `
     <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px;">
@@ -397,24 +428,6 @@ function renderTabla(){
   const catSeleccionada = $('filtroCategoria').value;
 
   // Comparamos contra la categoría EXACTA de Bsale (sin tildes ni mayúsculas)
-  // en vez de buscar palabras sueltas en el nombre del producto — así
-  // "Pantalla Táctil" o "Cargador Daxis" no se cuelan en "Pantalla Notebook"
-  // o "Cargador Original" solo por compartir una palabra.
-  const normalizarCat = c => (c||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
-
-  const filtrosRapidos = {
-    pantalla: s => normalizarCat(s.categoria) === 'pantalla notebook',
-    'cargador-original': s => normalizarCat(s.categoria) === 'cargador original',
-    'cargador-daxis': s => normalizarCat(s.categoria) === 'cargador daxis',
-    'cargador-alternativo': s => normalizarCat(s.categoria) === 'cargador alternativo',
-    'bateria-original': s => normalizarCat(s.categoria) === 'bateria original',
-    'bateria-daxis': s => normalizarCat(s.categoria) === 'bateria daxis',
-    'bateria-alternativo': s => normalizarCat(s.categoria) === 'bateria alternativa'
-  };
-  // Combinado: Pantallas + Cargadores originales + Baterías originales
-  filtrosRapidos['pan-car-bat'] = s =>
-    filtrosRapidos.pantalla(s) || filtrosRapidos['cargador-original'](s) || filtrosRapidos['bateria-original'](s);
-
   let filas = datosSkus.filter(s => {
     if(texto && !(s.code.toLowerCase().includes(texto) || s.nombre.toLowerCase().includes(texto))) return false;
     if(categoriaRapidaActiva && !filtrosRapidos[categoriaRapidaActiva](s)) return false;
