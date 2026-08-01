@@ -100,13 +100,25 @@ export default async function handler(req, res) {
     }
   }
 
+  // Modo debug para ver documentos de venta crudos -> necesito confirmar el
+  // campo real que distingue una Nota de Crédito de una Boleta/Factura antes
+  // de excluirlas del cálculo de ventas (hoy se están sumando como venta).
+  if (debug === 'ventas') {
+    try {
+      const r = await bsaleGet('/documents.json?expand=[document_type,details]&limit=15&offset=0', token);
+      return res.status(200).json({ count: r.count, documentos: r.items || [] });
+    } catch (err) {
+      return res.status(200).json({ error: 'Error consultando documentos', detail: String(err) });
+    }
+  }
+
   try {
     const rangeStart = Math.floor(new Date(`${startDate}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
     const rangeEnd = Math.floor(new Date(`${endDate}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
 
     // ---- 1) Ventas por variante ----
     const ventasPage = (offset, limit) =>
-      `/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=details&limit=${limit}&offset=${offset}`;
+      `/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[details,document_type]&limit=${limit}&offset=${offset}`;
     const { items: docsVenta, truncado: ventasTruncadas } = await fetchAllPages(ventasPage, token, 50, 60);
 
     const ventasPorSku = {};
@@ -121,6 +133,11 @@ export default async function handler(req, res) {
 
     for (const doc of docsVenta) {
       if (doc.state !== 0) continue;
+      // Una Nota de Crédito es una devolución/anulación, no una venta nueva
+      // -> no debe sumar al conteo de unidades vendidas (antes se estaba
+      // sumando igual que cualquier otro documento, inflando el número).
+      const nombreTipoDoc = doc.document_type?.name || '';
+      if (/nota de cr[eé]dito/i.test(nombreTipoDoc)) continue;
       const fecha = toUtcDateStr(doc.emissionDate);
       if (!fecha || fecha < startDate || fecha > endDate) continue;
       const detalles = doc.details?.items || (Array.isArray(doc.details) ? doc.details : []);
