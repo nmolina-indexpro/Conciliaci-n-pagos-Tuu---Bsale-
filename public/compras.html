@@ -74,6 +74,14 @@
   .badge.sinventa{background:var(--surface-2);color:var(--muted);}
   .empty-note{color:var(--muted);font-size:12.5px;padding:14px 0;}
   .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:20px;color:var(--text);}
+
+  .panel-header{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;}
+  .panel-header:hover .lbl{color:var(--primary);}
+  .panel-chevron{font-size:14px;color:var(--muted);transition:transform .18s;flex-shrink:0;margin-left:10px;}
+  .panel-colapsable.colapsado .panel-chevron{transform:rotate(-90deg);}
+  .panel-colapsable.colapsado .panel-body{display:none;}
+  .panel-body{margin-top:12px;}
+  .filtro-label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-right:2px;align-self:center;}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
@@ -107,26 +115,36 @@
   <div id="avisoWrap"></div>
   <div class="note-box">💡 Una compra hecha hoy normalmente se paga a tu proveedor ~30 días después de recibida la mercadería — piensa la "Sugerencia" no solo en unidades, sino en el compromiso de pago que vas a tener en un mes más. Como en general pides pensando en los próximos días, dejamos columnas de sugerencia a <b>7</b> y <b>14</b> días, además del stock y cobertura actual.</div>
 
-  <div class="card" id="proximosPagosCard" style="margin-bottom:24px;">
-    <div class="lbl">💳 Facturas de proveedores que vencerán próximamente</div>
-    <div id="proximosPagosWrap"><p class="empty-note">Se carga junto con "Analizar".</p></div>
+  <div class="card panel-colapsable" id="proximosPagosCard" style="margin-bottom:24px;">
+    <div class="panel-header" onclick="togglePanel('proximosPagosCard')">
+      <span class="lbl" style="margin-bottom:0;">💳 Facturas de proveedores que vencerán próximamente</span>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <div id="proximosPagosWrap"><p class="empty-note">Se carga junto con "Analizar".</p></div>
+    </div>
   </div>
 
-  <div class="card" style="margin-bottom:24px;border:1.5px solid var(--primary);">
-    <div class="lbl">🎯 Recomendación de compra con presupuesto</div>
-    <p class="empty-note" style="margin-top:0;">Dado un monto máximo a gastar (por ejemplo, lo que tu proveedor te financia cada 30 días), prioriza los SKU más urgentes hasta agotar el presupuesto — no una lista completa, sino qué comprar primero con la plata que realmente tienes. <b>Siempre se enfoca en Pantalla Notebook + Cargador Original + Batería Original</b>, sin importar el filtro que tengas activo en la tabla de abajo.</p>
-    <div class="filtros" style="margin-bottom:0;">
-      <label style="font-size:12px;color:var(--muted);">Presupuesto disponible:</label>
-      <input type="number" id="presupuestoInput" value="8000000" step="100000" style="width:150px;">
-      <label style="font-size:12px;color:var(--muted);">Horizonte:</label>
-      <select id="horizontePresupuesto">
-        <option value="5">5 días</option>
-        <option value="7" selected>7 días</option>
-        <option value="14">14 días</option>
-      </select>
-      <button class="btn-primary btn-compact" onclick="calcularRecomendacionPresupuesto()">Calcular recomendación</button>
+  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid var(--primary);" id="recomendacionCard">
+    <div class="panel-header" onclick="togglePanel('recomendacionCard')">
+      <span class="lbl" style="margin-bottom:0;">🎯 Recomendación de compra con presupuesto</span>
+      <span class="panel-chevron">▾</span>
     </div>
-    <div id="recomendacionWrap" style="margin-top:14px;"></div>
+    <div class="panel-body">
+      <p class="empty-note" style="margin-top:0;">Dado un monto máximo a gastar (por ejemplo, lo que tu proveedor te financia cada 30 días), prioriza los SKU más urgentes hasta agotar el presupuesto — no una lista completa, sino qué comprar primero con la plata que realmente tienes. <b>Siempre se enfoca en Pantalla Notebook + Cargador Original + Batería Original</b>, sin importar el filtro que tengas activo en la tabla de abajo.</p>
+      <div class="filtros" style="margin-bottom:0;">
+        <label style="font-size:12px;color:var(--muted);">Presupuesto disponible:</label>
+        <input type="number" id="presupuestoInput" value="8000000" step="100000" style="width:150px;">
+        <label style="font-size:12px;color:var(--muted);">Horizonte:</label>
+        <select id="horizontePresupuesto">
+          <option value="5">5 días</option>
+          <option value="7" selected>7 días</option>
+          <option value="14">14 días</option>
+        </select>
+        <button class="btn-primary btn-compact" onclick="calcularRecomendacionPresupuesto()">Calcular recomendación</button>
+      </div>
+      <div id="recomendacionWrap" style="margin-top:14px;"></div>
+    </div>
   </div>
 
   <div class="grid" id="resumenCards">
@@ -138,16 +156,21 @@
   <p class="empty-note" style="margin-top:-14px;">↑ Estas tarjetas reflejan la categoría/búsqueda filtrada actualmente, no siempre el catálogo completo.</p>
 
   <div class="filtros" style="margin-bottom:8px;">
-    <button class="btn-ghost btn-compact" id="catTodas" onclick="filtrarCategoriaRapida(null)">Todas las categorías</button>
+    <span class="filtro-label">Categoría:</span>
+    <button class="btn-ghost btn-compact" id="catTodas" onclick="filtrarCategoriaRapida(null)">Todas</button>
     <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('pan-car-bat')" title="Pantalla Notebook + Cargador Original + Batería Original" style="border-color:var(--primary);color:var(--primary);font-weight:800;">PAN-CAR-BAT</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('pantalla')">Pantallas para notebook</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-original')">Cargadores originales</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-daxis')">Cargadores Daxis</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-alternativo')">Cargadores alternativos</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-original')">Baterías originales</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-daxis')">Baterías Daxis</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-alternativo')">Baterías alternativas</button>
-    <select id="filtroCategoria" onchange="renderTabla()" style="min-width:180px;">
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('pantalla')">Pantallas</button>
+    <span style="width:1px;height:20px;background:var(--line);margin:0 2px;"></span>
+    <span class="filtro-label">Cargadores:</span>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-original')">Originales</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-daxis')">Daxis</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-alternativo')">Alternativos</button>
+    <span style="width:1px;height:20px;background:var(--line);margin:0 2px;"></span>
+    <span class="filtro-label">Baterías:</span>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-original')">Originales</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-daxis')">Daxis</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-alternativo')">Alternativas</button>
+    <select id="filtroCategoria" onchange="renderTabla()" style="min-width:170px;">
       <option value="">Otra categoría...</option>
     </select>
   </div>
@@ -188,6 +211,10 @@ let datosSkus = [];
 let ordenActual = { campo: 'unidadesVendidas', asc: false };
 let categoriaRapidaActiva = null;
 let ultimasFilasFiltradas = [];
+
+function togglePanel(idCard){
+  $(idCard).classList.toggle('colapsado');
+}
 
 // Comparamos contra la categoría EXACTA de Bsale (sin tildes ni mayúsculas)
 // en vez de buscar palabras sueltas en el nombre del producto — así
