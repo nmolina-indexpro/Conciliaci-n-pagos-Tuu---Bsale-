@@ -1,19 +1,18 @@
 // /api/bsale-sku-report.js
 // Analiza, por SKU (variante), las ventas y recepciones de stock de los
-// últimos N días en Bsale, más el stock actual — para apoyar decisiones de
-// compra a proveedores (qué reponer y qué NO comprar todavía).
+// últimos N días en Bsale, más el stock actual y la categoría de producto —
+// para apoyar decisiones de compra a proveedores (qué reponer y qué NO
+// comprar todavía).
 //
 // Fuentes usadas:
-//  - GET /v1/documents.json?expand=details  -> ventas por variante (unidades)
-//  - GET /v1/stocks.json                    -> stock actual por variante
-//  - GET /v1/stocks/receptions.json         -> recepciones de mercadería
-//    (se usa como proxy de "compras a proveedores": no encontré en la doc
-//    pública un endpoint separado de "documentos de compra", así que si tu
-//    cuenta lo registra distinto, este número puede no calzar — avisar y
-//    ajustamos igual que hicimos con TUU/Bsale al principio).
+//  - GET /v1/documents.json?expand=details          -> ventas por variante
+//  - GET /v1/stocks.json                             -> stock actual
+//  - GET /v1/stocks/receptions.json                  -> recepciones (proxy de "compras")
+//  - GET /v1/products.json                           -> classification (0=producto,1=servicio,3=pack) y categoría
+//  - GET /v1/product_types.json                      -> nombre de cada categoría
+//  - GET /v1/variants.json                           -> mapeo SKU -> producto
 //
-// El access_token vive SOLO en el servidor (variable de entorno BSALE_ACCESS_TOKEN),
-// la misma que ya usan bsale-report.js.
+// El access_token vive SOLO en el servidor (variable de entorno BSALE_ACCESS_TOKEN).
 
 const BSALE_BASE = 'https://api.bsale.io/v1';
 const TIMEOUT_MS = 25000;
@@ -40,9 +39,6 @@ async function bsaleGet(path, token) {
   return r.json();
 }
 
-// Trae todas las páginas de un recurso, la primera para saber el total
-// ("count") y el resto EN PARALELO (mismo patrón que usamos en bsale-report.js
-// para no exceder el timeout de la función con rangos largos).
 async function fetchAllPages(pathBuilder, token, limit, topeMaximoPaginas) {
   const first = await bsaleGet(pathBuilder(0, limit), token);
   let items = [...(first.items || [])];
@@ -70,31 +66,27 @@ export default async function handler(req, res) {
     return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no configurada en el servidor', skus: [] });
   }
 
-  // Por defecto, últimos 120 días hasta hoy
   const hoy = new Date();
   const endDate = qEnd || hoy.toISOString().slice(0, 10);
   const numDias = parseInt(days || '120', 10);
-  const startDateCalc = qStart || (() => {
+  const startDate = qStart || (() => {
     const d = new Date(hoy);
     d.setUTCDate(d.getUTCDate() - numDias);
     return d.toISOString().slice(0, 10);
   })();
-  const startDate = qStart || startDateCalc;
 
   try {
     const rangeStart = Math.floor(new Date(`${startDate}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
     const rangeEnd = Math.floor(new Date(`${endDate}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
 
     // ---- 1) Ventas por variante ----
-    // Tope de 60 páginas x 50 = 3000 documentos. Si tu volumen es mayor,
-    // acorta el rango de días o avisa para subir el tope.
     const ventasPage = (offset, limit) =>
       `/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=details&limit=${limit}&offset=${offset}`;
     const { items: docsVenta, truncado: ventasTruncadas } = await fetchAllPages(ventasPage, token, 50, 60);
 
-    const ventasPorSku = {}; // { [code]: { unidades, montoNeto, nombre, numDocs } }
+    const ventasPorSku = {};
     for (const doc of docsVenta) {
-      if (doc.state !== 0) continue; // solo documentos activos (no anulados)
+      if (doc.state !== 0) continue;
       const fecha = toUtcDateStr(doc.emissionDate);
       if (!fecha || fecha < startDate || fecha > endDate) continue;
       const detalles = doc.details?.items || (Array.isArray(doc.details) ? doc.details : []);
@@ -112,7 +104,7 @@ export default async function handler(req, res) {
     // ---- 2) Stock actual por variante ----
     const stockPage = (offset, limit) => `/stocks.json?expand=variant&limit=${limit}&offset=${offset}`;
     const { items: stockItems } = await fetchAllPages(stockPage, token, 50, 60);
-    const stockPorSku = {}; // { [code]: cantidadDisponible }
+    const stockPorSku = {};
     for (const s of stockItems) {
       const code = s.variant?.code;
       if (!code) continue;
@@ -137,48 +129,100 @@ export default async function handler(req, res) {
         }
       }
     } catch (err) {
-      recepcionesDisponibles = false; // el endpoint puede no estar disponible según el plan/permisos de la cuenta
+      recepcionesDisponibles = false;
     }
 
-    // ---- 4) Combinar todo por SKU ----
+    // ---- 4) Catálogo: clasificación (producto/servicio) y categoría ----
+    // Solo pedimos esto para no arrastrar servicios (instalaciones, garantías,
+    // etc.) a un análisis de compra de mercadería física.
+    let catalogoDisponible = true;
+    const categoriaPorCode = {};
+    const esServicioPorCode = {};
+    try {
+      const [tiposRes, productsRes, variantsRes] = await Promise.all([
+        bsaleGet('/product_types.json?limit=50', token),
+        fetchAllPages((offset, limit) => `/products.json?limit=${limit}&offset=${offset}`, token, 50, 60),
+        fetchAllPages((offset, limit) => `/variants.json?limit=${limit}&offset=${offset}`, token, 50, 60)
+      ]);
+
+      const nombrePorTipoId = {};
+      for (const t of (tiposRes.items || [])) nombrePorTipoId[t.id] = t.name;
+
+      const infoPorProductoId = {};
+      for (const p of productsRes.items) {
+        const tipoId = p.product_type?.id ?? p.productTypeId ?? null;
+        infoPorProductoId[p.id] = {
+          esServicio: p.classification === 1,
+          categoria: tipoId != null ? (nombrePorTipoId[tipoId] || 'Sin categoría') : 'Sin categoría'
+        };
+      }
+
+      for (const v of variantsRes.items) {
+        if (!v.code) continue;
+        const productoId = v.product?.id;
+        const info = productoId != null ? infoPorProductoId[productoId] : null;
+        categoriaPorCode[v.code] = info?.categoria || 'Sin categoría';
+        esServicioPorCode[v.code] = info?.esServicio || false;
+      }
+    } catch (err) {
+      catalogoDisponible = false; // seguimos sin categorías/filtro de servicio si esto falla
+    }
+
+    // ---- 5) Combinar todo por SKU ----
     const todosLosCodigos = new Set([
       ...Object.keys(ventasPorSku),
       ...Object.keys(stockPorSku),
       ...Object.keys(comprasPorSku)
     ]);
 
-    const skus = [...todosLosCodigos].map(code => {
-      const venta = ventasPorSku[code] || { nombre: code, unidades: 0, montoNeto: 0, numDocs: 0 };
-      const stockActual = stockPorSku[code] || 0;
-      const compradas = comprasPorSku[code] || 0;
-      const ventaDiaria = venta.unidades / numDias;
-      const diasCobertura = ventaDiaria > 0 ? Math.round(stockActual / ventaDiaria) : (stockActual > 0 ? null : 0);
+    // Heurística de respaldo por si el catálogo no cargó: excluir por nombre
+    const pareceServicioPorNombre = nombre => /servicio|instalaci[oó]n|garant[ií]a|mano de obra/i.test(nombre || '');
 
-      // Sugerencia simple: cubrir 30 días de venta futura, descontando lo que ya hay en stock.
-      const objetivoDias = 30;
-      const sugerenciaCompra = ventaDiaria > 0 ? Math.max(0, Math.ceil(ventaDiaria * objetivoDias - stockActual)) : 0;
+    let skus = [...todosLosCodigos]
+      .filter(code => {
+        if (catalogoDisponible && esServicioPorCode[code] !== undefined) return !esServicioPorCode[code];
+        const nombre = (ventasPorSku[code] || {}).nombre || code;
+        return !pareceServicioPorNombre(nombre);
+      })
+      .map(code => {
+        const venta = ventasPorSku[code] || { nombre: code, unidades: 0, montoNeto: 0, numDocs: 0 };
+        const stockActual = stockPorSku[code] || 0;
+        const compradas = comprasPorSku[code] || 0;
+        const ventaDiaria = venta.unidades / numDias;
 
-      return {
-        code,
-        nombre: venta.nombre || code,
-        unidadesVendidas: venta.unidades,
-        montoVentas: Math.round(venta.montoNeto),
-        ventaDiariaPromedio: Math.round(ventaDiaria * 100) / 100,
-        stockActual,
-        diasCobertura,
-        unidadesCompradas: compradas,
-        sugerenciaCompra
-      };
-    });
+        const diasCobertura = ventaDiaria > 0 ? Math.round(stockActual / ventaDiaria) : (stockActual > 0 ? null : 0);
 
-    // Orden por defecto: lo más vendido primero
+        // Sugerencia de compra a distintos horizontes: cubrir X días de venta
+        // futura, descontando lo que ya hay en stock.
+        const sugerirPara = dias => ventaDiaria > 0 ? Math.max(0, Math.ceil(ventaDiaria * dias - stockActual)) : 0;
+
+        return {
+          code,
+          nombre: venta.nombre || code,
+          categoria: categoriaPorCode[code] || 'Sin categoría',
+          unidadesVendidas: venta.unidades,
+          montoVentas: Math.round(venta.montoNeto),
+          ventaDiariaPromedio: Math.round(ventaDiaria * 100) / 100,
+          stockActual,
+          diasCobertura,
+          unidadesCompradas: compradas,
+          sugerencia7: sugerirPara(7),
+          sugerencia14: sugerirPara(14),
+          sugerencia30: sugerirPara(30)
+        };
+      });
+
     skus.sort((a, b) => b.unidadesVendidas - a.unidadesVendidas);
+
+    const categorias = [...new Set(skus.map(s => s.categoria))].sort();
 
     return res.status(200).json({
       startDate, endDate, dias: numDias,
       docsRevisados: docsVenta.length,
       ventasTruncadas,
       recepcionesDisponibles,
+      catalogoDisponible,
+      categorias,
       skus
     });
   } catch (err) {

@@ -103,12 +103,23 @@
   </div>
 
   <div id="avisoWrap"></div>
+  <div class="note-box">💡 Una compra hecha hoy normalmente se paga a tu proveedor ~30 días después de recibida la mercadería — piensa la "Sugerencia" no solo en unidades, sino en el compromiso de pago que vas a tener en un mes más. Como en general pides pensando en los próximos días, dejamos columnas de sugerencia a <b>7</b> y <b>14</b> días, además del stock y cobertura actual.</div>
 
   <div class="grid" id="resumenCards">
     <div class="card"><div class="lbl">SKU analizados</div><div class="big" id="cSkus">—</div></div>
     <div class="card"><div class="lbl">Unidades vendidas (período)</div><div class="big" id="cUnidades">—</div></div>
     <div class="card alert"><div class="lbl">SKU a reponer urgente</div><div class="big" id="cUrgentes">—</div></div>
     <div class="card"><div class="lbl">Monto sugerido a comprar*</div><div class="big" id="cSugerido">—</div></div>
+  </div>
+
+  <div class="filtros" style="margin-bottom:8px;">
+    <button class="btn-ghost btn-compact" id="catTodas" onclick="filtrarCategoriaRapida(null)">Todas las categorías</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('pantalla')">Pantallas para notebook</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador')">Cargadores para notebook</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria')">Baterías para notebook</button>
+    <select id="filtroCategoria" onchange="renderTabla()" style="min-width:180px;">
+      <option value="">Otra categoría...</option>
+    </select>
   </div>
 
   <div class="filtros">
@@ -133,12 +144,22 @@ function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
 
 let datosSkus = [];
 let ordenActual = { campo: 'unidadesVendidas', asc: false };
+let categoriaRapidaActiva = null; // 'pantalla' | 'cargador' | 'bateria' | null
 
 function setDias(d){
   $('diasInput').value = d;
   document.querySelectorAll('.btn-ghost.btn-compact').forEach(b => b.classList.remove('active'));
   event.target.classList.add('active');
   cargar();
+}
+
+function filtrarCategoriaRapida(clave){
+  categoriaRapidaActiva = clave;
+  $('filtroCategoria').value = ''; // el filtro rápido manda por sobre el select
+  const botones = document.querySelectorAll('.filtros')[0].querySelectorAll('button');
+  botones.forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  renderTabla();
 }
 
 function clasificar(sku){
@@ -167,16 +188,22 @@ async function cargar(){
 
     datosSkus = res.skus || [];
 
+    // Poblar el selector de categorías con lo que realmente existe en la cuenta
+    const select = $('filtroCategoria');
+    select.innerHTML = '<option value="">Otra categoría...</option>' +
+      (res.categorias || []).map(c => `<option value="${c}">${c}</option>`).join('');
+
     let avisos = '';
     if(res.ventasTruncadas) avisos += `<div class="note-box">⚠ El catálogo/movimiento es grande y se truncó la consulta de documentos — los números pueden estar incompletos. Prueba con un período más corto.</div>`;
-    if(res.recepcionesDisponibles === false) avisos += `<div class="note-box">ℹ No se pudo leer el historial de recepciones de stock (compras a proveedores) de tu cuenta — la columna "Compradas" puede quedar en 0. El resto del análisis (ventas, stock, sugerencia) sigue siendo válido.</div>`;
+    if(res.recepcionesDisponibles === false) avisos += `<div class="note-box">ℹ No se pudo leer el historial de recepciones de stock (compras a proveedores) de tu cuenta — la columna "Compradas" puede quedar en 0. El resto del análisis sigue siendo válido.</div>`;
+    if(res.catalogoDisponible === false) avisos += `<div class="note-box">⚠ No se pudo leer el catálogo de productos (categorías / servicio vs producto) — se usó una regla de respaldo (buscar "servicio" en el nombre) para excluir servicios, y las categorías pueden salir como "Sin categoría".</div>`;
     $('avisoWrap').innerHTML = avisos;
 
     const totalUnidades = datosSkus.reduce((a,s)=>a+s.unidadesVendidas,0);
     const urgentes = datosSkus.filter(s => clasificar(s)==='urgente');
     const montoSugerido = datosSkus.reduce((a,s)=>{
       const precioProm = s.unidadesVendidas>0 ? s.montoVentas/s.unidadesVendidas : 0;
-      return a + (s.sugerenciaCompra * precioProm);
+      return a + (s.sugerencia14 * precioProm);
     },0);
 
     $('cSkus').textContent = fmtNum(datosSkus.length);
@@ -209,9 +236,13 @@ function renderTabla(){
 
   const texto = ($('buscador').value || '').toLowerCase().trim();
   const filtroUrg = $('filtroUrgencia').value;
+  const catSeleccionada = $('filtroCategoria').value;
+  const claveRapida = { pantalla: /pantalla/i, cargador: /cargador/i, bateria: /bater[ií]a/i };
 
   let filas = datosSkus.filter(s => {
     if(texto && !(s.code.toLowerCase().includes(texto) || s.nombre.toLowerCase().includes(texto))) return false;
+    if(categoriaRapidaActiva && !claveRapida[categoriaRapidaActiva].test(s.categoria || '')) return false;
+    if(!categoriaRapidaActiva && catSeleccionada && s.categoria !== catSeleccionada) return false;
     const clase = clasificar(s);
     if(filtroUrg === 'urgente' && clase !== 'urgente') return false;
     if(filtroUrg === 'pronto' && !(clase === 'urgente' || clase === 'pronto')) return false;
@@ -235,12 +266,14 @@ function renderTabla(){
       <thead><tr>
         <th onclick="ordenarPor('code')">SKU${flecha('code')}</th>
         <th onclick="ordenarPor('nombre')">Producto${flecha('nombre')}</th>
+        <th onclick="ordenarPor('categoria')">Categoría${flecha('categoria')}</th>
         <th class="amount" onclick="ordenarPor('unidadesVendidas')">Vendidas (período)${flecha('unidadesVendidas')}</th>
         <th class="amount" onclick="ordenarPor('ventaDiariaPromedio')">Venta diaria prom.${flecha('ventaDiariaPromedio')}</th>
         <th class="amount" onclick="ordenarPor('stockActual')">Stock actual${flecha('stockActual')}</th>
         <th class="amount" onclick="ordenarPor('diasCobertura')">Días cobertura${flecha('diasCobertura')}</th>
         <th class="amount" onclick="ordenarPor('unidadesCompradas')">Compradas (período)${flecha('unidadesCompradas')}</th>
-        <th class="amount" onclick="ordenarPor('sugerenciaCompra')">Sugerencia de compra${flecha('sugerenciaCompra')}</th>
+        <th class="amount" onclick="ordenarPor('sugerencia7')">Sugerencia 7 días${flecha('sugerencia7')}</th>
+        <th class="amount" onclick="ordenarPor('sugerencia14')">Sugerencia 14 días${flecha('sugerencia14')}</th>
         <th>Estado</th>
       </tr></thead>
       <tbody>
@@ -250,12 +283,14 @@ function renderTabla(){
           return `<tr class="${clase==='urgente'?'urgente':clase==='pronto'?'pronto':''}">
             <td>${s.code}</td>
             <td>${s.nombre}</td>
+            <td>${s.categoria}</td>
             <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
             <td class="amount">${s.ventaDiariaPromedio}</td>
             <td class="amount">${fmtNum(s.stockActual)}</td>
             <td class="amount">${s.diasCobertura===null?'—':fmtNum(s.diasCobertura)}</td>
             <td class="amount">${fmtNum(s.unidadesCompradas)}</td>
-            <td class="amount"><b>${fmtNum(s.sugerenciaCompra)}</b></td>
+            <td class="amount"><b>${fmtNum(s.sugerencia7)}</b></td>
+            <td class="amount"><b>${fmtNum(s.sugerencia14)}</b></td>
             <td><span class="badge ${clase}">${etiqueta}</span></td>
           </tr>`;
         }).join('')}
