@@ -220,12 +220,14 @@ export default async function handler(req, res) {
     let recepcionesDisponibles = true;
     // Facturas/guías de compra recibidas hace ~30 días -> si tu proveedor te
     // da 30 días de plazo, estas son las que están por caer a pago pronto.
-    // Cada recepción vence a pago según el plazo de SU proveedor (no todos son
-    // iguales) -> calculamos la fecha estimada de pago de cada una y filtramos
-    // las que caen dentro de ±3 días de hoy, en vez de usar una ventana fija.
+    // Cada recepción vence a pago según el plazo de SU proveedor (Coimco e
+    // Intcomex: 30 días, LaptopCenter: 45 días, etc.) -> calculamos la fecha
+    // estimada de vencimiento de cada una y mostramos las que van a caer
+    // desde hoy hacia adelante (proyección de cuentas por pagar), no lo que
+    // ya pasó.
     const hoyStr = endDate; // usamos endDate como "hoy" para que sea consistente si se pide un rango con fecha fin distinta a hoy
-    const ventanaVenceInicio = addDaysStr(hoyStr, -3);
-    const ventanaVenceFin = addDaysStr(hoyStr, 3);
+    const ventanaVenceInicio = hoyStr;
+    const ventanaVenceFin = addDaysStr(hoyStr, 60);
     let proximosPagos = [];
     try {
       const primera = await bsaleGet('/stocks/receptions.json?limit=50&offset=0', token);
@@ -331,7 +333,7 @@ export default async function handler(req, res) {
           }
         }
       }
-      proximosPagos.sort((a, b) => a.fecha.localeCompare(b.fecha));
+      proximosPagos.sort((a, b) => a.fechaEstimadaPago.localeCompare(b.fechaEstimadaPago));
     } catch (err) {
       recepcionesDisponibles = false;
     }

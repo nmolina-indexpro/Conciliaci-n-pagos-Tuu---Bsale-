@@ -108,7 +108,7 @@
   <div class="note-box">💡 Una compra hecha hoy normalmente se paga a tu proveedor ~30 días después de recibida la mercadería — piensa la "Sugerencia" no solo en unidades, sino en el compromiso de pago que vas a tener en un mes más. Como en general pides pensando en los próximos días, dejamos columnas de sugerencia a <b>7</b> y <b>14</b> días, además del stock y cobertura actual.</div>
 
   <div class="card" id="proximosPagosCard" style="margin-bottom:24px;">
-    <div class="lbl">💳 Compras que caerán a pago pronto (recibidas hace ~30 días)</div>
+    <div class="lbl">💳 Facturas de proveedores que vencerán próximamente</div>
     <div id="proximosPagosWrap"><p class="empty-note">Se carga junto con "Analizar".</p></div>
   </div>
 
@@ -288,12 +288,12 @@ function ordenarPor(campo){
 function renderProximosPagos(pagosPorProveedor, ventana){
   const wrap = $('proximosPagosWrap');
   if(!pagosPorProveedor || pagosPorProveedor.length === 0){
-    wrap.innerHTML = `<p class="empty-note">Sin recepciones de mercadería registradas entre ${ventana?.desde||'—'} y ${ventana?.hasta||'—'} (ventana de ±3 días alrededor del día 30).</p>`;
+    wrap.innerHTML = `<p class="empty-note">Sin facturas de proveedores próximas a vencer entre ${ventana?.desde||'—'} y ${ventana?.hasta||'—'}.</p>`;
     return;
   }
   const total = pagosPorProveedor.reduce((a,p)=>a+p.monto,0);
   wrap.innerHTML = `
-    <p class="empty-note" style="margin-top:0;">Con vencimiento estimado entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> (±3 días de hoy) — agrupado por proveedor identificado, cada uno con su propio plazo de pago (Coimco/Intcomex/Daxis: 30 días · LaptopCenter: 45 días).</p>
+    <p class="empty-note" style="margin-top:0;">Facturas de compra recibidas recientemente cuyo vencimiento cae entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> — cada proveedor con su propio plazo: <b>Coimco / Intcomex: 30 días</b> · <b>LaptopCenter: 45 días</b>. Agrupado por proveedor, ordenado por fecha de vencimiento más próxima.</p>
     <table>
       <thead><tr><th>Proveedor</th><th class="amount">N° documentos</th><th class="amount">Monto total</th></tr></thead>
       <tbody>
@@ -311,7 +311,7 @@ function renderProximosPagos(pagosPorProveedor, ventana){
       <table style="margin-top:10px;">
         <thead><tr><th>Fecha</th><th>Proveedor</th><th>Documento</th><th class="amount">Monto</th><th>Vence aprox.</th></tr></thead>
         <tbody>
-          ${pagosPorProveedor.flatMap(p=>p.documentos).sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(d => `
+          ${pagosPorProveedor.flatMap(p=>p.documentos).sort((a,b)=>a.fechaEstimadaPago.localeCompare(b.fechaEstimadaPago)).map(d => `
             <tr>
               <td>${d.fecha}</td>
               <td>${d.proveedor}</td>
