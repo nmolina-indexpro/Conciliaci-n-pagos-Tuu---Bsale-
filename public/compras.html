@@ -106,6 +106,11 @@
   <div id="avisoWrap"></div>
   <div class="note-box">💡 Una compra hecha hoy normalmente se paga a tu proveedor ~30 días después de recibida la mercadería — piensa la "Sugerencia" no solo en unidades, sino en el compromiso de pago que vas a tener en un mes más. Como en general pides pensando en los próximos días, dejamos columnas de sugerencia a <b>7</b> y <b>14</b> días, además del stock y cobertura actual.</div>
 
+  <div class="card" id="proximosPagosCard" style="margin-bottom:24px;">
+    <div class="lbl">💳 Compras que caerán a pago pronto (recibidas hace ~30 días)</div>
+    <div id="proximosPagosWrap"><p class="empty-note">Se carga junto con "Analizar".</p></div>
+  </div>
+
   <div class="grid" id="resumenCards">
     <div class="card"><div class="lbl">SKU analizados</div><div class="big" id="cSkus">—</div></div>
     <div class="card"><div class="lbl">Unidades vendidas (período)</div><div class="big" id="cUnidades">—</div></div>
@@ -225,6 +230,7 @@ async function cargar(){
     else if((imgRes.totalSkusConImagen||0) === 0) avisos += `<div class="note-box">ℹ Se consultó Shopify pero no se encontró ningún SKU con imagen que calce con los códigos de Bsale — puede que los SKU no coincidan entre ambos sistemas.</div>`;
     $('avisoWrap').innerHTML = avisos;
 
+    renderProximosPagos(res.proximosPagos || [], res.ventanaPago);
     renderTabla();
 
     status.className = 'ok';
@@ -239,6 +245,30 @@ function ordenarPor(campo){
   if(ordenActual.campo === campo) ordenActual.asc = !ordenActual.asc;
   else { ordenActual.campo = campo; ordenActual.asc = false; }
   renderTabla();
+}
+
+function renderProximosPagos(pagos, ventana){
+  const wrap = $('proximosPagosWrap');
+  if(!pagos || pagos.length === 0){
+    wrap.innerHTML = `<p class="empty-note">Sin recepciones de mercadería registradas entre ${ventana?.desde||'—'} y ${ventana?.hasta||'—'} (la ventana de ~30 días atrás).</p>`;
+    return;
+  }
+  const total = pagos.reduce((a,p)=>a+p.monto,0);
+  wrap.innerHTML = `
+    <p class="empty-note" style="margin-top:0;">Recibidas entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> — si tu plazo con el proveedor es de 30 días, estos montos son los que probablemente te van a cobrar en los próximos días. Tenlo en cuenta antes de comprar más de la cuenta ahora.</p>
+    <table>
+      <thead><tr><th>Fecha recibida</th><th>Documento</th><th class="amount">Monto</th><th>Vence aprox.</th></tr></thead>
+      <tbody>
+        ${pagos.map(p => `<tr>
+          <td>${p.fecha}</td>
+          <td>${p.documento}${p.numeroDocumento?' N° '+p.numeroDocumento:''}</td>
+          <td class="amount">${fmt(p.monto)}</td>
+          <td>${p.fechaEstimadaPago}</td>
+        </tr>`).join('')}
+        <tr><td colspan="2"><b>Total</b></td><td class="amount"><b>${fmt(total)}</b></td><td></td></tr>
+      </tbody>
+    </table>
+  `;
 }
 
 function renderTabla(){
@@ -321,6 +351,7 @@ function renderTabla(){
         <th class="amount" onclick="ordenarPor('unidadesCompradas')">Compradas (período)${flecha('unidadesCompradas')}</th>
         <th class="amount" onclick="ordenarPor('ultimoCosto')">Último costo comprado${flecha('ultimoCosto')}</th>
         <th class="amount" onclick="ordenarPor('sugerencia5')">Sugerencia 5 días${flecha('sugerencia5')}</th>
+        <th class="amount" onclick="ordenarPor('costoSugerencia5')">Costo total sug. 5 días${flecha('costoSugerencia5')}</th>
         <th class="amount" onclick="ordenarPor('sugerencia7')">Sugerencia 7 días${flecha('sugerencia7')}</th>
         <th class="amount" onclick="ordenarPor('sugerencia14')">Sugerencia 14 días${flecha('sugerencia14')}</th>
         <th>Estado</th>
@@ -344,6 +375,7 @@ function renderTabla(){
             <td class="amount">${fmtNum(s.unidadesCompradas)}</td>
             <td class="amount">${s.ultimoCosto!=null?fmt(s.ultimoCosto):'—'}</td>
             <td class="amount"><b>${fmtNum(s.sugerencia5)}</b></td>
+            <td class="amount">${s.costoSugerencia5!=null?fmt(s.costoSugerencia5):'—'}</td>
             <td class="amount"><b>${fmtNum(s.sugerencia7)}</b></td>
             <td class="amount"><b>${fmtNum(s.sugerencia14)}</b></td>
             <td><span class="badge ${clase}">${etiqueta}</span></td>
@@ -374,6 +406,7 @@ function exportarExcel(){
       'Días de cobertura': s.diasCobertura === null ? '' : s.diasCobertura,
       'Último costo comprado': s.ultimoCosto ?? '',
       [`Cantidad a pedir (${horizonte} días)`]: s[campoSugerencia],
+      'Costo estimado del pedido': (s.ultimoCosto!=null && s[campoSugerencia]>0) ? Math.round(s[campoSugerencia]*s.ultimoCosto) : '',
       'Estado': { urgente:'Urgente', pronto:'Pronto', ok:'OK', sinventa:'Sin venta' }[clasificar(s)]
     }))
     .filter(f => f[`Cantidad a pedir (${horizonte} días)`] > 0); // solo lo que de verdad hay que pedir

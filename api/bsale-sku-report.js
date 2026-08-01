@@ -59,6 +59,13 @@ function toUtcDateStr(unixSeconds) {
   return new Date(unixSeconds * 1000).toISOString().slice(0, 10);
 }
 
+function addDaysStr(dateStr, days) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
 export default async function handler(req, res) {
   const { days, startDate: qStart, endDate: qEnd, debug } = req.query;
   const token = process.env.BSALE_ACCESS_TOKEN;
@@ -180,6 +187,14 @@ export default async function handler(req, res) {
     let comprasPorSku = {};
     let ultimoCostoPorSku = {}; // { [code]: { costo, fecha } }
     let recepcionesDisponibles = true;
+    // Facturas/guías de compra recibidas hace ~30 días -> si tu proveedor te
+    // da 30 días de plazo, estas son las que están por caer a pago pronto.
+    // Ventana de 23 a 37 días atrás (2 semanas centradas en el día 30) para
+    // no perder nada si el pago cae unos días antes o después del redondo.
+    const hoyStr = endDate; // usamos endDate como "hoy" para que sea consistente si se pide un rango con fecha fin distinta a hoy
+    const ventanaPagoInicio = addDaysStr(hoyStr, -37);
+    const ventanaPagoFin = addDaysStr(hoyStr, -23);
+    let proximosPagos = [];
     try {
       const primera = await bsaleGet('/stocks/receptions.json?limit=50&offset=0', token);
       const totalRecepciones = primera.count || 0;
@@ -222,6 +237,22 @@ export default async function handler(req, res) {
 
         const fecha = rec.rawAdmissionDate || toUtcDateStr(rec.admissionDate);
         const detalles = rec.details?.items || [];
+
+        // Total de la recepción completa (todas sus líneas), para el panel
+        // de próximos pagos.
+        if (fecha && fecha >= ventanaPagoInicio && fecha <= ventanaPagoFin) {
+          const totalRecepcion = detalles.reduce((a, d) => a + ((d.cost || 0) * (d.quantity || 0)), 0);
+          if (totalRecepcion > 0) {
+            proximosPagos.push({
+              fecha,
+              documento: rec.document || 'Sin Documento',
+              numeroDocumento: rec.documentNumber || '',
+              monto: Math.round(totalRecepcion),
+              fechaEstimadaPago: addDaysStr(fecha, 30)
+            });
+          }
+        }
+
         for (const det of detalles) {
           const variantId = det.variant?.id;
           const code = variantId != null ? codePorVariantId[String(variantId)] : null;
@@ -239,6 +270,7 @@ export default async function handler(req, res) {
           }
         }
       }
+      proximosPagos.sort((a, b) => a.fecha.localeCompare(b.fecha));
     } catch (err) {
       recepcionesDisponibles = false;
     }
@@ -286,7 +318,8 @@ export default async function handler(req, res) {
           sugerencia5: sugerirPara(5),
           sugerencia7: sugerirPara(7),
           sugerencia14: sugerirPara(14),
-          sugerencia30: sugerirPara(30)
+          sugerencia30: sugerirPara(30),
+          costoSugerencia5: ultimoCostoPorSku[code]?.costo != null ? Math.round(sugerirPara(5) * ultimoCostoPorSku[code].costo) : null
         };
       });
 
@@ -301,6 +334,8 @@ export default async function handler(req, res) {
       recepcionesDisponibles,
       catalogoDisponible,
       categorias,
+      proximosPagos,
+      ventanaPago: { desde: ventanaPagoInicio, hasta: ventanaPagoFin },
       skus
     });
   } catch (err) {
