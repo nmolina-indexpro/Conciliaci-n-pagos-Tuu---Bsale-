@@ -95,9 +95,10 @@
   <div class="toolbar">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <div class="date-field"><label for="diasInput">Período (días)</label><input type="number" id="diasInput" value="120" min="7" max="365" style="width:80px;"></div>
+      <button class="btn-ghost btn-compact" onclick="setDias(15)">15 días</button>
+      <button class="btn-ghost btn-compact" onclick="setDias(30)">30 días</button>
       <button class="btn-ghost btn-compact" onclick="setDias(90)">90 días</button>
       <button class="btn-ghost btn-compact" onclick="setDias(120)">120 días</button>
-      <button class="btn-ghost btn-compact" onclick="setDias(180)">180 días</button>
       <button class="btn-primary" onclick="cargar()">Analizar</button>
     </div>
     <span id="status"></span>
@@ -109,6 +110,23 @@
   <div class="card" id="proximosPagosCard" style="margin-bottom:24px;">
     <div class="lbl">💳 Compras que caerán a pago pronto (recibidas hace ~30 días)</div>
     <div id="proximosPagosWrap"><p class="empty-note">Se carga junto con "Analizar".</p></div>
+  </div>
+
+  <div class="card" style="margin-bottom:24px;border:1.5px solid var(--primary);">
+    <div class="lbl">🎯 Recomendación de compra con presupuesto</div>
+    <p class="empty-note" style="margin-top:0;">Dado un monto máximo a gastar (por ejemplo, lo que tu proveedor te financia cada 30 días), prioriza los SKU más urgentes hasta agotar el presupuesto — no una lista completa, sino qué comprar primero con la plata que realmente tienes.</p>
+    <div class="filtros" style="margin-bottom:0;">
+      <label style="font-size:12px;color:var(--muted);">Presupuesto disponible:</label>
+      <input type="number" id="presupuestoInput" value="8000000" step="100000" style="width:150px;">
+      <label style="font-size:12px;color:var(--muted);">Horizonte:</label>
+      <select id="horizontePresupuesto">
+        <option value="5">5 días</option>
+        <option value="7" selected>7 días</option>
+        <option value="14">14 días</option>
+      </select>
+      <button class="btn-primary btn-compact" onclick="calcularRecomendacionPresupuesto()">Calcular recomendación</button>
+    </div>
+    <div id="recomendacionWrap" style="margin-top:14px;"></div>
   </div>
 
   <div class="grid" id="resumenCards">
@@ -230,7 +248,7 @@ async function cargar(){
     else if((imgRes.totalSkusConImagen||0) === 0) avisos += `<div class="note-box">ℹ Se consultó Shopify pero no se encontró ningún SKU con imagen que calce con los códigos de Bsale — puede que los SKU no coincidan entre ambos sistemas.</div>`;
     $('avisoWrap').innerHTML = avisos;
 
-    renderProximosPagos(res.proximosPagos || [], res.ventanaPago);
+    renderProximosPagos(res.pagosPorProveedor || [], res.ventanaPago);
     renderTabla();
 
     status.className = 'ok';
@@ -247,27 +265,123 @@ function ordenarPor(campo){
   renderTabla();
 }
 
-function renderProximosPagos(pagos, ventana){
+function renderProximosPagos(pagosPorProveedor, ventana){
   const wrap = $('proximosPagosWrap');
-  if(!pagos || pagos.length === 0){
-    wrap.innerHTML = `<p class="empty-note">Sin recepciones de mercadería registradas entre ${ventana?.desde||'—'} y ${ventana?.hasta||'—'} (la ventana de ~30 días atrás).</p>`;
+  if(!pagosPorProveedor || pagosPorProveedor.length === 0){
+    wrap.innerHTML = `<p class="empty-note">Sin recepciones de mercadería registradas entre ${ventana?.desde||'—'} y ${ventana?.hasta||'—'} (ventana de ±3 días alrededor del día 30).</p>`;
     return;
   }
-  const total = pagos.reduce((a,p)=>a+p.monto,0);
+  const total = pagosPorProveedor.reduce((a,p)=>a+p.monto,0);
   wrap.innerHTML = `
-    <p class="empty-note" style="margin-top:0;">Recibidas entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> — si tu plazo con el proveedor es de 30 días, estos montos son los que probablemente te van a cobrar en los próximos días. Tenlo en cuenta antes de comprar más de la cuenta ahora.</p>
+    <p class="empty-note" style="margin-top:0;">Recibidas entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> (±3 días del día 30) — agrupado por proveedor identificado. Si tu plazo de pago es de 30 días, esto es lo que probablemente te cobren en los próximos días.</p>
     <table>
-      <thead><tr><th>Fecha recibida</th><th>Documento</th><th class="amount">Monto</th><th>Vence aprox.</th></tr></thead>
+      <thead><tr><th>Proveedor</th><th class="amount">N° documentos</th><th class="amount">Monto total</th></tr></thead>
       <tbody>
-        ${pagos.map(p => `<tr>
-          <td>${p.fecha}</td>
-          <td>${p.documento}${p.numeroDocumento?' N° '+p.numeroDocumento:''}</td>
-          <td class="amount">${fmt(p.monto)}</td>
-          <td>${p.fechaEstimadaPago}</td>
-        </tr>`).join('')}
-        <tr><td colspan="2"><b>Total</b></td><td class="amount"><b>${fmt(total)}</b></td><td></td></tr>
+        ${pagosPorProveedor.map(p => `
+          <tr>
+            <td>${p.proveedor}</td>
+            <td class="amount">${p.cantidadDocumentos}</td>
+            <td class="amount"><b>${fmt(p.monto)}</b></td>
+          </tr>`).join('')}
+        <tr><td><b>Total</b></td><td class="amount"><b>${pagosPorProveedor.reduce((a,p)=>a+p.cantidadDocumentos,0)}</b></td><td class="amount"><b>${fmt(total)}</b></td></tr>
       </tbody>
     </table>
+    <details style="margin-top:10px;">
+      <summary style="cursor:pointer;font-size:12px;color:var(--primary);">Ver documentos individuales</summary>
+      <table style="margin-top:10px;">
+        <thead><tr><th>Fecha</th><th>Proveedor</th><th>Documento</th><th class="amount">Monto</th><th>Vence aprox.</th></tr></thead>
+        <tbody>
+          ${pagosPorProveedor.flatMap(p=>p.documentos).sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(d => `
+            <tr>
+              <td>${d.fecha}</td>
+              <td>${d.proveedor}</td>
+              <td>${d.documento}${d.numeroDocumento?' N° '+d.numeroDocumento:''}</td>
+              <td class="amount">${fmt(d.monto)}</td>
+              <td>${d.fechaEstimadaPago}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </details>
+  `;
+}
+
+function calcularRecomendacionPresupuesto(){
+  const wrap = $('recomendacionWrap');
+  const presupuesto = parseFloat($('presupuestoInput').value) || 0;
+  const horizonte = $('horizontePresupuesto').value;
+  const campoSugerencia = 'sugerencia' + horizonte;
+
+  if(presupuesto <= 0){
+    wrap.innerHTML = `<p class="empty-note">Ingresa un presupuesto mayor a $0.</p>`;
+    return;
+  }
+  if(!ultimasFilasFiltradas || ultimasFilasFiltradas.length === 0){
+    wrap.innerHTML = `<p class="empty-note">No hay datos — presiona "Analizar" primero.</p>`;
+    return;
+  }
+
+  // Solo SKU que realmente necesitan compra (sugerencia > 0) y con costo
+  // conocido (si no sabemos el costo, no podemos respetar el presupuesto).
+  const candidatos = ultimasFilasFiltradas
+    .filter(s => s[campoSugerencia] > 0 && s.ultimoCosto != null)
+    .map(s => ({ ...s, costoLinea: s[campoSugerencia] * s.ultimoCosto }));
+
+  // Prioridad: más urgente primero (menos días de cobertura primero).
+  // Los que no tienen venta (diasCobertura===0 por "sin venta") van al final,
+  // ya que no hay urgencia real de reponerlos.
+  candidatos.sort((a,b) => {
+    const da = a.diasCobertura === null ? 9999 : (a.unidadesVendidas===0 ? 9998 : a.diasCobertura);
+    const db = b.diasCobertura === null ? 9999 : (b.unidadesVendidas===0 ? 9998 : b.diasCobertura);
+    return da - db;
+  });
+
+  let acumulado = 0;
+  const dentroPresupuesto = [];
+  const fueraPresupuesto = [];
+  for(const c of candidatos){
+    if(acumulado + c.costoLinea <= presupuesto){
+      acumulado += c.costoLinea;
+      dentroPresupuesto.push(c);
+    } else {
+      fueraPresupuesto.push(c);
+    }
+  }
+
+  const sinCosto = ultimasFilasFiltradas.filter(s => s[campoSugerencia] > 0 && s.ultimoCosto == null);
+
+  wrap.innerHTML = `
+    <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px;">
+      <div class="card"><div class="lbl">Presupuesto</div><div class="big">${fmt(presupuesto)}</div></div>
+      <div class="card"><div class="lbl">A gastar (recomendado)</div><div class="big" style="color:var(--green);">${fmt(acumulado)}</div></div>
+      <div class="card"><div class="lbl">Disponible sin usar</div><div class="big">${fmt(presupuesto-acumulado)}</div></div>
+    </div>
+    <p class="empty-note" style="margin-top:0;"><b>${dentroPresupuesto.length} SKU</b> caben dentro del presupuesto (ordenados del más urgente al menos urgente). ${fueraPresupuesto.length>0?`<b>${fueraPresupuesto.length} SKU</b> quedaron afuera por falta de presupuesto — se muestran igual, para que sepas qué se está postergando.`:''}</p>
+    <table class="data-table">
+      <thead><tr><th></th><th>SKU</th><th>Producto</th><th class="amount">Días cobertura</th><th class="amount">Sugerencia (${horizonte}d)</th><th class="amount">Costo línea</th><th>Estado</th></tr></thead>
+      <tbody>
+        ${dentroPresupuesto.map(s => `
+          <tr>
+            <td>${s.imagenUrl?`<img src="${s.imagenUrl}" style="width:32px;height:32px;object-fit:cover;border-radius:6px;">`:''}</td>
+            <td>${s.code}</td>
+            <td>${s.nombre}</td>
+            <td class="amount">${s.diasCobertura===null?'—':s.diasCobertura}</td>
+            <td class="amount">${fmtNum(s[campoSugerencia])}</td>
+            <td class="amount">${fmt(s.costoLinea)}</td>
+            <td><span class="badge ok">Comprar</span></td>
+          </tr>`).join('')}
+        ${fueraPresupuesto.map(s => `
+          <tr style="opacity:0.55;">
+            <td>${s.imagenUrl?`<img src="${s.imagenUrl}" style="width:32px;height:32px;object-fit:cover;border-radius:6px;">`:''}</td>
+            <td>${s.code}</td>
+            <td>${s.nombre}</td>
+            <td class="amount">${s.diasCobertura===null?'—':s.diasCobertura}</td>
+            <td class="amount">${fmtNum(s[campoSugerencia])}</td>
+            <td class="amount">${fmt(s.costoLinea)}</td>
+            <td><span class="badge no">Esperar</span></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    ${sinCosto.length>0?`<p class="empty-note">⚠ ${sinCosto.length} SKU necesitan compra pero no tienen "último costo comprado" registrado, así que no se pudieron incluir en este cálculo (no sabemos cuánto cuestan).</p>`:''}
   `;
 }
 

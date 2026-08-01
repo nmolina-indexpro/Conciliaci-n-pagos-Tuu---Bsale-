@@ -192,8 +192,8 @@ export default async function handler(req, res) {
     // Ventana de 23 a 37 días atrás (2 semanas centradas en el día 30) para
     // no perder nada si el pago cae unos días antes o después del redondo.
     const hoyStr = endDate; // usamos endDate como "hoy" para que sea consistente si se pide un rango con fecha fin distinta a hoy
-    const ventanaPagoInicio = addDaysStr(hoyStr, -37);
-    const ventanaPagoFin = addDaysStr(hoyStr, -23);
+    const ventanaPagoInicio = addDaysStr(hoyStr, -33);
+    const ventanaPagoFin = addDaysStr(hoyStr, -27);
     let proximosPagos = [];
     try {
       const primera = await bsaleGet('/stocks/receptions.json?limit=50&offset=0', token);
@@ -230,6 +230,25 @@ export default async function handler(req, res) {
         });
       }
 
+      // Identificamos el proveedor a partir del campo "note" de la recepción
+      // (ahí es donde vimos, en un caso real, el texto "intcomex"). No hay un
+      // campo dedicado de "proveedor" en este endpoint -> normalizamos los
+      // nombres conocidos y dejamos el texto tal cual para el resto, en vez
+      // de inventar una categoría.
+      const proveedoresConocidos = [
+        { patron: /coimco/i, nombre: 'COIMCO' },
+        { patron: /laptop\s*center/i, nombre: 'LaptopCenter' },
+        { patron: /intcomex/i, nombre: 'Intcomex' },
+        { patron: /daxis/i, nombre: 'Daxis' },
+        { patron: /synnex/i, nombre: 'Synnex' },
+        { patron: /ingram/i, nombre: 'Ingram Micro' }
+      ];
+      function identificarProveedor(rec) {
+        const texto = `${rec.note || ''} ${rec.document || ''}`;
+        for (const p of proveedoresConocidos) if (p.patron.test(texto)) return p.nombre;
+        return (rec.note || '').trim() || 'Sin identificar';
+      }
+
       for (const rec of recepciones) {
         // Las notas de crédito generan una "recepción" de reverso de stock,
         // no son compras nuevas a proveedores -> no cuentan.
@@ -239,12 +258,13 @@ export default async function handler(req, res) {
         const detalles = rec.details?.items || [];
 
         // Total de la recepción completa (todas sus líneas), para el panel
-        // de próximos pagos.
+        // de próximos pagos, agrupado por proveedor identificado.
         if (fecha && fecha >= ventanaPagoInicio && fecha <= ventanaPagoFin) {
           const totalRecepcion = detalles.reduce((a, d) => a + ((d.cost || 0) * (d.quantity || 0)), 0);
           if (totalRecepcion > 0) {
             proximosPagos.push({
               fecha,
+              proveedor: identificarProveedor(rec),
               documento: rec.document || 'Sin Documento',
               numeroDocumento: rec.documentNumber || '',
               monto: Math.round(totalRecepcion),
@@ -274,6 +294,17 @@ export default async function handler(req, res) {
     } catch (err) {
       recepcionesDisponibles = false;
     }
+
+    // Agrupamos por proveedor identificado, con su subtotal — esto es lo que
+    // se muestra en el panel (no la lista documento por documento).
+    const porProveedor = {};
+    for (const p of proximosPagos) {
+      porProveedor[p.proveedor] = porProveedor[p.proveedor] || { proveedor: p.proveedor, monto: 0, cantidadDocumentos: 0, documentos: [] };
+      porProveedor[p.proveedor].monto += p.monto;
+      porProveedor[p.proveedor].cantidadDocumentos += 1;
+      porProveedor[p.proveedor].documentos.push(p);
+    }
+    const pagosPorProveedor = Object.values(porProveedor).sort((a, b) => b.monto - a.monto);
 
     // ---- 5) Combinar todo por SKU ----
     const todosLosCodigos = new Set([
@@ -335,6 +366,7 @@ export default async function handler(req, res) {
       catalogoDisponible,
       categorias,
       proximosPagos,
+      pagosPorProveedor,
       ventanaPago: { desde: ventanaPagoInicio, hasta: ventanaPagoFin },
       skus
     });
