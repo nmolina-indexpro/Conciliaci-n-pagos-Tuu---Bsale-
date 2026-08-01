@@ -85,6 +85,7 @@
   .check-icon{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;font-size:13px;font-weight:700;}
   .check-icon.ok{background:var(--green-bg);color:var(--green);}
   .check-icon.no{background:var(--red-bg);color:var(--red);}
+  .check-icon.info{background:var(--surface-2);color:var(--muted);}
   .diff-line{font-size:12.5px;color:var(--muted);margin-top:12px;}
   .diff-line b{color:var(--text);}
 
@@ -205,6 +206,10 @@ $19.900
 
   <div class="section-title"><span class="dot" style="background:#DE2B2B;"></span>Transferencias BCI vs Bsale</div>
   <div id="bciResults"><p class="empty-note">Se carga junto con "Traer y cuadrar".</p></div>
+
+  <div class="section-title"><span class="dot" style="background:var(--purple);"></span>Efectivo</div>
+  <p class="empty-note">Sin sistema externo con el que cruzarlo (no hay "banco de efectivo") — es informativo, para tener el ingreso del día completo a la vista.</p>
+  <div id="efectivoResults"><p class="empty-note">Se carga junto con "Traer y cuadrar".</p></div>
 
   <div class="section-title"><span class="dot" style="background:var(--muted);"></span>Otras formas de pago / transacciones sin clasificar</div>
   <p class="empty-note">Incluye documentos Bsale pagados con un medio que hoy no se cruza contra ningún sistema externo (transferencias, abonos, etc), y transacciones TUU que no llegaron marcadas como débito o crédito (prepago, sin tipo). No son un error — solo quedan listadas para revisión manual.</p>
@@ -348,6 +353,7 @@ function procesarManual(){
 // ---------- Modo automático (APIs) ----------
 let ultimoShopifyData = null; // {gShopify, shopifyPos, bsaleShopify} o null si no está disponible
 let ultimoBciData = null; // {gBci, bciPos, bsaleTransferencia} o null si no está disponible
+let ultimoEfectivoDocs = []; // documentos Bsale pagados en efectivo del día (sin sistema externo con qué cruzarlos)
 let vinculosShopify = {}; // { [numeroDocBsale]: {orden, cliente} } — desde la etiqueta NV-/FA- de Shopify
 
 async function fetchAutomatico(){
@@ -400,6 +406,9 @@ async function fetchAutomatico(){
       renderTransferenciasBci(gBci, bciPos, bsaleTransferencia);
       bciMsg = `, ${bciPos.length} transferencias BCI`;
     }
+
+    ultimoEfectivoDocs = bsaleRes.efectivo || [];
+    renderEfectivo(ultimoEfectivoDocs);
 
     const posAll = (tuuRes.transacciones || []).filter(t => t.type === 'debito' || t.type === 'credito');
     const bsaleCred = bsaleRes.credito || [];
@@ -501,6 +510,24 @@ function renderShopify(gShopify, shopifyPos, bsaleShopify){
       <p class="empty-note">${gShopify.unmatchedBsale.length} documento(s) Bsale "SHOPIFY" sin orden correspondiente ese día:</p>
       ${extraHtml(gShopify.unmatchedBsale, fecha, poolShopifySueltos)}
     ` : ''}
+  `;
+}
+
+function renderEfectivo(docs){
+  const el = $('efectivoResults');
+  if(!docs || docs.length === 0){
+    el.innerHTML = `<p class="empty-note">Sin ventas en efectivo registradas en Bsale para esta fecha.</p>`;
+    return;
+  }
+  const total = sum(docs, 'monto');
+  el.innerHTML = `
+    <table>
+      <thead><tr><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto</th></tr></thead>
+      <tbody>
+        ${docs.map(d => `<tr><td>${docLinkHtml(d.numero, d.url)}</td><td>${d.cliente||'—'}</td><td class="amount">${fmt(d.monto)}</td></tr>`).join('')}
+        <tr><td><b>Total</b></td><td></td><td class="amount"><b>${fmt(total)}</b></td></tr>
+      </tbody>
+    </table>
   `;
 }
 
@@ -902,6 +929,10 @@ function renderResults(rCrudo){
     const totalBciMatch = sum(gBci.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
     filas.push({ canal: 'Transferencias BCI', origen: totalBciPos, bsale: totalBciMatch, cuadra: gBci.rows.every(r=>r.matched) });
   }
+  const totalEfectivo = sum(ultimoEfectivoDocs, 'monto');
+  if(ultimoEfectivoDocs.length > 0){
+    filas.push({ canal: 'Efectivo', origen: totalEfectivo, bsale: totalEfectivo, cuadra: true, sinComparar: true });
+  }
   const cuadraGeneral = filas.every(f => f.cuadra);
 
   el.innerHTML = `
@@ -914,7 +945,7 @@ function renderResults(rCrudo){
               <td>${f.canal}</td>
               <td class="amount val-cell">${fmt(f.origen)}</td>
               <td class="amount val-cell">${fmt(f.bsale)}</td>
-              <td class="estado-cell"><span class="check-icon ${f.cuadra?'ok':'no'}">${f.cuadra?'✓':'✕'}</span></td>
+              <td class="estado-cell">${f.sinComparar ? '<span class="check-icon info" title="Sin sistema externo para comparar">ℹ</span>' : `<span class="check-icon ${f.cuadra?'ok':'no'}">${f.cuadra?'✓':'✕'}</span>`}</td>
             </tr>`).join('')}
         </tbody>
       </table>
