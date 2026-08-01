@@ -1028,9 +1028,7 @@ function renderResults(rCrudo){
     filas.push({ canal: 'Transferencias BCI', origen: totalBciPos, bsale: totalBciMatch, cuadra: gBci.rows.every(r=>r.matched) });
   }
   const totalEfectivo = sum(ultimoEfectivoDocs, 'monto');
-  if(ultimoEfectivoDocs.length > 0){
-    filas.push({ canal: 'Efectivo', origen: totalEfectivo, bsale: totalEfectivo, cuadra: true, sinComparar: true });
-  }
+  filas.push({ canal: 'Efectivo', origen: totalEfectivo, bsale: totalEfectivo, cuadra: true, sinComparar: true });
   const cuadraGeneral = filas.every(f => f.cuadra);
 
   el.innerHTML = `
