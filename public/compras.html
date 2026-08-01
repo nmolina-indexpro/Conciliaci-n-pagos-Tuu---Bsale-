@@ -75,6 +75,7 @@
   .empty-note{color:var(--muted);font-size:12.5px;padding:14px 0;}
   .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:20px;color:var(--text);}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -115,11 +116,27 @@
   <div class="filtros" style="margin-bottom:8px;">
     <button class="btn-ghost btn-compact" id="catTodas" onclick="filtrarCategoriaRapida(null)">Todas las categorías</button>
     <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('pantalla')">Pantallas para notebook</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador')">Cargadores para notebook</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria')">Baterías para notebook</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-original')">Cargadores originales</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-daxis')">Cargadores Daxis</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-alternativo')">Cargadores alternativos</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-original')">Baterías originales</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-daxis')">Baterías Daxis</button>
+    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-alternativo')">Baterías alternativas</button>
     <select id="filtroCategoria" onchange="renderTabla()" style="min-width:180px;">
       <option value="">Otra categoría...</option>
     </select>
+  </div>
+
+  <div class="filtros" style="background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;box-shadow:var(--shadow);">
+    <span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;">⬇ Exportar pedido a Excel</span>
+    <label style="font-size:12px;color:var(--muted);">Horizonte:</label>
+    <select id="horizonteExport">
+      <option value="5">5 días</option>
+      <option value="7" selected>7 días</option>
+      <option value="14">14 días</option>
+    </select>
+    <button class="btn-primary btn-compact" onclick="exportarExcel()">Descargar Excel</button>
+    <span style="color:var(--muted);font-size:11.5px;">Exporta lo que esté filtrado/buscado en este momento.</span>
   </div>
 
   <div class="filtros">
@@ -144,7 +161,8 @@ function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
 
 let datosSkus = [];
 let ordenActual = { campo: 'unidadesVendidas', asc: false };
-let categoriaRapidaActiva = null; // 'pantalla' | 'cargador' | 'bateria' | null
+let categoriaRapidaActiva = null;
+let ultimasFilasFiltradas = [];
 
 function setDias(d){
   $('diasInput').value = d;
@@ -165,8 +183,8 @@ function filtrarCategoriaRapida(clave){
 function clasificar(sku){
   if(sku.unidadesVendidas === 0) return 'sinventa';
   if(sku.diasCobertura === null) return 'ok';
-  if(sku.diasCobertura <= 15) return 'urgente';
-  if(sku.diasCobertura <= 30) return 'pronto';
+  if(sku.diasCobertura <= 5) return 'urgente';
+  if(sku.diasCobertura <= 14) return 'pronto';
   return 'ok';
 }
 
@@ -237,11 +255,20 @@ function renderTabla(){
   const texto = ($('buscador').value || '').toLowerCase().trim();
   const filtroUrg = $('filtroUrgencia').value;
   const catSeleccionada = $('filtroCategoria').value;
-  const claveRapida = { pantalla: /pantalla/i, cargador: /cargador/i, bateria: /bater[ií]a/i };
+
+  const filtrosRapidos = {
+    pantalla: s => /pantalla/i.test(s.categoria||'') || /pantalla/i.test(s.nombre||''),
+    'cargador-original': s => (/cargador/i.test(s.categoria||'')||/cargador/i.test(s.nombre||'')) && !/daxis/i.test(s.nombre||'') && !/alternativ/i.test(s.nombre||''),
+    'cargador-daxis': s => (/cargador/i.test(s.categoria||'')||/cargador/i.test(s.nombre||'')) && /daxis/i.test(s.nombre||''),
+    'cargador-alternativo': s => (/cargador/i.test(s.categoria||'')||/cargador/i.test(s.nombre||'')) && /alternativ/i.test(s.nombre||''),
+    'bateria-original': s => (/bater[ií]a/i.test(s.categoria||'')||/bater[ií]a/i.test(s.nombre||'')) && !/daxis/i.test(s.nombre||'') && !/alternativ/i.test(s.nombre||''),
+    'bateria-daxis': s => (/bater[ií]a/i.test(s.categoria||'')||/bater[ií]a/i.test(s.nombre||'')) && /daxis/i.test(s.nombre||''),
+    'bateria-alternativo': s => (/bater[ií]a/i.test(s.categoria||'')||/bater[ií]a/i.test(s.nombre||'')) && /alternativ/i.test(s.nombre||'')
+  };
 
   let filas = datosSkus.filter(s => {
     if(texto && !(s.code.toLowerCase().includes(texto) || s.nombre.toLowerCase().includes(texto))) return false;
-    if(categoriaRapidaActiva && !claveRapida[categoriaRapidaActiva].test(s.categoria || '')) return false;
+    if(categoriaRapidaActiva && !filtrosRapidos[categoriaRapidaActiva](s)) return false;
     if(!categoriaRapidaActiva && catSeleccionada && s.categoria !== catSeleccionada) return false;
     const clase = clasificar(s);
     if(filtroUrg === 'urgente' && clase !== 'urgente') return false;
@@ -259,6 +286,8 @@ function renderTabla(){
     return ordenActual.asc ? va - vb : vb - va;
   });
 
+  ultimasFilasFiltradas = filas; // para que exportarExcel() use lo mismo que se está viendo
+
   const flecha = campo => ordenActual.campo === campo ? (ordenActual.asc ? ' ▲' : ' ▼') : '';
 
   wrap.innerHTML = `
@@ -272,6 +301,7 @@ function renderTabla(){
         <th class="amount" onclick="ordenarPor('stockActual')">Stock actual${flecha('stockActual')}</th>
         <th class="amount" onclick="ordenarPor('diasCobertura')">Días cobertura${flecha('diasCobertura')}</th>
         <th class="amount" onclick="ordenarPor('unidadesCompradas')">Compradas (período)${flecha('unidadesCompradas')}</th>
+        <th class="amount" onclick="ordenarPor('sugerencia5')">Sugerencia 5 días${flecha('sugerencia5')}</th>
         <th class="amount" onclick="ordenarPor('sugerencia7')">Sugerencia 7 días${flecha('sugerencia7')}</th>
         <th class="amount" onclick="ordenarPor('sugerencia14')">Sugerencia 14 días${flecha('sugerencia14')}</th>
         <th>Estado</th>
@@ -289,6 +319,7 @@ function renderTabla(){
             <td class="amount">${fmtNum(s.stockActual)}</td>
             <td class="amount">${s.diasCobertura===null?'—':fmtNum(s.diasCobertura)}</td>
             <td class="amount">${fmtNum(s.unidadesCompradas)}</td>
+            <td class="amount"><b>${fmtNum(s.sugerencia5)}</b></td>
             <td class="amount"><b>${fmtNum(s.sugerencia7)}</b></td>
             <td class="amount"><b>${fmtNum(s.sugerencia14)}</b></td>
             <td><span class="badge ${clase}">${etiqueta}</span></td>
@@ -298,6 +329,42 @@ function renderTabla(){
     </table>
     <p class="empty-note">Mostrando ${filas.length} de ${datosSkus.length} SKU. * Monto sugerido a comprar es una estimación usando el precio de venta promedio de cada SKU, no el costo de compra real.</p>
   `;
+}
+
+function exportarExcel(){
+  if(!ultimasFilasFiltradas || ultimasFilasFiltradas.length === 0){
+    alert('No hay datos para exportar — presiona "Analizar" primero.');
+    return;
+  }
+  const horizonte = $('horizonteExport').value; // '5' | '7' | '14'
+  const campoSugerencia = 'sugerencia' + horizonte;
+
+  const filasExport = ultimasFilasFiltradas
+    .map(s => ({
+      'SKU': s.code,
+      'Producto': s.nombre,
+      'Categoría': s.categoria,
+      [`Vendidas (período)`]: s.unidadesVendidas,
+      'Venta diaria prom.': s.ventaDiariaPromedio,
+      'Stock actual': s.stockActual,
+      'Días de cobertura': s.diasCobertura === null ? '' : s.diasCobertura,
+      [`Cantidad a pedir (${horizonte} días)`]: s[campoSugerencia],
+      'Estado': { urgente:'Urgente', pronto:'Pronto', ok:'OK', sinventa:'Sin venta' }[clasificar(s)]
+    }))
+    .filter(f => f[`Cantidad a pedir (${horizonte} días)`] > 0); // solo lo que de verdad hay que pedir
+
+  if(filasExport.length === 0){
+    alert(`No hay SKU con sugerencia de compra > 0 para el horizonte de ${horizonte} días con los filtros actuales.`);
+    return;
+  }
+
+  const hoja = XLSX.utils.json_to_sheet(filasExport);
+  hoja['!cols'] = [{wch:14},{wch:38},{wch:22},{wch:16},{wch:14},{wch:12},{wch:14},{wch:20},{wch:12}];
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, `Pedido ${horizonte}d`);
+
+  const fecha = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(libro, `pedido-compras-${horizonte}dias-${fecha}.xlsx`);
 }
 </script>
 </body>

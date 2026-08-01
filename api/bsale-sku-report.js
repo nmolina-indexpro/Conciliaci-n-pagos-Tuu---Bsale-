@@ -206,6 +206,7 @@ export default async function handler(req, res) {
           stockActual,
           diasCobertura,
           unidadesCompradas: compradas,
+          sugerencia5: sugerirPara(5),
           sugerencia7: sugerirPara(7),
           sugerencia14: sugerirPara(14),
           sugerencia30: sugerirPara(30)
