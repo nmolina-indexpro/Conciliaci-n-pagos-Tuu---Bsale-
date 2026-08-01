@@ -273,7 +273,7 @@ function renderProximosPagos(pagosPorProveedor, ventana){
   }
   const total = pagosPorProveedor.reduce((a,p)=>a+p.monto,0);
   wrap.innerHTML = `
-    <p class="empty-note" style="margin-top:0;">Recibidas entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> (±3 días del día 30) — agrupado por proveedor identificado. Si tu plazo de pago es de 30 días, esto es lo que probablemente te cobren en los próximos días.</p>
+    <p class="empty-note" style="margin-top:0;">Con vencimiento estimado entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> (±3 días de hoy) — agrupado por proveedor identificado, cada uno con su propio plazo de pago (Coimco/Intcomex/Daxis: 30 días · LaptopCenter: 45 días).</p>
     <table>
       <thead><tr><th>Proveedor</th><th class="amount">N° documentos</th><th class="amount">Monto total</th></tr></thead>
       <tbody>
@@ -460,6 +460,10 @@ function renderTabla(){
         <th onclick="ordenarPor('categoria')">Categoría${flecha('categoria')}</th>
         <th class="amount" onclick="ordenarPor('unidadesVendidas')">Vendidas (período)${flecha('unidadesVendidas')}</th>
         <th class="amount" onclick="ordenarPor('ventaDiariaPromedio')">Venta diaria prom.${flecha('ventaDiariaPromedio')}</th>
+        <th class="amount" onclick="ordenarPor('semana4')" title="Hace 22-28 días">Sem. -4${flecha('semana4')}</th>
+        <th class="amount" onclick="ordenarPor('semana3')" title="Hace 15-21 días">Sem. -3${flecha('semana3')}</th>
+        <th class="amount" onclick="ordenarPor('semana2')" title="Hace 8-14 días">Sem. -2${flecha('semana2')}</th>
+        <th class="amount" onclick="ordenarPor('semana1')" title="Últimos 7 días">Sem. -1${flecha('semana1')}</th>
         <th class="amount" onclick="ordenarPor('stockActual')">Stock actual${flecha('stockActual')}</th>
         <th class="amount" onclick="ordenarPor('diasCobertura')">Días cobertura${flecha('diasCobertura')}</th>
         <th class="amount" onclick="ordenarPor('unidadesCompradas')">Compradas (período)${flecha('unidadesCompradas')}</th>
@@ -484,6 +488,10 @@ function renderTabla(){
             <td>${s.categoria}</td>
             <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
             <td class="amount">${s.ventaDiariaPromedio}</td>
+            <td class="amount">${fmtNum(s.semana4)}</td>
+            <td class="amount">${fmtNum(s.semana3)}</td>
+            <td class="amount">${fmtNum(s.semana2)}</td>
+            <td class="amount">${fmtNum(s.semana1)}</td>
             <td class="amount">${fmtNum(s.stockActual)}</td>
             <td class="amount">${s.diasCobertura===null?'—':fmtNum(s.diasCobertura)}</td>
             <td class="amount">${fmtNum(s.unidadesCompradas)}</td>
@@ -516,6 +524,10 @@ function exportarExcel(){
       'Categoría': s.categoria,
       [`Vendidas (período)`]: s.unidadesVendidas,
       'Venta diaria prom.': s.ventaDiariaPromedio,
+      'Sem. -4 (22-28d atrás)': s.semana4,
+      'Sem. -3 (15-21d atrás)': s.semana3,
+      'Sem. -2 (8-14d atrás)': s.semana2,
+      'Sem. -1 (últimos 7d)': s.semana1,
       'Stock actual': s.stockActual,
       'Días de cobertura': s.diasCobertura === null ? '' : s.diasCobertura,
       'Último costo comprado': s.ultimoCosto ?? '',

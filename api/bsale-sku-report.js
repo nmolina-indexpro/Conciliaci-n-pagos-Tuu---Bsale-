@@ -110,6 +110,15 @@ export default async function handler(req, res) {
     const { items: docsVenta, truncado: ventasTruncadas } = await fetchAllPages(ventasPage, token, 50, 60);
 
     const ventasPorSku = {};
+    // Últimas 4 semanas (7 días cada una) contadas hacia atrás desde endDate,
+    // para poder ver de un vistazo si una semana puntual tuvo un pico raro
+    // (ej. una venta grande a una empresa) en vez de un promedio que lo
+    // esconde.
+    const semana1Ini = addDaysStr(endDate, -6),  semana1Fin = endDate;
+    const semana2Ini = addDaysStr(endDate, -13), semana2Fin = addDaysStr(endDate, -7);
+    const semana3Ini = addDaysStr(endDate, -20), semana3Fin = addDaysStr(endDate, -14);
+    const semana4Ini = addDaysStr(endDate, -27), semana4Fin = addDaysStr(endDate, -21);
+
     for (const doc of docsVenta) {
       if (doc.state !== 0) continue;
       const fecha = toUtcDateStr(doc.emissionDate);
@@ -119,10 +128,15 @@ export default async function handler(req, res) {
         const variant = det.variant || {};
         const code = variant.code || `sin-sku-${variant.id || 'desconocido'}`;
         const nombre = variant.description || det.comment || code;
-        ventasPorSku[code] = ventasPorSku[code] || { code, nombre, unidades: 0, montoNeto: 0, numDocs: 0 };
-        ventasPorSku[code].unidades += det.quantity || 0;
-        ventasPorSku[code].montoNeto += (det.quantity || 0) * (det.netUnitValue || 0);
+        ventasPorSku[code] = ventasPorSku[code] || { code, nombre, unidades: 0, montoNeto: 0, numDocs: 0, semana1: 0, semana2: 0, semana3: 0, semana4: 0 };
+        const cant = det.quantity || 0;
+        ventasPorSku[code].unidades += cant;
+        ventasPorSku[code].montoNeto += cant * (det.netUnitValue || 0);
         ventasPorSku[code].numDocs += 1;
+        if (fecha >= semana1Ini && fecha <= semana1Fin) ventasPorSku[code].semana1 += cant;
+        else if (fecha >= semana2Ini && fecha <= semana2Fin) ventasPorSku[code].semana2 += cant;
+        else if (fecha >= semana3Ini && fecha <= semana3Fin) ventasPorSku[code].semana3 += cant;
+        else if (fecha >= semana4Ini && fecha <= semana4Fin) ventasPorSku[code].semana4 += cant;
       }
     }
 
@@ -189,11 +203,12 @@ export default async function handler(req, res) {
     let recepcionesDisponibles = true;
     // Facturas/guías de compra recibidas hace ~30 días -> si tu proveedor te
     // da 30 días de plazo, estas son las que están por caer a pago pronto.
-    // Ventana de 23 a 37 días atrás (2 semanas centradas en el día 30) para
-    // no perder nada si el pago cae unos días antes o después del redondo.
+    // Cada recepción vence a pago según el plazo de SU proveedor (no todos son
+    // iguales) -> calculamos la fecha estimada de pago de cada una y filtramos
+    // las que caen dentro de ±3 días de hoy, en vez de usar una ventana fija.
     const hoyStr = endDate; // usamos endDate como "hoy" para que sea consistente si se pide un rango con fecha fin distinta a hoy
-    const ventanaPagoInicio = addDaysStr(hoyStr, -33);
-    const ventanaPagoFin = addDaysStr(hoyStr, -27);
+    const ventanaVenceInicio = addDaysStr(hoyStr, -3);
+    const ventanaVenceFin = addDaysStr(hoyStr, 3);
     let proximosPagos = [];
     try {
       const primera = await bsaleGet('/stocks/receptions.json?limit=50&offset=0', token);
@@ -234,19 +249,21 @@ export default async function handler(req, res) {
       // (ahí es donde vimos, en un caso real, el texto "intcomex"). No hay un
       // campo dedicado de "proveedor" en este endpoint -> normalizamos los
       // nombres conocidos y dejamos el texto tal cual para el resto, en vez
-      // de inventar una categoría.
+      // de inventar una categoría. Cada uno con su plazo de pago real.
       const proveedoresConocidos = [
-        { patron: /coimco/i, nombre: 'COIMCO' },
-        { patron: /laptop\s*center/i, nombre: 'LaptopCenter' },
-        { patron: /intcomex/i, nombre: 'Intcomex' },
-        { patron: /daxis/i, nombre: 'Daxis' },
-        { patron: /synnex/i, nombre: 'Synnex' },
-        { patron: /ingram/i, nombre: 'Ingram Micro' }
+        { patron: /coimco/i, nombre: 'COIMCO', plazoDias: 30 },
+        { patron: /laptop\s*center/i, nombre: 'LaptopCenter', plazoDias: 45 },
+        { patron: /intcomex/i, nombre: 'Intcomex', plazoDias: 30 },
+        { patron: /daxis/i, nombre: 'Daxis', plazoDias: 30 },
+        { patron: /synnex/i, nombre: 'Synnex', plazoDias: 30 },
+        { patron: /ingram/i, nombre: 'Ingram Micro', plazoDias: 30 }
       ];
+      const PLAZO_POR_DEFECTO = 30; // para proveedores no identificados
       function identificarProveedor(rec) {
         const texto = `${rec.note || ''} ${rec.document || ''}`;
-        for (const p of proveedoresConocidos) if (p.patron.test(texto)) return p.nombre;
-        return (rec.note || '').trim() || 'Sin identificar';
+        for (const p of proveedoresConocidos) if (p.patron.test(texto)) return p;
+        const nombre = (rec.note || '').trim() || 'Sin identificar';
+        return { nombre, plazoDias: PLAZO_POR_DEFECTO };
       }
 
       for (const rec of recepciones) {
@@ -258,18 +275,25 @@ export default async function handler(req, res) {
         const detalles = rec.details?.items || [];
 
         // Total de la recepción completa (todas sus líneas), para el panel
-        // de próximos pagos, agrupado por proveedor identificado.
-        if (fecha && fecha >= ventanaPagoInicio && fecha <= ventanaPagoFin) {
-          const totalRecepcion = detalles.reduce((a, d) => a + ((d.cost || 0) * (d.quantity || 0)), 0);
-          if (totalRecepcion > 0) {
-            proximosPagos.push({
-              fecha,
-              proveedor: identificarProveedor(rec),
-              documento: rec.document || 'Sin Documento',
-              numeroDocumento: rec.documentNumber || '',
-              monto: Math.round(totalRecepcion),
-              fechaEstimadaPago: addDaysStr(fecha, 30)
-            });
+        // de próximos pagos, agrupado por proveedor identificado. Cada
+        // proveedor vence a SU plazo (Coimco/Intcomex/Daxis = 30 días,
+        // LaptopCenter = 45 días).
+        if (fecha) {
+          const proveedorInfo = identificarProveedor(rec);
+          const fechaEstimadaPago = addDaysStr(fecha, proveedorInfo.plazoDias);
+          if (fechaEstimadaPago >= ventanaVenceInicio && fechaEstimadaPago <= ventanaVenceFin) {
+            const totalRecepcion = detalles.reduce((a, d) => a + ((d.cost || 0) * (d.quantity || 0)), 0);
+            if (totalRecepcion > 0) {
+              proximosPagos.push({
+                fecha,
+                proveedor: proveedorInfo.nombre,
+                plazoDias: proveedorInfo.plazoDias,
+                documento: rec.document || 'Sin Documento',
+                numeroDocumento: rec.documentNumber || '',
+                monto: Math.round(totalRecepcion),
+                fechaEstimadaPago
+              });
+            }
           }
         }
 
@@ -322,8 +346,12 @@ export default async function handler(req, res) {
         const nombre = (ventasPorSku[code] || {}).nombre || code;
         return !pareceServicioPorNombre(nombre);
       })
+      // "Sin categoría" en esta cuenta corresponde a ítems de despacho/flete
+      // (Bluexpress, Starken, "Costo de envío", etc.), no a productos físicos
+      // reales -> no tiene sentido reponerlos, se excluyen del análisis.
+      .filter(code => (categoriaPorCode[code] || 'Sin categoría') !== 'Sin categoría')
       .map(code => {
-        const venta = ventasPorSku[code] || { nombre: code, unidades: 0, montoNeto: 0, numDocs: 0 };
+        const venta = ventasPorSku[code] || { nombre: code, unidades: 0, montoNeto: 0, numDocs: 0, semana1: 0, semana2: 0, semana3: 0, semana4: 0 };
         const stockActual = stockPorSku[code] || 0;
         const compradas = comprasPorSku[code] || 0;
         const ventaDiaria = venta.unidades / numDias;
@@ -341,6 +369,13 @@ export default async function handler(req, res) {
           unidadesVendidas: venta.unidades,
           montoVentas: Math.round(venta.montoNeto),
           ventaDiariaPromedio: Math.round(ventaDiaria * 100) / 100,
+          // Venta semana a semana (semana1 = últimos 7 días, semana4 = hace
+          // 22-28 días) — para detectar a simple vista si el promedio general
+          // está inflado por una venta grande y puntual en una sola semana.
+          semana1: venta.semana1 || 0,
+          semana2: venta.semana2 || 0,
+          semana3: venta.semana3 || 0,
+          semana4: venta.semana4 || 0,
           stockActual,
           diasCobertura,
           unidadesCompradas: compradas,
@@ -367,7 +402,7 @@ export default async function handler(req, res) {
       categorias,
       proximosPagos,
       pagosPorProveedor,
-      ventanaPago: { desde: ventanaPagoInicio, hasta: ventanaPagoFin },
+      ventanaPago: { desde: ventanaVenceInicio, hasta: ventanaVenceFin },
       skus
     });
   } catch (err) {
