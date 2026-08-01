@@ -206,9 +206,6 @@ $19.900
   <div class="section-title"><span class="dot" style="background:#DE2B2B;"></span>Transferencias BCI vs Bsale</div>
   <div id="bciResults"><p class="empty-note">Se carga junto con "Traer y cuadrar".</p></div>
 
-  <div class="section-title"><span class="dot" style="background:#018EF5;"></span>Fintoc (transferencias del checkout) vs Bsale</div>
-  <div id="fintocResults"><p class="empty-note">Se carga junto con "Traer y cuadrar".</p></div>
-
   <div class="section-title"><span class="dot" style="background:var(--muted);"></span>Otras formas de pago / transacciones sin clasificar</div>
   <p class="empty-note">Incluye documentos Bsale pagados con un medio que hoy no se cruza contra ningún sistema externo (transferencias, abonos, etc), y transacciones TUU que no llegaron marcadas como débito o crédito (prepago, sin tipo). No son un error — solo quedan listadas para revisión manual.</p>
   <div id="otrosPagosWrap"><p class="empty-note">Se carga junto con "Traer y cuadrar".</p></div>
@@ -351,7 +348,6 @@ function procesarManual(){
 // ---------- Modo automático (APIs) ----------
 let ultimoShopifyData = null; // {gShopify, shopifyPos, bsaleShopify} o null si no está disponible
 let ultimoBciData = null; // {gBci, bciPos, bsaleTransferencia} o null si no está disponible
-let ultimoFintocData = null; // {gFintoc, fintocPos, bsaleTransferencia} o null si no está disponible
 let vinculosShopify = {}; // { [numeroDocBsale]: {orden, cliente} } — desde la etiqueta NV-/FA- de Shopify
 
 async function fetchAutomatico(){
@@ -362,12 +358,11 @@ async function fetchAutomatico(){
 
   try{
     const fetchSeguro = url => fetch(url).then(r=>r.json()).catch(err => ({ error: 'No disponible', detail: err.message }));
-    const [tuuRes, bsaleRes, shopifyRes, bciRes, fintocRes] = await Promise.all([
+    const [tuuRes, bsaleRes, shopifyRes, bciRes] = await Promise.all([
       fetch(`/api/tuu-report?date=${fecha}`).then(r=>r.json()),
       fetch(`/api/bsale-report?date=${fecha}`).then(r=>r.json()),
       fetchSeguro(`/api/shopify-report?date=${fecha}`),
-      fetchSeguro(`/api/bci-transferencias-report?date=${fecha}`),
-      fetchSeguro(`/api/fintoc-report?date=${fecha}`)
+      fetchSeguro(`/api/bci-transferencias-report?date=${fecha}`)
     ]);
 
     if(tuuRes.error) throw new Error('TUU: ' + (tuuRes.detail || tuuRes.error));
@@ -406,20 +401,6 @@ async function fetchAutomatico(){
       bciMsg = `, ${bciPos.length} transferencias BCI`;
     }
 
-    // Transferencias Fintoc (pagos por transferencia cobrados en el checkout de Shopify)
-    let fintocMsg = '';
-    if(fintocRes.error){
-      ultimoFintocData = null;
-      $('fintocResults').innerHTML = `<p class="empty-note">Fintoc no disponible: ${fintocRes.detail || fintocRes.error}</p>`;
-    } else {
-      const fintocPos = (fintocRes.transferencias || []).map(t => ({ amount: t.monto, time:'', numero: t.referencia || t.id || '', cliente: t.cliente || '' }));
-      const bsaleTransferenciaFintoc = bsaleRes.transferencia || [];
-      const gFintoc = matchGroup(fintocPos, bsaleTransferenciaFintoc);
-      ultimoFintocData = { gFintoc, fintocPos, bsaleTransferencia: bsaleTransferenciaFintoc };
-      renderTransferenciasFintoc(gFintoc, fintocPos, bsaleTransferenciaFintoc);
-      fintocMsg = `, ${fintocPos.length} pagos Fintoc`;
-    }
-
     const posAll = (tuuRes.transacciones || []).filter(t => t.type === 'debito' || t.type === 'credito');
     const bsaleCred = bsaleRes.credito || [];
     const bsaleDeb = bsaleRes.debito || [];
@@ -428,7 +409,7 @@ async function fetchAutomatico(){
     renderOtrosPagos(bsaleRes.otros || [], tuuRes.otras || []);
 
     status.className = 'ok';
-    status.textContent = `Listo — ${posAll.length} ventas POS, ${bsaleCred.length + bsaleDeb.length} documentos Bsale${shopifyMsg}${bciMsg}${fintocMsg}`;
+    status.textContent = `Listo — ${posAll.length} ventas POS, ${bsaleCred.length + bsaleDeb.length} documentos Bsale${shopifyMsg}${bciMsg}`;
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
@@ -537,24 +518,6 @@ function renderTransferenciasBci(gBci, bciPos, bsaleTransferencia){
     ${gBci.unmatchedBsale.length>0 ? `
       <p class="empty-note">${gBci.unmatchedBsale.length} documento(s) Bsale "TRANSFERENCIA BANCARIA" sin transferencia BCI correspondiente ese día:</p>
       ${extraHtml(gBci.unmatchedBsale, fecha, poolBciSueltos)}
-    ` : ''}
-  `;
-}
-
-function renderTransferenciasFintoc(gFintoc, fintocPos, bsaleTransferencia){
-  const fecha = $('fecha').value;
-  const el = $('fintocResults');
-  const poolBsaleSueltosFintoc = gFintoc.unmatchedBsale;
-  const poolFintocSueltos = gFintoc.rows.filter(r=>!r.matched).map(r=>r.pos);
-  if(fintocPos.length === 0 && bsaleTransferencia.length === 0){
-    el.innerHTML = `<p class="empty-note">Sin pagos Fintoc ni documentos Bsale "TRANSFERENCIA BANCARIA" para esta fecha.</p>`;
-    return;
-  }
-  el.innerHTML = `
-    ${rowsHtml(gFintoc.rows, 'Fintoc', 'fintoc', fecha, poolBsaleSueltosFintoc)}
-    ${gFintoc.unmatchedBsale.length>0 ? `
-      <p class="empty-note">${gFintoc.unmatchedBsale.length} documento(s) Bsale "TRANSFERENCIA BANCARIA" sin pago Fintoc correspondiente ese día:</p>
-      ${extraHtml(gFintoc.unmatchedBsale, fecha, poolFintocSueltos)}
     ` : ''}
   `;
 }
@@ -818,6 +781,7 @@ function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
   for(const r of rows){
     const pasarelaCell = esShopify ? `<td>${r.pos.pasarela || '—'}</td>` : '';
     if(r.matched){
+      const textoEstado = esShopify && r.pos.pasarela ? `${r.pos.pasarela} OK` : 'OK';
       html += `<tr>
         <td>${r.pos.time||'—'}</td>
         <td class="amount">${fmt(r.pos.amount)}</td>
@@ -825,7 +789,7 @@ function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
         <td>${docLinkHtml(r.bsale.numero, r.bsale.url)}</td>
         <td>${r.bsale.cliente||'—'}</td>
         <td class="amount">${fmt(r.bsale.monto)}</td>
-        <td><span class="badge ok">OK</span></td>
+        <td><span class="badge ok">${textoEstado}</span></td>
       </tr>`;
     } else {
       const clave = claveItem(fecha, scope, `${r.pos.time}_${r.pos.amount}`);
@@ -937,12 +901,6 @@ function renderResults(rCrudo){
     const totalBciPos = sum(bciPos, 'amount');
     const totalBciMatch = sum(gBci.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
     filas.push({ canal: 'Transferencias BCI', origen: totalBciPos, bsale: totalBciMatch, cuadra: gBci.rows.every(r=>r.matched) });
-  }
-  if(ultimoFintocData){
-    const { gFintoc, fintocPos } = ultimoFintocData;
-    const totalFintocPos = sum(fintocPos, 'amount');
-    const totalFintocMatch = sum(gFintoc.rows.filter(r=>r.matched).map(r=>r.bsale), 'monto');
-    filas.push({ canal: 'Fintoc (transferencias)', origen: totalFintocPos, bsale: totalFintocMatch, cuadra: gFintoc.rows.every(r=>r.matched) });
   }
   const cuadraGeneral = filas.every(f => f.cuadra);
 
