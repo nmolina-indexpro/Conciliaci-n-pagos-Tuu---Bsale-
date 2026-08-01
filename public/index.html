@@ -96,6 +96,7 @@
       <div class="date-field"><label for="fechaHasta">Hasta</label><input type="date" id="fechaHasta"></div>
       <button class="btn-primary" style="padding:9px 14px;" title="Buscar este rango" onclick="cargar()">🔍</button>
       <button class="btn-ghost btn-compact" id="btnDia" title="Ver hoy en tiempo real" onclick="setRangoRapido('dia')">Día (Hoy)</button>
+      <button class="btn-ghost btn-compact" id="btnAyer" onclick="setRangoRapido('ayer')">Ayer</button>
       <button class="btn-ghost btn-compact" id="btnSemana" onclick="setRangoRapido('semana')">Última semana</button>
       <button class="btn-ghost btn-compact" id="btnMes" onclick="setRangoRapido('mes')">Este mes</button>
       <button class="btn-primary" onclick="cargar()">Actualizar</button>
@@ -248,6 +249,10 @@ function setRangoRapido(tipo){
   if(tipo === 'dia'){
     $('fechaDesde').value = hoyStr;
     $('fechaHasta').value = hoyStr;
+  } else if(tipo === 'ayer'){
+    const ayer = addDaysStr(hoyStr, -1);
+    $('fechaDesde').value = ayer;
+    $('fechaHasta').value = ayer;
   } else if(tipo === 'semana'){
     $('fechaHasta').value = hoy;
     $('fechaDesde').value = addDaysStr(hoy, -6);
@@ -265,6 +270,7 @@ function setRangoRapido(tipo){
 
 function marcarBotonActivo(tipo){
   $('btnDia').classList.toggle('active', tipo==='dia');
+  $('btnAyer').classList.toggle('active', tipo==='ayer');
   $('btnSemana').classList.toggle('active', tipo==='semana');
   $('btnMes').classList.toggle('active', tipo==='mes');
 }
