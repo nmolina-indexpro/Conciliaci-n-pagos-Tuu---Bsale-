@@ -20,12 +20,13 @@
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:28px 20px 60px;}
-  .wrap{max-width:1200px;margin:0 auto;}
-  header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:26px;flex-wrap:wrap;gap:16px;}
+  .wrap{max-width:1600px;margin:0;}
+  header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;flex-wrap:wrap;gap:16px;}
+  .logo{height:42px;display:block;}
   h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;letter-spacing:0.2px;margin:0 0 5px 0;color:var(--text);}
   h1 span{color:var(--primary);}
   .sub{color:var(--muted);font-size:13px;}
-  .page-nav{display:flex;gap:6px;margin-top:16px;background:var(--surface-2);padding:5px;border-radius:12px;width:fit-content;}
+  .page-nav{display:flex;gap:6px;background:var(--surface-2);padding:5px;border-radius:12px;width:fit-content;}
   .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:var(--muted);text-decoration:none;padding:10px 22px;border-radius:9px;transition:all .15s;}
   .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
   .page-nav a:hover:not(.active){color:var(--text);}
@@ -89,15 +90,12 @@
 <div class="wrap">
 
   <header>
-    <div>
-      <h1>Análisis de <span>Compras</span> — IndexStore</h1>
-      <div class="sub">Ventas, stock y recepciones por SKU en Bsale — para decidir qué reponer</div>
-      <nav class="page-nav">
-        <a href="index.html">Flujo de Caja</a>
-        <a href="conciliacion.html">Conciliación</a>
-        <a href="compras.html" class="active">Compras</a>
-      </nav>
-    </div>
+    <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    <nav class="page-nav">
+      <a href="index.html">Flujo de Caja</a>
+      <a href="conciliacion.html">Conciliación</a>
+      <a href="compras.html" class="active">Compras</a>
+    </nav>
   </header>
 
   <div class="toolbar">
