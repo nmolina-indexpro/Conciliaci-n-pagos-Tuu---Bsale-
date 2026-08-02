@@ -160,8 +160,8 @@
 <script>
 const $ = id => document.getElementById(id);
 const hoyStr = new Date().toLocaleDateString('en-CA');
-$('fechaDesde').max = hoyStr;
-$('fechaHasta').max = hoyStr;
+// Sin tope máximo en "hoy" -> se puede elegir un rango hacia adelante para
+// ver, por ejemplo, cómo se ven las facturas por pagar de una semana futura.
 
 function fmt(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
 
