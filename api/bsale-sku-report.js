@@ -66,6 +66,29 @@ function addDaysStr(dateStr, days) {
   return dt.toISOString().slice(0, 10);
 }
 
+// Reconstruye el stock al final de cada día del período, partiendo del stock
+// ACTUAL (hoy) y yendo hacia atrás: stock_fin(día-1) = stock_fin(día) +
+// ventas(día) - compras(día). Devuelve las fechas en que el stock reconstruido
+// quedó en 0 o menos (quiebre). Es una ESTIMACIÓN: asume que el stock actual
+// es exacto y que no hubo ajustes/mermas manuales fuera de ventas y compras
+// -> si hay diferencias de inventario no registradas como venta o compra,
+// esto puede desviarse un poco de la realidad.
+function reconstruirDiasQuiebre(stockActualHoy, ventasPorDia, comprasPorDia, startDate, endDate) {
+  const dias = [];
+  for (let d = startDate; d <= endDate; d = addDaysStr(d, 1)) dias.push(d);
+
+  let stockFinDia = stockActualHoy;
+  const diasQuiebre = [];
+  for (let i = dias.length - 1; i >= 0; i--) {
+    const d = dias[i];
+    if (stockFinDia <= 0) diasQuiebre.push(d);
+    const ventasDia = (ventasPorDia || {})[d] || 0;
+    const comprasDia = (comprasPorDia || {})[d] || 0;
+    stockFinDia = stockFinDia + ventasDia - comprasDia; // stock al final del día anterior
+  }
+  return diasQuiebre;
+}
+
 // Si un vencimiento cae sábado o domingo, se paga el lunes siguiente (no hay
 // proceso bancario en fin de semana).
 function ajustarASiguienteDiaHabil(dateStr) {
@@ -132,6 +155,7 @@ export default async function handler(req, res) {
     const { items: docsVenta, truncado: ventasTruncadas } = await fetchAllPages(ventasPage, token, 50, 60);
 
     const ventasPorSku = {};
+    const ventasPorDiaSku = {}; // { [code]: { [fecha]: unidades } } -> para reconstruir stock histórico
     // Últimas 4 semanas (7 días cada una) contadas hacia atrás desde endDate,
     // para poder ver de un vistazo si una semana puntual tuvo un pico raro
     // (ej. una venta grande a una empresa) en vez de un promedio que lo
@@ -160,6 +184,8 @@ export default async function handler(req, res) {
         ventasPorSku[code].unidades += cant;
         ventasPorSku[code].montoNeto += cant * (det.netUnitValue || 0);
         ventasPorSku[code].numDocs += 1;
+        ventasPorDiaSku[code] = ventasPorDiaSku[code] || {};
+        ventasPorDiaSku[code][fecha] = (ventasPorDiaSku[code][fecha] || 0) + cant;
         if (fecha >= semana1Ini && fecha <= semana1Fin) ventasPorSku[code].semana1 += cant;
         else if (fecha >= semana2Ini && fecha <= semana2Fin) ventasPorSku[code].semana2 += cant;
         else if (fecha >= semana3Ini && fecha <= semana3Fin) ventasPorSku[code].semana3 += cant;
@@ -226,6 +252,7 @@ export default async function handler(req, res) {
     // FINAL (las más recientes) en vez de desde el principio, o nunca se
     // llega a las fechas actuales dentro de un tope razonable de páginas.
     let comprasPorSku = {};
+    const comprasPorDiaSku = {}; // { [code]: { [fecha]: unidades } } -> para reconstruir stock histórico
     let ultimoCostoPorSku = {}; // { [code]: { costo, fecha } }
     let recepcionesDisponibles = true;
     // Filtramos por FECHA DE RECEPCIÓN de los últimos 14 días (no por fecha
@@ -330,6 +357,8 @@ export default async function handler(req, res) {
 
           if (fecha && fecha >= startDate && fecha <= endDate) {
             comprasPorSku[code] = (comprasPorSku[code] || 0) + (det.quantity || 0);
+            comprasPorDiaSku[code] = comprasPorDiaSku[code] || {};
+            comprasPorDiaSku[code][fecha] = (comprasPorDiaSku[code][fecha] || 0) + (det.quantity || 0);
           }
 
           if (det.cost != null && det.cost > 0 && fecha) {
@@ -396,6 +425,18 @@ export default async function handler(req, res) {
         const margenUnitario = (precioVentaPromedio != null && costoRef != null) ? Math.round(precioVentaPromedio - costoRef) : null;
         const margenPorcentaje = (margenUnitario != null && precioVentaPromedio > 0) ? Math.round((margenUnitario / precioVentaPromedio) * 1000) / 10 : null;
 
+        // Reconstrucción de stock histórico: días en que el SKU estuvo en
+        // quiebre dentro del período, y el margen que probablemente se dejó
+        // de ganar esos días (venta diaria promedio de los días CON stock,
+        // multiplicada por el margen unitario). Es una estimación, no un
+        // registro real de ventas perdidas.
+        const diasQuiebreHist = reconstruirDiasQuiebre(stockActual, ventasPorDiaSku[code], comprasPorDiaSku[code], startDate, endDate);
+        const diasConStock = Math.max(1, numDias - diasQuiebreHist.length);
+        const ventaDiariaConStock = venta.unidades / diasConStock;
+        const margenPerdidoPorQuiebre = margenUnitario != null
+          ? Math.round(diasQuiebreHist.length * ventaDiariaConStock * margenUnitario)
+          : null;
+
         return {
           code,
           nombre: venta.nombre || code,
@@ -417,6 +458,8 @@ export default async function handler(req, res) {
           fechaUltimaCompra: ultimoCostoPorSku[code]?.fecha ?? null,
           margenUnitario,
           margenPorcentaje,
+          diasQuiebreHistorico: diasQuiebreHist.length,
+          margenPerdidoPorQuiebre,
           sugerencia5: sugerirPara(5),
           sugerencia7: sugerirPara(7),
           sugerencia14: sugerirPara(14),

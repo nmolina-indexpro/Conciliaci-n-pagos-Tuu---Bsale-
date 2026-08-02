@@ -61,7 +61,7 @@
   select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
 
   table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--surface);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);}
-  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:10px;border-bottom:2px solid var(--line);cursor:pointer;user-select:none;background:var(--surface-2);}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:10px;border-bottom:2px solid var(--line);cursor:pointer;user-select:none;background:var(--surface-2);position:sticky;top:0;z-index:5;}
   th:hover{color:var(--primary);}
   th.amount, td.amount{text-align:right;}
   td{padding:9px 10px;border-bottom:1px solid var(--line);}
@@ -574,6 +574,8 @@ function renderTabla(){
         <th class="amount" onclick="ordenarPor('margenUnitario')">Margen $${flecha('margenUnitario')}</th>
         <th class="amount" onclick="ordenarPor('margenPorcentaje')">Margen %${flecha('margenPorcentaje')}</th>
         <th onclick="ordenarPor('esEstrella')" style="cursor:pointer;">⭐${flecha('esEstrella')}</th>
+        <th class="amount" onclick="ordenarPor('diasQuiebreHistorico')" title="Días reconstruidos con stock en 0 dentro del período">Días en quiebre${flecha('diasQuiebreHistorico')}</th>
+        <th class="amount" onclick="ordenarPor('margenPerdidoPorQuiebre')" title="Estimado: días en quiebre x venta diaria con stock x margen unitario">Margen perdido est.${flecha('margenPerdidoPorQuiebre')}</th>
         <th class="amount" onclick="ordenarPor('sugerencia5')">Sugerencia 5 días${flecha('sugerencia5')}</th>
         <th class="amount" onclick="ordenarPor('costoSugerencia5')">Costo total sug. 5 días${flecha('costoSugerencia5')}</th>
         <th class="amount" onclick="ordenarPor('sugerencia7')">Sugerencia 7 días${flecha('sugerencia7')}</th>
@@ -605,6 +607,8 @@ function renderTabla(){
             <td class="amount">${s.margenUnitario!=null?fmt(s.margenUnitario):'—'}</td>
             <td class="amount">${s.margenPorcentaje!=null?s.margenPorcentaje+'%':'—'}</td>
             <td>${s.esEstrella?'<span class="badge estrella">⭐ Estrella</span>':''}</td>
+            <td class="amount">${s.diasQuiebreHistorico>0?`<span style="color:var(--red);font-weight:600;">${s.diasQuiebreHistorico}</span>`:'0'}</td>
+            <td class="amount">${s.margenPerdidoPorQuiebre>0?`<span style="color:var(--red);">${fmt(s.margenPerdidoPorQuiebre)}</span>`:(s.margenPerdidoPorQuiebre!=null?'$0':'—')}</td>
             <td class="amount"><b>${fmtNum(s.sugerencia5)}</b></td>
             <td class="amount">${s.costoSugerencia5!=null?fmt(s.costoSugerencia5):'—'}</td>
             <td class="amount"><b>${fmtNum(s.sugerencia7)}</b></td>
@@ -681,6 +685,8 @@ function exportarExcel(){
       'Margen $': s.margenUnitario ?? '',
       'Margen %': s.margenPorcentaje ?? '',
       'Producto estrella': s.esEstrella ? 'Sí' : '',
+      'Días en quiebre (período)': s.diasQuiebreHistorico,
+      'Margen perdido estimado': s.margenPerdidoPorQuiebre ?? '',
       [`Cantidad a pedir (${horizonte} días)`]: s[campoSugerencia],
       'Costo estimado del pedido': (s.ultimoCosto!=null && s[campoSugerencia]>0) ? Math.round(s[campoSugerencia]*s.ultimoCosto) : '',
       'Estado': { urgente:'Urgente', pronto:'Pronto', ok:'OK', sinventa:'Sin venta' }[clasificar(s)]
