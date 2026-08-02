@@ -264,14 +264,14 @@ function pintarComparacion(elId, actual, anterior){
   if(!anterior && anterior !== 0){ el.textContent = ''; return; }
   if(anterior === 0){
     el.className = actual > 0 ? 'cmp up' : 'cmp flat';
-    el.innerHTML = actual > 0 ? '▲ nuevo vs. mes anterior ($0)' : 'Igual que el mes anterior';
+    el.innerHTML = actual > 0 ? '▲ nuevo vs. período anterior ($0)' : 'Igual que el período anterior';
     return;
   }
   const delta = actual - anterior;
   const pct = Math.round((delta / anterior) * 100);
   const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '●';
   el.className = delta > 0 ? 'cmp up' : delta < 0 ? 'cmp down' : 'cmp flat';
-  el.textContent = `${arrow} ${pct>0?'+':''}${pct}% vs. mes anterior (${fmt(anterior)})`;
+  el.textContent = `${arrow} ${pct>0?'+':''}${pct}% vs. período anterior (${fmt(anterior)})`;
 }
 
 function irAHoy(){
@@ -347,9 +347,12 @@ async function cargar(){
   status.className = '';
   status.textContent = 'Consultando...';
 
-  // Rango equivalente un mes antes, para la comparación de las tarjetas resumen
-  const fechaDesdeAnt = shiftMonthStr(fechaDesde, -1);
-  const fechaAnt = shiftMonthStr(fecha, -1);
+  // Período anterior: mismo largo que el seleccionado, inmediatamente antes
+  // (ej. si son 7 días, se compara con los 7 días justo antes de esos 7 —
+  // no con "un mes atrás" ni con un punto fijo del calendario).
+  const largoPeriodo = diffDays(fechaDesde, fecha) + 1;
+  const fechaAnt = addDaysStr(fechaDesde, -1);
+  const fechaDesdeAnt = addDaysStr(fechaAnt, -(largoPeriodo - 1));
 
   try{
     const [actual, anterior] = await Promise.all([
