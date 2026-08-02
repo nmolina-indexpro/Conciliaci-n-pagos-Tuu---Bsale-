@@ -31,6 +31,8 @@
   .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
   .page-nav a:hover:not(.active){color:var(--text);}
   .date-field{display:flex;align-items:center;gap:8px;}
+  .date-popover{display:none;position:absolute;top:calc(100% + 8px);left:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:var(--shadow);z-index:30;flex-direction:column;gap:10px;min-width:220px;}
+  .date-popover.open{display:flex;}
   .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
   input[type=date]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
   input[type=date]:focus{outline:none;border-color:var(--primary);}
@@ -92,9 +94,14 @@
 
   <div class="toolbar">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <div class="date-field"><label for="fechaDesde">Desde</label><input type="date" id="fechaDesde"></div>
-      <div class="date-field"><label for="fechaHasta">Hasta</label><input type="date" id="fechaHasta"></div>
-      <button class="btn-primary" style="padding:9px 14px;" title="Buscar este rango" onclick="cargar()">🔍</button>
+      <div class="date-picker-wrap" style="position:relative;">
+        <button class="btn-ghost btn-compact" id="btnCalendario" title="Elegir rango de fechas" onclick="toggleDatePicker(event)">📅 <span id="rangoActualLabel"></span></button>
+        <div id="datePickerPopover" class="date-popover">
+          <div class="date-field"><label for="fechaDesde">Desde</label><input type="date" id="fechaDesde"></div>
+          <div class="date-field"><label for="fechaHasta">Hasta</label><input type="date" id="fechaHasta"></div>
+          <button class="btn-primary btn-compact" onclick="aplicarRangoPersonalizado()">Aplicar</button>
+        </div>
+      </div>
       <button class="btn-ghost btn-compact" id="btnDia" title="Ver hoy en tiempo real" onclick="setRangoRapido('dia')">Día (Hoy)</button>
       <button class="btn-ghost btn-compact" id="btnAyer" onclick="setRangoRapido('ayer')">Ayer</button>
       <button class="btn-ghost btn-compact" id="btnSemana" onclick="setRangoRapido('semana')">Última semana</button>
@@ -109,11 +116,8 @@
       <h3>🧾 Facturas por pagar</h3>
       <div class="big" id="facturasSemanaTotal">$0</div>
       <div class="note" style="margin-bottom:8px;">Total con vencimiento esta semana</div>
-      <div class="breakdown">
-        <span>Mañana: <b id="facturasMañana">$0</b></span>
-        <span>Pasado mañana: <b id="facturasPasadoManana">$0</b></span>
-      </div>
-      <div class="note" id="facturasNote">Según plazo por proveedor: Coimco/Intcomex 30 días, LaptopCenter 45 días.</div>
+      <div class="breakdown" id="facturasDesglose" style="flex-wrap:wrap;row-gap:4px;"></div>
+      <div class="note" id="facturasNote">Según plazo por proveedor: Coimco/Intcomex 30 días, LaptopCenter 45 días. Vencimientos en fin de semana se pagan el lunes.</div>
     </div>
     <div class="card c-tuu">
       <h3>💳 Depósito TUU proyectado</h3>
@@ -142,6 +146,10 @@
   <div class="section-title">📅 Calendario de caída de fondos (últimos y próximos días)</div>
   <p class="empty-note">Cada fila es un día en que el banco debería acreditar dinero, no el día en que se vendió. Útil para proyectar disponibilidad real de caja.</p>
   <div id="calendarioWrap"><p class="empty-note">Cargando...</p></div>
+
+  <div class="section-title">🧾 Detalle de facturas que vencen esta semana</div>
+  <p class="empty-note">Documento y monto tal como quedó registrado en la recepción de mercadería en Bsale — busca el número ahí si necesitas el documento completo.</p>
+  <div id="facturasDetalleWrap"><p class="empty-note">Cargando...</p></div>
 
   <div class="section-title">📊 Acumulado de efectivo pendiente de depósito</div>
   <p class="empty-note">Suma del efectivo de los días mostrados que todavía no se ha registrado como depositado. Sirve para vigilar cuánto dinero físico se está acumulando en el local.</p>
@@ -299,7 +307,28 @@ function marcarBotonActivo(tipo){
   $('btnAyer').classList.toggle('active', tipo==='ayer');
   $('btnSemana').classList.toggle('active', tipo==='semana');
   $('btnMes').classList.toggle('active', tipo==='mes');
+  actualizarLabelRango();
 }
+
+function actualizarLabelRango(){
+  const d = $('fechaDesde').value, h = $('fechaHasta').value;
+  $('rangoActualLabel').textContent = d === h ? d : `${d} → ${h}`;
+}
+
+function toggleDatePicker(ev){
+  ev.stopPropagation();
+  $('datePickerPopover').classList.toggle('open');
+}
+function aplicarRangoPersonalizado(){
+  $('datePickerPopover').classList.remove('open');
+  ['btnDia','btnAyer','btnSemana','btnMes'].forEach(id => $(id).classList.remove('active'));
+  actualizarLabelRango();
+  cargar();
+}
+document.addEventListener('click', (ev) => {
+  const wrap = document.querySelector('.date-picker-wrap');
+  if(wrap && !wrap.contains(ev.target)) $('datePickerPopover').classList.remove('open');
+});
 
 // Arranque: última semana por defecto
 $('fechaDesde').value = addDaysStr(hoyStr, -6);
@@ -436,6 +465,12 @@ async function cargarCalendarioFijo(){
 }
 
 // Facturas de proveedores por pagar (mañana, pasado mañana, total de la semana)
+const NOMBRES_DIA = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+function nombreDiaSemana(fechaStr){
+  const [y,m,d] = fechaStr.split('-').map(Number);
+  return NOMBRES_DIA[new Date(Date.UTC(y,m-1,d)).getUTCDay()];
+}
+
 async function cargarFacturasPorPagar(){
   try{
     const res = await fetch('/api/bsale-facturas-por-pagar').then(r=>r.json());
@@ -443,20 +478,49 @@ async function cargarFacturasPorPagar(){
       $('facturasNote').textContent = `No disponible: ${res.detail || res.error}`;
       return;
     }
-    const manana = addDaysStr(hoyStr, 1);
-    const pasadoManana = addDaysStr(hoyStr, 2);
     const finSemana = addDaysStr(hoyStr, 7);
-
     const facturas = res.facturas || [];
-    const totalManana = facturas.filter(f=>f.fechaEstimadaPago===manana).reduce((a,f)=>a+f.monto,0);
-    const totalPasadoManana = facturas.filter(f=>f.fechaEstimadaPago===pasadoManana).reduce((a,f)=>a+f.monto,0);
     const totalSemana = facturas.filter(f=>f.fechaEstimadaPago>=hoyStr && f.fechaEstimadaPago<=finSemana).reduce((a,f)=>a+f.monto,0);
-
-    $('facturasMañana').textContent = fmt(totalManana);
-    $('facturasPasadoManana').textContent = fmt(totalPasadoManana);
     $('facturasSemanaTotal').textContent = fmt(totalSemana);
+
+    // Desglose de los próximos 4 días: Hoy, Mañana, y los 2 siguientes con
+    // nombre del día + número (ej. "Hoy sábado 01", "Mañana domingo 02", "lunes 03"...)
+    const prefijos = ['Hoy', 'Mañana', '', ''];
+    const desgloseHtml = [0,1,2,3].map(offset => {
+      const f = addDaysStr(hoyStr, offset);
+      const dd = f.slice(8,10);
+      const etiqueta = `${prefijos[offset] ? prefijos[offset]+' ' : ''}${nombreDiaSemana(f)} ${dd}`;
+      const total = facturas.filter(x=>x.fechaEstimadaPago===f).reduce((a,x)=>a+x.monto,0);
+      return `<span>${etiqueta}: <b>${fmt(total)}</b></span>`;
+    }).join('');
+    $('facturasDesglose').innerHTML = desgloseHtml;
+
+    // Detalle completo de la semana: documento, proveedor, monto, vencimiento
+    const facturasSemana = facturas.filter(f=>f.fechaEstimadaPago>=hoyStr && f.fechaEstimadaPago<=finSemana)
+      .sort((a,b)=>a.fechaEstimadaPago.localeCompare(b.fechaEstimadaPago));
+
+    if(facturasSemana.length === 0){
+      $('facturasDetalleWrap').innerHTML = `<p class="empty-note">Sin facturas con vencimiento esta semana.</p>`;
+    } else {
+      $('facturasDetalleWrap').innerHTML = `
+        <table>
+          <thead><tr><th>Vence</th><th>Proveedor</th><th>Documento</th><th class="amount">Monto</th></tr></thead>
+          <tbody>
+            ${facturasSemana.map(f => `
+              <tr class="${f.fechaEstimadaPago===hoyStr?'today':''}">
+                <td>${f.fechaEstimadaPago} (${nombreDiaSemana(f.fechaEstimadaPago)})</td>
+                <td>${f.proveedor}</td>
+                <td><b>${f.documento}${f.numeroDocumento?' N° '+f.numeroDocumento:''}</b></td>
+                <td class="amount">${fmt(f.monto)}</td>
+              </tr>`).join('')}
+            <tr><td colspan="3"><b>Total</b></td><td class="amount"><b>${fmt(totalSemana)}</b></td></tr>
+          </tbody>
+        </table>
+      `;
+    }
   }catch(err){
     $('facturasNote').textContent = 'No se pudo cargar: ' + err.message;
+    $('facturasDetalleWrap').innerHTML = `<p class="empty-note">No se pudo cargar el detalle: ${err.message}</p>`;
   }
 }
 

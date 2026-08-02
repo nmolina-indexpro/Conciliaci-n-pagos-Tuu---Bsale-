@@ -39,6 +39,16 @@ function addDaysStr(dateStr, days) {
   return dt.toISOString().slice(0, 10);
 }
 
+// Si un vencimiento cae sábado o domingo, se paga el lunes siguiente (no hay
+// proceso bancario en fin de semana).
+function ajustarASiguienteDiaHabil(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=domingo, 6=sábado
+  if (dow === 6) return addDaysStr(dateStr, 2);
+  if (dow === 0) return addDaysStr(dateStr, 1);
+  return dateStr;
+}
+
 const proveedoresConocidos = [
   { patron: /coimco/i, nombre: 'COIMCO', plazoDias: 30 },
   { patron: /laptop\s*center/i, nombre: 'LaptopCenter', plazoDias: 45 },
@@ -93,7 +103,7 @@ export default async function handler(req, res) {
       if (totalRecepcion <= 0) continue;
 
       const proveedorInfo = identificarProveedor(rec);
-      const fechaEstimadaPago = addDaysStr(fecha, proveedorInfo.plazoDias);
+      const fechaEstimadaPago = ajustarASiguienteDiaHabil(addDaysStr(fecha, proveedorInfo.plazoDias));
 
       facturas.push({
         fecha,

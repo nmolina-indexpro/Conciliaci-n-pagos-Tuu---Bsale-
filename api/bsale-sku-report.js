@@ -66,6 +66,16 @@ function addDaysStr(dateStr, days) {
   return dt.toISOString().slice(0, 10);
 }
 
+// Si un vencimiento cae sábado o domingo, se paga el lunes siguiente (no hay
+// proceso bancario en fin de semana).
+function ajustarASiguienteDiaHabil(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=domingo, 6=sábado
+  if (dow === 6) return addDaysStr(dateStr, 2);
+  if (dow === 0) return addDaysStr(dateStr, 1);
+  return dateStr;
+}
+
 export default async function handler(req, res) {
   const { days, startDate: qStart, endDate: qEnd, debug } = req.query;
   const token = process.env.BSALE_ACCESS_TOKEN;
@@ -298,7 +308,7 @@ export default async function handler(req, res) {
         // LaptopCenter = 45 días).
         if (fecha && fecha >= ventanaRecepcionInicio && fecha <= ventanaRecepcionFin) {
           const proveedorInfo = identificarProveedor(rec);
-          const fechaEstimadaPago = addDaysStr(fecha, proveedorInfo.plazoDias);
+          const fechaEstimadaPago = ajustarASiguienteDiaHabil(addDaysStr(fecha, proveedorInfo.plazoDias));
           const totalRecepcion = detalles.reduce((a, d) => a + ((d.cost || 0) * (d.quantity || 0)), 0);
           if (totalRecepcion > 0) {
             proximosPagos.push({
