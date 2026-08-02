@@ -73,15 +73,23 @@ function addDaysStr(dateStr, days) {
 // es exacto y que no hubo ajustes/mermas manuales fuera de ventas y compras
 // -> si hay diferencias de inventario no registradas como venta o compra,
 // esto puede desviarse un poco de la realidad.
-function reconstruirDiasQuiebre(stockActualHoy, ventasPorDia, comprasPorDia, consumosPorDia, startDate, endDate) {
+function reconstruirDiasQuiebre(stockActualHoy, ventasPorDia, comprasPorDia, consumosPorDia, startDate, endDate, hoyStr) {
+  // Camina el PUENTE COMPLETO desde hoy (el día real al que corresponde el
+  // stock actual) hasta el inicio del período pedido -> si "endDate" quedó
+  // en el pasado (ej. al comparar contra el "período anterior"), no alcanza
+  // con reconstruir solo dentro de [startDate, endDate]: el punto de partida
+  // (stock actual) es de HOY, así que hay que descontar también todo lo que
+  // pasó entre endDate y hoy para llegar al punto correcto antes de seguir
+  // reconstruyendo hacia atrás.
+  const finCaminata = hoyStr > endDate ? hoyStr : endDate;
   const dias = [];
-  for (let d = startDate; d <= endDate; d = addDaysStr(d, 1)) dias.push(d);
+  for (let d = startDate; d <= finCaminata; d = addDaysStr(d, 1)) dias.push(d);
 
   let stockFinDia = stockActualHoy;
   const diasQuiebre = [];
   for (let i = dias.length - 1; i >= 0; i--) {
     const d = dias[i];
-    if (stockFinDia <= 0) diasQuiebre.push(d);
+    if (stockFinDia <= 0 && d <= endDate) diasQuiebre.push(d); // solo reportamos quiebres DENTRO del período pedido
     const ventasDia = (ventasPorDia || {})[d] || 0;
     const comprasDia = (comprasPorDia || {})[d] || 0;
     const consumosDia = (consumosPorDia || {})[d] || 0;
@@ -156,8 +164,23 @@ export default async function handler(req, res) {
   }
 
   try {
+    const hoyStr = new Date().toISOString().slice(0, 10);
+
+    // OJO — bug importante que corrijo acá: el stock ACTUAL (el que trae
+    // /stocks.json) siempre es el de HOY, nunca el de "endDate". La
+    // reconstrucción de días en quiebre parte de ese stock actual y camina
+    // hacia atrás -> si "endDate" queda en el pasado (como pasa al pedir el
+    // "período anterior" para comparar), hay que seguir caminando el puente
+    // completo desde HOY hasta el inicio del período pedido, no solo dentro
+    // de [startDate, endDate]. Por eso la consulta de ventas/compras trae
+    // datos hasta HOY siempre, aunque el período pedido termine antes — la
+    // reconstrucción del stock histórico necesita ese puente para partir del
+    // punto correcto. Los TOTALES (unidades vendidas, monto, semanas) sí se
+    // siguen calculando solo con los días dentro de [startDate, endDate].
+    const finConsultaReal = hoyStr > endDate ? hoyStr : endDate;
+
     const rangeStart = Math.floor(new Date(`${startDate}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
-    const rangeEnd = Math.floor(new Date(`${endDate}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
+    const rangeEnd = Math.floor(new Date(`${finConsultaReal}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
 
     // ---- 1) Ventas por variante ----
     const ventasPage = (offset, limit) =>
@@ -165,7 +188,7 @@ export default async function handler(req, res) {
     const { items: docsVenta, truncado: ventasTruncadas } = await fetchAllPages(ventasPage, token, 50, 60);
 
     const ventasPorSku = {};
-    const ventasPorDiaSku = {}; // { [code]: { [fecha]: unidades } } -> para reconstruir stock histórico
+    const ventasPorDiaSku = {}; // { [code]: { [fecha]: unidades } } -> para reconstruir stock histórico (cubre hasta HOY, no solo hasta endDate)
     // Últimas 4 semanas (7 días cada una) contadas hacia atrás desde endDate,
     // para poder ver de un vistazo si una semana puntual tuvo un pico raro
     // (ej. una venta grande a una empresa) en vez de un promedio que lo
@@ -183,19 +206,27 @@ export default async function handler(req, res) {
       const nombreTipoDoc = doc.document_type?.name || '';
       if (/nota de cr[eé]dito/i.test(nombreTipoDoc)) continue;
       const fecha = toUtcDateStr(doc.emissionDate);
-      if (!fecha || fecha < startDate || fecha > endDate) continue;
+      if (!fecha || fecha < startDate || fecha > finConsultaReal) continue;
+      const dentroDelPeriodoPedido = fecha <= endDate;
       const detalles = doc.details?.items || (Array.isArray(doc.details) ? doc.details : []);
       for (const det of detalles) {
         const variant = det.variant || {};
         const code = variant.code || `sin-sku-${variant.id || 'desconocido'}`;
         const nombre = variant.description || det.comment || code;
-        ventasPorSku[code] = ventasPorSku[code] || { code, nombre, unidades: 0, montoNeto: 0, numDocs: 0, semana1: 0, semana2: 0, semana3: 0, semana4: 0 };
         const cant = det.quantity || 0;
+
+        // ventasPorDiaSku cubre TODO el puente hasta hoy (para la
+        // reconstrucción de stock histórico); ventasPorSku (totales que se
+        // muestran) solo suma los días DENTRO del período que se pidió.
+        ventasPorDiaSku[code] = ventasPorDiaSku[code] || {};
+        ventasPorDiaSku[code][fecha] = (ventasPorDiaSku[code][fecha] || 0) + cant;
+
+        if (!dentroDelPeriodoPedido) continue;
+
+        ventasPorSku[code] = ventasPorSku[code] || { code, nombre, unidades: 0, montoNeto: 0, numDocs: 0, semana1: 0, semana2: 0, semana3: 0, semana4: 0 };
         ventasPorSku[code].unidades += cant;
         ventasPorSku[code].montoNeto += cant * (det.netUnitValue || 0);
         ventasPorSku[code].numDocs += 1;
-        ventasPorDiaSku[code] = ventasPorDiaSku[code] || {};
-        ventasPorDiaSku[code][fecha] = (ventasPorDiaSku[code][fecha] || 0) + cant;
         if (fecha >= semana1Ini && fecha <= semana1Fin) ventasPorSku[code].semana1 += cant;
         else if (fecha >= semana2Ini && fecha <= semana2Fin) ventasPorSku[code].semana2 += cant;
         else if (fecha >= semana3Ini && fecha <= semana3Fin) ventasPorSku[code].semana3 += cant;
@@ -270,8 +301,9 @@ export default async function handler(req, res) {
     // "fecha de recepción + plazo de SU proveedor" (30 días Coimco/Intcomex,
     // 45 días LaptopCenter), filtrando por recepción reciente el vencimiento
     // cae automáticamente en la ventana correcta para cada proveedor, sin
-    // tener que fijar una ventana distinta para cada plazo.
-    const hoyStr = endDate; // usamos endDate como "hoy" para que sea consistente si se pide un rango con fecha fin distinta a hoy
+    // tener que fijar una ventana distinta para cada plazo. Usa la hoyStr
+    // real (declarada arriba), no "endDate" -> esta sección de facturas por
+    // vencer siempre debe proyectarse desde el día de hoy de verdad.
     const ventanaRecepcionInicio = addDaysStr(hoyStr, -14);
     const ventanaRecepcionFin = hoyStr;
     let proximosPagos = [];
@@ -365,10 +397,17 @@ export default async function handler(req, res) {
           const code = variantId != null ? codePorVariantId[String(variantId)] : null;
           if (!code) continue;
 
-          if (fecha && fecha >= startDate && fecha <= endDate) {
-            comprasPorSku[code] = (comprasPorSku[code] || 0) + (det.quantity || 0);
+          // comprasPorDiaSku cubre TODO lo que trajo la consulta de
+          // recepciones (que ya de por sí llega hasta el presente) -> se
+          // usa para la reconstrucción de stock histórico. comprasPorSku
+          // (el total que se muestra como "Compradas") sí se limita al
+          // período pedido.
+          if (fecha) {
             comprasPorDiaSku[code] = comprasPorDiaSku[code] || {};
             comprasPorDiaSku[code][fecha] = (comprasPorDiaSku[code][fecha] || 0) + (det.quantity || 0);
+          }
+          if (fecha && fecha >= startDate && fecha <= endDate) {
+            comprasPorSku[code] = (comprasPorSku[code] || 0) + (det.quantity || 0);
           }
 
           if (det.cost != null && det.cost > 0 && fecha) {
@@ -479,7 +518,7 @@ export default async function handler(req, res) {
         // de ganar esos días (venta diaria promedio de los días CON stock,
         // multiplicada por el margen unitario). Es una estimación, no un
         // registro real de ventas perdidas.
-        const diasQuiebreHist = reconstruirDiasQuiebre(stockActual, ventasPorDiaSku[code], comprasPorDiaSku[code], consumosPorDiaSku[code], startDate, endDate);
+        const diasQuiebreHist = reconstruirDiasQuiebre(stockActual, ventasPorDiaSku[code], comprasPorDiaSku[code], consumosPorDiaSku[code], startDate, endDate, hoyStr);
         const diasConStock = Math.max(1, numDias - diasQuiebreHist.length);
         const ventaDiariaConStock = venta.unidades / diasConStock;
         const margenPerdidoPorQuiebre = margenUnitario != null
