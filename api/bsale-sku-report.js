@@ -218,16 +218,15 @@ export default async function handler(req, res) {
     let comprasPorSku = {};
     let ultimoCostoPorSku = {}; // { [code]: { costo, fecha } }
     let recepcionesDisponibles = true;
-    // Facturas/guías de compra recibidas hace ~30 días -> si tu proveedor te
-    // da 30 días de plazo, estas son las que están por caer a pago pronto.
-    // Cada recepción vence a pago según el plazo de SU proveedor (Coimco e
-    // Intcomex: 30 días, LaptopCenter: 45 días, etc.) -> calculamos la fecha
-    // estimada de vencimiento de cada una y mostramos las que van a caer
-    // desde hoy hacia adelante (proyección de cuentas por pagar), no lo que
-    // ya pasó.
+    // Filtramos por FECHA DE RECEPCIÓN dentro de ±2 días de hoy (no por fecha
+    // de vencimiento) — como el vencimiento de cada una ya se calcula como
+    // "fecha de recepción + plazo de SU proveedor" (30 días Coimco/Intcomex,
+    // 45 días LaptopCenter), filtrando por recepción reciente el vencimiento
+    // cae automáticamente en la ventana correcta para cada proveedor, sin
+    // tener que fijar una ventana distinta para cada plazo.
     const hoyStr = endDate; // usamos endDate como "hoy" para que sea consistente si se pide un rango con fecha fin distinta a hoy
-    const ventanaVenceInicio = addDaysStr(hoyStr, -2);
-    const ventanaVenceFin = addDaysStr(hoyStr, 2);
+    const ventanaRecepcionInicio = addDaysStr(hoyStr, -2);
+    const ventanaRecepcionFin = addDaysStr(hoyStr, 2);
     let proximosPagos = [];
     try {
       const primera = await bsaleGet('/stocks/receptions.json?limit=50&offset=0', token);
@@ -297,22 +296,20 @@ export default async function handler(req, res) {
         // de próximos pagos, agrupado por proveedor identificado. Cada
         // proveedor vence a SU plazo (Coimco/Intcomex/Daxis = 30 días,
         // LaptopCenter = 45 días).
-        if (fecha) {
+        if (fecha && fecha >= ventanaRecepcionInicio && fecha <= ventanaRecepcionFin) {
           const proveedorInfo = identificarProveedor(rec);
           const fechaEstimadaPago = addDaysStr(fecha, proveedorInfo.plazoDias);
-          if (fechaEstimadaPago >= ventanaVenceInicio && fechaEstimadaPago <= ventanaVenceFin) {
-            const totalRecepcion = detalles.reduce((a, d) => a + ((d.cost || 0) * (d.quantity || 0)), 0);
-            if (totalRecepcion > 0) {
-              proximosPagos.push({
-                fecha,
-                proveedor: proveedorInfo.nombre,
-                plazoDias: proveedorInfo.plazoDias,
-                documento: rec.document || 'Sin Documento',
-                numeroDocumento: rec.documentNumber || '',
-                monto: Math.round(totalRecepcion),
-                fechaEstimadaPago
-              });
-            }
+          const totalRecepcion = detalles.reduce((a, d) => a + ((d.cost || 0) * (d.quantity || 0)), 0);
+          if (totalRecepcion > 0) {
+            proximosPagos.push({
+              fecha,
+              proveedor: proveedorInfo.nombre,
+              plazoDias: proveedorInfo.plazoDias,
+              documento: rec.document || 'Sin Documento',
+              numeroDocumento: rec.documentNumber || '',
+              monto: Math.round(totalRecepcion),
+              fechaEstimadaPago
+            });
           }
         }
 
@@ -421,7 +418,7 @@ export default async function handler(req, res) {
       categorias,
       proximosPagos,
       pagosPorProveedor,
-      ventanaPago: { desde: ventanaVenceInicio, hasta: ventanaVenceFin },
+      ventanaPago: { desde: ventanaRecepcionInicio, hasta: ventanaRecepcionFin },
       skus
     });
   } catch (err) {

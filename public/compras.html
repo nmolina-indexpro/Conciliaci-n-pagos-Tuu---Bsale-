@@ -329,12 +329,12 @@ function ordenarPor(campo){
 function renderProximosPagos(pagosPorProveedor, ventana){
   const wrap = $('proximosPagosWrap');
   if(!pagosPorProveedor || pagosPorProveedor.length === 0){
-    wrap.innerHTML = `<p class="empty-note">Sin facturas de proveedores próximas a vencer entre ${ventana?.desde||'—'} y ${ventana?.hasta||'—'}.</p>`;
+    wrap.innerHTML = `<p class="empty-note">Sin recepciones registradas entre ${ventana?.desde||'—'} y ${ventana?.hasta||'—'} (±2 días de hoy).</p>`;
     return;
   }
   const total = pagosPorProveedor.reduce((a,p)=>a+p.monto,0);
   wrap.innerHTML = `
-    <p class="empty-note" style="margin-top:0;">Facturas cuyo vencimiento cae entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> (±2 días de hoy) — cada proveedor con su propio plazo: <b>Coimco / Intcomex: 30 días</b> · <b>LaptopCenter: 45 días</b>. Agrupado por proveedor, ordenado por fecha de vencimiento más próxima.</p>
+    <p class="empty-note" style="margin-top:0;">Facturas recibidas entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> (±2 días de hoy) — el vencimiento de cada una depende del plazo de su proveedor: <b>Coimco / Intcomex: +30 días</b> · <b>LaptopCenter: +45 días</b>. Agrupado por proveedor, ordenado por fecha de vencimiento más próxima.</p>
     <table>
       <thead><tr><th>Proveedor</th><th class="amount">N° documentos</th><th class="amount">Monto total</th></tr></thead>
       <tbody>
@@ -365,6 +365,8 @@ function renderProximosPagos(pagosPorProveedor, ventana){
     </details>
   `;
 }
+
+let ordenRecomendacion = { campo: null, asc: true };
 
 function calcularRecomendacionPresupuesto(){
   const wrap = $('recomendacionWrap');
@@ -422,7 +424,38 @@ function calcularRecomendacionPresupuesto(){
   const sinCosto = base.filter(s => s[campoSugerencia] > 0 && s.ultimoCosto == null);
 
   // Guardamos el resultado para poder descargarlo con descargarRecomendacion()
-  ultimaRecomendacion = { dentroPresupuesto, fueraPresupuesto, presupuesto, acumulado, horizonte, campoSugerencia };
+  // y volver a ordenar sin tener que recalcular todo.
+  ultimaRecomendacion = { dentroPresupuesto, fueraPresupuesto, presupuesto, acumulado, horizonte, campoSugerencia, sinCosto };
+  ordenRecomendacion = { campo: null, asc: true }; // reset del orden cada vez que se recalcula
+
+  renderRecomendacionTabla();
+}
+
+function ordenarRecomendacionPor(campo){
+  if(ordenRecomendacion.campo === campo) ordenRecomendacion.asc = !ordenRecomendacion.asc;
+  else { ordenRecomendacion.campo = campo; ordenRecomendacion.asc = true; }
+  renderRecomendacionTabla();
+}
+
+function renderRecomendacionTabla(){
+  if(!ultimaRecomendacion) return;
+  const wrap = $('recomendacionWrap');
+  const { presupuesto, acumulado, horizonte, campoSugerencia, sinCosto } = ultimaRecomendacion;
+
+  const comparador = (a,b) => {
+    const campo = ordenRecomendacion.campo;
+    if(!campo) return 0;
+    let va = campo==='sugerencia' ? a[campoSugerencia] : a[campo];
+    let vb = campo==='sugerencia' ? b[campoSugerencia] : b[campo];
+    if(va === null || va === undefined) va = typeof vb === 'string' ? '' : -Infinity;
+    if(vb === null || vb === undefined) vb = typeof va === 'string' ? '' : -Infinity;
+    if(typeof va === 'string') return ordenRecomendacion.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return ordenRecomendacion.asc ? va - vb : vb - va;
+  };
+  const dentroPresupuesto = [...ultimaRecomendacion.dentroPresupuesto].sort(comparador);
+  const fueraPresupuesto = [...ultimaRecomendacion.fueraPresupuesto].sort(comparador);
+
+  const flecha = campo => ordenRecomendacion.campo === campo ? (ordenRecomendacion.asc ? ' ▲' : ' ▼') : '';
 
   wrap.innerHTML = `
     <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px;">
@@ -430,9 +463,17 @@ function calcularRecomendacionPresupuesto(){
       <div class="card"><div class="lbl">A gastar (recomendado)</div><div class="big" style="color:var(--green);">${fmt(acumulado)}</div></div>
       <div class="card"><div class="lbl">Disponible sin usar</div><div class="big">${fmt(presupuesto-acumulado)}</div></div>
     </div>
-    <p class="empty-note" style="margin-top:0;"><b>${dentroPresupuesto.length} SKU</b> caben dentro del presupuesto (ordenados del más urgente al menos urgente). ${fueraPresupuesto.length>0?`<b>${fueraPresupuesto.length} SKU</b> quedaron afuera por falta de presupuesto — se muestran igual, para que sepas qué se está postergando.`:''}</p>
+    <p class="empty-note" style="margin-top:0;"><b>${dentroPresupuesto.length} SKU</b> caben dentro del presupuesto. ${fueraPresupuesto.length>0?`<b>${fueraPresupuesto.length} SKU</b> quedaron afuera por falta de presupuesto — se muestran igual, para que sepas qué se está postergando.`:''}</p>
     <table class="data-table">
-      <thead><tr><th></th><th>SKU</th><th>Producto</th><th class="amount">Días cobertura</th><th class="amount">Sugerencia (${horizonte}d)</th><th class="amount">Costo línea</th><th>Estado</th></tr></thead>
+      <thead><tr>
+        <th></th>
+        <th onclick="ordenarRecomendacionPor('code')" style="cursor:pointer;">SKU${flecha('code')}</th>
+        <th onclick="ordenarRecomendacionPor('nombre')" style="cursor:pointer;">Producto${flecha('nombre')}</th>
+        <th class="amount" onclick="ordenarRecomendacionPor('diasCobertura')" style="cursor:pointer;">Días cobertura${flecha('diasCobertura')}</th>
+        <th class="amount" onclick="ordenarRecomendacionPor('sugerencia')" style="cursor:pointer;">Sugerencia (${horizonte}d)${flecha('sugerencia')}</th>
+        <th class="amount" onclick="ordenarRecomendacionPor('costoLinea')" style="cursor:pointer;">Costo línea${flecha('costoLinea')}</th>
+        <th onclick="ordenarRecomendacionPor('estadoOrden')" style="cursor:pointer;">Estado${flecha('estadoOrden')}</th>
+      </tr></thead>
       <tbody>
         ${dentroPresupuesto.map(s => `
           <tr>
