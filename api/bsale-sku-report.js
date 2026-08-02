@@ -73,7 +73,7 @@ function addDaysStr(dateStr, days) {
 // es exacto y que no hubo ajustes/mermas manuales fuera de ventas y compras
 // -> si hay diferencias de inventario no registradas como venta o compra,
 // esto puede desviarse un poco de la realidad.
-function reconstruirDiasQuiebre(stockActualHoy, ventasPorDia, comprasPorDia, startDate, endDate) {
+function reconstruirDiasQuiebre(stockActualHoy, ventasPorDia, comprasPorDia, consumosPorDia, startDate, endDate) {
   const dias = [];
   for (let d = startDate; d <= endDate; d = addDaysStr(d, 1)) dias.push(d);
 
@@ -84,7 +84,8 @@ function reconstruirDiasQuiebre(stockActualHoy, ventasPorDia, comprasPorDia, sta
     if (stockFinDia <= 0) diasQuiebre.push(d);
     const ventasDia = (ventasPorDia || {})[d] || 0;
     const comprasDia = (comprasPorDia || {})[d] || 0;
-    stockFinDia = stockFinDia + ventasDia - comprasDia; // stock al final del día anterior
+    const consumosDia = (consumosPorDia || {})[d] || 0;
+    stockFinDia = stockFinDia + ventasDia + consumosDia - comprasDia; // stock al final del día anterior
   }
   return diasQuiebre;
 }
@@ -374,6 +375,45 @@ export default async function handler(req, res) {
       recepcionesDisponibles = false;
     }
 
+    // ---- Consumos de stock (mermas, uso interno, etc.) ----
+    // Estos también sacan stock pero NO son ni una venta (documents.json) ni
+    // una compra (receptions.json) -> si no los consideramos, la
+    // reconstrucción de "días en quiebre" queda con el stock histórico
+    // inflado y nunca llega a 0 aunque en la realidad sí haya pasado.
+    const consumosPorDiaSku = {}; // { [code]: { [fecha]: unidades } }
+    try {
+      const primeraConsumo = await bsaleGet('/stocks/consumptions.json?limit=50&offset=0', token);
+      const totalConsumos = primeraConsumo.count || 0;
+      const limitC = 50;
+      const totalPaginasC = Math.ceil(totalConsumos / limitC);
+      const topeC = 40; // ~2.000 consumos más recientes
+      const paginasC = Math.min(totalPaginasC, topeC);
+      const offsetInicioC = Math.max(0, (totalPaginasC - paginasC) * limitC);
+
+      const promesasC = [];
+      for (let off = offsetInicioC; off < totalPaginasC * limitC; off += limitC) {
+        promesasC.push(bsaleGet(`/stocks/consumptions.json?expand=details&limit=${limitC}&offset=${off}`, token));
+      }
+      const paginasConsumos = await Promise.all(promesasC);
+      const consumos = paginasConsumos.flatMap(p => p.items || []);
+
+      for (const cons of consumos) {
+        const fecha = cons.rawConsumptionDate || toUtcDateStr(cons.consumptionDate);
+        if (!fecha) continue;
+        const detalles = cons.details?.items || [];
+        for (const det of detalles) {
+          const variantId = det.variant?.id;
+          const code = variantId != null ? codePorVariantId[String(variantId)] : null;
+          if (!code) continue;
+          consumosPorDiaSku[code] = consumosPorDiaSku[code] || {};
+          consumosPorDiaSku[code][fecha] = (consumosPorDiaSku[code][fecha] || 0) + (det.quantity || 0);
+        }
+      }
+    } catch (err) {
+      // Si esto falla, seguimos igual -> la reconstrucción de quiebres queda
+      // sin consumos (puede subestimar días en quiebre), pero no rompe el resto.
+    }
+
     // Agrupamos por proveedor identificado, con su subtotal — esto es lo que
     // se muestra en el panel (no la lista documento por documento).
     const porProveedor = {};
@@ -430,7 +470,7 @@ export default async function handler(req, res) {
         // de ganar esos días (venta diaria promedio de los días CON stock,
         // multiplicada por el margen unitario). Es una estimación, no un
         // registro real de ventas perdidas.
-        const diasQuiebreHist = reconstruirDiasQuiebre(stockActual, ventasPorDiaSku[code], comprasPorDiaSku[code], startDate, endDate);
+        const diasQuiebreHist = reconstruirDiasQuiebre(stockActual, ventasPorDiaSku[code], comprasPorDiaSku[code], consumosPorDiaSku[code], startDate, endDate);
         const diasConStock = Math.max(1, numDias - diasQuiebreHist.length);
         const ventaDiariaConStock = venta.unidades / diasConStock;
         const margenPerdidoPorQuiebre = margenUnitario != null
