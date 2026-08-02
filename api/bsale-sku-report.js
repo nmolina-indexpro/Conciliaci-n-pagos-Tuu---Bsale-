@@ -109,12 +109,21 @@ export default async function handler(req, res) {
 
   const hoy = new Date();
   const endDate = qEnd || hoy.toISOString().slice(0, 10);
-  const numDias = parseInt(days || '120', 10);
+  const diasSolicitados = parseInt(days || '120', 10);
   const startDate = qStart || (() => {
     const d = new Date(hoy);
-    d.setUTCDate(d.getUTCDate() - numDias);
+    d.setUTCDate(d.getUTCDate() - diasSolicitados);
     return d.toISOString().slice(0, 10);
   })();
+  // OJO: numDias se recalcula del RANGO REAL (startDate a endDate), no del
+  // parámetro "days" -> cuando se piden fechas explícitas (como al traer el
+  // "período anterior" para comparar), "days" no llega y el período puede
+  // tener un largo distinto a 120 días por defecto. Si se usara el valor
+  // equivocado acá, la venta diaria promedio (y todo lo que depende de ella:
+  // sugerencias, margen perdido por quiebre, etc.) queda mal calculada.
+  const [ay, am, ad] = startDate.split('-').map(Number);
+  const [by, bm, bd] = endDate.split('-').map(Number);
+  const numDias = Math.max(1, Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000) + 1);
 
   // Modo debug: solo trae recepciones crudas, sin procesar nada, para poder
   // ver los nombres reales de los campos (fecha, costo, detalle) y ajustar la
