@@ -106,10 +106,14 @@
 
   <div class="grid">
     <div class="card c-transfer">
-      <h3>🏦 Transferencias recibidas <span id="transferLabel">el día</span></h3>
-      <div class="big" id="transferTotal">$0</div>
-      <div class="cmp" id="transferCmp"></div>
-      <div class="note" id="transferNote">Ya están en el banco — no requieren gestión adicional.</div>
+      <h3>🧾 Facturas por pagar</h3>
+      <div class="big" id="facturasSemanaTotal">$0</div>
+      <div class="note" style="margin-bottom:8px;">Total con vencimiento esta semana</div>
+      <div class="breakdown">
+        <span>Mañana: <b id="facturasMañana">$0</b></span>
+        <span>Pasado mañana: <b id="facturasPasadoManana">$0</b></span>
+      </div>
+      <div class="note" id="facturasNote">Según plazo por proveedor: Coimco/Intcomex 30 días, LaptopCenter 45 días.</div>
     </div>
     <div class="card c-tuu">
       <h3>💳 Depósito TUU proyectado</h3>
@@ -159,6 +163,18 @@ function addDaysStr(dateStr, days){
   dt.setUTCDate(dt.getUTCDate()+days);
   return dt.toISOString().slice(0,10);
 }
+
+// Fecha real en que el banco acredita una venta con tarjeta: normalmente al
+// día hábil siguiente, PERO las ventas de viernes, sábado y domingo se
+// acumulan y se acreditan recién el lunes siguiente (no hay proceso bancario
+// en fin de semana).
+function fechaAcreditacionTarjeta(fechaVentaStr){
+  const [y,m,d] = fechaVentaStr.split('-').map(Number);
+  const dow = new Date(Date.UTC(y,m-1,d)).getUTCDay(); // 0=domingo ... 5=viernes, 6=sábado
+  const diasASumar = dow === 5 ? 3 : dow === 6 ? 2 : dow === 0 ? 1 : 1;
+  return addDaysStr(fechaVentaStr, diasASumar);
+}
+
 function firstDayOfMonthStr(dateStr){
   const [y,m] = dateStr.split('-').map(Number);
   return `${y}-${String(m).padStart(2,'0')}-01`;
@@ -183,7 +199,7 @@ function shiftMonthStr(dateStr, deltaMeses){
 
 // Trae TUU + Bsale para un rango y devuelve los 4 totales agregados que usan las tarjetas resumen
 async function agregadosDelPeriodo(fechaDesdeR, fechaR){
-  const startDate = addDaysStr(fechaDesdeR, -1);
+  const startDate = addDaysStr(fechaDesdeR, -3); // hasta 3 días atrás, para capturar ventas de viernes que acreditan el lunes
   const endDate = addDaysStr(fechaR, 1);
   const [tuuRes, bsaleRes] = await Promise.all([
     fetch(`/api/tuu-report?startDate=${startDate}&endDate=${fechaR}`).then(r=>r.json()),
@@ -203,9 +219,19 @@ async function agregadosDelPeriodo(fechaDesdeR, fechaR){
 
   const diasCalendario = [];
   for(let d = fechaDesdeR; d <= endDate; d = addDaysStr(d, 1)) diasCalendario.push(d);
+
+  // Mapeo hacia adelante: cada venta con tarjeta cae en su fecha real de
+  // acreditación (agrupando viernes/sábado/domingo al lunes siguiente), no
+  // simplemente "el día siguiente".
+  const tarjetaPorAcreditacion = {};
+  for(const [fVenta, datos] of Object.entries(porDia)){
+    if(!datos.tarjeta) continue;
+    const fAcred = fechaAcreditacionTarjeta(fVenta);
+    tarjetaPorAcreditacion[fAcred] = (tarjetaPorAcreditacion[fAcred] || 0) + datos.tarjeta;
+  }
+
   const filasCal = diasCalendario.map(fAcreditacion => {
-    const fVentaTarjeta = addDaysStr(fAcreditacion, -1);
-    const tarjeta = (porDia[fVentaTarjeta] || {tarjeta:0}).tarjeta;
+    const tarjeta = tarjetaPorAcreditacion[fAcreditacion] || 0;
     const transferencia = (porDia[fAcreditacion] || {transferencia:0}).transferencia;
     return { fecha: fAcreditacion, tarjeta, transferencia, total: tarjeta + transferencia };
   });
@@ -306,8 +332,6 @@ async function cargar(){
     const esUnSoloDia = fechaDesde === fecha;
     const rangoTexto = esUnSoloDia ? `del ${fecha}` : `del período (${fechaDesde} a ${fecha})`;
 
-    $('transferLabel').textContent = rangoTexto;
-    $('transferTotal').textContent = fmt(totalTransferenciasRango);
     $('tuuTotal').textContent = fmt(totalTarjetaRango);
     $('tuuDebito').textContent = fmt(totalTarjetaDebito);
     $('tuuCredito').textContent = fmt(totalTarjetaCredito);
@@ -323,28 +347,12 @@ async function cargar(){
       : `Transferencias del período (${fmt(totalTransferenciasRango)}) + depósitos TUU que caen dentro del período (${fmt(totalBancoRango-totalTransferenciasRango)}).`;
 
     if(anterior){
-      pintarComparacion('transferCmp', totalTransferenciasRango, anterior.transferencia);
       pintarComparacion('tuuCmp', totalTarjetaRango, anterior.tarjeta);
       pintarComparacion('cashCmp', totalEfectivoRango, anterior.efectivo);
       pintarComparacion('todayBankCmp', totalBancoRango, anterior.banco);
     } else {
-      ['transferCmp','tuuCmp','cashCmp','todayBankCmp'].forEach(id => $(id).textContent = '');
+      ['tuuCmp','cashCmp','todayBankCmp'].forEach(id => $(id).textContent = '');
     }
-
-    $('calendarioWrap').innerHTML = `
-      <table>
-        <thead><tr><th>Fecha de acreditación</th><th class="amount">Desde tarjeta (TUU, día anterior)</th><th class="amount">Desde transferencia (mismo día)</th><th class="amount">Total esperado</th></tr></thead>
-        <tbody>
-          ${filasCal.map(f => `
-            <tr class="${f.fecha===hoyStr?'today':''}">
-              <td>${f.fecha} ${f.fecha>hoyStr?'<span class="badge">proyectado</span>':''}</td>
-              <td class="amount">${fmt(f.tarjeta)}</td>
-              <td class="amount">${fmt(f.transferencia)}</td>
-              <td class="amount"><b>${fmt(f.total)}</b></td>
-            </tr>`).join('')}
-        </tbody>
-      </table>
-    `;
 
     // ---- Efectivo acumulado pendiente ----
     const diasEfectivo = [];
@@ -370,6 +378,90 @@ async function cargar(){
   }
 }
 
+// Calendario de caída de fondos: SIEMPRE hoy ±4 días, sin importar el rango
+// que esté seleccionado en la barra superior. Trae su propia data (con
+// margen extra hacia atrás para capturar ventas de viernes que acreditan el
+// lunes siguiente).
+async function cargarCalendarioFijo(){
+  const wrap = $('calendarioWrap');
+  const ventanaFin = addDaysStr(hoyStr, 4);
+  const ventanaInicioConsulta = addDaysStr(hoyStr, -7); // -4 días + 3 de margen para viernes->lunes
+  try{
+    const [tuuRes, bsaleRes] = await Promise.all([
+      fetch(`/api/tuu-report?startDate=${ventanaInicioConsulta}&endDate=${ventanaFin}`).then(r=>r.json()),
+      fetch(`/api/bsale-report?startDate=${ventanaInicioConsulta}&endDate=${ventanaFin}`).then(r=>r.json())
+    ]);
+    if(tuuRes.error || bsaleRes.error) throw new Error(tuuRes.error || bsaleRes.error);
+
+    const porDia = {};
+    const bucket = f => (porDia[f] = porDia[f] || { tarjeta: 0, transferencia: 0 });
+    for(const t of (tuuRes.transacciones || [])){
+      if(t.type === 'debito' || t.type === 'credito') bucket(t.date).tarjeta += t.amount;
+    }
+    for(const d of (bsaleRes.transferencia || [])) bucket(d.fecha).transferencia += d.monto;
+
+    const tarjetaPorAcreditacion = {};
+    for(const [fVenta, datos] of Object.entries(porDia)){
+      if(!datos.tarjeta) continue;
+      const fAcred = fechaAcreditacionTarjeta(fVenta);
+      tarjetaPorAcreditacion[fAcred] = (tarjetaPorAcreditacion[fAcred] || 0) + datos.tarjeta;
+    }
+
+    const dias = [];
+    for(let d = addDaysStr(hoyStr,-4); d <= ventanaFin; d = addDaysStr(d,1)) dias.push(d);
+    const filas = dias.map(fAcreditacion => ({
+      fecha: fAcreditacion,
+      tarjeta: tarjetaPorAcreditacion[fAcreditacion] || 0,
+      transferencia: (porDia[fAcreditacion]||{transferencia:0}).transferencia,
+      total: (tarjetaPorAcreditacion[fAcreditacion]||0) + (porDia[fAcreditacion]||{transferencia:0}).transferencia
+    }));
+
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Fecha de acreditación</th><th class="amount">Desde tarjeta (TUU)</th><th class="amount">Desde transferencia</th><th class="amount">Total esperado</th></tr></thead>
+        <tbody>
+          ${filas.map(f => `
+            <tr class="${f.fecha===hoyStr?'today':''}">
+              <td>${f.fecha} ${f.fecha>hoyStr?'<span class="badge">proyectado</span>':''}</td>
+              <td class="amount">${fmt(f.tarjeta)}</td>
+              <td class="amount">${fmt(f.transferencia)}</td>
+              <td class="amount"><b>${fmt(f.total)}</b></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+  }catch(err){
+    wrap.innerHTML = `<p class="empty-note">No se pudo cargar el calendario: ${err.message}</p>`;
+  }
+}
+
+// Facturas de proveedores por pagar (mañana, pasado mañana, total de la semana)
+async function cargarFacturasPorPagar(){
+  try{
+    const res = await fetch('/api/bsale-facturas-por-pagar').then(r=>r.json());
+    if(res.error){
+      $('facturasNote').textContent = `No disponible: ${res.detail || res.error}`;
+      return;
+    }
+    const manana = addDaysStr(hoyStr, 1);
+    const pasadoManana = addDaysStr(hoyStr, 2);
+    const finSemana = addDaysStr(hoyStr, 7);
+
+    const facturas = res.facturas || [];
+    const totalManana = facturas.filter(f=>f.fechaEstimadaPago===manana).reduce((a,f)=>a+f.monto,0);
+    const totalPasadoManana = facturas.filter(f=>f.fechaEstimadaPago===pasadoManana).reduce((a,f)=>a+f.monto,0);
+    const totalSemana = facturas.filter(f=>f.fechaEstimadaPago>=hoyStr && f.fechaEstimadaPago<=finSemana).reduce((a,f)=>a+f.monto,0);
+
+    $('facturasMañana').textContent = fmt(totalManana);
+    $('facturasPasadoManana').textContent = fmt(totalPasadoManana);
+    $('facturasSemanaTotal').textContent = fmt(totalSemana);
+  }catch(err){
+    $('facturasNote').textContent = 'No se pudo cargar: ' + err.message;
+  }
+}
+
 cargar();
+cargarCalendarioFijo();
+cargarFacturasPorPagar();
 </script></body>
 </html>
