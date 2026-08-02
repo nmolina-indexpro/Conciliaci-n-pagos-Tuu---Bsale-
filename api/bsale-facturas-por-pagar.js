@@ -95,6 +95,10 @@ export default async function handler(req, res) {
     const facturas = [];
     for (const rec of recepciones) {
       if (/nota de cr[eé]dito/i.test(rec.document || '')) continue;
+      // Solo facturas reales -> "Sin Documento" y "Guía N°..." no son un
+      // compromiso de pago formal, no corresponde tratarlos como factura.
+      if (/^sin documento/i.test(rec.document || '') || /^gu[ií]a/i.test(rec.document || '')) continue;
+
       const fecha = rec.rawAdmissionDate || toUtcDateStr(rec.admissionDate);
       if (!fecha || fecha < ventanaRecepcionInicio) continue;
 
@@ -103,6 +107,10 @@ export default async function handler(req, res) {
       if (totalRecepcion <= 0) continue;
 
       const proveedorInfo = identificarProveedor(rec);
+      // Daxis no se considera en este listado (a pedido: no se cuenta como
+      // proveedor a pagar acá).
+      if (proveedorInfo.nombre === 'Daxis') continue;
+
       const fechaEstimadaPago = ajustarASiguienteDiaHabil(addDaysStr(fecha, proveedorInfo.plazoDias));
 
       facturas.push({

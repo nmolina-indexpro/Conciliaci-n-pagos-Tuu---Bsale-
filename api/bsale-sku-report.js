@@ -388,6 +388,14 @@ export default async function handler(req, res) {
         // futura, descontando lo que ya hay en stock.
         const sugerirPara = dias => ventaDiaria > 0 ? Math.max(0, Math.ceil(ventaDiaria * dias - stockActual)) : 0;
 
+        // Margen: precio de venta promedio del período menos el último costo
+        // comprado. Si no tenemos costo o no hubo ventas, queda en null (no
+        // asumimos un margen sin datos reales).
+        const precioVentaPromedio = venta.unidades > 0 ? venta.montoNeto / venta.unidades : null;
+        const costoRef = ultimoCostoPorSku[code]?.costo ?? null;
+        const margenUnitario = (precioVentaPromedio != null && costoRef != null) ? Math.round(precioVentaPromedio - costoRef) : null;
+        const margenPorcentaje = (margenUnitario != null && precioVentaPromedio > 0) ? Math.round((margenUnitario / precioVentaPromedio) * 1000) / 10 : null;
+
         return {
           code,
           nombre: venta.nombre || code,
@@ -407,6 +415,8 @@ export default async function handler(req, res) {
           unidadesCompradas: compradas,
           ultimoCosto: ultimoCostoPorSku[code]?.costo ?? null,
           fechaUltimaCompra: ultimoCostoPorSku[code]?.fecha ?? null,
+          margenUnitario,
+          margenPorcentaje,
           sugerencia5: sugerirPara(5),
           sugerencia7: sugerirPara(7),
           sugerencia14: sugerirPara(14),
@@ -414,6 +424,13 @@ export default async function handler(req, res) {
           costoSugerencia5: ultimoCostoPorSku[code]?.costo != null ? Math.round(sugerirPara(5) * ultimoCostoPorSku[code].costo) : null
         };
       });
+
+    // "Producto estrella": el 20% más vendido del catálogo (con venta > 0) —
+    // son los que menos te puedes dar el lujo de dejar sin stock.
+    const conVenta = skus.filter(s => s.unidadesVendidas > 0).sort((a,b)=>b.unidadesVendidas-a.unidadesVendidas);
+    const topCantidad = Math.max(1, Math.ceil(conVenta.length * 0.2));
+    const codigosEstrella = new Set(conVenta.slice(0, topCantidad).map(s=>s.code));
+    for (const s of skus) s.esEstrella = codigosEstrella.has(s.code);
 
     skus.sort((a, b) => b.unidadesVendidas - a.unidadesVendidas);
 

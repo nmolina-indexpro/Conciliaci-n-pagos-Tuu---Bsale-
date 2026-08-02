@@ -73,6 +73,7 @@
   .badge.pronto{background:var(--amber);color:#fff;}
   .badge.ok{background:var(--green-bg);color:var(--green);}
   .badge.sinventa{background:var(--surface-2);color:var(--muted);}
+  .badge.estrella{background:#FEF3C7;color:#92400E;}
   .empty-note{color:var(--muted);font-size:12.5px;padding:14px 0;}
   .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:20px;color:var(--text);}
 
@@ -570,6 +571,9 @@ function renderTabla(){
         <th class="amount" onclick="ordenarPor('diasCobertura')">Días cobertura${flecha('diasCobertura')}</th>
         <th class="amount" onclick="ordenarPor('unidadesCompradas')">Compradas (período)${flecha('unidadesCompradas')}</th>
         <th class="amount" onclick="ordenarPor('ultimoCosto')">Último costo comprado${flecha('ultimoCosto')}</th>
+        <th class="amount" onclick="ordenarPor('margenUnitario')">Margen $${flecha('margenUnitario')}</th>
+        <th class="amount" onclick="ordenarPor('margenPorcentaje')">Margen %${flecha('margenPorcentaje')}</th>
+        <th onclick="ordenarPor('esEstrella')" style="cursor:pointer;">⭐${flecha('esEstrella')}</th>
         <th class="amount" onclick="ordenarPor('sugerencia5')">Sugerencia 5 días${flecha('sugerencia5')}</th>
         <th class="amount" onclick="ordenarPor('costoSugerencia5')">Costo total sug. 5 días${flecha('costoSugerencia5')}</th>
         <th class="amount" onclick="ordenarPor('sugerencia7')">Sugerencia 7 días${flecha('sugerencia7')}</th>
@@ -598,6 +602,9 @@ function renderTabla(){
             <td class="amount">${s.diasCobertura===null?'—':fmtNum(s.diasCobertura)}</td>
             <td class="amount">${fmtNum(s.unidadesCompradas)}</td>
             <td class="amount">${s.ultimoCosto!=null?fmt(s.ultimoCosto):'—'}</td>
+            <td class="amount">${s.margenUnitario!=null?fmt(s.margenUnitario):'—'}</td>
+            <td class="amount">${s.margenPorcentaje!=null?s.margenPorcentaje+'%':'—'}</td>
+            <td>${s.esEstrella?'<span class="badge estrella">⭐ Estrella</span>':''}</td>
             <td class="amount"><b>${fmtNum(s.sugerencia5)}</b></td>
             <td class="amount">${s.costoSugerencia5!=null?fmt(s.costoSugerencia5):'—'}</td>
             <td class="amount"><b>${fmtNum(s.sugerencia7)}</b></td>
@@ -671,6 +678,9 @@ function exportarExcel(){
       'Stock actual': s.stockActual,
       'Días de cobertura': s.diasCobertura === null ? '' : s.diasCobertura,
       'Último costo comprado': s.ultimoCosto ?? '',
+      'Margen $': s.margenUnitario ?? '',
+      'Margen %': s.margenPorcentaje ?? '',
+      'Producto estrella': s.esEstrella ? 'Sí' : '',
       [`Cantidad a pedir (${horizonte} días)`]: s[campoSugerencia],
       'Costo estimado del pedido': (s.ultimoCosto!=null && s[campoSugerencia]>0) ? Math.round(s[campoSugerencia]*s.ultimoCosto) : '',
       'Estado': { urgente:'Urgente', pronto:'Pronto', ok:'OK', sinventa:'Sin venta' }[clasificar(s)]
