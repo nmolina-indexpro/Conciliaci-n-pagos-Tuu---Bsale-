@@ -51,6 +51,7 @@
   #status.ok{color:var(--green);}
 
   .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+  .grid-5{grid-template-columns:repeat(5,1fr);}
   @media (max-width:900px){.grid{grid-template-columns:1fr 1fr;}}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);}
   .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
@@ -160,11 +161,12 @@
     </div>
   </div>
 
-  <div class="grid" id="resumenCards">
+  <div class="grid grid-5" id="resumenCards">
     <div class="card"><div class="lbl">SKU analizados</div><div class="big" id="cSkus">—</div></div>
     <div class="card"><div class="lbl">Unidades vendidas (período)</div><div class="big" id="cUnidades">—</div></div>
     <div class="card alert"><div class="lbl">SKU a reponer urgente</div><div class="big" id="cUrgentes">—</div></div>
     <div class="card"><div class="lbl">Monto sugerido a comprar*</div><div class="big" id="cSugerido">—</div></div>
+    <div class="card alert"><div class="lbl">Margen perdido est. (quiebres)</div><div class="big" id="cMargenPerdido">—</div></div>
   </div>
   <p class="empty-note" style="margin-top:-14px;">↑ Estas tarjetas reflejan la categoría/búsqueda filtrada actualmente, no siempre el catálogo completo.</p>
 
@@ -546,10 +548,12 @@ function renderTabla(){
     const precioProm = s.unidadesVendidas>0 ? s.montoVentas/s.unidadesVendidas : 0;
     return a + (s.sugerencia14 * precioProm);
   },0);
+  const margenPerdidoTotal = filas.reduce((a,s)=>a+(s.margenPerdidoPorQuiebre||0),0);
   $('cSkus').textContent = fmtNum(filas.length);
   $('cUnidades').textContent = fmtNum(totalUnidades);
   $('cUrgentes').textContent = fmtNum(urgentesFiltradas.length);
   $('cSugerido').textContent = fmt(montoSugerido);
+  $('cMargenPerdido').textContent = fmt(margenPerdidoTotal);
 
 
   const flecha = campo => ordenActual.campo === campo ? (ordenActual.asc ? ' ▲' : ' ▼') : '';
