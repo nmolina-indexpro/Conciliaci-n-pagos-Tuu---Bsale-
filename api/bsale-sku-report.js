@@ -218,15 +218,15 @@ export default async function handler(req, res) {
     let comprasPorSku = {};
     let ultimoCostoPorSku = {}; // { [code]: { costo, fecha } }
     let recepcionesDisponibles = true;
-    // Filtramos por FECHA DE RECEPCIÓN dentro de ±2 días de hoy (no por fecha
+    // Filtramos por FECHA DE RECEPCIÓN de los últimos 14 días (no por fecha
     // de vencimiento) — como el vencimiento de cada una ya se calcula como
     // "fecha de recepción + plazo de SU proveedor" (30 días Coimco/Intcomex,
     // 45 días LaptopCenter), filtrando por recepción reciente el vencimiento
     // cae automáticamente en la ventana correcta para cada proveedor, sin
     // tener que fijar una ventana distinta para cada plazo.
     const hoyStr = endDate; // usamos endDate como "hoy" para que sea consistente si se pide un rango con fecha fin distinta a hoy
-    const ventanaRecepcionInicio = addDaysStr(hoyStr, -2);
-    const ventanaRecepcionFin = addDaysStr(hoyStr, 2);
+    const ventanaRecepcionInicio = addDaysStr(hoyStr, -14);
+    const ventanaRecepcionFin = hoyStr;
     let proximosPagos = [];
     try {
       const primera = await bsaleGet('/stocks/receptions.json?limit=50&offset=0', token);

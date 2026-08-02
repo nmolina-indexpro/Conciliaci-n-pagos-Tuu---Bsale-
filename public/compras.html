@@ -329,12 +329,12 @@ function ordenarPor(campo){
 function renderProximosPagos(pagosPorProveedor, ventana){
   const wrap = $('proximosPagosWrap');
   if(!pagosPorProveedor || pagosPorProveedor.length === 0){
-    wrap.innerHTML = `<p class="empty-note">Sin recepciones registradas entre ${ventana?.desde||'—'} y ${ventana?.hasta||'—'} (±2 días de hoy).</p>`;
+    wrap.innerHTML = `<p class="empty-note">Sin recepciones registradas entre ${ventana?.desde||'—'} y ${ventana?.hasta||'—'} (últimos 14 días).</p>`;
     return;
   }
   const total = pagosPorProveedor.reduce((a,p)=>a+p.monto,0);
   wrap.innerHTML = `
-    <p class="empty-note" style="margin-top:0;">Facturas recibidas entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> (±2 días de hoy) — el vencimiento de cada una depende del plazo de su proveedor: <b>Coimco / Intcomex: +30 días</b> · <b>LaptopCenter: +45 días</b>. Agrupado por proveedor, ordenado por fecha de vencimiento más próxima.</p>
+    <p class="empty-note" style="margin-top:0;">Facturas recibidas entre <b>${ventana.desde}</b> y <b>${ventana.hasta}</b> (últimos 14 días) — el vencimiento de cada una depende del plazo de su proveedor: <b>Coimco / Intcomex: +30 días</b> · <b>LaptopCenter: +45 días</b>. Agrupado por proveedor, ordenado por fecha de vencimiento más próxima.</p>
     <table>
       <thead><tr><th>Proveedor</th><th class="amount">N° documentos</th><th class="amount">Monto total</th></tr></thead>
       <tbody>
@@ -398,12 +398,16 @@ function calcularRecomendacionPresupuesto(){
   // conocido (si no sabemos el costo, no podemos respetar el presupuesto).
   const candidatos = base
     .filter(s => s[campoSugerencia] > 0 && s.ultimoCosto != null)
-    .map(s => ({ ...s, costoLinea: s[campoSugerencia] * s.ultimoCosto }));
+    .map(s => ({ ...s, costoLinea: s[campoSugerencia] * s.ultimoCosto, enQuiebre: s.stockActual === 0 && s.unidadesVendidas > 0 }));
 
-  // Prioridad: más urgente primero (menos días de cobertura primero).
-  // Los que no tienen venta (diasCobertura===0 por "sin venta") van al final,
-  // ya que no hay urgencia real de reponerlos.
+  // Criterio aplicado directo: el objetivo #1 es NO quedarse sin stock y
+  // perder ventas. Los SKU que YA están en quiebre (stock 0 con venta activa)
+  // van siempre primero, pase lo que pase con el presupuesto — no compiten
+  // por prioridad con el resto, están un escalón arriba. Dentro de cada
+  // grupo (en quiebre / no en quiebre), ordena por días de cobertura
+  // ascendente (más urgente primero).
   candidatos.sort((a,b) => {
+    if(a.enQuiebre !== b.enQuiebre) return a.enQuiebre ? -1 : 1;
     const da = a.diasCobertura === null ? 9999 : (a.unidadesVendidas===0 ? 9998 : a.diasCobertura);
     const db = b.diasCobertura === null ? 9999 : (b.unidadesVendidas===0 ? 9998 : b.diasCobertura);
     return da - db;
@@ -463,6 +467,7 @@ function renderRecomendacionTabla(){
       <div class="card"><div class="lbl">A gastar (recomendado)</div><div class="big" style="color:var(--green);">${fmt(acumulado)}</div></div>
       <div class="card"><div class="lbl">Disponible sin usar</div><div class="big">${fmt(presupuesto-acumulado)}</div></div>
     </div>
+    ${(()=>{ const enQuiebre=[...dentroPresupuesto,...fueraPresupuesto].filter(s=>s.enQuiebre); return enQuiebre.length>0 ? `<div class="note-box" style="background:var(--red-bg);border-color:#F5B5B5;"><b>🔴 ${enQuiebre.length} SKU ya están en quiebre de stock</b> (venden pero tienen 0 unidades disponibles) — van primero en la lista sin importar el presupuesto, porque cada día sin stock es venta perdida.</div>` : ''; })()}
     <p class="empty-note" style="margin-top:0;"><b>${dentroPresupuesto.length} SKU</b> caben dentro del presupuesto. ${fueraPresupuesto.length>0?`<b>${fueraPresupuesto.length} SKU</b> quedaron afuera por falta de presupuesto — se muestran igual, para que sepas qué se está postergando.`:''}</p>
     <table class="data-table">
       <thead><tr>
@@ -476,24 +481,24 @@ function renderRecomendacionTabla(){
       </tr></thead>
       <tbody>
         ${dentroPresupuesto.map(s => `
-          <tr>
+          <tr${s.enQuiebre?' class="urgente"':''}>
             <td>${s.imagenUrl?`<img src="${s.imagenUrl}" style="width:32px;height:32px;object-fit:cover;border-radius:6px;">`:''}</td>
             <td>${s.code}</td>
             <td>${s.nombre}</td>
             <td class="amount">${s.diasCobertura===null?'—':s.diasCobertura}</td>
             <td class="amount">${fmtNum(s[campoSugerencia])}</td>
             <td class="amount">${fmt(s.costoLinea)}</td>
-            <td><span class="badge ok">Comprar</span></td>
+            <td>${s.enQuiebre ? '<span class="badge urgente">🔴 QUIEBRE</span>' : '<span class="badge ok">Comprar</span>'}</td>
           </tr>`).join('')}
         ${fueraPresupuesto.map(s => `
-          <tr style="opacity:0.55;">
+          <tr style="opacity:${s.enQuiebre?'1':'0.55'};"${s.enQuiebre?' class="urgente"':''}>
             <td>${s.imagenUrl?`<img src="${s.imagenUrl}" style="width:32px;height:32px;object-fit:cover;border-radius:6px;">`:''}</td>
             <td>${s.code}</td>
             <td>${s.nombre}</td>
             <td class="amount">${s.diasCobertura===null?'—':s.diasCobertura}</td>
             <td class="amount">${fmtNum(s[campoSugerencia])}</td>
             <td class="amount">${fmt(s.costoLinea)}</td>
-            <td><span class="badge no">Esperar</span></td>
+            <td>${s.enQuiebre ? '<span class="badge urgente">🔴 QUIEBRE (sin presupuesto)</span>' : '<span class="badge no">Esperar</span>'}</td>
           </tr>`).join('')}
       </tbody>
     </table>
