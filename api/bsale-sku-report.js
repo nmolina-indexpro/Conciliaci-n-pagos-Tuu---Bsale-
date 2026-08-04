@@ -163,6 +163,19 @@ export default async function handler(req, res) {
     }
   }
 
+  // Modo debug para ver documentos de terceros (facturas recibidas de
+  // proveedores) -> necesito confirmar si acá está la fecha de EMISIÓN real
+  // de la factura (y ojalá el vencimiento real), en vez de seguir usando la
+  // fecha de recepción de mercadería como base para calcular el plazo.
+  if (debug === 'terceros') {
+    try {
+      const r = await bsaleGet('/third_party_documents.json?limit=15&offset=0', token);
+      return res.status(200).json({ count: r.count, documentos: r.items || [] });
+    } catch (err) {
+      return res.status(200).json({ error: 'Error consultando documentos de terceros', detail: String(err) });
+    }
+  }
+
   try {
     const hoyStr = new Date().toISOString().slice(0, 10);
 
