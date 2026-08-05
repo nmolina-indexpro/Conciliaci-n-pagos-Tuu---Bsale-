@@ -1,4 +1,4 @@
-// /middleware.js
+// /middleware.ts
 // Corre en el runtime Edge de Vercel, ANTES de servir cualquier página o
 // función — es lo que realmente obliga a iniciar sesión para entrar. Usa
 // Web Crypto (no el módulo "crypto" de Node, que no existe en Edge) para
@@ -8,9 +8,10 @@
 // de /api (lib/auth-node.js) — deben ser el mismo valor en ambos lados para
 // que la firma calce.
 
-export const config = {
-  matcher: '/:path*',
-};
+// Sin "matcher": corre en TODAS las rutas por defecto (comportamiento base
+// de Routing Middleware) — las excepciones (login, endpoints públicos) las
+// filtra el propio código de abajo, así evitamos depender de la sintaxis
+// exacta de un regex en el matcher.
 
 // Rutas que se pueden ver SIN sesión (la propia página de login, y las
 // llamadas que la hacen funcionar). Todo lo demás exige sesión válida.
@@ -56,6 +57,7 @@ async function verificarSesionEdge(token, secret) {
 export default async function middleware(req) {
   const url = new URL(req.url);
   const { pathname } = url;
+  console.log('[middleware] request a', pathname); // visible en Vercel > Logs, para confirmar que esto SI esta corriendo
 
   if (RUTAS_PUBLICAS.has(pathname)) return; // deja pasar sin exigir sesión
 
