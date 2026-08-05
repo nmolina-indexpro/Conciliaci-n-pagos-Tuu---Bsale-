@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Iniciar sesión — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 8px 24px rgba(31,42,36,.08);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);font-family:'Plus Jakarta Sans',sans-serif;color:var(--text);}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:36px 34px;box-shadow:var(--shadow);width:100%;max-width:380px;}
+  .logo{height:44px;display:block;margin:0 auto 24px;}
+  h1{font-family:'Space Grotesk',sans-serif;font-size:19px;font-weight:700;text-align:center;margin:0 0 26px;}
+  label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;display:block;margin-bottom:6px;}
+  .campo{margin-bottom:16px;}
+  input{width:100%;padding:11px 13px;border:1.5px solid var(--line);border-radius:9px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--text);}
+  input:focus{outline:none;border-color:var(--primary);}
+  button{width:100%;padding:12px;border:none;border-radius:9px;background:var(--primary);color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;cursor:pointer;margin-top:6px;}
+  button:hover{background:var(--primary-dark);}
+  button:disabled{opacity:0.6;cursor:not-allowed;}
+  .error{background:var(--red-bg);color:var(--red);border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:16px;display:none;}
+  .error.show{display:block;}
+</style>
+</head>
+<body>
+  <div class="card">
+    <img class="logo" src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore">
+    <h1>Iniciar sesión</h1>
+    <div class="error" id="error"></div>
+    <form id="form">
+      <div class="campo">
+        <label for="email">Email</label>
+        <input type="email" id="email" required autocomplete="username">
+      </div>
+      <div class="campo">
+        <label for="password">Contraseña</label>
+        <input type="password" id="password" required autocomplete="current-password">
+      </div>
+      <button type="submit" id="btn">Entrar</button>
+    </form>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+$('form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const btn = $('btn');
+  const error = $('error');
+  error.classList.remove('show');
+  btn.disabled = true;
+  btn.textContent = 'Entrando...';
+
+  try {
+    const res = await fetch('/api/auth-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: $('email').value.trim(), password: $('password').value })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      error.textContent = data.error || 'No se pudo iniciar sesión';
+      error.classList.add('show');
+      btn.disabled = false;
+      btn.textContent = 'Entrar';
+      return;
+    }
+    const params = new URLSearchParams(location.search);
+    location.href = params.get('next') || '/index.html';
+  } catch (err) {
+    error.textContent = 'Error de conexión: ' + err.message;
+    error.classList.add('show');
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+  }
+});
+</script>
+</body>
+</html>

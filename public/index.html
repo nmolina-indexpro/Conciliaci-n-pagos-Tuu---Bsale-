@@ -29,6 +29,10 @@
   .page-nav{display:flex;gap:6px;background:var(--surface-2);padding:5px;border-radius:12px;width:fit-content;justify-self:center;}
   .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:var(--muted);text-decoration:none;padding:10px 22px;border-radius:9px;transition:all .15s;}
   .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
   .page-nav a:hover:not(.active){color:var(--text);}
   .date-field{display:flex;align-items:center;gap:8px;}
   .date-popover{display:none;position:absolute;top:calc(100% + 8px);left:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:var(--shadow);z-index:30;flex-direction:column;gap:10px;min-width:220px;}
@@ -88,8 +92,9 @@
       <a href="index.html" class="active">Flujo de Caja</a>
       <a href="conciliacion.html">Conciliación</a>
       <a href="compras.html">Compras</a>
+      <a href="usuarios.html" id="navUsuarios" style="display:none;">Usuarios</a>
     </nav>
-    <div></div>
+    <div class="user-box" id="userBox"></div>
   </header>
 
   <div class="toolbar">
@@ -530,5 +535,26 @@ async function cargarFacturasPorPagar(){
 cargar();
 cargarCalendarioFijo();
 cargarFacturasPorPagar();
+
+// Sesión: muestra quién está conectado y el botón de cerrar sesión. La
+// protección REAL de acceso la hace el middleware (redirige a /login.html
+// si no hay sesión válida) — esto es solo la parte visual.
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-me');
+    if(!res.ok) return; // el middleware ya se encarga de redirigir si hace falta
+    const u = await res.json();
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    if(u.rol === 'admin'){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+    }
+  }catch(err){ /* silencioso: no bloquea el resto de la página */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-logout', { method: 'POST' });
+  location.href = '/login.html';
+}
+cargarSesionUsuario();
 </script></body>
 </html>

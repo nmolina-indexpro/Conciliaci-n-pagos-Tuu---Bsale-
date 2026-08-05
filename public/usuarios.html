@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Usuarios — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:28px 40px 60px 190px;}
+  .wrap{max-width:1200px;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .page-nav{display:flex;gap:6px;background:var(--surface-2);padding:5px;border-radius:12px;width:fit-content;justify-self:center;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:var(--muted);text-decoration:none;padding:10px 22px;border-radius:9px;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:22px;margin:0 0 20px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;box-shadow:var(--shadow);margin-bottom:24px;}
+  label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;display:block;margin-bottom:5px;}
+  input,select{padding:9px 12px;border:1.5px solid var(--line);border-radius:9px;font-size:13.5px;font-family:inherit;background:var(--bg);color:var(--text);}
+  input:focus,select:focus{outline:none;border-color:var(--primary);}
+  .fila-form{display:flex;gap:14px;flex-wrap:wrap;align-items:end;}
+  .campo{display:flex;flex-direction:column;}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 20px;cursor:pointer;}
+  .btn-primary{background:var(--primary);color:#fff;}
+  .btn-primary:hover{background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);border:1.5px solid var(--line);color:var(--muted);}
+  .btn-danger{background:var(--red-bg);color:var(--red);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:0.4px;padding:10px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  td{padding:10px;border-bottom:1px solid var(--line);}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;}
+  .badge.admin{background:var(--primary-dim);color:var(--primary);}
+  .badge.usuario{background:var(--surface-2);color:var(--muted);}
+  .badge.activo{background:var(--green-bg);color:var(--green);}
+  .badge.inactivo{background:var(--red-bg);color:var(--red);}
+  .empty-note{color:var(--muted);font-size:12.5px;}
+  .error-box{background:var(--red-bg);color:var(--red);border-radius:9px;padding:10px 14px;font-size:13px;margin-bottom:16px;}
+  .acciones{display:flex;gap:6px;}
+  .acciones button{padding:6px 12px;font-size:11.5px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    <nav class="page-nav">
+      <a href="index.html">Flujo de Caja</a>
+      <a href="conciliacion.html">Conciliación</a>
+      <a href="compras.html">Compras</a>
+      <a href="usuarios.html" class="active">Usuarios</a>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>Mantenedor de usuarios</h1>
+  <div id="avisoAcceso"></div>
+
+  <div class="card" id="formCard">
+    <div id="errorForm"></div>
+    <div class="fila-form">
+      <div class="campo"><label>Email</label><input type="email" id="fEmail" style="width:220px;"></div>
+      <div class="campo"><label>Nombre</label><input type="text" id="fNombre" style="width:180px;"></div>
+      <div class="campo"><label>Contraseña</label><input type="password" id="fPassword" style="width:160px;" placeholder="mín. 8 caracteres"></div>
+      <div class="campo"><label>Rol</label>
+        <select id="fRol">
+          <option value="usuario">Usuario</option>
+          <option value="admin">Administrador</option>
+        </select>
+      </div>
+      <button class="btn-primary" onclick="crearUsuario()">+ Crear usuario</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="tablaWrap"><p class="empty-note">Cargando...</p></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let usuarioActual = null;
+let listaUsuarios = [];
+
+async function cargarSesion(){
+  try{
+    const res = await fetch('/api/auth-me');
+    if(!res.ok){ location.href = '/login.html'; return; }
+    usuarioActual = await res.json();
+    $('userBox').innerHTML = `<span>Conectado como <b>${usuarioActual.nombre || usuarioActual.email}</b> (${usuarioActual.rol})</span><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+
+    if(usuarioActual.rol !== 'admin'){
+      $('formCard').style.display = 'none';
+      $('avisoAcceso').innerHTML = `<div class="error-box">Esta página es solo para administradores. Puedes ver tu propia cuenta abajo, pero no puedes crear ni editar usuarios.</div>`;
+    }
+    cargarUsuarios();
+  }catch(err){
+    location.href = '/login.html';
+  }
+}
+
+async function cerrarSesion(){
+  await fetch('/api/auth-logout', { method: 'POST' });
+  location.href = '/login.html';
+}
+
+async function cargarUsuarios(){
+  try{
+    const res = await fetch('/api/usuarios');
+    const data = await res.json();
+    if(!res.ok){
+      $('tablaWrap').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar la lista de usuarios.'}</p>`;
+      return;
+    }
+    listaUsuarios = data.usuarios || [];
+    renderTabla();
+  }catch(err){
+    $('tablaWrap').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+  }
+}
+
+function renderTabla(){
+  if(listaUsuarios.length === 0){
+    $('tablaWrap').innerHTML = `<p class="empty-note">Sin usuarios todavía.</p>`;
+    return;
+  }
+  const esAdmin = usuarioActual?.rol === 'admin';
+  $('tablaWrap').innerHTML = `
+    <table>
+      <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Creado</th>${esAdmin?'<th>Acciones</th>':''}</tr></thead>
+      <tbody>
+        ${listaUsuarios.map(u => `
+          <tr>
+            <td>${u.email}</td>
+            <td>${u.nombre||'—'}</td>
+            <td><span class="badge ${u.rol}">${u.rol==='admin'?'Administrador':'Usuario'}</span></td>
+            <td><span class="badge ${u.activo?'activo':'inactivo'}">${u.activo?'Activo':'Inactivo'}</span></td>
+            <td>${(u.created_at||'').slice(0,10)}</td>
+            ${esAdmin?`<td class="acciones">
+              <button class="btn-ghost" onclick="toggleRol(${u.id}, '${u.rol}')">${u.rol==='admin'?'Quitar admin':'Hacer admin'}</button>
+              <button class="btn-ghost" onclick="toggleActivo(${u.id}, ${u.activo})">${u.activo?'Desactivar':'Activar'}</button>
+              <button class="btn-ghost" onclick="resetPassword(${u.id})">Cambiar contraseña</button>
+              <button class="btn-danger" onclick="eliminarUsuario(${u.id})">Eliminar</button>
+            </td>`:''}
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function crearUsuario(){
+  const errorEl = $('errorForm');
+  errorEl.innerHTML = '';
+  const email = $('fEmail').value.trim();
+  const nombre = $('fNombre').value.trim();
+  const password = $('fPassword').value;
+  const rol = $('fRol').value;
+
+  if(!email || !password){ errorEl.innerHTML = `<div class="error-box">Email y contraseña son obligatorios.</div>`; return; }
+
+  try{
+    const res = await fetch('/api/usuarios', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, nombre, password, rol })
+    });
+    const data = await res.json();
+    if(!res.ok){ errorEl.innerHTML = `<div class="error-box">${data.error}</div>`; return; }
+    $('fEmail').value = ''; $('fNombre').value = ''; $('fPassword').value = ''; $('fRol').value = 'usuario';
+    cargarUsuarios();
+  }catch(err){
+    errorEl.innerHTML = `<div class="error-box">Error: ${err.message}</div>`;
+  }
+}
+
+async function toggleRol(id, rolActual){
+  const nuevoRol = rolActual === 'admin' ? 'usuario' : 'admin';
+  await actualizarUsuario(id, { rol: nuevoRol });
+}
+async function toggleActivo(id, activoActual){
+  await actualizarUsuario(id, { activo: !activoActual });
+}
+async function resetPassword(id){
+  const nueva = prompt('Nueva contraseña (mínimo 8 caracteres):');
+  if(!nueva) return;
+  await actualizarUsuario(id, { password: nueva });
+}
+async function actualizarUsuario(id, cambios){
+  try{
+    const res = await fetch('/api/usuarios', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...cambios })
+    });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error); return; }
+    cargarUsuarios();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+async function eliminarUsuario(id){
+  if(!confirm('¿Eliminar este usuario? No se puede deshacer.')) return;
+  try{
+    const res = await fetch(`/api/usuarios?id=${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error); return; }
+    cargarUsuarios();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+cargarSesion();
+</script>
+</body>
+</html>
