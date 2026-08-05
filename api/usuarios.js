@@ -15,21 +15,27 @@ export default async function handler(req, res) {
     await asegurarTablaUsuarios(sql);
 
     if (req.method === 'GET') {
-      const { rows } = await sql`SELECT id, email, nombre, rol, activo, created_at FROM usuarios ORDER BY created_at ASC;`;
+      const { rows } = await sql`SELECT id, email, nombre, rol, activo, expira_en, created_at FROM usuarios ORDER BY created_at ASC;`;
       return res.status(200).json({ usuarios: rows });
     }
 
     if (req.method === 'POST') {
-      const { email, password, nombre, rol } = req.body || {};
+      const { email, password, nombre, rol, expiraMinutos } = req.body || {};
       if (!email || !password) return res.status(400).json({ error: 'Falta email o contraseña' });
       if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
       const rolFinal = rol === 'admin' ? 'admin' : 'usuario';
       const passwordHash = hashPassword(password);
+      // Cuenta temporal: si viene expiraMinutos (> 0), la cuenta deja de
+      // poder loguearse pasado ese tiempo (ver api/auth-login.js). Sin
+      // expiraMinutos, la cuenta es permanente (expira_en = NULL).
+      const expiraEn = (typeof expiraMinutos === 'number' && expiraMinutos > 0)
+        ? new Date(Date.now() + expiraMinutos * 60 * 1000)
+        : null;
       try {
         const { rows } = await sql`
-          INSERT INTO usuarios (email, password_hash, nombre, rol, activo)
-          VALUES (${email.toLowerCase().trim()}, ${passwordHash}, ${nombre || email}, ${rolFinal}, true)
-          RETURNING id, email, nombre, rol, activo, created_at;
+          INSERT INTO usuarios (email, password_hash, nombre, rol, activo, expira_en)
+          VALUES (${email.toLowerCase().trim()}, ${passwordHash}, ${nombre || email}, ${rolFinal}, true, ${expiraEn})
+          RETURNING id, email, nombre, rol, activo, expira_en, created_at;
         `;
         return res.status(200).json({ usuario: rows[0] });
       } catch (err) {
@@ -39,7 +45,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'PUT') {
-      const { id, nombre, rol, activo, password } = req.body || {};
+      const { id, nombre, rol, activo, password, expiraMinutos, quitarExpiracion } = req.body || {};
       if (!id) return res.status(400).json({ error: 'Falta el id del usuario' });
 
       // No permitir que un admin se quite a sí mismo el rol de admin ni se
@@ -55,7 +61,19 @@ export default async function handler(req, res) {
       } else {
         await sql`UPDATE usuarios SET nombre = COALESCE(${nombre}, nombre), rol = COALESCE(${rol}, rol), activo = COALESCE(${activo}, activo) WHERE id = ${id};`;
       }
-      const { rows } = await sql`SELECT id, email, nombre, rol, activo, created_at FROM usuarios WHERE id = ${id};`;
+
+      // La expiración se maneja en una consulta aparte porque a veces hay
+      // que dejarla explícitamente en NULL (quitar la expiración), y
+      // COALESCE no distingue "no me mandaron este campo" de "me mandaron
+      // NULL a propósito".
+      if (quitarExpiracion) {
+        await sql`UPDATE usuarios SET expira_en = NULL WHERE id = ${id};`;
+      } else if (typeof expiraMinutos === 'number' && expiraMinutos > 0) {
+        const nuevaExpira = new Date(Date.now() + expiraMinutos * 60 * 1000);
+        await sql`UPDATE usuarios SET expira_en = ${nuevaExpira} WHERE id = ${id};`;
+      }
+
+      const { rows } = await sql`SELECT id, email, nombre, rol, activo, expira_en, created_at FROM usuarios WHERE id = ${id};`;
       return res.status(200).json({ usuario: rows[0] });
     }
 
