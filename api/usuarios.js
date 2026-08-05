@@ -15,7 +15,7 @@ export default async function handler(req, res) {
     await asegurarTablaUsuarios(sql);
 
     if (req.method === 'GET') {
-      const { rows } = await sql`SELECT id, email, nombre, rol, activo, expira_en, created_at FROM usuarios ORDER BY created_at ASC;`;
+      const { rows } = await sql`SELECT id, email, nombre, rol, activo, expira_en, expira_minutos, created_at FROM usuarios ORDER BY created_at ASC;`;
       return res.status(200).json({ usuarios: rows });
     }
 
@@ -25,17 +25,17 @@ export default async function handler(req, res) {
       if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
       const rolFinal = rol === 'admin' ? 'admin' : 'usuario';
       const passwordHash = hashPassword(password);
-      // Cuenta temporal: si viene expiraMinutos (> 0), la cuenta deja de
-      // poder loguearse pasado ese tiempo (ver api/auth-login.js). Sin
-      // expiraMinutos, la cuenta es permanente (expira_en = NULL).
-      const expiraEn = (typeof expiraMinutos === 'number' && expiraMinutos > 0)
-        ? new Date(Date.now() + expiraMinutos * 60 * 1000)
-        : null;
+      // Cuenta temporal: si viene expiraMinutos (> 0), se guarda como
+      // duración PENDIENTE (expira_minutos) — todavía no arranca. El reloj
+      // recién empieza a correr con el primer login exitoso (ver
+      // api/auth-login.js), que calcula expira_en = ahora + expira_minutos.
+      // Sin expiraMinutos, la cuenta es permanente.
+      const duracionPendiente = (typeof expiraMinutos === 'number' && expiraMinutos > 0) ? expiraMinutos : null;
       try {
         const { rows } = await sql`
-          INSERT INTO usuarios (email, password_hash, nombre, rol, activo, expira_en)
-          VALUES (${email.toLowerCase().trim()}, ${passwordHash}, ${nombre || email}, ${rolFinal}, true, ${expiraEn})
-          RETURNING id, email, nombre, rol, activo, expira_en, created_at;
+          INSERT INTO usuarios (email, password_hash, nombre, rol, activo, expira_minutos)
+          VALUES (${email.toLowerCase().trim()}, ${passwordHash}, ${nombre || email}, ${rolFinal}, true, ${duracionPendiente})
+          RETURNING id, email, nombre, rol, activo, expira_en, expira_minutos, created_at;
         `;
         return res.status(200).json({ usuario: rows[0] });
       } catch (err) {
@@ -62,18 +62,23 @@ export default async function handler(req, res) {
         await sql`UPDATE usuarios SET nombre = COALESCE(${nombre}, nombre), rol = COALESCE(${rol}, rol), activo = COALESCE(${activo}, activo) WHERE id = ${id};`;
       }
 
-      // La expiración se maneja en una consulta aparte porque a veces hay
-      // que dejarla explícitamente en NULL (quitar la expiración), y
-      // COALESCE no distingue "no me mandaron este campo" de "me mandaron
-      // NULL a propósito".
+      // La expiración se maneja en consultas aparte porque a veces hay que
+      // dejarla explícitamente en NULL, y COALESCE no distingue "no me
+      // mandaron este campo" de "me mandaron NULL a propósito".
       if (quitarExpiracion) {
-        await sql`UPDATE usuarios SET expira_en = NULL WHERE id = ${id};`;
+        // Cuenta permanente de nuevo: se borra tanto la fecha activa como
+        // cualquier duración pendiente sin activar.
+        await sql`UPDATE usuarios SET expira_en = NULL, expira_minutos = NULL WHERE id = ${id};`;
       } else if (typeof expiraMinutos === 'number' && expiraMinutos > 0) {
+        // Acción manual del admin: expira AHORA + X minutos, de forma
+        // inmediata (no depende de ningún login). Se usa para extender una
+        // cuenta ya activa, o para forzar una expiración sin esperar un
+        // primer login.
         const nuevaExpira = new Date(Date.now() + expiraMinutos * 60 * 1000);
-        await sql`UPDATE usuarios SET expira_en = ${nuevaExpira} WHERE id = ${id};`;
+        await sql`UPDATE usuarios SET expira_en = ${nuevaExpira}, expira_minutos = NULL WHERE id = ${id};`;
       }
 
-      const { rows } = await sql`SELECT id, email, nombre, rol, activo, expira_en, created_at FROM usuarios WHERE id = ${id};`;
+      const { rows } = await sql`SELECT id, email, nombre, rol, activo, expira_en, expira_minutos, created_at FROM usuarios WHERE id = ${id};`;
       return res.status(200).json({ usuario: rows[0] });
     }
 
