@@ -35,6 +35,7 @@
   input:focus,select:focus{outline:none;border-color:var(--primary);}
   .fila-form{display:flex;gap:14px;flex-wrap:wrap;align-items:end;}
   .campo{display:flex;flex-direction:column;}
+  .campo small{color:var(--muted);font-size:10.5px;margin-top:4px;}
   button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 20px;cursor:pointer;}
   .btn-primary{background:var(--primary);color:#fff;}
   .btn-primary:hover{background:var(--primary-dark);}
@@ -43,14 +44,14 @@
   table{width:100%;border-collapse:collapse;font-size:13px;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:0.4px;padding:10px;border-bottom:2px solid var(--line);background:var(--surface-2);}
   td{padding:10px;border-bottom:1px solid var(--line);}
-  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;}
   .badge.admin{background:var(--primary-dim);color:var(--primary);}
   .badge.usuario{background:var(--surface-2);color:var(--muted);}
   .badge.activo{background:var(--green-bg);color:var(--green);}
   .badge.inactivo{background:var(--red-bg);color:var(--red);}
   .empty-note{color:var(--muted);font-size:12.5px;}
   .error-box{background:var(--red-bg);color:var(--red);border-radius:9px;padding:10px 14px;font-size:13px;margin-bottom:16px;}
-  .acciones{display:flex;gap:6px;}
+  .acciones{display:flex;gap:6px;flex-wrap:wrap;}
   .acciones button{padding:6px 12px;font-size:11.5px;}
 </style>
 </head>
@@ -82,8 +83,13 @@
           <option value="admin">Administrador</option>
         </select>
       </div>
+      <div class="campo">
+        <label>Expira en (min)</label>
+        <input type="number" id="fExpira" style="width:110px;" placeholder="vacío = sin límite" min="1">
+      </div>
       <button class="btn-primary" onclick="crearUsuario()">+ Crear usuario</button>
     </div>
+    <small style="color:var(--muted);display:block;margin-top:10px;">Si le pones minutos a "Expira en", la cuenta (y cualquier sesión abierta con ella) deja de funcionar automáticamente pasado ese tiempo — útil para accesos temporales.</small>
   </div>
 
   <div class="card">
@@ -133,6 +139,19 @@ async function cargarUsuarios(){
   }
 }
 
+function formatoFechaHora(iso){
+  return new Date(iso).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+}
+
+function badgeExpiracion(u){
+  if(!u.expira_en) return `<span class="empty-note">—</span>`;
+  const vencida = new Date(u.expira_en).getTime() <= Date.now();
+  const texto = formatoFechaHora(u.expira_en);
+  return vencida
+    ? `<span class="badge inactivo">Expiró ${texto}</span>`
+    : `<span class="badge admin">Vence ${texto}</span>`;
+}
+
 function renderTabla(){
   if(listaUsuarios.length === 0){
     $('tablaWrap').innerHTML = `<p class="empty-note">Sin usuarios todavía.</p>`;
@@ -141,7 +160,7 @@ function renderTabla(){
   const esAdmin = usuarioActual?.rol === 'admin';
   $('tablaWrap').innerHTML = `
     <table>
-      <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Creado</th>${esAdmin?'<th>Acciones</th>':''}</tr></thead>
+      <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Expira</th><th>Creado</th>${esAdmin?'<th>Acciones</th>':''}</tr></thead>
       <tbody>
         ${listaUsuarios.map(u => `
           <tr>
@@ -149,11 +168,14 @@ function renderTabla(){
             <td>${u.nombre||'—'}</td>
             <td><span class="badge ${u.rol}">${u.rol==='admin'?'Administrador':'Usuario'}</span></td>
             <td><span class="badge ${u.activo?'activo':'inactivo'}">${u.activo?'Activo':'Inactivo'}</span></td>
+            <td>${badgeExpiracion(u)}</td>
             <td>${(u.created_at||'').slice(0,10)}</td>
             ${esAdmin?`<td class="acciones">
               <button class="btn-ghost" onclick="toggleRol(${u.id}, '${u.rol}')">${u.rol==='admin'?'Quitar admin':'Hacer admin'}</button>
               <button class="btn-ghost" onclick="toggleActivo(${u.id}, ${u.activo})">${u.activo?'Desactivar':'Activar'}</button>
               <button class="btn-ghost" onclick="resetPassword(${u.id})">Cambiar contraseña</button>
+              <button class="btn-ghost" onclick="extenderExpiracion(${u.id})">${u.expira_en?'Extender expiración':'Poner expiración'}</button>
+              ${u.expira_en?`<button class="btn-ghost" onclick="quitarExpiracion(${u.id})">Quitar expiración</button>`:''}
               <button class="btn-danger" onclick="eliminarUsuario(${u.id})">Eliminar</button>
             </td>`:''}
           </tr>`).join('')}
@@ -169,6 +191,8 @@ async function crearUsuario(){
   const nombre = $('fNombre').value.trim();
   const password = $('fPassword').value;
   const rol = $('fRol').value;
+  const expiraInput = $('fExpira').value.trim();
+  const expiraMinutos = expiraInput ? parseInt(expiraInput, 10) : undefined;
 
   if(!email || !password){ errorEl.innerHTML = `<div class="error-box">Email y contraseña son obligatorios.</div>`; return; }
 
@@ -176,11 +200,11 @@ async function crearUsuario(){
     const res = await fetch('/api/usuarios', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, nombre, password, rol })
+      body: JSON.stringify({ email, nombre, password, rol, ...(expiraMinutos ? { expiraMinutos } : {}) })
     });
     const data = await res.json();
     if(!res.ok){ errorEl.innerHTML = `<div class="error-box">${data.error}</div>`; return; }
-    $('fEmail').value = ''; $('fNombre').value = ''; $('fPassword').value = ''; $('fRol').value = 'usuario';
+    $('fEmail').value = ''; $('fNombre').value = ''; $('fPassword').value = ''; $('fRol').value = 'usuario'; $('fExpira').value = '';
     cargarUsuarios();
   }catch(err){
     errorEl.innerHTML = `<div class="error-box">Error: ${err.message}</div>`;
@@ -198,6 +222,17 @@ async function resetPassword(id){
   const nueva = prompt('Nueva contraseña (mínimo 8 caracteres):');
   if(!nueva) return;
   await actualizarUsuario(id, { password: nueva });
+}
+async function extenderExpiracion(id){
+  const minutos = prompt('¿La cuenta deja de funcionar en cuántos minutos desde ahora?', '30');
+  if(!minutos) return;
+  const valor = parseInt(minutos, 10);
+  if(!valor || valor <= 0){ alert('Ingresa un número de minutos válido.'); return; }
+  await actualizarUsuario(id, { expiraMinutos: valor });
+}
+async function quitarExpiracion(id){
+  if(!confirm('¿Quitar la expiración de esta cuenta? Quedará activa de forma permanente.')) return;
+  await actualizarUsuario(id, { quitarExpiracion: true });
 }
 async function actualizarUsuario(id, cambios){
   try{
