@@ -13,6 +13,7 @@
     --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
     --red:#DC2626; --red-bg:#FCE8E8;
     --green:#15803D; --green-bg:#E3F6E8;
+    --amber:#B45309; --amber-bg:#FEF3E0;
     --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
   }
   *{box-sizing:border-box;}
@@ -35,7 +36,6 @@
   input:focus,select:focus{outline:none;border-color:var(--primary);}
   .fila-form{display:flex;gap:14px;flex-wrap:wrap;align-items:end;}
   .campo{display:flex;flex-direction:column;}
-  .campo small{color:var(--muted);font-size:10.5px;margin-top:4px;}
   button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 20px;cursor:pointer;}
   .btn-primary{background:var(--primary);color:#fff;}
   .btn-primary:hover{background:var(--primary-dark);}
@@ -49,6 +49,7 @@
   .badge.usuario{background:var(--surface-2);color:var(--muted);}
   .badge.activo{background:var(--green-bg);color:var(--green);}
   .badge.inactivo{background:var(--red-bg);color:var(--red);}
+  .badge.pendiente{background:var(--amber-bg);color:var(--amber);}
   .empty-note{color:var(--muted);font-size:12.5px;}
   .error-box{background:var(--red-bg);color:var(--red);border-radius:9px;padding:10px 14px;font-size:13px;margin-bottom:16px;}
   .acciones{display:flex;gap:6px;flex-wrap:wrap;}
@@ -84,12 +85,12 @@
         </select>
       </div>
       <div class="campo">
-        <label>Expira en (min)</label>
-        <input type="number" id="fExpira" style="width:110px;" placeholder="vacío = sin límite" min="1">
+        <label>Duración temporal (min)</label>
+        <input type="number" id="fExpira" style="width:110px;" placeholder="vacío = sin límite" min="1" value="180">
       </div>
       <button class="btn-primary" onclick="crearUsuario()">+ Crear usuario</button>
     </div>
-    <small style="color:var(--muted);display:block;margin-top:10px;">Si le pones minutos a "Expira en", la cuenta (y cualquier sesión abierta con ella) deja de funcionar automáticamente pasado ese tiempo — útil para accesos temporales.</small>
+    <small style="color:var(--muted);display:block;margin-top:10px;">Con "Duración temporal" puesta, el reloj arranca en el primer login exitoso (no al crear la cuenta). Ej: 180 min = 3 horas desde que la persona entra por primera vez. Vacío = cuenta permanente.</small>
   </div>
 
   <div class="card">
@@ -142,14 +143,24 @@ async function cargarUsuarios(){
 function formatoFechaHora(iso){
   return new Date(iso).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
+function formatoDuracion(minutos){
+  if(minutos % 60 === 0) return `${minutos/60}h`;
+  if(minutos > 60) return `${Math.floor(minutos/60)}h ${minutos%60}min`;
+  return `${minutos} min`;
+}
 
 function badgeExpiracion(u){
-  if(!u.expira_en) return `<span class="empty-note">—</span>`;
-  const vencida = new Date(u.expira_en).getTime() <= Date.now();
-  const texto = formatoFechaHora(u.expira_en);
-  return vencida
-    ? `<span class="badge inactivo">Expiró ${texto}</span>`
-    : `<span class="badge admin">Vence ${texto}</span>`;
+  if(u.expira_en){
+    const vencida = new Date(u.expira_en).getTime() <= Date.now();
+    const texto = formatoFechaHora(u.expira_en);
+    return vencida
+      ? `<span class="badge inactivo">Expiró ${texto}</span>`
+      : `<span class="badge admin">Vence ${texto}</span>`;
+  }
+  if(u.expira_minutos){
+    return `<span class="badge pendiente">Pendiente: ${formatoDuracion(u.expira_minutos)} desde 1er login</span>`;
+  }
+  return `<span class="empty-note">—</span>`;
 }
 
 function renderTabla(){
@@ -174,8 +185,8 @@ function renderTabla(){
               <button class="btn-ghost" onclick="toggleRol(${u.id}, '${u.rol}')">${u.rol==='admin'?'Quitar admin':'Hacer admin'}</button>
               <button class="btn-ghost" onclick="toggleActivo(${u.id}, ${u.activo})">${u.activo?'Desactivar':'Activar'}</button>
               <button class="btn-ghost" onclick="resetPassword(${u.id})">Cambiar contraseña</button>
-              <button class="btn-ghost" onclick="extenderExpiracion(${u.id})">${u.expira_en?'Extender expiración':'Poner expiración'}</button>
-              ${u.expira_en?`<button class="btn-ghost" onclick="quitarExpiracion(${u.id})">Quitar expiración</button>`:''}
+              <button class="btn-ghost" onclick="extenderExpiracion(${u.id})">${u.expira_en?'Extender expiración':'Forzar expiración ahora'}</button>
+              ${(u.expira_en||u.expira_minutos)?`<button class="btn-ghost" onclick="quitarExpiracion(${u.id})">Quitar expiración</button>`:''}
               <button class="btn-danger" onclick="eliminarUsuario(${u.id})">Eliminar</button>
             </td>`:''}
           </tr>`).join('')}
@@ -204,7 +215,7 @@ async function crearUsuario(){
     });
     const data = await res.json();
     if(!res.ok){ errorEl.innerHTML = `<div class="error-box">${data.error}</div>`; return; }
-    $('fEmail').value = ''; $('fNombre').value = ''; $('fPassword').value = ''; $('fRol').value = 'usuario'; $('fExpira').value = '';
+    $('fEmail').value = ''; $('fNombre').value = ''; $('fPassword').value = ''; $('fRol').value = 'usuario'; $('fExpira').value = '180';
     cargarUsuarios();
   }catch(err){
     errorEl.innerHTML = `<div class="error-box">Error: ${err.message}</div>`;
@@ -224,7 +235,7 @@ async function resetPassword(id){
   await actualizarUsuario(id, { password: nueva });
 }
 async function extenderExpiracion(id){
-  const minutos = prompt('¿La cuenta deja de funcionar en cuántos minutos desde ahora?', '30');
+  const minutos = prompt('¿La cuenta deja de funcionar en cuántos minutos desde AHORA? (esto activa/extiende de inmediato, sin esperar un login)', '30');
   if(!minutos) return;
   const valor = parseInt(minutos, 10);
   if(!valor || valor <= 0){ alert('Ingresa un número de minutos válido.'); return; }
