@@ -15,12 +15,22 @@ export default async function handler(req, res) {
     const { rows } = await sql`SELECT * FROM usuarios WHERE email = ${email.toLowerCase().trim()} LIMIT 1;`;
     const usuario = rows[0];
 
-    if (!usuario || !usuario.activo || !verificarPassword(password, usuario.password_hash)) {
-      // Mensaje genérico a propósito: no revelamos si el email existe o no.
+    const expiraEn = usuario?.expira_en ? new Date(usuario.expira_en) : null;
+    const yaExpiro = expiraEn && expiraEn.getTime() <= Date.now();
+
+    if (!usuario || !usuario.activo || yaExpiro || !verificarPassword(password, usuario.password_hash)) {
+      // Mensaje genérico a propósito: no revelamos si el email existe, si
+      // está desactivado, o si ya expiró — todo cae en el mismo 401.
       return res.status(401).json({ error: 'Email o contraseña incorrectos' });
     }
 
-    const token = firmarSesion({ uid: usuario.id, email: usuario.email, nombre: usuario.nombre, rol: usuario.rol });
+    // Si la cuenta tiene expira_en, la cookie de sesión hereda ese
+    // vencimiento (ver firmarSesion en lib/auth-node.js) en vez de los 7
+    // días normales.
+    const token = firmarSesion(
+      { uid: usuario.id, email: usuario.email, nombre: usuario.nombre, rol: usuario.rol },
+      expiraEn ? expiraEn.getTime() : undefined
+    );
     res.setHeader('Set-Cookie', cookieSesion(token));
     return res.status(200).json({ ok: true, nombre: usuario.nombre, rol: usuario.rol });
   } catch (err) {
