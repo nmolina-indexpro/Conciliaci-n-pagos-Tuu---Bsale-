@@ -3,15 +3,12 @@
     "api/tuu-report.js": { "maxDuration": 60 },
     "api/bsale-report.js": { "maxDuration": 30 },
     "api/shopify-report.js": { "maxDuration": 30 },
-    "api/bci-webhook.js": { "maxDuration": 15 },
-    "api/fintoc-report.js": { "maxDuration": 20 },
     "api/bci-transferencias-report.js": { "maxDuration": 15 },
     "api/bsale-sku-report.js": { "maxDuration": 45 },
     "api/bsale-facturas-por-pagar.js": { "maxDuration": 30 },
     "api/shopify-images-report.js": { "maxDuration": 30 },
     "api/auth-login.js": { "maxDuration": 15 },
-    "api/auth-logout.js": { "maxDuration": 10 },
-    "api/auth-me.js": { "maxDuration": 10 },
+    "api/auth-session.js": { "maxDuration": 10 },
     "api/auth-bootstrap.js": { "maxDuration": 15 },
     "api/usuarios.js": { "maxDuration": 15 }
   }

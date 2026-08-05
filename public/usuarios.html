@@ -98,7 +98,7 @@ let listaUsuarios = [];
 
 async function cargarSesion(){
   try{
-    const res = await fetch('/api/auth-me');
+    const res = await fetch('/api/auth-session');
     if(!res.ok){ location.href = '/login.html'; return; }
     usuarioActual = await res.json();
     $('userBox').innerHTML = `<span>Conectado como <b>${usuarioActual.nombre || usuarioActual.email}</b> (${usuarioActual.rol})</span><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
@@ -114,7 +114,7 @@ async function cargarSesion(){
 }
 
 async function cerrarSesion(){
-  await fetch('/api/auth-logout', { method: 'POST' });
+  await fetch('/api/auth-session', { method: 'DELETE' });
   location.href = '/login.html';
 }
 

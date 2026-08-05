@@ -1112,7 +1112,7 @@ fetchAutomatico(); // muestra los datos de hoy apenas se abre la página, sin es
 // si no hay sesión válida) — esto es solo la parte visual.
 async function cargarSesionUsuario(){
   try{
-    const res = await fetch('/api/auth-me');
+    const res = await fetch('/api/auth-session');
     if(!res.ok) return; // el middleware ya se encarga de redirigir si hace falta
     const u = await res.json();
     document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
@@ -1123,7 +1123,7 @@ async function cargarSesionUsuario(){
   }catch(err){ /* silencioso: no bloquea el resto de la página */ }
 }
 async function cerrarSesion(){
-  await fetch('/api/auth-logout', { method: 'POST' });
+  await fetch('/api/auth-session', { method: 'DELETE' });
   location.href = '/login.html';
 }
 cargarSesionUsuario();
