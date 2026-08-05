@@ -15,16 +15,28 @@ export default async function handler(req, res) {
     const { rows } = await sql`SELECT * FROM usuarios WHERE email = ${email.toLowerCase().trim()} LIMIT 1;`;
     const usuario = rows[0];
 
-    const expiraEn = usuario?.expira_en ? new Date(usuario.expira_en) : null;
-    const yaExpiro = expiraEn && expiraEn.getTime() <= Date.now();
-
-    if (!usuario || !usuario.activo || yaExpiro || !verificarPassword(password, usuario.password_hash)) {
+    if (!usuario || !usuario.activo || !verificarPassword(password, usuario.password_hash)) {
       // Mensaje genérico a propósito: no revelamos si el email existe, si
       // está desactivado, o si ya expiró — todo cae en el mismo 401.
       return res.status(401).json({ error: 'Email o contraseña incorrectos' });
     }
 
-    // Si la cuenta tiene expira_en, la cookie de sesión hereda ese
+    let expiraEn = usuario.expira_en ? new Date(usuario.expira_en) : null;
+
+    // Primera activación de una cuenta temporal: si tiene expira_minutos
+    // pendiente y todavía nunca se activó (expira_en sigue en NULL), el
+    // reloj arranca recién ahora, en este primer login exitoso.
+    if (!expiraEn && usuario.expira_minutos) {
+      expiraEn = new Date(Date.now() + usuario.expira_minutos * 60 * 1000);
+      await sql`UPDATE usuarios SET expira_en = ${expiraEn} WHERE id = ${usuario.id};`;
+    }
+
+    const yaExpiro = expiraEn && expiraEn.getTime() <= Date.now();
+    if (yaExpiro) {
+      return res.status(401).json({ error: 'Email o contraseña incorrectos' });
+    }
+
+    // Si la cuenta tiene expiración, la cookie de sesión hereda ese
     // vencimiento (ver firmarSesion en lib/auth-node.js) en vez de los 7
     // días normales.
     const token = firmarSesion(
