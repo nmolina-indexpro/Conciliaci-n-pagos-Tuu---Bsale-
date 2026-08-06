@@ -176,6 +176,56 @@ export default async function handler(req, res) {
     }
   }
 
+  // Modo debug: documento por documento, todo lo que se está sumando como
+  // venta de un SKU puntual en un rango de fechas -> para poder ver a ojo si
+  // hay duplicados (ej. Guía de Despacho + Boleta contando la misma venta
+  // dos veces) u otra causa de que el número semanal no calce con lo que se
+  // vendió realmente en el local. Requiere ?code=SKU, admite ?desde= y
+  // ?hasta= opcionales (por defecto, últimos 35 días).
+  if (debug === 'documentosSku') {
+    const codeFiltro = req.query.code;
+    if (!codeFiltro) return res.status(400).json({ error: 'Falta el parámetro code, ej: ?debug=documentosSku&code=CARHP06' });
+    try {
+      const hoyStr2 = new Date().toISOString().slice(0, 10);
+      const desde = req.query.desde || addDaysStr(hoyStr2, -35);
+      const hasta = req.query.hasta || hoyStr2;
+      const rStart = Math.floor(new Date(`${desde}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
+      const rEnd = Math.floor(new Date(`${hasta}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
+      const pageBuilder = (offset, limit) =>
+        `/documents.json?emissiondaterange=[${rStart},${rEnd}]&expand=[details,document_type]&limit=${limit}&offset=${offset}`;
+      const { items } = await fetchAllPages(pageBuilder, token, 50, 60);
+
+      const filas = [];
+      for (const doc of items) {
+        const detalles = doc.details?.items || (Array.isArray(doc.details) ? doc.details : []);
+        for (const det of detalles) {
+          const variant = det.variant || {};
+          if (variant.code !== codeFiltro) continue;
+          filas.push({
+            documentoId: doc.id,
+            numero: doc.number,
+            tipo: doc.document_type?.name || null,
+            state: doc.state, // 0 = vigente (lo único que hoy se suma como venta)
+            fechaEmision: toUtcDateStr(doc.emissionDate),
+            cantidad: det.quantity,
+            precioUnitNeto: det.netUnitValue,
+          });
+        }
+      }
+      filas.sort((a, b) => a.fechaEmision.localeCompare(b.fechaEmision) || a.documentoId - b.documentoId);
+      const sumaState0 = filas.filter(f => f.state === 0).reduce((a, f) => a + (f.cantidad || 0), 0);
+
+      return res.status(200).json({
+        code: codeFiltro, desde, hasta,
+        totalDocumentosEncontrados: filas.length,
+        sumaUnidadesState0: sumaState0, // esto debería calzar con lo que suma el reporte normal
+        filas
+      });
+    } catch (err) {
+      return res.status(200).json({ error: 'Error consultando documentos del SKU', detail: String(err) });
+    }
+  }
+
   try {
     const hoyStr = new Date().toISOString().slice(0, 10);
 
@@ -596,3 +646,4 @@ export default async function handler(req, res) {
     return res.status(200).json({ error: 'Error consultando Bsale', detail: String(err), skus: [] });
   }
 }
+
