@@ -268,6 +268,13 @@ export default async function handler(req, res) {
       // sumando igual que cualquier otro documento, inflando el número).
       const nombreTipoDoc = doc.document_type?.name || '';
       if (/nota de cr[eé]dito/i.test(nombreTipoDoc)) continue;
+      // Una Cotización es una propuesta de precio, NO una venta confirmada
+      // -> se estaba sumando igual que una Boleta o Factura, e inflaba
+      // fuerte el número (detectado con el debug=documentosSku: cotizaciones
+      // de 11 y 20 unidades que nunca se vendieron aparecían como venta real).
+      // No cuenta ni para el total mostrado ni para la reconstrucción de
+      // stock histórico (una cotización tampoco descuenta stock de verdad).
+      if (/cotizaci[oó]n/i.test(nombreTipoDoc)) continue;
       const fecha = toUtcDateStr(doc.emissionDate);
       if (!fecha || fecha < startDate || fecha > finConsultaReal) continue;
       const dentroDelPeriodoPedido = fecha <= endDate;
@@ -647,3 +654,5 @@ export default async function handler(req, res) {
   }
 }
 
+
+SHA_MARKER:631e69c3c59cdeec7ff9e41eaa836b0f9f02042d
