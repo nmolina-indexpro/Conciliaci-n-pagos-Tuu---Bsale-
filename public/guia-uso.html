@@ -39,6 +39,8 @@
   .toc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px;}
   .toc a{font-size:12.5px;font-family:'Space Grotesk',sans-serif;font-weight:600;color:var(--primary);text-decoration:none;background:var(--primary-dim);padding:6px 14px;border-radius:999px;}
   .toc a:hover{background:var(--primary);color:#fff;}
+  .ejemplo{background:var(--surface-2);border-left:3px solid var(--primary);border-radius:0 8px 8px 0;padding:10px 14px;font-size:13px;margin-top:12px;color:var(--text);}
+  .ejemplo b{color:var(--primary);}
 </style>
 </head>
 <body>
@@ -63,6 +65,7 @@
 
   <div class="toc">
     <a href="#que-es">¿Qué es esto?</a>
+    <a href="#home">Home</a>
     <a href="#flujo-caja">Flujo de Caja</a>
     <a href="#conciliacion">Conciliación</a>
     <a href="#compras">Compras</a>
@@ -82,35 +85,47 @@
     <p>La idea es reemplazar el "revisar 3 planillas y 2 apps distintas" por un solo panel que ya cruzó los datos por ti.</p>
   </div>
 
+  <div class="card" id="home">
+    <h2>🏠 Home</h2>
+    <p>Es la primera pantalla que ves al entrar. Junta lo más urgente de todo el sistema en un solo lugar: los KPIs de stock, los productos más críticos en riesgo, los próximos pagos a proveedores, y tus reportes de soporte pendientes — para no tener que abrir las 4 páginas por separado solo para saber si hay algo que atender hoy.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> entras un lunes en la mañana y en 5 segundos ves que hay 2 productos en "Quiebre inminente", que mañana vence un pago a Coimco por $420.000, y que tienes un reporte "en progreso". Desde ahí haces clic en "Ver todo →" de la sección que te interesa para profundizar.</div>
+  </div>
+
   <div class="card" id="flujo-caja">
     <h2>💰 Flujo de Caja</h2>
     <p>Muestra la plata que entra y sale, y ayuda a proyectar cómo va a quedar la caja en los próximos días — útil para decidir si es buen momento para una compra grande o hay que esperar.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> revisas la proyección y ves que en 5 días la caja bajaría a $480.000 si además pagas la factura de Intcomex que vence esa semana. Con eso decides adelantar cobros pendientes o posponer una compra grande hasta que la caja se recupere, en vez de enterarte al momento de tener que pagar.</div>
   </div>
 
   <div class="card" id="conciliacion">
     <h2>🔄 Conciliación</h2>
     <p>Compara lo que TUU dice que cobramos con tarjeta contra lo que Bsale registró como venta ese mismo día. Si hay diferencias, esta página las muestra para poder revisarlas antes de que se acumulen.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> el martes TUU registra $850.000 cobrados con tarjeta, pero Bsale solo tiene $820.000 en boletas/facturas ese día. La página marca esa diferencia de $30.000 en rojo — puede ser una venta que no se facturó a tiempo, o un cobro duplicado. Se revisa ahí mismo antes de que pasen más días y sea más difícil rastrear qué pasó.</div>
   </div>
 
   <div class="card" id="compras">
     <h2>🛒 Compras</h2>
     <p>Analiza ventas por SKU (producto) para sugerir qué y cuánto comprarle al proveedor, a distintos horizontes (5, 7, 14, 30 días). También muestra los próximos pagos a proveedores según las recepciones de mercadería registradas.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> eliges horizonte "7 días" y el sistema te dice que, según la venta diaria promedio y el stock actual, necesitas comprar 12 cargadores de un modelo puntual para no quedarte sin stock esta semana. Le das "Descargar Excel" y le mandas esa lista directo al proveedor, sin tener que calcular nada a mano.</div>
   </div>
 
   <div class="card" id="alertas">
     <h2>🔔 Alertas de Stock</h2>
     <p>Se enfoca en el riesgo: qué se está por quedar sin stock, qué productos nunca deberían faltar (marcados automáticamente por ser los más vendidos, o a mano por ti), y cómo viene la tendencia semana a semana. Cada tabla se puede ordenar, filtrar por categoría, expandir a la lista completa, o minimizar la sección entera.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> un cargador que vende bien lleva 3 días sin stock. En "Ventas que se están perdiendo por quiebre" ves que eso ya te costó cerca de $45.000 en margen estimado. Si el número no te hace sentido (por ejemplo, dejaste de vender ese modelo a propósito), usa el botón <b>"💬 Objetar"</b> en esa misma fila para avisarle a soporte con el contexto exacto que estabas viendo.</div>
   </div>
 
   <div class="card" id="roles">
     <h2>👤 Roles y permisos</h2>
     <p><b>Administrador</b><span class="badge-rol">admin</span> — acceso completo: puede ver todo, descargar/exportar información, y gestionar usuarios desde la pestaña "Usuarios".</p>
     <p><b>Usuario</b><span class="badge-rol">usuario</span> — puede ver toda la información del panel, pero <b>no puede descargar ni exportar datos</b> (los botones de descarga aparecen desactivados), y <b>no puede copiar textos ni datos</b> de las tablas.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> necesitas darle acceso a alguien por 3 horas nomás (ej. un contador de visita). Como admin, en "Usuarios" le pones esa duración en "Duración temporal" — el reloj arranca recién cuando esa persona hace su primer login, no cuando tú creas la cuenta, y al vencer se cierra sola.</div>
   </div>
 
   <div class="card" id="soporte">
     <h2>🐞 ¿Algo no funciona como esperabas?</h2>
     <p>Usa el botón <b>"Reportar error"</b> que aparece junto a "Cerrar sesión" arriba a la derecha, en cualquier página. Cuenta qué intentabas hacer y qué pasó — eso llega directo a soporte, y puedes revisar el estado de tu reporte (pendiente / en progreso / resuelto) desde esa misma página.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> entras a Compras, eliges 90 días de período, y la tabla se queda cargando sin mostrar nada. Vas a "Reportar error", eliges la página "Compras" y describes justo eso. El equipo recibe un correo al instante, y tú puedes volver más tarde a revisar si ya pasó de "Pendiente" a "Resuelto".</div>
   </div>
 
 </div>
