@@ -400,7 +400,7 @@ async function cargar(){
   try{
     const [res, criticosRes] = await Promise.all([
       fetch(`/api/bsale-sku-report?days=${dias}`).then(r=>r.json()),
-      fetch(`/api/productos-criticos`).then(r=>r.json()).catch(()=>({productos:[]}))
+      fetch(`/api/negocio?recurso=criticos`).then(r=>r.json()).catch(()=>({productos:[]}))
     ]);
     if(res.error){
       status.className = 'err';
@@ -503,7 +503,45 @@ function renderQuiebrePerdida(){
     { key:'ventaDiariaPromedio', label:'Venta diaria', align:'amount' },
     { key:'margenPerdidoPorQuiebre', label:'Margen perdido est.', align:'amount', render:f=>f.margenPerdidoPorQuiebre!=null?fmt(f.margenPerdidoPorQuiebre):'—' },
     { key:'sugerencia7', label:'Sugerencia 7d', align:'amount' },
+    { key:'accion', label:'', sortKey:'code', render:f=>`<button class="btn-ghost btn-compact" onclick="objetarQuiebre('${f.code}')">💬 Objetar</button>` },
   ], base, f => f.stockActual===0 ? 'quiebre' : '');
+}
+
+// El usuario puede decirnos que un resultado puntual de esta tabla no le
+// hace sentido (ej. "este SKU no debería aparecer, se dejó de vender a
+// propósito"). Se manda como un reporte tipo "objecion", con el snapshot
+// exacto de los números que estaba viendo, para poder revisarlo con
+// contexto real y no a ciegas.
+async function objetarQuiebre(code){
+  const sku = datosSkus.find(s => s.code === code);
+  if(!sku) return;
+  const texto = prompt(`¿Qué te parece que está mal con "${sku.nombre}" (${code})? Cuéntanos brevemente:`);
+  if(!texto || !texto.trim()) return;
+  try{
+    const res = await fetch('/api/negocio?recurso=reportes', {
+      method: 'POST', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        descripcion: texto.trim(),
+        pagina: 'Alertas de Stock — Ventas perdidas por quiebre',
+        tipo: 'objecion',
+        skuCode: code,
+        contexto: {
+          nombre: sku.nombre,
+          categoria: sku.categoria,
+          diasQuiebreHistorico: sku.diasQuiebreHistorico,
+          stockActual: sku.stockActual,
+          ventaDiariaPromedio: sku.ventaDiariaPromedio,
+          margenPerdidoPorQuiebre: sku.margenPerdidoPorQuiebre,
+          sugerencia7: sku.sugerencia7,
+        }
+      })
+    });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error || 'No se pudo enviar la objeción.'); return; }
+    alert('Gracias, se envió tu objeción — puedes ver su estado en "Reportar un error".');
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
 }
 
 // ---------- Críticos ----------
@@ -544,14 +582,14 @@ async function agregarCritico(){
   if(!codeInput){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Ingresa un SKU.</div>`; return; }
   const skuInfo = datosSkus.find(s=>s.code===codeInput);
   try{
-    const res = await fetch('/api/productos-criticos', {
+    const res = await fetch('/api/negocio?recurso=criticos', {
       method: 'POST', headers: { 'Content-Type':'application/json' },
       body: JSON.stringify({ code: codeInput, nombre: skuInfo?.nombre || codeInput })
     });
     const data = await res.json();
     if(!res.ok){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${data.error}</div>`; return; }
     $('fCriticoCode').value = '';
-    const listaRes = await fetch('/api/productos-criticos').then(r=>r.json());
+    const listaRes = await fetch('/api/negocio?recurso=criticos').then(r=>r.json());
     criticosManual = listaRes.productos || [];
     renderCriticosSeccion(); renderKpis();
   }catch(err){
@@ -560,8 +598,8 @@ async function agregarCritico(){
 }
 async function quitarCritico(code){
   if(!confirm(`¿Quitar ${code} de la lista de productos críticos?`)) return;
-  await fetch(`/api/productos-criticos?code=${encodeURIComponent(code)}`, { method:'DELETE' });
-  const listaRes = await fetch('/api/productos-criticos').then(r=>r.json());
+  await fetch(`/api/negocio?recurso=criticos&code=${encodeURIComponent(code)}`, { method:'DELETE' });
+  const listaRes = await fetch('/api/negocio?recurso=criticos').then(r=>r.json());
   criticosManual = listaRes.productos || [];
   renderCriticosSeccion(); renderKpis();
 }
