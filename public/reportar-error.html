@@ -143,7 +143,7 @@ async function enviarReporte(){
   $('btnEnviar').disabled = true;
   $('btnEnviar').textContent = 'Enviando...';
   try{
-    const res = await fetch('/api/reportes-error', {
+    const res = await fetch('/api/negocio?recurso=reportes', {
       method: 'POST', headers: { 'Content-Type':'application/json' },
       body: JSON.stringify({ descripcion, pagina })
     });
@@ -168,7 +168,7 @@ function badgeEstado(estado){
 
 async function cargarReportes(){
   try{
-    const res = await fetch('/api/reportes-error');
+    const res = await fetch('/api/negocio?recurso=reportes');
     const data = await res.json();
     if(!res.ok){ $('wrapReportes').innerHTML = `<p class="empty-note">${data.error}</p>`; return; }
     const reportes = data.reportes || [];
@@ -176,13 +176,14 @@ async function cargarReportes(){
 
     $('wrapReportes').innerHTML = `
       <table>
-        <thead><tr>${rolActual==='admin'?'<th>Usuario</th>':''}<th>Página</th><th>Descripción</th><th>Fecha</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Tipo</th>${rolActual==='admin'?'<th>Usuario</th>':''}<th>Página / SKU</th><th>Descripción</th><th>Fecha</th><th>Estado</th></tr></thead>
         <tbody>
           ${reportes.map(r => `
             <tr>
+              <td>${r.tipo==='objecion'?'<span class="badge en-progreso">Objeción</span>':'<span class="badge pendiente">Error</span>'}</td>
               ${rolActual==='admin'?`<td>${r.usuario_nombre || r.usuario_email}</td>`:''}
-              <td>${r.pagina || '—'}</td>
-              <td style="max-width:280px;">${r.descripcion}</td>
+              <td>${r.pagina || '—'}${r.sku_code?`<br><span class="empty-note">SKU: ${r.sku_code}</span>`:''}</td>
+              <td style="max-width:280px;">${r.descripcion}${r.contexto?`<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--primary);font-size:11px;">Ver datos que veía</summary><pre style="white-space:pre-wrap;font-size:10.5px;background:var(--surface-2);padding:6px 8px;border-radius:6px;margin-top:4px;">${JSON.stringify(r.contexto, null, 2)}</pre></details>`:''}</td>
               <td>${new Date(r.created_at).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</td>
               <td>${rolActual==='admin'
                 ? `<select class="selectEstado" onchange="cambiarEstado(${r.id}, this.value)">
@@ -201,7 +202,7 @@ async function cargarReportes(){
 
 async function cambiarEstado(id, estado){
   try{
-    const res = await fetch('/api/reportes-error', {
+    const res = await fetch('/api/negocio?recurso=reportes', {
       method: 'PUT', headers: { 'Content-Type':'application/json' },
       body: JSON.stringify({ id, estado })
     });
