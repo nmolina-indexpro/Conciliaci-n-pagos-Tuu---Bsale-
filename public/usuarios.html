@@ -65,6 +65,7 @@
       <a href="conciliacion.html">Conciliación</a>
       <a href="compras.html">Compras</a>
       <a href="alertas-stock.html">Alertas de Stock</a>
+      <a href="guia-uso.html">Guía de uso</a>
       <a href="usuarios.html" class="active">Usuarios</a>
     </nav>
     <div class="user-box" id="userBox"></div>
@@ -99,6 +100,7 @@
   </div>
 </div>
 
+<script src="restriccion-usuario.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 let usuarioActual = null;
@@ -109,7 +111,8 @@ async function cargarSesion(){
     const res = await fetch('/api/auth-session');
     if(!res.ok){ location.href = '/login.html'; return; }
     usuarioActual = await res.json();
-    $('userBox').innerHTML = `<span>Conectado como <b>${usuarioActual.nombre || usuarioActual.email}</b> (${usuarioActual.rol})</span><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    $('userBox').innerHTML = `<span>Conectado como <b>${usuarioActual.nombre || usuarioActual.email}</b> (${usuarioActual.rol})</span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    aplicarRestriccionesUsuario(usuarioActual.rol);
 
     if(usuarioActual.rol !== 'admin'){
       $('formCard').style.display = 'none';
@@ -172,7 +175,7 @@ function renderTabla(){
   const esAdmin = usuarioActual?.rol === 'admin';
   $('tablaWrap').innerHTML = `
     <table>
-      <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Expira</th><th>Creado</th>${esAdmin?'<th>Acciones</th>':''}</tr></thead>
+      <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Expira</th><th>Último ingreso</th><th>Creado</th>${esAdmin?'<th>Acciones</th>':''}</tr></thead>
       <tbody>
         ${listaUsuarios.map(u => `
           <tr>
@@ -181,6 +184,7 @@ function renderTabla(){
             <td><span class="badge ${u.rol}">${u.rol==='admin'?'Administrador':'Usuario'}</span></td>
             <td><span class="badge ${u.activo?'activo':'inactivo'}">${u.activo?'Activo':'Inactivo'}</span></td>
             <td>${badgeExpiracion(u)}</td>
+            <td>${u.ultimo_login ? formatoFechaHora(u.ultimo_login) : '<span class="empty-note">Nunca</span>'}</td>
             <td>${(u.created_at||'').slice(0,10)}</td>
             ${esAdmin?`<td class="acciones">
               <button class="btn-ghost" onclick="toggleRol(${u.id}, '${u.rol}')">${u.rol==='admin'?'Quitar admin':'Hacer admin'}</button>
@@ -216,6 +220,9 @@ async function crearUsuario(){
     });
     const data = await res.json();
     if(!res.ok){ errorEl.innerHTML = `<div class="error-box">${data.error}</div>`; return; }
+    if(data.correo && !data.correo.enviado){
+      errorEl.innerHTML = `<div class="error-box" style="background:var(--amber-dim,#FDF0DC);color:var(--amber,#D97706);">Usuario creado, pero no se pudo enviar el correo de bienvenida (${data.correo.motivo}). Avísale la contraseña por otro medio.</div>`;
+    }
     $('fEmail').value = ''; $('fNombre').value = ''; $('fPassword').value = ''; $('fRol').value = 'usuario'; $('fExpira').value = '180';
     cargarUsuarios();
   }catch(err){
