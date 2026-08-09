@@ -111,6 +111,7 @@
       <a href="conciliacion.html">Conciliación</a>
       <a href="compras.html">Compras</a>
       <a href="alertas-stock.html" class="active">Alertas de Stock</a>
+      <a href="guia-uso.html">Guía de uso</a>
       <a href="usuarios.html" id="navUsuarios" style="display:none;">Usuarios</a>
     </nav>
     <div class="user-box" id="userBox"></div>
@@ -268,13 +269,14 @@
             <option value="todos">Todos</option>
           </select>
         </div>
-        <button class="btn-primary" onclick="exportarCsv()">⬇ Descargar CSV</button>
+        <button class="btn-primary btn-exportar" onclick="exportarCsv()">⬇ Descargar CSV</button>
       </div>
     </div>
   </div>
 
 </div>
 
+<script src="restriccion-usuario.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 function fmt(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
@@ -372,7 +374,8 @@ async function cargarSesionUsuario(){
     const res = await fetch('/api/auth-session');
     if(!res.ok) return;
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    aplicarRestriccionesUsuario(u.rol);
     if(u.rol === 'admin'){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
