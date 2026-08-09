@@ -36,6 +36,12 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Email o contraseña incorrectos' });
     }
 
+    // Registro de último ingreso, se muestra en el mantenedor de usuarios.
+    // No bloquea el login si por algún motivo falla.
+    try {
+      await sql`UPDATE usuarios SET ultimo_login = now() WHERE id = ${usuario.id};`;
+    } catch (err) { /* no crítico */ }
+
     // Si la cuenta tiene expiración, la cookie de sesión hereda ese
     // vencimiento (ver firmarSesion en lib/auth-node.js) en vez de los 7
     // días normales.
