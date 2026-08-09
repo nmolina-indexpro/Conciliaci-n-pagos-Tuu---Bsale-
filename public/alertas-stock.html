@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alertas de Stock — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --purple:#7C3AED; --purple-bg:#EFE7FD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:28px 40px 60px 190px;}
+  .wrap{max-width:1600px;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;letter-spacing:0.2px;margin:0 0 5px 0;color:var(--text);}
+  h1 span{color:var(--primary);}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin:0 0 4px 0;}
+  .sub{color:var(--muted);font-size:13px;}
+  .page-nav{display:flex;gap:6px;background:var(--surface-2);padding:5px;border-radius:12px;width:fit-content;justify-self:center;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:var(--muted);text-decoration:none;padding:10px 22px;border-radius:9px;transition:all .15s;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  input[type=number],input[type=text]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
+  input:focus,select:focus{outline:none;border-color:var(--primary);}
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;border:none;border-radius:9px;padding:11px 20px;cursor:pointer;transition:all .15s;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-danger{background:var(--red-bg);color:var(--red);}
+  .btn-compact{font-size:11.5px;padding:6px 12px;}
+
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+  #status{font-size:12px;color:var(--muted);font-weight:500;}
+  #status.err{color:var(--red);}
+  #status.ok{color:var(--green);}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+  @media (max-width:900px){.grid{grid-template-columns:1fr 1fr;}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;color:var(--text);}
+  .card .note{color:var(--muted);font-size:11.5px;margin-top:4px;}
+  .card.alert .big{color:var(--red);}
+  .card.warn .big{color:var(--amber);}
+
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:24px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--surface);border-radius:14px;overflow:hidden;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:10px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  th.amount, td.amount{text-align:right;}
+  td{padding:9px 10px;border-bottom:1px solid var(--line);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  tr.quiebre{background:var(--red-bg);}
+  tr.riesgo{background:var(--amber-dim);}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10px;padding:3px 9px;border-radius:999px;font-weight:700;white-space:nowrap;}
+  .badge.quiebre{background:var(--red);color:#fff;}
+  .badge.riesgo{background:var(--amber);color:#fff;}
+  .badge.ok{background:var(--green-bg);color:var(--green);}
+  .badge.auto{background:#FEF3C7;color:#92400E;}
+  .badge.manual{background:var(--blue-bg);color:var(--blue);}
+  .badge.ambos{background:var(--purple-bg);color:var(--purple);}
+  .badge.claseA{background:var(--red-bg);color:var(--red);}
+  .badge.claseB{background:var(--amber-dim);color:var(--amber);}
+  .badge.claseC{background:var(--surface-2);color:var(--muted);}
+  .arrow-up{color:var(--green);font-weight:700;}
+  .arrow-down{color:var(--red);font-weight:700;}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:14px 0;}
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:20px;color:var(--text);}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;}
+  .form-inline{display:flex;gap:10px;align-items:end;flex-wrap:wrap;}
+  .campo{display:flex;flex-direction:column;gap:5px;}
+  .campo label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    <nav class="page-nav">
+      <a href="index.html">Flujo de Caja</a>
+      <a href="conciliacion.html">Conciliación</a>
+      <a href="compras.html">Compras</a>
+      <a href="alertas-stock.html" class="active">Alertas de Stock</a>
+      <a href="usuarios.html" id="navUsuarios" style="display:none;">Usuarios</a>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <div class="toolbar">
+    <div>
+      <h1>Alertas de <span>Stock</span></h1>
+      <div class="sub">Ventas que se están perdiendo por quiebre, productos que nunca deberían faltar, y hacia dónde va la demanda.</div>
+    </div>
+    <div class="form-inline">
+      <div class="campo">
+        <label>Período de análisis</label>
+        <select id="diasInput" onchange="cargar()">
+          <option value="30">30 días</option>
+          <option value="60">60 días</option>
+          <option value="90" selected>90 días</option>
+          <option value="120">120 días</option>
+        </select>
+      </div>
+      <button class="btn-ghost btn-compact" onclick="cargar()">↻ Actualizar</button>
+    </div>
+  </div>
+
+  <div id="status"></div>
+  <div id="avisoWrap"></div>
+
+  <!-- 1) Resumen ejecutivo (KPIs) -->
+  <div class="grid" id="kpiWrap">
+    <div class="card"><div class="lbl">Margen perdido estimado</div><div class="big">—</div></div>
+    <div class="card"><div class="lbl">SKUs en quiebre ahora</div><div class="big">—</div></div>
+    <div class="card"><div class="lbl">Críticos en riesgo</div><div class="big">—</div></div>
+    <div class="card"><div class="lbl">Cobertura promedio</div><div class="big">—</div></div>
+  </div>
+
+  <!-- 2) Ventas perdidas por quiebre -->
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>💸 Ventas que se están perdiendo por quiebre de stock</h2>
+        <div class="sub">Productos que tuvieron días sin stock dentro del período, con el margen que probablemente se dejó de ganar esos días (estimado, no un registro real).</div>
+      </div>
+    </div>
+    <div id="wrapQuiebre"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+  <!-- 3) Productos críticos -->
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>⭐ Productos críticos — nunca deberían faltar</h2>
+        <div class="sub">Automático: el 20% más vendido del catálogo ("Estrella"). Manual: los que agregues tú a mano abajo. Un producto puede tener ambos orígenes.</div>
+      </div>
+    </div>
+    <div class="form-inline" style="margin-bottom:14px;">
+      <div class="campo">
+        <label>Agregar SKU crítico</label>
+        <input type="text" id="fCriticoCode" list="listaSkusDatalist" placeholder="Código SKU" style="width:220px;">
+      </div>
+      <button class="btn-primary btn-compact" onclick="agregarCritico()">+ Marcar como crítico</button>
+    </div>
+    <datalist id="listaSkusDatalist"></datalist>
+    <div id="errorCritico"></div>
+    <div id="wrapCriticos"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+  <!-- 4) Quiebre inminente -->
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>⏳ Quiebre inminente</h2>
+        <div class="sub">Todavía tienen stock, pero a este ritmo de venta se acaban en 5 días o menos.</div>
+      </div>
+    </div>
+    <div id="wrapInminente"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+  <!-- 5) Clasificación ABC -->
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>📊 Clasificación ABC (Pareto) por venta $</h2>
+        <div class="sub">Clase A = el grupo de productos que junto suma el 80% de tus ventas en pesos — son los que menos te puedes dar el lujo de dejar sin stock.</div>
+      </div>
+    </div>
+    <div id="wrapAbc"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+  <!-- 6) Tendencia semanal -->
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>📈 Tendencia semana a semana</h2>
+        <div class="sub">Compara la última semana (SEM -1) contra la anterior (SEM -2) — para ver qué está acelerando o frenando antes de que se note en el promedio general.</div>
+      </div>
+      <div class="chips">
+        <button class="btn-ghost btn-compact active" onclick="filtrarTendencia('acelerando', event)">↑ Acelerando</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarTendencia('desacelerando', event)">↓ Frenando</button>
+      </div>
+    </div>
+    <div id="wrapTendencia"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+  <!-- 7) Exportar lista de pedido -->
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>📥 Lista de pedido sugerido</h2>
+        <div class="sub">Descarga un CSV listo para mandarle al proveedor, con la sugerencia de compra al horizonte que elijas.</div>
+      </div>
+    </div>
+    <div class="form-inline">
+      <div class="campo">
+        <label>Horizonte</label>
+        <select id="horizonteExport">
+          <option value="5">5 días</option>
+          <option value="7" selected>7 días</option>
+          <option value="14">14 días</option>
+          <option value="30">30 días</option>
+        </select>
+      </div>
+      <div class="campo">
+        <label>Filtrar a</label>
+        <select id="filtroExport">
+          <option value="conSugerencia">Solo con sugerencia > 0</option>
+          <option value="criticos">Solo productos críticos</option>
+          <option value="quiebre">Solo en quiebre ahora</option>
+          <option value="todos">Todos</option>
+        </select>
+      </div>
+      <button class="btn-primary" onclick="exportarCsv()">⬇ Descargar CSV</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+function fmt(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
+function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+
+let datosSkus = [];
+let criticosManual = []; // [{code, nombre, agregado_por, created_at}]
+let tendenciaFiltro = 'acelerando';
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    if(u.rol === 'admin'){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+    }
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+async function cargar(){
+  const dias = parseInt($('diasInput').value, 10) || 90;
+  const status = $('status');
+  status.className = '';
+  status.textContent = `Consultando ${dias} días en Bsale...`;
+  $('wrapQuiebre').innerHTML = `<p class="empty-note">Cargando...</p>`;
+  $('wrapCriticos').innerHTML = `<p class="empty-note">Cargando...</p>`;
+  $('wrapInminente').innerHTML = `<p class="empty-note">Cargando...</p>`;
+  $('wrapAbc').innerHTML = `<p class="empty-note">Cargando...</p>`;
+  $('wrapTendencia').innerHTML = `<p class="empty-note">Cargando...</p>`;
+
+  try{
+    const [res, criticosRes] = await Promise.all([
+      fetch(`/api/bsale-sku-report?days=${dias}`).then(r=>r.json()),
+      fetch(`/api/productos-criticos`).then(r=>r.json()).catch(()=>({productos:[]}))
+    ]);
+    if(res.error){
+      status.className = 'err';
+      status.textContent = 'Error: ' + (res.detail || res.error);
+      return;
+    }
+    datosSkus = res.skus || [];
+    criticosManual = criticosRes.productos || [];
+
+    const dl = $('listaSkusDatalist');
+    dl.innerHTML = datosSkus.map(s => `<option value="${s.code}">${s.nombre}</option>`).join('');
+
+    let avisos = '';
+    if(res.ventasTruncadas) avisos += `<div class="note-box">⚠ El movimiento es grande y se truncó la consulta — los números pueden estar incompletos. Prueba con un período más corto.</div>`;
+    $('avisoWrap').innerHTML = avisos;
+
+    renderKpis();
+    renderQuiebre();
+    renderCriticos();
+    renderInminente();
+    renderAbc();
+    renderTendencia();
+
+    status.className = 'ok';
+    status.textContent = `Listo — ${res.docsRevisados} documentos revisados, ${res.startDate} a ${res.endDate}`;
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
+}
+
+// ---------- Set de críticos (auto Estrella + manual) ----------
+function mapaCriticos(){
+  const mapa = {}; // code -> { auto: bool, manual: bool, manualInfo }
+  for(const s of datosSkus){
+    if(s.esEstrella) mapa[s.code] = { ...(mapa[s.code]||{}), auto: true };
+  }
+  for(const c of criticosManual){
+    mapa[c.code] = { ...(mapa[c.code]||{}), manual: true, manualInfo: c };
+  }
+  return mapa;
+}
+function origenTexto(info){
+  if(info.auto && info.manual) return { clase:'ambos', texto:'Automático + Manual' };
+  if(info.manual) return { clase:'manual', texto:'Manual' };
+  return { clase:'auto', texto:'Automático (Estrella)' };
+}
+
+// ---------- 1) KPIs ----------
+function renderKpis(){
+  const cards = document.querySelectorAll('#kpiWrap .card');
+  const margenPerdidoTotal = datosSkus.reduce((a,s)=>a+(s.margenPerdidoPorQuiebre||0),0);
+  const enQuiebreAhora = datosSkus.filter(s=>s.stockActual===0 && s.ventaDiariaPromedio>0).length;
+
+  const mapa = mapaCriticos();
+  const criticosCodes = Object.keys(mapa);
+  const criticosEnRiesgo = criticosCodes.filter(code=>{
+    const s = datosSkus.find(x=>x.code===code);
+    if(!s) return false;
+    return s.stockActual===0 || (s.diasCobertura!=null && s.diasCobertura<=3);
+  }).length;
+
+  const conVenta = datosSkus.filter(s=>s.ventaDiariaPromedio>0 && s.diasCobertura!=null);
+  const coberturaProm = conVenta.length ? Math.round(conVenta.reduce((a,s)=>a+s.diasCobertura,0)/conVenta.length) : null;
+
+  cards[0].querySelector('.big').textContent = fmt(margenPerdidoTotal);
+  cards[0].classList.toggle('alert', margenPerdidoTotal > 0);
+  cards[1].querySelector('.big').textContent = fmtNum(enQuiebreAhora);
+  cards[1].classList.toggle('alert', enQuiebreAhora > 0);
+  cards[2].querySelector('.big').textContent = fmtNum(criticosEnRiesgo) + ' / ' + fmtNum(criticosCodes.length);
+  cards[2].classList.toggle('alert', criticosEnRiesgo > 0);
+  cards[3].querySelector('.big').textContent = coberturaProm != null ? coberturaProm + ' días' : '—';
+  cards[3].classList.toggle('warn', coberturaProm != null && coberturaProm <= 7);
+}
+
+// ---------- 2) Quiebre pasado (ventas perdidas) ----------
+function renderQuiebre(){
+  const lista = datosSkus.filter(s=>s.diasQuiebreHistorico>0).sort((a,b)=>(b.margenPerdidoPorQuiebre||0)-(a.margenPerdidoPorQuiebre||0));
+  if(lista.length===0){ $('wrapQuiebre').innerHTML = `<p class="empty-note">Ningún producto estuvo en quiebre en este período. 🎉</p>`; return; }
+  $('wrapQuiebre').innerHTML = `
+    <table>
+      <thead><tr><th>SKU</th><th>Producto</th><th>Categoría</th><th class="amount">Días en quiebre</th><th class="amount">Stock actual</th><th class="amount">Venta diaria</th><th class="amount">Margen perdido est.</th><th class="amount">Sugerencia 7d</th></tr></thead>
+      <tbody>
+        ${lista.slice(0,60).map(s=>`
+          <tr class="${s.stockActual===0?'quiebre':''}">
+            <td>${s.code}</td><td>${s.nombre}</td><td>${s.categoria}</td>
+            <td class="amount">${s.diasQuiebreHistorico}</td>
+            <td class="amount">${s.stockActual}</td>
+            <td class="amount">${s.ventaDiariaPromedio}</td>
+            <td class="amount">${s.margenPerdidoPorQuiebre!=null?fmt(s.margenPerdidoPorQuiebre):'—'}</td>
+            <td class="amount">${s.sugerencia7}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ---------- 3) Críticos ----------
+function renderCriticos(){
+  const mapa = mapaCriticos();
+  const codigos = Object.keys(mapa);
+  if(codigos.length===0){ $('wrapCriticos').innerHTML = `<p class="empty-note">Todavía no hay productos críticos (ni automáticos ni marcados a mano).</p>`; return; }
+
+  const filas = codigos.map(code=>{
+    const s = datosSkus.find(x=>x.code===code);
+    const info = mapa[code];
+    const origen = origenTexto(info);
+    const nombre = s?.nombre || info.manualInfo?.nombre || code;
+    const stock = s?.stockActual ?? null;
+    const cobertura = s?.diasCobertura ?? null;
+    let estado = { clase:'ok', texto:'OK' };
+    if(stock===0) estado = { clase:'quiebre', texto:'Sin stock' };
+    else if(cobertura!=null && cobertura<=3) estado = { clase:'riesgo', texto:'Riesgo (≤3 días)' };
+    return { code, nombre, origen, stock, cobertura, estado, esManual: !!info.manual };
+  }).sort((a,b)=>{
+    const orden = { quiebre:0, riesgo:1, ok:2 };
+    return orden[a.estado.clase]-orden[b.estado.clase];
+  });
+
+  $('wrapCriticos').innerHTML = `
+    <table>
+      <thead><tr><th>SKU</th><th>Producto</th><th>Origen</th><th class="amount">Stock actual</th><th class="amount">Cobertura</th><th>Estado</th><th>Acción</th></tr></thead>
+      <tbody>
+        ${filas.map(f=>`
+          <tr class="${f.estado.clase==='quiebre'?'quiebre':(f.estado.clase==='riesgo'?'riesgo':'')}">
+            <td>${f.code}</td><td>${f.nombre}</td>
+            <td><span class="badge ${f.origen.clase}">${f.origen.texto}</span></td>
+            <td class="amount">${f.stock ?? '—'}</td>
+            <td class="amount">${f.cobertura!=null?f.cobertura+' d':'—'}</td>
+            <td><span class="badge ${f.estado.clase}">${f.estado.texto}</span></td>
+            <td>${f.esManual?`<button class="btn-ghost btn-compact" onclick="quitarCritico('${f.code}')">Quitar</button>`:'<span class="empty-note">—</span>'}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+async function agregarCritico(){
+  const errorEl = $('errorCritico');
+  errorEl.innerHTML = '';
+  const codeInput = $('fCriticoCode').value.trim().toUpperCase();
+  if(!codeInput){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Ingresa un SKU.</div>`; return; }
+  const skuInfo = datosSkus.find(s=>s.code===codeInput);
+  try{
+    const res = await fetch('/api/productos-criticos', {
+      method: 'POST', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ code: codeInput, nombre: skuInfo?.nombre || codeInput })
+    });
+    const data = await res.json();
+    if(!res.ok){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${data.error}</div>`; return; }
+    $('fCriticoCode').value = '';
+    const listaRes = await fetch('/api/productos-criticos').then(r=>r.json());
+    criticosManual = listaRes.productos || [];
+    renderCriticos(); renderKpis();
+  }catch(err){
+    errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${err.message}</div>`;
+  }
+}
+async function quitarCritico(code){
+  if(!confirm(`¿Quitar ${code} de la lista de productos críticos?`)) return;
+  await fetch(`/api/productos-criticos?code=${encodeURIComponent(code)}`, { method:'DELETE' });
+  const listaRes = await fetch('/api/productos-criticos').then(r=>r.json());
+  criticosManual = listaRes.productos || [];
+  renderCriticos(); renderKpis();
+}
+
+// ---------- 4) Quiebre inminente ----------
+function renderInminente(){
+  const lista = datosSkus
+    .filter(s=>s.stockActual>0 && s.ventaDiariaPromedio>0 && s.diasCobertura!=null && s.diasCobertura<=5)
+    .sort((a,b)=>a.diasCobertura-b.diasCobertura);
+  if(lista.length===0){ $('wrapInminente').innerHTML = `<p class="empty-note">Ningún producto con venta activa está por quebrar stock en los próximos 5 días.</p>`; return; }
+  $('wrapInminente').innerHTML = `
+    <table>
+      <thead><tr><th>SKU</th><th>Producto</th><th class="amount">Stock actual</th><th class="amount">Venta diaria</th><th class="amount">Cobertura</th><th class="amount">Sugerencia 7d</th></tr></thead>
+      <tbody>
+        ${lista.map(s=>`
+          <tr class="riesgo">
+            <td>${s.code}</td><td>${s.nombre}</td>
+            <td class="amount">${s.stockActual}</td>
+            <td class="amount">${s.ventaDiariaPromedio}</td>
+            <td class="amount"><b>${s.diasCobertura} días</b></td>
+            <td class="amount">${s.sugerencia7}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ---------- 5) Clasificación ABC ----------
+function renderAbc(){
+  const conVenta = datosSkus.filter(s=>s.montoVentas>0).sort((a,b)=>b.montoVentas-a.montoVentas);
+  const totalVentas = conVenta.reduce((a,s)=>a+s.montoVentas,0);
+  if(totalVentas===0){ $('wrapAbc').innerHTML = `<p class="empty-note">Sin ventas en el período para clasificar.</p>`; return; }
+
+  let acumulado = 0;
+  const clases = { A: [], B: [], C: [] };
+  for(const s of conVenta){
+    acumulado += s.montoVentas;
+    const pctAcumulado = acumulado/totalVentas*100;
+    const clase = pctAcumulado<=80 ? 'A' : (pctAcumulado<=95 ? 'B' : 'C');
+    clases[clase].push(s);
+  }
+
+  const resumen = ['A','B','C'].map(c=>{
+    const grupo = clases[c];
+    const monto = grupo.reduce((a,s)=>a+s.montoVentas,0);
+    return { clase:c, cantidad:grupo.length, monto, pct: totalVentas?Math.round(monto/totalVentas*1000)/10:0 };
+  });
+
+  $('wrapAbc').innerHTML = `
+    <table style="margin-bottom:14px;">
+      <thead><tr><th>Clase</th><th class="amount"># Productos</th><th class="amount">Venta $</th><th class="amount">% del total</th></tr></thead>
+      <tbody>
+        ${resumen.map(r=>`
+          <tr>
+            <td><span class="badge clase${r.clase}">Clase ${r.clase}</span></td>
+            <td class="amount">${r.cantidad}</td>
+            <td class="amount">${fmt(r.monto)}</td>
+            <td class="amount">${r.pct}%</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    <details>
+      <summary style="cursor:pointer;font-size:12px;color:var(--primary);">Ver productos Clase A (prioridad #1 para nunca quebrar stock)</summary>
+      <table style="margin-top:10px;">
+        <thead><tr><th>SKU</th><th>Producto</th><th class="amount">Venta $</th><th class="amount">Stock actual</th><th class="amount">Cobertura</th></tr></thead>
+        <tbody>
+          ${clases.A.map(s=>`<tr class="${s.stockActual===0?'quiebre':''}"><td>${s.code}</td><td>${s.nombre}</td><td class="amount">${fmt(s.montoVentas)}</td><td class="amount">${s.stockActual}</td><td class="amount">${s.diasCobertura??'—'}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </details>`;
+}
+
+// ---------- 6) Tendencia semanal ----------
+function filtrarTendencia(modo, ev){
+  tendenciaFiltro = modo;
+  const botones = document.querySelectorAll('.seccion-head .chips button');
+  botones.forEach(b=>b.classList.remove('active'));
+  if(ev && ev.currentTarget) ev.currentTarget.classList.add('active');
+  renderTendencia();
+}
+function renderTendencia(){
+  const conMovimiento = datosSkus
+    .filter(s=>(s.semana1>0 || s.semana2>0))
+    .map(s=>{
+      const variacion = s.semana1 - s.semana2;
+      const pct = s.semana2>0 ? Math.round((variacion/s.semana2)*1000)/10 : (s.semana1>0?100:0);
+      return { ...s, variacion, pct };
+    });
+  let lista = tendenciaFiltro==='acelerando'
+    ? conMovimiento.filter(s=>s.variacion>0).sort((a,b)=>b.pct-a.pct)
+    : conMovimiento.filter(s=>s.variacion<0).sort((a,b)=>a.pct-b.pct);
+  lista = lista.slice(0,20);
+
+  if(lista.length===0){ $('wrapTendencia').innerHTML = `<p class="empty-note">Sin productos ${tendenciaFiltro==='acelerando'?'acelerando':'frenando'} respecto a la semana anterior.</p>`; return; }
+  $('wrapTendencia').innerHTML = `
+    <table>
+      <thead><tr><th>SKU</th><th>Producto</th><th class="amount">SEM -2</th><th class="amount">SEM -1</th><th class="amount">Variación</th><th class="amount">% cambio</th></tr></thead>
+      <tbody>
+        ${lista.map(s=>`
+          <tr>
+            <td>${s.code}</td><td>${s.nombre}</td>
+            <td class="amount">${s.semana2}</td>
+            <td class="amount">${s.semana1}</td>
+            <td class="amount ${s.variacion>=0?'arrow-up':'arrow-down'}">${s.variacion>=0?'▲':'▼'} ${Math.abs(s.variacion)}</td>
+            <td class="amount ${s.variacion>=0?'arrow-up':'arrow-down'}">${s.pct>0?'+':''}${s.pct}%</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ---------- 7) Exportar CSV ----------
+function exportarCsv(){
+  const horizonte = $('horizonteExport').value;
+  const filtro = $('filtroExport').value;
+  const campoSugerencia = 'sugerencia' + horizonte;
+  const mapa = mapaCriticos();
+
+  let lista = datosSkus.filter(s=>s[campoSugerencia] > 0);
+  if(filtro==='criticos') lista = lista.filter(s=>mapa[s.code]);
+  else if(filtro==='quiebre') lista = lista.filter(s=>s.stockActual===0);
+  else if(filtro==='todos') lista = datosSkus.slice();
+
+  if(lista.length===0){ alert('No hay productos que calcen con ese filtro.'); return; }
+
+  const filas = [['SKU','Producto','Categoría','Stock actual','Venta diaria prom.',`Sugerencia ${horizonte}d`,'Último costo','Costo estimado pedido','Crítico']];
+  for(const s of lista){
+    const sugerencia = s[campoSugerencia] || 0;
+    const costoEst = s.ultimoCosto!=null ? Math.round(sugerencia * s.ultimoCosto) : '';
+    filas.push([s.code, s.nombre, s.categoria, s.stockActual, s.ventaDiariaPromedio, sugerencia, s.ultimoCosto??'', costoEst, mapa[s.code]?'Sí':'No']);
+  }
+  const csv = filas.map(f=>f.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `pedido-sugerido-${horizonte}dias-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+cargarSesionUsuario();
+cargar();
+</script>
+</body>
+</html>
