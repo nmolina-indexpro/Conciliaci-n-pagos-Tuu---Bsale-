@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reportar un error — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:28px 40px 60px 190px;}
+  .wrap{max-width:800px;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .page-nav{display:flex;gap:6px;background:var(--surface-2);padding:5px;border-radius:12px;width:fit-content;justify-self:center;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:var(--muted);text-decoration:none;padding:10px 22px;border-radius:9px;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;box-shadow:var(--shadow);margin-bottom:22px;}
+  label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;display:block;margin-bottom:6px;}
+  select,textarea,input[type=text]{width:100%;background:var(--bg);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:10px 12px;border-radius:9px;font-size:13.5px;}
+  textarea{min-height:110px;resize:vertical;}
+  select:focus,textarea:focus,input:focus{outline:none;border-color:var(--primary);}
+  .campo{margin-bottom:14px;}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;border:none;border-radius:9px;padding:11px 22px;cursor:pointer;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover{background:var(--primary-dark);}
+  .btn-primary:disabled{opacity:0.6;cursor:not-allowed;}
+  .msg{font-size:13px;padding:10px 14px;border-radius:10px;margin-bottom:14px;}
+  .msg.ok{background:var(--green-bg);color:var(--green);}
+  .msg.err{background:var(--red-bg);color:var(--red);}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:top;}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10px;padding:3px 9px;border-radius:999px;font-weight:700;white-space:nowrap;}
+  .badge.pendiente{background:var(--amber-dim);color:var(--amber);}
+  .badge.en-progreso{background:#DBEAFE;color:#1D4ED8;}
+  .badge.resuelto{background:var(--green-bg);color:var(--green);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:14px 0;}
+  select.selectEstado{font-size:11px;padding:5px 8px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    <nav class="page-nav">
+      <a href="index.html">Flujo de Caja</a>
+      <a href="conciliacion.html">Conciliación</a>
+      <a href="compras.html">Compras</a>
+      <a href="alertas-stock.html">Alertas de Stock</a>
+      <a href="guia-uso.html">Guía de uso</a>
+      <a href="usuarios.html" id="navUsuarios" style="display:none;">Usuarios</a>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>🐞 Reportar un error</h1>
+  <div class="sub">Cuéntanos qué pasó — le llega un aviso directo a soporte, y puedes ver acá abajo cómo va tu reporte.</div>
+
+  <div class="card">
+    <div id="mensajeForm"></div>
+    <div class="campo">
+      <label>¿En qué página pasó?</label>
+      <select id="fPagina">
+        <option value="">No estoy seguro / no aplica</option>
+        <option value="Flujo de Caja">Flujo de Caja</option>
+        <option value="Conciliación">Conciliación</option>
+        <option value="Compras">Compras</option>
+        <option value="Alertas de Stock">Alertas de Stock</option>
+        <option value="Usuarios">Usuarios</option>
+        <option value="Otra">Otra</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label>¿Qué intentabas hacer y qué pasó?</label>
+      <textarea id="fDescripcion" placeholder="Ej: Entré a Compras, elegí 90 días, y la tabla se quedó cargando sin mostrar nada."></textarea>
+    </div>
+    <button class="btn-primary" id="btnEnviar" onclick="enviarReporte()">Enviar reporte</button>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:15px;margin-bottom:4px;">Mis reportes</h1>
+    <div class="sub" style="margin-bottom:14px;" id="subReportes">Cargando...</div>
+    <div id="wrapReportes"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let rolActual = 'usuario';
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    rolActual = u.rol;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    if(u.rol === 'admin'){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+    }
+    // Nota: aquí NO se aplican las restricciones de copia/descarga -- esta
+    // página de soporte no tiene información de negocio que proteger, y el
+    // usuario necesita poder escribir y enviar su reporte con normalidad.
+    $('subReportes').textContent = u.rol === 'admin' ? 'Viendo los reportes de todos los usuarios.' : 'Viendo solo tus reportes.';
+    cargarReportes();
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+async function enviarReporte(){
+  const msg = $('mensajeForm');
+  msg.innerHTML = '';
+  const descripcion = $('fDescripcion').value.trim();
+  const pagina = $('fPagina').value;
+  if(!descripcion){ msg.innerHTML = `<div class="msg err">Cuéntanos qué pasó antes de enviar.</div>`; return; }
+
+  $('btnEnviar').disabled = true;
+  $('btnEnviar').textContent = 'Enviando...';
+  try{
+    const res = await fetch('/api/reportes-error', {
+      method: 'POST', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ descripcion, pagina })
+    });
+    const data = await res.json();
+    if(!res.ok){ msg.innerHTML = `<div class="msg err">${data.error}</div>`; return; }
+    $('fDescripcion').value = '';
+    $('fPagina').value = '';
+    msg.innerHTML = `<div class="msg ok">Reporte enviado. Gracias — lo puedes ver en la lista de abajo.</div>`;
+    cargarReportes();
+  }catch(err){
+    msg.innerHTML = `<div class="msg err">Error: ${err.message}</div>`;
+  }finally{
+    $('btnEnviar').disabled = false;
+    $('btnEnviar').textContent = 'Enviar reporte';
+  }
+}
+
+function badgeEstado(estado){
+  const clase = estado.replace(' ', '-');
+  return `<span class="badge ${clase}">${estado}</span>`;
+}
+
+async function cargarReportes(){
+  try{
+    const res = await fetch('/api/reportes-error');
+    const data = await res.json();
+    if(!res.ok){ $('wrapReportes').innerHTML = `<p class="empty-note">${data.error}</p>`; return; }
+    const reportes = data.reportes || [];
+    if(reportes.length === 0){ $('wrapReportes').innerHTML = `<p class="empty-note">Sin reportes todavía.</p>`; return; }
+
+    $('wrapReportes').innerHTML = `
+      <table>
+        <thead><tr>${rolActual==='admin'?'<th>Usuario</th>':''}<th>Página</th><th>Descripción</th><th>Fecha</th><th>Estado</th></tr></thead>
+        <tbody>
+          ${reportes.map(r => `
+            <tr>
+              ${rolActual==='admin'?`<td>${r.usuario_nombre || r.usuario_email}</td>`:''}
+              <td>${r.pagina || '—'}</td>
+              <td style="max-width:280px;">${r.descripcion}</td>
+              <td>${new Date(r.created_at).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</td>
+              <td>${rolActual==='admin'
+                ? `<select class="selectEstado" onchange="cambiarEstado(${r.id}, this.value)">
+                     <option value="pendiente" ${r.estado==='pendiente'?'selected':''}>Pendiente</option>
+                     <option value="en progreso" ${r.estado==='en progreso'?'selected':''}>En progreso</option>
+                     <option value="resuelto" ${r.estado==='resuelto'?'selected':''}>Resuelto</option>
+                   </select>`
+                : badgeEstado(r.estado)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }catch(err){
+    $('wrapReportes').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+  }
+}
+
+async function cambiarEstado(id, estado){
+  try{
+    const res = await fetch('/api/reportes-error', {
+      method: 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ id, estado })
+    });
+    if(!res.ok){ const data = await res.json(); alert(data.error); cargarReportes(); }
+  }catch(err){
+    alert('Error: ' + err.message);
+    cargarReportes();
+  }
+}
+
+cargarSesionUsuario();
+</script>
+</body>
+</html>
