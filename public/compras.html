@@ -103,6 +103,7 @@
       <a href="conciliacion.html">Conciliación</a>
       <a href="compras.html" class="active">Compras</a>
       <a href="alertas-stock.html">Alertas de Stock</a>
+      <a href="guia-uso.html">Guía de uso</a>
       <a href="usuarios.html" id="navUsuarios" style="display:none;">Usuarios</a>
     </nav>
     <div class="user-box" id="userBox"></div>
@@ -170,7 +171,7 @@
           <option value="bateria-alternativo">Baterías alternativas</option>
         </select>
         <button class="btn-primary btn-compact" onclick="calcularRecomendacionPresupuesto()">Calcular recomendación</button>
-        <button class="btn-ghost btn-compact" onclick="descargarRecomendacion()">⬇ Descargar recomendación</button>
+        <button class="btn-ghost btn-compact btn-exportar" onclick="descargarRecomendacion()">⬇ Descargar recomendación</button>
       </div>
       <div id="recomendacionWrap" style="margin-top:14px;"></div>
     </div>
@@ -213,7 +214,7 @@
       <option value="7" selected>7 días</option>
       <option value="14">14 días</option>
     </select>
-    <button class="btn-primary btn-compact" onclick="exportarExcel()">Descargar Excel</button>
+    <button class="btn-primary btn-compact btn-exportar" onclick="exportarExcel()">Descargar Excel</button>
     <span style="color:var(--muted);font-size:11.5px;">Exporta lo que esté filtrado/buscado en este momento.</span>
   </div>
 
@@ -232,6 +233,7 @@
 
 </div>
 
+<script src="restriccion-usuario.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 function fmt(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
@@ -790,7 +792,8 @@ async function cargarSesionUsuario(){
     const res = await fetch('/api/auth-session');
     if(!res.ok) return; // el middleware ya se encarga de redirigir si hace falta
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    aplicarRestriccionesUsuario(u.rol);
     if(u.rol === 'admin'){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
