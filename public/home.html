@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Home — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:28px 40px 60px 190px;}
+  .wrap{max-width:1600px;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;letter-spacing:0.2px;margin:0 0 5px 0;}
+  h1 span{color:var(--primary);}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin:0 0 4px 0;}
+  .sub{color:var(--muted);font-size:13px;}
+  .page-nav{display:flex;gap:6px;background:var(--surface-2);padding:5px;border-radius:12px;width:fit-content;justify-self:center;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:var(--muted);text-decoration:none;padding:10px 22px;border-radius:9px;transition:all .15s;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+  #status{font-size:12px;color:var(--muted);}
+  #status.err{color:var(--red);}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+  @media (max-width:1100px){.grid{grid-template-columns:1fr 1fr;}}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;}
+  .card.alert .big{color:var(--red);}
+  .card.warn .big{color:var(--amber);}
+
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+  .seccion-head a{font-size:12px;color:var(--primary);font-family:'Space Grotesk',sans-serif;font-weight:700;text-decoration:none;}
+  .seccion-head a:hover{text-decoration:underline;}
+
+  .dos-columnas{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+  @media (max-width:1100px){.dos-columnas{grid-template-columns:1fr;}}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  th.amount, td.amount{text-align:right;}
+  td{padding:9px;border-bottom:1px solid var(--line);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  tr.quiebre{background:var(--red-bg);}
+  tr.riesgo{background:var(--amber-dim);}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10px;padding:3px 9px;border-radius:999px;font-weight:700;white-space:nowrap;}
+  .badge.pendiente{background:var(--amber-dim);color:var(--amber);}
+  .badge.en-progreso{background:#DBEAFE;color:#1D4ED8;}
+  .badge.resuelto{background:var(--green-bg);color:var(--green);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+
+  .accesos{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px;}
+  @media (max-width:1100px){.accesos{grid-template-columns:1fr 1fr;}}
+  .acceso-card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:var(--shadow);text-decoration:none;color:var(--text);display:block;transition:all .15s;}
+  .acceso-card:hover{border-color:var(--primary);transform:translateY(-2px);}
+  .acceso-card .icono{font-size:22px;margin-bottom:8px;display:block;}
+  .acceso-card .titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;margin-bottom:4px;}
+  .acceso-card .desc{font-size:11.5px;color:var(--muted);line-height:1.4;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    <nav class="page-nav">
+      <a href="home.html" class="active">Home</a>
+      <a href="index.html">Flujo de Caja</a>
+      <a href="conciliacion.html">Conciliación</a>
+      <a href="compras.html">Compras</a>
+      <a href="alertas-stock.html">Alertas de Stock</a>
+      <a href="guia-uso.html">Guía de uso</a>
+      <a href="usuarios.html" id="navUsuarios" style="display:none;">Usuarios</a>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <div class="toolbar">
+    <div>
+      <h1>Hola <span id="saludoNombre">👋</span></h1>
+      <div class="sub">Lo más importante del negocio, en una sola pantalla.</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <select id="diasInput" onchange="cargar()">
+        <option value="30">Últimos 30 días</option>
+        <option value="60">Últimos 60 días</option>
+        <option value="90" selected>Últimos 90 días</option>
+      </select>
+      <button class="btn-ghost" onclick="cargar()">↻ Actualizar</button>
+    </div>
+  </div>
+  <div id="status"></div>
+
+  <div class="accesos">
+    <a class="acceso-card" href="index.html">
+      <span class="icono">💰</span>
+      <div class="titulo">Flujo de Caja</div>
+      <div class="desc">Plata que entra y sale, y proyección de caja para los próximos días.</div>
+    </a>
+    <a class="acceso-card" href="conciliacion.html">
+      <span class="icono">🔄</span>
+      <div class="titulo">Conciliación</div>
+      <div class="desc">TUU vs Bsale, día a día — para pescar diferencias antes de que se acumulen.</div>
+    </a>
+    <a class="acceso-card" href="compras.html">
+      <span class="icono">🛒</span>
+      <div class="titulo">Compras</div>
+      <div class="desc">Qué y cuánto comprarle al proveedor, y los próximos pagos pendientes.</div>
+    </a>
+    <a class="acceso-card" href="alertas-stock.html">
+      <span class="icono">🔔</span>
+      <div class="titulo">Alertas de Stock</div>
+      <div class="desc">Quiebres, productos críticos, tendencia semanal y clasificación ABC.</div>
+    </a>
+  </div>
+
+  <div class="grid" id="kpiWrap">
+    <div class="card"><div class="lbl">Margen perdido estimado</div><div class="big">—</div></div>
+    <div class="card"><div class="lbl">SKUs en quiebre ahora</div><div class="big">—</div></div>
+    <div class="card"><div class="lbl">Críticos en riesgo</div><div class="big">—</div></div>
+    <div class="card"><div class="lbl">Cobertura promedio</div><div class="big">—</div></div>
+  </div>
+
+  <div class="dos-columnas">
+    <div class="seccion">
+      <div class="seccion-head">
+        <div><h2>⏳ Quiebre inminente</h2><div class="sub">Top 5 más urgentes.</div></div>
+        <a href="alertas-stock.html">Ver todo →</a>
+      </div>
+      <div id="wrapInminente"><p class="empty-note">Cargando...</p></div>
+    </div>
+
+    <div class="seccion">
+      <div class="seccion-head">
+        <div><h2>💸 Mayor margen perdido</h2><div class="sub">Top 5 productos con más venta perdida por quiebre.</div></div>
+        <a href="alertas-stock.html">Ver todo →</a>
+      </div>
+      <div id="wrapPerdidas"><p class="empty-note">Cargando...</p></div>
+    </div>
+  </div>
+
+  <div class="dos-columnas">
+    <div class="seccion">
+      <div class="seccion-head">
+        <div><h2>📅 Próximos pagos a proveedores</h2><div class="sub">Recepciones de los últimos 14 días.</div></div>
+        <a href="compras.html">Ver todo →</a>
+      </div>
+      <div id="wrapPagos"><p class="empty-note">Cargando...</p></div>
+    </div>
+
+    <div class="seccion">
+      <div class="seccion-head">
+        <div><h2>🐞 Soporte</h2><div class="sub" id="subSoporte">Reportes de error y objeciones.</div></div>
+        <a href="reportar-error.html">Ver todo →</a>
+      </div>
+      <div id="wrapSoporte"><p class="empty-note">Cargando...</p></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function fmt(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
+function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+
+let rolActual = 'usuario';
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    rolActual = u.rol;
+    $('saludoNombre').textContent = (u.nombre || u.email) + ' 👋';
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    if(u.rol === 'admin'){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+    }
+    aplicarRestriccionesUsuario(u.rol);
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+async function cargar(){
+  const dias = parseInt($('diasInput').value, 10) || 90;
+  const status = $('status');
+  status.className = '';
+  status.textContent = `Consultando ${dias} días en Bsale...`;
+
+  try{
+    const [res, soporteRes] = await Promise.all([
+      fetch(`/api/bsale-sku-report?days=${dias}`).then(r=>r.json()),
+      fetch(`/api/negocio?recurso=reportes`).then(r=>r.json()).catch(()=>({reportes:[]}))
+    ]);
+    if(res.error){
+      status.className = 'err';
+      status.textContent = 'Error: ' + (res.detail || res.error);
+      return;
+    }
+
+    renderKpis(res.skus || []);
+    renderInminente(res.skus || []);
+    renderPerdidas(res.skus || []);
+    renderPagos(res.pagosPorProveedor || [], res.ventanaPago);
+    renderSoporte(soporteRes.reportes || []);
+
+    status.textContent = `Actualizado — ${res.startDate} a ${res.endDate}`;
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
+}
+
+function renderKpis(skus){
+  const cards = document.querySelectorAll('#kpiWrap .card');
+  const margenPerdidoTotal = skus.reduce((a,s)=>a+(s.margenPerdidoPorQuiebre||0),0);
+  const enQuiebreAhora = skus.filter(s=>s.stockActual===0 && s.ventaDiariaPromedio>0).length;
+  const criticos = skus.filter(s=>s.esEstrella);
+  const criticosEnRiesgo = criticos.filter(s=>s.stockActual===0 || (s.diasCobertura!=null && s.diasCobertura<=3)).length;
+  const conVenta = skus.filter(s=>s.ventaDiariaPromedio>0 && s.diasCobertura!=null);
+  const coberturaProm = conVenta.length ? Math.round(conVenta.reduce((a,s)=>a+s.diasCobertura,0)/conVenta.length) : null;
+
+  cards[0].querySelector('.big').textContent = fmt(margenPerdidoTotal);
+  cards[0].classList.toggle('alert', margenPerdidoTotal > 0);
+  cards[1].querySelector('.big').textContent = fmtNum(enQuiebreAhora);
+  cards[1].classList.toggle('alert', enQuiebreAhora > 0);
+  cards[2].querySelector('.big').textContent = fmtNum(criticosEnRiesgo) + ' / ' + fmtNum(criticos.length);
+  cards[2].classList.toggle('alert', criticosEnRiesgo > 0);
+  cards[3].querySelector('.big').textContent = coberturaProm != null ? coberturaProm + ' días' : '—';
+  cards[3].classList.toggle('warn', coberturaProm != null && coberturaProm <= 7);
+}
+
+function renderInminente(skus){
+  const lista = skus
+    .filter(s=>s.stockActual>0 && s.ventaDiariaPromedio>0 && s.diasCobertura!=null && s.diasCobertura<=5)
+    .sort((a,b)=>a.diasCobertura-b.diasCobertura)
+    .slice(0,5);
+  if(lista.length===0){ $('wrapInminente').innerHTML = `<p class="empty-note">Nada urgente por ahora. 🎉</p>`; return; }
+  $('wrapInminente').innerHTML = `
+    <table>
+      <thead><tr><th>SKU</th><th>Producto</th><th class="amount">Stock</th><th class="amount">Cobertura</th></tr></thead>
+      <tbody>
+        ${lista.map(s=>`<tr class="riesgo"><td>${s.code}</td><td>${s.nombre}</td><td class="amount">${s.stockActual}</td><td class="amount"><b>${s.diasCobertura} días</b></td></tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function renderPerdidas(skus){
+  const lista = skus
+    .filter(s=>s.diasQuiebreHistorico>0 && s.unidadesVendidas>0)
+    .sort((a,b)=>(b.margenPerdidoPorQuiebre||0)-(a.margenPerdidoPorQuiebre||0))
+    .slice(0,5);
+  if(lista.length===0){ $('wrapPerdidas').innerHTML = `<p class="empty-note">Sin quiebres registrados en el período. 🎉</p>`; return; }
+  $('wrapPerdidas').innerHTML = `
+    <table>
+      <thead><tr><th>SKU</th><th>Producto</th><th class="amount">Días quiebre</th><th class="amount">Margen perdido</th></tr></thead>
+      <tbody>
+        ${lista.map(s=>`<tr class="${s.stockActual===0?'quiebre':''}"><td>${s.code}</td><td>${s.nombre}</td><td class="amount">${s.diasQuiebreHistorico}</td><td class="amount">${s.margenPerdidoPorQuiebre!=null?fmt(s.margenPerdidoPorQuiebre):'—'}</td></tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function renderPagos(pagosPorProveedor, ventana){
+  if(!pagosPorProveedor || pagosPorProveedor.length===0){
+    $('wrapPagos').innerHTML = `<p class="empty-note">Sin recepciones registradas entre ${ventana?.desde||'—'} y ${ventana?.hasta||'—'}.</p>`;
+    return;
+  }
+  const total = pagosPorProveedor.reduce((a,p)=>a+p.monto,0);
+  $('wrapPagos').innerHTML = `
+    <table>
+      <thead><tr><th>Proveedor</th><th class="amount">Documentos</th><th class="amount">Monto</th></tr></thead>
+      <tbody>
+        ${pagosPorProveedor.slice(0,5).map(p=>`<tr><td>${p.proveedor}</td><td class="amount">${p.cantidadDocumentos}</td><td class="amount">${fmt(p.monto)}</td></tr>`).join('')}
+        <tr><td><b>Total</b></td><td></td><td class="amount"><b>${fmt(total)}</b></td></tr>
+      </tbody>
+    </table>`;
+}
+
+function renderSoporte(reportes){
+  const pendientes = reportes.filter(r=>r.estado!=='resuelto');
+  $('subSoporte').textContent = rolActual==='admin'
+    ? `${pendientes.length} sin resolver de ${reportes.length} en total.`
+    : `Tienes ${pendientes.length} reporte(s) sin resolver.`;
+
+  if(reportes.length===0){ $('wrapSoporte').innerHTML = `<p class="empty-note">Sin reportes registrados.</p>`; return; }
+  const lista = reportes.slice(0,5);
+  $('wrapSoporte').innerHTML = `
+    <table>
+      <thead><tr>${rolActual==='admin'?'<th>Usuario</th>':''}<th>Tipo</th><th>Descripción</th><th>Estado</th></tr></thead>
+      <tbody>
+        ${lista.map(r=>`
+          <tr>
+            ${rolActual==='admin'?`<td>${r.usuario_nombre||r.usuario_email}</td>`:''}
+            <td>${r.tipo==='objecion'?'Objeción':'Error'}</td>
+            <td style="max-width:260px;">${r.descripcion}</td>
+            <td><span class="badge ${r.estado.replace(' ','-')}">${r.estado}</span></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+cargarSesionUsuario();
+cargar();
+</script>
+</body>
+</html>
