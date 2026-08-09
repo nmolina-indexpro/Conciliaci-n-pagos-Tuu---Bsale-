@@ -4,6 +4,7 @@
 
 import { getSql, asegurarTablaUsuarios } from '../lib/db.js';
 import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
+import { enviarCorreo } from '../lib/mailer.js';
 
 export default async function handler(req, res) {
   const sesion = usuarioDesdeRequest(req);
@@ -15,7 +16,7 @@ export default async function handler(req, res) {
     await asegurarTablaUsuarios(sql);
 
     if (req.method === 'GET') {
-      const { rows } = await sql`SELECT id, email, nombre, rol, activo, expira_en, expira_minutos, created_at FROM usuarios ORDER BY created_at ASC;`;
+      const { rows } = await sql`SELECT id, email, nombre, rol, activo, expira_en, expira_minutos, ultimo_login, created_at FROM usuarios ORDER BY created_at ASC;`;
       return res.status(200).json({ usuarios: rows });
     }
 
@@ -31,17 +32,44 @@ export default async function handler(req, res) {
       // api/auth-login.js), que calcula expira_en = ahora + expira_minutos.
       // Sin expiraMinutos, la cuenta es permanente.
       const duracionPendiente = (typeof expiraMinutos === 'number' && expiraMinutos > 0) ? expiraMinutos : null;
+      let usuarioCreado;
       try {
         const { rows } = await sql`
           INSERT INTO usuarios (email, password_hash, nombre, rol, activo, expira_minutos)
           VALUES (${email.toLowerCase().trim()}, ${passwordHash}, ${nombre || email}, ${rolFinal}, true, ${duracionPendiente})
           RETURNING id, email, nombre, rol, activo, expira_en, expira_minutos, created_at;
         `;
-        return res.status(200).json({ usuario: rows[0] });
+        usuarioCreado = rows[0];
       } catch (err) {
         if (String(err).includes('duplicate key')) return res.status(400).json({ error: 'Ya existe un usuario con ese email' });
         throw err;
       }
+
+      // Correo de bienvenida con los datos de acceso. La contraseña va en
+      // texto plano acá porque es la única forma de que la persona la
+      // reciba (no se guarda en ningún otro lado además del hash en la
+      // base) — si falla el envío, el usuario queda creado igual, solo que
+      // hay que avisarle la clave por otro medio.
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      const loginUrl = host ? `https://${host}/login.html` : null;
+      const notaDuracion = duracionPendiente
+        ? `<p>Esta es una cuenta <b>temporal</b>: el acceso dura <b>${duracionPendiente} minutos desde el primer inicio de sesión</b>, no desde este correo.</p>`
+        : '';
+      const correoResultado = await enviarCorreo({
+        para: usuarioCreado.email,
+        asunto: 'Tus datos de acceso — Panel IndexStore',
+        html: `
+          <p>Hola ${usuarioCreado.nombre || ''},</p>
+          <p>Se creó una cuenta para ti en el panel interno de IndexStore. Estos son tus datos de acceso:</p>
+          <p><b>Usuario:</b> ${usuarioCreado.email}<br><b>Contraseña:</b> ${password}</p>
+          ${notaDuracion}
+          ${loginUrl ? `<p>Puedes ingresar acá: <a href="${loginUrl}">${loginUrl}</a></p>` : ''}
+          <p>Por seguridad, evita compartir esta contraseña con otras personas.</p>
+        `,
+        texto: `Hola ${usuarioCreado.nombre || ''}, se creó una cuenta para ti en el panel interno de IndexStore.\nUsuario: ${usuarioCreado.email}\nContraseña: ${password}\n${duracionPendiente ? `Cuenta temporal: dura ${duracionPendiente} minutos desde el primer inicio de sesión.\n` : ''}${loginUrl ? `Ingresa acá: ${loginUrl}\n` : ''}`,
+      });
+
+      return res.status(200).json({ usuario: usuarioCreado, correo: correoResultado });
     }
 
     if (req.method === 'PUT') {
