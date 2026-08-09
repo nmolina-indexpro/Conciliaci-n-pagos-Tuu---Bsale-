@@ -653,6 +653,3 @@ export default async function handler(req, res) {
     return res.status(200).json({ error: 'Error consultando Bsale', detail: String(err), skus: [] });
   }
 }
-
-
-SHA_MARKER:631e69c3c59cdeec7ff9e41eaa836b0f9f02042d
