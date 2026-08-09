@@ -55,7 +55,7 @@
   #status.err{color:var(--red);}
   #status.ok{color:var(--green);}
 
-  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
   @media (max-width:900px){.grid{grid-template-columns:1fr 1fr;}}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);}
   .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
@@ -65,10 +65,16 @@
   .card.warn .big{color:var(--amber);}
 
   .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:24px;}
-  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;cursor:pointer;user-select:none;}
+  .seccion-head:hover h2{color:var(--primary);}
+  .panel-chevron{font-size:15px;color:var(--muted);transition:transform .18s;flex-shrink:0;margin-left:10px;align-self:center;}
+  .seccion.colapsado .panel-chevron{transform:rotate(-90deg);}
+  .seccion.colapsado .panel-body{display:none;}
+  .panel-body{margin-top:14px;}
 
   table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--surface);border-radius:14px;overflow:hidden;}
-  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:10px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:10px;border-bottom:2px solid var(--line);background:var(--surface-2);cursor:pointer;user-select:none;white-space:nowrap;}
+  th:hover{color:var(--primary);}
   th.amount, td.amount{text-align:right;}
   td{padding:9px 10px;border-bottom:1px solid var(--line);}
   .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
@@ -92,6 +98,7 @@
   .form-inline{display:flex;gap:10px;align-items:end;flex-wrap:wrap;}
   .campo{display:flex;flex-direction:column;gap:5px;}
   .campo label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;}
+  .controles-tabla{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;}
 </style>
 </head>
 <body>
@@ -131,110 +138,138 @@
   <div id="status"></div>
   <div id="avisoWrap"></div>
 
-  <!-- 1) Resumen ejecutivo (KPIs) -->
-  <div class="grid" id="kpiWrap">
-    <div class="card"><div class="lbl">Margen perdido estimado</div><div class="big">—</div></div>
-    <div class="card"><div class="lbl">SKUs en quiebre ahora</div><div class="big">—</div></div>
-    <div class="card"><div class="lbl">Críticos en riesgo</div><div class="big">—</div></div>
-    <div class="card"><div class="lbl">Cobertura promedio</div><div class="big">—</div></div>
-  </div>
-
-  <!-- 2) Ventas perdidas por quiebre -->
-  <div class="seccion">
-    <div class="seccion-head">
-      <div>
-        <h2>💸 Ventas que se están perdiendo por quiebre de stock</h2>
-        <div class="sub">Productos que tuvieron días sin stock dentro del período, con el margen que probablemente se dejó de ganar esos días (estimado, no un registro real).</div>
+  <!-- Resumen ejecutivo (KPIs) -->
+  <div class="seccion" id="seccionKpis">
+    <div class="seccion-head" onclick="toggleSeccion('seccionKpis')">
+      <div><h2>📌 Resumen ejecutivo</h2><div class="sub">Los 4 números que resumen la salud del stock hoy.</div></div>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <div class="grid" id="kpiWrap">
+        <div class="card"><div class="lbl">Margen perdido estimado</div><div class="big">—</div></div>
+        <div class="card"><div class="lbl">SKUs en quiebre ahora</div><div class="big">—</div></div>
+        <div class="card"><div class="lbl">Críticos en riesgo</div><div class="big">—</div></div>
+        <div class="card"><div class="lbl">Cobertura promedio</div><div class="big">—</div></div>
       </div>
     </div>
-    <div id="wrapQuiebre"><p class="empty-note">Cargando...</p></div>
   </div>
 
-  <!-- 3) Productos críticos -->
-  <div class="seccion">
-    <div class="seccion-head">
-      <div>
-        <h2>⭐ Productos críticos — nunca deberían faltar</h2>
-        <div class="sub">Automático: el 20% más vendido del catálogo ("Estrella"). Manual: los que agregues tú a mano abajo. Un producto puede tener ambos orígenes.</div>
-      </div>
-    </div>
-    <div class="form-inline" style="margin-bottom:14px;">
-      <div class="campo">
-        <label>Agregar SKU crítico</label>
-        <input type="text" id="fCriticoCode" list="listaSkusDatalist" placeholder="Código SKU" style="width:220px;">
-      </div>
-      <button class="btn-primary btn-compact" onclick="agregarCritico()">+ Marcar como crítico</button>
-    </div>
-    <datalist id="listaSkusDatalist"></datalist>
-    <div id="errorCritico"></div>
-    <div id="wrapCriticos"><p class="empty-note">Cargando...</p></div>
-  </div>
-
-  <!-- 4) Quiebre inminente -->
-  <div class="seccion">
-    <div class="seccion-head">
+  <!-- Quiebre inminente (subida a la primera sección con tabla) -->
+  <div class="seccion" id="seccionInminente">
+    <div class="seccion-head" onclick="toggleSeccion('seccionInminente')">
       <div>
         <h2>⏳ Quiebre inminente</h2>
         <div class="sub">Todavía tienen stock, pero a este ritmo de venta se acaban en 5 días o menos.</div>
       </div>
+      <span class="panel-chevron">▾</span>
     </div>
-    <div id="wrapInminente"><p class="empty-note">Cargando...</p></div>
+    <div class="panel-body">
+      <div id="wrapInminente"><p class="empty-note">Cargando...</p></div>
+    </div>
   </div>
 
-  <!-- 5) Clasificación ABC -->
-  <div class="seccion">
-    <div class="seccion-head">
+  <!-- Ventas perdidas por quiebre -->
+  <div class="seccion" id="seccionQuiebre">
+    <div class="seccion-head" onclick="toggleSeccion('seccionQuiebre')">
+      <div>
+        <h2>💸 Ventas que se están perdiendo por quiebre de stock</h2>
+        <div class="sub">Productos con venta real que tuvieron días sin stock, con el margen que probablemente se dejó de ganar (estimado).</div>
+      </div>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <div id="wrapQuiebre"><p class="empty-note">Cargando...</p></div>
+    </div>
+  </div>
+
+  <!-- Productos críticos -->
+  <div class="seccion" id="seccionCriticos">
+    <div class="seccion-head" onclick="toggleSeccion('seccionCriticos')">
+      <div>
+        <h2>⭐ Productos críticos — nunca deberían faltar</h2>
+        <div class="sub">Automático: el 20% más vendido ("Estrella"). Manual: los que agregues tú abajo. Pueden tener ambos orígenes.</div>
+      </div>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <div class="form-inline" style="margin-bottom:14px;" onclick="event.stopPropagation()">
+        <div class="campo">
+          <label>Agregar SKU crítico</label>
+          <input type="text" id="fCriticoCode" list="listaSkusDatalist" placeholder="Código SKU" style="width:220px;">
+        </div>
+        <button class="btn-primary btn-compact" onclick="agregarCritico()">+ Marcar como crítico</button>
+      </div>
+      <datalist id="listaSkusDatalist"></datalist>
+      <div id="errorCritico"></div>
+      <div id="wrapCriticos"><p class="empty-note">Cargando...</p></div>
+    </div>
+  </div>
+
+  <!-- Clasificación ABC -->
+  <div class="seccion" id="seccionAbc">
+    <div class="seccion-head" onclick="toggleSeccion('seccionAbc')">
       <div>
         <h2>📊 Clasificación ABC (Pareto) por venta $</h2>
-        <div class="sub">Clase A = el grupo de productos que junto suma el 80% de tus ventas en pesos — son los que menos te puedes dar el lujo de dejar sin stock.</div>
+        <div class="sub">Clase A = el grupo de productos que junto suma el 80% de tus ventas en pesos — prioridad #1 para nunca dejar sin stock.</div>
       </div>
+      <span class="panel-chevron">▾</span>
     </div>
-    <div id="wrapAbc"><p class="empty-note">Cargando...</p></div>
+    <div class="panel-body">
+      <div id="wrapAbc"><p class="empty-note">Cargando...</p></div>
+      <h2 style="font-size:13px;margin-top:18px;">Detalle de productos Clase A</h2>
+      <div id="wrapAbcProductos"><p class="empty-note">Cargando...</p></div>
+    </div>
   </div>
 
-  <!-- 6) Tendencia semanal -->
-  <div class="seccion">
-    <div class="seccion-head">
+  <!-- Tendencia semanal -->
+  <div class="seccion" id="seccionTendencia">
+    <div class="seccion-head" onclick="toggleSeccion('seccionTendencia')">
       <div>
         <h2>📈 Tendencia semana a semana</h2>
-        <div class="sub">Compara la última semana (SEM -1) contra la anterior (SEM -2) — para ver qué está acelerando o frenando antes de que se note en el promedio general.</div>
+        <div class="sub">Compara las últimas 4 semanas — para ver qué está acelerando o frenando antes de que se note en el promedio general.</div>
       </div>
-      <div class="chips">
-        <button class="btn-ghost btn-compact active" onclick="filtrarTendencia('acelerando', event)">↑ Acelerando</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarTendencia('desacelerando', event)">↓ Frenando</button>
-      </div>
+      <span class="panel-chevron">▾</span>
     </div>
-    <div id="wrapTendencia"><p class="empty-note">Cargando...</p></div>
+    <div class="panel-body">
+      <div class="chips" style="margin-bottom:12px;" onclick="event.stopPropagation()">
+        <button class="btn-ghost btn-compact active" id="btnAcelerando" onclick="event.stopPropagation(); filtrarTendencia('acelerando')">↑ Acelerando</button>
+        <button class="btn-ghost btn-compact" id="btnFrenando" onclick="event.stopPropagation(); filtrarTendencia('desacelerando')">↓ Frenando</button>
+      </div>
+      <div id="wrapTendencia"><p class="empty-note">Cargando...</p></div>
+    </div>
   </div>
 
-  <!-- 7) Exportar lista de pedido -->
-  <div class="seccion">
-    <div class="seccion-head">
+  <!-- Exportar lista de pedido -->
+  <div class="seccion" id="seccionExport">
+    <div class="seccion-head" onclick="toggleSeccion('seccionExport')">
       <div>
         <h2>📥 Lista de pedido sugerido</h2>
         <div class="sub">Descarga un CSV listo para mandarle al proveedor, con la sugerencia de compra al horizonte que elijas.</div>
       </div>
+      <span class="panel-chevron">▾</span>
     </div>
-    <div class="form-inline">
-      <div class="campo">
-        <label>Horizonte</label>
-        <select id="horizonteExport">
-          <option value="5">5 días</option>
-          <option value="7" selected>7 días</option>
-          <option value="14">14 días</option>
-          <option value="30">30 días</option>
-        </select>
+    <div class="panel-body">
+      <div class="form-inline" onclick="event.stopPropagation()">
+        <div class="campo">
+          <label>Horizonte</label>
+          <select id="horizonteExport">
+            <option value="5">5 días</option>
+            <option value="7" selected>7 días</option>
+            <option value="14">14 días</option>
+            <option value="30">30 días</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label>Filtrar a</label>
+          <select id="filtroExport">
+            <option value="conSugerencia">Solo con sugerencia > 0</option>
+            <option value="criticos">Solo productos críticos</option>
+            <option value="quiebre">Solo en quiebre ahora</option>
+            <option value="todos">Todos</option>
+          </select>
+        </div>
+        <button class="btn-primary" onclick="exportarCsv()">⬇ Descargar CSV</button>
       </div>
-      <div class="campo">
-        <label>Filtrar a</label>
-        <select id="filtroExport">
-          <option value="conSugerencia">Solo con sugerencia > 0</option>
-          <option value="criticos">Solo productos críticos</option>
-          <option value="quiebre">Solo en quiebre ahora</option>
-          <option value="todos">Todos</option>
-        </select>
-      </div>
-      <button class="btn-primary" onclick="exportarCsv()">⬇ Descargar CSV</button>
     </div>
   </div>
 
@@ -247,8 +282,91 @@ function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
 
 let datosSkus = [];
 let criticosManual = []; // [{code, nombre, agregado_por, created_at}]
-let tendenciaFiltro = 'acelerando';
+let categoriasDisponibles = [];
 
+// Estado por sección: categoría elegida, columna/orden de sort, si está expandida
+// (mostrando todas las filas) o mostrando solo el resumen de 3-4.
+const seccionState = {
+  inminente:    { categoria:'', sortCol:'diasCobertura', sortAsc:true,  expandido:false },
+  quiebre:      { categoria:'', sortCol:'margenPerdidoPorQuiebre', sortAsc:false, expandido:false },
+  criticos:     { categoria:'', sortCol:'ordenEstado', sortAsc:true, expandido:false },
+  abc:          { categoria:'', sortCol:null, sortAsc:false, expandido:false },
+  abcProductos: { categoria:'', sortCol:'montoVentas', sortAsc:false, expandido:false },
+  tendencia:    { categoria:'', sortCol:'pct', sortAsc:false, expandido:false, modo:'acelerando' },
+};
+
+// ---------- Colapsar/expandir secciones completas ----------
+function toggleSeccion(id){
+  $(id).classList.toggle('colapsado');
+}
+
+// ---------- Utilidades genéricas de tabla (orden, filtro categoría, resumen) ----------
+function ordenarFilas(filas, col, asc){
+  if(!col) return filas;
+  return [...filas].sort((a,b)=>{
+    let va = a[col], vb = b[col];
+    const aNull = va===null || va===undefined, bNull = vb===null || vb===undefined;
+    if(aNull && bNull) return 0;
+    if(aNull) return 1;
+    if(bNull) return -1;
+    if(typeof va === 'string') return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return asc ? va-vb : vb-va;
+  });
+}
+function filtrarPorCategoria(filas, categoria){
+  if(!categoria) return filas;
+  return filas.filter(f => (f.categoria||'Sin categoría') === categoria);
+}
+function selectCategoriaHtml(stateKey, valorActual){
+  return `<select onclick="event.stopPropagation()" onchange="cambiarCategoriaSeccion('${stateKey}', this.value)">
+    <option value="">Todas las categorías</option>
+    ${categoriasDisponibles.map(c=>`<option value="${c}" ${c===valorActual?'selected':''}>${c}</option>`).join('')}
+  </select>`;
+}
+function renderTablaSeccion(containerId, stateKey, columnas, filasOriginales, rowClassFn){
+  const state = seccionState[stateKey];
+  let filas = filtrarPorCategoria(filasOriginales, state.categoria);
+  filas = ordenarFilas(filas, state.sortCol, state.sortAsc);
+  const total = filas.length;
+  const mostrar = state.expandido ? filas : filas.slice(0, Math.min(4, total));
+
+  const controles = `
+    <div class="controles-tabla" onclick="event.stopPropagation()">
+      ${selectCategoriaHtml(stateKey, state.categoria)}
+      ${total > 4 ? `<button class="btn-ghost btn-compact" onclick="toggleExpandido('${stateKey}')">${state.expandido ? '▲ Ver resumen' : '▼ Ver todos ('+total+')'}</button>` : `<span class="empty-note">${total} producto${total===1?'':'s'}</span>`}
+    </div>`;
+
+  if(total === 0){
+    $(containerId).innerHTML = controles + `<p class="empty-note">Sin datos para mostrar con este filtro.</p>`;
+    return;
+  }
+
+  const thead = `<tr>${columnas.map(c=>{
+    const key = c.sortKey || c.key;
+    const marca = state.sortCol===key ? (state.sortAsc?' ▲':' ▼') : '';
+    return `<th class="${c.align==='amount'?'amount':''}" onclick="cambiarOrden('${stateKey}','${key}')">${c.label}${marca}</th>`;
+  }).join('')}</tr>`;
+
+  const tbody = mostrar.map(f=>`<tr class="${rowClassFn?rowClassFn(f):''}">${columnas.map(c=>`<td class="${c.align==='amount'?'amount':''}">${c.render ? c.render(f) : (f[c.key] ?? '—')}</td>`).join('')}</tr>`).join('');
+
+  $(containerId).innerHTML = controles + `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+}
+function cambiarOrden(stateKey, col){
+  const st = seccionState[stateKey];
+  if(st.sortCol === col) st.sortAsc = !st.sortAsc;
+  else { st.sortCol = col; st.sortAsc = true; }
+  RENDER_POR_SECCION[stateKey]();
+}
+function toggleExpandido(stateKey){
+  seccionState[stateKey].expandido = !seccionState[stateKey].expandido;
+  RENDER_POR_SECCION[stateKey]();
+}
+function cambiarCategoriaSeccion(stateKey, valor){
+  seccionState[stateKey].categoria = valor;
+  RENDER_POR_SECCION[stateKey]();
+}
+
+// ---------- Sesión ----------
 async function cargarSesionUsuario(){
   try{
     const res = await fetch('/api/auth-session');
@@ -266,16 +384,15 @@ async function cerrarSesion(){
   location.href = '/login.html';
 }
 
+// ---------- Carga principal ----------
 async function cargar(){
   const dias = parseInt($('diasInput').value, 10) || 90;
   const status = $('status');
   status.className = '';
   status.textContent = `Consultando ${dias} días en Bsale...`;
-  $('wrapQuiebre').innerHTML = `<p class="empty-note">Cargando...</p>`;
-  $('wrapCriticos').innerHTML = `<p class="empty-note">Cargando...</p>`;
-  $('wrapInminente').innerHTML = `<p class="empty-note">Cargando...</p>`;
-  $('wrapAbc').innerHTML = `<p class="empty-note">Cargando...</p>`;
-  $('wrapTendencia').innerHTML = `<p class="empty-note">Cargando...</p>`;
+  ['wrapInminente','wrapQuiebre','wrapCriticos','wrapAbc','wrapAbcProductos','wrapTendencia'].forEach(id=>{
+    $(id).innerHTML = `<p class="empty-note">Cargando...</p>`;
+  });
 
   try{
     const [res, criticosRes] = await Promise.all([
@@ -289,6 +406,7 @@ async function cargar(){
     }
     datosSkus = res.skus || [];
     criticosManual = criticosRes.productos || [];
+    categoriasDisponibles = res.categorias || [];
 
     const dl = $('listaSkusDatalist');
     dl.innerHTML = datosSkus.map(s => `<option value="${s.code}">${s.nombre}</option>`).join('');
@@ -298,11 +416,11 @@ async function cargar(){
     $('avisoWrap').innerHTML = avisos;
 
     renderKpis();
-    renderQuiebre();
-    renderCriticos();
     renderInminente();
+    renderQuiebrePerdida();
+    renderCriticosSeccion();
     renderAbc();
-    renderTendencia();
+    renderTendenciaSeccion();
 
     status.className = 'ok';
     status.textContent = `Listo — ${res.docsRevisados} documentos revisados, ${res.startDate} a ${res.endDate}`;
@@ -312,9 +430,9 @@ async function cargar(){
   }
 }
 
-// ---------- Set de críticos (auto Estrella + manual) ----------
+// ---------- Críticos: set combinado auto + manual ----------
 function mapaCriticos(){
-  const mapa = {}; // code -> { auto: bool, manual: bool, manualInfo }
+  const mapa = {};
   for(const s of datosSkus){
     if(s.esEstrella) mapa[s.code] = { ...(mapa[s.code]||{}), auto: true };
   }
@@ -329,7 +447,7 @@ function origenTexto(info){
   return { clase:'auto', texto:'Automático (Estrella)' };
 }
 
-// ---------- 1) KPIs ----------
+// ---------- KPIs ----------
 function renderKpis(){
   const cards = document.querySelectorAll('#kpiWrap .card');
   const margenPerdidoTotal = datosSkus.reduce((a,s)=>a+(s.margenPerdidoPorQuiebre||0),0);
@@ -356,64 +474,64 @@ function renderKpis(){
   cards[3].classList.toggle('warn', coberturaProm != null && coberturaProm <= 7);
 }
 
-// ---------- 2) Quiebre pasado (ventas perdidas) ----------
-function renderQuiebre(){
-  const lista = datosSkus.filter(s=>s.diasQuiebreHistorico>0).sort((a,b)=>(b.margenPerdidoPorQuiebre||0)-(a.margenPerdidoPorQuiebre||0));
-  if(lista.length===0){ $('wrapQuiebre').innerHTML = `<p class="empty-note">Ningún producto estuvo en quiebre en este período. 🎉</p>`; return; }
-  $('wrapQuiebre').innerHTML = `
-    <table>
-      <thead><tr><th>SKU</th><th>Producto</th><th>Categoría</th><th class="amount">Días en quiebre</th><th class="amount">Stock actual</th><th class="amount">Venta diaria</th><th class="amount">Margen perdido est.</th><th class="amount">Sugerencia 7d</th></tr></thead>
-      <tbody>
-        ${lista.slice(0,60).map(s=>`
-          <tr class="${s.stockActual===0?'quiebre':''}">
-            <td>${s.code}</td><td>${s.nombre}</td><td>${s.categoria}</td>
-            <td class="amount">${s.diasQuiebreHistorico}</td>
-            <td class="amount">${s.stockActual}</td>
-            <td class="amount">${s.ventaDiariaPromedio}</td>
-            <td class="amount">${s.margenPerdidoPorQuiebre!=null?fmt(s.margenPerdidoPorQuiebre):'—'}</td>
-            <td class="amount">${s.sugerencia7}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>`;
+// ---------- Quiebre inminente ----------
+function renderInminente(){
+  const base = datosSkus.filter(s=>s.stockActual>0 && s.ventaDiariaPromedio>0 && s.diasCobertura!=null && s.diasCobertura<=5);
+  renderTablaSeccion('wrapInminente', 'inminente', [
+    { key:'code', label:'SKU' },
+    { key:'nombre', label:'Producto' },
+    { key:'categoria', label:'Categoría' },
+    { key:'stockActual', label:'Stock actual', align:'amount' },
+    { key:'ventaDiariaPromedio', label:'Venta diaria', align:'amount' },
+    { key:'diasCobertura', label:'Cobertura', align:'amount', render:f=>`<b>${f.diasCobertura} días</b>` },
+    { key:'sugerencia7', label:'Sugerencia 7d', align:'amount' },
+  ], base, () => 'riesgo');
 }
 
-// ---------- 3) Críticos ----------
-function renderCriticos(){
+// ---------- Ventas perdidas por quiebre (solo productos con venta real) ----------
+function renderQuiebrePerdida(){
+  const base = datosSkus.filter(s => s.diasQuiebreHistorico > 0 && s.unidadesVendidas > 0);
+  renderTablaSeccion('wrapQuiebre', 'quiebre', [
+    { key:'code', label:'SKU' },
+    { key:'nombre', label:'Producto' },
+    { key:'categoria', label:'Categoría' },
+    { key:'diasQuiebreHistorico', label:'Días en quiebre', align:'amount' },
+    { key:'stockActual', label:'Stock actual', align:'amount' },
+    { key:'ventaDiariaPromedio', label:'Venta diaria', align:'amount' },
+    { key:'margenPerdidoPorQuiebre', label:'Margen perdido est.', align:'amount', render:f=>f.margenPerdidoPorQuiebre!=null?fmt(f.margenPerdidoPorQuiebre):'—' },
+    { key:'sugerencia7', label:'Sugerencia 7d', align:'amount' },
+  ], base, f => f.stockActual===0 ? 'quiebre' : '');
+}
+
+// ---------- Críticos ----------
+function renderCriticosSeccion(){
   const mapa = mapaCriticos();
   const codigos = Object.keys(mapa);
-  if(codigos.length===0){ $('wrapCriticos').innerHTML = `<p class="empty-note">Todavía no hay productos críticos (ni automáticos ni marcados a mano).</p>`; return; }
-
+  const orden = { quiebre:0, riesgo:1, ok:2 };
   const filas = codigos.map(code=>{
     const s = datosSkus.find(x=>x.code===code);
     const info = mapa[code];
     const origen = origenTexto(info);
     const nombre = s?.nombre || info.manualInfo?.nombre || code;
+    const categoria = s?.categoria || 'Sin categoría';
     const stock = s?.stockActual ?? null;
     const cobertura = s?.diasCobertura ?? null;
     let estado = { clase:'ok', texto:'OK' };
     if(stock===0) estado = { clase:'quiebre', texto:'Sin stock' };
     else if(cobertura!=null && cobertura<=3) estado = { clase:'riesgo', texto:'Riesgo (≤3 días)' };
-    return { code, nombre, origen, stock, cobertura, estado, esManual: !!info.manual };
-  }).sort((a,b)=>{
-    const orden = { quiebre:0, riesgo:1, ok:2 };
-    return orden[a.estado.clase]-orden[b.estado.clase];
+    return { code, nombre, categoria, origen, stock, cobertura, estado, ordenEstado: orden[estado.clase], esManual: !!info.manual };
   });
 
-  $('wrapCriticos').innerHTML = `
-    <table>
-      <thead><tr><th>SKU</th><th>Producto</th><th>Origen</th><th class="amount">Stock actual</th><th class="amount">Cobertura</th><th>Estado</th><th>Acción</th></tr></thead>
-      <tbody>
-        ${filas.map(f=>`
-          <tr class="${f.estado.clase==='quiebre'?'quiebre':(f.estado.clase==='riesgo'?'riesgo':'')}">
-            <td>${f.code}</td><td>${f.nombre}</td>
-            <td><span class="badge ${f.origen.clase}">${f.origen.texto}</span></td>
-            <td class="amount">${f.stock ?? '—'}</td>
-            <td class="amount">${f.cobertura!=null?f.cobertura+' d':'—'}</td>
-            <td><span class="badge ${f.estado.clase}">${f.estado.texto}</span></td>
-            <td>${f.esManual?`<button class="btn-ghost btn-compact" onclick="quitarCritico('${f.code}')">Quitar</button>`:'<span class="empty-note">—</span>'}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>`;
+  renderTablaSeccion('wrapCriticos', 'criticos', [
+    { key:'code', label:'SKU' },
+    { key:'nombre', label:'Producto' },
+    { key:'categoria', label:'Categoría' },
+    { key:'origen', label:'Origen', sortKey:'ordenEstado', render:f=>`<span class="badge ${f.origen.clase}">${f.origen.texto}</span>` },
+    { key:'stock', label:'Stock actual', align:'amount', render:f=>f.stock ?? '—' },
+    { key:'cobertura', label:'Cobertura', align:'amount', render:f=>f.cobertura!=null?f.cobertura+' d':'—' },
+    { key:'ordenEstado', label:'Estado', render:f=>`<span class="badge ${f.estado.clase}">${f.estado.texto}</span>` },
+    { key:'accion', label:'Acción', sortKey:'ordenEstado', render:f=>f.esManual?`<button class="btn-ghost btn-compact" onclick="quitarCritico('${f.code}')">Quitar</button>`:'<span class="empty-note">—</span>' },
+  ], filas, f => f.estado.clase==='quiebre' ? 'quiebre' : (f.estado.clase==='riesgo' ? 'riesgo' : ''));
 }
 
 async function agregarCritico(){
@@ -432,7 +550,7 @@ async function agregarCritico(){
     $('fCriticoCode').value = '';
     const listaRes = await fetch('/api/productos-criticos').then(r=>r.json());
     criticosManual = listaRes.productos || [];
-    renderCriticos(); renderKpis();
+    renderCriticosSeccion(); renderKpis();
   }catch(err){
     errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${err.message}</div>`;
   }
@@ -442,85 +560,59 @@ async function quitarCritico(code){
   await fetch(`/api/productos-criticos?code=${encodeURIComponent(code)}`, { method:'DELETE' });
   const listaRes = await fetch('/api/productos-criticos').then(r=>r.json());
   criticosManual = listaRes.productos || [];
-  renderCriticos(); renderKpis();
+  renderCriticosSeccion(); renderKpis();
 }
 
-// ---------- 4) Quiebre inminente ----------
-function renderInminente(){
-  const lista = datosSkus
-    .filter(s=>s.stockActual>0 && s.ventaDiariaPromedio>0 && s.diasCobertura!=null && s.diasCobertura<=5)
-    .sort((a,b)=>a.diasCobertura-b.diasCobertura);
-  if(lista.length===0){ $('wrapInminente').innerHTML = `<p class="empty-note">Ningún producto con venta activa está por quebrar stock en los próximos 5 días.</p>`; return; }
-  $('wrapInminente').innerHTML = `
-    <table>
-      <thead><tr><th>SKU</th><th>Producto</th><th class="amount">Stock actual</th><th class="amount">Venta diaria</th><th class="amount">Cobertura</th><th class="amount">Sugerencia 7d</th></tr></thead>
-      <tbody>
-        ${lista.map(s=>`
-          <tr class="riesgo">
-            <td>${s.code}</td><td>${s.nombre}</td>
-            <td class="amount">${s.stockActual}</td>
-            <td class="amount">${s.ventaDiariaPromedio}</td>
-            <td class="amount"><b>${s.diasCobertura} días</b></td>
-            <td class="amount">${s.sugerencia7}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>`;
-}
-
-// ---------- 5) Clasificación ABC ----------
-function renderAbc(){
-  const conVenta = datosSkus.filter(s=>s.montoVentas>0).sort((a,b)=>b.montoVentas-a.montoVentas);
-  const totalVentas = conVenta.reduce((a,s)=>a+s.montoVentas,0);
-  if(totalVentas===0){ $('wrapAbc').innerHTML = `<p class="empty-note">Sin ventas en el período para clasificar.</p>`; return; }
-
-  let acumulado = 0;
+// ---------- Clasificación ABC ----------
+function calcularAbc(){
+  let base = datosSkus.filter(s=>s.montoVentas>0);
+  base = filtrarPorCategoria(base, seccionState.abc.categoria);
+  base = base.sort((a,b)=>b.montoVentas-a.montoVentas);
+  const total = base.reduce((a,s)=>a+s.montoVentas,0);
   const clases = { A: [], B: [], C: [] };
-  for(const s of conVenta){
+  let acumulado = 0;
+  for(const s of base){
     acumulado += s.montoVentas;
-    const pctAcumulado = acumulado/totalVentas*100;
-    const clase = pctAcumulado<=80 ? 'A' : (pctAcumulado<=95 ? 'B' : 'C');
+    const pct = total ? acumulado/total*100 : 0;
+    const clase = pct<=80 ? 'A' : (pct<=95 ? 'B' : 'C');
     clases[clase].push(s);
   }
-
+  return { clases, total };
+}
+function renderAbc(){
+  const { clases, total } = calcularAbc();
   const resumen = ['A','B','C'].map(c=>{
     const grupo = clases[c];
     const monto = grupo.reduce((a,s)=>a+s.montoVentas,0);
-    return { clase:c, cantidad:grupo.length, monto, pct: totalVentas?Math.round(monto/totalVentas*1000)/10:0 };
+    return { clase:c, cantidad:grupo.length, monto, pct: total?Math.round(monto/total*1000)/10:0 };
   });
+  renderTablaSeccion('wrapAbc', 'abc', [
+    { key:'clase', label:'Clase', render:f=>`<span class="badge clase${f.clase}">Clase ${f.clase}</span>` },
+    { key:'cantidad', label:'# Productos', align:'amount' },
+    { key:'monto', label:'Venta $', align:'amount', render:f=>fmt(f.monto) },
+    { key:'pct', label:'% del total', align:'amount', render:f=>f.pct+'%' },
+  ], resumen);
 
-  $('wrapAbc').innerHTML = `
-    <table style="margin-bottom:14px;">
-      <thead><tr><th>Clase</th><th class="amount"># Productos</th><th class="amount">Venta $</th><th class="amount">% del total</th></tr></thead>
-      <tbody>
-        ${resumen.map(r=>`
-          <tr>
-            <td><span class="badge clase${r.clase}">Clase ${r.clase}</span></td>
-            <td class="amount">${r.cantidad}</td>
-            <td class="amount">${fmt(r.monto)}</td>
-            <td class="amount">${r.pct}%</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>
-    <details>
-      <summary style="cursor:pointer;font-size:12px;color:var(--primary);">Ver productos Clase A (prioridad #1 para nunca quebrar stock)</summary>
-      <table style="margin-top:10px;">
-        <thead><tr><th>SKU</th><th>Producto</th><th class="amount">Venta $</th><th class="amount">Stock actual</th><th class="amount">Cobertura</th></tr></thead>
-        <tbody>
-          ${clases.A.map(s=>`<tr class="${s.stockActual===0?'quiebre':''}"><td>${s.code}</td><td>${s.nombre}</td><td class="amount">${fmt(s.montoVentas)}</td><td class="amount">${s.stockActual}</td><td class="amount">${s.diasCobertura??'—'}</td></tr>`).join('')}
-        </tbody>
-      </table>
-    </details>`;
+  renderTablaSeccion('wrapAbcProductos', 'abcProductos', [
+    { key:'code', label:'SKU' },
+    { key:'nombre', label:'Producto' },
+    { key:'categoria', label:'Categoría' },
+    { key:'montoVentas', label:'Venta $', align:'amount', render:f=>fmt(f.montoVentas) },
+    { key:'stockActual', label:'Stock actual', align:'amount' },
+    { key:'diasCobertura', label:'Cobertura', align:'amount', render:f=>f.diasCobertura??'—' },
+  ], clases.A, f=>f.stockActual===0?'quiebre':'');
 }
 
-// ---------- 6) Tendencia semanal ----------
-function filtrarTendencia(modo, ev){
-  tendenciaFiltro = modo;
-  const botones = document.querySelectorAll('.seccion-head .chips button');
-  botones.forEach(b=>b.classList.remove('active'));
-  if(ev && ev.currentTarget) ev.currentTarget.classList.add('active');
-  renderTendencia();
+// ---------- Tendencia semanal ----------
+function filtrarTendencia(modo){
+  seccionState.tendencia.modo = modo;
+  seccionState.tendencia.sortAsc = false;
+  $('btnAcelerando').classList.toggle('active', modo==='acelerando');
+  $('btnFrenando').classList.toggle('active', modo==='desacelerando');
+  renderTendenciaSeccion();
 }
-function renderTendencia(){
+function renderTendenciaSeccion(){
+  const modo = seccionState.tendencia.modo;
   const conMovimiento = datosSkus
     .filter(s=>(s.semana1>0 || s.semana2>0))
     .map(s=>{
@@ -528,29 +620,32 @@ function renderTendencia(){
       const pct = s.semana2>0 ? Math.round((variacion/s.semana2)*1000)/10 : (s.semana1>0?100:0);
       return { ...s, variacion, pct };
     });
-  let lista = tendenciaFiltro==='acelerando'
-    ? conMovimiento.filter(s=>s.variacion>0).sort((a,b)=>b.pct-a.pct)
-    : conMovimiento.filter(s=>s.variacion<0).sort((a,b)=>a.pct-b.pct);
-  lista = lista.slice(0,20);
+  const base = modo==='acelerando' ? conMovimiento.filter(s=>s.variacion>0) : conMovimiento.filter(s=>s.variacion<0);
 
-  if(lista.length===0){ $('wrapTendencia').innerHTML = `<p class="empty-note">Sin productos ${tendenciaFiltro==='acelerando'?'acelerando':'frenando'} respecto a la semana anterior.</p>`; return; }
-  $('wrapTendencia').innerHTML = `
-    <table>
-      <thead><tr><th>SKU</th><th>Producto</th><th class="amount">SEM -2</th><th class="amount">SEM -1</th><th class="amount">Variación</th><th class="amount">% cambio</th></tr></thead>
-      <tbody>
-        ${lista.map(s=>`
-          <tr>
-            <td>${s.code}</td><td>${s.nombre}</td>
-            <td class="amount">${s.semana2}</td>
-            <td class="amount">${s.semana1}</td>
-            <td class="amount ${s.variacion>=0?'arrow-up':'arrow-down'}">${s.variacion>=0?'▲':'▼'} ${Math.abs(s.variacion)}</td>
-            <td class="amount ${s.variacion>=0?'arrow-up':'arrow-down'}">${s.pct>0?'+':''}${s.pct}%</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>`;
+  renderTablaSeccion('wrapTendencia', 'tendencia', [
+    { key:'code', label:'SKU' },
+    { key:'nombre', label:'Producto' },
+    { key:'categoria', label:'Categoría' },
+    { key:'semana4', label:'SEM -4', align:'amount' },
+    { key:'semana3', label:'SEM -3', align:'amount' },
+    { key:'semana2', label:'SEM -2', align:'amount' },
+    { key:'semana1', label:'SEM -1', align:'amount' },
+    { key:'variacion', label:'Variación', align:'amount', render:f=>`<span class="${f.variacion>=0?'arrow-up':'arrow-down'}">${f.variacion>=0?'▲':'▼'} ${Math.abs(f.variacion)}</span>` },
+    { key:'pct', label:'% cambio', align:'amount', render:f=>`<span class="${f.variacion>=0?'arrow-up':'arrow-down'}">${f.pct>0?'+':''}${f.pct}%</span>` },
+  ], base);
 }
 
-// ---------- 7) Exportar CSV ----------
+// Mapa de sección -> función de render, usado por cambiarOrden/toggleExpandido/cambiarCategoriaSeccion
+const RENDER_POR_SECCION = {
+  inminente: renderInminente,
+  quiebre: renderQuiebrePerdida,
+  criticos: renderCriticosSeccion,
+  abc: renderAbc,
+  abcProductos: renderAbc,
+  tendencia: renderTendenciaSeccion,
+};
+
+// ---------- Exportar CSV ----------
 function exportarCsv(){
   const horizonte = $('horizonteExport').value;
   const filtro = $('filtroExport').value;
