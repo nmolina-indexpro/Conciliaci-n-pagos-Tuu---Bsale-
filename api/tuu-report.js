@@ -158,7 +158,25 @@ export default async function handler(req, res) {
         porStatus, porTipo, noClasificadas,
         sumaConFiltroActual,      // lo que hoy usa la app (solo status "completed")
         sumaTotalSinFiltro,       // si no filtráramos por status
-        ejemploTransaccion: rawTransactions[0] || null
+        ejemploTransaccion: rawTransactions[0] || null,
+        // Listado completo (todas las transacciones "completed", con el tipo
+        // ya calculado por inferirTipo) -> para poder ubicar el saleId de una
+        // transacción puntual por hora/monto cuando el tipo que reporta TUU
+        // no calza con su propio dashboard, y así agregarla a
+        // EXCEPCIONES_SALE_ID de forma permanente.
+        transaccionesCompletas: rawTransactions
+          .filter(t => (t.status || '').toLowerCase() === 'completed')
+          .map(t => ({
+            hora: (t.transactionDateTime || '').slice(11, 16),
+            monto: t.totalAmount,
+            saleId: t.saleId || '',
+            tipoTuu: t.transactionType || '(sin tipo)',
+            tipoCalculado: inferirTipo(t),
+            cardBrand: t.cardBrand || '',
+            cardOrigin: t.cardOrigin || '',
+            cuotas: t.installmentCount ?? null
+          }))
+          .sort((a, b) => a.hora.localeCompare(b.hora))
       });
     }
 
