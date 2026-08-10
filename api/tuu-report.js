@@ -96,7 +96,14 @@ export default async function handler(req, res) {
     // directamente en el detalle de venta de TUU. Agregar acá evita tener que
     // marcarlas como "revisado" cada vez que se corre el reporte.
     const EXCEPCIONES_SALE_ID = {
-      '2530': 'credito' // Venta $109.900, 31/07/2026 12:07, confirmada como "Venta crédito" en TUU
+      '2530': 'credito', // Venta $109.900, 31/07/2026 12:07, confirmada como "Venta crédito" en TUU
+      '2594': 'debito',  // Venta $56.800, 04/08/2026 15:39, VISA 1 cuota. TUU la reporta con
+                          // transactionType "CREDIT" pero el portal de TUU y Bsale (documento
+                          // registrado como "TARJETA DÉBITO") confirman que es débito. Se verificó
+                          // cuadrando el total del día contra el portal (Débito $546.900 exacto).
+      '2595': 'debito',  // Venta $39.900, 04/08/2026 16:42, sin transactionType ni cuotas>1 (por
+                          // eso caía en "otras"/sin clasificar). Confirmada como débito cuadrando
+                          // el total del día contra el portal de TUU (Débito $546.900 exacto).
     };
 
     function inferirTipo(t) {
