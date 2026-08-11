@@ -365,6 +365,7 @@ export default async function handler(req, res) {
     let comprasPorSku = {};
     const comprasPorDiaSku = {}; // { [code]: { [fecha]: unidades } } -> para reconstruir stock histórico
     let ultimoCostoPorSku = {}; // { [code]: { costo, fecha } }
+    let proveedorPorSku = {}; // { [code]: { proveedor, fecha } } -> proveedor de la recepción más reciente de ese SKU
     let recepcionesDisponibles = true;
     // Filtramos por FECHA DE RECEPCIÓN de los últimos 14 días (no por fecha
     // de vencimiento) — como el vencimiento de cada una ya se calcula como
@@ -462,6 +463,7 @@ export default async function handler(req, res) {
           }
         }
 
+        const proveedorInfoDetalle = identificarProveedor(rec);
         for (const det of detalles) {
           const variantId = det.variant?.id;
           const code = variantId != null ? codePorVariantId[String(variantId)] : null;
@@ -484,6 +486,17 @@ export default async function handler(req, res) {
             const actual = ultimoCostoPorSku[code];
             if (!actual || fecha > actual.fecha) {
               ultimoCostoPorSku[code] = { costo: det.cost, fecha };
+            }
+          }
+
+          // Proveedor de este SKU: se queda con el de la recepción más
+          // reciente que lo trajo (mismo criterio que ultimoCostoPorSku),
+          // para poder filtrar por proveedor a nivel de producto -> por
+          // ejemplo, "cargadores y baterías que importo de Daxis".
+          if (fecha) {
+            const actualProv = proveedorPorSku[code];
+            if (!actualProv || fecha > actualProv.fecha) {
+              proveedorPorSku[code] = { proveedor: proveedorInfoDetalle.nombre, fecha };
             }
           }
         }
@@ -614,6 +627,7 @@ export default async function handler(req, res) {
           unidadesCompradas: compradas,
           ultimoCosto: ultimoCostoPorSku[code]?.costo ?? null,
           fechaUltimaCompra: ultimoCostoPorSku[code]?.fecha ?? null,
+          proveedor: proveedorPorSku[code]?.proveedor ?? null,
           margenUnitario,
           margenPorcentaje,
           diasQuiebreHistorico: diasQuiebreHist.length,
