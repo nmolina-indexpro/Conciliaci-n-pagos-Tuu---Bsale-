@@ -372,6 +372,15 @@ function procesarManual(){
 let ultimoShopifyData = null; // {gShopify, shopifyPos, bsaleShopify} o null si no está disponible
 let ultimoBciData = null; // {gBci, bciPos, bsaleTransferencia} o null si no está disponible
 let ultimoEfectivoDocs = []; // documentos Bsale pagados en efectivo del día (sin sistema externo con qué cruzarlos)
+let ultimoBsaleTotalVenta = 0; // suma de TODOS los pagos Bsale del día (crédito+débito+transferencia+efectivo+shopify+otros), sin filtrar por canal
+
+// Suma el monto de todos los pagos Bsale del día, cruzando todas las
+// categorías que devuelve /api/bsale-report -> total real de venta Bsale,
+// no solo lo que matchea contra algún canal externo (TUU/Shopify/BCI).
+function totalVentaBsale(bsaleRes){
+  const categorias = ['credito', 'debito', 'transferencia', 'efectivo', 'shopify', 'otros'];
+  return categorias.reduce((a, cat) => a + sum(bsaleRes[cat] || [], 'monto'), 0);
+}
 let vinculosShopify = {}; // { [numeroDocBsale]: {orden, cliente} } — desde la etiqueta NV-/FA- de Shopify
 
 async function fetchAutomatico(){
@@ -427,6 +436,7 @@ async function fetchAutomatico(){
 
     ultimoEfectivoDocs = bsaleRes.efectivo || [];
     renderEfectivo(ultimoEfectivoDocs);
+    ultimoBsaleTotalVenta = totalVentaBsale(bsaleRes);
 
     const posAll = (tuuRes.transacciones || []).filter(t => t.type === 'debito' || t.type === 'credito');
     const bsaleCred = bsaleRes.credito || [];
@@ -1038,6 +1048,7 @@ function renderResults(rCrudo){
   }
   const totalEfectivo = sum(ultimoEfectivoDocs, 'monto');
   filas.push({ canal: 'Efectivo', origen: totalEfectivo, bsale: totalEfectivo, cuadra: true, sinComparar: true });
+  filas.push({ canal: 'Total venta Bsale', origen: null, bsale: ultimoBsaleTotalVenta, cuadra: true, sinComparar: true });
   const cuadraGeneral = filas.every(f => f.cuadra);
 
   el.innerHTML = `
@@ -1048,7 +1059,7 @@ function renderResults(rCrudo){
           ${filas.map(f => `
             <tr>
               <td>${f.canal}</td>
-              <td class="amount val-cell">${fmt(f.origen)}</td>
+              <td class="amount val-cell">${f.origen === null ? '—' : fmt(f.origen)}</td>
               <td class="amount val-cell">${fmt(f.bsale)}</td>
               <td class="estado-cell">${f.sinComparar ? '<span class="check-icon info" title="Sin sistema externo para comparar">ℹ</span>' : `<span class="check-icon ${f.cuadra?'ok':'no'}">${f.cuadra?'✓':'✕'}</span>`}</td>
             </tr>`).join('')}

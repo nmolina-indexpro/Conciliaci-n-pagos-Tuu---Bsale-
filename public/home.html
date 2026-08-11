@@ -81,6 +81,7 @@
   .acceso-card .icono{font-size:22px;margin-bottom:8px;display:block;}
   .acceso-card .titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;margin-bottom:4px;}
   .acceso-card .desc{font-size:11.5px;color:var(--muted);line-height:1.4;}
+  body.sin-margenes .solo-admin{display:none !important;}
 </style>
 </head>
 <body>
@@ -143,7 +144,7 @@
   </div>
 
   <div class="grid" id="kpiWrap">
-    <div class="card"><div class="lbl">Margen perdido estimado</div><div class="big">—</div></div>
+    <div class="card solo-admin"><div class="lbl">Margen perdido estimado</div><div class="big">—</div></div>
     <div class="card"><div class="lbl">SKUs en quiebre ahora</div><div class="big">—</div></div>
     <div class="card"><div class="lbl">Críticos en riesgo</div><div class="big">—</div></div>
     <div class="card"><div class="lbl">Cobertura promedio</div><div class="big">—</div></div>
@@ -158,7 +159,7 @@
       <div id="wrapInminente"><p class="empty-note">Cargando...</p></div>
     </div>
 
-    <div class="seccion">
+    <div class="seccion solo-admin">
       <div class="seccion-head">
         <div><h2>💸 Mayor margen perdido</h2><div class="sub">Top 5 productos con más venta perdida por quiebre.</div></div>
         <a href="alertas-stock.html">Ver todo →</a>
@@ -208,6 +209,7 @@ async function cargarSesionUsuario(){
       if(nav) nav.style.display = '';
     }
     aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionMargenes(u.rol);
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){

@@ -99,6 +99,7 @@
   .campo{display:flex;flex-direction:column;gap:5px;}
   .campo label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;}
   .controles-tabla{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;}
+  body.sin-margenes .solo-admin{display:none !important;}
 </style>
 </head>
 <body>
@@ -151,7 +152,7 @@
     </div>
     <div class="panel-body">
       <div class="grid" id="kpiWrap">
-        <div class="card"><div class="lbl">Margen perdido estimado</div><div class="big">—</div></div>
+        <div class="card solo-admin"><div class="lbl">Margen perdido estimado</div><div class="big">—</div></div>
         <div class="card"><div class="lbl">SKUs en quiebre ahora</div><div class="big">—</div></div>
         <div class="card"><div class="lbl">Críticos en riesgo</div><div class="big">—</div></div>
         <div class="card"><div class="lbl">Cobertura promedio</div><div class="big">—</div></div>
@@ -289,6 +290,7 @@ function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
 let datosSkus = [];
 let criticosManual = []; // [{code, nombre, agregado_por, created_at}]
 let categoriasDisponibles = [];
+let rolActual = 'usuario';
 
 // Estado por sección: categoría elegida, columna/orden de sort, si está expandida
 // (mostrando todas las filas) o mostrando solo el resumen de 3-4.
@@ -350,10 +352,14 @@ function renderTablaSeccion(containerId, stateKey, columnas, filasOriginales, ro
   const thead = `<tr>${columnas.map(c=>{
     const key = c.sortKey || c.key;
     const marca = state.sortCol===key ? (state.sortAsc?' ▲':' ▼') : '';
-    return `<th class="${c.align==='amount'?'amount':''}" onclick="cambiarOrden('${stateKey}','${key}')">${c.label}${marca}</th>`;
+    const clases = [c.align==='amount'?'amount':'', c.soloAdmin?'solo-admin':''].filter(Boolean).join(' ');
+    return `<th class="${clases}" onclick="cambiarOrden('${stateKey}','${key}')">${c.label}${marca}</th>`;
   }).join('')}</tr>`;
 
-  const tbody = mostrar.map(f=>`<tr class="${rowClassFn?rowClassFn(f):''}">${columnas.map(c=>`<td class="${c.align==='amount'?'amount':''}">${c.render ? c.render(f) : (f[c.key] ?? '—')}</td>`).join('')}</tr>`).join('');
+  const tbody = mostrar.map(f=>`<tr class="${rowClassFn?rowClassFn(f):''}">${columnas.map(c=>{
+    const clases = [c.align==='amount'?'amount':'', c.soloAdmin?'solo-admin':''].filter(Boolean).join(' ');
+    return `<td class="${clases}">${c.render ? c.render(f) : (f[c.key] ?? '—')}</td>`;
+  }).join('')}</tr>`).join('');
 
   $(containerId).innerHTML = controles + `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
 }
@@ -378,8 +384,10 @@ async function cargarSesionUsuario(){
     const res = await fetch('/api/auth-session');
     if(!res.ok) return;
     const u = await res.json();
+    rolActual = u.rol;
     document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
     aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionMargenes(u.rol);
     if(u.rol === 'admin'){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
@@ -451,7 +459,7 @@ function mapaCriticos(){
 function origenTexto(info){
   if(info.auto && info.manual) return { clase:'ambos', texto:'Automático + Manual' };
   if(info.manual) return { clase:'manual', texto:'Manual' };
-  return { clase:'auto', texto:'Automático (Estrella)' };
+  return { clase:'auto', texto: rolActual==='admin' ? 'Automático (Estrella)' : 'Automático' };
 }
 
 // ---------- KPIs ----------
@@ -505,7 +513,7 @@ function renderQuiebrePerdida(){
     { key:'diasQuiebreHistorico', label:'Días en quiebre', align:'amount' },
     { key:'stockActual', label:'Stock actual', align:'amount' },
     { key:'ventaDiariaPromedio', label:'Venta diaria', align:'amount' },
-    { key:'margenPerdidoPorQuiebre', label:'Margen perdido est.', align:'amount', render:f=>f.margenPerdidoPorQuiebre!=null?fmt(f.margenPerdidoPorQuiebre):'—' },
+    { key:'margenPerdidoPorQuiebre', label:'Margen perdido est.', align:'amount', soloAdmin:true, render:f=>f.margenPerdidoPorQuiebre!=null?fmt(f.margenPerdidoPorQuiebre):'—' },
     { key:'sugerencia7', label:'Sugerencia 7d', align:'amount' },
     { key:'accion', label:'', sortKey:'code', render:f=>`<button class="btn-ghost btn-compact" onclick="objetarQuiebre('${f.code}')">💬 Objetar</button>` },
   ], base, f => f.stockActual===0 ? 'quiebre' : '');

@@ -61,8 +61,28 @@ export default async function handler(req, res) {
       return r.json();
     }
 
+    // Errores a nivel de gateway (API Key inválida/faltante/expirada) NO usan
+    // el formato { metadata: { code } } de las respuestas normales de
+    // BranchReport -> vienen como { error: true, code: "KEY-00X", message }.
+    // Confirmado en vivo: probar sin key da KEY-002 ("API Key is missing"),
+    // con key inválida da KEY-003 ("Invalid API Key"). Si no se detecta esto
+    // por separado, "first?.data?.transactions" queda undefined y el bloque
+    // se trata como "sin transacciones" en vez de como error -> la app
+    // mostraría 0 ventas en silencio en lugar de avisar que la conexión con
+    // TUU está fallando.
+    function esErrorGateway(body) {
+      return body?.error === true && typeof body?.code === 'string';
+    }
+
     for (const [cStart, cEnd] of chunks) {
       const first = await fetchPage(cStart, cEnd, 1);
+
+      if (esErrorGateway(first)) {
+        return res.status(502).json({
+          error: 'TUU rechazó la solicitud (revisar TUU_API_KEY)',
+          detail: `${first.code}: ${first.message || 'error desconocido'}`
+        });
+      }
 
       if (first?.metadata?.code === 'BR-27') continue; // sin datos en este bloque, no es error
 
@@ -80,7 +100,15 @@ export default async function handler(req, res) {
         const pagePromises = [];
         for (let p = 2; p <= totalPages; p++) pagePromises.push(fetchPage(cStart, cEnd, p));
         const rest = await Promise.all(pagePromises);
-        for (const body of rest) rawTransactions.push(...(body?.data?.transactions || []));
+        for (const body of rest) {
+          if (esErrorGateway(body)) {
+            return res.status(502).json({
+              error: 'TUU rechazó la solicitud (revisar TUU_API_KEY)',
+              detail: `${body.code}: ${body.message || 'error desconocido'}`
+            });
+          }
+          rawTransactions.push(...(body?.data?.transactions || []));
+        }
       }
     }
 
@@ -104,6 +132,14 @@ export default async function handler(req, res) {
       '2595': 'debito',  // Venta $39.900, 04/08/2026 16:42, sin transactionType ni cuotas>1 (por
                           // eso caía en "otras"/sin clasificar). Confirmada como débito cuadrando
                           // el total del día contra el portal de TUU (Débito $546.900 exacto).
+      '2658': 'debito',  // Venta $32.900, 10/08/2026 14:17, MASTERCARD débito (**** 3592), sin
+                          // transactionType ni cuotas>1 (por eso caía en "otras"/sin clasificar).
+                          // Confirmada como "Venta débito" en el detalle de venta del portal TUU
+                          // (N° transacción 700064258567) — corresponde al doc. Bsale #44420.
+      '2659': 'debito',  // Venta $3.900, 10/08/2026 14:35, MASTERCARD débito (**** 8422), sin
+                          // transactionType ni cuotas>1 (por eso caía en "otras"/sin clasificar).
+                          // Confirmada como "Venta débito" en el detalle de venta del portal TUU
+                          // (N° transacción 110006984462) — corresponde al doc. Bsale #44421.
     };
 
     function inferirTipo(t) {
