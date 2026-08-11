@@ -56,6 +56,7 @@
 
   .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
   .grid-5{grid-template-columns:repeat(5,1fr);}
+  .grid-3{grid-template-columns:repeat(3,1fr);}
   @media (max-width:900px){.grid{grid-template-columns:1fr 1fr;}}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);}
   .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
@@ -105,6 +106,7 @@
       <a href="conciliacion.html">Conciliación</a>
       <a href="compras.html" class="active">Compras</a>
       <a href="alertas-stock.html">Alertas de Stock</a>
+      <a href="eficiencia-tickets.html">Tickets</a>
       <a href="guia-uso.html">Guía de uso</a>
       <a href="usuarios.html" id="navUsuarios" style="display:none;">Usuarios</a>
     </nav>
@@ -176,6 +178,27 @@
         <button class="btn-ghost btn-compact btn-exportar" onclick="descargarRecomendacion()">⬇ Descargar recomendación</button>
       </div>
       <div id="recomendacionWrap" style="margin-top:14px;"></div>
+    </div>
+  </div>
+
+  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #16A34A;" id="daxisCard">
+    <div class="panel-header" onclick="togglePanel('daxisCard')">
+      <span class="lbl" style="margin-bottom:0;">🚢 Importación Daxis — Cargadores y Baterías</span>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <p class="empty-note" style="margin-top:0;">Estos productos se importan (producción + envío): pasan <b>70 días</b> desde que pagas el 10% inicial hasta que llegan a bodega. El criterio acá NO es "días de cobertura" normal — es si te alcanza el stock hasta que llegue un pedido nuevo empezado <b>hoy</b>.</p>
+      <div class="filtros" style="margin-bottom:0;">
+        <label style="font-size:12px;color:var(--muted);">Cobertura deseada después de que llegue:</label>
+        <select id="bufferDaxis" onchange="renderDaxis()">
+          <option value="15">+15 días</option>
+          <option value="30" selected>+30 días</option>
+          <option value="45">+45 días</option>
+          <option value="60">+60 días</option>
+        </select>
+        <span style="color:var(--muted);font-size:11.5px;">Total: 70 días de importación + el buffer elegido, menos el stock que ya tienes.</span>
+      </div>
+      <div id="daxisWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
     </div>
   </div>
 
@@ -349,6 +372,7 @@ async function cargar(){
     $('avisoWrap').innerHTML = avisos;
 
     renderProximosPagos(res.pagosPorProveedor || [], res.ventanaPago);
+    renderDaxis();
     renderTabla();
 
     status.className = 'ok';
@@ -405,7 +429,76 @@ function renderProximosPagos(pagosPorProveedor, ventana){
   `;
 }
 
-let ordenRecomendacion = { campo: null, asc: true };
+// PLAZO_IMPORTACION_DAXIS: 70 días fijos entre que se paga el 10% inicial y
+// llega la mercadería a bodega (producción + envío) — a diferencia de los
+// proveedores locales (Coimco/Intcomex, 30 días de plazo de PAGO, algo
+// totalmente distinto), acá el número que importa es cuánto ALCANZA el
+// stock actual, no cuánto se demora en pagarse.
+const PLAZO_IMPORTACION_DAXIS = 70;
+
+function renderDaxis(){
+  const wrap = $('daxisWrap');
+  const buffer = parseInt($('bufferDaxis').value, 10) || 30;
+  const horizonteTotal = PLAZO_IMPORTACION_DAXIS + buffer;
+
+  const productos = datosSkus.filter(s => filtrosRapidos['cargador-daxis'](s) || filtrosRapidos['bateria-daxis'](s));
+  if(productos.length === 0){
+    wrap.innerHTML = `<p class="empty-note">No se encontraron productos en las categorías "Cargador Daxis" o "Batería Daxis" en este período.</p>`;
+    return;
+  }
+
+  const filas = productos.map(s => {
+    const ventaDiaria = s.ventaDiariaPromedio || 0;
+    const sugerenciaImportar = ventaDiaria > 0 ? Math.max(0, Math.ceil(ventaDiaria * horizonteTotal - s.stockActual)) : 0;
+    const costoEstimado = (s.ultimoCosto != null) ? Math.round(sugerenciaImportar * s.ultimoCosto) : null;
+
+    let estado;
+    if(s.stockActual === 0 && ventaDiaria > 0) estado = { clase:'urgente', texto:'🔴 SIN STOCK' };
+    else if(s.diasCobertura != null && s.diasCobertura <= PLAZO_IMPORTACION_DAXIS) estado = { clase:'urgente', texto:'🔴 Iniciar importación YA' };
+    else if(s.diasCobertura != null && s.diasCobertura <= horizonteTotal) estado = { clase:'pronto', texto:'🟡 Iniciar pronto' };
+    else if(s.diasCobertura == null && ventaDiaria === 0) estado = { clase:'', texto:'Sin venta en el período' };
+    else estado = { clase:'ok', texto:'🟢 OK' };
+
+    return { ...s, ventaDiaria, sugerenciaImportar, costoEstimado, estado };
+  }).sort((a,b) => {
+    const orden = { urgente:0, pronto:1, '':2, ok:3 };
+    return (orden[a.estado.clase]??2) - (orden[b.estado.clase]??2) || (a.diasCobertura??999) - (b.diasCobertura??999);
+  });
+
+  const urgentes = filas.filter(f=>f.estado.clase==='urgente').length;
+  const costoTotalSugerido = filas.reduce((a,f)=>a+(f.costoEstimado||0),0);
+  const hoyMasSetenta = addDaysStr(new Date().toISOString().slice(0,10), PLAZO_IMPORTACION_DAXIS);
+
+  wrap.innerHTML = `
+    <p class="empty-note" style="margin-top:0;">Si pides hoy, llega aproximadamente el <b>${hoyMasSetenta}</b>. Cobertura objetivo: <b>${horizonteTotal} días</b> (70 de importación + ${buffer} de buffer post-llegada).</p>
+    <div class="grid grid-3" style="margin-bottom:14px;">
+      <div class="card${urgentes>0?' alert':''}"><div class="lbl">Productos a iniciar importación ya</div><div class="big">${urgentes}</div></div>
+      <div class="card"><div class="lbl">Costo total sugerido a importar</div><div class="big">${fmt(costoTotalSugerido)}</div></div>
+      <div class="card"><div class="lbl">SKU en esta categoría</div><div class="big">${filas.length}</div></div>
+    </div>
+    <table>
+      <thead><tr>
+        <th>SKU</th><th>Producto</th><th>Categoría</th>
+        <th class="amount">Stock actual</th><th class="amount">Venta diaria</th><th class="amount">Cobertura (días)</th>
+        <th class="amount">Sugerencia a importar</th><th class="amount">Costo estimado</th><th>Estado</th>
+      </tr></thead>
+      <tbody>
+        ${filas.map(f => `
+          <tr class="${f.estado.clase}">
+            <td>${f.code}</td><td>${f.nombre}</td><td>${f.categoria}</td>
+            <td class="amount">${f.stockActual}</td>
+            <td class="amount">${f.ventaDiaria}</td>
+            <td class="amount">${f.diasCobertura==null?'—':f.diasCobertura}</td>
+            <td class="amount"><b>${f.sugerenciaImportar}</b></td>
+            <td class="amount">${f.costoEstimado!=null?fmt(f.costoEstimado):'—'}</td>
+            <td>${f.estado.texto}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+
 
 async function calcularRecomendacionPresupuesto(){
   const wrap = $('recomendacionWrap');

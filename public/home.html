@@ -95,6 +95,7 @@
       <a href="conciliacion.html">Conciliación</a>
       <a href="compras.html">Compras</a>
       <a href="alertas-stock.html">Alertas de Stock</a>
+      <a href="eficiencia-tickets.html">Tickets</a>
       <a href="guia-uso.html">Guía de uso</a>
       <a href="usuarios.html" id="navUsuarios" style="display:none;">Usuarios</a>
     </nav>
@@ -109,11 +110,11 @@
     <div style="display:flex;gap:10px;align-items:center;">
       <select id="diasInput" onchange="cargar()">
         <option value="1">Hoy</option>
-        <option value="7">Últimos 7 días</option>
+        <option value="7" selected>Últimos 7 días</option>
         <option value="15">Últimos 15 días</option>
         <option value="30">Últimos 30 días</option>
         <option value="60">Últimos 60 días</option>
-        <option value="90" selected>Últimos 90 días</option>
+        <option value="90">Últimos 90 días</option>
       </select>
       <button class="btn-ghost" onclick="cargar()">↻ Actualizar</button>
     </div>
@@ -171,7 +172,7 @@
   <div class="dos-columnas">
     <div class="seccion">
       <div class="seccion-head">
-        <div><h2>📅 Próximos pagos a proveedores</h2><div class="sub">Recepciones de los últimos 14 días.</div></div>
+        <div><h2>📅 Próximos pagos a proveedores</h2><div class="sub">Vencen hoy o el próximo día hábil.</div></div>
         <a href="compras.html">Ver todo →</a>
       </div>
       <div id="wrapPagos"><p class="empty-note">Cargando...</p></div>
@@ -224,9 +225,10 @@ async function cargar(){
   status.textContent = `Consultando ${dias} días en Bsale...`;
 
   try{
-    const [res, soporteRes] = await Promise.all([
+    const [res, soporteRes, facturasRes] = await Promise.all([
       fetch(`/api/bsale-sku-report?days=${dias}`).then(r=>r.json()),
-      fetch(`/api/negocio?recurso=reportes`).then(r=>r.json()).catch(()=>({reportes:[]}))
+      fetch(`/api/negocio?recurso=reportes`).then(r=>r.json()).catch(()=>({reportes:[]})),
+      fetch(`/api/bsale-facturas-por-pagar`).then(r=>r.json()).catch(()=>({facturas:[]}))
     ]);
     if(res.error){
       status.className = 'err';
@@ -237,7 +239,7 @@ async function cargar(){
     renderKpis(res.skus || []);
     renderInminente(res.skus || []);
     renderPerdidas(res.skus || []);
-    renderPagos(res.pagosPorProveedor || [], res.ventanaPago);
+    renderPagos(facturasRes.facturas || [], facturasRes.hoy);
     renderSoporte(soporteRes.reportes || []);
 
     status.textContent = `Actualizado — ${res.startDate} a ${res.endDate}`;
@@ -296,20 +298,55 @@ function renderPerdidas(skus){
     </table>`;
 }
 
-function renderPagos(pagosPorProveedor, ventana){
-  if(!pagosPorProveedor || pagosPorProveedor.length===0){
-    $('wrapPagos').innerHTML = `<p class="empty-note">Sin recepciones registradas entre ${ventana?.desde||'—'} y ${ventana?.hasta||'—'}.</p>`;
+function proximoDiaHabil(fechaStr){
+  const [y,m,d] = fechaStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  dt.setUTCDate(dt.getUTCDate()+1);
+  const dow = dt.getUTCDay(); // 0=domingo, 6=sábado
+  if(dow===6) dt.setUTCDate(dt.getUTCDate()+2);
+  else if(dow===0) dt.setUTCDate(dt.getUTCDate()+1);
+  return dt.toISOString().slice(0,10);
+}
+function formatoFecha(fechaStr){
+  const [y,m,d] = fechaStr.split('-');
+  return `${d}-${m}-${y}`;
+}
+
+function renderPagos(facturas, hoyStr){
+  hoyStr = hoyStr || new Date().toISOString().slice(0,10);
+  const diaHabilSiguiente = proximoDiaHabil(hoyStr);
+
+  const vencenHoy = (facturas||[]).filter(f => f.fechaEstimadaPago === hoyStr);
+  const vencenProximoDia = (facturas||[]).filter(f => f.fechaEstimadaPago === diaHabilSiguiente);
+
+  if(vencenHoy.length===0 && vencenProximoDia.length===0){
+    $('wrapPagos').innerHTML = `<p class="empty-note">Sin pagos a proveedores que venzan hoy (${formatoFecha(hoyStr)}) ni el próximo día hábil (${formatoFecha(diaHabilSiguiente)}). 🎉</p>`;
     return;
   }
-  const total = pagosPorProveedor.reduce((a,p)=>a+p.monto,0);
-  $('wrapPagos').innerHTML = `
-    <table>
-      <thead><tr><th>Proveedor</th><th class="amount">Documentos</th><th class="amount">Monto</th></tr></thead>
-      <tbody>
-        ${pagosPorProveedor.slice(0,5).map(p=>`<tr><td>${p.proveedor}</td><td class="amount">${p.cantidadDocumentos}</td><td class="amount">${fmt(p.monto)}</td></tr>`).join('')}
-        <tr><td><b>Total</b></td><td></td><td class="amount"><b>${fmt(total)}</b></td></tr>
-      </tbody>
-    </table>`;
+
+  const filaFactura = f => `
+    <tr>
+      <td>${f.proveedor}</td>
+      <td>${f.documento}${f.numeroDocumento?' N°'+f.numeroDocumento:''}</td>
+      <td class="amount">${fmt(f.monto)}</td>
+    </tr>`;
+
+  const bloque = (titulo, lista) => {
+    if(lista.length===0) return '';
+    const total = lista.reduce((a,f)=>a+f.monto,0);
+    return `
+      <div style="margin-bottom:14px;">
+        <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;margin-bottom:6px;">${titulo} — <span style="color:var(--primary);">${fmt(total)}</span></div>
+        <table>
+          <thead><tr><th>Proveedor</th><th>Documento</th><th class="amount">Monto</th></tr></thead>
+          <tbody>${lista.map(filaFactura).join('')}</tbody>
+        </table>
+      </div>`;
+  };
+
+  $('wrapPagos').innerHTML =
+    bloque(`🔴 Vencen hoy (${formatoFecha(hoyStr)})`, vencenHoy) +
+    bloque(`🟡 Vencen el próximo día hábil (${formatoFecha(diaHabilSiguiente)})`, vencenProximoDia);
 }
 
 function renderSoporte(reportes){

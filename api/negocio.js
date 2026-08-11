@@ -1,12 +1,13 @@
 // /api/negocio.js
-// Este endpoint reúne DOS recursos que antes eran archivos separados
-// (productos-criticos.js y reportes-error.js). Se fusionaron a propósito:
-// Vercel (plan Hobby) permite un máximo de 12 funciones serverless por
-// deployment, y con ambos archivos separados el proyecto llegó a 13 y el
-// build empezó a fallar silenciosamente (los cambios no se veían reflejados
-// aunque el commit sí se había subido bien a GitHub).
+// Este endpoint reúne TRES recursos que en otro proyecto serían archivos
+// separados (productos-criticos, reportes-error, zoho-tickets). Se
+// fusionaron a propósito: Vercel (plan Hobby) permite un máximo de 12
+// funciones serverless por deployment, y separados el proyecto se pasa del
+// límite y el build empieza a fallar silenciosamente (los cambios no se ven
+// reflejados aunque el commit sí se subió bien a GitHub).
 //
-// Se elige el recurso con ?recurso=criticos o ?recurso=reportes.
+// Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
+// ?recurso=zoho-tickets.
 
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
@@ -14,6 +15,7 @@ import { enviarCorreo } from '../lib/mailer.js';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
 const ESTADOS_VALIDOS = ['pendiente', 'en progreso', 'resuelto'];
+const ZOHO_TIMEOUT_MS = 20000;
 
 export default async function handler(req, res) {
   const sesion = usuarioDesdeRequest(req);
@@ -22,7 +24,8 @@ export default async function handler(req, res) {
   const recurso = req.query.recurso;
   if (recurso === 'criticos') return manejarCriticos(req, res, sesion);
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos o ?recurso=reportes' });
+  if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
+  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes o ?recurso=zoho-tickets' });
 }
 
 // ---------------- Productos críticos (marcados a mano) ----------------
@@ -125,5 +128,114 @@ async function manejarReportes(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error en reportes de error', detail: String(err) });
+  }
+}
+
+// ---------------- Zoho Desk (eficiencia de tickets) ----------------
+// Variables de entorno requeridas en Vercel:
+//   ZOHO_DC             dominio del datacenter de tu cuenta: com, eu, in,
+//                        com.au, jp o ca (si no está, se asume "com")
+//   ZOHO_CLIENT_ID       de un "Self Client" creado en api-console.zoho.com
+//   ZOHO_CLIENT_SECRET   idem
+//   ZOHO_REFRESH_TOKEN   token de larga duración generado una sola vez a
+//                        partir del "grant token" del Self Client
+//   ZOHO_ORG_ID          id de la organización en Zoho Desk (requerido en
+//                        TODAS las llamadas a la API de Desk)
+
+async function fetchConTimeout(url, options = {}, timeoutMs = ZOHO_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error(`Timeout de ${timeoutMs}ms consultando Zoho`);
+    throw err;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function obtenerAccessTokenZoho() {
+  const { ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, ZOHO_DC } = process.env;
+  if (!ZOHO_CLIENT_ID || !ZOHO_CLIENT_SECRET || !ZOHO_REFRESH_TOKEN) {
+    throw new Error('Faltan credenciales de Zoho en el servidor (ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN)');
+  }
+  const dc = ZOHO_DC || 'com';
+  const url = `https://accounts.zoho.${dc}/oauth/v2/token?grant_type=refresh_token`
+    + `&client_id=${encodeURIComponent(ZOHO_CLIENT_ID)}`
+    + `&client_secret=${encodeURIComponent(ZOHO_CLIENT_SECRET)}`
+    + `&refresh_token=${encodeURIComponent(ZOHO_REFRESH_TOKEN)}`;
+  const r = await fetchConTimeout(url, { method: 'POST' });
+  const data = await r.json();
+  if (!data.access_token) throw new Error('No se pudo renovar el access_token de Zoho: ' + JSON.stringify(data));
+  return data.access_token;
+}
+
+async function manejarZohoTickets(req, res, sesion) {
+  try {
+    const { ZOHO_ORG_ID, ZOHO_DC } = process.env;
+    if (!ZOHO_ORG_ID) return res.status(200).json({ error: 'Falta ZOHO_ORG_ID en el servidor', tickets: [] });
+    const dc = ZOHO_DC || 'com';
+
+    const dias = Math.max(1, parseInt(req.query.days || '30', 10));
+    const hoy = new Date();
+    const desde = new Date(hoy.getTime() - dias * 86400000);
+
+    const accessToken = await obtenerAccessTokenZoho();
+    const headers = { orgId: ZOHO_ORG_ID, Authorization: `Zoho-oauthtoken ${accessToken}` };
+
+    // Los tickets vienen ordenados del más nuevo al más viejo -> se puede
+    // cortar la paginación apenas se cruza la ventana de fechas pedida, sin
+    // tener que traer TODO el histórico cada vez.
+    const limit = 100;
+    const topePaginas = 30; // hasta ~3.000 tickets recientes como resguardo
+    let tickets = [];
+    for (let pagina = 0; pagina < topePaginas; pagina++) {
+      const from = pagina * limit;
+      const url = `https://desk.zoho.${dc}/api/v1/tickets?limit=${limit}&from=${from}&sortBy=-createdTime&include=assignee`;
+      const r = await fetchConTimeout(url, { headers });
+      if (!r.ok) {
+        const texto = await r.text().catch(() => '');
+        throw new Error(`Zoho Desk respondió HTTP ${r.status}: ${texto.slice(0, 300)}`);
+      }
+      const data = await r.json();
+      const items = data.data || [];
+      tickets.push(...items);
+      if (items.length < limit) break;
+      const ultimaFecha = items[items.length - 1]?.createdTime;
+      if (ultimaFecha && new Date(ultimaFecha) < desde) break;
+    }
+
+    const dentroDelPeriodo = tickets.filter(t => t.createdTime && new Date(t.createdTime) >= desde);
+
+    const resumen = dentroDelPeriodo.map(t => {
+      const creado = t.createdTime ? new Date(t.createdTime) : null;
+      const cerrado = t.closedTime ? new Date(t.closedTime) : null;
+      return {
+        id: t.id,
+        numero: t.ticketNumber,
+        asunto: t.subject,
+        estado: t.status,
+        statusType: t.statusType,
+        prioridad: t.priority,
+        canal: t.channel,
+        creado: t.createdTime,
+        cerrado: t.closedTime,
+        vencido: !!t.isOverDue,
+        respuestaVencida: !!t.isResponseOverdue,
+        agente: t.assignee ? `${t.assignee.firstName || ''} ${t.assignee.lastName || ''}`.trim() : null,
+        horasResolucion: (creado && cerrado) ? Math.round(((cerrado - creado) / 3600000) * 10) / 10 : null,
+      };
+    });
+
+    return res.status(200).json({
+      dias,
+      desde: desde.toISOString().slice(0, 10),
+      hasta: hoy.toISOString().slice(0, 10),
+      totalTickets: resumen.length,
+      tickets: resumen,
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error consultando Zoho Desk', detail: String(err), tickets: [] });
   }
 }
