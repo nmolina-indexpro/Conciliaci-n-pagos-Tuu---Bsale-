@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Eficiencia de Tickets — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:28px 40px 60px 190px;}
+  .wrap{max-width:1600px;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;letter-spacing:0.2px;margin:0 0 5px 0;}
+  h1 span{color:var(--primary);}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin:0 0 4px 0;}
+  .sub{color:var(--muted);font-size:13px;}
+  .page-nav{display:flex;gap:6px;background:var(--surface-2);padding:5px;border-radius:12px;width:fit-content;justify-self:center;flex-wrap:wrap;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:var(--muted);text-decoration:none;padding:10px 22px;border-radius:9px;transition:all .15s;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+  #status{font-size:12px;color:var(--muted);}
+  #status.err{color:var(--red);}
+
+  .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:24px;}
+  @media (max-width:1200px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;}
+  .card.alert .big{color:var(--red);}
+  .card.warn .big{color:var(--amber);}
+  .card.good .big{color:var(--green);}
+
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+
+  .dos-columnas{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+  @media (max-width:1100px){.dos-columnas{grid-template-columns:1fr;}}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  th.amount, td.amount{text-align:right;}
+  td{padding:9px;border-bottom:1px solid var(--line);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  tr.vencido{background:var(--red-bg);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:20px;color:var(--text);}
+  .note-box.err{background:var(--red-bg);border-color:#F5B5B5;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <a href="index.html">Flujo de Caja</a>
+      <a href="conciliacion.html">Conciliación</a>
+      <a href="compras.html">Compras</a>
+      <a href="alertas-stock.html">Alertas de Stock</a>
+      <a href="eficiencia-tickets.html" class="active">Tickets</a>
+      <a href="guia-uso.html">Guía de uso</a>
+      <a href="usuarios.html" id="navUsuarios" style="display:none;">Usuarios</a>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <div class="toolbar">
+    <div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <h1 style="margin:0;">Eficiencia de <span>Tickets</span></h1>
+        <img src="zoho-desk-logo.png" alt="Zoho Desk" title="Datos en vivo desde Zoho Desk" style="height:34px;">
+      </div>
+      <div class="sub">Datos en vivo de Zoho Desk — volumen, tiempos de resolución y vencidos.</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <select id="diasInput" onchange="cargar()">
+        <option value="7">Últimos 7 días</option>
+        <option value="15">Últimos 15 días</option>
+        <option value="30" selected>Últimos 30 días</option>
+        <option value="60">Últimos 60 días</option>
+        <option value="90">Últimos 90 días</option>
+      </select>
+      <button class="btn-ghost" onclick="cargar()">↻ Actualizar</button>
+    </div>
+  </div>
+  <div id="status"></div>
+  <div id="avisoWrap"></div>
+
+  <div class="grid" id="kpiWrap">
+    <div class="card"><div class="lbl">Tickets creados</div><div class="big">—</div></div>
+    <div class="card"><div class="lbl">Resueltos</div><div class="big">—</div></div>
+    <div class="card"><div class="lbl">Tiempo prom. resolución</div><div class="big">—</div></div>
+    <div class="card"><div class="lbl">Vencidos ahora</div><div class="big">—</div></div>
+    <div class="card"><div class="lbl">Respuesta vencida</div><div class="big">—</div></div>
+  </div>
+
+  <div class="dos-columnas">
+    <div class="seccion">
+      <div class="seccion-head"><div><h2>📊 Por estado</h2></div></div>
+      <div id="wrapEstado"><p class="empty-note">Cargando...</p></div>
+    </div>
+    <div class="seccion">
+      <div class="seccion-head"><div><h2>📡 Por canal</h2></div></div>
+      <div id="wrapCanal"><p class="empty-note">Cargando...</p></div>
+    </div>
+  </div>
+
+  <div class="dos-columnas">
+    <div class="seccion">
+      <div class="seccion-head"><div><h2>🚩 Por prioridad</h2></div></div>
+      <div id="wrapPrioridad"><p class="empty-note">Cargando...</p></div>
+    </div>
+    <div class="seccion">
+      <div class="seccion-head"><div><h2>👤 Por agente</h2><div class="sub">Volumen y tiempo promedio de resolución.</div></div></div>
+      <div id="wrapAgente"><p class="empty-note">Cargando...</p></div>
+    </div>
+  </div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div><h2>🔴 Tickets vencidos</h2><div class="sub">Con SLA de resolución ya vencido, dentro del período elegido.</div></div>
+    </div>
+    <div id="wrapVencidos"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    if(u.rol === 'admin'){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+    }
+    aplicarRestriccionesUsuario(u.rol);
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+function agrupar(tickets, campo){
+  const mapa = {};
+  for(const t of tickets){
+    const clave = t[campo] || 'Sin dato';
+    if(!mapa[clave]) mapa[clave] = { clave, cantidad: 0 };
+    mapa[clave].cantidad++;
+  }
+  return Object.values(mapa).sort((a,b)=>b.cantidad-a.cantidad);
+}
+
+async function cargar(){
+  const dias = parseInt($('diasInput').value, 10) || 30;
+  const status = $('status');
+  status.className = '';
+  status.textContent = `Consultando ${dias} días en Zoho Desk...`;
+  ['wrapEstado','wrapCanal','wrapPrioridad','wrapAgente','wrapVencidos'].forEach(id=>{
+    $(id).innerHTML = `<p class="empty-note">Cargando...</p>`;
+  });
+  $('avisoWrap').innerHTML = '';
+
+  try{
+    const res = await fetch(`/api/negocio?recurso=zoho-tickets&days=${dias}`).then(r=>r.json());
+    if(res.error){
+      status.className = 'err';
+      status.textContent = 'Error al consultar Zoho Desk.';
+      $('avisoWrap').innerHTML = `<div class="note-box err"><b>No se pudo conectar con Zoho Desk:</b> ${res.detail || res.error}<br><span class="empty-note">Revisa que ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, ZOHO_ORG_ID (y ZOHO_DC si tu cuenta no es .com) estén configurados en Vercel.</span></div>`;
+      renderTodoVacio();
+      return;
+    }
+
+    const tickets = res.tickets || [];
+    renderKpis(tickets);
+    renderGrupo('wrapEstado', agrupar(tickets, 'estado'), 'Estado');
+    renderGrupo('wrapCanal', agrupar(tickets, 'canal'), 'Canal');
+    renderGrupo('wrapPrioridad', agrupar(tickets, 'prioridad'), 'Prioridad');
+    renderAgentes(tickets);
+    renderVencidos(tickets);
+
+    status.textContent = `Actualizado — ${res.totalTickets} tickets entre ${res.desde} y ${res.hasta}`;
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
+}
+
+function renderTodoVacio(){
+  const cards = document.querySelectorAll('#kpiWrap .card');
+  cards.forEach(c => { c.querySelector('.big').textContent = '—'; c.classList.remove('alert','warn','good'); });
+  ['wrapEstado','wrapCanal','wrapPrioridad','wrapAgente','wrapVencidos'].forEach(id=>{
+    $(id).innerHTML = `<p class="empty-note">Sin datos.</p>`;
+  });
+}
+
+function renderKpis(tickets){
+  const cards = document.querySelectorAll('#kpiWrap .card');
+  const total = tickets.length;
+  const resueltos = tickets.filter(t=>t.cerrado);
+  const conTiempo = resueltos.filter(t=>t.horasResolucion!=null);
+  const promHoras = conTiempo.length ? conTiempo.reduce((a,t)=>a+t.horasResolucion,0)/conTiempo.length : null;
+  const vencidos = tickets.filter(t=>t.vencido);
+  const respuestaVencida = tickets.filter(t=>t.respuestaVencida);
+
+  cards[0].querySelector('.big').textContent = fmtNum(total);
+
+  cards[1].querySelector('.big').textContent = fmtNum(resueltos.length) + (total?` (${Math.round(resueltos.length/total*100)}%)`:'');
+  cards[1].classList.toggle('good', total>0 && resueltos.length/total >= 0.7);
+
+  if(promHoras!=null){
+    const texto = promHoras < 48 ? `${Math.round(promHoras*10)/10} h` : `${Math.round(promHoras/24*10)/10} d`;
+    cards[2].querySelector('.big').textContent = texto;
+  } else {
+    cards[2].querySelector('.big').textContent = '—';
+  }
+
+  cards[3].querySelector('.big').textContent = fmtNum(vencidos.length);
+  cards[3].classList.toggle('alert', vencidos.length>0);
+
+  cards[4].querySelector('.big').textContent = fmtNum(respuestaVencida.length);
+  cards[4].classList.toggle('warn', respuestaVencida.length>0);
+}
+
+function renderGrupo(containerId, grupos, etiquetaCol){
+  if(grupos.length===0){ $(containerId).innerHTML = `<p class="empty-note">Sin datos.</p>`; return; }
+  $(containerId).innerHTML = `
+    <table>
+      <thead><tr><th>${etiquetaCol}</th><th class="amount">Cantidad</th></tr></thead>
+      <tbody>${grupos.map(g=>`<tr><td>${g.clave}</td><td class="amount">${g.cantidad}</td></tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function renderAgentes(tickets){
+  const mapa = {};
+  for(const t of tickets){
+    const nombre = t.agente || 'Sin asignar';
+    if(!mapa[nombre]) mapa[nombre] = { nombre, cantidad: 0, sumaHoras: 0, conTiempo: 0 };
+    mapa[nombre].cantidad++;
+    if(t.horasResolucion != null){ mapa[nombre].sumaHoras += t.horasResolucion; mapa[nombre].conTiempo++; }
+  }
+  const lista = Object.values(mapa).sort((a,b)=>b.cantidad-a.cantidad);
+  if(lista.length===0){ $('wrapAgente').innerHTML = `<p class="empty-note">Sin datos.</p>`; return; }
+  $('wrapAgente').innerHTML = `
+    <table>
+      <thead><tr><th>Agente</th><th class="amount">Tickets</th><th class="amount">Prom. resolución</th></tr></thead>
+      <tbody>${lista.map(a=>`
+        <tr>
+          <td>${a.nombre}</td>
+          <td class="amount">${a.cantidad}</td>
+          <td class="amount">${a.conTiempo ? Math.round(a.sumaHoras/a.conTiempo*10)/10 + ' h' : '—'}</td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function renderVencidos(tickets){
+  const lista = tickets.filter(t=>t.vencido);
+  if(lista.length===0){ $('wrapVencidos').innerHTML = `<p class="empty-note">Ningún ticket vencido en este período. 🎉</p>`; return; }
+  $('wrapVencidos').innerHTML = `
+    <table>
+      <thead><tr><th>N°</th><th>Asunto</th><th>Agente</th><th>Estado</th><th>Prioridad</th><th>Creado</th></tr></thead>
+      <tbody>${lista.map(t=>`
+        <tr class="vencido">
+          <td>${t.numero||t.id}</td>
+          <td>${t.asunto||'—'}</td>
+          <td>${t.agente||'Sin asignar'}</td>
+          <td>${t.estado||'—'}</td>
+          <td>${t.prioridad||'—'}</td>
+          <td>${t.creado?new Date(t.creado).toLocaleDateString('es-CL'):'—'}</td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+cargarSesionUsuario();
+cargar();
+</script>
+</body>
+</html>
