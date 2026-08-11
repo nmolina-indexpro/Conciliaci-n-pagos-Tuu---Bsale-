@@ -101,7 +101,7 @@ export default async function handler(req, res) {
     const rangeEnd = Math.floor(new Date(`${endDate}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
     const limit = 50;
     const docsUrl = offset =>
-      `/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=payments,client&limit=${limit}&offset=${offset}`;
+      `/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=payments,client,document_type&limit=${limit}&offset=${offset}`;
 
     // Primera página: nos dice cuántas hay en total (campo "count") para poder
     // pedir el resto EN PARALELO en vez de una por una. Con rangos de varios
@@ -160,11 +160,19 @@ export default async function handler(req, res) {
         }
       }
 
+      // Volcado crudo de las Notas de Crédito del período -> para encontrar el
+      // nombre real del campo con el monto total del documento (no todas traen
+      // "payments", así que no basta con mirar los pagos para descontarlas).
+      const notasCredito = allDocs
+        .filter(d => /nota de cr[eé]dito/i.test(d.document_type?.name || ''))
+        .map(d => ({ numero: d.number, cliente: clientName(d.client), documentTypeName: d.document_type?.name, raw: d }));
+
       return res.status(200).json({
         startDate, endDate,
         docsRevisados: allDocs.length,
         totalConTarjeta: cardDocs.length,
-        porDocumentType
+        porDocumentType,
+        notasCredito
       });
     }
 
