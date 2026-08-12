@@ -183,6 +183,7 @@ export default async function handler(req, res) {
     const shopify = [];
     const otros = [];
     const devoluciones = [];
+    const duplicadosMercadoLibre = [];
 
     for (const doc of allDocs) {
       if (effectiveOfficeId && String(officeInfo(doc).id) !== String(effectiveOfficeId)) continue;
@@ -213,11 +214,17 @@ export default async function handler(req, res) {
         else if (kind === 'transferencia') transferencia.push(row);
         else if (kind === 'efectivo') efectivo.push(row);
         else if (kind === 'shopify') shopify.push(row);
+        // "MERCADO PAGO" en esta cuenta es la misma venta de MercadoLibre que
+        // ya viene documentada aparte como "ABONO DE CLIENTE(ML)" -> contar
+        // ambas duplica la venta (confirmado: mismo cliente y mismo monto en
+        // #924/#20260 y #925/#44447, 11/08/2026). Se deja fuera del total,
+        // visible aparte para no perderle el rastro.
+        else if (normalize(p.name) === 'MERCADO PAGO') duplicadosMercadoLibre.push({ ...row, tipo: p.name || '' });
         else otros.push({ ...row, tipo: p.name || 'Sin especificar' }); // cualquier medio de pago que no reconocemos todavía (crédito 30 días, abono de cliente, etc.)
       }
     }
 
-    return res.status(200).json({ startDate, endDate, credito, debito, transferencia, efectivo, shopify, otros, devoluciones, docsRevisados: allDocs.length });
+    return res.status(200).json({ startDate, endDate, credito, debito, transferencia, efectivo, shopify, otros, devoluciones, duplicadosMercadoLibre, docsRevisados: allDocs.length });
   } catch (err) {
     return res.status(500).json({ error: 'Error consultando Bsale', detail: String(err) });
   }

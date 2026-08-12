@@ -449,7 +449,7 @@ async function fetchAutomatico(){
     const bsaleDeb = bsaleRes.debito || [];
 
     ejecutarCuadratura(posAll, bsaleCred, bsaleDeb);
-    renderOtrosPagos(bsaleRes.otros || [], tuuRes.otras || []);
+    renderOtrosPagos(bsaleRes.otros || [], tuuRes.otras || [], bsaleRes.duplicadosMercadoLibre || []);
 
     status.className = 'ok';
     status.textContent = `Listo — ${posAll.length} ventas POS, ${bsaleCred.length + bsaleDeb.length} documentos Bsale${shopifyMsg}${bciMsg}`;
@@ -459,12 +459,13 @@ async function fetchAutomatico(){
   }
 }
 
-function renderOtrosPagos(otros, tuuOtras){
+function renderOtrosPagos(otros, tuuOtras, duplicadosMl){
   const wrap = $('otrosPagosWrap');
   const hayBsale = otros && otros.length > 0;
   const hayTuu = tuuOtras && tuuOtras.length > 0;
+  const hayDuplicadosMl = duplicadosMl && duplicadosMl.length > 0;
 
-  if(!hayBsale && !hayTuu){
+  if(!hayBsale && !hayTuu && !hayDuplicadosMl){
     wrap.innerHTML = `<p class="empty-note">Sin otras formas de pago registradas para esta fecha.</p>`;
     return;
   }
@@ -525,6 +526,19 @@ function renderOtrosPagos(otros, tuuOtras){
           </tbody>
         </table>
       </details>
+    `;
+  }
+
+  if(hayDuplicadosMl){
+    const totalDuplicados = duplicadosMl.reduce((a,o)=>a+o.monto,0);
+    html += `
+      <p class="empty-note" style="color:var(--amber);margin-top:${(hayTuu||hayBsale)?'18px':'0'};"><b>⚠ ${duplicadosMl.length} documento(s) "MERCADO PAGO" excluido(s) del total (${fmt(totalDuplicados)})</b> — en esta cuenta duplican la misma venta ya registrada como "ABONO DE CLIENTE(ML)". Solo se listan para que no se pierdan de vista, no se suman en ningún total.</p>
+      <table>
+        <thead><tr><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto</th></tr></thead>
+        <tbody>
+          ${duplicadosMl.map(o => `<tr><td>#${o.numero}</td><td>${o.cliente||'—'}</td><td class="amount">${fmt(o.monto)}</td></tr>`).join('')}
+        </tbody>
+      </table>
     `;
   }
 
@@ -774,7 +788,7 @@ async function fetchConsolidado(){
       renderTransferenciasBci(gBciRango, bciPosRango, bsaleTransferenciaRango);
     }
 
-    renderOtrosPagos(bsaleRes.otros || [], tuuRes.otras || []);
+    renderOtrosPagos(bsaleRes.otros || [], tuuRes.otras || [], bsaleRes.duplicadosMercadoLibre || []);
 
     cstatus.className = 'ok';
     cstatus.textContent = `Listo — ${filas.length} días con movimiento entre ${startDate} y ${endDate}`;
