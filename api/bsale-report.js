@@ -182,15 +182,29 @@ export default async function handler(req, res) {
     const efectivo = [];
     const shopify = [];
     const otros = [];
+    const devoluciones = [];
 
     for (const doc of allDocs) {
       if (effectiveOfficeId && String(officeInfo(doc).id) !== String(effectiveOfficeId)) continue;
-      const payments = extractPaymentsArray(doc);
       const numero = doc.number ? String(doc.number) : '';
       const cliente = clientName(doc.client);
       const fecha = toUtcDateStr(doc.emissionDate);
       const url = doc.urlPublicView || doc.urlPublicViewOriginal || '';
 
+      // Una Nota de Crédito es una devolución, no una venta -> se resta del
+      // total usando el monto TOTAL del documento (totalAmount), no el de
+      // sus "payments": algunas no traen ningún pago asociado (confirmado
+      // con el folio #4980, $36.900) y quedarían sin descontar si solo
+      // mirásemos los pagos. Se identifica por document_type.isCreditNote
+      // (con el nombre como respaldo si esa bandera no viniera).
+      const tipoDoc = doc.document_type || {};
+      const esNotaCredito = tipoDoc.isCreditNote === 1 || /nota de cr[eé]dito/i.test(tipoDoc.name || '');
+      if (esNotaCredito) {
+        devoluciones.push({ numero, cliente, monto: doc.totalAmount || 0, fecha, url });
+        continue;
+      }
+
+      const payments = extractPaymentsArray(doc);
       for (const p of payments) {
         const kind = classifyPayment(p.name);
         const row = { numero, cliente, monto: p.amount, fecha, url, medioPago: p.name || '' };
@@ -203,7 +217,7 @@ export default async function handler(req, res) {
       }
     }
 
-    return res.status(200).json({ startDate, endDate, credito, debito, transferencia, efectivo, shopify, otros, docsRevisados: allDocs.length });
+    return res.status(200).json({ startDate, endDate, credito, debito, transferencia, efectivo, shopify, otros, devoluciones, docsRevisados: allDocs.length });
   } catch (err) {
     return res.status(500).json({ error: 'Error consultando Bsale', detail: String(err) });
   }

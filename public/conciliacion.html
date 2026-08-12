@@ -375,26 +375,17 @@ let ultimoBciData = null; // {gBci, bciPos, bsaleTransferencia} o null si no est
 let ultimoEfectivoDocs = []; // documentos Bsale pagados en efectivo del día (sin sistema externo con qué cruzarlos)
 let ultimoBsaleTotalVenta = 0; // suma de TODOS los pagos Bsale del día (crédito+débito+transferencia+efectivo+shopify+otros), sin filtrar por canal
 
-// Notas de crédito (devoluciones) no traen su propio medio de pago -> Bsale
-// las reporta con forma de pago tipo "NOTA CREDITO DEVOLUCION", que cae en
-// "otros" con el mismo signo positivo que una venta real. Sin este chequeo,
-// una devolución se sumaría al total en vez de restarse (confirmado con el
-// folio #4981, $29.900, 11/08/2026).
-function esNotaCreditoODevolucion(tipo){
-  const t = (tipo || '').toUpperCase();
-  return t.includes('NOTA CREDITO') || t.includes('NOTA CRÉDITO') || t.includes('DEVOLUCION') || t.includes('DEVOLUCIÓN');
-}
-
 // Suma el monto de todos los pagos Bsale del día, cruzando todas las
 // categorías que devuelve /api/bsale-report -> total real de venta Bsale,
 // no solo lo que matchea contra algún canal externo (TUU/Shopify/BCI).
-// Las notas de crédito/devoluciones (dentro de "otros") se restan en vez
-// de sumarse, para que el total quede neto de devoluciones.
+// "devoluciones" (Notas de Crédito, ya excluidas de las demás categorías
+// en el backend y con su monto TOTAL de documento, tengan o no un pago
+// asociado) se resta, para que el total quede neto de devoluciones.
 function totalVentaBsale(bsaleRes){
-  const categorias = ['credito', 'debito', 'transferencia', 'efectivo', 'shopify'];
+  const categorias = ['credito', 'debito', 'transferencia', 'efectivo', 'shopify', 'otros'];
   const totalCanales = categorias.reduce((a, cat) => a + sum(bsaleRes[cat] || [], 'monto'), 0);
-  const totalOtros = (bsaleRes.otros || []).reduce((a, o) => a + (esNotaCreditoODevolucion(o.tipo) ? -o.monto : o.monto), 0);
-  return totalCanales + totalOtros;
+  const totalDevoluciones = sum(bsaleRes.devoluciones || [], 'monto');
+  return totalCanales - totalDevoluciones;
 }
 let vinculosShopify = {}; // { [numeroDocBsale]: {orden, cliente} } — desde la etiqueta NV-/FA- de Shopify
 
