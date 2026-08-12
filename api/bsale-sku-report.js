@@ -14,6 +14,8 @@
 //
 // El access_token vive SOLO en el servidor (variable de entorno BSALE_ACCESS_TOKEN).
 
+import { getSql, asegurarTablaStockExtra } from '../lib/db.js';
+
 const BSALE_BASE = 'https://api.bsale.io/v1';
 const TIMEOUT_MS = 25000;
 
@@ -293,10 +295,11 @@ export default async function handler(req, res) {
 
         if (!dentroDelPeriodoPedido) continue;
 
-        ventasPorSku[code] = ventasPorSku[code] || { code, nombre, unidades: 0, montoNeto: 0, numDocs: 0, semana1: 0, semana2: 0, semana3: 0, semana4: 0 };
+        ventasPorSku[code] = ventasPorSku[code] || { code, nombre, unidades: 0, montoNeto: 0, numDocs: 0, semana1: 0, semana2: 0, semana3: 0, semana4: 0, ultimaVenta: null };
         ventasPorSku[code].unidades += cant;
         ventasPorSku[code].montoNeto += cant * (det.netUnitValue || 0);
         ventasPorSku[code].numDocs += 1;
+        if (!ventasPorSku[code].ultimaVenta || fecha > ventasPorSku[code].ultimaVenta) ventasPorSku[code].ultimaVenta = fecha;
         if (fecha >= semana1Ini && fecha <= semana1Fin) ventasPorSku[code].semana1 += cant;
         else if (fecha >= semana2Ini && fecha <= semana2Fin) ventasPorSku[code].semana2 += cant;
         else if (fecha >= semana3Ini && fecha <= semana3Fin) ventasPorSku[code].semana3 += cant;
@@ -312,6 +315,20 @@ export default async function handler(req, res) {
       const code = s.variant?.code;
       if (!code) continue;
       stockPorSku[code] = (stockPorSku[code] || 0) + (s.quantityAvailable ?? s.quantity ?? 0);
+    }
+
+    // Stock adicional cargado a mano (mercadería recibida que todavía no se
+    // ingresó como stock en Bsale, ej. un lote Daxis recién llegado) -> se
+    // suma al de Bsale. Si la base de datos no está disponible, sigue
+    // funcionando igual, solo sin el extra.
+    const stockExtraPorSku = {};
+    try {
+      const sql = await getSql();
+      await asegurarTablaStockExtra(sql);
+      const { rows: extras } = await sql`SELECT sku, nombre, cantidad FROM stock_extra;`;
+      for (const e of extras) stockExtraPorSku[e.sku] = { cantidad: e.cantidad, nombre: e.nombre };
+    } catch (dbErr) {
+      // sin BD disponible, se sigue solo con el stock de Bsale
     }
 
     // ---- 3) Catálogo: clasificación (producto/servicio), categoría, y el
@@ -560,7 +577,8 @@ export default async function handler(req, res) {
     const todosLosCodigos = new Set([
       ...Object.keys(ventasPorSku),
       ...Object.keys(stockPorSku),
-      ...Object.keys(comprasPorSku)
+      ...Object.keys(comprasPorSku),
+      ...Object.keys(stockExtraPorSku)
     ]);
 
     // Heurística de respaldo por si el catálogo no cargó: excluir por nombre
@@ -578,7 +596,7 @@ export default async function handler(req, res) {
       .filter(code => (categoriaPorCode[code] || 'Sin categoría') !== 'Sin categoría')
       .map(code => {
         const venta = ventasPorSku[code] || { nombre: code, unidades: 0, montoNeto: 0, numDocs: 0, semana1: 0, semana2: 0, semana3: 0, semana4: 0 };
-        const stockActual = stockPorSku[code] || 0;
+        const stockActual = (stockPorSku[code] || 0) + (stockExtraPorSku[code]?.cantidad || 0);
         const compradas = comprasPorSku[code] || 0;
         const ventaDiaria = venta.unidades / numDias;
 
@@ -627,6 +645,7 @@ export default async function handler(req, res) {
           unidadesCompradas: compradas,
           ultimoCosto: ultimoCostoPorSku[code]?.costo ?? null,
           fechaUltimaCompra: ultimoCostoPorSku[code]?.fecha ?? null,
+          fechaUltimaVenta: venta.ultimaVenta ?? null,
           proveedor: proveedorPorSku[code]?.proveedor ?? null,
           margenUnitario,
           margenPorcentaje,
