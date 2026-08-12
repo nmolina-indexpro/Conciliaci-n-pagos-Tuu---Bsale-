@@ -374,6 +374,7 @@ let ultimoShopifyData = null; // {gShopify, shopifyPos, bsaleShopify} o null si 
 let ultimoBciData = null; // {gBci, bciPos, bsaleTransferencia} o null si no está disponible
 let ultimoEfectivoDocs = []; // documentos Bsale pagados en efectivo del día (sin sistema externo con qué cruzarlos)
 let ultimoBsaleTotalVenta = 0; // suma de TODOS los pagos Bsale del día (crédito+débito+transferencia+efectivo+shopify+otros), sin filtrar por canal
+let ultimoAlertaData = null; // { fecha, diffDeb, diffCred, pendientes } del último renderResults, para el botón "Enviar alerta por correo"
 
 // Suma el monto de todos los pagos Bsale del día, cruzando todas las
 // categorías que devuelve /api/bsale-report -> total real de venta Bsale,
@@ -1071,6 +1072,13 @@ function renderResults(rCrudo){
   filas.push({ canal: 'Total venta Bsale', origen: null, bsale: ultimoBsaleTotalVenta, cuadra: true, sinComparar: true });
   const cuadraGeneral = filas.every(f => f.cuadra);
 
+  ultimoAlertaData = {
+    fecha,
+    diffDeb: diffDebAdj,
+    diffCred: diffCredAdj,
+    pendientes: bsaleExtraPendientes.map(b => ({ numero: b.numero, cliente: b.cliente, monto: b.monto }))
+  };
+
   el.innerHTML = `
     <div class="receipt">
       <table class="resumen-table">
@@ -1087,6 +1095,7 @@ function renderResults(rCrudo){
       </table>
       <span class="stamp ${cuadraGeneral?'ok':'bad'}">${cuadraGeneral ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
       <div class="diff-line">${cuadraAdj ? 'Todas las ventas del TUU tienen su documento en Bsale (o quedaron marcadas como revisadas).' : `Diferencia débito: <b>${fmt(diffDebAdj)}</b> · Diferencia crédito: <b>${fmt(diffCredAdj)}</b> — hay ventas del TUU sin documento ni revisión.`}</div>
+      ${!cuadraAdj ? `<button class="btn-ghost btn-compact" id="btnAlertaCorreo" onclick="enviarAlertaConciliacion()" style="margin-top:10px;">📧 Enviar alerta por correo</button>` : ''}
     </div>
 
     ${bsaleExtraPendientes.length > 0 || (gDeb.unmatchedBsale.length+gCred.unmatchedBsale.length) > 0 ? `
@@ -1107,6 +1116,38 @@ function renderResults(rCrudo){
     <div class="section-title"><span class="dot cred"></span>Tarjeta crédito</div>
     ${rowsHtml(gCred.rows, 'crédito', 'credito', fecha, poolBsaleSueltos)}
   `;
+}
+
+async function enviarAlertaConciliacion(){
+  if(!ultimoAlertaData) return;
+  const { fecha, diffDeb, diffCred, pendientes } = ultimoAlertaData;
+  const btn = $('btnAlertaCorreo');
+  if(btn){ btn.disabled = true; btn.textContent = 'Enviando...'; }
+
+  const listaPendientesTexto = pendientes.map(p => `- Doc. Bsale #${p.numero} (${p.cliente||'—'}): ${fmt(p.monto)}`).join('\n');
+  const listaPendientesHtml = pendientes.map(p => `<li>Doc. Bsale #${p.numero} (${p.cliente||'—'}): ${fmt(p.monto)}</li>`).join('');
+  const link = `${location.origin}/conciliacion.html`;
+
+  const asunto = `⚠ Descuadre conciliación TUU-Bsale — ${fecha}`;
+  const texto = `Alerta de conciliación de pagos — ${fecha}\n\nDiferencia débito: ${fmt(diffDeb)}\nDiferencia crédito: ${fmt(diffCred)}\n${pendientes.length>0 ? `\nDocumentos Bsale con tarjeta sin venta POS pendientes de revisar:\n${listaPendientesTexto}\n` : ''}\nRevisar en: ${link}`;
+  const html = `<p>Alerta de conciliación de pagos — <b>${fecha}</b></p><p>Diferencia débito: <b>${fmt(diffDeb)}</b><br>Diferencia crédito: <b>${fmt(diffCred)}</b></p>${pendientes.length>0?`<p>Documentos Bsale con tarjeta sin venta POS pendientes de revisar:</p><ul>${listaPendientesHtml}</ul>`:''}<p><a href="${link}">Ver conciliación</a></p>`;
+
+  try{
+    const res = await fetch('/api/negocio?recurso=alerta-conciliacion', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asunto, html, texto })
+    });
+    const data = await res.json();
+    if(!res.ok || data.correo?.enviado === false){
+      alert('No se pudo enviar el correo: ' + (data.correo?.motivo || data.error || 'error desconocido'));
+    } else {
+      alert('✅ Alerta enviada por correo.');
+    }
+  }catch(err){
+    alert('Error enviando el correo: ' + err.message);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '📧 Enviar alerta por correo'; }
+  }
 }
 
 function limpiarManual(){

@@ -25,7 +25,21 @@ export default async function handler(req, res) {
   if (recurso === 'criticos') return manejarCriticos(req, res, sesion);
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes o ?recurso=zoho-tickets' });
+  if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
+  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets o ?recurso=alerta-conciliacion' });
+}
+
+// ---------------- Alerta de conciliación por correo (botón manual) ----------------
+// El contenido (asunto/html/texto) lo arma el frontend (conciliacion.html)
+// con el descuadre que está viendo en pantalla -> este endpoint solo lo
+// reenvía por el mismo SMTP que ya usa "reportes" (lib/mailer.js).
+async function manejarAlertaConciliacion(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { asunto, html, texto } = req.body || {};
+  if (!asunto || (!html && !texto)) return res.status(400).json({ error: 'Falta asunto y contenido (html o texto)' });
+
+  const correoResultado = await enviarCorreo({ para: CORREO_ALERTA, asunto, html, texto });
+  return res.status(200).json({ correo: correoResultado });
 }
 
 // ---------------- Productos críticos (marcados a mano) ----------------
