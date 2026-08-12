@@ -40,6 +40,12 @@
   .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
   input[type=date]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
   input[type=date]:focus{outline:none;border-color:var(--primary);}
+  input[type=number],input[type=text]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+  .form-inline{display:flex;gap:10px;align-items:end;flex-wrap:wrap;}
+  .campo{display:flex;flex-direction:column;gap:5px;}
+  .campo label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;}
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:14px;color:var(--text);}
 
   button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;border:none;border-radius:9px;padding:11px 20px;cursor:pointer;transition:all .15s;}
   button:disabled{opacity:0.5;cursor:not-allowed;}
@@ -151,6 +157,31 @@
       <div class="note" id="todayBankNote">Transferencias + depósito TUU de ventas del día anterior.</div>
     </div>
   </div>
+
+  <div class="section-title">🧾 Registrar factura de compra</div>
+  <div class="card" style="margin-bottom:24px;">
+    <div class="form-inline">
+      <div class="campo"><label for="fcProveedor">Proveedor</label><input type="text" id="fcProveedor" placeholder="Nombre del proveedor" style="width:180px;"></div>
+      <div class="campo"><label for="fcNumero">N° factura</label><input type="text" id="fcNumero" placeholder="Folio" style="width:110px;"></div>
+      <div class="campo"><label for="fcMonto">Monto</label><input type="number" id="fcMonto" placeholder="$" style="width:120px;"></div>
+      <div class="campo"><label for="fcFechaCompra">Fecha de compra</label><input type="date" id="fcFechaCompra"></div>
+      <div class="campo"><label for="fcFechaVencimiento">Fecha de vencimiento</label><input type="date" id="fcFechaVencimiento"></div>
+      <div class="campo">
+        <label for="fcFormaPago">Forma de pago</label>
+        <select id="fcFormaPago" onchange="toggleCampoCheque()">
+          <option value="transferencia">Transferencia</option>
+          <option value="cheque">Cheque</option>
+        </select>
+      </div>
+      <div class="campo" id="fcChequeWrap" style="display:none;"><label for="fcNumeroCheque">N° cheque</label><input type="text" id="fcNumeroCheque" placeholder="Folio cheque" style="width:120px;"></div>
+      <div class="campo" id="fcFechaCobroWrap" style="display:none;"><label for="fcFechaCobro">Fecha de cobro</label><input type="date" id="fcFechaCobro"></div>
+      <button class="btn-primary" onclick="agregarFacturaCompra()">Agregar</button>
+    </div>
+    <div id="fcError" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="section-title">📋 Facturas de compra registradas (último mes)</div>
+  <div id="facturasCompraWrap"><p class="empty-note">Cargando...</p></div>
 
   <div class="section-title">📅 Calendario de caída de fondos (últimos y próximos días)</div>
   <p class="empty-note">Cada fila es un día en que el banco debería acreditar dinero, no el día en que se vendió. Útil para proyectar disponibilidad real de caja.</p>
@@ -540,6 +571,95 @@ async function cargarFacturasPorPagar(){
 cargar();
 cargarCalendarioFijo();
 cargarFacturasPorPagar();
+cargarFacturasCompra();
+
+// ---------- Facturas de compra (ingresadas a mano) ----------
+function toggleCampoCheque(){
+  const esCheque = $('fcFormaPago').value === 'cheque';
+  $('fcChequeWrap').style.display = esCheque ? '' : 'none';
+  $('fcFechaCobroWrap').style.display = esCheque ? '' : 'none';
+}
+
+async function cargarFacturasCompra(){
+  const wrap = $('facturasCompraWrap');
+  try{
+    const res = await fetch('/api/negocio?recurso=facturas-compra').then(r=>r.json());
+    if(res.error){ wrap.innerHTML = `<p class="empty-note">No se pudo cargar: ${res.error}</p>`; return; }
+    renderFacturasCompra(res.facturas || []);
+  }catch(err){
+    wrap.innerHTML = `<p class="empty-note">No se pudo cargar: ${err.message}</p>`;
+  }
+}
+
+function renderFacturasCompra(facturas){
+  const wrap = $('facturasCompraWrap');
+  if(facturas.length === 0){
+    wrap.innerHTML = `<p class="empty-note">Sin facturas registradas en el último mes.</p>`;
+    return;
+  }
+  const total = facturas.reduce((a,f)=>a+Number(f.monto),0);
+  wrap.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Proveedor</th><th>N° factura</th><th class="amount">Monto</th>
+        <th>Fecha compra</th><th>Fecha vencimiento</th><th>Forma de pago</th><th>Detalle cheque</th><th>Agregado por</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${facturas.map(f => `
+          <tr>
+            <td>${f.proveedor}</td>
+            <td>${f.numero_factura || '—'}</td>
+            <td class="amount">${fmt(f.monto)}</td>
+            <td>${f.fecha_compra}</td>
+            <td>${f.fecha_vencimiento || '—'}</td>
+            <td><span class="badge">${f.forma_pago === 'cheque' ? 'Cheque' : 'Transferencia'}</span></td>
+            <td>${f.forma_pago === 'cheque' ? `N° ${f.numero_cheque || '—'}${f.fecha_cobro_cheque ? ' · cobra ' + f.fecha_cobro_cheque : ''}` : '—'}</td>
+            <td>${f.agregado_por || '—'}</td>
+            <td><button class="btn-ghost btn-compact" onclick="eliminarFacturaCompra(${f.id})">Eliminar</button></td>
+          </tr>`).join('')}
+        <tr><td colspan="2"><b>Total</b></td><td class="amount"><b>${fmt(total)}</b></td><td colspan="6"></td></tr>
+      </tbody>
+    </table>
+  `;
+}
+
+async function agregarFacturaCompra(){
+  const errorEl = $('fcError');
+  errorEl.innerHTML = '';
+  const proveedor = $('fcProveedor').value.trim();
+  const numeroFactura = $('fcNumero').value.trim();
+  const monto = $('fcMonto').value;
+  const fechaCompra = $('fcFechaCompra').value;
+  const fechaVencimiento = $('fcFechaVencimiento').value;
+  const formaPago = $('fcFormaPago').value;
+  const numeroCheque = $('fcNumeroCheque').value.trim();
+  const fechaCobroCheque = $('fcFechaCobro').value;
+
+  if(!proveedor){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Ingresa el proveedor.</div>`; return; }
+  if(!monto || Number(monto) <= 0){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Ingresa un monto válido.</div>`; return; }
+  if(!fechaCompra){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Elige la fecha de compra.</div>`; return; }
+
+  try{
+    const res = await fetch('/api/negocio?recurso=facturas-compra', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proveedor, numeroFactura, monto: Number(monto), fechaCompra, fechaVencimiento: fechaVencimiento || null, formaPago, numeroCheque, fechaCobroCheque: fechaCobroCheque || null })
+    });
+    const data = await res.json();
+    if(!res.ok){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${data.error}</div>`; return; }
+    $('fcProveedor').value=''; $('fcNumero').value=''; $('fcMonto').value='';
+    $('fcFechaCompra').value=''; $('fcFechaVencimiento').value='';
+    $('fcNumeroCheque').value=''; $('fcFechaCobro').value='';
+    cargarFacturasCompra();
+  }catch(err){
+    errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${err.message}</div>`;
+  }
+}
+
+async function eliminarFacturaCompra(id){
+  if(!confirm('¿Eliminar esta factura de compra?')) return;
+  await fetch(`/api/negocio?recurso=facturas-compra&id=${id}`, { method: 'DELETE' });
+  cargarFacturasCompra();
+}
 
 // Sesión: muestra quién está conectado y el botón de cerrar sesión. La
 // protección REAL de acceso la hace el middleware (redirige a /login.html

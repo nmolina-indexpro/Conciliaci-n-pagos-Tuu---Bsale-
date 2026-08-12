@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo } from '../lib/mailer.js';
 
@@ -26,7 +26,66 @@ export default async function handler(req, res) {
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets o ?recurso=alerta-conciliacion' });
+  if (recurso === 'facturas-compra') return manejarFacturasCompra(req, res, sesion);
+  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion o ?recurso=facturas-compra' });
+}
+
+// ---------------- Facturas de compra (ingresadas a mano) ----------------
+async function manejarFacturasCompra(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaFacturasCompra(sql);
+
+    if (req.method === 'GET') {
+      // Por defecto, el último mes -> se puede pedir un rango explícito con
+      // ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD (ej. para ver meses anteriores).
+      const hoy = new Date().toISOString().slice(0, 10);
+      const haceUnMes = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+      const desde = req.query.desde || haceUnMes;
+      const hasta = req.query.hasta || hoy;
+      const { rows } = await sql`
+        SELECT * FROM facturas_compra
+        WHERE fecha_compra >= ${desde} AND fecha_compra <= ${hasta}
+        ORDER BY fecha_compra DESC, created_at DESC;
+      `;
+      return res.status(200).json({ facturas: rows });
+    }
+
+    if (req.method === 'POST') {
+      const { proveedor, numeroFactura, monto, fechaCompra, fechaVencimiento, formaPago, numeroCheque, fechaCobroCheque } = req.body || {};
+      if (!proveedor || !proveedor.trim()) return res.status(400).json({ error: 'Falta el proveedor' });
+      if (!monto || Number(monto) <= 0) return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+      if (!fechaCompra) return res.status(400).json({ error: 'Falta la fecha de compra' });
+      const formaPagoFinal = formaPago === 'cheque' ? 'cheque' : 'transferencia';
+
+      const { rows } = await sql`
+        INSERT INTO facturas_compra (
+          proveedor, numero_factura, monto, fecha_compra, fecha_vencimiento,
+          forma_pago, numero_cheque, fecha_cobro_cheque, agregado_por
+        )
+        VALUES (
+          ${proveedor.trim()}, ${numeroFactura || null}, ${monto}, ${fechaCompra}, ${fechaVencimiento || null},
+          ${formaPagoFinal},
+          ${formaPagoFinal === 'cheque' ? (numeroCheque || null) : null},
+          ${formaPagoFinal === 'cheque' ? (fechaCobroCheque || null) : null},
+          ${sesion.nombre || sesion.email}
+        )
+        RETURNING *;
+      `;
+      return res.status(200).json({ factura: rows[0] });
+    }
+
+    if (req.method === 'DELETE') {
+      const { id } = req.query;
+      if (!id) return res.status(400).json({ error: 'Falta el id' });
+      await sql`DELETE FROM facturas_compra WHERE id = ${id};`;
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en facturas de compra', detail: String(err) });
+  }
 }
 
 // ---------------- Alerta de conciliación por correo (botón manual) ----------------
