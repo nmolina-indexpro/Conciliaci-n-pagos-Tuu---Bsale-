@@ -148,7 +148,7 @@ async function cargar(){
     if(res.error){
       status.className = 'err';
       status.textContent = 'Error: ' + res.error;
-      $('agotadosWrap').innerHTML = `<p class="empty-note">No se pudo cargar: ${res.error}</p>`;
+      $('agotadosWrap').innerHTML = `<p class="empty-note">No se pudo cargar: ${res.error}${res.detail ? '<br><code>'+res.detail+'</code>' : ''}</p>`;
       return;
     }
     ultimosAgotados = res.agotados || [];

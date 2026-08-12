@@ -226,32 +226,53 @@ async function manejarAgotados(req, res) {
   try {
     const token = await obtenerAccessToken(dominioLimpio, clientId, clientSecret);
 
-    // Suma el stock de todas las variantes de cada producto de las
-    // colecciones de alerta -> si el total es 0, el producto está agotado.
+    // GraphQL en vez de REST: el filtro "collection_id" de /products.json
+    // (REST) devuelve 403 con este token -> necesita el scope
+    // read_product_listings (de "canales de venta"), que la app no tiene.
+    // La consulta de productos de una colección vía GraphQL solo pide
+    // read_products, que sí está concedido (ya lo usan los otros reportes
+    // de Shopify). De paso, totalInventory ya viene sumado por Shopify.
     const productosPorId = new Map(); // id -> { nombre, categoria, stock }
+    const query = `
+      query($id: ID!, $cursor: String) {
+        collection(id: $id) {
+          products(first: 100, after: $cursor) {
+            edges { node { id title totalInventory } }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }
+    `;
     for (const { id: collectionId, categoria } of COLECCIONES_ALERTA) {
-      let url =
-        `https://${dominioLimpio}/admin/api/${API_VERSION}/products.json` +
-        `?collection_id=${collectionId}&status=active&limit=250&fields=id,title,variants`;
+      const gid = `gid://shopify/Collection/${collectionId}`;
+      let cursor = null;
       let guard = 0;
-      while (url && guard < 10) { // tope de seguridad: 10 páginas (2500 productos) por colección
-        const r = await fetchWithTimeout(url, {
-          headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
+      while (guard < 10) { // tope de seguridad: 10 páginas (1000 productos) por colección
+        const r = await fetchWithTimeout(`https://${dominioLimpio}/admin/api/${API_VERSION}/graphql.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, variables: { id: gid, cursor } })
         });
         if (!r.ok) {
           const text = await r.text().catch(() => '');
           return res.status(502).json({ error: `Shopify HTTP ${r.status} (colección ${collectionId})`, detail: text.slice(0, 300), agotados: [] });
         }
         const body = await r.json();
-        for (const p of (body.products || [])) {
-          const stock = (p.variants || []).reduce((a, v) => a + (v.inventory_quantity || 0), 0);
+        if (body.errors) {
+          return res.status(502).json({ error: `Shopify GraphQL error (colección ${collectionId})`, detail: JSON.stringify(body.errors).slice(0, 300), agotados: [] });
+        }
+        const conexion = body.data?.collection?.products;
+        if (!conexion) break;
+        for (const { node: p } of conexion.edges) {
+          const idNumerico = p.id.split('/').pop();
           // Un producto puede vivir en más de una colección de alerta (ej.
           // ambas de cargadores) -> se queda con la primera categoría vista.
-          if (!productosPorId.has(String(p.id))) {
-            productosPorId.set(String(p.id), { nombre: p.title, categoria, stock });
+          if (!productosPorId.has(idNumerico)) {
+            productosPorId.set(idNumerico, { nombre: p.title, categoria, stock: p.totalInventory });
           }
         }
-        url = parseNextLink(r.headers.get('link'));
+        if (!conexion.pageInfo.hasNextPage) break;
+        cursor = conexion.pageInfo.endCursor;
         guard++;
       }
     }
