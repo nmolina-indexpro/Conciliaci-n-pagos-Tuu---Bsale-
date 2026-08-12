@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Sitio Web — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:28px 40px 60px 190px;}
+  .wrap{max-width:1600px;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;letter-spacing:0.2px;margin:0 0 5px 0;}
+  h1 span{color:var(--primary);}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin:0 0 4px 0;}
+  .sub{color:var(--muted);font-size:13px;}
+  .page-nav{display:flex;gap:6px;background:var(--surface-2);padding:5px;border-radius:12px;width:fit-content;justify-self:center;flex-wrap:wrap;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:var(--muted);text-decoration:none;padding:10px 22px;border-radius:9px;transition:all .15s;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+  #status{font-size:12px;color:var(--muted);}
+  #status.err{color:var(--red);}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+  @media (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;}
+  .card.alert .big{color:var(--red);}
+
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  th.amount, td.amount{text-align:right;}
+  td{padding:9px;border-bottom:1px solid var(--line);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:20px;color:var(--text);}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;}
+  .badge.cargadores{background:var(--amber-dim);color:var(--amber);}
+  .badge.pantallas{background:var(--blue-bg);color:var(--blue);}
+  .badge.baterias{background:var(--red-bg);color:var(--red);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <a href="index.html">Flujo de Caja</a>
+      <a href="conciliacion.html">Conciliación</a>
+      <a href="compras.html">Compras</a>
+      <a href="alertas-stock.html">Alertas de Stock</a>
+      <a href="sitio-web.html" class="active">Sitio Web</a>
+      <a href="eficiencia-tickets.html">Tickets</a>
+      <a href="guia-uso.html">Guía de uso</a>
+      <a href="usuarios.html" id="navUsuarios" style="display:none;">Usuarios</a>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <div class="toolbar">
+    <div>
+      <h1>Sitio <span>Web</span></h1>
+      <div class="sub">Estado del catálogo publicado en indexstore.cl.</div>
+    </div>
+    <button class="btn-ghost" onclick="cargar()">↻ Actualizar</button>
+  </div>
+  <div id="status"></div>
+
+  <div class="grid" id="kpiWrap">
+    <div class="card alert"><div class="lbl">Total agotados</div><div class="big" id="cTotal">—</div></div>
+    <div class="card"><div class="lbl">Cargadores agotados</div><div class="big" id="cCargadores">—</div></div>
+    <div class="card"><div class="lbl">Pantallas agotadas</div><div class="big" id="cPantallas">—</div></div>
+    <div class="card"><div class="lbl">Baterías agotadas</div><div class="big" id="cBaterias">—</div></div>
+  </div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>🚨 Alertas Sitio web</h2>
+        <div class="sub">Productos de Shopify agotados en las categorías cargadores, pantallas y baterías.</div>
+      </div>
+      <select id="filtroCategoria" onchange="renderTabla()">
+        <option value="">Todas las categorías</option>
+        <option value="Cargadores">Cargadores</option>
+        <option value="Pantallas">Pantallas</option>
+        <option value="Baterías">Baterías</option>
+      </select>
+    </div>
+    <div class="note-box">La fecha corresponde a la primera vez que este sistema detectó el producto sin stock. Si ya estaba agotado antes de que existiera esta página, no se puede saber la fecha real — vas a ver la fecha del primer chequeo.</div>
+    <div id="agotadosWrap"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+function diasDesde(fechaStr){
+  if(!fechaStr) return null;
+  const [y,m,d] = fechaStr.split('-').map(Number);
+  const hoy = new Date();
+  const hoyUtc = Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  return Math.max(0, Math.round((hoyUtc - Date.UTC(y,m-1,d)) / 86400000));
+}
+function claseCategoria(cat){
+  return cat === 'Cargadores' ? 'cargadores' : cat === 'Pantallas' ? 'pantallas' : 'baterias';
+}
+
+let ultimosAgotados = [];
+
+async function cargar(){
+  const status = $('status');
+  status.className = '';
+  status.textContent = 'Consultando Shopify...';
+  try{
+    const res = await fetch('/api/shopify-report?recurso=agotados').then(r=>r.json());
+    if(res.error){
+      status.className = 'err';
+      status.textContent = 'Error: ' + res.error;
+      $('agotadosWrap').innerHTML = `<p class="empty-note">No se pudo cargar: ${res.error}</p>`;
+      return;
+    }
+    ultimosAgotados = res.agotados || [];
+    renderKpis();
+    renderTabla();
+    status.textContent = `Actualizado — ${ultimosAgotados.length} producto(s) agotado(s)`;
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
+}
+
+function renderKpis(){
+  $('cTotal').textContent = fmtNum(ultimosAgotados.length);
+  $('cCargadores').textContent = fmtNum(ultimosAgotados.filter(p=>p.categoria==='Cargadores').length);
+  $('cPantallas').textContent = fmtNum(ultimosAgotados.filter(p=>p.categoria==='Pantallas').length);
+  $('cBaterias').textContent = fmtNum(ultimosAgotados.filter(p=>p.categoria==='Baterías').length);
+}
+
+function renderTabla(){
+  const filtro = $('filtroCategoria').value;
+  const lista = filtro ? ultimosAgotados.filter(p=>p.categoria===filtro) : ultimosAgotados;
+  const wrap = $('agotadosWrap');
+  if(lista.length === 0){
+    wrap.innerHTML = `<p class="empty-note">Sin productos agotados en esta categoría. 🎉</p>`;
+    return;
+  }
+  const ordenada = [...lista].sort((a,b) => (a.fechaDetectado||'').localeCompare(b.fechaDetectado||''));
+  wrap.innerHTML = `
+    <table>
+      <thead><tr><th>Categoría</th><th>Producto</th><th>Fecha sin stock</th><th class="amount">Días sin stock</th></tr></thead>
+      <tbody>
+        ${ordenada.map(p => `
+          <tr>
+            <td><span class="badge ${claseCategoria(p.categoria)}">${p.categoria}</span></td>
+            <td>${p.nombre}</td>
+            <td>${p.fechaDetectado || '—'}</td>
+            <td class="amount">${p.fechaDetectado ? fmtNum(diasDesde(p.fechaDetectado)) : '—'}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    if(u.rol === 'admin'){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+    }
+    aplicarRestriccionesUsuario(u.rol);
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+cargar();
+cargarSesionUsuario();
+</script>
+</body>
+</html>

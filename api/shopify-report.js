@@ -18,8 +18,22 @@
 //
 // Las credenciales viven SOLO en el servidor, nunca en el navegador.
 
+import { getSql, asegurarTablaShopifyAgotados } from '../lib/db.js';
+
 const TIMEOUT_MS = 12000;
 const API_VERSION = '2024-10';
+
+// Colecciones de Shopify que agrupan cargadores/pantallas/baterías (IDs
+// numéricos, sacados de las colecciones reales de indexstore.cl — no existe
+// un "product_type" limpio para esto, así que se identifica por colección).
+const COLECCIONES_ALERTA = [
+  { id: '285430808755', categoria: 'Cargadores' }, // Cargadores para Notebook
+  { id: '285473538227', categoria: 'Cargadores' }, // Cargadores de Macbook
+  { id: '283436548275', categoria: 'Pantallas' },  // Pantallas para Notebook
+  { id: '285483040947', categoria: 'Pantallas' },  // Pantallas para Macbook
+  { id: '285306421427', categoria: 'Baterías' },   // Baterías para Notebook
+  { id: '285310714035', categoria: 'Baterías' },   // Baterías Macbook
+];
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
   const controller = new AbortController();
@@ -101,7 +115,28 @@ async function obtenerAccessToken(dominioLimpio, clientId, clientSecret) {
   return body.access_token;
 }
 
+function credencialesShopify() {
+  // trim() por si quedó un espacio o salto de línea invisible al copiar/pegar
+  const domain = (process.env.SHOPIFY_STORE_DOMAIN || '').trim();
+  const clientId = (process.env.SHOPIFY_CLIENT_ID || '').trim();
+  const clientSecret = (process.env.SHOPIFY_CLIENT_SECRET || '').trim();
+
+  if (!domain || !clientId || !clientSecret) {
+    throw new Error('Faltan variables de entorno SHOPIFY_STORE_DOMAIN, SHOPIFY_CLIENT_ID y/o SHOPIFY_CLIENT_SECRET en el servidor');
+  }
+  const dominioLimpio = domain.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  if (!/^[a-z0-9-]+\.myshopify\.com$/i.test(dominioLimpio)) {
+    throw new Error(`SHOPIFY_STORE_DOMAIN no tiene el formato esperado: "${domain}" — debe verse exactamente así: indexstore-cl.myshopify.com`);
+  }
+  return { dominioLimpio, clientId, clientSecret };
+}
+
 export default async function handler(req, res) {
+  if (req.query.recurso === 'agotados') return manejarAgotados(req, res);
+  return manejarOrdenes(req, res);
+}
+
+async function manejarOrdenes(req, res) {
   const { date, startDate: qStart, endDate: qEnd } = req.query;
   const startDate = qStart || date;
   const endDate = qEnd || date;
@@ -110,23 +145,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Falta parámetro date, o startDate y endDate (YYYY-MM-DD)' });
   }
 
-  // trim() por si quedó un espacio o salto de línea invisible al copiar/pegar
-  const domain = (process.env.SHOPIFY_STORE_DOMAIN || '').trim();
-  const clientId = (process.env.SHOPIFY_CLIENT_ID || '').trim();
-  const clientSecret = (process.env.SHOPIFY_CLIENT_SECRET || '').trim();
-
-  if (!domain || !clientId || !clientSecret) {
-    return res.status(500).json({
-      error: 'Faltan variables de entorno SHOPIFY_STORE_DOMAIN, SHOPIFY_CLIENT_ID y/o SHOPIFY_CLIENT_SECRET en el servidor'
-    });
-  }
-
-  const dominioLimpio = domain.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-  if (!/^[a-z0-9-]+\.myshopify\.com$/i.test(dominioLimpio)) {
-    return res.status(500).json({
-      error: `SHOPIFY_STORE_DOMAIN no tiene el formato esperado: "${domain}" (largo: ${domain.length} caracteres)`,
-      hint: 'Debe verse exactamente así: indexstore-cl.myshopify.com — sin https://, sin barra al final, sin espacios.'
-    });
+  let dominioLimpio, clientId, clientSecret;
+  try {
+    ({ dominioLimpio, clientId, clientSecret } = credencialesShopify());
+  } catch (err) {
+    return res.status(500).json({ error: String(err.message || err) });
   }
 
   try {
@@ -179,5 +202,104 @@ export default async function handler(req, res) {
     return res.status(200).json({ startDate, endDate, ventas, ordenesRevisadas: allOrders.length });
   } catch (err) {
     return res.status(500).json({ error: 'Error consultando Shopify', detail: String(err) });
+  }
+}
+
+function fechaStr(v) {
+  if (!v) return null;
+  return typeof v === 'string' ? v.slice(0, 10) : v.toISOString().slice(0, 10);
+}
+
+// ---------------- Alertas Sitio web: productos agotados ----------------
+// Cargadores/pantallas/baterías sin stock, identificados por colección (no
+// hay un product_type limpio para esto en el catálogo real). La fecha en
+// que "quedó sin stock" se reconstruye guardando la primera vez que este
+// endpoint detecta cada producto en 0 (ver asegurarTablaShopifyAgotados).
+async function manejarAgotados(req, res) {
+  let dominioLimpio, clientId, clientSecret;
+  try {
+    ({ dominioLimpio, clientId, clientSecret } = credencialesShopify());
+  } catch (err) {
+    return res.status(200).json({ error: String(err.message || err), agotados: [] });
+  }
+
+  try {
+    const token = await obtenerAccessToken(dominioLimpio, clientId, clientSecret);
+
+    // Suma el stock de todas las variantes de cada producto de las
+    // colecciones de alerta -> si el total es 0, el producto está agotado.
+    const productosPorId = new Map(); // id -> { nombre, categoria, stock }
+    for (const { id: collectionId, categoria } of COLECCIONES_ALERTA) {
+      let url =
+        `https://${dominioLimpio}/admin/api/${API_VERSION}/products.json` +
+        `?collection_id=${collectionId}&status=active&limit=250&fields=id,title,variants`;
+      let guard = 0;
+      while (url && guard < 10) { // tope de seguridad: 10 páginas (2500 productos) por colección
+        const r = await fetchWithTimeout(url, {
+          headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
+        });
+        if (!r.ok) {
+          const text = await r.text().catch(() => '');
+          return res.status(502).json({ error: `Shopify HTTP ${r.status} (colección ${collectionId})`, detail: text.slice(0, 300), agotados: [] });
+        }
+        const body = await r.json();
+        for (const p of (body.products || [])) {
+          const stock = (p.variants || []).reduce((a, v) => a + (v.inventory_quantity || 0), 0);
+          // Un producto puede vivir en más de una colección de alerta (ej.
+          // ambas de cargadores) -> se queda con la primera categoría vista.
+          if (!productosPorId.has(String(p.id))) {
+            productosPorId.set(String(p.id), { nombre: p.title, categoria, stock });
+          }
+        }
+        url = parseNextLink(r.headers.get('link'));
+        guard++;
+      }
+    }
+
+    const agotadosAhora = [...productosPorId.entries()]
+      .filter(([, p]) => p.stock <= 0)
+      .map(([id, p]) => ({ id, nombre: p.nombre, categoria: p.categoria }));
+
+    // ---- Fecha en que se detectó cada uno sin stock (persistida) ----
+    let resultado = agotadosAhora.map(p => ({ ...p, fechaDetectado: null }));
+    try {
+      const sql = await getSql();
+      await asegurarTablaShopifyAgotados(sql);
+
+      const idsAgotadosAhora = new Set(agotadosAhora.map(p => p.id));
+      const { rows: activosPrevios } = await sql`SELECT producto_id FROM shopify_agotados WHERE activo = true;`;
+
+      // Los que ya no están agotados se marcan resueltos -> si vuelven a
+      // quedar en 0 más adelante, la próxima detección cuenta como una
+      // fecha nueva (no se arrastra la anterior).
+      for (const row of activosPrevios) {
+        if (!idsAgotadosAhora.has(row.producto_id)) {
+          await sql`UPDATE shopify_agotados SET activo = false WHERE producto_id = ${row.producto_id};`;
+        }
+      }
+
+      // Si ya estaba activo, conserva fecha_detectado original; si es
+      // nuevo (o había vuelto a tener stock), queda con la fecha de hoy.
+      for (const p of agotadosAhora) {
+        await sql`
+          INSERT INTO shopify_agotados (producto_id, nombre, categoria, fecha_detectado, activo)
+          VALUES (${p.id}, ${p.nombre}, ${p.categoria}, CURRENT_DATE, true)
+          ON CONFLICT (producto_id) DO UPDATE SET
+            nombre = EXCLUDED.nombre,
+            categoria = EXCLUDED.categoria,
+            fecha_detectado = CASE WHEN shopify_agotados.activo THEN shopify_agotados.fecha_detectado ELSE CURRENT_DATE END,
+            activo = true;
+        `;
+      }
+
+      const { rows } = await sql`SELECT producto_id, nombre, categoria, fecha_detectado FROM shopify_agotados WHERE activo = true ORDER BY fecha_detectado ASC;`;
+      resultado = rows.map(r => ({ id: r.producto_id, nombre: r.nombre, categoria: r.categoria, fechaDetectado: fechaStr(r.fecha_detectado) }));
+    } catch (dbErr) {
+      // Sin base de datos disponible, igual se muestra la lista actual (sin fecha).
+    }
+
+    return res.status(200).json({ agotados: resultado });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error consultando Shopify', detail: String(err), agotados: [] });
   }
 }
