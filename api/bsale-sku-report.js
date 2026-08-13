@@ -338,6 +338,7 @@ export default async function handler(req, res) {
     let catalogoDisponible = true;
     const categoriaPorCode = {};
     const esServicioPorCode = {};
+    const nombrePorCode = {};
     const codePorVariantId = {};
     try {
       const [tiposRes, productsRes, variantsRes] = await Promise.all([
@@ -354,7 +355,8 @@ export default async function handler(req, res) {
         const tipoId = p.product_type?.id ?? p.productTypeId ?? null;
         infoPorProductoId[p.id] = {
           esServicio: p.classification === 1,
-          categoria: tipoId != null ? (nombrePorTipoId[tipoId] || 'Sin categoría') : 'Sin categoría'
+          categoria: tipoId != null ? (nombrePorTipoId[tipoId] || 'Sin categoría') : 'Sin categoría',
+          nombre: p.name || null
         };
       }
 
@@ -365,6 +367,10 @@ export default async function handler(req, res) {
         const info = productoId != null ? infoPorProductoId[productoId] : null;
         categoriaPorCode[v.code] = info?.categoria || 'Sin categoría';
         esServicioPorCode[v.code] = info?.esServicio || false;
+        // Nombre real del catálogo (a diferencia del nombre "aprendido" de las
+        // ventas del período, que si un SKU no vendió nada queda en blanco y
+        // el reporte termina mostrando el código en vez del nombre).
+        if (info?.nombre) nombrePorCode[v.code] = info.nombre;
       }
     } catch (err) {
       catalogoDisponible = false; // seguimos sin categorías/filtro de servicio si esto falla
@@ -628,7 +634,11 @@ export default async function handler(req, res) {
 
         return {
           code,
-          nombre: venta.nombre || code,
+          // Si el SKU no vendió nada en este período, "venta.nombre" no existe
+          // (viene de las líneas de venta) y antes se mostraba el código. Ahora
+          // cae al nombre real del catálogo (products.json) antes de usar el
+          // código como último recurso.
+          nombre: venta.nombre || nombrePorCode[code] || code,
           categoria: categoriaPorCode[code] || 'Sin categoría',
           unidadesVendidas: venta.unidades,
           montoVentas: Math.round(venta.montoNeto),
