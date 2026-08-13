@@ -721,6 +721,8 @@ function renderTabla(){
         <th class="amount" onclick="ordenarPor('diasCobertura')">Días cobertura${flecha('diasCobertura')}</th>
         <th class="amount" onclick="ordenarPor('unidadesCompradas')">Compradas (período)${flecha('unidadesCompradas')}</th>
         <th class="amount" onclick="ordenarPor('ultimoCosto')">Último costo comprado${flecha('ultimoCosto')}</th>
+        <th onclick="ordenarPor('fechaUltimaCompra')">Última fecha de compra${flecha('fechaUltimaCompra')}</th>
+        <th onclick="ordenarPor('fechaUltimaVenta')">Última fecha de venta${flecha('fechaUltimaVenta')}</th>
         <th class="amount solo-admin" onclick="ordenarPor('margenUnitario')">Margen $${flecha('margenUnitario')}</th>
         <th class="amount solo-admin" onclick="ordenarPor('margenPorcentaje')">Margen %${flecha('margenPorcentaje')}</th>
         <th class="solo-admin" onclick="ordenarPor('esEstrella')" style="cursor:pointer;">⭐${flecha('esEstrella')}</th>
@@ -754,6 +756,8 @@ function renderTabla(){
             <td class="amount">${s.diasCobertura===null?'—':fmtNum(s.diasCobertura)}</td>
             <td class="amount">${fmtNum(s.unidadesCompradas)}</td>
             <td class="amount">${s.ultimoCosto!=null?fmt(s.ultimoCosto):'—'}</td>
+            <td>${s.fechaUltimaCompra || '—'}</td>
+            <td>${s.fechaUltimaVenta || '—'}</td>
             <td class="amount solo-admin">${s.margenUnitario!=null?fmt(s.margenUnitario):'—'}</td>
             <td class="amount solo-admin">${s.margenPorcentaje!=null?s.margenPorcentaje+'%':'—'}</td>
             <td class="solo-admin">${s.esEstrella?'<span class="badge estrella">⭐ Estrella</span>':''}</td>
@@ -834,6 +838,8 @@ function exportarExcel(){
       'Stock actual': s.stockActual,
       'Días de cobertura': s.diasCobertura === null ? '' : s.diasCobertura,
       'Último costo comprado': s.ultimoCosto ?? '',
+      'Última fecha de compra': s.fechaUltimaCompra ?? '',
+      'Última fecha de venta': s.fechaUltimaVenta ?? '',
       ...(rolActual === 'admin' ? {
         'Margen $': s.margenUnitario ?? '',
         'Margen %': s.margenPorcentaje ?? '',
