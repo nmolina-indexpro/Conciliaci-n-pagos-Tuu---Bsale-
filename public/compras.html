@@ -160,10 +160,8 @@
           <option value="">Todas las categorías</option>
           <option value="pantalla">Pantallas</option>
           <option value="cargador-original">Cargadores originales</option>
-          <option value="cargador-daxis">Cargadores Daxis</option>
           <option value="cargador-alternativo">Cargadores alternativos</option>
           <option value="bateria-original">Baterías originales</option>
-          <option value="bateria-daxis">Baterías Daxis</option>
           <option value="bateria-alternativo">Baterías alternativas</option>
         </select>
         <button class="btn-primary btn-compact" onclick="calcularRecomendacionPresupuesto()">Calcular recomendación</button>
@@ -505,7 +503,11 @@ async function calcularRecomendacionPresupuesto(){
 
   // Toma la categoría elegida en el selector (por defecto PAN-CAR-BAT), sobre
   // el catálogo completo de ESTE período dedicado.
-  const base = categoriaElegida ? skusPresupuesto.filter(s => filtrosRapidos[categoriaElegida](s)) : skusPresupuesto;
+  const base = (categoriaElegida ? skusPresupuesto.filter(s => filtrosRapidos[categoriaElegida](s)) : skusPresupuesto)
+    // Cargadores y baterías Daxis se importan (70 días producción + envío,
+    // no un pedido local de días) -> se gestionan aparte en la sección
+    // "🚢 Importación Daxis" y nunca deben competir por este presupuesto.
+    .filter(s => !filtrosRapidos['cargador-daxis'](s) && !filtrosRapidos['bateria-daxis'](s));
 
   if(base.length === 0){
     wrap.innerHTML = `<p class="empty-note">No hay SKU en la categoría elegida para este período.</p>`;
