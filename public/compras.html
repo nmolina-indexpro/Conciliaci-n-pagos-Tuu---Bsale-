@@ -276,6 +276,7 @@ let datosSkus = [];
 let ordenActual = { campo: 'unidadesVendidas', asc: false };
 let categoriaRapidaActiva = null;
 let filtroDaxisCategoria = null; // null = cargadores + baterías, o 'cargador-daxis' / 'bateria-daxis'
+let ordenDaxis = { campo: null, asc: true }; // null = orden por defecto (urgencia)
 let ultimasFilasFiltradas = [];
 let ultimaRecomendacion = null;
 
@@ -404,6 +405,15 @@ function filtrarDaxisCategoria(clave){
   renderDaxis();
 }
 
+function ordenarDaxisPor(campo){
+  if(ordenDaxis.campo === campo) ordenDaxis.asc = !ordenDaxis.asc;
+  else { ordenDaxis.campo = campo; ordenDaxis.asc = true; }
+  renderDaxis();
+}
+function flechaDaxis(campo){
+  return ordenDaxis.campo === campo ? (ordenDaxis.asc ? ' ▲' : ' ▼') : '';
+}
+
 function renderDaxis(){
   const wrap = $('daxisWrap');
   const buffer = parseInt($('bufferDaxis').value, 10) || 30;
@@ -417,23 +427,37 @@ function renderDaxis(){
     return;
   }
 
-  const filas = productos.map(s => {
+  let filas = productos.map(s => {
     const ventaDiaria = s.ventaDiariaPromedio || 0;
     const sugerenciaImportar = ventaDiaria > 0 ? Math.max(0, Math.ceil(ventaDiaria * horizonteTotal - s.stockActual)) : 0;
     const costoEstimado = (s.ultimoCosto != null) ? Math.round(sugerenciaImportar * s.ultimoCosto) : null;
 
     let estado;
-    if(s.stockActual === 0 && ventaDiaria > 0) estado = { clase:'urgente', texto:'🔴 SIN STOCK' };
-    else if(s.diasCobertura != null && s.diasCobertura <= PLAZO_IMPORTACION_DAXIS) estado = { clase:'urgente', texto:'🔴 Iniciar importación YA' };
-    else if(s.diasCobertura != null && s.diasCobertura <= horizonteTotal) estado = { clase:'pronto', texto:'🟡 Iniciar pronto' };
-    else if(s.diasCobertura == null && ventaDiaria === 0) estado = { clase:'', texto:'Sin venta en el período' };
-    else estado = { clase:'ok', texto:'🟢 OK' };
+    if(s.stockActual === 0 && ventaDiaria > 0) estado = { clase:'urgente', texto:'🔴 SIN STOCK', orden:0 };
+    else if(s.diasCobertura != null && s.diasCobertura <= PLAZO_IMPORTACION_DAXIS) estado = { clase:'urgente', texto:'🔴 Iniciar importación YA', orden:0 };
+    else if(s.diasCobertura != null && s.diasCobertura <= horizonteTotal) estado = { clase:'pronto', texto:'🟡 Iniciar pronto', orden:1 };
+    else if(s.diasCobertura == null && ventaDiaria === 0) estado = { clase:'', texto:'Sin venta en el período', orden:2 };
+    else estado = { clase:'ok', texto:'🟢 OK', orden:3 };
 
     return { ...s, ventaDiaria, sugerenciaImportar, costoEstimado, estado };
-  }).sort((a,b) => {
-    const orden = { urgente:0, pronto:1, '':2, ok:3 };
-    return (orden[a.estado.clase]??2) - (orden[b.estado.clase]??2) || (a.diasCobertura??999) - (b.diasCobertura??999);
   });
+
+  if(ordenDaxis.campo){
+    const campo = ordenDaxis.campo;
+    filas.sort((a,b) => {
+      let va = campo === 'estadoOrden' ? a.estado.orden : a[campo];
+      let vb = campo === 'estadoOrden' ? b.estado.orden : b[campo];
+      const aNull = va===null || va===undefined, bNull = vb===null || vb===undefined;
+      if(aNull && bNull) return 0;
+      if(aNull) return 1;
+      if(bNull) return -1;
+      if(typeof va === 'string') return ordenDaxis.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+      return ordenDaxis.asc ? va - vb : vb - va;
+    });
+  } else {
+    // Orden por defecto: urgencia primero, y dentro de cada grupo, menor cobertura primero.
+    filas.sort((a,b) => a.estado.orden - b.estado.orden || (a.diasCobertura??999) - (b.diasCobertura??999));
+  }
 
   const urgentes = filas.filter(f=>f.estado.clase==='urgente').length;
   const costoTotalSugerido = filas.reduce((a,f)=>a+(f.costoEstimado||0),0);
@@ -448,10 +472,16 @@ function renderDaxis(){
     </div>
     <table>
       <thead><tr>
-        <th>SKU</th><th>Producto</th><th>Categoría</th>
-        <th class="amount">Stock actual</th><th class="amount">Venta diaria</th><th class="amount">Cobertura (días)</th>
-        <th>Fecha última venta</th>
-        <th class="amount">Sugerencia a importar</th><th class="amount">Costo estimado</th><th>Estado</th>
+        <th onclick="ordenarDaxisPor('code')" style="cursor:pointer;">SKU${flechaDaxis('code')}</th>
+        <th onclick="ordenarDaxisPor('nombre')" style="cursor:pointer;">Producto${flechaDaxis('nombre')}</th>
+        <th onclick="ordenarDaxisPor('categoria')" style="cursor:pointer;">Categoría${flechaDaxis('categoria')}</th>
+        <th class="amount" onclick="ordenarDaxisPor('stockActual')" style="cursor:pointer;">Stock actual${flechaDaxis('stockActual')}</th>
+        <th class="amount" onclick="ordenarDaxisPor('ventaDiaria')" style="cursor:pointer;">Venta diaria${flechaDaxis('ventaDiaria')}</th>
+        <th class="amount" onclick="ordenarDaxisPor('diasCobertura')" style="cursor:pointer;">Cobertura (días)${flechaDaxis('diasCobertura')}</th>
+        <th onclick="ordenarDaxisPor('fechaUltimaVenta')" style="cursor:pointer;">Fecha última venta${flechaDaxis('fechaUltimaVenta')}</th>
+        <th class="amount" onclick="ordenarDaxisPor('sugerenciaImportar')" style="cursor:pointer;">Sugerencia a importar${flechaDaxis('sugerenciaImportar')}</th>
+        <th class="amount" onclick="ordenarDaxisPor('costoEstimado')" style="cursor:pointer;">Costo estimado${flechaDaxis('costoEstimado')}</th>
+        <th onclick="ordenarDaxisPor('estadoOrden')" style="cursor:pointer;">Estado${flechaDaxis('estadoOrden')}</th>
       </tr></thead>
       <tbody>
         ${filas.map(f => `
