@@ -104,7 +104,15 @@
 <div class="wrap">
 
   <header>
-    <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
     <nav class="page-nav">
       <a href="home.html">Home</a>
       <a href="index.html">Flujo de Caja</a>
@@ -113,8 +121,6 @@
       <a href="alertas-stock.html">Alertas de Stock</a>
       <a href="sitio-web.html">Sitio Web</a>
       <a href="eficiencia-tickets.html">Tickets</a>
-      <a href="guia-uso.html">Guía de uso</a>
-      <a href="usuarios.html" id="navUsuarios" style="display:none;">Usuarios</a>
     </nav>
     <div class="user-box" id="userBox"></div>
   </header>
@@ -259,6 +265,7 @@
 </div>
 
 <script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 function fmt(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
