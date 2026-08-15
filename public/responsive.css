@@ -7,6 +7,32 @@
    header + nav + tarjetas + tablas (todas menos login.html).
 */
 
+/* ---------- Menú de herramientas (⚙ tuerca, esquina izquierda) ---------- */
+/* Válido en cualquier tamaño de pantalla, no solo mobile. */
+.header-left{ display:flex; align-items:center; gap:12px; position:relative; }
+.btn-settings{
+  background:var(--surface); border:1.5px solid var(--line); color:var(--muted);
+  width:38px; height:38px; border-radius:10px; font-size:16px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  transition:all .15s;
+}
+.btn-settings:hover{ border-color:var(--primary); color:var(--primary); background:var(--primary-dim); }
+.menu-herramientas{
+  display:none; position:absolute; top:calc(100% + 8px); left:0; z-index:50;
+  background:var(--surface); border:1px solid var(--line); border-radius:12px;
+  box-shadow:0 4px 16px rgba(0,0,0,.12); padding:6px; min-width:180px;
+  flex-direction:column; gap:2px;
+}
+.menu-herramientas.abierto{ display:flex; }
+.menu-herramientas a{
+  display:flex; align-items:center; gap:8px;
+  font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px;
+  color:var(--text); text-decoration:none; padding:9px 12px; border-radius:8px;
+  white-space:nowrap;
+}
+.menu-herramientas a:hover{ background:var(--surface-2); }
+.menu-herramientas a.active{ background:var(--primary-dim); color:var(--primary); }
+
 /* ---------- Tablet chico / celular grande (≤900px) ---------- */
 @media (max-width: 900px) {
   body{ padding: 18px 16px 48px 16px; }
@@ -17,7 +43,9 @@
     row-gap: 12px;
     text-align: center;
   }
-  header .logo{ justify-self: center; margin: 0 auto; height: 34px; }
+  header .logo{ margin: 0 auto; height: 34px; }
+  .header-left{ justify-self: center; }
+  .menu-herramientas{ left: auto; right: 0; }
   .page-nav{
     justify-self: center;
     max-width: 100%;
