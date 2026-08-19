@@ -421,7 +421,9 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
 // los puntos (ver arriba) porque también depende de /v1/documents.json con
 // el mismo rate limit de Bsale.
 const COTIZACIONES_DIAS_HISTORIAL = 180; // más allá de eso una cotización está prácticamente muerta para seguimiento
-const ESTADOS_COTIZACION = ['sin_contactar', 'contactado', 'contactado_no_responde', 'contactado_segunda_vez'];
+// 'facturada' NO la elige una persona -> la pone sola la Fase 3 cuando
+// encuentra la boleta/factura vinculada (ver manejarSyncCotizaciones).
+const ESTADOS_COTIZACION = ['sin_contactar', 'contactado', 'contactado_no_responde', 'contactado_segunda_vez', 'facturada'];
 
 function nombreClienteDoc(client) {
   if (!client) return '';
@@ -449,7 +451,8 @@ async function manejarCotizacionesClientes(req, res, sesion) {
     await asegurarTablaCotizaciones(sql);
 
     const { rows } = await sql`
-      SELECT id, numero, cliente_id, cliente_nombre, monto, fecha, cliente_ha_comprado, estado, actualizado_por, actualizado_en
+      SELECT id, numero, cliente_id, cliente_nombre, monto, fecha, cliente_ha_comprado, estado, actualizado_por, actualizado_en,
+             url_cotizacion, documento_asociado_id, documento_asociado_tipo, documento_asociado_numero, documento_asociado_url
       FROM bsale_cotizaciones ORDER BY fecha DESC NULLS LAST, id DESC;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM bsale_cotizaciones_sync_estado WHERE id = 1;`;
@@ -466,6 +469,10 @@ async function manejarCotizacionesClientes(req, res, sesion) {
       estado: r.estado,
       actualizadoPor: r.actualizado_por,
       actualizadoEn: r.actualizado_en,
+      urlCotizacion: r.url_cotizacion,
+      documentoAsociadoTipo: r.documento_asociado_tipo,
+      documentoAsociadoNumero: r.documento_asociado_numero,
+      documentoAsociadoUrl: r.documento_asociado_url,
     }));
 
     return res.status(200).json({
@@ -554,8 +561,12 @@ async function manejarSyncCotizaciones(req, res, sesion) {
       while (!pasadaListadoTerminada && presupuestoRestante() > 0) {
         await esperarRitmo();
 
-        const filtroTipo = tipoCotizacionId ? `&documenttypeid=${tipoCotizacionId}` : '&expand=document_type';
-        const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]${filtroTipo}&expand=client&limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}`;
+        // Un solo "expand" (Bsale no combina dos parámetros repetidos):
+        // sin documenttypeid hay que traer document_type igual para filtrar
+        // client-side qué es realmente una cotización.
+        const filtroTipo = tipoCotizacionId ? `&documenttypeid=${tipoCotizacionId}` : '';
+        const expandParam = tipoCotizacionId ? 'client' : 'client,document_type';
+        const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]${filtroTipo}&expand=${expandParam}&limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}`;
         const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
         if (!r.ok) {
           const texto = await r.text().catch(() => '');
@@ -571,11 +582,11 @@ async function manejarSyncCotizaciones(req, res, sesion) {
 
         if (cotizaciones.length > 0) {
           await sql.query(
-            `INSERT INTO bsale_cotizaciones (id, numero, cliente_id, cliente_nombre, monto, fecha, sincronizado_en)
-             SELECT * FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::text[], $5::numeric[], $6::date[], $7::timestamptz[])
+            `INSERT INTO bsale_cotizaciones (id, numero, cliente_id, cliente_nombre, monto, fecha, url_cotizacion, sincronizado_en)
+             SELECT * FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::text[], $5::numeric[], $6::date[], $7::text[], $8::timestamptz[])
              ON CONFLICT (id) DO UPDATE SET
                numero = EXCLUDED.numero, cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre,
-               monto = EXCLUDED.monto, fecha = EXCLUDED.fecha, sincronizado_en = EXCLUDED.sincronizado_en;`,
+               monto = EXCLUDED.monto, fecha = EXCLUDED.fecha, url_cotizacion = EXCLUDED.url_cotizacion, sincronizado_en = EXCLUDED.sincronizado_en;`,
             [
               cotizaciones.map(d => d.id),
               cotizaciones.map(d => d.number ? String(d.number) : ''),
@@ -583,6 +594,7 @@ async function manejarSyncCotizaciones(req, res, sesion) {
               cotizaciones.map(d => nombreClienteDoc(d.client)),
               cotizaciones.map(d => Number(d.totalAmount) || 0),
               cotizaciones.map(d => d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null),
+              cotizaciones.map(d => d.urlPublicView || d.urlPublicViewOriginal || ''),
               cotizaciones.map(() => new Date().toISOString()),
             ]
           );
@@ -627,11 +639,59 @@ async function manejarSyncCotizaciones(req, res, sesion) {
     `;
     const quedanPendientes = pendientesRestantes[0]?.n || 0;
 
-    if (quedanPendientes === 0) {
-      await sql`UPDATE bsale_cotizaciones_sync_estado SET offset_actual = 0, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
-      return res.status(200).json({ completo: true, fase: 'historial', procesadosEnEstaLlamada: clientesRevisados, totalDocumentos: total });
+    if (quedanPendientes > 0) {
+      return res.status(200).json({ completo: false, fase: 'historial', procesadosEnEstaLlamada: clientesRevisados, pendientesHistorial: quedanPendientes, totalDocumentos: total });
     }
-    return res.status(200).json({ completo: false, fase: 'historial', procesadosEnEstaLlamada: clientesRevisados, pendientesHistorial: quedanPendientes, totalDocumentos: total });
+
+    // ---- Fase 3: buscar si cada cotización ya quedó vinculada a una boleta
+    // o factura (se factura desde Bsale, no acá) -> se busca por
+    // "referencenumber" (el folio de la cotización) entre los documentos
+    // reales, y se confirma que sea del mismo cliente para evitar falsos
+    // positivos por folios repetidos entre tipos de documento. Best-effort:
+    // NO bloquea que la sincronización se marque completa (varias
+    // cotizaciones legítimamente nunca se facturan) -> las que queden sin
+    // resolver se vuelven a intentar en la próxima sincronización.
+    const { rows: cotizacionesPorVincular } = await sql`
+      SELECT id, numero, cliente_id FROM bsale_cotizaciones WHERE documento_asociado_id IS NULL AND numero IS NOT NULL AND numero <> '' ORDER BY id LIMIT 2000;
+    `;
+    let vinculosEncontrados = 0;
+    let vinculosRevisados = 0;
+    for (const { id: cotId, numero, cliente_id: cotClienteId } of cotizacionesPorVincular) {
+      if (presupuestoRestante() <= 0) break;
+      await esperarRitmo();
+
+      const url = `${BSALE_BASE}/documents.json?referencenumber=${encodeURIComponent(numero)}&expand=client,document_type&limit=10`;
+      const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
+      if (!r.ok) {
+        const texto = await r.text().catch(() => '');
+        throw new Error(`Bsale HTTP ${r.status} en documents.json?referencenumber=${numero}: ${texto.slice(0, 300)}`);
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      const vinculado = items.find(d =>
+        d.state === 0 && !d.cancellationStatus && /boleta|factura/i.test(d.document_type?.name || '') &&
+        (!cotClienteId || d.client?.id === cotClienteId)
+      );
+      if (vinculado) {
+        const urlDoc = vinculado.urlPublicView || vinculado.urlPublicViewOriginal || '';
+        await sql`UPDATE bsale_cotizaciones SET
+          documento_asociado_id = ${vinculado.id}, documento_asociado_tipo = ${vinculado.document_type?.name || ''},
+          documento_asociado_numero = ${vinculado.number ? String(vinculado.number) : ''}, documento_asociado_url = ${urlDoc},
+          estado = 'facturada', actualizado_en = now() WHERE id = ${cotId};`;
+        vinculosEncontrados++;
+      }
+      vinculosRevisados++;
+    }
+
+    const { rows: pendientesVinculoRestantes } = await sql`
+      SELECT COUNT(*)::int AS n FROM bsale_cotizaciones WHERE documento_asociado_id IS NULL;
+    `;
+
+    await sql`UPDATE bsale_cotizaciones_sync_estado SET offset_actual = 0, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
+    return res.status(200).json({
+      completo: true, fase: 'vinculo', procesadosEnEstaLlamada: vinculosRevisados, vinculosEncontrados,
+      pendientesVinculo: pendientesVinculoRestantes[0]?.n || 0, totalDocumentos: total,
+    });
   } catch (err) {
     return res.status(200).json({ error: 'Error sincronizando cotizaciones con Bsale', detail: String(err) });
   }

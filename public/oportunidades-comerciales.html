@@ -93,6 +93,7 @@
   td.estado-contactado select{color:var(--green);border-color:var(--green);}
   td.estado-contactado_no_responde select{color:var(--red);border-color:var(--red);}
   td.estado-contactado_segunda_vez select{color:var(--amber);border-color:var(--amber);}
+  td.estado-facturada select{color:var(--blue);border-color:var(--blue);font-weight:600;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -205,6 +206,7 @@
             <option value="contactado">Contactado</option>
             <option value="contactado_no_responde">Contactado — no responde</option>
             <option value="contactado_segunda_vez">Contactado 2ª vez</option>
+            <option value="facturada">Facturada ✓</option>
           </select>
         </div>
       </div>
@@ -268,6 +270,7 @@ const ESTADOS_COTIZACION_LABEL = {
   contactado: 'Contactado',
   contactado_no_responde: 'Contactado — no responde',
   contactado_segunda_vez: 'Contactado 2ª vez',
+  facturada: 'Facturada ✓',
 };
 
 // ---------- Sesión ----------
@@ -552,16 +555,17 @@ async function iniciarSincronizacionCotizaciones(){
         break;
       }
       completo = !!res.completo;
-      if(res.fase === 'historial'){
+      if(res.fase === 'vinculo'){
+        const nota = res.pendientesVinculo > 0
+          ? ` ${fmtNum(res.pendientesVinculo)} cotizaciones quedaron sin poder confirmar si se facturaron — se reintenta en la próxima sincronización.`
+          : '';
+        wrap.innerHTML = `<div class="note-box">✓ Sincronización completa — ${fmtNum(res.vinculosEncontrados||0)} cotizaciones vinculadas a una boleta/factura en esta corrida.${nota} Actualizando la lista...</div>`;
+      } else if(res.fase === 'historial'){
         totalHistorial += res.procesadosEnEstaLlamada || 0;
-        wrap.innerHTML = completo
-          ? `<div class="note-box">✓ Sincronización completa. Actualizando la lista...</div>`
-          : `<div class="note-box">🧾 Revisando historial de compras... ${fmtNum(totalHistorial)} clientes revisados, ${fmtNum(res.pendientesHistorial||0)} pendientes. Continuando automáticamente...</div>`;
+        wrap.innerHTML = `<div class="note-box">🧾 Revisando historial de compras... ${fmtNum(totalHistorial)} clientes revisados, ${fmtNum(res.pendientesHistorial||0)} pendientes. Continuando automáticamente...</div>`;
       } else {
         totalListado += res.procesadosEnEstaLlamada || 0;
-        wrap.innerHTML = completo
-          ? `<div class="note-box">✓ Sincronización completa. Actualizando la lista...</div>`
-          : `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(res.offsetActual)} de ${fmtNum(res.totalDocumentos||0)} documentos revisados. Continuando automáticamente...</div>`;
+        wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(res.offsetActual)} de ${fmtNum(res.totalDocumentos||0)} documentos revisados. Continuando automáticamente...</div>`;
       }
     }
   }catch(err){
@@ -600,12 +604,17 @@ function renderTablaCotizaciones(){
 
   const cols = [
     { key:'clienteNombre', label:'Cliente' },
-    { key:'numero', label:'N° Cotización' },
+    { key:'numero', label:'N° Cotización', render:c=>c.urlCotizacion ? `<a href="${c.urlCotizacion}" target="_blank" rel="noopener">${c.numero}</a>` : (c.numero||'—') },
     { key:'fecha', label:'Fecha' },
     { key:'monto', label:'Monto', align:'amount', render:c=>`<b>${fmtMoneda(c.monto)}</b>` },
     { key:'clienteHaComprado', label:'¿Ha comprado antes?', render:c=>{
         if(c.clienteHaComprado === null || c.clienteHaComprado === undefined) return '<span class="empty-note">Por revisar</span>';
         return `<span class="badge ${c.clienteHaComprado?'si':'no'}">${c.clienteHaComprado?'Sí':'No'}</span>`;
+      } },
+    { key:'documentoAsociadoNumero', label:'Doc. asociado', render:c=>{
+        if(!c.documentoAsociadoNumero) return '<span class="empty-note">—</span>';
+        const texto = `${c.documentoAsociadoTipo||'Documento'} N° ${c.documentoAsociadoNumero}`;
+        return c.documentoAsociadoUrl ? `<a href="${c.documentoAsociadoUrl}" target="_blank" rel="noopener">${texto}</a>` : texto;
       } },
     { key:'estado', label:'Estado', render:c=>`<select class="estado-select" onchange="cambiarEstadoCotizacion(${c.id}, this.value)">
         ${Object.entries(ESTADOS_COTIZACION_LABEL).map(([valor,label])=>`<option value="${valor}" ${c.estado===valor?'selected':''}>${label}</option>`).join('')}
