@@ -60,6 +60,8 @@
   .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
   .card .big{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;color:var(--text);}
   .card .note{color:var(--muted);font-size:11.5px;margin-top:4px;}
+  .arrow-up{color:var(--green);font-weight:700;}
+  .arrow-down{color:var(--red);font-weight:700;}
 
   .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:24px;}
   .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;}
@@ -235,8 +237,9 @@
       <div class="card"><div class="lbl">Cotizaciones (rango filtrado)</div><div class="big">—</div></div>
       <div class="card"><div class="lbl">Monto cotizado (rango filtrado)</div><div class="big">—</div></div>
       <div class="card"><div class="lbl">Sin contactar (rango filtrado)</div><div class="big">—</div></div>
-      <div class="card"><div class="lbl">Acumulado cotizado — mes actual</div><div class="big">—</div></div>
-      <div class="card"><div class="lbl">Acumulado facturado — mes actual</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Cotizaciones — mes actual</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Acumulado cotizado — mes actual</div><div class="big">—</div><div class="note" id="notaVarCotizado"></div></div>
+      <div class="card"><div class="lbl">Acumulado facturado — mes actual</div><div class="big">—</div><div class="note" id="notaVarFacturado"></div></div>
     </div>
 
     <div class="seccion" id="seccionCotizaciones">
@@ -571,6 +574,25 @@ async function cargarCotizaciones(){
   }
 }
 
+function mesAnteriorRange(dateStr){
+  const [y,m] = dateStr.split('-').map(Number);
+  const prevM = m === 1 ? 12 : m-1;
+  const prevY = m === 1 ? y-1 : y;
+  const desde = `${prevY}-${String(prevM).padStart(2,'0')}-01`;
+  return { desde, hasta: lastDayOfMonthStr(desde) };
+}
+function calcularVariacionPct(actual, anterior){
+  if(anterior === 0) return actual === 0 ? null : Infinity;
+  return ((actual - anterior) / anterior) * 100;
+}
+function notaVariacionHtml(pct){
+  if(pct === null) return '';
+  if(pct === Infinity) return '<span class="arrow-up">▲ Nuevo (sin datos el mes pasado)</span>';
+  const flecha = pct >= 0 ? '▲' : '▼';
+  const clase = pct >= 0 ? 'arrow-up' : 'arrow-down';
+  return `<span class="${clase}">${flecha} ${pct>=0?'+':''}${Math.round(pct)}% vs mes pasado</span>`;
+}
+
 function renderKpisCotizaciones(){
   const cards = document.querySelectorAll('#kpiWrapCotizaciones .card');
   const filtradas = cotizacionesFiltradas();
@@ -578,13 +600,24 @@ function renderKpisCotizaciones(){
   cards[1].querySelector('.big').textContent = fmtMoneda(filtradas.reduce((a,c)=>a+c.monto,0));
   cards[2].querySelector('.big').textContent = fmtNum(filtradas.filter(c=>c.estado==='sin_contactar').length);
 
-  // Estas dos SIEMPRE son del mes calendario actual, sin importar el rango
-  // que se esté filtrando arriba.
+  // Estas 3 SIEMPRE son del mes calendario actual (y su comparación con el
+  // mes pasado), sin importar el rango que se esté filtrando arriba.
   const inicioMes = firstDayOfMonthStr(hoyStrCot);
   const finMes = lastDayOfMonthStr(hoyStrCot);
+  const { desde: inicioMesAnt, hasta: finMesAnt } = mesAnteriorRange(hoyStrCot);
   const delMesActual = cotizaciones.filter(c => c.fecha && c.fecha >= inicioMes && c.fecha <= finMes);
-  cards[3].querySelector('.big').textContent = fmtMoneda(delMesActual.reduce((a,c)=>a+c.monto,0));
-  cards[4].querySelector('.big').textContent = fmtMoneda(delMesActual.filter(c=>c.estado==='facturada').reduce((a,c)=>a+c.monto,0));
+  const delMesAnterior = cotizaciones.filter(c => c.fecha && c.fecha >= inicioMesAnt && c.fecha <= finMesAnt);
+
+  const montoActual = delMesActual.reduce((a,c)=>a+c.monto,0);
+  const montoAnterior = delMesAnterior.reduce((a,c)=>a+c.monto,0);
+  const facturadoActual = delMesActual.filter(c=>c.estado==='facturada').reduce((a,c)=>a+c.monto,0);
+  const facturadoAnterior = delMesAnterior.filter(c=>c.estado==='facturada').reduce((a,c)=>a+c.monto,0);
+
+  cards[3].querySelector('.big').textContent = fmtNum(delMesActual.length);
+  cards[4].querySelector('.big').textContent = fmtMoneda(montoActual);
+  $('notaVarCotizado').innerHTML = notaVariacionHtml(calcularVariacionPct(montoActual, montoAnterior));
+  cards[5].querySelector('.big').textContent = fmtMoneda(facturadoActual);
+  $('notaVarFacturado').innerHTML = notaVariacionHtml(calcularVariacionPct(facturadoActual, facturadoAnterior));
 }
 
 function renderEstadoSyncCotizaciones(sync){
@@ -617,14 +650,16 @@ async function iniciarSincronizacionCotizaciones(){
         break;
       }
       completo = !!res.completo;
-      if(res.fase === 'vinculo'){
-        const nota = res.pendientesVinculo > 0
-          ? ` ${fmtNum(res.pendientesVinculo)} cotizaciones quedaron sin poder confirmar si se facturaron — se reintenta en la próxima sincronización.`
-          : '';
-        wrap.innerHTML = `<div class="note-box">✓ Sincronización completa — ${fmtNum(res.vinculosEncontrados||0)} cotizaciones vinculadas a una boleta/factura en esta corrida.${nota} Actualizando la lista...</div>`;
-      } else if(res.fase === 'historial'){
+      if(res.fase === 'historial'){
         totalHistorial += res.procesadosEnEstaLlamada || 0;
-        wrap.innerHTML = `<div class="note-box">🧾 Revisando historial de compras... ${fmtNum(totalHistorial)} clientes revisados, ${fmtNum(res.pendientesHistorial||0)} pendientes. Continuando automáticamente...</div>`;
+        if(completo){
+          const nota = res.pendientesVinculo > 0
+            ? ` ${fmtNum(res.pendientesVinculo)} cotizaciones quedaron sin poder confirmar si se facturaron — se reintenta en la próxima sincronización.`
+            : '';
+          wrap.innerHTML = `<div class="note-box">✓ Sincronización completa — ${fmtNum(res.vinculosEncontrados||0)} cotizaciones vinculadas a una boleta/factura en esta corrida.${nota} Actualizando la lista...</div>`;
+        } else {
+          wrap.innerHTML = `<div class="note-box">🧾 Revisando historial de compras y buscando vínculos con boletas/facturas... ${fmtNum(totalHistorial)} clientes revisados, ${fmtNum(res.pendientesHistorial||0)} pendientes. Continuando automáticamente...</div>`;
+        }
       } else {
         totalListado += res.procesadosEnEstaLlamada || 0;
         wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(res.offsetActual)} de ${fmtNum(res.totalDocumentos||0)} documentos revisados. Continuando automáticamente...</div>`;

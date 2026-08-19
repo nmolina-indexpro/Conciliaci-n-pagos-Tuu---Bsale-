@@ -617,12 +617,29 @@ async function manejarSyncCotizaciones(req, res, sesion) {
       return res.status(200).json({ completo: false, fase: 'listado', procesadosEnEstaLlamada: procesados, offsetActual: offset, totalDocumentos: total });
     }
 
-    // ---- Fase 2: para cada cliente con cotización, revisar su historial
-    // completo (sin rango de fecha) y ver si tiene alguna venta real. ----
+    // ---- Fase 2: por cada cliente con cotización pendiente de revisar,
+    // UNA sola consulta a su historial completo (sin rango de fecha) sirve
+    // para dos cosas:
+    //  a) "cliente_ha_comprado": ¿tiene alguna venta real alguna vez?
+    //  b) vincular sus cotizaciones sin resolver con una boleta/factura del
+    //     mismo cliente, incluso monto y con fecha igual o posterior a la
+    //     cotización. NO se usa el mecanismo de "referencia" de Bsale (era
+    //     el intento anterior, por referencenumber) porque una cotización
+    //     no es un documento tributario electrónico y esa referencia
+    //     nunca aparece -> comparar por cliente+monto+fecha es lo que
+    //     realmente funciona con los datos que expone la API pública.
+    // (a) SÍ bloquea que la sincronización se marque completa (siempre
+    // termina, cada cliente queda resuelto true/false). (b) es best-effort:
+    // muchas cotizaciones legítimamente nunca se facturan, así que NO
+    // bloquea -> las que queden sin resolver se reintentan en la próxima
+    // sincronización completa (por si se facturan más tarde).
     const { rows: clientesPendientes } = await sql`
-      SELECT DISTINCT cliente_id FROM bsale_cotizaciones WHERE cliente_id IS NOT NULL AND cliente_ha_comprado IS NULL LIMIT 2000;
+      SELECT DISTINCT cliente_id FROM bsale_cotizaciones
+      WHERE cliente_id IS NOT NULL AND (cliente_ha_comprado IS NULL OR documento_asociado_id IS NULL)
+      LIMIT 2000;
     `;
     let clientesRevisados = 0;
+    let vinculosEncontrados = 0;
     for (const { cliente_id } of clientesPendientes) {
       if (presupuestoRestante() <= 0) break;
       await esperarRitmo();
@@ -635,8 +652,31 @@ async function manejarSyncCotizaciones(req, res, sesion) {
       }
       const data = await r.json();
       const items = data.items || [];
-      const haComprado = items.some(d => d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type));
-      await sql`UPDATE bsale_cotizaciones SET cliente_ha_comprado = ${haComprado} WHERE cliente_id = ${cliente_id};`;
+      let ventas = items.filter(d => d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type));
+
+      await sql`UPDATE bsale_cotizaciones SET cliente_ha_comprado = ${ventas.length > 0} WHERE cliente_id = ${cliente_id} AND cliente_ha_comprado IS NULL;`;
+
+      const { rows: cotizacionesCliente } = await sql`
+        SELECT id, monto, fecha FROM bsale_cotizaciones WHERE cliente_id = ${cliente_id} AND documento_asociado_id IS NULL;
+      `;
+      for (const cot of cotizacionesCliente) {
+        const montoCot = Math.round(Number(cot.monto));
+        const idx = ventas.findIndex(d => {
+          if (Math.round(Number(d.totalAmount) || 0) !== montoCot) return false;
+          if (!cot.fecha || !d.emissionDate) return true;
+          const fechaDoc = new Date(d.emissionDate * 1000).toISOString().slice(0, 10);
+          return fechaDoc >= new Date(cot.fecha).toISOString().slice(0, 10);
+        });
+        if (idx === -1) continue;
+        const candidata = ventas[idx];
+        ventas = ventas.filter((_, i) => i !== idx); // no reusar el mismo documento para otra cotización del mismo cliente
+        const urlDoc = candidata.urlPublicView || candidata.urlPublicViewOriginal || '';
+        await sql`UPDATE bsale_cotizaciones SET
+          documento_asociado_id = ${candidata.id}, documento_asociado_tipo = ${candidata.document_type?.name || ''},
+          documento_asociado_numero = ${candidata.number ? String(candidata.number) : ''}, documento_asociado_url = ${urlDoc},
+          estado = 'facturada', actualizado_en = now() WHERE id = ${cot.id};`;
+        vinculosEncontrados++;
+      }
       clientesRevisados++;
     }
 
@@ -646,56 +686,14 @@ async function manejarSyncCotizaciones(req, res, sesion) {
     const quedanPendientes = pendientesRestantes[0]?.n || 0;
 
     if (quedanPendientes > 0) {
-      return res.status(200).json({ completo: false, fase: 'historial', procesadosEnEstaLlamada: clientesRevisados, pendientesHistorial: quedanPendientes, totalDocumentos: total });
+      return res.status(200).json({ completo: false, fase: 'historial', procesadosEnEstaLlamada: clientesRevisados, vinculosEncontrados, pendientesHistorial: quedanPendientes, totalDocumentos: total });
     }
 
-    // ---- Fase 3: buscar si cada cotización ya quedó vinculada a una boleta
-    // o factura (se factura desde Bsale, no acá) -> se busca por
-    // "referencenumber" (el folio de la cotización) entre los documentos
-    // reales, y se confirma que sea del mismo cliente para evitar falsos
-    // positivos por folios repetidos entre tipos de documento. Best-effort:
-    // NO bloquea que la sincronización se marque completa (varias
-    // cotizaciones legítimamente nunca se facturan) -> las que queden sin
-    // resolver se vuelven a intentar en la próxima sincronización.
-    const { rows: cotizacionesPorVincular } = await sql`
-      SELECT id, numero, cliente_id FROM bsale_cotizaciones WHERE documento_asociado_id IS NULL AND numero IS NOT NULL AND numero <> '' ORDER BY id LIMIT 2000;
-    `;
-    let vinculosEncontrados = 0;
-    let vinculosRevisados = 0;
-    for (const { id: cotId, numero, cliente_id: cotClienteId } of cotizacionesPorVincular) {
-      if (presupuestoRestante() <= 0) break;
-      await esperarRitmo();
-
-      const url = `${BSALE_BASE}/documents.json?referencenumber=${encodeURIComponent(numero)}&expand=client,document_type&limit=10`;
-      const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
-      if (!r.ok) {
-        const texto = await r.text().catch(() => '');
-        throw new Error(`Bsale HTTP ${r.status} en documents.json?referencenumber=${numero}: ${texto.slice(0, 300)}`);
-      }
-      const data = await r.json();
-      const items = data.items || [];
-      const vinculado = items.find(d =>
-        d.state === 0 && !d.cancellationStatus && /boleta|factura/i.test(d.document_type?.name || '') &&
-        (!cotClienteId || d.client?.id === cotClienteId)
-      );
-      if (vinculado) {
-        const urlDoc = vinculado.urlPublicView || vinculado.urlPublicViewOriginal || '';
-        await sql`UPDATE bsale_cotizaciones SET
-          documento_asociado_id = ${vinculado.id}, documento_asociado_tipo = ${vinculado.document_type?.name || ''},
-          documento_asociado_numero = ${vinculado.number ? String(vinculado.number) : ''}, documento_asociado_url = ${urlDoc},
-          estado = 'facturada', actualizado_en = now() WHERE id = ${cotId};`;
-        vinculosEncontrados++;
-      }
-      vinculosRevisados++;
-    }
-
-    const { rows: pendientesVinculoRestantes } = await sql`
-      SELECT COUNT(*)::int AS n FROM bsale_cotizaciones WHERE documento_asociado_id IS NULL;
-    `;
+    const { rows: pendientesVinculoRestantes } = await sql`SELECT COUNT(*)::int AS n FROM bsale_cotizaciones WHERE documento_asociado_id IS NULL;`;
 
     await sql`UPDATE bsale_cotizaciones_sync_estado SET offset_actual = 0, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
     return res.status(200).json({
-      completo: true, fase: 'vinculo', procesadosEnEstaLlamada: vinculosRevisados, vinculosEncontrados,
+      completo: true, fase: 'historial', procesadosEnEstaLlamada: clientesRevisados, vinculosEncontrados,
       pendientesVinculo: pendientesVinculoRestantes[0]?.n || 0, totalDocumentos: total,
     });
   } catch (err) {
