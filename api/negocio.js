@@ -27,7 +27,8 @@ export default async function handler(req, res) {
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
   if (recurso === 'facturas-compra') return manejarFacturasCompra(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion o ?recurso=facturas-compra' });
+  if (recurso === 'clientes-puntos') return manejarClientesPuntos(req, res, sesion);
+  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra o ?recurso=clientes-puntos' });
 }
 
 // ---------------- Facturas de compra (ingresadas a mano) ----------------
@@ -201,6 +202,74 @@ async function manejarReportes(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error en reportes de error', detail: String(err) });
+  }
+}
+
+// ---------------- Clientes Bsale con puntos disponibles (club de puntos) ----------------
+// GET /v1/clients.json no tiene filtro por puntos -> se pagina el listado
+// completo de clientes y se filtra en el servidor por points > 0. El token
+// nunca sale del servidor (mismo patrón que bsale-report.js).
+const BSALE_BASE = 'https://api.bsale.io/v1';
+
+function nombreCliente(c) {
+  const full = `${c.firstName || ''} ${c.lastName || ''}`.trim();
+  return full || c.company || `Cliente #${c.id}`;
+}
+
+async function manejarClientesPuntos(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor', clientes: [] });
+
+  try {
+    const limit = 50;
+    const clientesUrl = offset => `${BSALE_BASE}/clients.json?limit=${limit}&offset=${offset}&state=0`;
+    const bsaleGet = async url => {
+      const r = await fetchConTimeout(url, { headers: { access_token: token } }, 20000);
+      if (!r.ok) {
+        const texto = await r.text().catch(() => '');
+        throw new Error(`Bsale HTTP ${r.status} en ${url}: ${texto.slice(0, 300)}`);
+      }
+      return r.json();
+    };
+
+    const primera = await bsaleGet(clientesUrl(0));
+    let todos = [...(primera.items || [])];
+    const total = typeof primera.count === 'number' ? primera.count : todos.length;
+    const topeSeguridad = 100; // 5.000 clientes como resguardo
+    const totalPaginas = Math.min(Math.ceil(total / limit), topeSeguridad);
+
+    if (totalPaginas > 1) {
+      const promesas = [];
+      for (let p = 1; p < totalPaginas; p++) promesas.push(bsaleGet(clientesUrl(p * limit)));
+      const resto = await Promise.all(promesas);
+      for (const r of resto) todos.push(...(r.items || []));
+    }
+
+    const conPuntos = todos
+      .filter(c => Number(c.points) > 0)
+      .map(c => ({
+        id: c.id,
+        nombre: nombreCliente(c),
+        rut: c.code || '',
+        telefono: c.phone || '',
+        empresa: c.company || '',
+        ciudad: c.city || '',
+        puntos: Number(c.points) || 0,
+        acumulaPuntos: c.accumulatePoints === 1,
+        puntosActualizado: c.pointsUpdated ? new Date(c.pointsUpdated * 1000).toISOString().slice(0, 10) : null,
+      }))
+      .sort((a, b) => b.puntos - a.puntos);
+
+    return res.status(200).json({
+      clientes: conPuntos,
+      totalClientesRevisados: todos.length,
+      totalConPuntos: conPuntos.length,
+      puntosTotalAcumulados: conPuntos.reduce((a, c) => a + c.puntos, 0),
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error consultando clientes en Bsale', detail: String(err), clientes: [] });
   }
 }
 

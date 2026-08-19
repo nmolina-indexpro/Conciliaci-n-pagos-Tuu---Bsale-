@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Oportunidades Comerciales — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --purple:#7C3AED; --purple-bg:#EFE7FD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:28px 40px 60px 190px;}
+  .wrap{max-width:1600px;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;letter-spacing:0.2px;margin:0 0 5px 0;color:var(--text);}
+  h1 span{color:var(--primary);}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin:0 0 4px 0;}
+  .sub{color:var(--muted);font-size:13px;}
+  .page-nav{display:flex;gap:6px;background:var(--surface-2);padding:5px;border-radius:12px;width:fit-content;justify-self:center;flex-wrap:wrap;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;color:var(--muted);text-decoration:none;padding:10px 22px;border-radius:9px;transition:all .15s;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  input[type=text]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
+  input:focus,select:focus{outline:none;border-color:var(--primary);}
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;border:none;border-radius:9px;padding:11px 20px;cursor:pointer;transition:all .15s;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-compact{font-size:11.5px;padding:6px 12px;}
+
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+  #status{font-size:12px;color:var(--muted);font-weight:500;}
+  #status.err{color:var(--red);}
+  #status.ok{color:var(--green);}
+
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px;}
+  @media (max-width:900px){.grid{grid-template-columns:1fr 1fr;}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;color:var(--text);}
+  .card .note{color:var(--muted);font-size:11.5px;margin-top:4px;}
+
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:24px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--surface);border-radius:14px;overflow:hidden;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:10px;border-bottom:2px solid var(--line);background:var(--surface-2);cursor:pointer;user-select:none;white-space:nowrap;}
+  th:hover{color:var(--primary);}
+  th.amount, td.amount{text-align:right;}
+  td{padding:9px 10px;border-bottom:1px solid var(--line);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10px;padding:3px 9px;border-radius:999px;font-weight:700;white-space:nowrap;}
+  .badge.si{background:var(--green-bg);color:var(--green);}
+  .badge.no{background:var(--surface-2);color:var(--muted);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:14px 0;}
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:20px;color:var(--text);}
+  .form-inline{display:flex;gap:10px;align-items:end;flex-wrap:wrap;}
+  .campo{display:flex;flex-direction:column;gap:5px;}
+  .campo label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;}
+  .controles-tabla{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <a href="index.html">Flujo de Caja</a>
+      <a href="conciliacion.html">Conciliación</a>
+      <a href="compras.html">Compras</a>
+      <a href="alertas-stock.html">Alertas de Stock</a>
+      <a href="oportunidades-comerciales.html" class="active">Oportunidades</a>
+      <a href="sitio-web.html">Sitio Web</a>
+      <a href="eficiencia-tickets.html">Tickets</a>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <div class="toolbar">
+    <div>
+      <h1>Oportunidades <span>Comerciales</span></h1>
+      <div class="sub">Clientes de Bsale con puntos del club de fidelización disponibles para canjear.</div>
+    </div>
+    <div class="form-inline">
+      <div class="campo">
+        <label>Buscar</label>
+        <input type="text" id="buscarInput" placeholder="Nombre o RUT..." oninput="renderTabla()" style="width:220px;">
+      </div>
+      <button class="btn-ghost btn-compact" onclick="cargar()">↻ Actualizar</button>
+      <button class="btn-primary btn-compact btn-exportar" onclick="exportarCsv()">⬇ Descargar CSV</button>
+    </div>
+  </div>
+
+  <div id="status"></div>
+  <div id="avisoWrap"></div>
+
+  <div class="grid" id="kpiWrap">
+    <div class="card"><div class="lbl">Clientes con puntos</div><div class="big">—</div></div>
+    <div class="card"><div class="lbl">Puntos totales acumulados</div><div class="big">—</div></div>
+    <div class="card"><div class="lbl">Cliente con más puntos</div><div class="big">—</div><div class="note" id="notaTopCliente"></div></div>
+  </div>
+
+  <div class="seccion" id="seccionClientes">
+    <div class="seccion-head">
+      <div>
+        <h2>🎁 Clientes con puntos disponibles</h2>
+        <div class="sub">Ordenado de mayor a menor cantidad de puntos — buena base para campañas de canje o fidelización.</div>
+      </div>
+    </div>
+    <div id="wrapClientes"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+
+let clientes = [];
+let sortCol = 'puntos';
+let sortAsc = false;
+
+// ---------- Sesión ----------
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    aplicarRestriccionesUsuario(u.rol);
+    if(u.rol === 'admin'){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+    }
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Carga principal ----------
+async function cargar(){
+  const status = $('status');
+  status.className = '';
+  status.textContent = 'Consultando clientes en Bsale...';
+  $('wrapClientes').innerHTML = '<p class="empty-note">Cargando...</p>';
+
+  try{
+    const res = await fetch('/api/negocio?recurso=clientes-puntos').then(r=>r.json());
+    if(res.error){
+      status.className = 'err';
+      status.textContent = 'Error: ' + (res.detail || res.error);
+      $('avisoWrap').innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${res.error}</div>`;
+      clientes = [];
+      renderTabla();
+      return;
+    }
+    clientes = res.clientes || [];
+    renderKpis(res);
+    renderTabla();
+    status.className = 'ok';
+    status.textContent = `Listo — ${res.totalClientesRevisados} clientes revisados, ${res.totalConPuntos} con puntos disponibles`;
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
+}
+
+function renderKpis(res){
+  const cards = document.querySelectorAll('#kpiWrap .card');
+  cards[0].querySelector('.big').textContent = fmtNum(res.totalConPuntos);
+  cards[1].querySelector('.big').textContent = fmtNum(res.puntosTotalAcumulados);
+  const top = clientes[0];
+  cards[2].querySelector('.big').textContent = top ? fmtNum(top.puntos) : '—';
+  $('notaTopCliente').textContent = top ? top.nombre : '';
+}
+
+function cambiarOrden(col){
+  if(sortCol === col) sortAsc = !sortAsc;
+  else { sortCol = col; sortAsc = false; }
+  renderTabla();
+}
+
+function renderTabla(){
+  const q = ($('buscarInput').value || '').trim().toLowerCase();
+  let filas = clientes.filter(c => !q || c.nombre.toLowerCase().includes(q) || (c.rut||'').toLowerCase().includes(q));
+
+  filas = [...filas].sort((a,b)=>{
+    let va = a[sortCol], vb = b[sortCol];
+    if(va==null) return 1; if(vb==null) return -1;
+    if(typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return sortAsc ? va-vb : vb-va;
+  });
+
+  if(filas.length === 0){
+    $('wrapClientes').innerHTML = `<p class="empty-note">${clientes.length===0 ? 'No hay clientes con puntos disponibles.' : 'Sin resultados para esa búsqueda.'}</p>`;
+    return;
+  }
+
+  const cols = [
+    { key:'nombre', label:'Cliente' },
+    { key:'rut', label:'RUT' },
+    { key:'telefono', label:'Teléfono' },
+    { key:'ciudad', label:'Ciudad' },
+    { key:'puntos', label:'Puntos disponibles', align:'amount', render:c=>`<b>${fmtNum(c.puntos)}</b>` },
+    { key:'puntosActualizado', label:'Última actualización' },
+    { key:'acumulaPuntos', label:'Sigue acumulando', render:c=>`<span class="badge ${c.acumulaPuntos?'si':'no'}">${c.acumulaPuntos?'Sí':'No'}</span>` },
+  ];
+
+  const thead = `<tr>${cols.map(c=>{
+    const marca = sortCol===c.key ? (sortAsc?' ▲':' ▼') : '';
+    return `<th class="${c.align==='amount'?'amount':''}" onclick="cambiarOrden('${c.key}')">${c.label}${marca}</th>`;
+  }).join('')}</tr>`;
+
+  const tbody = filas.map(c=>`<tr>${cols.map(col=>{
+    return `<td class="${col.align==='amount'?'amount':''}">${col.render ? col.render(c) : (c[col.key] || '—')}</td>`;
+  }).join('')}</tr>`).join('');
+
+  $('wrapClientes').innerHTML = `
+    <div class="controles-tabla"><span class="empty-note">${filas.length} cliente${filas.length===1?'':'s'}</span></div>
+    <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+}
+
+// ---------- Exportar CSV ----------
+function exportarCsv(){
+  if(clientes.length===0){ alert('No hay clientes con puntos para exportar.'); return; }
+  const filas = [['Cliente','RUT','Teléfono','Ciudad','Puntos disponibles','Última actualización','Sigue acumulando']];
+  for(const c of clientes){
+    filas.push([c.nombre, c.rut, c.telefono, c.ciudad, c.puntos, c.puntosActualizado||'', c.acumulaPuntos?'Sí':'No']);
+  }
+  const csv = filas.map(f=>f.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `clientes-con-puntos-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+cargarSesionUsuario();
+cargar();
+</script>
+</body>
+</html>
