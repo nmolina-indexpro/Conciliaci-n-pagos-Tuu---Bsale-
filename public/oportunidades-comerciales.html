@@ -47,6 +47,7 @@
   .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
   .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
   .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
   .btn-compact{font-size:11.5px;padding:6px 12px;}
 
   .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
@@ -54,8 +55,7 @@
   #status.err{color:var(--red);}
   #status.ok{color:var(--green);}
 
-  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px;}
-  @media (max-width:900px){.grid{grid-template-columns:1fr 1fr;}}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px;}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);}
   .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
   .card .big{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;color:var(--text);}
@@ -201,6 +201,10 @@
         <div class="date-field"><label for="cotizacionesDesde">Desde</label><input type="date" id="cotizacionesDesde" onchange="renderTablaCotizaciones()"></div>
         <div class="date-field"><label for="cotizacionesHasta">Hasta</label><input type="date" id="cotizacionesHasta" onchange="renderTablaCotizaciones()"></div>
         <button class="btn-primary" style="padding:9px 14px;" title="Buscar este rango" onclick="renderTablaCotizaciones()">🔍</button>
+        <button class="btn-ghost btn-compact" id="btnCotHoy" onclick="setRangoRapidoCotizaciones('hoy')">Hoy</button>
+        <button class="btn-ghost btn-compact" id="btnCotSemana" onclick="setRangoRapidoCotizaciones('semana')">Semana</button>
+        <button class="btn-ghost btn-compact" id="btnCotMes" onclick="setRangoRapidoCotizaciones('mes')">Mes actual</button>
+        <button class="btn-ghost btn-compact" onclick="limpiarRangoCotizaciones()">✕ Limpiar</button>
         <div class="campo">
           <label>Buscar</label>
           <input type="text" id="buscarCotizacionesInput" placeholder="Cliente..." oninput="renderTablaCotizaciones()" style="width:220px;">
@@ -228,9 +232,11 @@
     <div id="syncCotizacionesWrap"></div>
 
     <div class="grid" id="kpiWrapCotizaciones">
-      <div class="card"><div class="lbl">Cotizaciones (últimos 180 días)</div><div class="big">—</div></div>
-      <div class="card"><div class="lbl">Monto total cotizado</div><div class="big">—</div></div>
-      <div class="card"><div class="lbl">Sin contactar todavía</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Cotizaciones (rango filtrado)</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Monto cotizado (rango filtrado)</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Sin contactar (rango filtrado)</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Acumulado cotizado — mes actual</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Acumulado facturado — mes actual</div><div class="big">—</div></div>
     </div>
 
     <div class="seccion" id="seccionCotizaciones">
@@ -280,6 +286,46 @@ const ESTADOS_COTIZACION_LABEL = {
   contactado_segunda_vez: 'Contactado 2ª vez',
   facturada: 'Facturada ✓',
 };
+
+// ---------- Fechas rápidas (mismo cálculo que usa conciliacion.html) ----------
+const hoyStrCot = new Date().toLocaleDateString('en-CA');
+function addDaysStrCot(dateStr, days){
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  dt.setUTCDate(dt.getUTCDate()+days);
+  return dt.toISOString().slice(0,10);
+}
+function firstDayOfMonthStr(dateStr){
+  const [y,m] = dateStr.split('-').map(Number);
+  return `${y}-${String(m).padStart(2,'0')}-01`;
+}
+function lastDayOfMonthStr(dateStr){
+  const [y,m] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m, 0)); // día 0 del mes siguiente = último día de este mes
+  return dt.toISOString().slice(0,10);
+}
+function setRangoRapidoCotizaciones(tipo){
+  if(tipo === 'hoy'){
+    $('cotizacionesDesde').value = hoyStrCot;
+    $('cotizacionesHasta').value = hoyStrCot;
+  } else if(tipo === 'semana'){
+    $('cotizacionesDesde').value = addDaysStrCot(hoyStrCot, -6);
+    $('cotizacionesHasta').value = hoyStrCot;
+  } else {
+    $('cotizacionesDesde').value = firstDayOfMonthStr(hoyStrCot);
+    $('cotizacionesHasta').value = lastDayOfMonthStr(hoyStrCot);
+  }
+  $('btnCotHoy').classList.toggle('active', tipo==='hoy');
+  $('btnCotSemana').classList.toggle('active', tipo==='semana');
+  $('btnCotMes').classList.toggle('active', tipo==='mes');
+  renderTablaCotizaciones();
+}
+function limpiarRangoCotizaciones(){
+  $('cotizacionesDesde').value = '';
+  $('cotizacionesHasta').value = '';
+  ['btnCotHoy','btnCotSemana','btnCotMes'].forEach(id => $(id).classList.remove('active'));
+  renderTablaCotizaciones();
+}
 
 // ---------- Sesión ----------
 async function cargarSesionUsuario(){
@@ -515,7 +561,6 @@ async function cargarCotizaciones(){
       return;
     }
     cotizaciones = res.cotizaciones || [];
-    renderKpisCotizaciones();
     renderTablaCotizaciones();
     renderEstadoSyncCotizaciones(res.sync);
     status.className = 'ok';
@@ -528,9 +573,18 @@ async function cargarCotizaciones(){
 
 function renderKpisCotizaciones(){
   const cards = document.querySelectorAll('#kpiWrapCotizaciones .card');
-  cards[0].querySelector('.big').textContent = fmtNum(cotizaciones.length);
-  cards[1].querySelector('.big').textContent = fmtMoneda(cotizaciones.reduce((a,c)=>a+c.monto,0));
-  cards[2].querySelector('.big').textContent = fmtNum(cotizaciones.filter(c=>c.estado==='sin_contactar').length);
+  const filtradas = cotizacionesFiltradas();
+  cards[0].querySelector('.big').textContent = fmtNum(filtradas.length);
+  cards[1].querySelector('.big').textContent = fmtMoneda(filtradas.reduce((a,c)=>a+c.monto,0));
+  cards[2].querySelector('.big').textContent = fmtNum(filtradas.filter(c=>c.estado==='sin_contactar').length);
+
+  // Estas dos SIEMPRE son del mes calendario actual, sin importar el rango
+  // que se esté filtrando arriba.
+  const inicioMes = firstDayOfMonthStr(hoyStrCot);
+  const finMes = lastDayOfMonthStr(hoyStrCot);
+  const delMesActual = cotizaciones.filter(c => c.fecha && c.fecha >= inicioMes && c.fecha <= finMes);
+  cards[3].querySelector('.big').textContent = fmtMoneda(delMesActual.reduce((a,c)=>a+c.monto,0));
+  cards[4].querySelector('.big').textContent = fmtMoneda(delMesActual.filter(c=>c.estado==='facturada').reduce((a,c)=>a+c.monto,0));
 }
 
 function renderEstadoSyncCotizaciones(sync){
@@ -598,17 +652,25 @@ function docLinkHtml(numero, url){
   return `#${numero}`;
 }
 
-function renderTablaCotizaciones(){
+// Mismo filtro (búsqueda, estado, rango de fechas) que alimenta tanto la
+// tabla como las 3 primeras tarjetas de resumen -> para que los números de
+// arriba siempre calcen con lo que se ve abajo.
+function cotizacionesFiltradas(){
   const q = ($('buscarCotizacionesInput').value || '').trim().toLowerCase();
   const filtroEstado = $('filtroEstadoCotizacion').value;
   const desde = $('cotizacionesDesde').value;
   const hasta = $('cotizacionesHasta').value;
-  let filas = cotizaciones.filter(c =>
+  return cotizaciones.filter(c =>
     (!q || c.clienteNombre.toLowerCase().includes(q)) &&
     (!filtroEstado || c.estado === filtroEstado) &&
     (!desde || !c.fecha || c.fecha >= desde) &&
     (!hasta || !c.fecha || c.fecha <= hasta)
   );
+}
+
+function renderTablaCotizaciones(){
+  renderKpisCotizaciones();
+  let filas = cotizacionesFiltradas();
 
   filas = [...filas].sort((a,b)=>{
     let va = a[sortColCot], vb = b[sortColCot];
