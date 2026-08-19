@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo } from '../lib/mailer.js';
 
@@ -28,7 +28,8 @@ export default async function handler(req, res) {
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
   if (recurso === 'facturas-compra') return manejarFacturasCompra(req, res, sesion);
   if (recurso === 'clientes-puntos') return manejarClientesPuntos(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra o ?recurso=clientes-puntos' });
+  if (recurso === 'sync-clientes-puntos') return manejarSyncClientesPuntos(req, res, sesion);
+  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos o ?recurso=sync-clientes-puntos' });
 }
 
 // ---------------- Facturas de compra (ingresadas a mano) ----------------
@@ -206,10 +207,22 @@ async function manejarReportes(req, res, sesion) {
 }
 
 // ---------------- Clientes Bsale con puntos disponibles (club de puntos) ----------------
-// GET /v1/clients.json no tiene filtro por puntos -> se pagina el listado
-// completo de clientes y se filtra en el servidor por points > 0. El token
-// nunca sale del servidor (mismo patrón que bsale-report.js).
+// GET /v1/clients.json no tiene filtro por puntos, y la cuenta tiene ~47.000
+// clientes habilitados para el programa -> traerlos todos de una sola pasada
+// no cabe ni en el límite de 60s de una función Vercel (plan Hobby) ni en el
+// límite de ~8 solicitudes/segundo que aplica Bsale (ver
+// https://docs.bsale.dev/changelog/). Por eso esto se separa en dos partes:
+//
+//  - manejarClientesPuntos: SOLO lee de Postgres (rápido, sin llamar a
+//    Bsale) — lo que muestra la página en cada carga.
+//  - manejarSyncClientesPuntos: la trae de a tandas de ~50s desde Bsale
+//    (respetando el rate limit) y las va guardando/actualizando en Postgres,
+//    retomando en el "offset" donde quedó la tanda anterior. El frontend
+//    encadena llamadas a este endpoint hasta que informa completo:true.
 const BSALE_BASE = 'https://api.bsale.io/v1';
+const PUNTOS_SYNC_PRESUPUESTO_MS = 50000; // deja margen bajo el tope de 60s de Vercel Hobby
+const PUNTOS_SYNC_INTERVALO_MIN_MS = 150; // ritmo ~6.5 req/s, bajo el límite de Bsale (8 req/s) con margen
+const PUNTOS_SYNC_LIMIT = 50; // máximo permitido por página en clients.json
 
 function nombreCliente(c) {
   const full = `${c.firstName || ''} ${c.lastName || ''}`.trim();
@@ -219,57 +232,119 @@ function nombreCliente(c) {
 async function manejarClientesPuntos(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
-  const token = process.env.BSALE_ACCESS_TOKEN;
-  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor', clientes: [] });
-
   try {
-    const limit = 50;
-    const clientesUrl = offset => `${BSALE_BASE}/clients.json?limit=${limit}&offset=${offset}&state=0`;
-    const bsaleGet = async url => {
-      const r = await fetchConTimeout(url, { headers: { access_token: token } }, 20000);
-      if (!r.ok) {
-        const texto = await r.text().catch(() => '');
-        throw new Error(`Bsale HTTP ${r.status} en ${url}: ${texto.slice(0, 300)}`);
-      }
-      return r.json();
-    };
+    const sql = await getSql();
+    await asegurarTablaBsalePuntos(sql);
 
-    const primera = await bsaleGet(clientesUrl(0));
-    let todos = [...(primera.items || [])];
-    const total = typeof primera.count === 'number' ? primera.count : todos.length;
-    const topeSeguridad = 100; // 5.000 clientes como resguardo
-    const totalPaginas = Math.min(Math.ceil(total / limit), topeSeguridad);
+    const { rows } = await sql`
+      SELECT id, nombre, rut, telefono, empresa, ciudad, puntos, acumula_puntos, puntos_actualizado
+      FROM bsale_clientes_puntos WHERE puntos > 0 ORDER BY puntos DESC;
+    `;
+    const { rows: estadoRows } = await sql`SELECT * FROM bsale_puntos_sync_estado WHERE id = 1;`;
+    const estado = estadoRows[0] || {};
 
-    if (totalPaginas > 1) {
-      const promesas = [];
-      for (let p = 1; p < totalPaginas; p++) promesas.push(bsaleGet(clientesUrl(p * limit)));
-      const resto = await Promise.all(promesas);
-      for (const r of resto) todos.push(...(r.items || []));
-    }
-
-    const conPuntos = todos
-      .filter(c => Number(c.points) > 0)
-      .map(c => ({
-        id: c.id,
-        nombre: nombreCliente(c),
-        rut: c.code || '',
-        telefono: c.phone || '',
-        empresa: c.company || '',
-        ciudad: c.city || '',
-        puntos: Number(c.points) || 0,
-        acumulaPuntos: c.accumulatePoints === 1,
-        puntosActualizado: c.pointsUpdated ? new Date(c.pointsUpdated * 1000).toISOString().slice(0, 10) : null,
-      }))
-      .sort((a, b) => b.puntos - a.puntos);
+    const clientes = rows.map(r => ({
+      id: r.id,
+      nombre: r.nombre,
+      rut: r.rut,
+      telefono: r.telefono,
+      empresa: r.empresa,
+      ciudad: r.ciudad,
+      puntos: r.puntos,
+      acumulaPuntos: r.acumula_puntos,
+      puntosActualizado: r.puntos_actualizado,
+    }));
 
     return res.status(200).json({
-      clientes: conPuntos,
-      totalClientesRevisados: todos.length,
-      totalConPuntos: conPuntos.length,
-      puntosTotalAcumulados: conPuntos.reduce((a, c) => a + c.puntos, 0),
+      clientes,
+      totalConPuntos: clientes.length,
+      puntosTotalAcumulados: clientes.reduce((a, c) => a + c.puntos, 0),
+      sync: {
+        offsetActual: estado.offset_actual || 0,
+        totalClientes: estado.total_clientes ?? null,
+        ultimaPasadaCompletaEn: estado.ultima_pasada_completa_en || null,
+        actualizadoEn: estado.actualizado_en || null,
+      },
     });
   } catch (err) {
-    return res.status(200).json({ error: 'Error consultando clientes en Bsale', detail: String(err), clientes: [] });
+    return res.status(200).json({ error: 'Error leyendo clientes con puntos', detail: String(err), clientes: [] });
+  }
+}
+
+// Solo un admin puede disparar la sincronización (golpea la API de Bsale
+// repetidamente y puede tardar varios minutos en tandas encadenadas).
+async function manejarSyncClientesPuntos(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sincronizar clientes con Bsale' });
+
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+
+  const inicio = Date.now();
+  try {
+    const sql = await getSql();
+    await asegurarTablaBsalePuntos(sql);
+
+    const { rows: estadoRows } = await sql`SELECT * FROM bsale_puntos_sync_estado WHERE id = 1;`;
+    const estado = estadoRows[0] || {};
+    let offset = estado.offset_actual || 0;
+    let total = estado.total_clientes ?? null;
+    let procesados = 0;
+    let ultimaPeticion = 0;
+
+    while (Date.now() - inicio < PUNTOS_SYNC_PRESUPUESTO_MS) {
+      const espera = PUNTOS_SYNC_INTERVALO_MIN_MS - (Date.now() - ultimaPeticion);
+      if (espera > 0) await new Promise(r => setTimeout(r, espera));
+      ultimaPeticion = Date.now();
+
+      const url = `${BSALE_BASE}/clients.json?limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}&state=0`;
+      const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
+      if (!r.ok) {
+        const texto = await r.text().catch(() => '');
+        throw new Error(`Bsale HTTP ${r.status} en clients.json: ${texto.slice(0, 300)}`);
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      if (typeof data.count === 'number') total = data.count;
+
+      if (items.length > 0) {
+        await sql.query(
+          `INSERT INTO bsale_clientes_puntos (id, nombre, rut, telefono, empresa, ciudad, puntos, acumula_puntos, puntos_actualizado, sincronizado_en)
+           SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::int[], $8::bool[], $9::date[], $10::timestamptz[])
+           ON CONFLICT (id) DO UPDATE SET
+             nombre = EXCLUDED.nombre, rut = EXCLUDED.rut, telefono = EXCLUDED.telefono, empresa = EXCLUDED.empresa,
+             ciudad = EXCLUDED.ciudad, puntos = EXCLUDED.puntos, acumula_puntos = EXCLUDED.acumula_puntos,
+             puntos_actualizado = EXCLUDED.puntos_actualizado, sincronizado_en = EXCLUDED.sincronizado_en;`,
+          [
+            items.map(c => c.id),
+            items.map(nombreCliente),
+            items.map(c => c.code || ''),
+            items.map(c => c.phone || ''),
+            items.map(c => c.company || ''),
+            items.map(c => c.city || ''),
+            items.map(c => Number(c.points) || 0),
+            items.map(c => c.accumulatePoints === 1),
+            items.map(c => c.pointsUpdated ? new Date(c.pointsUpdated * 1000).toISOString().slice(0, 10) : null),
+            items.map(() => new Date().toISOString()),
+          ]
+        );
+      }
+
+      offset += items.length;
+      procesados += items.length;
+
+      const terminoPasada = items.length < PUNTOS_SYNC_LIMIT || (total != null && offset >= total);
+      if (terminoPasada) {
+        await sql`UPDATE bsale_puntos_sync_estado SET offset_actual = 0, total_clientes = ${total}, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
+        return res.status(200).json({ completo: true, procesadosEnEstaLlamada: procesados, totalClientes: total });
+      }
+
+      await sql`UPDATE bsale_puntos_sync_estado SET offset_actual = ${offset}, total_clientes = ${total}, actualizado_en = now() WHERE id = 1;`;
+    }
+
+    return res.status(200).json({ completo: false, procesadosEnEstaLlamada: procesados, offsetActual: offset, totalClientes: total });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error sincronizando clientes con Bsale', detail: String(err) });
   }
 }
 

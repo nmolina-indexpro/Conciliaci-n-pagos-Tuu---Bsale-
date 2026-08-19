@@ -123,11 +123,13 @@
       </div>
       <button class="btn-ghost btn-compact" onclick="cargar()">↻ Actualizar</button>
       <button class="btn-primary btn-compact btn-exportar" onclick="exportarCsv()">⬇ Descargar CSV</button>
+      <button class="btn-primary btn-compact" id="btnSincronizar" style="display:none;" onclick="iniciarSincronizacion()">🔄 Sincronizar con Bsale</button>
     </div>
   </div>
 
   <div id="status"></div>
   <div id="avisoWrap"></div>
+  <div id="syncWrap"></div>
 
   <div class="grid" id="kpiWrap">
     <div class="card"><div class="lbl">Clientes con puntos</div><div class="big">—</div></div>
@@ -156,6 +158,8 @@ function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
 let clientes = [];
 let sortCol = 'puntos';
 let sortAsc = false;
+let esAdmin = false;
+let sincronizando = false;
 
 // ---------- Sesión ----------
 async function cargarSesionUsuario(){
@@ -165,9 +169,11 @@ async function cargarSesionUsuario(){
     const u = await res.json();
     document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
     aplicarRestriccionesUsuario(u.rol);
-    if(u.rol === 'admin'){
+    esAdmin = u.rol === 'admin';
+    if(esAdmin){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
+      $('btnSincronizar').style.display = '';
     }
   }catch(err){ /* silencioso */ }
 }
@@ -176,11 +182,11 @@ async function cerrarSesion(){
   location.href = '/login.html';
 }
 
-// ---------- Carga principal ----------
+// ---------- Carga principal (lee de Postgres, no llama a Bsale) ----------
 async function cargar(){
   const status = $('status');
   status.className = '';
-  status.textContent = 'Consultando clientes en Bsale...';
+  status.textContent = 'Cargando clientes...';
   $('wrapClientes').innerHTML = '<p class="empty-note">Cargando...</p>';
 
   try{
@@ -196,11 +202,61 @@ async function cargar(){
     clientes = res.clientes || [];
     renderKpis(res);
     renderTabla();
+    renderEstadoSync(res.sync);
     status.className = 'ok';
-    status.textContent = `Listo — ${res.totalClientesRevisados} clientes revisados, ${res.totalConPuntos} con puntos disponibles`;
+    status.textContent = `Listo — ${res.totalConPuntos} clientes con puntos disponibles`;
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
+  }
+}
+
+// ---------- Estado de sincronización con Bsale ----------
+function renderEstadoSync(sync){
+  if(sincronizando || !sync) return; // durante una sincronización activa, iniciarSincronizacion() controla este bloque
+  const wrap = $('syncWrap');
+  if(!sync.ultimaPasadaCompletaEn){
+    const avance = sync.totalClientes ? `${fmtNum(sync.offsetActual)} de ${fmtNum(sync.totalClientes)} revisados` : 'aún no empieza';
+    wrap.innerHTML = `<div class="note-box">⚠ Todavía no se completó la primera sincronización con Bsale (${avance}). ${esAdmin ? 'Presiona "Sincronizar con Bsale" — puede tardar varios minutos porque Bsale limita las consultas a ~8 por segundo.' : 'Pídele a un administrador que la ejecute.'}</div>`;
+  } else {
+    const fecha = new Date(sync.ultimaPasadaCompletaEn).toLocaleString('es-CL');
+    wrap.innerHTML = `<div class="note-box">✓ Última sincronización completa con Bsale: <b>${fecha}</b> (${fmtNum(sync.totalClientes)} clientes revisados).</div>`;
+  }
+}
+
+// Encadena llamadas a sync-clientes-puntos (cada una avanza ~50s respetando
+// el rate limit de Bsale) hasta que el servidor informa completo:true, sin
+// que el admin tenga que hacer clic varias veces.
+async function iniciarSincronizacion(){
+  if(sincronizando) return;
+  sincronizando = true;
+  $('btnSincronizar').disabled = true;
+  const wrap = $('syncWrap');
+
+  try{
+    let completo = false;
+    let totalProcesado = 0;
+    while(!completo){
+      wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(totalProcesado)} clientes revisados en esta corrida. Esto puede tardar varios minutos, no cierres la página.</div>`;
+      const res = await fetch('/api/negocio?recurso=sync-clientes-puntos', { method: 'POST' }).then(r=>r.json());
+      if(res.error){
+        wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${res.detail || res.error}</div>`;
+        break;
+      }
+      totalProcesado += res.procesadosEnEstaLlamada || 0;
+      completo = !!res.completo;
+      if(!completo){
+        wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(res.offsetActual)} de ${fmtNum(res.totalClientes||0)} revisados. Continuando automáticamente...</div>`;
+      } else {
+        wrap.innerHTML = `<div class="note-box">✓ Sincronización completa — ${fmtNum(res.totalClientes)} clientes revisados. Actualizando la lista...</div>`;
+      }
+    }
+  }catch(err){
+    wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${err.message}</div>`;
+  }finally{
+    sincronizando = false;
+    $('btnSincronizar').disabled = false;
+    cargar(); // refresca la tabla y el estado con lo que quedó en Postgres
   }
 }
 
