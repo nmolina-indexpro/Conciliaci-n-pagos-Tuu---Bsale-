@@ -248,20 +248,30 @@ async function iniciarSincronizacion(){
 
   try{
     let completo = false;
-    let totalProcesado = 0;
+    let totalListado = 0;
+    let totalCorreos = 0;
     while(!completo){
-      wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(totalProcesado)} clientes revisados en esta corrida. Esto puede tardar varios minutos, no cierres la página.</div>`;
+      wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(totalListado)} clientes revisados. Esto puede tardar varios minutos, no cierres la página.</div>`;
       const res = await fetch('/api/negocio?recurso=sync-clientes-puntos', { method: 'POST' }).then(r=>r.json());
       if(res.error){
         wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${res.detail || res.error}</div>`;
         break;
       }
-      totalProcesado += res.procesadosEnEstaLlamada || 0;
       completo = !!res.completo;
-      if(!completo){
-        wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(res.offsetActual)} de ${fmtNum(res.totalClientes||0)} revisados. Continuando automáticamente...</div>`;
+      if(res.fase === 'correos'){
+        totalCorreos += res.procesadosEnEstaLlamada || 0;
+        if(!completo){
+          wrap.innerHTML = `<div class="note-box">📧 Completando correos (solo clientes con puntos)... ${fmtNum(totalCorreos)} revisados, ${fmtNum(res.pendientesCorreo||0)} pendientes. Continuando automáticamente...</div>`;
+        } else {
+          wrap.innerHTML = `<div class="note-box">✓ Sincronización completa — ${fmtNum(res.totalClientes)} clientes revisados, correos completados. Actualizando la lista...</div>`;
+        }
       } else {
-        wrap.innerHTML = `<div class="note-box">✓ Sincronización completa — ${fmtNum(res.totalClientes)} clientes revisados. Actualizando la lista...</div>`;
+        totalListado += res.procesadosEnEstaLlamada || 0;
+        if(!completo){
+          wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(res.offsetActual)} de ${fmtNum(res.totalClientes||0)} revisados. Continuando automáticamente...</div>`;
+        } else {
+          wrap.innerHTML = `<div class="note-box">✓ Sincronización completa — ${fmtNum(res.totalClientes)} clientes revisados. Actualizando la lista...</div>`;
+        }
       }
     }
   }catch(err){

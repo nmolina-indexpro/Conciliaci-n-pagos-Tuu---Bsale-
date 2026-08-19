@@ -272,6 +272,17 @@ async function manejarClientesPuntos(req, res, sesion) {
   }
 }
 
+// Extrae el correo de la respuesta de un cliente individual
+// (GET /clients/{id}.json?expand=contacts): el campo "email" del cliente si
+// viene con datos, si no el del primer contacto asociado (con expand,
+// "contacts" viene con "items" en vez de solo el "href").
+function extraerEmailDetalle(data) {
+  if (data.email) return data.email;
+  const contactos = data.contacts && Array.isArray(data.contacts.items) ? data.contacts.items : [];
+  const conCorreo = contactos.find(c => c.email);
+  return conCorreo ? conCorreo.email : '';
+}
+
 // Solo un admin puede disparar la sincronización (golpea la API de Bsale
 // repetidamente y puede tardar varios minutos en tandas encadenadas).
 async function manejarSyncClientesPuntos(req, res, sesion) {
@@ -292,11 +303,19 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
     let total = estado.total_clientes ?? null;
     let procesados = 0;
     let ultimaPeticion = 0;
-
-    while (Date.now() - inicio < PUNTOS_SYNC_PRESUPUESTO_MS) {
+    const presupuestoRestante = () => PUNTOS_SYNC_PRESUPUESTO_MS - (Date.now() - inicio);
+    const esperarRitmo = async () => {
       const espera = PUNTOS_SYNC_INTERVALO_MIN_MS - (Date.now() - ultimaPeticion);
       if (espera > 0) await new Promise(r => setTimeout(r, espera));
       ultimaPeticion = Date.now();
+    };
+
+    // ---- Fase 1: listado paginado (trae rut, teléfono, puntos, etc. de TODOS
+    // los clientes activos; el correo del listado casi siempre viene vacío en
+    // esta cuenta, se completa en la Fase 2). ----
+    let pasadaListadoTerminada = total != null && offset >= total;
+    while (!pasadaListadoTerminada && presupuestoRestante() > 0) {
+      await esperarRitmo();
 
       const url = `${BSALE_BASE}/clients.json?limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}&state=0`;
       const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
@@ -313,7 +332,8 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
           `INSERT INTO bsale_clientes_puntos (id, nombre, rut, telefono, email, empresa, ciudad, puntos, acumula_puntos, puntos_actualizado, sincronizado_en)
            SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::int[], $9::bool[], $10::date[], $11::timestamptz[])
            ON CONFLICT (id) DO UPDATE SET
-             nombre = EXCLUDED.nombre, rut = EXCLUDED.rut, telefono = EXCLUDED.telefono, email = EXCLUDED.email, empresa = EXCLUDED.empresa,
+             nombre = EXCLUDED.nombre, rut = EXCLUDED.rut, telefono = EXCLUDED.telefono,
+             email = COALESCE(NULLIF(EXCLUDED.email, ''), bsale_clientes_puntos.email), empresa = EXCLUDED.empresa,
              ciudad = EXCLUDED.ciudad, puntos = EXCLUDED.puntos, acumula_puntos = EXCLUDED.acumula_puntos,
              puntos_actualizado = EXCLUDED.puntos_actualizado, sincronizado_en = EXCLUDED.sincronizado_en;`,
           [
@@ -334,17 +354,57 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
 
       offset += items.length;
       procesados += items.length;
-
-      const terminoPasada = items.length < PUNTOS_SYNC_LIMIT || (total != null && offset >= total);
-      if (terminoPasada) {
-        await sql`UPDATE bsale_puntos_sync_estado SET offset_actual = 0, total_clientes = ${total}, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
-        return res.status(200).json({ completo: true, procesadosEnEstaLlamada: procesados, totalClientes: total });
-      }
-
+      pasadaListadoTerminada = items.length < PUNTOS_SYNC_LIMIT || (total != null && offset >= total);
       await sql`UPDATE bsale_puntos_sync_estado SET offset_actual = ${offset}, total_clientes = ${total}, actualizado_en = now() WHERE id = 1;`;
     }
 
-    return res.status(200).json({ completo: false, procesadosEnEstaLlamada: procesados, offsetActual: offset, totalClientes: total });
+    if (!pasadaListadoTerminada) {
+      // Se acabó el presupuesto de esta invocación en plena Fase 1 -> el
+      // frontend vuelve a llamar y retoma en el mismo offset.
+      return res.status(200).json({ completo: false, fase: 'listado', procesadosEnEstaLlamada: procesados, offsetActual: offset, totalClientes: total });
+    }
+
+    // ---- Fase 2: completar el correo caso a caso, SOLO para clientes con
+    // puntos > 0 (el subconjunto relevante para esta página, no los ~47.000
+    // clientes totales) -> ficha individual (GET /clients/{id}.json) en vez
+    // del listado, que es donde según lo confirmado el correo sí viene. ----
+    const { rows: pendientesCount } = await sql`
+      SELECT COUNT(*)::int AS n FROM bsale_clientes_puntos WHERE puntos > 0 AND (email IS NULL OR email = '');
+    `;
+    const pendientesCorreo = pendientesCount[0]?.n || 0;
+
+    if (pendientesCorreo === 0) {
+      await sql`UPDATE bsale_puntos_sync_estado SET offset_actual = 0, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
+      return res.status(200).json({ completo: true, fase: 'listado', procesadosEnEstaLlamada: procesados, totalClientes: total });
+    }
+
+    const { rows: faltanCorreo } = await sql`
+      SELECT id FROM bsale_clientes_puntos WHERE puntos > 0 AND (email IS NULL OR email = '') ORDER BY id LIMIT 2000;
+    `;
+    let correosCompletados = 0;
+    for (const { id } of faltanCorreo) {
+      if (presupuestoRestante() <= 0) break;
+      await esperarRitmo();
+
+      const url = `${BSALE_BASE}/clients/${id}.json?expand=contacts`;
+      const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
+      if (!r.ok) {
+        if (r.status === 404) continue; // cliente eliminado en Bsale desde el listado -> se salta
+        const texto = await r.text().catch(() => '');
+        throw new Error(`Bsale HTTP ${r.status} en clients/${id}.json: ${texto.slice(0, 300)}`);
+      }
+      const data = await r.json();
+      const email = extraerEmailDetalle(data);
+      await sql`UPDATE bsale_clientes_puntos SET email = ${email}, sincronizado_en = now() WHERE id = ${id};`;
+      correosCompletados++;
+    }
+
+    const quedanPendientes = pendientesCorreo - correosCompletados;
+    if (quedanPendientes <= 0) {
+      await sql`UPDATE bsale_puntos_sync_estado SET offset_actual = 0, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
+      return res.status(200).json({ completo: true, fase: 'correos', procesadosEnEstaLlamada: correosCompletados, totalClientes: total });
+    }
+    return res.status(200).json({ completo: false, fase: 'correos', procesadosEnEstaLlamada: correosCompletados, pendientesCorreo: quedanPendientes, totalClientes: total });
   } catch (err) {
     return res.status(200).json({ error: 'Error sincronizando clientes con Bsale', detail: String(err) });
   }
