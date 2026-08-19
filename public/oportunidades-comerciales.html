@@ -100,6 +100,8 @@
   td.estado-contactado_no_responde select{color:var(--red);border-color:var(--red);}
   td.estado-contactado_segunda_vez select{color:var(--amber);border-color:var(--amber);}
   td.estado-facturada select{color:var(--blue);border-color:var(--blue);font-weight:600;}
+  td.estado-mercado_publico select{color:var(--purple);border-color:var(--purple);}
+  td.estado-perdida select{color:var(--muted);border-color:var(--line);text-decoration:line-through;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -219,7 +221,9 @@
             <option value="contactado">Contactado</option>
             <option value="contactado_no_responde">Contactado — no responde</option>
             <option value="contactado_segunda_vez">Contactado 2ª vez</option>
-            <option value="facturada">Facturada ✓</option>
+            <option value="mercado_publico">Mercado Público</option>
+            <option value="perdida">Perdida</option>
+            <option value="facturada">Venta concretada ✓</option>
           </select>
         </div>
       </div>
@@ -287,7 +291,9 @@ const ESTADOS_COTIZACION_LABEL = {
   contactado: 'Contactado',
   contactado_no_responde: 'Contactado — no responde',
   contactado_segunda_vez: 'Contactado 2ª vez',
-  facturada: 'Facturada ✓',
+  mercado_publico: 'Mercado Público',
+  perdida: 'Perdida',
+  facturada: 'Venta concretada ✓',
 };
 
 // ---------- Fechas rápidas (mismo cálculo que usa conciliacion.html) ----------

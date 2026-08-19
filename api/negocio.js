@@ -421,9 +421,12 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
 // los puntos (ver arriba) porque también depende de /v1/documents.json con
 // el mismo rate limit de Bsale.
 const COTIZACIONES_DIAS_HISTORIAL = 180; // más allá de eso una cotización está prácticamente muerta para seguimiento
-// 'facturada' NO la elige una persona -> la pone sola la Fase 3 cuando
+// 'mercado_publico' y 'perdida' se agregaron después de ver la planilla
+// real con la que hacen seguimiento (además de "Contactado" y "Venta
+// concretada", que es como le llaman ellos a lo que acá es 'facturada').
+// 'facturada' NO la elige una persona -> la pone sola la Fase 2 cuando
 // encuentra la boleta/factura vinculada (ver manejarSyncCotizaciones).
-const ESTADOS_COTIZACION = ['sin_contactar', 'contactado', 'contactado_no_responde', 'contactado_segunda_vez', 'facturada'];
+const ESTADOS_COTIZACION = ['sin_contactar', 'contactado', 'contactado_no_responde', 'contactado_segunda_vez', 'mercado_publico', 'perdida', 'facturada'];
 
 function nombreClienteDoc(client) {
   if (!client) return '';
@@ -661,14 +664,21 @@ async function manejarSyncCotizaciones(req, res, sesion) {
       `;
       for (const cot of cotizacionesCliente) {
         const montoCot = Math.round(Number(cot.monto));
-        const idx = ventas.findIndex(d => {
-          if (Math.round(Number(d.totalAmount) || 0) !== montoCot) return false;
-          if (!cot.fecha || !d.emissionDate) return true;
-          const fechaDoc = new Date(d.emissionDate * 1000).toISOString().slice(0, 10);
-          return fechaDoc >= new Date(cot.fecha).toISOString().slice(0, 10);
-        });
-        if (idx === -1) continue;
-        const candidata = ventas[idx];
+        // Tolerancia de $2: confirmado con un export real de Bsale (60
+        // cotizaciones de agosto) que el monto del documento generado
+        // puede venir $1 distinto al de la cotización (redondeo), aunque
+        // en la enorme mayoría de los casos calza exacto.
+        const candidatos = ventas
+          .map((d, i) => ({ d, i, diff: Math.abs((Math.round(Number(d.totalAmount) || 0)) - montoCot) }))
+          .filter(({ d, diff }) => {
+            if (diff > 2) return false;
+            if (!cot.fecha || !d.emissionDate) return true;
+            const fechaDoc = new Date(d.emissionDate * 1000).toISOString().slice(0, 10);
+            return fechaDoc >= new Date(cot.fecha).toISOString().slice(0, 10);
+          })
+          .sort((a, b) => a.diff - b.diff);
+        if (candidatos.length === 0) continue;
+        const { d: candidata, i: idx } = candidatos[0];
         ventas = ventas.filter((_, i) => i !== idx); // no reusar el mismo documento para otra cotización del mismo cliente
         const urlDoc = candidata.urlPublicView || candidata.urlPublicViewOriginal || '';
         await sql`UPDATE bsale_cotizaciones SET
