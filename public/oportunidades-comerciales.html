@@ -37,7 +37,7 @@
   .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;}
   .btn-logout:hover{border-color:var(--red);color:var(--red);}
 
-  input[type=text]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
+  input[type=text],input[type=date]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
   input:focus,select:focus{outline:none;border-color:var(--primary);}
   select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
 
@@ -79,6 +79,10 @@
   .campo{display:flex;flex-direction:column;gap:5px;}
   .campo label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;}
   .controles-tabla{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;}
+  .date-field{display:flex;align-items:center;gap:8px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  .doc-link{color:var(--primary);text-decoration:none;font-weight:600;}
+  .doc-link:hover{text-decoration:underline;}
 
   .tabs-grandes{display:flex;gap:14px;margin-bottom:24px;}
   .tab-grande{flex:1;background:var(--surface);border:1.5px solid var(--line);border-radius:14px;padding:18px 22px;text-align:left;box-shadow:var(--shadow);transition:all .15s;}
@@ -193,7 +197,10 @@
 
   <div id="tabCotizaciones" style="display:none;">
     <div class="toolbar">
-      <div class="form-inline">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div class="date-field"><label for="cotizacionesDesde">Desde</label><input type="date" id="cotizacionesDesde" onchange="renderTablaCotizaciones()"></div>
+        <div class="date-field"><label for="cotizacionesHasta">Hasta</label><input type="date" id="cotizacionesHasta" onchange="renderTablaCotizaciones()"></div>
+        <button class="btn-primary" style="padding:9px 14px;" title="Buscar este rango" onclick="renderTablaCotizaciones()">🔍</button>
         <div class="campo">
           <label>Buscar</label>
           <input type="text" id="buscarCotizacionesInput" placeholder="Cliente..." oninput="renderTablaCotizaciones()" style="width:220px;">
@@ -215,6 +222,7 @@
         <button class="btn-primary btn-compact" id="btnSincronizarCotizaciones" style="display:none;" onclick="iniciarSincronizacionCotizaciones()">🔄 Sincronizar con Bsale</button>
       </div>
     </div>
+    <div class="sub" style="margin-bottom:14px;">El rango de fechas filtra sobre lo ya sincronizado (últimos 180 días) — no consulta Bsale en el momento.</div>
 
     <div id="statusCotizaciones"></div>
     <div id="syncCotizacionesWrap"></div>
@@ -583,11 +591,23 @@ function cambiarOrdenCotizaciones(col){
   renderTablaCotizaciones();
 }
 
+// Muestra el número de documento como link directo a Bsale cuando hay URL disponible (mismo patrón que conciliacion.html)
+function docLinkHtml(numero, url){
+  if(!numero) return '<span class="empty-note">—</span>';
+  if(url) return `<a href="${url}" target="_blank" rel="noopener" class="doc-link">#${numero} ↗</a>`;
+  return `#${numero}`;
+}
+
 function renderTablaCotizaciones(){
   const q = ($('buscarCotizacionesInput').value || '').trim().toLowerCase();
   const filtroEstado = $('filtroEstadoCotizacion').value;
+  const desde = $('cotizacionesDesde').value;
+  const hasta = $('cotizacionesHasta').value;
   let filas = cotizaciones.filter(c =>
-    (!q || c.clienteNombre.toLowerCase().includes(q)) && (!filtroEstado || c.estado === filtroEstado)
+    (!q || c.clienteNombre.toLowerCase().includes(q)) &&
+    (!filtroEstado || c.estado === filtroEstado) &&
+    (!desde || !c.fecha || c.fecha >= desde) &&
+    (!hasta || !c.fecha || c.fecha <= hasta)
   );
 
   filas = [...filas].sort((a,b)=>{
@@ -604,7 +624,8 @@ function renderTablaCotizaciones(){
 
   const cols = [
     { key:'clienteNombre', label:'Cliente' },
-    { key:'numero', label:'N° Cotización', render:c=>c.urlCotizacion ? `<a href="${c.urlCotizacion}" target="_blank" rel="noopener">${c.numero}</a>` : (c.numero||'—') },
+    { key:'clienteTelefono', label:'Teléfono' },
+    { key:'numero', label:'N° Cotización', render:c=>docLinkHtml(c.numero, c.urlCotizacion) },
     { key:'fecha', label:'Fecha' },
     { key:'monto', label:'Monto', align:'amount', render:c=>`<b>${fmtMoneda(c.monto)}</b>` },
     { key:'clienteHaComprado', label:'¿Ha comprado antes?', render:c=>{
@@ -613,8 +634,8 @@ function renderTablaCotizaciones(){
       } },
     { key:'documentoAsociadoNumero', label:'Doc. asociado', render:c=>{
         if(!c.documentoAsociadoNumero) return '<span class="empty-note">—</span>';
-        const texto = `${c.documentoAsociadoTipo||'Documento'} N° ${c.documentoAsociadoNumero}`;
-        return c.documentoAsociadoUrl ? `<a href="${c.documentoAsociadoUrl}" target="_blank" rel="noopener">${texto}</a>` : texto;
+        const numeroConTipo = `${c.documentoAsociadoTipo||'Documento'} ${c.documentoAsociadoNumero}`;
+        return c.documentoAsociadoUrl ? `<a href="${c.documentoAsociadoUrl}" target="_blank" rel="noopener" class="doc-link">${numeroConTipo} ↗</a>` : numeroConTipo;
       } },
     { key:'estado', label:'Estado', render:c=>`<select class="estado-select" onchange="cambiarEstadoCotizacion(${c.id}, this.value)">
         ${Object.entries(ESTADOS_COTIZACION_LABEL).map(([valor,label])=>`<option value="${valor}" ${c.estado===valor?'selected':''}>${label}</option>`).join('')}

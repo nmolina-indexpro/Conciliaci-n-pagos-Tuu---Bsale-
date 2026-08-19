@@ -451,7 +451,7 @@ async function manejarCotizacionesClientes(req, res, sesion) {
     await asegurarTablaCotizaciones(sql);
 
     const { rows } = await sql`
-      SELECT id, numero, cliente_id, cliente_nombre, monto, fecha, cliente_ha_comprado, estado, actualizado_por, actualizado_en,
+      SELECT id, numero, cliente_id, cliente_nombre, cliente_telefono, monto, fecha, cliente_ha_comprado, estado, actualizado_por, actualizado_en,
              url_cotizacion, documento_asociado_id, documento_asociado_tipo, documento_asociado_numero, documento_asociado_url
       FROM bsale_cotizaciones ORDER BY fecha DESC NULLS LAST, id DESC;
     `;
@@ -463,8 +463,12 @@ async function manejarCotizacionesClientes(req, res, sesion) {
       numero: r.numero,
       clienteId: r.cliente_id,
       clienteNombre: r.cliente_nombre,
+      clienteTelefono: r.cliente_telefono,
       monto: Number(r.monto) || 0,
-      fecha: r.fecha,
+      // "fecha" es DATE en Postgres -> el driver lo entrega como Date y
+      // res.json() lo serializa completo (...T00:00:00.000Z) si no se
+      // recorta acá a YYYY-MM-DD.
+      fecha: r.fecha ? new Date(r.fecha).toISOString().slice(0, 10) : null,
       clienteHaComprado: r.cliente_ha_comprado,
       estado: r.estado,
       actualizadoPor: r.actualizado_por,
@@ -582,16 +586,18 @@ async function manejarSyncCotizaciones(req, res, sesion) {
 
         if (cotizaciones.length > 0) {
           await sql.query(
-            `INSERT INTO bsale_cotizaciones (id, numero, cliente_id, cliente_nombre, monto, fecha, url_cotizacion, sincronizado_en)
-             SELECT * FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::text[], $5::numeric[], $6::date[], $7::text[], $8::timestamptz[])
+            `INSERT INTO bsale_cotizaciones (id, numero, cliente_id, cliente_nombre, cliente_telefono, monto, fecha, url_cotizacion, sincronizado_en)
+             SELECT * FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::text[], $5::text[], $6::numeric[], $7::date[], $8::text[], $9::timestamptz[])
              ON CONFLICT (id) DO UPDATE SET
                numero = EXCLUDED.numero, cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre,
-               monto = EXCLUDED.monto, fecha = EXCLUDED.fecha, url_cotizacion = EXCLUDED.url_cotizacion, sincronizado_en = EXCLUDED.sincronizado_en;`,
+               cliente_telefono = EXCLUDED.cliente_telefono, monto = EXCLUDED.monto, fecha = EXCLUDED.fecha,
+               url_cotizacion = EXCLUDED.url_cotizacion, sincronizado_en = EXCLUDED.sincronizado_en;`,
             [
               cotizaciones.map(d => d.id),
               cotizaciones.map(d => d.number ? String(d.number) : ''),
               cotizaciones.map(d => d.client?.id || null),
               cotizaciones.map(d => nombreClienteDoc(d.client)),
+              cotizaciones.map(d => d.client?.phone || ''),
               cotizaciones.map(d => Number(d.totalAmount) || 0),
               cotizaciones.map(d => d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null),
               cotizaciones.map(d => d.urlPublicView || d.urlPublicViewOriginal || ''),
