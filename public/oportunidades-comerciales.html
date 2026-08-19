@@ -119,7 +119,7 @@
     <div class="form-inline">
       <div class="campo">
         <label>Buscar</label>
-        <input type="text" id="buscarInput" placeholder="Nombre o RUT..." oninput="renderTabla()" style="width:220px;">
+        <input type="text" id="buscarInput" placeholder="Nombre, RUT o correo..." oninput="renderTabla()" style="width:220px;">
       </div>
       <button class="btn-ghost btn-compact" onclick="cargar()">↻ Actualizar</button>
       <button class="btn-primary btn-compact btn-exportar" onclick="exportarCsv()">⬇ Descargar CSV</button>
@@ -135,6 +135,19 @@
     <div class="card"><div class="lbl">Clientes con puntos</div><div class="big">—</div></div>
     <div class="card"><div class="lbl">Puntos totales acumulados</div><div class="big">—</div></div>
     <div class="card"><div class="lbl">Cliente con más puntos</div><div class="big">—</div><div class="note" id="notaTopCliente"></div></div>
+  </div>
+
+  <div class="seccion" id="seccionCampana">
+    <div class="seccion-head">
+      <div>
+        <h2>📣 Exportar para campaña</h2>
+        <div class="sub">Listas listas para subir a una plataforma de mailing o WhatsApp — solo incluyen clientes con ese dato disponible.</div>
+      </div>
+    </div>
+    <div class="form-inline">
+      <button class="btn-primary btn-compact btn-exportar" onclick="exportarMailing()">📧 Exportar para mailing (<span id="conteoEmail">0</span> con correo)</button>
+      <button class="btn-primary btn-compact btn-exportar" onclick="exportarWhatsapp()">📱 Exportar para WhatsApp (<span id="conteoTelefono">0</span> con teléfono)</button>
+    </div>
   </div>
 
   <div class="seccion" id="seccionClientes">
@@ -267,6 +280,8 @@ function renderKpis(res){
   const top = clientes[0];
   cards[2].querySelector('.big').textContent = top ? fmtNum(top.puntos) : '—';
   $('notaTopCliente').textContent = top ? top.nombre : '';
+  $('conteoEmail').textContent = fmtNum(clientes.filter(c=>c.email).length);
+  $('conteoTelefono').textContent = fmtNum(clientes.filter(c=>c.telefono).length);
 }
 
 function cambiarOrden(col){
@@ -277,7 +292,7 @@ function cambiarOrden(col){
 
 function renderTabla(){
   const q = ($('buscarInput').value || '').trim().toLowerCase();
-  let filas = clientes.filter(c => !q || c.nombre.toLowerCase().includes(q) || (c.rut||'').toLowerCase().includes(q));
+  let filas = clientes.filter(c => !q || c.nombre.toLowerCase().includes(q) || (c.rut||'').toLowerCase().includes(q) || (c.email||'').toLowerCase().includes(q));
 
   filas = [...filas].sort((a,b)=>{
     let va = a[sortCol], vb = b[sortCol];
@@ -294,6 +309,7 @@ function renderTabla(){
   const cols = [
     { key:'nombre', label:'Cliente' },
     { key:'rut', label:'RUT' },
+    { key:'email', label:'Correo' },
     { key:'telefono', label:'Teléfono' },
     { key:'ciudad', label:'Ciudad' },
     { key:'puntos', label:'Puntos disponibles', align:'amount', render:c=>`<b>${fmtNum(c.puntos)}</b>` },
@@ -316,20 +332,51 @@ function renderTabla(){
 }
 
 // ---------- Exportar CSV ----------
-function exportarCsv(){
-  if(clientes.length===0){ alert('No hay clientes con puntos para exportar.'); return; }
-  const filas = [['Cliente','RUT','Teléfono','Ciudad','Puntos disponibles','Última actualización','Sigue acumulando']];
-  for(const c of clientes){
-    filas.push([c.nombre, c.rut, c.telefono, c.ciudad, c.puntos, c.puntosActualizado||'', c.acumulaPuntos?'Sí':'No']);
-  }
+function descargarCsv(filas, nombreArchivo){
   const csv = filas.map(f=>f.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `clientes-con-puntos-${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = nombreArchivo;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function exportarCsv(){
+  if(clientes.length===0){ alert('No hay clientes con puntos para exportar.'); return; }
+  const filas = [['Cliente','RUT','Correo','Teléfono','Ciudad','Puntos disponibles','Última actualización','Sigue acumulando']];
+  for(const c of clientes){
+    filas.push([c.nombre, c.rut, c.email||'', c.telefono, c.ciudad, c.puntos, c.puntosActualizado||'', c.acumulaPuntos?'Sí':'No']);
+  }
+  descargarCsv(filas, `clientes-con-puntos-${new Date().toISOString().slice(0,10)}.csv`);
+}
+
+// Formato típico que esperan Mailchimp/Klaviyo al importar: correo primero,
+// solo clientes que sí tienen correo registrado en Bsale.
+function exportarMailing(){
+  const lista = clientes.filter(c => c.email);
+  if(lista.length===0){ alert('Ningún cliente con puntos tiene correo registrado en Bsale.'); return; }
+  const filas = [['Email','Nombre','Puntos disponibles']];
+  for(const c of lista) filas.push([c.email, c.nombre, c.puntos]);
+  descargarCsv(filas, `clientes-puntos-mailing-${new Date().toISOString().slice(0,10)}.csv`);
+}
+
+// Teléfono en formato +56 9 XXXXXXXX cuando falta el prefijo, para subir a
+// una lista de difusión de WhatsApp Business.
+function formatearTelefonoWhatsapp(tel){
+  const soloDigitos = (tel||'').replace(/\D/g,'');
+  if(!soloDigitos) return '';
+  if(soloDigitos.startsWith('56')) return '+' + soloDigitos;
+  if(soloDigitos.startsWith('9') && soloDigitos.length===9) return '+56' + soloDigitos;
+  return '+56' + soloDigitos;
+}
+function exportarWhatsapp(){
+  const lista = clientes.filter(c => c.telefono);
+  if(lista.length===0){ alert('Ningún cliente con puntos tiene teléfono registrado en Bsale.'); return; }
+  const filas = [['Teléfono','Nombre','Puntos disponibles']];
+  for(const c of lista) filas.push([formatearTelefonoWhatsapp(c.telefono), c.nombre, c.puntos]);
+  descargarCsv(filas, `clientes-puntos-whatsapp-${new Date().toISOString().slice(0,10)}.csv`);
 }
 
 cargarSesionUsuario();

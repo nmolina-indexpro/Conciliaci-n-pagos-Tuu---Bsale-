@@ -237,7 +237,7 @@ async function manejarClientesPuntos(req, res, sesion) {
     await asegurarTablaBsalePuntos(sql);
 
     const { rows } = await sql`
-      SELECT id, nombre, rut, telefono, empresa, ciudad, puntos, acumula_puntos, puntos_actualizado
+      SELECT id, nombre, rut, telefono, email, empresa, ciudad, puntos, acumula_puntos, puntos_actualizado
       FROM bsale_clientes_puntos WHERE puntos > 0 ORDER BY puntos DESC;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM bsale_puntos_sync_estado WHERE id = 1;`;
@@ -248,6 +248,7 @@ async function manejarClientesPuntos(req, res, sesion) {
       nombre: r.nombre,
       rut: r.rut,
       telefono: r.telefono,
+      email: r.email,
       empresa: r.empresa,
       ciudad: r.ciudad,
       puntos: r.puntos,
@@ -309,10 +310,10 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
 
       if (items.length > 0) {
         await sql.query(
-          `INSERT INTO bsale_clientes_puntos (id, nombre, rut, telefono, empresa, ciudad, puntos, acumula_puntos, puntos_actualizado, sincronizado_en)
-           SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::int[], $8::bool[], $9::date[], $10::timestamptz[])
+          `INSERT INTO bsale_clientes_puntos (id, nombre, rut, telefono, email, empresa, ciudad, puntos, acumula_puntos, puntos_actualizado, sincronizado_en)
+           SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::int[], $9::bool[], $10::date[], $11::timestamptz[])
            ON CONFLICT (id) DO UPDATE SET
-             nombre = EXCLUDED.nombre, rut = EXCLUDED.rut, telefono = EXCLUDED.telefono, empresa = EXCLUDED.empresa,
+             nombre = EXCLUDED.nombre, rut = EXCLUDED.rut, telefono = EXCLUDED.telefono, email = EXCLUDED.email, empresa = EXCLUDED.empresa,
              ciudad = EXCLUDED.ciudad, puntos = EXCLUDED.puntos, acumula_puntos = EXCLUDED.acumula_puntos,
              puntos_actualizado = EXCLUDED.puntos_actualizado, sincronizado_en = EXCLUDED.sincronizado_en;`,
           [
@@ -320,6 +321,7 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
             items.map(nombreCliente),
             items.map(c => c.code || ''),
             items.map(c => c.phone || ''),
+            items.map(c => c.email || ''),
             items.map(c => c.company || ''),
             items.map(c => c.city || ''),
             items.map(c => Number(c.points) || 0),
