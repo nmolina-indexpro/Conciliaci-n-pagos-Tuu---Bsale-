@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo } from '../lib/mailer.js';
 
@@ -29,7 +29,10 @@ export default async function handler(req, res) {
   if (recurso === 'facturas-compra') return manejarFacturasCompra(req, res, sesion);
   if (recurso === 'clientes-puntos') return manejarClientesPuntos(req, res, sesion);
   if (recurso === 'sync-clientes-puntos') return manejarSyncClientesPuntos(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos o ?recurso=sync-clientes-puntos' });
+  if (recurso === 'cotizaciones-clientes') return manejarCotizacionesClientes(req, res, sesion);
+  if (recurso === 'sync-cotizaciones') return manejarSyncCotizaciones(req, res, sesion);
+  if (recurso === 'cotizacion-estado') return manejarCotizacionEstado(req, res, sesion);
+  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones o ?recurso=cotizacion-estado' });
 }
 
 // ---------------- Facturas de compra (ingresadas a mano) ----------------
@@ -220,9 +223,11 @@ async function manejarReportes(req, res, sesion) {
 //    retomando en el "offset" donde quedó la tanda anterior. El frontend
 //    encadena llamadas a este endpoint hasta que informa completo:true.
 const BSALE_BASE = 'https://api.bsale.io/v1';
+// Compartidas por manejarSyncClientesPuntos y manejarSyncCotizaciones (misma
+// cuenta de Bsale, mismo rate limit de ~8 req/s aplicado en todo /v1/*).
 const PUNTOS_SYNC_PRESUPUESTO_MS = 50000; // deja margen bajo el tope de 60s de Vercel Hobby
 const PUNTOS_SYNC_INTERVALO_MIN_MS = 150; // ritmo ~6.5 req/s, bajo el límite de Bsale (8 req/s) con margen
-const PUNTOS_SYNC_LIMIT = 50; // máximo permitido por página en clients.json
+const PUNTOS_SYNC_LIMIT = 50; // máximo permitido por página en clients.json / documents.json
 
 function nombreCliente(c) {
   const full = `${c.firstName || ''} ${c.lastName || ''}`.trim();
@@ -407,6 +412,228 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
     return res.status(200).json({ completo: false, fase: 'correos', procesadosEnEstaLlamada: correosCompletados, pendientesCorreo: quedanPendientes, totalClientes: total });
   } catch (err) {
     return res.status(200).json({ error: 'Error sincronizando clientes con Bsale', detail: String(err) });
+  }
+}
+
+// ---------------- Cotizaciones de clientes (seguimiento comercial) ----------------
+// Documentos tipo "Cotización" en Bsale, para hacerles seguimiento: ¿se
+// contactó al cliente?, ¿había comprado antes? Mismo patrón resumible que
+// los puntos (ver arriba) porque también depende de /v1/documents.json con
+// el mismo rate limit de Bsale.
+const COTIZACIONES_DIAS_HISTORIAL = 180; // más allá de eso una cotización está prácticamente muerta para seguimiento
+const ESTADOS_COTIZACION = ['sin_contactar', 'contactado', 'contactado_no_responde', 'contactado_segunda_vez'];
+
+function nombreClienteDoc(client) {
+  if (!client) return '';
+  const full = `${client.firstName || ''} ${client.lastName || ''}`.trim();
+  return full || client.company || (client.id ? `Cliente #${client.id}` : '');
+}
+function esCotizacionDoc(tipoDoc) {
+  return /cotizaci[oó]n/i.test(tipoDoc?.name || '');
+}
+// Una venta real: no es cotización (propuesta, no confirmada) ni nota de
+// crédito (devolución) -> mismo criterio que ya usa bsale-sku-report.js.
+function esVentaReal(tipoDoc) {
+  const nombre = tipoDoc?.name || '';
+  if (tipoDoc?.isCreditNote === 1) return false;
+  if (/nota de cr[eé]dito/i.test(nombre)) return false;
+  if (/cotizaci[oó]n/i.test(nombre)) return false;
+  return true;
+}
+
+async function manejarCotizacionesClientes(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+
+  try {
+    const sql = await getSql();
+    await asegurarTablaCotizaciones(sql);
+
+    const { rows } = await sql`
+      SELECT id, numero, cliente_id, cliente_nombre, monto, fecha, cliente_ha_comprado, estado, actualizado_por, actualizado_en
+      FROM bsale_cotizaciones ORDER BY fecha DESC NULLS LAST, id DESC;
+    `;
+    const { rows: estadoRows } = await sql`SELECT * FROM bsale_cotizaciones_sync_estado WHERE id = 1;`;
+    const estado = estadoRows[0] || {};
+
+    const cotizaciones = rows.map(r => ({
+      id: r.id,
+      numero: r.numero,
+      clienteId: r.cliente_id,
+      clienteNombre: r.cliente_nombre,
+      monto: Number(r.monto) || 0,
+      fecha: r.fecha,
+      clienteHaComprado: r.cliente_ha_comprado,
+      estado: r.estado,
+      actualizadoPor: r.actualizado_por,
+      actualizadoEn: r.actualizado_en,
+    }));
+
+    return res.status(200).json({
+      cotizaciones,
+      estadosDisponibles: ESTADOS_COTIZACION,
+      sync: {
+        offsetActual: estado.offset_actual || 0,
+        totalDocumentos: estado.total_documentos ?? null,
+        ultimaPasadaCompletaEn: estado.ultima_pasada_completa_en || null,
+      },
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error leyendo cotizaciones', detail: String(err), cotizaciones: [] });
+  }
+}
+
+async function manejarCotizacionEstado(req, res, sesion) {
+  if (req.method !== 'PUT') return res.status(405).json({ error: 'Method not allowed' });
+  const { id, estado } = req.body || {};
+  if (!id || !estado) return res.status(400).json({ error: 'Falta id o estado' });
+  if (!ESTADOS_COTIZACION.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+
+  try {
+    const sql = await getSql();
+    await asegurarTablaCotizaciones(sql);
+    const { rows } = await sql`
+      UPDATE bsale_cotizaciones SET estado = ${estado}, actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now()
+      WHERE id = ${id} RETURNING id;
+    `;
+    if (rows.length === 0) return res.status(404).json({ error: 'Cotización no encontrada' });
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error actualizando el estado', detail: String(err) });
+  }
+}
+
+// Busca en document_types.json el id configurado para "Cotización" en esta
+// cuenta -> permite filtrar documents.json en el servidor (documenttypeid=)
+// en vez de traer TODOS los documentos del período (180 días es demasiado
+// para hacerlo sin filtro). Si no lo encuentra, se sigue funcionando con el
+// filtro por nombre client-side (más lento, pero no rompe el módulo).
+async function obtenerIdTipoCotizacion(token) {
+  const r = await fetchConTimeout(`${BSALE_BASE}/document_types.json?limit=50`, { headers: { access_token: token } }, 15000);
+  if (!r.ok) return null;
+  const data = await r.json();
+  const tipo = (data.items || []).find(t => /cotizaci[oó]n/i.test(t.name || ''));
+  return tipo ? tipo.id : null;
+}
+
+// Solo un admin puede disparar la sincronización (misma razón que la de
+// puntos: golpea la API de Bsale repetidamente).
+async function manejarSyncCotizaciones(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sincronizar cotizaciones con Bsale' });
+
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+
+  const inicio = Date.now();
+  try {
+    const sql = await getSql();
+    await asegurarTablaCotizaciones(sql);
+
+    const { rows: estadoRows } = await sql`SELECT * FROM bsale_cotizaciones_sync_estado WHERE id = 1;`;
+    const estado = estadoRows[0] || {};
+    let offset = estado.offset_actual || 0;
+    let total = estado.total_documentos ?? null;
+    let procesados = 0;
+    let ultimaPeticion = 0;
+    const presupuestoRestante = () => PUNTOS_SYNC_PRESUPUESTO_MS - (Date.now() - inicio);
+    const esperarRitmo = async () => {
+      const espera = PUNTOS_SYNC_INTERVALO_MIN_MS - (Date.now() - ultimaPeticion);
+      if (espera > 0) await new Promise(r => setTimeout(r, espera));
+      ultimaPeticion = Date.now();
+    };
+
+    // ---- Fase 1: listado paginado de cotizaciones del período ----
+    let pasadaListadoTerminada = total != null && offset >= total;
+    if (!pasadaListadoTerminada) {
+      const tipoCotizacionId = await obtenerIdTipoCotizacion(token);
+      const hastaStr = new Date().toISOString().slice(0, 10);
+      const desdeStr = new Date(Date.now() - COTIZACIONES_DIAS_HISTORIAL * 86400000).toISOString().slice(0, 10);
+      const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
+      const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
+
+      while (!pasadaListadoTerminada && presupuestoRestante() > 0) {
+        await esperarRitmo();
+
+        const filtroTipo = tipoCotizacionId ? `&documenttypeid=${tipoCotizacionId}` : '&expand=document_type';
+        const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]${filtroTipo}&expand=client&limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}`;
+        const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
+        if (!r.ok) {
+          const texto = await r.text().catch(() => '');
+          throw new Error(`Bsale HTTP ${r.status} en documents.json: ${texto.slice(0, 300)}`);
+        }
+        const data = await r.json();
+        const items = data.items || [];
+        if (typeof data.count === 'number') total = data.count;
+
+        const cotizaciones = items.filter(d =>
+          d.state === 0 && !d.cancellationStatus && (tipoCotizacionId ? true : esCotizacionDoc(d.document_type))
+        );
+
+        if (cotizaciones.length > 0) {
+          await sql.query(
+            `INSERT INTO bsale_cotizaciones (id, numero, cliente_id, cliente_nombre, monto, fecha, sincronizado_en)
+             SELECT * FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::text[], $5::numeric[], $6::date[], $7::timestamptz[])
+             ON CONFLICT (id) DO UPDATE SET
+               numero = EXCLUDED.numero, cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre,
+               monto = EXCLUDED.monto, fecha = EXCLUDED.fecha, sincronizado_en = EXCLUDED.sincronizado_en;`,
+            [
+              cotizaciones.map(d => d.id),
+              cotizaciones.map(d => d.number ? String(d.number) : ''),
+              cotizaciones.map(d => d.client?.id || null),
+              cotizaciones.map(d => nombreClienteDoc(d.client)),
+              cotizaciones.map(d => Number(d.totalAmount) || 0),
+              cotizaciones.map(d => d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null),
+              cotizaciones.map(() => new Date().toISOString()),
+            ]
+          );
+        }
+
+        offset += items.length;
+        procesados += cotizaciones.length;
+        pasadaListadoTerminada = items.length < PUNTOS_SYNC_LIMIT || (total != null && offset >= total);
+        await sql`UPDATE bsale_cotizaciones_sync_estado SET offset_actual = ${offset}, total_documentos = ${total}, actualizado_en = now() WHERE id = 1;`;
+      }
+    }
+
+    if (!pasadaListadoTerminada) {
+      return res.status(200).json({ completo: false, fase: 'listado', procesadosEnEstaLlamada: procesados, offsetActual: offset, totalDocumentos: total });
+    }
+
+    // ---- Fase 2: para cada cliente con cotización, revisar su historial
+    // completo (sin rango de fecha) y ver si tiene alguna venta real. ----
+    const { rows: clientesPendientes } = await sql`
+      SELECT DISTINCT cliente_id FROM bsale_cotizaciones WHERE cliente_id IS NOT NULL AND cliente_ha_comprado IS NULL LIMIT 2000;
+    `;
+    let clientesRevisados = 0;
+    for (const { cliente_id } of clientesPendientes) {
+      if (presupuestoRestante() <= 0) break;
+      await esperarRitmo();
+
+      const url = `${BSALE_BASE}/documents.json?clientid=${cliente_id}&expand=document_type&limit=50`;
+      const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
+      if (!r.ok) {
+        const texto = await r.text().catch(() => '');
+        throw new Error(`Bsale HTTP ${r.status} en documents.json?clientid=${cliente_id}: ${texto.slice(0, 300)}`);
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      const haComprado = items.some(d => d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type));
+      await sql`UPDATE bsale_cotizaciones SET cliente_ha_comprado = ${haComprado} WHERE cliente_id = ${cliente_id};`;
+      clientesRevisados++;
+    }
+
+    const { rows: pendientesRestantes } = await sql`
+      SELECT COUNT(DISTINCT cliente_id)::int AS n FROM bsale_cotizaciones WHERE cliente_id IS NOT NULL AND cliente_ha_comprado IS NULL;
+    `;
+    const quedanPendientes = pendientesRestantes[0]?.n || 0;
+
+    if (quedanPendientes === 0) {
+      await sql`UPDATE bsale_cotizaciones_sync_estado SET offset_actual = 0, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
+      return res.status(200).json({ completo: true, fase: 'historial', procesadosEnEstaLlamada: clientesRevisados, totalDocumentos: total });
+    }
+    return res.status(200).json({ completo: false, fase: 'historial', procesadosEnEstaLlamada: clientesRevisados, pendientesHistorial: quedanPendientes, totalDocumentos: total });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error sincronizando cotizaciones con Bsale', detail: String(err) });
   }
 }
 

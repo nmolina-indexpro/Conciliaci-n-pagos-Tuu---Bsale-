@@ -79,6 +79,20 @@
   .campo{display:flex;flex-direction:column;gap:5px;}
   .campo label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;}
   .controles-tabla{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;}
+
+  .tabs-grandes{display:flex;gap:14px;margin-bottom:24px;}
+  .tab-grande{flex:1;background:var(--surface);border:1.5px solid var(--line);border-radius:14px;padding:18px 22px;text-align:left;box-shadow:var(--shadow);transition:all .15s;}
+  .tab-grande .titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;color:var(--text);margin-bottom:3px;}
+  .tab-grande .desc{font-size:12px;color:var(--muted);}
+  .tab-grande:hover{border-color:var(--primary);}
+  .tab-grande.activo{background:var(--primary);border-color:var(--primary);}
+  .tab-grande.activo .titulo, .tab-grande.activo .desc{color:#fff;}
+  .tab-grande.activo .desc{opacity:0.85;}
+  select.estado-select{font-size:11.5px;padding:6px 8px;}
+  td.estado-sin_contactar select{color:var(--muted);}
+  td.estado-contactado select{color:var(--green);border-color:var(--green);}
+  td.estado-contactado_no_responde select{color:var(--red);border-color:var(--red);}
+  td.estado-contactado_segunda_vez select{color:var(--amber);border-color:var(--amber);}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -111,53 +125,113 @@
     <div class="user-box" id="userBox"></div>
   </header>
 
-  <div class="toolbar">
-    <div>
-      <h1>Oportunidades <span>Comerciales</span></h1>
-      <div class="sub">Clientes de Bsale con puntos del club de fidelización disponibles para canjear.</div>
-    </div>
-    <div class="form-inline">
-      <div class="campo">
-        <label>Buscar</label>
-        <input type="text" id="buscarInput" placeholder="Nombre, RUT o correo..." oninput="renderTabla()" style="width:220px;">
+  <div>
+    <h1>Oportunidades <span>Comerciales</span></h1>
+    <div class="sub">Datos de Bsale para aprovechar — puntos por canjear y cotizaciones por cerrar.</div>
+  </div>
+
+  <div class="tabs-grandes">
+    <button class="tab-grande activo" id="tabBtnPuntos" onclick="cambiarTab('puntos')">
+      <div class="titulo">🎁 Puntos Bsale</div>
+      <div class="desc">Clientes con puntos del club de fidelización disponibles para canjear.</div>
+    </button>
+    <button class="tab-grande" id="tabBtnCotizaciones" onclick="cambiarTab('cotizaciones')">
+      <div class="titulo">📋 Cotizaciones Clientes</div>
+      <div class="desc">Seguimiento comercial a cotizaciones — contacto y si el cliente ya ha comprado antes.</div>
+    </button>
+  </div>
+
+  <div id="tabPuntos">
+    <div class="toolbar">
+      <div class="form-inline">
+        <div class="campo">
+          <label>Buscar</label>
+          <input type="text" id="buscarInput" placeholder="Nombre, RUT o correo..." oninput="renderTabla()" style="width:220px;">
+        </div>
       </div>
-      <button class="btn-ghost btn-compact" onclick="cargar()">↻ Actualizar</button>
-      <button class="btn-primary btn-compact btn-exportar" onclick="exportarCsv()">⬇ Descargar CSV</button>
-      <button class="btn-primary btn-compact" id="btnSincronizar" style="display:none;" onclick="iniciarSincronizacion()">🔄 Sincronizar con Bsale</button>
+      <div class="form-inline">
+        <button class="btn-ghost btn-compact" onclick="cargar()">↻ Actualizar</button>
+        <button class="btn-primary btn-compact btn-exportar" onclick="exportarCsv()">⬇ Descargar CSV</button>
+        <button class="btn-primary btn-compact" id="btnSincronizar" style="display:none;" onclick="iniciarSincronizacion()">🔄 Sincronizar con Bsale</button>
+      </div>
+    </div>
+
+    <div id="status"></div>
+    <div id="avisoWrap"></div>
+    <div id="syncWrap"></div>
+
+    <div class="grid" id="kpiWrap">
+      <div class="card"><div class="lbl">Clientes con puntos</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Puntos totales acumulados</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Cliente con más puntos</div><div class="big">—</div><div class="note" id="notaTopCliente"></div></div>
+    </div>
+
+    <div class="seccion" id="seccionCampana">
+      <div class="seccion-head">
+        <div>
+          <h2>📣 Exportar para campaña</h2>
+          <div class="sub">Listas listas para subir a una plataforma de mailing o WhatsApp — solo incluyen clientes con ese dato disponible.</div>
+        </div>
+      </div>
+      <div class="form-inline">
+        <button class="btn-primary btn-compact btn-exportar" onclick="exportarMailing()">📧 Exportar para mailing (<span id="conteoEmail">0</span> con correo)</button>
+        <button class="btn-primary btn-compact btn-exportar" onclick="exportarWhatsapp()">📱 Exportar para WhatsApp (<span id="conteoTelefono">0</span> con teléfono)</button>
+      </div>
+    </div>
+
+    <div class="seccion" id="seccionClientes">
+      <div class="seccion-head">
+        <div>
+          <h2>🎁 Clientes con puntos disponibles</h2>
+          <div class="sub">Ordenado de mayor a menor cantidad de puntos — buena base para campañas de canje o fidelización.</div>
+        </div>
+      </div>
+      <div id="wrapClientes"><p class="empty-note">Cargando...</p></div>
     </div>
   </div>
 
-  <div id="status"></div>
-  <div id="avisoWrap"></div>
-  <div id="syncWrap"></div>
-
-  <div class="grid" id="kpiWrap">
-    <div class="card"><div class="lbl">Clientes con puntos</div><div class="big">—</div></div>
-    <div class="card"><div class="lbl">Puntos totales acumulados</div><div class="big">—</div></div>
-    <div class="card"><div class="lbl">Cliente con más puntos</div><div class="big">—</div><div class="note" id="notaTopCliente"></div></div>
-  </div>
-
-  <div class="seccion" id="seccionCampana">
-    <div class="seccion-head">
-      <div>
-        <h2>📣 Exportar para campaña</h2>
-        <div class="sub">Listas listas para subir a una plataforma de mailing o WhatsApp — solo incluyen clientes con ese dato disponible.</div>
+  <div id="tabCotizaciones" style="display:none;">
+    <div class="toolbar">
+      <div class="form-inline">
+        <div class="campo">
+          <label>Buscar</label>
+          <input type="text" id="buscarCotizacionesInput" placeholder="Cliente..." oninput="renderTablaCotizaciones()" style="width:220px;">
+        </div>
+        <div class="campo">
+          <label>Estado</label>
+          <select id="filtroEstadoCotizacion" onchange="renderTablaCotizaciones()">
+            <option value="">Todos</option>
+            <option value="sin_contactar">Sin contactar</option>
+            <option value="contactado">Contactado</option>
+            <option value="contactado_no_responde">Contactado — no responde</option>
+            <option value="contactado_segunda_vez">Contactado 2ª vez</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-inline">
+        <button class="btn-ghost btn-compact" onclick="cargarCotizaciones()">↻ Actualizar</button>
+        <button class="btn-primary btn-compact" id="btnSincronizarCotizaciones" style="display:none;" onclick="iniciarSincronizacionCotizaciones()">🔄 Sincronizar con Bsale</button>
       </div>
     </div>
-    <div class="form-inline">
-      <button class="btn-primary btn-compact btn-exportar" onclick="exportarMailing()">📧 Exportar para mailing (<span id="conteoEmail">0</span> con correo)</button>
-      <button class="btn-primary btn-compact btn-exportar" onclick="exportarWhatsapp()">📱 Exportar para WhatsApp (<span id="conteoTelefono">0</span> con teléfono)</button>
-    </div>
-  </div>
 
-  <div class="seccion" id="seccionClientes">
-    <div class="seccion-head">
-      <div>
-        <h2>🎁 Clientes con puntos disponibles</h2>
-        <div class="sub">Ordenado de mayor a menor cantidad de puntos — buena base para campañas de canje o fidelización.</div>
-      </div>
+    <div id="statusCotizaciones"></div>
+    <div id="syncCotizacionesWrap"></div>
+
+    <div class="grid" id="kpiWrapCotizaciones">
+      <div class="card"><div class="lbl">Cotizaciones (últimos 180 días)</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Monto total cotizado</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Sin contactar todavía</div><div class="big">—</div></div>
     </div>
-    <div id="wrapClientes"><p class="empty-note">Cargando...</p></div>
+
+    <div class="seccion" id="seccionCotizaciones">
+      <div class="seccion-head">
+        <div>
+          <h2>📋 Cotizaciones por cliente</h2>
+          <div class="sub">Cambia el estado a medida que hagas el seguimiento — se guarda solo.</div>
+        </div>
+      </div>
+      <div id="wrapCotizaciones"><p class="empty-note">Cargando...</p></div>
+    </div>
   </div>
 
 </div>
@@ -167,12 +241,34 @@
 <script>
 const $ = id => document.getElementById(id);
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+function fmtMoneda(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
+
+// ---------- Tabs grandes ----------
+function cambiarTab(tab){
+  $('tabBtnPuntos').classList.toggle('activo', tab==='puntos');
+  $('tabBtnCotizaciones').classList.toggle('activo', tab==='cotizaciones');
+  $('tabPuntos').style.display = tab==='puntos' ? '' : 'none';
+  $('tabCotizaciones').style.display = tab==='cotizaciones' ? '' : 'none';
+  if(tab==='cotizaciones' && !cotizacionesCargadas) cargarCotizaciones();
+}
 
 let clientes = [];
 let sortCol = 'puntos';
 let sortAsc = false;
 let esAdmin = false;
 let sincronizando = false;
+
+let cotizaciones = [];
+let cotizacionesCargadas = false;
+let sortColCot = 'fecha';
+let sortAscCot = false;
+let sincronizandoCotizaciones = false;
+const ESTADOS_COTIZACION_LABEL = {
+  sin_contactar: 'Sin contactar',
+  contactado: 'Contactado',
+  contactado_no_responde: 'Contactado — no responde',
+  contactado_segunda_vez: 'Contactado 2ª vez',
+};
 
 // ---------- Sesión ----------
 async function cargarSesionUsuario(){
@@ -187,6 +283,7 @@ async function cargarSesionUsuario(){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
       $('btnSincronizar').style.display = '';
+      $('btnSincronizarCotizaciones').style.display = '';
     }
   }catch(err){ /* silencioso */ }
 }
@@ -387,6 +484,171 @@ function exportarWhatsapp(){
   const filas = [['Teléfono','Nombre','Puntos disponibles']];
   for(const c of lista) filas.push([formatearTelefonoWhatsapp(c.telefono), c.nombre, c.puntos]);
   descargarCsv(filas, `clientes-puntos-whatsapp-${new Date().toISOString().slice(0,10)}.csv`);
+}
+
+// ==================== Cotizaciones Clientes ====================
+async function cargarCotizaciones(){
+  cotizacionesCargadas = true;
+  const status = $('statusCotizaciones');
+  status.className = '';
+  status.textContent = 'Cargando cotizaciones...';
+  $('wrapCotizaciones').innerHTML = '<p class="empty-note">Cargando...</p>';
+
+  try{
+    const res = await fetch('/api/negocio?recurso=cotizaciones-clientes').then(r=>r.json());
+    if(res.error){
+      status.className = 'err';
+      status.textContent = 'Error: ' + (res.detail || res.error);
+      cotizaciones = [];
+      renderTablaCotizaciones();
+      return;
+    }
+    cotizaciones = res.cotizaciones || [];
+    renderKpisCotizaciones();
+    renderTablaCotizaciones();
+    renderEstadoSyncCotizaciones(res.sync);
+    status.className = 'ok';
+    status.textContent = `Listo — ${cotizaciones.length} cotizaciones (últimos ${180} días)`;
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
+}
+
+function renderKpisCotizaciones(){
+  const cards = document.querySelectorAll('#kpiWrapCotizaciones .card');
+  cards[0].querySelector('.big').textContent = fmtNum(cotizaciones.length);
+  cards[1].querySelector('.big').textContent = fmtMoneda(cotizaciones.reduce((a,c)=>a+c.monto,0));
+  cards[2].querySelector('.big').textContent = fmtNum(cotizaciones.filter(c=>c.estado==='sin_contactar').length);
+}
+
+function renderEstadoSyncCotizaciones(sync){
+  if(sincronizandoCotizaciones || !sync) return;
+  const wrap = $('syncCotizacionesWrap');
+  if(!sync.ultimaPasadaCompletaEn){
+    const avance = sync.totalDocumentos ? `${fmtNum(sync.offsetActual)} de ${fmtNum(sync.totalDocumentos)} documentos revisados` : 'aún no empieza';
+    wrap.innerHTML = `<div class="note-box">⚠ Todavía no se completó la primera sincronización con Bsale (${avance}). ${esAdmin ? 'Presiona "Sincronizar con Bsale".' : 'Pídele a un administrador que la ejecute.'}</div>`;
+  } else {
+    const fecha = new Date(sync.ultimaPasadaCompletaEn).toLocaleString('es-CL');
+    wrap.innerHTML = `<div class="note-box">✓ Última sincronización completa con Bsale: <b>${fecha}</b>.</div>`;
+  }
+}
+
+async function iniciarSincronizacionCotizaciones(){
+  if(sincronizandoCotizaciones) return;
+  sincronizandoCotizaciones = true;
+  $('btnSincronizarCotizaciones').disabled = true;
+  const wrap = $('syncCotizacionesWrap');
+
+  try{
+    let completo = false;
+    let totalListado = 0;
+    let totalHistorial = 0;
+    while(!completo){
+      wrap.innerHTML = `<div class="note-box">⏳ Sincronizando cotizaciones con Bsale... ${fmtNum(totalListado)} revisadas. Esto puede tardar varios minutos, no cierres la página.</div>`;
+      const res = await fetch('/api/negocio?recurso=sync-cotizaciones', { method: 'POST' }).then(r=>r.json());
+      if(res.error){
+        wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${res.detail || res.error}</div>`;
+        break;
+      }
+      completo = !!res.completo;
+      if(res.fase === 'historial'){
+        totalHistorial += res.procesadosEnEstaLlamada || 0;
+        wrap.innerHTML = completo
+          ? `<div class="note-box">✓ Sincronización completa. Actualizando la lista...</div>`
+          : `<div class="note-box">🧾 Revisando historial de compras... ${fmtNum(totalHistorial)} clientes revisados, ${fmtNum(res.pendientesHistorial||0)} pendientes. Continuando automáticamente...</div>`;
+      } else {
+        totalListado += res.procesadosEnEstaLlamada || 0;
+        wrap.innerHTML = completo
+          ? `<div class="note-box">✓ Sincronización completa. Actualizando la lista...</div>`
+          : `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(res.offsetActual)} de ${fmtNum(res.totalDocumentos||0)} documentos revisados. Continuando automáticamente...</div>`;
+      }
+    }
+  }catch(err){
+    wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${err.message}</div>`;
+  }finally{
+    sincronizandoCotizaciones = false;
+    $('btnSincronizarCotizaciones').disabled = false;
+    cargarCotizaciones();
+  }
+}
+
+function cambiarOrdenCotizaciones(col){
+  if(sortColCot === col) sortAscCot = !sortAscCot;
+  else { sortColCot = col; sortAscCot = false; }
+  renderTablaCotizaciones();
+}
+
+function renderTablaCotizaciones(){
+  const q = ($('buscarCotizacionesInput').value || '').trim().toLowerCase();
+  const filtroEstado = $('filtroEstadoCotizacion').value;
+  let filas = cotizaciones.filter(c =>
+    (!q || c.clienteNombre.toLowerCase().includes(q)) && (!filtroEstado || c.estado === filtroEstado)
+  );
+
+  filas = [...filas].sort((a,b)=>{
+    let va = a[sortColCot], vb = b[sortColCot];
+    if(va==null) return 1; if(vb==null) return -1;
+    if(typeof va === 'string') return sortAscCot ? va.localeCompare(vb) : vb.localeCompare(va);
+    return sortAscCot ? va-vb : vb-va;
+  });
+
+  if(filas.length === 0){
+    $('wrapCotizaciones').innerHTML = `<p class="empty-note">${cotizaciones.length===0 ? 'No hay cotizaciones sincronizadas todavía.' : 'Sin resultados para ese filtro.'}</p>`;
+    return;
+  }
+
+  const cols = [
+    { key:'clienteNombre', label:'Cliente' },
+    { key:'numero', label:'N° Cotización' },
+    { key:'fecha', label:'Fecha' },
+    { key:'monto', label:'Monto', align:'amount', render:c=>`<b>${fmtMoneda(c.monto)}</b>` },
+    { key:'clienteHaComprado', label:'¿Ha comprado antes?', render:c=>{
+        if(c.clienteHaComprado === null || c.clienteHaComprado === undefined) return '<span class="empty-note">Por revisar</span>';
+        return `<span class="badge ${c.clienteHaComprado?'si':'no'}">${c.clienteHaComprado?'Sí':'No'}</span>`;
+      } },
+    { key:'estado', label:'Estado', render:c=>`<select class="estado-select" onchange="cambiarEstadoCotizacion(${c.id}, this.value)">
+        ${Object.entries(ESTADOS_COTIZACION_LABEL).map(([valor,label])=>`<option value="${valor}" ${c.estado===valor?'selected':''}>${label}</option>`).join('')}
+      </select>` },
+  ];
+
+  const thead = `<tr>${cols.map(c=>{
+    const marca = sortColCot===c.key ? (sortAscCot?' ▲':' ▼') : '';
+    return `<th class="${c.align==='amount'?'amount':''}" onclick="cambiarOrdenCotizaciones('${c.key}')">${c.label}${marca}</th>`;
+  }).join('')}</tr>`;
+
+  const tbody = filas.map(c=>`<tr>${cols.map(col=>{
+    const claseEstado = col.key==='estado' ? `estado-${c.estado}` : '';
+    return `<td class="${[col.align==='amount'?'amount':'', claseEstado].filter(Boolean).join(' ')}">${col.render ? col.render(c) : (c[col.key] ?? '—')}</td>`;
+  }).join('')}</tr>`).join('');
+
+  $('wrapCotizaciones').innerHTML = `
+    <div class="controles-tabla"><span class="empty-note">${filas.length} cotización${filas.length===1?'':'es'}</span></div>
+    <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+}
+
+async function cambiarEstadoCotizacion(id, estado){
+  const cot = cotizaciones.find(c => c.id === id);
+  const estadoAnterior = cot ? cot.estado : null;
+  if(cot) cot.estado = estado; // optimista, para que el select no "salte" mientras espera la respuesta
+  try{
+    const res = await fetch('/api/negocio?recurso=cotizacion-estado', {
+      method: 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ id, estado })
+    });
+    const data = await res.json();
+    if(!res.ok){
+      if(cot) cot.estado = estadoAnterior;
+      alert(data.error || 'No se pudo actualizar el estado.');
+      renderTablaCotizaciones();
+      return;
+    }
+    renderKpisCotizaciones();
+  }catch(err){
+    if(cot) cot.estado = estadoAnterior;
+    alert('Error: ' + err.message);
+    renderTablaCotizaciones();
+  }
 }
 
 cargarSesionUsuario();
