@@ -66,7 +66,8 @@
   .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:24px;}
   .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;}
 
-  table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--surface);border-radius:14px;overflow:hidden;}
+  .tabla-wrap{width:100%;overflow-x:auto;border-radius:14px;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--surface);}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:10px;border-bottom:2px solid var(--line);background:var(--surface-2);cursor:pointer;user-select:none;white-space:nowrap;}
   th:hover{color:var(--primary);}
   th.amount, td.amount{text-align:right;}
@@ -512,7 +513,7 @@ function renderTabla(){
 
   $('wrapClientes').innerHTML = `
     <div class="controles-tabla"><span class="empty-note">${filas.length} cliente${filas.length===1?'':'s'}</span></div>
-    <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+    <div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
 }
 
 // ---------- Exportar CSV ----------
@@ -677,7 +678,7 @@ function renderVendedores(delMesActual){
     <td class="amount"><b>${fmtMoneda(v.montoVendido)}</b></td>
   </tr>`).join('');
 
-  $('wrapVendedores').innerHTML = `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+  $('wrapVendedores').innerHTML = `<div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
 }
 
 function renderEstadoSyncCotizaciones(sync){
@@ -812,7 +813,7 @@ function renderTablaCotizaciones(){
 
   $('wrapCotizaciones').innerHTML = `
     <div class="controles-tabla"><span class="empty-note">${filas.length} cotización${filas.length===1?'':'es'}</span></div>
-    <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+    <div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
 }
 
 async function cambiarEstadoCotizacion(id, estado){
