@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo } from '../lib/mailer.js';
 
@@ -35,7 +35,10 @@ export default async function handler(req, res) {
   if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
   if (recurso === 'calendario-pagos-importar') return manejarCalendarioPagosImportar(req, res, sesion);
   if (recurso === 'saldo-bci') return manejarSaldoBci(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones, ?recurso=cotizacion-estado, ?recurso=calendario-pagos, ?recurso=calendario-pagos-importar o ?recurso=saldo-bci' });
+  if (recurso === 'indexpro-oportunidades') return manejarIndexproOportunidades(req, res, sesion);
+  if (recurso === 'sync-indexpro') return manejarSyncIndexpro(req, res, sesion);
+  if (recurso === 'indexpro-estado') return manejarIndexproEstado(req, res, sesion);
+  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones, ?recurso=cotizacion-estado, ?recurso=calendario-pagos, ?recurso=calendario-pagos-importar, ?recurso=saldo-bci, ?recurso=indexpro-oportunidades, ?recurso=sync-indexpro o ?recurso=indexpro-estado' });
 }
 
 // ---------------- Facturas de compra (ingresadas a mano) ----------------
@@ -1020,5 +1023,194 @@ async function manejarZohoTickets(req, res, sesion) {
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error consultando Zoho Desk', detail: String(err), tickets: [] });
+  }
+}
+
+// ---------------- Indexpro: oportunidades de servicios a empresas (NAS, soporte TI) ----------------
+// Administra Patricio. Parte de una lista de 100 clientes de IndexStore
+// preseleccionados a mano por rubro (ver SEED_INDEXPRO_LEADS en
+// lib/db.js, extraída de la selección real ya hecha en
+// data/leads_100_nas_qnap_RM.xlsx del proyecto indexpro.cl) -> se cruza
+// cada RUT contra Bsale para traer nombre real, giro, historial de
+// compras y monto. El score usa el MISMO criterio que ya se usaba en
+// ventas/leads-priorizados-nas.xlsx: 55% monto histórico + 25% N° de
+// compras + 20% si compró en los últimos 12 meses, todo normalizado 0-1
+// contra el resto de la lista -> el cálculo se hace en el frontend
+// porque depende del máximo/mínimo del conjunto completo cargado en ese
+// momento (igual que la fórmula original de la planilla).
+const ESTADOS_INDEXPRO = ['sin_contactar', 'contactado', 'cotizado', 'ganado', 'perdido'];
+
+async function manejarIndexproOportunidades(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexpro(sql);
+
+    const { rows } = await sql`SELECT * FROM indexpro_oportunidades ORDER BY empresa_original ASC;`;
+    const { rows: estadoRows } = await sql`SELECT * FROM indexpro_sync_estado WHERE id = 1;`;
+    const estado = estadoRows[0] || {};
+
+    const oportunidades = rows.map(r => ({
+      id: r.id,
+      rut: r.rut,
+      empresaOriginal: r.empresa_original,
+      rubroOriginal: r.rubro_original,
+      vendedorOriginal: r.vendedor_original,
+      encontradoEnBsale: r.bsale_cliente_id != null && r.bsale_cliente_id > 0,
+      clienteNombre: r.cliente_nombre || r.empresa_original,
+      giro: r.giro || r.rubro_original,
+      telefono: r.telefono,
+      email: r.email,
+      numCompras: r.num_compras,
+      montoTotal: r.monto_total != null ? Number(r.monto_total) : null,
+      ultimaCompra: r.ultima_compra ? new Date(r.ultima_compra).toISOString().slice(0, 10) : null,
+      activo12m: r.activo_12m,
+      estado: r.estado,
+      actualizadoPor: r.actualizado_por,
+      sincronizadoEn: r.sincronizado_en,
+    }));
+
+    return res.status(200).json({
+      oportunidades,
+      estadosDisponibles: ESTADOS_INDEXPRO,
+      sync: { ultimaPasadaCompletaEn: estado.ultima_pasada_completa_en || null },
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error leyendo oportunidades Indexpro', detail: String(err), oportunidades: [] });
+  }
+}
+
+async function manejarIndexproEstado(req, res, sesion) {
+  if (req.method !== 'PUT') return res.status(405).json({ error: 'Method not allowed' });
+  const { id, estado } = req.body || {};
+  if (!id || !estado) return res.status(400).json({ error: 'Falta id o estado' });
+  if (!ESTADOS_INDEXPRO.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexpro(sql);
+    const { rows } = await sql`
+      UPDATE indexpro_oportunidades SET estado = ${estado}, actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now()
+      WHERE id = ${id} RETURNING id;
+    `;
+    if (rows.length === 0) return res.status(404).json({ error: 'No encontrado' });
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error actualizando el estado', detail: String(err) });
+  }
+}
+
+// Historial completo de compras reales (boleta/factura, activas) de un
+// cliente Bsale, paginado -> usado para calcular N° compras, monto total,
+// última compra y si sigue activo.
+async function obtenerHistorialCompras(token, clienteId) {
+  const limit = 50;
+  let offset = 0;
+  let total = null;
+  let items = [];
+  const topePaginas = 6; // 300 documentos como resguardo
+  for (let pagina = 0; pagina < topePaginas; pagina++) {
+    const r = await fetchConTimeout(`${BSALE_BASE}/documents.json?clientid=${clienteId}&expand=document_type&limit=${limit}&offset=${offset}`, { headers: { access_token: token } }, 15000);
+    if (!r.ok) {
+      const texto = await r.text().catch(() => '');
+      throw new Error(`Bsale HTTP ${r.status} en documents.json?clientid=${clienteId}: ${texto.slice(0, 300)}`);
+    }
+    const data = await r.json();
+    const pageItems = data.items || [];
+    if (typeof data.count === 'number') total = data.count;
+    items = items.concat(pageItems);
+    offset += pageItems.length;
+    if (pageItems.length < limit || (total != null && offset >= total)) break;
+  }
+  return items.filter(d => d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type));
+}
+
+// Solo admin: golpea la API de Bsale repetidamente (RUT por RUT, y después
+// historial por cliente). Con solo 100 leads normalmente termina en una
+// sola corrida, pero queda resumible por si acaso.
+async function manejarSyncIndexpro(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sincronizar con Bsale' });
+
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+
+  const inicio = Date.now();
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexpro(sql);
+
+    let ultimaPeticion = 0;
+    const presupuestoRestante = () => PUNTOS_SYNC_PRESUPUESTO_MS - (Date.now() - inicio);
+    const esperarRitmo = async () => {
+      const espera = PUNTOS_SYNC_INTERVALO_MIN_MS - (Date.now() - ultimaPeticion);
+      if (espera > 0) await new Promise(r => setTimeout(r, espera));
+      ultimaPeticion = Date.now();
+    };
+
+    // ---- Fase 1: buscar cada RUT en Bsale ----
+    const { rows: pendientesMatch } = await sql`SELECT id, rut, rubro_original FROM indexpro_oportunidades WHERE bsale_cliente_id IS NULL;`;
+    let matcheados = 0;
+    for (const fila of pendientesMatch) {
+      if (presupuestoRestante() <= 0) {
+        return res.status(200).json({ completo: false, fase: 'match', procesadosEnEstaLlamada: matcheados });
+      }
+      await esperarRitmo();
+
+      const rutLimpio = fila.rut.replace(/\./g, '');
+      const r = await fetchConTimeout(`${BSALE_BASE}/clients.json?code=${encodeURIComponent(rutLimpio)}&limit=5`, { headers: { access_token: token } }, 15000);
+      if (!r.ok) {
+        const texto = await r.text().catch(() => '');
+        throw new Error(`Bsale HTTP ${r.status} en clients.json?code=${rutLimpio}: ${texto.slice(0, 300)}`);
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      const candidato = items.find(c => c.state === 0) || items[0];
+
+      if (candidato) {
+        await sql`
+          UPDATE indexpro_oportunidades SET
+            bsale_cliente_id = ${candidato.id}, cliente_nombre = ${nombreCliente(candidato)},
+            giro = ${candidato.activity || fila.rubro_original}, telefono = ${candidato.phone || ''},
+            email = ${candidato.email || ''}, actualizado_en = now()
+          WHERE id = ${fila.id};`;
+      } else {
+        // -1 = se buscó y no se encontró (distinto de NULL = "todavía no se
+        // buscó") -> no lo reintenta en cada sincronización.
+        await sql`UPDATE indexpro_oportunidades SET bsale_cliente_id = -1, actualizado_en = now() WHERE id = ${fila.id};`;
+      }
+      matcheados++;
+    }
+
+    // ---- Fase 2: historial de compras de cada cliente ya encontrado ----
+    const { rows: pendientesHistorial } = await sql`
+      SELECT id, bsale_cliente_id FROM indexpro_oportunidades WHERE bsale_cliente_id > 0 AND sincronizado_en IS NULL;
+    `;
+    let historiales = 0;
+    const haceUnAnio = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+    for (const fila of pendientesHistorial) {
+      if (presupuestoRestante() <= 0) {
+        return res.status(200).json({ completo: false, fase: 'historial', procesadosEnEstaLlamada: historiales, matcheadosEnEstaLlamada: matcheados });
+      }
+      await esperarRitmo();
+
+      const compras = await obtenerHistorialCompras(token, fila.bsale_cliente_id);
+      const numCompras = compras.length;
+      const montoTotal = compras.reduce((a, d) => a + (Number(d.totalAmount) || 0), 0);
+      const fechas = compras.map(d => d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null).filter(Boolean);
+      const ultimaCompra = fechas.length ? fechas.sort().slice(-1)[0] : null;
+      const activo12m = ultimaCompra ? ultimaCompra >= haceUnAnio : false;
+
+      await sql`
+        UPDATE indexpro_oportunidades SET
+          num_compras = ${numCompras}, monto_total = ${montoTotal}, ultima_compra = ${ultimaCompra},
+          activo_12m = ${activo12m}, sincronizado_en = now(), actualizado_en = now()
+        WHERE id = ${fila.id};`;
+      historiales++;
+    }
+
+    await sql`UPDATE indexpro_sync_estado SET ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
+    return res.status(200).json({ completo: true, fase: 'historial', procesadosEnEstaLlamada: historiales, matcheadosEnEstaLlamada: matcheados });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error sincronizando Indexpro con Bsale', detail: String(err) });
   }
 }
