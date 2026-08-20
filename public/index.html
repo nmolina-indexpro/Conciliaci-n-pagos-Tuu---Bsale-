@@ -88,6 +88,41 @@
   .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
   tr.today td{background:var(--primary-dim);}
   .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;background:var(--surface-2);color:var(--muted);}
+
+  .saldo-bci-card{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:20px;}
+  .saldo-bci-card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px;}
+  .saldo-bci-card .big{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:var(--text);}
+  .saldo-bci-card .proyectado{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;}
+  .saldo-bci-card .proyectado.positivo{color:var(--green);}
+  .saldo-bci-card .proyectado.negativo{color:var(--red);}
+  .saldo-bci-card .nota-saldo{font-size:11px;color:var(--muted);margin-top:4px;}
+
+  .calendario-nav{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+  .calendario-nav .mes-actual{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;min-width:170px;text-align:center;text-transform:capitalize;}
+  .calendario-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:24px;}
+  .calendario-grid .dia-nombre{font-family:'Space Grotesk',sans-serif;font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;text-align:center;padding:4px 0;}
+  .dia-celda{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px;min-height:92px;cursor:pointer;transition:all .15s;display:flex;flex-direction:column;gap:4px;}
+  .dia-celda:hover{border-color:var(--primary);}
+  .dia-celda.otro-mes{opacity:0.4;}
+  .dia-celda.hoy{border-color:var(--primary);background:var(--primary-dim);}
+  .dia-celda .num-dia{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:var(--text);}
+  .dia-celda .chips{display:flex;flex-direction:column;gap:3px;overflow:hidden;}
+  .chip-pago{font-size:10px;padding:2px 6px;border-radius:6px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .chip-pago.ingreso{background:var(--green-bg);color:var(--green);}
+  .chip-pago.egreso{background:var(--red-bg);color:var(--red);}
+  .dia-celda .mas{font-size:10px;color:var(--muted);}
+  @media (max-width:900px){.calendario-grid{grid-template-columns:repeat(7,minmax(40px,1fr));} .dia-celda{min-height:60px;padding:5px;} .chip-pago{display:none;}}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:16px;}
+  .modal-overlay.open{display:flex;}
+  .modal-box{background:var(--surface);border-radius:16px;padding:24px 26px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:min(520px,100%);max-height:86vh;overflow-y:auto;}
+  .modal-box h3{margin:0 0 4px 0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;text-transform:capitalize;}
+  .lista-movimientos{display:flex;flex-direction:column;gap:8px;margin:14px 0;}
+  .mov-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;background:var(--surface-2);border-radius:9px;font-size:12.5px;}
+  .mov-item .mov-info{display:flex;flex-direction:column;gap:2px;}
+  .mov-item .mov-monto{font-family:'IBM Plex Mono',monospace;font-weight:600;}
+  .mov-item .mov-monto.ingreso{color:var(--green);}
+  .mov-item .mov-monto.egreso{color:var(--red);}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -207,6 +242,52 @@
   <div class="section-title">📊 Acumulado de efectivo pendiente de depósito</div>
   <p class="empty-note">Suma del efectivo de los días mostrados que todavía no se ha registrado como depositado. Sirve para vigilar cuánto dinero físico se está acumulando en el local.</p>
   <div id="efectivoAcumWrap"><p class="empty-note">Cargando...</p></div>
+
+  <div class="section-title">🏦 Saldo BCI</div>
+  <div class="saldo-bci-card">
+    <div>
+      <div class="lbl">Saldo actual (ingresado a mano)</div>
+      <div class="big" id="saldoBciActual">$0</div>
+      <div class="nota-saldo" id="saldoBciNota">Sin actualizar todavía.</div>
+    </div>
+    <div class="form-inline">
+      <div class="campo"><label for="saldoBciInput">Actualizar saldo</label><input type="number" id="saldoBciInput" placeholder="$" style="width:160px;"></div>
+      <button class="btn-primary btn-compact" onclick="actualizarSaldoBci()">Guardar</button>
+    </div>
+    <div>
+      <div class="lbl">Proyectado a fin de <span id="mesProyeccionLabel"></span></div>
+      <div class="proyectado" id="saldoBciProyectado">$0</div>
+    </div>
+  </div>
+
+  <div class="section-title">📅 Calendario de pagos futuros</div>
+  <p class="empty-note">Haz clic en un día para agregar o revisar ingresos y egresos programados — reemplaza la planilla de Google Sheets que se usaba para esto.</p>
+  <div class="calendario-nav">
+    <button class="btn-ghost btn-compact" onclick="cambiarMesCalendario(-1)">◀</button>
+    <div class="mes-actual" id="mesCalendarioLabel"></div>
+    <button class="btn-ghost btn-compact" onclick="cambiarMesCalendario(1)">▶</button>
+    <button class="btn-ghost btn-compact" onclick="irAMesActualCalendario()">Hoy</button>
+  </div>
+  <div class="calendario-grid" id="calendarioGrid"></div>
+
+  <div class="modal-overlay" id="modalDiaOverlay" onclick="cerrarModalDiaSiFondo(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <h3 id="modalDiaTitulo">Día</h3>
+      <div class="sub">Ingresos y egresos programados para este día.</div>
+      <div id="modalDiaLista" class="lista-movimientos"></div>
+      <div class="form-inline">
+        <div class="campo">
+          <label for="movCategoria">Categoría</label>
+          <select id="movCategoria"></select>
+        </div>
+        <div class="campo"><label for="movMonto">Monto</label><input type="number" id="movMonto" placeholder="$" style="width:120px;"></div>
+        <div class="campo"><label for="movNota">Nota</label><input type="text" id="movNota" placeholder="Opcional" style="width:160px;"></div>
+        <button class="btn-primary btn-compact" onclick="agregarMovimiento()">Agregar</button>
+      </div>
+      <div id="modalDiaError" style="margin-top:8px;"></div>
+      <div style="text-align:right;margin-top:16px;"><button class="btn-ghost btn-compact" onclick="cerrarModalDia()">Cerrar</button></div>
+    </div>
+  </div>
 
 </div>
 
@@ -582,10 +663,200 @@ async function cargarFacturasPorPagar(){
   }
 }
 
+// ==================== Calendario de pagos futuros + Saldo BCI ====================
+const NOMBRES_DIA_CORTO = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+const NOMBRES_MES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+let categoriasCalendario = [];
+let mesCalendarioActual = firstDayOfMonthStr(hoyStr); // primer día del mes que se está mostrando
+let movimientosDelMes = [];
+let diaSeleccionado = null;
+
+function claseMovimiento(categoria){ return categoria === 'Ingreso' ? 'ingreso' : 'egreso'; }
+function montoConSigno(m){ return m.categoria === 'Ingreso' ? '+' + fmt(m.monto) : '−' + fmt(m.monto); }
+
+async function cargarCalendarioMes(){
+  const desde = mesCalendarioActual;
+  const hasta = lastDayOfMonthStr(mesCalendarioActual);
+  $('mesCalendarioLabel').textContent = `${NOMBRES_MES[Number(mesCalendarioActual.slice(5,7))-1]} ${mesCalendarioActual.slice(0,4)}`;
+  try{
+    const res = await fetch(`/api/negocio?recurso=calendario-pagos&desde=${desde}&hasta=${hasta}`).then(r=>r.json());
+    if(res.error){ $('calendarioGrid').innerHTML = `<p class="empty-note">No se pudo cargar: ${res.error}</p>`; return; }
+    movimientosDelMes = res.movimientos || [];
+    if(res.categorias && res.categorias.length){
+      categoriasCalendario = res.categorias;
+      $('movCategoria').innerHTML = categoriasCalendario.map(c=>`<option value="${c}">${c}</option>`).join('');
+    }
+    renderCalendarioGrid();
+  }catch(err){
+    $('calendarioGrid').innerHTML = `<p class="empty-note">No se pudo cargar: ${err.message}</p>`;
+  }
+}
+
+function renderCalendarioGrid(){
+  const primerDia = mesCalendarioActual;
+  const ultimoDia = lastDayOfMonthStr(mesCalendarioActual);
+  const dowPrimerDia = (new Date(primerDia + 'T00:00:00Z').getUTCDay() + 6) % 7; // 0=lunes
+  const totalDiasMes = Number(ultimoDia.slice(8,10));
+
+  const celdas = [];
+  for(let i=0; i<dowPrimerDia; i++) celdas.push(addDaysStr(primerDia, i - dowPrimerDia)); // días finales del mes anterior
+  for(let d=1; d<=totalDiasMes; d++) celdas.push(`${primerDia.slice(0,8)}${String(d).padStart(2,'0')}`);
+  while(celdas.length % 7 !== 0) celdas.push(addDaysStr(ultimoDia, celdas.length - (dowPrimerDia+totalDiasMes) + 1));
+
+  const porDia = {};
+  for(const m of movimientosDelMes){ (porDia[m.fecha] = porDia[m.fecha] || []).push(m); }
+
+  const headerHtml = NOMBRES_DIA_CORTO.map(n => `<div class="dia-nombre">${n}</div>`).join('');
+  const celdasHtml = celdas.map(fecha => {
+    const esOtroMes = fecha < primerDia || fecha > ultimoDia;
+    const movs = porDia[fecha] || [];
+    const visibles = movs.slice(0,3);
+    const chips = visibles.map(m => `<span class="chip-pago ${claseMovimiento(m.categoria)}" title="${m.categoria}: ${fmt(m.monto)}">${m.categoria}: ${fmt(m.monto)}</span>`).join('');
+    const mas = movs.length > 3 ? `<span class="mas">+${movs.length-3} más</span>` : '';
+    return `<div class="dia-celda ${esOtroMes?'otro-mes':''} ${fecha===hoyStr?'hoy':''}" onclick="abrirModalDia('${fecha}')">
+      <div class="num-dia">${Number(fecha.slice(8,10))}</div>
+      <div class="chips">${chips}${mas}</div>
+    </div>`;
+  }).join('');
+
+  $('calendarioGrid').innerHTML = headerHtml + celdasHtml;
+}
+
+function cambiarMesCalendario(delta){
+  mesCalendarioActual = shiftMonthStr(mesCalendarioActual, delta);
+  cargarCalendarioMes();
+}
+function irAMesActualCalendario(){
+  mesCalendarioActual = firstDayOfMonthStr(hoyStr);
+  cargarCalendarioMes();
+}
+
+function abrirModalDia(fecha){
+  diaSeleccionado = fecha;
+  const [y,m,d] = fecha.split('-').map(Number);
+  const nombreDia = nombreDiaSemana(fecha);
+  $('modalDiaTitulo').textContent = `${nombreDia} ${d} de ${NOMBRES_MES[m-1]} ${y}`;
+  $('movMonto').value = '';
+  $('movNota').value = '';
+  $('modalDiaError').innerHTML = '';
+  renderListaMovimientosDia();
+  $('modalDiaOverlay').classList.add('open');
+}
+function cerrarModalDia(){
+  $('modalDiaOverlay').classList.remove('open');
+  diaSeleccionado = null;
+}
+function cerrarModalDiaSiFondo(ev){
+  if(ev.target.id === 'modalDiaOverlay') cerrarModalDia();
+}
+
+function renderListaMovimientosDia(){
+  const movs = movimientosDelMes.filter(m => m.fecha === diaSeleccionado).sort((a,b)=>a.id-b.id);
+  if(movs.length === 0){
+    $('modalDiaLista').innerHTML = `<p class="empty-note">Sin movimientos programados este día.</p>`;
+    return;
+  }
+  $('modalDiaLista').innerHTML = movs.map(m => `
+    <div class="mov-item">
+      <div class="mov-info">
+        <b>${m.categoria}</b>
+        ${m.nota ? `<span class="empty-note">${m.nota}</span>` : ''}
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span class="mov-monto ${claseMovimiento(m.categoria)}">${montoConSigno(m)}</span>
+        <button class="btn-ghost btn-compact" onclick="eliminarMovimiento(${m.id})">Eliminar</button>
+      </div>
+    </div>`).join('');
+}
+
+async function agregarMovimiento(){
+  const errorEl = $('modalDiaError');
+  errorEl.innerHTML = '';
+  const categoria = $('movCategoria').value;
+  const monto = $('movMonto').value;
+  const nota = $('movNota').value.trim();
+  if(!monto || Number(monto) <= 0){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Ingresa un monto válido.</div>`; return; }
+
+  try{
+    const res = await fetch('/api/negocio?recurso=calendario-pagos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fecha: diaSeleccionado, categoria, monto: Number(monto), nota: nota || null })
+    });
+    const data = await res.json();
+    if(!res.ok){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${data.error}</div>`; return; }
+    $('movMonto').value = ''; $('movNota').value = '';
+    await cargarCalendarioMes();
+    renderListaMovimientosDia();
+    cargarProyeccionSaldoBci();
+  }catch(err){
+    errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${err.message}</div>`;
+  }
+}
+
+async function eliminarMovimiento(id){
+  if(!confirm('¿Eliminar este movimiento?')) return;
+  await fetch(`/api/negocio?recurso=calendario-pagos&id=${id}`, { method: 'DELETE' });
+  await cargarCalendarioMes();
+  renderListaMovimientosDia();
+  cargarProyeccionSaldoBci();
+}
+
+// ---------- Saldo BCI ----------
+let saldoBciActualValor = 0;
+
+async function cargarSaldoBci(){
+  try{
+    const res = await fetch('/api/negocio?recurso=saldo-bci').then(r=>r.json());
+    if(res.error) return;
+    saldoBciActualValor = res.saldo || 0;
+    $('saldoBciActual').textContent = fmt(saldoBciActualValor);
+    $('saldoBciInput').value = saldoBciActualValor || '';
+    $('saldoBciNota').textContent = res.actualizadoEn
+      ? `Actualizado por ${res.actualizadoPor || '—'} el ${new Date(res.actualizadoEn).toLocaleString('es-CL')}`
+      : 'Sin actualizar todavía.';
+    cargarProyeccionSaldoBci();
+  }catch(err){ /* silencioso */ }
+}
+
+async function actualizarSaldoBci(){
+  const valor = $('saldoBciInput').value;
+  if(valor === '' || isNaN(Number(valor))){ alert('Ingresa un saldo válido.'); return; }
+  try{
+    const res = await fetch('/api/negocio?recurso=saldo-bci', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ saldo: Number(valor) })
+    });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error || 'No se pudo actualizar.'); return; }
+    cargarSaldoBci();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+// Proyección SIEMPRE del mes calendario real actual (no del mes que se esté
+// navegando en la grilla) -> suma neta de los movimientos entre hoy y fin de
+// mes, sobre el saldo BCI ingresado a mano.
+async function cargarProyeccionSaldoBci(){
+  const finMesReal = lastDayOfMonthStr(hoyStr);
+  $('mesProyeccionLabel').textContent = NOMBRES_MES[Number(hoyStr.slice(5,7))-1];
+  try{
+    const res = await fetch(`/api/negocio?recurso=calendario-pagos&desde=${hoyStr}&hasta=${finMesReal}`).then(r=>r.json());
+    if(res.error) return;
+    const neto = (res.movimientos || []).reduce((a,m)=> a + (m.categoria === 'Ingreso' ? m.monto : -m.monto), 0);
+    const proyectado = saldoBciActualValor + neto;
+    const el = $('saldoBciProyectado');
+    el.textContent = fmt(proyectado);
+    el.className = 'proyectado ' + (proyectado >= 0 ? 'positivo' : 'negativo');
+  }catch(err){ /* silencioso */ }
+}
+
 cargar();
 cargarCalendarioFijo();
 cargarFacturasPorPagar();
 cargarFacturasCompra();
+cargarCalendarioMes();
+cargarSaldoBci();
 
 // ---------- Facturas de compra (ingresadas a mano) ----------
 function toggleCampoCheque(){

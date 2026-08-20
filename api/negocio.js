@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo } from '../lib/mailer.js';
 
@@ -32,7 +32,9 @@ export default async function handler(req, res) {
   if (recurso === 'cotizaciones-clientes') return manejarCotizacionesClientes(req, res, sesion);
   if (recurso === 'sync-cotizaciones') return manejarSyncCotizaciones(req, res, sesion);
   if (recurso === 'cotizacion-estado') return manejarCotizacionEstado(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones o ?recurso=cotizacion-estado' });
+  if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
+  if (recurso === 'saldo-bci') return manejarSaldoBci(req, res, sesion);
+  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones, ?recurso=cotizacion-estado, ?recurso=calendario-pagos o ?recurso=saldo-bci' });
 }
 
 // ---------------- Facturas de compra (ingresadas a mano) ----------------
@@ -90,6 +92,115 @@ async function manejarFacturasCompra(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error en facturas de compra', detail: String(err) });
+  }
+}
+
+// ---------------- Calendario de pagos futuros (Flujo de Caja) ----------------
+// Reemplaza la planilla Google Sheets que usaban para ir anotando pagos e
+// ingresos futuros por categoría. Mismas categorías que la planilla.
+const CATEGORIAS_CALENDARIO_PAGOS = [
+  'Ingreso', 'Remuneraciones', 'Impuestos y Previred', 'Proveedores',
+  'Cheques y Cargos', 'Arriendos', 'Préstamos', 'Otros egresos',
+];
+
+async function manejarCalendarioPagos(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaCalendarioPagos(sql);
+
+    if (req.method === 'GET') {
+      // Por defecto, el mes actual -> el calendario en el frontend pide
+      // explícitamente ?desde=&hasta= del mes que esté mostrando.
+      const hoy = new Date().toISOString().slice(0, 10);
+      const desde = req.query.desde || hoy.slice(0, 8) + '01';
+      const hasta = req.query.hasta || hoy;
+      const { rows } = await sql`
+        SELECT * FROM calendario_pagos
+        WHERE fecha >= ${desde} AND fecha <= ${hasta}
+        ORDER BY fecha ASC, created_at ASC;
+      `;
+      const movimientos = rows.map(r => ({
+        id: r.id,
+        fecha: r.fecha ? new Date(r.fecha).toISOString().slice(0, 10) : null,
+        categoria: r.categoria,
+        monto: Number(r.monto) || 0,
+        nota: r.nota,
+        agregadoPor: r.agregado_por,
+      }));
+      return res.status(200).json({ movimientos, categorias: CATEGORIAS_CALENDARIO_PAGOS });
+    }
+
+    if (req.method === 'POST') {
+      const { fecha, categoria, monto, nota } = req.body || {};
+      if (!fecha) return res.status(400).json({ error: 'Falta la fecha' });
+      if (!CATEGORIAS_CALENDARIO_PAGOS.includes(categoria)) return res.status(400).json({ error: 'Categoría inválida' });
+      if (!monto || Number(monto) <= 0) return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+
+      const { rows } = await sql`
+        INSERT INTO calendario_pagos (fecha, categoria, monto, nota, agregado_por)
+        VALUES (${fecha}, ${categoria}, ${monto}, ${nota || null}, ${sesion.nombre || sesion.email})
+        RETURNING *;
+      `;
+      return res.status(200).json({ movimiento: rows[0] });
+    }
+
+    if (req.method === 'PUT') {
+      const { id, fecha, categoria, monto, nota } = req.body || {};
+      if (!id) return res.status(400).json({ error: 'Falta el id' });
+      if (!CATEGORIAS_CALENDARIO_PAGOS.includes(categoria)) return res.status(400).json({ error: 'Categoría inválida' });
+      if (!monto || Number(monto) <= 0) return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+
+      const { rows } = await sql`
+        UPDATE calendario_pagos SET fecha = ${fecha}, categoria = ${categoria}, monto = ${monto}, nota = ${nota || null}
+        WHERE id = ${id} RETURNING *;
+      `;
+      if (rows.length === 0) return res.status(404).json({ error: 'No encontrado' });
+      return res.status(200).json({ movimiento: rows[0] });
+    }
+
+    if (req.method === 'DELETE') {
+      const { id } = req.query;
+      if (!id) return res.status(400).json({ error: 'Falta el id' });
+      await sql`DELETE FROM calendario_pagos WHERE id = ${id};`;
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en calendario de pagos', detail: String(err) });
+  }
+}
+
+// ---------------- Saldo BCI (ingresado a mano) ----------------
+async function manejarSaldoBci(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaSaldoBci(sql);
+
+    if (req.method === 'GET') {
+      const { rows } = await sql`SELECT * FROM saldo_bci WHERE id = 1;`;
+      const r = rows[0] || {};
+      return res.status(200).json({
+        saldo: Number(r.saldo) || 0,
+        actualizadoPor: r.actualizado_por || null,
+        actualizadoEn: r.actualizado_en || null,
+      });
+    }
+
+    if (req.method === 'PUT') {
+      const { saldo } = req.body || {};
+      if (saldo === undefined || saldo === null || isNaN(Number(saldo))) return res.status(400).json({ error: 'Saldo inválido' });
+      const { rows } = await sql`
+        UPDATE saldo_bci SET saldo = ${saldo}, actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now()
+        WHERE id = 1 RETURNING *;
+      `;
+      const r = rows[0];
+      return res.status(200).json({ saldo: Number(r.saldo) || 0, actualizadoPor: r.actualizado_por, actualizadoEn: r.actualizado_en });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en saldo BCI', detail: String(err) });
   }
 }
 
