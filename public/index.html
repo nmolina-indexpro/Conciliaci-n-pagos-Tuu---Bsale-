@@ -155,6 +155,17 @@
     <div class="user-box" id="userBox"></div>
   </header>
 
+  <div class="section-title">📅 Calendario de pagos futuros</div>
+  <p class="empty-note">Haz clic en un día para agregar o revisar ingresos y egresos programados — reemplaza la planilla de Google Sheets que se usaba para esto.</p>
+  <button class="btn-ghost btn-compact" id="btnImportarPlanilla" style="display:none;margin-bottom:12px;" onclick="importarPlanillaFlujoCaja()">📥 Importar planilla original (una sola vez)</button>
+  <div class="calendario-nav">
+    <button class="btn-ghost btn-compact" onclick="cambiarMesCalendario(-1)">◀</button>
+    <div class="mes-actual" id="mesCalendarioLabel"></div>
+    <button class="btn-ghost btn-compact" onclick="cambiarMesCalendario(1)">▶</button>
+    <button class="btn-ghost btn-compact" onclick="irAMesActualCalendario()">Hoy</button>
+  </div>
+  <div class="calendario-grid" id="calendarioGrid"></div>
+
   <div class="toolbar">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <div class="date-picker-wrap" style="position:relative;">
@@ -239,10 +250,6 @@
   <p class="empty-note">Documento y monto tal como quedó registrado en la recepción de mercadería en Bsale — busca el número ahí si necesitas el documento completo.</p>
   <div id="facturasDetalleWrap"><p class="empty-note">Cargando...</p></div>
 
-  <div class="section-title">📊 Acumulado de efectivo pendiente de depósito</div>
-  <p class="empty-note">Suma del efectivo de los días mostrados que todavía no se ha registrado como depositado. Sirve para vigilar cuánto dinero físico se está acumulando en el local.</p>
-  <div id="efectivoAcumWrap"><p class="empty-note">Cargando...</p></div>
-
   <div class="section-title">🏦 Saldo BCI</div>
   <div class="saldo-bci-card">
     <div>
@@ -259,17 +266,6 @@
       <div class="proyectado" id="saldoBciProyectado">$0</div>
     </div>
   </div>
-
-  <div class="section-title">📅 Calendario de pagos futuros</div>
-  <p class="empty-note">Haz clic en un día para agregar o revisar ingresos y egresos programados — reemplaza la planilla de Google Sheets que se usaba para esto.</p>
-  <button class="btn-ghost btn-compact" id="btnImportarPlanilla" style="display:none;margin-bottom:12px;" onclick="importarPlanillaFlujoCaja()">📥 Importar planilla original (una sola vez)</button>
-  <div class="calendario-nav">
-    <button class="btn-ghost btn-compact" onclick="cambiarMesCalendario(-1)">◀</button>
-    <div class="mes-actual" id="mesCalendarioLabel"></div>
-    <button class="btn-ghost btn-compact" onclick="cambiarMesCalendario(1)">▶</button>
-    <button class="btn-ghost btn-compact" onclick="irAMesActualCalendario()">Hoy</button>
-  </div>
-  <div class="calendario-grid" id="calendarioGrid"></div>
 
   <div class="modal-overlay" id="modalDiaOverlay" onclick="cerrarModalDiaSiFondo(event)">
     <div class="modal-box" onclick="event.stopPropagation()">
@@ -497,7 +493,7 @@ async function cargar(){
       agregadosDelPeriodo(fechaDesdeAnt, fechaAnt).catch(() => null) // la comparación es "nice to have", no bloquea si falla
     ]);
 
-    const { porDia, filasCal, transferencia: totalTransferenciasRango, tarjeta: totalTarjetaRango, tarjetaDebito: totalTarjetaDebito, tarjetaCredito: totalTarjetaCredito, efectivo: totalEfectivoRango, banco: totalBancoRango } = actual;
+    const { filasCal, transferencia: totalTransferenciasRango, tarjeta: totalTarjetaRango, tarjetaDebito: totalTarjetaDebito, tarjetaCredito: totalTarjetaCredito, efectivo: totalEfectivoRango, banco: totalBancoRango } = actual;
     const esUnSoloDia = fechaDesde === fecha;
     const rangoTexto = esUnSoloDia ? `del ${fecha}` : `del período (${fechaDesde} a ${fecha})`;
 
@@ -522,22 +518,6 @@ async function cargar(){
     } else {
       ['tuuCmp','cashCmp','todayBankCmp'].forEach(id => $(id).textContent = '');
     }
-
-    // ---- Efectivo acumulado pendiente ----
-    const diasEfectivo = [];
-    for(let d = fechaDesde; d <= fecha; d = addDaysStr(d, 1)) diasEfectivo.push(d);
-    const filasEf = diasEfectivo.map(f => ({ fecha: f, efectivo: (porDia[f]||{efectivo:0}).efectivo }));
-    const totalEfectivoAcum = filasEf.reduce((a,f)=>a+f.efectivo,0);
-
-    $('efectivoAcumWrap').innerHTML = `
-      <table>
-        <thead><tr><th>Fecha</th><th class="amount">Efectivo del día</th></tr></thead>
-        <tbody>
-          ${filasEf.map(f => `<tr class="${f.fecha===fecha?'today':''}"><td>${f.fecha}</td><td class="amount">${fmt(f.efectivo)}</td></tr>`).join('')}
-          <tr><td><b>Acumulado (${diasEfectivo.length} días)</b></td><td class="amount"><b>${fmt(totalEfectivoAcum)}</b></td></tr>
-        </tbody>
-      </table>
-    `;
 
     status.className = 'ok';
     status.textContent = `Listo — ${fechaDesde} a ${fecha} (comparado con ${fechaDesdeAnt} a ${fechaAnt})`;
