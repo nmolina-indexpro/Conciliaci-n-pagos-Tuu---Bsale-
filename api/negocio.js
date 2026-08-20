@@ -38,7 +38,8 @@ export default async function handler(req, res) {
   if (recurso === 'indexpro-oportunidades') return manejarIndexproOportunidades(req, res, sesion);
   if (recurso === 'sync-indexpro') return manejarSyncIndexpro(req, res, sesion);
   if (recurso === 'indexpro-estado') return manejarIndexproEstado(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones, ?recurso=cotizacion-estado, ?recurso=calendario-pagos, ?recurso=calendario-pagos-importar, ?recurso=saldo-bci, ?recurso=indexpro-oportunidades, ?recurso=sync-indexpro o ?recurso=indexpro-estado' });
+  if (recurso === 'indexpro-historial') return manejarIndexproHistorial(req, res, sesion);
+  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones, ?recurso=cotizacion-estado, ?recurso=calendario-pagos, ?recurso=calendario-pagos-importar, ?recurso=saldo-bci, ?recurso=indexpro-oportunidades, ?recurso=sync-indexpro, ?recurso=indexpro-estado o ?recurso=indexpro-historial' });
 }
 
 // ---------------- Facturas de compra (ingresadas a mano) ----------------
@@ -1099,6 +1100,25 @@ async function manejarIndexproEstado(req, res, sesion) {
   }
 }
 
+// "81220300-2" -> "81.220.300-2" (formato chileno estándar, puntos cada 3
+// dígitos antes del guion).
+function formatearRutConPuntos(rutSinPuntos) {
+  const [cuerpo, dv] = rutSinPuntos.split('-');
+  if (!dv) return rutSinPuntos;
+  return `${cuerpo.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}-${dv}`;
+}
+
+async function buscarClientePorRut(token, rut) {
+  const r = await fetchConTimeout(`${BSALE_BASE}/clients.json?code=${encodeURIComponent(rut)}&limit=5`, { headers: { access_token: token } }, 15000);
+  if (!r.ok) {
+    const texto = await r.text().catch(() => '');
+    throw new Error(`Bsale HTTP ${r.status} en clients.json?code=${rut}: ${texto.slice(0, 300)}`);
+  }
+  const data = await r.json();
+  const items = data.items || [];
+  return items.find(c => c.state === 0) || items[0] || null;
+}
+
 // Historial completo de compras reales (boleta/factura, activas) de un
 // cliente Bsale, paginado -> usado para calcular N° compras, monto total,
 // última compra y si sigue activo.
@@ -1156,15 +1176,16 @@ async function manejarSyncIndexpro(req, res, sesion) {
       }
       await esperarRitmo();
 
+      // No sabemos con certeza si Bsale guarda el RUT con o sin puntos ->
+      // se intenta primero sin puntos y, si no aparece nadie, se reintenta
+      // con puntos (formato chileno estándar) antes de darlo por no
+      // encontrado.
       const rutLimpio = fila.rut.replace(/\./g, '');
-      const r = await fetchConTimeout(`${BSALE_BASE}/clients.json?code=${encodeURIComponent(rutLimpio)}&limit=5`, { headers: { access_token: token } }, 15000);
-      if (!r.ok) {
-        const texto = await r.text().catch(() => '');
-        throw new Error(`Bsale HTTP ${r.status} en clients.json?code=${rutLimpio}: ${texto.slice(0, 300)}`);
+      let candidato = await buscarClientePorRut(token, rutLimpio);
+      if (!candidato) {
+        await esperarRitmo();
+        candidato = await buscarClientePorRut(token, formatearRutConPuntos(rutLimpio));
       }
-      const data = await r.json();
-      const items = data.items || [];
-      const candidato = items.find(c => c.state === 0) || items[0];
 
       if (candidato) {
         await sql`
@@ -1212,5 +1233,41 @@ async function manejarSyncIndexpro(req, res, sesion) {
     return res.status(200).json({ completo: true, fase: 'historial', procesadosEnEstaLlamada: historiales, matcheadosEnEstaLlamada: matcheados });
   } catch (err) {
     return res.status(200).json({ error: 'Error sincronizando Indexpro con Bsale', detail: String(err) });
+  }
+}
+
+// Detalle de documentos (para el ícono $ "ver facturas") de UN cliente
+// puntual -> se consulta a Bsale al momento (no queda guardado), porque
+// solo hace falta cuando alguien hace clic, no para las 100 filas cada vez.
+async function manejarIndexproHistorial(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const { id } = req.query;
+  if (!id) return res.status(400).json({ error: 'Falta el id' });
+
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexpro(sql);
+    const { rows } = await sql`SELECT bsale_cliente_id, cliente_nombre FROM indexpro_oportunidades WHERE id = ${id};`;
+    const fila = rows[0];
+    if (!fila || !(fila.bsale_cliente_id > 0)) return res.status(200).json({ error: 'Este cliente todavía no está vinculado a Bsale', documentos: [] });
+
+    const compras = await obtenerHistorialCompras(token, fila.bsale_cliente_id);
+    const documentos = compras
+      .map(d => ({
+        id: d.id,
+        tipo: d.document_type?.name || '',
+        numero: d.number ? String(d.number) : '',
+        fecha: d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null,
+        monto: Number(d.totalAmount) || 0,
+        url: d.urlPublicView || d.urlPublicViewOriginal || '',
+      }))
+      .sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+
+    return res.status(200).json({ clienteNombre: fila.cliente_nombre, documentos });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error consultando el historial en Bsale', detail: String(err), documentos: [] });
   }
 }

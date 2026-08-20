@@ -107,6 +107,20 @@
   td.estado-cotizado select{color:var(--blue);border-color:var(--blue);}
   td.estado-ganado select{color:var(--green);border-color:var(--green);font-weight:600;}
   td.estado-perdido select{color:var(--muted);border-color:var(--line);text-decoration:line-through;}
+
+  .acciones-icono{display:flex;gap:4px;}
+  .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);text-decoration:none;font-size:13px;cursor:pointer;transition:all .15s;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+  .btn-icono.deshabilitado{opacity:0.3;pointer-events:none;}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:16px;}
+  .modal-overlay.open{display:flex;}
+  .modal-box{background:var(--surface);border-radius:16px;padding:24px 26px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:min(560px,100%);max-height:86vh;overflow-y:auto;}
+  .modal-box h3{margin:0 0 4px 0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;}
+  .lista-movimientos{display:flex;flex-direction:column;gap:8px;}
+  .mov-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;background:var(--surface-2);border-radius:9px;font-size:12.5px;}
+  .mov-item .mov-info{display:flex;flex-direction:column;gap:2px;}
+  .mov-item .mov-monto{font-family:'IBM Plex Mono',monospace;font-weight:600;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -326,6 +340,15 @@
         </div>
       </div>
       <div id="wrapIndexpro"><p class="empty-note">Cargando...</p></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalHistorialOverlay" onclick="cerrarModalHistorialSiFondo(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <h3 id="modalHistorialTitulo">Historial de compras</h3>
+      <div class="sub">Facturas y boletas activas encontradas en Bsale, de mayor a menor fecha.</div>
+      <div id="modalHistorialLista" class="lista-movimientos" style="margin-top:14px;"></div>
+      <div style="text-align:right;margin-top:16px;"><button class="btn-ghost btn-compact" onclick="cerrarModalHistorial()">Cerrar</button></div>
     </div>
   </div>
 
@@ -1061,6 +1084,12 @@ function renderTablaIndexpro(){
     { key:'activo12m', label:'Activo 12m', render:o=>o.activo12m==null ? '—' : `<span class="badge ${o.activo12m?'si':'no'}">${o.activo12m?'Sí':'No'}</span>` },
     { key:'score', label:'Score', align:'amount', render:o=>`<b>${Math.round(o.score*100)}</b>` },
     { key:'rut', label:'Documento asociado (RUT)' },
+    { key:'clienteNombre', label:'', render:o=>{
+        const mailto = o.email ? `<a class="btn-icono" href="mailto:${o.email}" title="Correo: ${o.email}" target="_blank" rel="noopener">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`;
+        const wa = o.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(o.telefono).replace('+','')}" title="WhatsApp: ${o.telefono}" target="_blank" rel="noopener">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`;
+        const historial = o.encontradoEnBsale ? `<button class="btn-icono" title="Ver facturas y total histórico" onclick="abrirModalHistorial(${o.id}, '${(o.clienteNombre||'').replace(/'/g,"\\'")}')">💰</button>` : `<span class="btn-icono deshabilitado" title="Sin cliente Bsale vinculado">💰</span>`;
+        return `<div class="acciones-icono">${mailto}${wa}${historial}</div>`;
+      } },
     { key:'estado', label:'Estado', render:o=>`<select class="estado-select" onchange="cambiarEstadoIndexpro(${o.id}, this.value)">
         ${Object.entries(ESTADOS_INDEXPRO_LABEL).map(([valor,label])=>`<option value="${valor}" ${o.estado===valor?'selected':''}>${label}</option>`).join('')}
       </select>` },
@@ -1102,6 +1131,47 @@ async function cambiarEstadoIndexpro(id, estado){
     alert('Error: ' + err.message);
     renderTablaIndexpro();
   }
+}
+
+// Consulta en vivo a Bsale (no queda guardado) — solo al hacer clic en el
+// ícono 💰 de una fila puntual.
+async function abrirModalHistorial(id, nombre){
+  $('modalHistorialTitulo').textContent = `💰 ${nombre}`;
+  $('modalHistorialLista').innerHTML = '<p class="empty-note">Consultando Bsale...</p>';
+  $('modalHistorialOverlay').classList.add('open');
+  try{
+    const res = await fetch(`/api/negocio?recurso=indexpro-historial&id=${id}`).then(r=>r.json());
+    if(res.error){
+      $('modalHistorialLista').innerHTML = `<p class="empty-note">${res.detail || res.error}</p>`;
+      return;
+    }
+    const docs = res.documentos || [];
+    if(docs.length === 0){
+      $('modalHistorialLista').innerHTML = '<p class="empty-note">Sin documentos encontrados.</p>';
+      return;
+    }
+    const total = docs.reduce((a,d)=>a+d.monto,0);
+    $('modalHistorialLista').innerHTML = docs.map(d => `
+      <div class="mov-item">
+        <div class="mov-info">
+          <b>${docLinkHtml(d.numero, d.url)}</b>
+          <span class="empty-note">${d.tipo} · ${d.fecha||'—'}</span>
+        </div>
+        <span class="mov-monto">${fmtMoneda(d.monto)}</span>
+      </div>`).join('') + `
+      <div class="mov-item" style="background:var(--primary-dim);">
+        <b>Total (${docs.length} documento${docs.length===1?'':'s'})</b>
+        <span class="mov-monto">${fmtMoneda(total)}</span>
+      </div>`;
+  }catch(err){
+    $('modalHistorialLista').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+  }
+}
+function cerrarModalHistorial(){
+  $('modalHistorialOverlay').classList.remove('open');
+}
+function cerrarModalHistorialSiFondo(ev){
+  if(ev.target.id === 'modalHistorialOverlay') cerrarModalHistorial();
 }
 
 cargarSesionUsuario();
