@@ -262,6 +262,7 @@
 
   <div class="section-title">📅 Calendario de pagos futuros</div>
   <p class="empty-note">Haz clic en un día para agregar o revisar ingresos y egresos programados — reemplaza la planilla de Google Sheets que se usaba para esto.</p>
+  <button class="btn-ghost btn-compact" id="btnImportarPlanilla" style="display:none;margin-bottom:12px;" onclick="importarPlanillaFlujoCaja()">📥 Importar planilla original (una sola vez)</button>
   <div class="calendario-nav">
     <button class="btn-ghost btn-compact" onclick="cambiarMesCalendario(-1)">◀</button>
     <div class="mes-actual" id="mesCalendarioLabel"></div>
@@ -851,6 +852,40 @@ async function cargarProyeccionSaldoBci(){
   }catch(err){ /* silencioso */ }
 }
 
+// Migración única de la planilla Google Sheets: trae /import-flujo-caja-inicial.json
+// (generado una vez a partir de la planilla real) e inserta todo de un
+// tirón por el endpoint de importación masiva. Se marca en localStorage
+// para que el botón no se vuelva a mostrar y evitar importar dos veces sin
+// querer.
+async function importarPlanillaFlujoCaja(){
+  const boton = $('btnImportarPlanilla');
+  try{
+    const datos = await fetch('/import-flujo-caja-inicial.json').then(r=>r.json());
+    const cantidad = (datos.movimientos || []).length;
+    const confirmMsg = `Esto va a insertar ${cantidad.toLocaleString('es-CL')} movimientos (histórico y futuro) desde la planilla original, además de fijar el saldo BCI en ${fmt(datos.saldoBci?.valor||0)} (al ${datos.saldoBci?.fecha||'—'}).\n\nEs una operación de una sola vez — ¿continuar?`;
+    if(!confirm(confirmMsg)) return;
+
+    boton.disabled = true;
+    boton.textContent = '⏳ Importando...';
+    const res = await fetch('/api/negocio?recurso=calendario-pagos-importar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(datos)
+    });
+    const data = await res.json();
+    if(!res.ok){ alert('Error: ' + (data.detail || data.error)); boton.disabled = false; boton.textContent = '📥 Importar planilla original (una sola vez)'; return; }
+
+    localStorage.setItem('planillaFlujoCajaImportada', '1');
+    boton.style.display = 'none';
+    alert(`Listo — se importaron ${data.insertados.toLocaleString('es-CL')} movimientos.`);
+    cargarCalendarioMes();
+    cargarSaldoBci();
+  }catch(err){
+    alert('Error importando: ' + err.message);
+    boton.disabled = false;
+    boton.textContent = '📥 Importar planilla original (una sola vez)';
+  }
+}
+
 cargar();
 cargarCalendarioFijo();
 cargarFacturasPorPagar();
@@ -959,6 +994,7 @@ async function cargarSesionUsuario(){
     if(u.rol === 'admin'){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
+      if(!localStorage.getItem('planillaFlujoCajaImportada')) $('btnImportarPlanilla').style.display = '';
     }
   }catch(err){ /* silencioso: no bloquea el resto de la página */ }
 }

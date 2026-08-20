@@ -33,8 +33,9 @@ export default async function handler(req, res) {
   if (recurso === 'sync-cotizaciones') return manejarSyncCotizaciones(req, res, sesion);
   if (recurso === 'cotizacion-estado') return manejarCotizacionEstado(req, res, sesion);
   if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
+  if (recurso === 'calendario-pagos-importar') return manejarCalendarioPagosImportar(req, res, sesion);
   if (recurso === 'saldo-bci') return manejarSaldoBci(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones, ?recurso=cotizacion-estado, ?recurso=calendario-pagos o ?recurso=saldo-bci' });
+  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones, ?recurso=cotizacion-estado, ?recurso=calendario-pagos, ?recurso=calendario-pagos-importar o ?recurso=saldo-bci' });
 }
 
 // ---------------- Facturas de compra (ingresadas a mano) ----------------
@@ -99,8 +100,9 @@ async function manejarFacturasCompra(req, res, sesion) {
 // Reemplaza la planilla Google Sheets que usaban para ir anotando pagos e
 // ingresos futuros por categoría. Mismas categorías que la planilla.
 const CATEGORIAS_CALENDARIO_PAGOS = [
-  'Ingreso', 'Remuneraciones', 'Impuestos y Previred', 'Proveedores',
-  'Cheques y Cargos', 'Arriendos', 'Préstamos', 'Otros egresos',
+  'Ingreso', 'Remuneraciones', 'Intereses Línea de Sobregiro', 'Financiamiento o Crédito',
+  'Impuestos y Previred', 'Proveedores', 'Cheques y Cargos', 'Arriendos',
+  'Tarjeta Crédito $', 'Tarjeta Crédito USD', 'Retiros', 'Préstamos', 'Otros egresos',
 ];
 
 async function manejarCalendarioPagos(req, res, sesion) {
@@ -201,6 +203,58 @@ async function manejarSaldoBci(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error en saldo BCI', detail: String(err) });
+  }
+}
+
+// Importación masiva única (migración de la planilla Google Sheets a este
+// calendario) -> inserta muchos movimientos de una vez con UNNEST en vez de
+// una llamada por fila (que con ~1.300 filas sería demasiado lento/pesado
+// desde el navegador). Solo admin: es una operación de una sola vez, no
+// pensada para uso repetido.
+async function manejarCalendarioPagosImportar(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede importar' });
+
+  const { movimientos, saldoBci } = req.body || {};
+  if (!Array.isArray(movimientos) || movimientos.length === 0) return res.status(400).json({ error: 'Falta el arreglo de movimientos' });
+
+  const invalido = movimientos.find(m => !m.fecha || !CATEGORIAS_CALENDARIO_PAGOS.includes(m.categoria) || !(Number(m.monto) > 0));
+  if (invalido) return res.status(400).json({ error: 'Movimiento inválido en la importación', detail: JSON.stringify(invalido) });
+
+  try {
+    const sql = await getSql();
+    await asegurarTablaCalendarioPagos(sql);
+    await asegurarTablaSaldoBci(sql);
+
+    const agregadoPor = sesion.nombre || sesion.email;
+    // UNNEST en tandas de 500 -> evita mandar un statement gigante de una vez.
+    const TAMANO_TANDA = 500;
+    let insertados = 0;
+    for (let i = 0; i < movimientos.length; i += TAMANO_TANDA) {
+      const tanda = movimientos.slice(i, i + TAMANO_TANDA);
+      await sql.query(
+        `INSERT INTO calendario_pagos (fecha, categoria, monto, agregado_por)
+         SELECT * FROM UNNEST ($1::date[], $2::text[], $3::numeric[], $4::text[]);`,
+        [
+          tanda.map(m => m.fecha),
+          tanda.map(m => m.categoria),
+          tanda.map(m => Number(m.monto)),
+          tanda.map(() => agregadoPor),
+        ]
+      );
+      insertados += tanda.length;
+    }
+
+    if (saldoBci && saldoBci.valor !== undefined && saldoBci.valor !== null && !isNaN(Number(saldoBci.valor))) {
+      await sql`
+        UPDATE saldo_bci SET saldo = ${saldoBci.valor}, actualizado_por = ${agregadoPor + ' (importado de planilla)'}, actualizado_en = now()
+        WHERE id = 1;
+      `;
+    }
+
+    return res.status(200).json({ ok: true, insertados });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error importando movimientos', detail: String(err) });
   }
 }
 
