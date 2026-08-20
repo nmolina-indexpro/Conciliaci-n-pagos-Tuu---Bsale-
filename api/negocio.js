@@ -455,7 +455,8 @@ async function manejarCotizacionesClientes(req, res, sesion) {
 
     const { rows } = await sql`
       SELECT id, numero, cliente_id, cliente_nombre, cliente_telefono, monto, fecha, cliente_ha_comprado, estado, actualizado_por, actualizado_en,
-             url_cotizacion, documento_asociado_id, documento_asociado_tipo, documento_asociado_numero, documento_asociado_url
+             url_cotizacion, documento_asociado_id, documento_asociado_tipo, documento_asociado_numero, documento_asociado_url,
+             vendedor_id, vendedor_nombre
       FROM bsale_cotizaciones ORDER BY fecha DESC NULLS LAST, id DESC;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM bsale_cotizaciones_sync_estado WHERE id = 1;`;
@@ -480,6 +481,8 @@ async function manejarCotizacionesClientes(req, res, sesion) {
       documentoAsociadoTipo: r.documento_asociado_tipo,
       documentoAsociadoNumero: r.documento_asociado_numero,
       documentoAsociadoUrl: r.documento_asociado_url,
+      vendedorId: r.vendedor_id,
+      vendedorNombre: r.vendedor_nombre,
     }));
 
     return res.status(200).json({
@@ -529,6 +532,22 @@ async function obtenerIdTipoCotizacion(token) {
   return tipo ? tipo.id : null;
 }
 
+// Mapa id -> nombre de los usuarios de Bsale (vendedores). El documento
+// trae "user" con solo el id (expand no lo completa con el nombre) -> se
+// resuelve una sola vez por sincronización con /v1/users.json, que en la
+// práctica nunca pasa de un puñado de cuentas.
+async function obtenerMapaVendedores(token) {
+  const r = await fetchConTimeout(`${BSALE_BASE}/users.json?limit=50`, { headers: { access_token: token } }, 15000);
+  if (!r.ok) return new Map();
+  const data = await r.json();
+  const mapa = new Map();
+  for (const u of data.items || []) {
+    const nombre = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || `Usuario #${u.id}`;
+    mapa.set(u.id, nombre);
+  }
+  return mapa;
+}
+
 // Solo un admin puede disparar la sincronización (misma razón que la de
 // puntos: golpea la API de Bsale repetidamente).
 async function manejarSyncCotizaciones(req, res, sesion) {
@@ -560,6 +579,7 @@ async function manejarSyncCotizaciones(req, res, sesion) {
     let pasadaListadoTerminada = total != null && offset >= total;
     if (!pasadaListadoTerminada) {
       const tipoCotizacionId = await obtenerIdTipoCotizacion(token);
+      const vendedoresPorId = await obtenerMapaVendedores(token);
       const hastaStr = new Date().toISOString().slice(0, 10);
       const desdeStr = new Date(Date.now() - COTIZACIONES_DIAS_HISTORIAL * 86400000).toISOString().slice(0, 10);
       const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
@@ -572,7 +592,7 @@ async function manejarSyncCotizaciones(req, res, sesion) {
         // sin documenttypeid hay que traer document_type igual para filtrar
         // client-side qué es realmente una cotización.
         const filtroTipo = tipoCotizacionId ? `&documenttypeid=${tipoCotizacionId}` : '';
-        const expandParam = tipoCotizacionId ? 'client' : 'client,document_type';
+        const expandParam = tipoCotizacionId ? 'client,user' : 'client,document_type,user';
         const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]${filtroTipo}&expand=${expandParam}&limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}`;
         const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
         if (!r.ok) {
@@ -589,12 +609,13 @@ async function manejarSyncCotizaciones(req, res, sesion) {
 
         if (cotizaciones.length > 0) {
           await sql.query(
-            `INSERT INTO bsale_cotizaciones (id, numero, cliente_id, cliente_nombre, cliente_telefono, monto, fecha, url_cotizacion, sincronizado_en)
-             SELECT * FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::text[], $5::text[], $6::numeric[], $7::date[], $8::text[], $9::timestamptz[])
+            `INSERT INTO bsale_cotizaciones (id, numero, cliente_id, cliente_nombre, cliente_telefono, monto, fecha, url_cotizacion, vendedor_id, vendedor_nombre, sincronizado_en)
+             SELECT * FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::text[], $5::text[], $6::numeric[], $7::date[], $8::text[], $9::int[], $10::text[], $11::timestamptz[])
              ON CONFLICT (id) DO UPDATE SET
                numero = EXCLUDED.numero, cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre,
                cliente_telefono = EXCLUDED.cliente_telefono, monto = EXCLUDED.monto, fecha = EXCLUDED.fecha,
-               url_cotizacion = EXCLUDED.url_cotizacion, sincronizado_en = EXCLUDED.sincronizado_en;`,
+               url_cotizacion = EXCLUDED.url_cotizacion, vendedor_id = EXCLUDED.vendedor_id,
+               vendedor_nombre = EXCLUDED.vendedor_nombre, sincronizado_en = EXCLUDED.sincronizado_en;`,
             [
               cotizaciones.map(d => d.id),
               cotizaciones.map(d => d.number ? String(d.number) : ''),
@@ -604,6 +625,8 @@ async function manejarSyncCotizaciones(req, res, sesion) {
               cotizaciones.map(d => Number(d.totalAmount) || 0),
               cotizaciones.map(d => d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null),
               cotizaciones.map(d => d.urlPublicView || d.urlPublicViewOriginal || ''),
+              cotizaciones.map(d => d.user?.id || null),
+              cotizaciones.map(d => vendedoresPorId.get(d.user?.id) || (d.user?.id ? `Usuario #${d.user.id}` : '')),
               cotizaciones.map(() => new Date().toISOString()),
             ]
           );

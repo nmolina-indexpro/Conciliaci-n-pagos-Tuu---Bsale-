@@ -241,9 +241,20 @@
       <div class="card"><div class="lbl">Cotizaciones (rango filtrado)</div><div class="big">—</div></div>
       <div class="card"><div class="lbl">Monto cotizado (rango filtrado)</div><div class="big">—</div></div>
       <div class="card"><div class="lbl">Sin contactar (rango filtrado)</div><div class="big">—</div></div>
-      <div class="card"><div class="lbl">Cotizaciones — mes actual</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Cotizaciones — mes actual</div><div class="big">—</div><div class="note" id="notaVarCantidad"></div></div>
+      <div class="card"><div class="lbl">Cotizaciones facturadas — mes actual</div><div class="big">—</div><div class="note" id="notaVarFacturadas"></div></div>
       <div class="card"><div class="lbl">Acumulado cotizado — mes actual</div><div class="big">—</div><div class="note" id="notaVarCotizado"></div></div>
       <div class="card"><div class="lbl">Acumulado facturado — mes actual</div><div class="big">—</div><div class="note" id="notaVarFacturado"></div></div>
+    </div>
+
+    <div class="seccion" id="seccionVendedores">
+      <div class="seccion-head">
+        <div>
+          <h2>🧑‍💼 Vendedores — mes actual</h2>
+          <div class="sub">Ordenado de mayor a menor monto vendido (cotizaciones facturadas) en el mes en curso.</div>
+        </div>
+      </div>
+      <div id="wrapVendedores"><p class="empty-note">Cargando...</p></div>
     </div>
 
     <div class="seccion" id="seccionCotizaciones">
@@ -614,16 +625,51 @@ function renderKpisCotizaciones(){
   const delMesActual = cotizaciones.filter(c => c.fecha && c.fecha >= inicioMes && c.fecha <= finMes);
   const delMesAnterior = cotizaciones.filter(c => c.fecha && c.fecha >= inicioMesAnt && c.fecha <= finMesAnt);
 
+  const facturadasActual = delMesActual.filter(c=>c.estado==='facturada');
+  const facturadasAnterior = delMesAnterior.filter(c=>c.estado==='facturada');
   const montoActual = delMesActual.reduce((a,c)=>a+c.monto,0);
   const montoAnterior = delMesAnterior.reduce((a,c)=>a+c.monto,0);
-  const facturadoActual = delMesActual.filter(c=>c.estado==='facturada').reduce((a,c)=>a+c.monto,0);
-  const facturadoAnterior = delMesAnterior.filter(c=>c.estado==='facturada').reduce((a,c)=>a+c.monto,0);
+  const facturadoActual = facturadasActual.reduce((a,c)=>a+c.monto,0);
+  const facturadoAnterior = facturadasAnterior.reduce((a,c)=>a+c.monto,0);
 
   cards[3].querySelector('.big').textContent = fmtNum(delMesActual.length);
-  cards[4].querySelector('.big').textContent = fmtMoneda(montoActual);
+  $('notaVarCantidad').innerHTML = notaVariacionHtml(calcularVariacionPct(delMesActual.length, delMesAnterior.length));
+  cards[4].querySelector('.big').textContent = fmtNum(facturadasActual.length);
+  $('notaVarFacturadas').innerHTML = notaVariacionHtml(calcularVariacionPct(facturadasActual.length, facturadasAnterior.length));
+  cards[5].querySelector('.big').textContent = fmtMoneda(montoActual);
   $('notaVarCotizado').innerHTML = notaVariacionHtml(calcularVariacionPct(montoActual, montoAnterior));
-  cards[5].querySelector('.big').textContent = fmtMoneda(facturadoActual);
+  cards[6].querySelector('.big').textContent = fmtMoneda(facturadoActual);
   $('notaVarFacturado').innerHTML = notaVariacionHtml(calcularVariacionPct(facturadoActual, facturadoAnterior));
+
+  renderVendedores(delMesActual);
+}
+
+function renderVendedores(delMesActual){
+  const porVendedor = new Map();
+  for(const c of delMesActual){
+    const clave = c.vendedorId ?? 'sin_vendedor';
+    if(!porVendedor.has(clave)) porVendedor.set(clave, { nombre: c.vendedorNombre || 'Sin vendedor asignado', creadas:0, facturadas:0, montoVendido:0 });
+    const v = porVendedor.get(clave);
+    v.creadas++;
+    if(c.estado === 'facturada'){ v.facturadas++; v.montoVendido += c.monto; }
+  }
+  const filas = [...porVendedor.values()].sort((a,b)=>b.montoVendido-a.montoVendido);
+
+  if(filas.length === 0){
+    $('wrapVendedores').innerHTML = '<p class="empty-note">No hay cotizaciones este mes todavía.</p>';
+    return;
+  }
+
+  const thead = `<tr><th>Vendedor</th><th class="amount">Cotizaciones creadas</th><th class="amount">Facturadas</th><th class="amount">% conversión</th><th class="amount">Monto vendido</th></tr>`;
+  const tbody = filas.map(v => `<tr>
+    <td>${v.nombre}</td>
+    <td class="amount">${fmtNum(v.creadas)}</td>
+    <td class="amount">${fmtNum(v.facturadas)}</td>
+    <td class="amount">${v.creadas ? Math.round(v.facturadas/v.creadas*100) : 0}%</td>
+    <td class="amount"><b>${fmtMoneda(v.montoVendido)}</b></td>
+  </tr>`).join('');
+
+  $('wrapVendedores').innerHTML = `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
 }
 
 function renderEstadoSyncCotizaciones(sync){
