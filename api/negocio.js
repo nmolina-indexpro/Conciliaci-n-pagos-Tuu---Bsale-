@@ -258,7 +258,9 @@ async function manejarClientesPuntos(req, res, sesion) {
       ciudad: r.ciudad,
       puntos: r.puntos,
       acumulaPuntos: r.acumula_puntos,
-      puntosActualizado: r.puntos_actualizado,
+      // DATE de Postgres -> el driver lo entrega como Date y res.json() lo
+      // serializa completo (...T00:00:00.000Z) si no se recorta acá.
+      puntosActualizado: r.puntos_actualizado ? new Date(r.puntos_actualizado).toISOString().slice(0, 10) : null,
     }));
 
     return res.status(200).json({
@@ -534,16 +536,29 @@ async function obtenerIdTipoCotizacion(token) {
 
 // Mapa id -> nombre de los usuarios de Bsale (vendedores). El documento
 // trae "user" con solo el id (expand no lo completa con el nombre) -> se
-// resuelve una sola vez por sincronización con /v1/users.json, que en la
-// práctica nunca pasa de un puñado de cuentas.
+// resuelve una sola vez por sincronización con /v1/users.json. Se pagina
+// completo (no basta con "limit=50 y listo": una cuenta puede tener más de
+// 50 usuarios entre activos e inactivos, y justo el que falte puede ser el
+// vendedor de una cotización -> aparecía como "Usuario #51" en vez del
+// nombre real).
 async function obtenerMapaVendedores(token) {
-  const r = await fetchConTimeout(`${BSALE_BASE}/users.json?limit=50`, { headers: { access_token: token } }, 15000);
-  if (!r.ok) return new Map();
-  const data = await r.json();
   const mapa = new Map();
-  for (const u of data.items || []) {
-    const nombre = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || `Usuario #${u.id}`;
-    mapa.set(u.id, nombre);
+  const limit = 50;
+  let offset = 0;
+  let total = null;
+  const topeSeguridad = 10; // 500 usuarios como resguardo
+  for (let pagina = 0; pagina < topeSeguridad; pagina++) {
+    const r = await fetchConTimeout(`${BSALE_BASE}/users.json?limit=${limit}&offset=${offset}`, { headers: { access_token: token } }, 15000);
+    if (!r.ok) break;
+    const data = await r.json();
+    const items = data.items || [];
+    if (typeof data.count === 'number') total = data.count;
+    for (const u of items) {
+      const nombre = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || `Usuario #${u.id}`;
+      mapa.set(u.id, nombre);
+    }
+    offset += items.length;
+    if (items.length < limit || (total != null && offset >= total)) break;
   }
   return mapa;
 }

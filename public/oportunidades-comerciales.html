@@ -591,12 +591,20 @@ async function cargarCotizaciones(){
   }
 }
 
+// Comparación "pareja": si hoy es 19 de agosto, el mes actual solo lleva
+// 19 días corridos -> comparar contra el mes pasado COMPLETO exagera la
+// variación (julio entero vs. 19 días de agosto). Se corta el mes anterior
+// en el mismo día del mes (19 de julio), no en su último día.
 function mesAnteriorRange(dateStr){
-  const [y,m] = dateStr.split('-').map(Number);
+  const [y,m,d] = dateStr.split('-').map(Number);
   const prevM = m === 1 ? 12 : m-1;
   const prevY = m === 1 ? y-1 : y;
   const desde = `${prevY}-${String(prevM).padStart(2,'0')}-01`;
-  return { desde, hasta: lastDayOfMonthStr(desde) };
+  const finMesPrev = lastDayOfMonthStr(desde);
+  const diaFinMesPrev = Number(finMesPrev.split('-')[2]);
+  const diaCorte = Math.min(d, diaFinMesPrev); // ej. si hoy es 31 y el mes pasado tiene 28/30 días
+  const hasta = `${prevY}-${String(prevM).padStart(2,'0')}-${String(diaCorte).padStart(2,'0')}`;
+  return { desde, hasta };
 }
 function calcularVariacionPct(actual, anterior){
   if(anterior === 0) return actual === 0 ? null : Infinity;
@@ -774,6 +782,7 @@ function renderTablaCotizaciones(){
   const cols = [
     { key:'clienteNombre', label:'Cliente' },
     { key:'clienteTelefono', label:'Teléfono' },
+    { key:'vendedorNombre', label:'Vendedor', render:c=>c.vendedorNombre || '<span class="empty-note">—</span>' },
     { key:'numero', label:'N° Cotización', render:c=>docLinkHtml(c.numero, c.urlCotizacion) },
     { key:'fecha', label:'Fecha' },
     { key:'monto', label:'Monto', align:'amount', render:c=>`<b>${fmtMoneda(c.monto)}</b>` },
