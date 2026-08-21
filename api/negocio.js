@@ -1052,6 +1052,15 @@ async function manejarIndexproOportunidades(req, res, sesion) {
     try {
       const sql = await getSql();
       await asegurarTablaIndexpro(sql);
+      // Se recuerda el RUT en indexpro_excluidos ANTES de borrar -> si no,
+      // la re-siembra de la próxima vez que corra asegurarTablaIndexpro
+      // (o sea, en el próximo request a esta misma página) lo vuelve a
+      // insertar apenas se borra, porque para esa siembra ya no hay
+      // conflicto de RUT.
+      const { rows } = await sql`SELECT rut FROM indexpro_oportunidades WHERE id = ${id};`;
+      if (rows[0]) {
+        await sql`INSERT INTO indexpro_excluidos (rut, excluido_por) VALUES (${rows[0].rut}, ${sesion.nombre || sesion.email}) ON CONFLICT (rut) DO NOTHING;`;
+      }
       await sql`DELETE FROM indexpro_oportunidades WHERE id = ${id};`;
       return res.status(200).json({ ok: true });
     } catch (err) {
