@@ -329,13 +329,16 @@ async function manejarReportes(req, res, sesion) {
     }
 
     if (req.method === 'POST') {
-      const { descripcion, pagina, tipo, skuCode, contexto } = req.body || {};
+      const { descripcion, pagina, tipo, skuCode, contexto, imagen } = req.body || {};
       if (!descripcion || !descripcion.trim()) return res.status(400).json({ error: 'Describe el error u observación, por favor.' });
       const tipoFinal = ['objecion', 'observacion'].includes(tipo) ? tipo : 'error';
+      // La imagen ya viene comprimida desde el navegador (ver reportar-error.html);
+      // igual se pone un tope acá por si acaso, para no reventar la fila/el correo.
+      const imagenFinal = (typeof imagen === 'string' && imagen.startsWith('data:image/') && imagen.length < 3_000_000) ? imagen : null;
 
       const { rows } = await sql`
-        INSERT INTO reportes_error (usuario_email, usuario_nombre, descripcion, pagina, tipo, sku_code, contexto)
-        VALUES (${sesion.email}, ${sesion.nombre || sesion.email}, ${descripcion.trim()}, ${pagina || null}, ${tipoFinal}, ${skuCode || null}, ${contexto ? JSON.stringify(contexto) : null})
+        INSERT INTO reportes_error (usuario_email, usuario_nombre, descripcion, pagina, tipo, sku_code, contexto, imagen)
+        VALUES (${sesion.email}, ${sesion.nombre || sesion.email}, ${descripcion.trim()}, ${pagina || null}, ${tipoFinal}, ${skuCode || null}, ${contexto ? JSON.stringify(contexto) : null}, ${imagenFinal})
         RETURNING *;
       `;
       const reporte = rows[0];
@@ -355,9 +358,10 @@ async function manejarReportes(req, res, sesion) {
           <b>Fecha:</b> ${new Date(reporte.created_at).toLocaleString('es-CL')}</p>
           <p><b>Descripción:</b><br>${(descripcion || '').replace(/\n/g, '<br>')}</p>
           ${contexto ? `<p><b>Datos que estaba viendo:</b><br><code>${JSON.stringify(contexto)}</code></p>` : ''}
+          ${imagenFinal ? `<p><b>Captura adjunta:</b><br><img src="${imagenFinal}" style="max-width:520px;border:1px solid #ddd;border-radius:8px;"></p>` : ''}
           <p><a href="${URL_REPORTES}">Ver en la página de reportes →</a></p>
         `,
-        texto: `Nuevo reporte #${reporte.id} (${etiquetaTipo}).\nResponsable: ${RESPONSABLE_REPORTES}\nUsuario: ${sesion.nombre || ''} (${sesion.email})\nPágina: ${pagina || 'No especificada'}\n${skuCode ? `SKU: ${skuCode}\n` : ''}Descripción: ${descripcion}${contexto ? `\nDatos: ${JSON.stringify(contexto)}` : ''}\n\nVer en la página de reportes: ${URL_REPORTES}`,
+        texto: `Nuevo reporte #${reporte.id} (${etiquetaTipo}).\nResponsable: ${RESPONSABLE_REPORTES}\nUsuario: ${sesion.nombre || ''} (${sesion.email})\nPágina: ${pagina || 'No especificada'}\n${skuCode ? `SKU: ${skuCode}\n` : ''}Descripción: ${descripcion}${contexto ? `\nDatos: ${JSON.stringify(contexto)}` : ''}${imagenFinal ? '\n(Tiene una captura adjunta — verla en la página de reportes)' : ''}\n\nVer en la página de reportes: ${URL_REPORTES}`,
       });
 
       return res.status(200).json({ reporte, correo: correoResultado });

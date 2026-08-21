@@ -74,6 +74,15 @@
   .detalle-fila:last-child{border-bottom:none;}
   .detalle-fila b{min-width:110px;color:var(--muted);font-weight:600;flex-shrink:0;}
   .modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:16px 22px;border-top:1px solid var(--line);}
+
+  .btn-secundario{background:var(--surface-2);color:var(--text);border:1.5px solid var(--line);}
+  .btn-secundario:hover{border-color:var(--primary);color:var(--primary);}
+  .zona-imagen{border:1.5px dashed var(--line);border-radius:9px;padding:12px;font-size:12px;color:var(--muted);}
+  .preview-imagen{position:relative;display:inline-block;margin-top:10px;}
+  .preview-imagen img{max-width:220px;max-height:150px;border-radius:8px;border:1px solid var(--line);display:block;}
+  .preview-imagen .btn-quitar{position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;background:var(--red);color:#fff;border:2px solid var(--surface);font-size:13px;line-height:1;padding:0;cursor:pointer;}
+  .thumb-tabla{max-width:48px;max-height:36px;border-radius:5px;border:1px solid var(--line);cursor:pointer;}
+  .modal-body img.imagen-detalle{max-width:100%;border-radius:9px;border:1px solid var(--line);margin-top:6px;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -137,6 +146,15 @@
       <label>¿Qué intentabas hacer y qué pasó?</label>
       <textarea id="fDescripcion" placeholder="Ej: Entré a Compras, elegí 90 días, y la tabla se quedó cargando sin mostrar nada."></textarea>
     </div>
+    <div class="campo">
+      <label>Captura o imagen (opcional)</label>
+      <div class="zona-imagen">
+        Puedes <button type="button" class="btn-secundario" style="padding:6px 12px;font-size:12px;" onclick="document.getElementById('fImagenInput').click()">📎 Subir imagen</button>
+        o pegar un recorte directo acá con <b>Ctrl+V</b>.
+        <input type="file" id="fImagenInput" accept="image/*" style="display:none;" onchange="onSeleccionarImagen(event)">
+        <div id="previewImagenWrap"></div>
+      </div>
+    </div>
     <button class="btn-primary" id="btnEnviar" onclick="enviarReporte()">Enviar reporte</button>
   </div>
 
@@ -188,6 +206,62 @@ async function cerrarSesion(){
   location.href = '/login.html';
 }
 
+let imagenAdjuntaDataUrl = null;
+
+function renderPreviewImagen(){
+  const wrap = $('previewImagenWrap');
+  wrap.innerHTML = imagenAdjuntaDataUrl
+    ? `<div class="preview-imagen"><img src="${imagenAdjuntaDataUrl}"><button type="button" class="btn-quitar" onclick="quitarImagen()">✕</button></div>`
+    : '';
+}
+function quitarImagen(){
+  imagenAdjuntaDataUrl = null;
+  $('fImagenInput').value = '';
+  renderPreviewImagen();
+}
+
+// Redimensiona/comprime en el navegador antes de guardarla como data URL --
+// una captura de pantalla sin comprimir puede pesar varios MB y no cabe
+// cómodamente ni en la fila de Postgres ni en el correo de aviso.
+function procesarArchivoImagen(file){
+  if(!file || !file.type || !file.type.startsWith('image/')) return;
+  const lector = new FileReader();
+  lector.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const maxLado = 1280;
+      let { width, height } = img;
+      if(width > maxLado || height > maxLado){
+        const escala = maxLado / Math.max(width, height);
+        width = Math.round(width * escala);
+        height = Math.round(height * escala);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      imagenAdjuntaDataUrl = canvas.toDataURL('image/jpeg', 0.72);
+      renderPreviewImagen();
+    };
+    img.src = lector.result;
+  };
+  lector.readAsDataURL(file);
+}
+function onSeleccionarImagen(event){
+  const file = event.target.files && event.target.files[0];
+  if(file) procesarArchivoImagen(file);
+}
+document.addEventListener('paste', (event) => {
+  const items = event.clipboardData && event.clipboardData.items;
+  if(!items) return;
+  for(const item of items){
+    if(item.type && item.type.startsWith('image/')){
+      procesarArchivoImagen(item.getAsFile());
+      event.preventDefault();
+      break;
+    }
+  }
+});
+
 async function enviarReporte(){
   const msg = $('mensajeForm');
   msg.innerHTML = '';
@@ -201,13 +275,14 @@ async function enviarReporte(){
   try{
     const res = await fetch('/api/negocio?recurso=reportes', {
       method: 'POST', headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ descripcion, pagina, tipo })
+      body: JSON.stringify({ descripcion, pagina, tipo, imagen: imagenAdjuntaDataUrl })
     });
     const data = await res.json();
     if(!res.ok){ msg.innerHTML = `<div class="msg err">${data.error}</div>`; return; }
     $('fDescripcion').value = '';
     $('fPagina').value = '';
     $('fTipo').value = 'error';
+    quitarImagen();
     if(data.correo && !data.correo.enviado){
       msg.innerHTML = `<div class="msg err">El reporte se guardó, pero el correo de aviso NO se pudo enviar: ${data.correo.motivo || 'motivo desconocido'}</div>`;
     } else {
@@ -245,7 +320,7 @@ async function cargarReportes(){
 
     $('wrapReportes').innerHTML = `
       <table>
-        <thead><tr><th>ID</th><th>Tipo</th>${rolActual==='admin'?'<th>Usuario</th>':''}<th>Responsable</th><th>Página</th><th>Descripción</th><th>Fecha</th><th>Estado</th>${rolActual==='admin'?'<th></th>':''}</tr></thead>
+        <thead><tr><th>ID</th><th>Tipo</th>${rolActual==='admin'?'<th>Usuario</th>':''}<th>Responsable</th><th>Página</th><th>Descripción</th><th>Img</th><th>Fecha</th><th>Estado</th>${rolActual==='admin'?'<th></th>':''}</tr></thead>
         <tbody>
           ${reportesActuales.map(r => `
             <tr class="fila-reporte" onclick="abrirDetalleReporte(${r.id})">
@@ -255,6 +330,7 @@ async function cargarReportes(){
               <td>${RESPONSABLE_FIJO}</td>
               <td>${r.pagina || '—'}${r.sku_code?`<br><span class="empty-note">SKU: ${r.sku_code}</span>`:''}</td>
               <td style="max-width:260px;">${r.descripcion}</td>
+              <td>${r.imagen?`<img src="${r.imagen}" class="thumb-tabla">`:'—'}</td>
               <td>${new Date(r.created_at).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</td>
               <td onclick="event.stopPropagation()">${rolActual==='admin'
                 ? `<select class="selectEstado" onchange="cambiarEstado(${r.id}, this.value)">
@@ -316,6 +392,7 @@ function abrirDetalleReporte(id){
     <div class="detalle-fila"><b>Fecha</b>${new Date(r.created_at).toLocaleString('es-CL')}</div>
     <div class="detalle-fila" style="flex-direction:column;"><b>Descripción</b><div style="margin-top:6px;white-space:pre-wrap;">${r.descripcion}</div></div>
     ${r.contexto?`<div class="detalle-fila" style="flex-direction:column;"><b>Datos que veía</b><pre style="white-space:pre-wrap;font-size:11px;background:var(--surface-2);padding:8px 10px;border-radius:8px;margin-top:6px;">${JSON.stringify(r.contexto, null, 2)}</pre></div>`:''}
+    ${r.imagen?`<div class="detalle-fila" style="flex-direction:column;"><b>Captura</b><img src="${r.imagen}" class="imagen-detalle"></div>`:''}
   `;
   $('modalFoot').innerHTML = rolActual==='admin' ? `
     <select class="selectEstado" onchange="cambiarEstado(${r.id}, this.value)">
