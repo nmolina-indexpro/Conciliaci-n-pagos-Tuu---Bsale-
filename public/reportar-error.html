@@ -119,12 +119,12 @@
     <h1 style="margin:0;">🐞 Reportar un error</h1>
     <img src="zoho-desk-logo.png" alt="Zoho Desk" title="Zoho Desk" style="height:48px;">
   </div>
-  <div class="sub">Cuéntanos qué pasó — le llega un aviso directo a soporte, y puedes ver acá abajo cómo va tu reporte.</div>
+  <div class="sub">Cuéntanos qué pasó — le llega un aviso directo a soporte, y puedes ver acá abajo cómo va tu ticket.</div>
 
   <div class="card">
     <div id="mensajeForm"></div>
     <div class="campo">
-      <label>Tipo de reporte</label>
+      <label>Tipo de ticket</label>
       <select id="fTipo">
         <option value="error">Error</option>
         <option value="observacion">Observación</option>
@@ -155,11 +155,11 @@
         <div id="previewImagenWrap"></div>
       </div>
     </div>
-    <button class="btn-primary" id="btnEnviar" onclick="enviarReporte()">Enviar reporte</button>
+    <button class="btn-primary" id="btnEnviar" onclick="enviarReporte()">Enviar ticket</button>
   </div>
 
   <div class="card">
-    <h1 style="font-size:15px;margin-bottom:4px;">Mis reportes</h1>
+    <h1 style="font-size:15px;margin-bottom:4px;">Mis tickets</h1>
     <div class="sub" style="margin-bottom:14px;" id="subReportes">Cargando...</div>
     <div id="wrapReportes"><p class="empty-note">Cargando...</p></div>
   </div>
@@ -169,7 +169,7 @@
 <div class="modal-backdrop" id="modalDetalle" onclick="if(event.target===this) cerrarModal()">
   <div class="modal-box">
     <div class="modal-head">
-      <h2 id="modalTitulo">Reporte</h2>
+      <h2 id="modalTitulo">Ticket</h2>
       <button class="modal-cerrar" onclick="cerrarModal()">✕</button>
     </div>
     <div class="modal-body" id="modalBody"></div>
@@ -197,7 +197,7 @@ async function cargarSesionUsuario(){
     // Nota: aquí NO se aplican las restricciones de copia/descarga -- esta
     // página de soporte no tiene información de negocio que proteger, y el
     // usuario necesita poder escribir y enviar su reporte con normalidad.
-    $('subReportes').textContent = u.rol === 'admin' ? 'Viendo los reportes de todos los usuarios.' : 'Viendo solo tus reportes.';
+    $('subReportes').textContent = u.rol === 'admin' ? 'Viendo los tickets de todos los usuarios.' : 'Viendo solo tus tickets.';
     cargarReportes();
   }catch(err){ /* silencioso */ }
 }
@@ -284,9 +284,9 @@ async function enviarReporte(){
     $('fTipo').value = 'error';
     quitarImagen();
     if(data.correo && !data.correo.enviado){
-      msg.innerHTML = `<div class="msg err">El reporte se guardó, pero el correo de aviso NO se pudo enviar: ${data.correo.motivo || 'motivo desconocido'}</div>`;
+      msg.innerHTML = `<div class="msg err">El ticket se guardó, pero el correo de aviso NO se pudo enviar: ${data.correo.motivo || 'motivo desconocido'}</div>`;
     } else {
-      msg.innerHTML = `<div class="msg ok">Reporte enviado. Gracias — lo puedes ver en la lista de abajo.</div>`;
+      msg.innerHTML = `<div class="msg ok">Ticket enviado. Gracias — lo puedes ver en la lista de abajo.</div>`;
     }
     cargarReportes();
   }catch(err){
@@ -316,7 +316,7 @@ async function cargarReportes(){
     const data = await res.json();
     if(!res.ok){ $('wrapReportes').innerHTML = `<p class="empty-note">${data.error}</p>`; return; }
     reportesActuales = data.reportes || [];
-    if(reportesActuales.length === 0){ $('wrapReportes').innerHTML = `<p class="empty-note">Sin reportes todavía.</p>`; return; }
+    if(reportesActuales.length === 0){ $('wrapReportes').innerHTML = `<p class="empty-note">Sin tickets todavía.</p>`; return; }
 
     $('wrapReportes').innerHTML = `
       <table>
@@ -364,7 +364,7 @@ async function cambiarEstado(id, estado){
 }
 
 async function eliminarReporte(id){
-  if(!confirm(`¿Eliminar el reporte #${id}? Esta acción no se puede deshacer.`)) return;
+  if(!confirm(`¿Eliminar el ticket #${id}? Esta acción no se puede deshacer.`)) return;
   try{
     const res = await fetch('/api/negocio?recurso=reportes', {
       method: 'DELETE', headers: { 'Content-Type':'application/json' },
@@ -381,7 +381,7 @@ async function eliminarReporte(id){
 function abrirDetalleReporte(id){
   const r = reportesActuales.find(x => x.id === id);
   if(!r) return;
-  $('modalTitulo').textContent = `Reporte #${r.id}`;
+  $('modalTitulo').textContent = `Ticket #${r.id}`;
   $('modalBody').innerHTML = `
     <div class="detalle-fila"><b>Tipo</b>${badgeTipo(r.tipo)}</div>
     <div class="detalle-fila"><b>Estado</b>${badgeEstado(r.estado)}</div>

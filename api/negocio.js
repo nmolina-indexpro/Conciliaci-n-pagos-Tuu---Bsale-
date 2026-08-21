@@ -346,9 +346,9 @@ async function manejarReportes(req, res, sesion) {
       const etiquetaTipo = tipoFinal === 'objecion' ? 'Objeción' : (tipoFinal === 'observacion' ? 'Observación' : 'Error');
       const correoResultado = await enviarCorreo({
         para: CORREO_ALERTA,
-        asunto: `Nuevo reporte #${reporte.id} (${etiquetaTipo}) — ${sesion.nombre || sesion.email}${skuCode ? ' — SKU ' + skuCode : ''}`,
+        asunto: `Nuevo ticket #${reporte.id} (${etiquetaTipo}) — ${sesion.nombre || sesion.email}${skuCode ? ' — SKU ' + skuCode : ''}`,
         html: `
-          <p>Se registró un nuevo reporte en el panel IndexStore.</p>
+          <p>Se registró un nuevo ticket en el panel IndexStore.</p>
           <p><b>ID:</b> #${reporte.id}<br>
           <b>Tipo:</b> ${etiquetaTipo}<br>
           <b>Responsable:</b> ${RESPONSABLE_REPORTES}<br>
@@ -359,16 +359,16 @@ async function manejarReportes(req, res, sesion) {
           <p><b>Descripción:</b><br>${(descripcion || '').replace(/\n/g, '<br>')}</p>
           ${contexto ? `<p><b>Datos que estaba viendo:</b><br><code>${JSON.stringify(contexto)}</code></p>` : ''}
           ${imagenFinal ? `<p><b>Captura adjunta:</b><br><img src="${imagenFinal}" style="max-width:520px;border:1px solid #ddd;border-radius:8px;"></p>` : ''}
-          <p><a href="${URL_REPORTES}">Ver en la página de reportes →</a></p>
+          <p><a href="${URL_REPORTES}">Ver en la página de tickets →</a></p>
         `,
-        texto: `Nuevo reporte #${reporte.id} (${etiquetaTipo}).\nResponsable: ${RESPONSABLE_REPORTES}\nUsuario: ${sesion.nombre || ''} (${sesion.email})\nPágina: ${pagina || 'No especificada'}\n${skuCode ? `SKU: ${skuCode}\n` : ''}Descripción: ${descripcion}${contexto ? `\nDatos: ${JSON.stringify(contexto)}` : ''}${imagenFinal ? '\n(Tiene una captura adjunta — verla en la página de reportes)' : ''}\n\nVer en la página de reportes: ${URL_REPORTES}`,
+        texto: `Nuevo ticket #${reporte.id} (${etiquetaTipo}).\nResponsable: ${RESPONSABLE_REPORTES}\nUsuario: ${sesion.nombre || ''} (${sesion.email})\nPágina: ${pagina || 'No especificada'}\n${skuCode ? `SKU: ${skuCode}\n` : ''}Descripción: ${descripcion}${contexto ? `\nDatos: ${JSON.stringify(contexto)}` : ''}${imagenFinal ? '\n(Tiene una captura adjunta — verla en la página de tickets)' : ''}\n\nVer en la página de tickets: ${URL_REPORTES}`,
       });
 
       return res.status(200).json({ reporte, correo: correoResultado });
     }
 
     if (req.method === 'PUT') {
-      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede cambiar el estado de un reporte' });
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede cambiar el estado de un ticket' });
       const { id, estado } = req.body || {};
       if (!id || !estado) return res.status(400).json({ error: 'Falta id o estado' });
       if (!ESTADOS_VALIDOS.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
@@ -382,7 +382,7 @@ async function manejarReportes(req, res, sesion) {
     }
 
     if (req.method === 'DELETE') {
-      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede eliminar un reporte' });
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede eliminar un ticket' });
       const { id } = req.body || {};
       if (!id) return res.status(400).json({ error: 'Falta id' });
       await sql`DELETE FROM reportes_error WHERE id = ${id};`;
@@ -391,7 +391,7 @@ async function manejarReportes(req, res, sesion) {
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
-    return res.status(500).json({ error: 'Error en reportes de error', detail: String(err) });
+    return res.status(500).json({ error: 'Error en tickets', detail: String(err) });
   }
 }
 

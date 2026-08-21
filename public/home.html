@@ -199,7 +199,7 @@
 
     <div class="seccion">
       <div class="seccion-head">
-        <div><h2>🐞 Soporte</h2><div class="sub" id="subSoporte">Reportes de error y objeciones.</div></div>
+        <div><h2>🐞 Soporte</h2><div class="sub" id="subSoporte">Tickets de error y objeciones.</div></div>
         <a href="reportar-error.html">Ver todo →</a>
       </div>
       <div id="wrapSoporte"><p class="empty-note">Cargando...</p></div>
@@ -373,9 +373,9 @@ function renderSoporte(reportes){
   const pendientes = reportes.filter(r=>r.estado!=='resuelto');
   $('subSoporte').textContent = rolActual==='admin'
     ? `${pendientes.length} sin resolver de ${reportes.length} en total.`
-    : `Tienes ${pendientes.length} reporte(s) sin resolver.`;
+    : `Tienes ${pendientes.length} ticket(s) sin resolver.`;
 
-  if(reportes.length===0){ $('wrapSoporte').innerHTML = `<p class="empty-note">Sin reportes registrados.</p>`; return; }
+  if(reportes.length===0){ $('wrapSoporte').innerHTML = `<p class="empty-note">Sin tickets registrados.</p>`; return; }
   const lista = reportes.slice(0,5);
   $('wrapSoporte').innerHTML = `
     <table>
