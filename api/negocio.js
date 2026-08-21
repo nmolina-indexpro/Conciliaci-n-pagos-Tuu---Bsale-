@@ -15,6 +15,8 @@ import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
 const ESTADOS_VALIDOS = ['pendiente', 'en progreso', 'resuelto'];
+const RESPONSABLE_REPORTES = 'Nicolás Molina'; // fijo por ahora, ver reportar-error.html
+const URL_REPORTES = 'https://conciliaci-n-pagos-tuu-bsale.vercel.app/reportar-error.html';
 const ZOHO_TIMEOUT_MS = 20000;
 
 export default async function handler(req, res) {
@@ -328,8 +330,8 @@ async function manejarReportes(req, res, sesion) {
 
     if (req.method === 'POST') {
       const { descripcion, pagina, tipo, skuCode, contexto } = req.body || {};
-      if (!descripcion || !descripcion.trim()) return res.status(400).json({ error: 'Describe el error u objeción, por favor.' });
-      const tipoFinal = tipo === 'objecion' ? 'objecion' : 'error';
+      if (!descripcion || !descripcion.trim()) return res.status(400).json({ error: 'Describe el error u observación, por favor.' });
+      const tipoFinal = ['objecion', 'observacion'].includes(tipo) ? tipo : 'error';
 
       const { rows } = await sql`
         INSERT INTO reportes_error (usuario_email, usuario_nombre, descripcion, pagina, tipo, sku_code, contexto)
@@ -338,22 +340,24 @@ async function manejarReportes(req, res, sesion) {
       `;
       const reporte = rows[0];
 
-      const esObjecion = tipoFinal === 'objecion';
+      const etiquetaTipo = tipoFinal === 'objecion' ? 'Objeción' : (tipoFinal === 'observacion' ? 'Observación' : 'Error');
       const correoResultado = await enviarCorreo({
         para: CORREO_ALERTA,
-        asunto: esObjecion
-          ? `Nueva objeción a un resultado — ${sesion.nombre || sesion.email}${skuCode ? ' — SKU ' + skuCode : ''}`
-          : `Nuevo reporte de error — ${sesion.nombre || sesion.email}`,
+        asunto: `Nuevo reporte #${reporte.id} (${etiquetaTipo}) — ${sesion.nombre || sesion.email}${skuCode ? ' — SKU ' + skuCode : ''}`,
         html: `
-          <p>${esObjecion ? 'Se objetó un resultado' : 'Se reportó un error'} en el panel IndexStore.</p>
-          <p><b>Usuario:</b> ${sesion.nombre || ''} (${sesion.email})<br>
+          <p>Se registró un nuevo reporte en el panel IndexStore.</p>
+          <p><b>ID:</b> #${reporte.id}<br>
+          <b>Tipo:</b> ${etiquetaTipo}<br>
+          <b>Responsable:</b> ${RESPONSABLE_REPORTES}<br>
+          <b>Usuario:</b> ${sesion.nombre || ''} (${sesion.email})<br>
           <b>Página:</b> ${pagina || 'No especificada'}<br>
           ${skuCode ? `<b>SKU:</b> ${skuCode}<br>` : ''}
           <b>Fecha:</b> ${new Date(reporte.created_at).toLocaleString('es-CL')}</p>
           <p><b>Descripción:</b><br>${(descripcion || '').replace(/\n/g, '<br>')}</p>
           ${contexto ? `<p><b>Datos que estaba viendo:</b><br><code>${JSON.stringify(contexto)}</code></p>` : ''}
+          <p><a href="${URL_REPORTES}">Ver en la página de reportes →</a></p>
         `,
-        texto: `${esObjecion ? 'Nueva objeción' : 'Nuevo reporte de error'}.\nUsuario: ${sesion.nombre || ''} (${sesion.email})\nPágina: ${pagina || 'No especificada'}\n${skuCode ? `SKU: ${skuCode}\n` : ''}Descripción: ${descripcion}${contexto ? `\nDatos: ${JSON.stringify(contexto)}` : ''}`,
+        texto: `Nuevo reporte #${reporte.id} (${etiquetaTipo}).\nResponsable: ${RESPONSABLE_REPORTES}\nUsuario: ${sesion.nombre || ''} (${sesion.email})\nPágina: ${pagina || 'No especificada'}\n${skuCode ? `SKU: ${skuCode}\n` : ''}Descripción: ${descripcion}${contexto ? `\nDatos: ${JSON.stringify(contexto)}` : ''}\n\nVer en la página de reportes: ${URL_REPORTES}`,
       });
 
       return res.status(200).json({ reporte, correo: correoResultado });
@@ -371,6 +375,14 @@ async function manejarReportes(req, res, sesion) {
         RETURNING *;
       `;
       return res.status(200).json({ reporte: rows[0] });
+    }
+
+    if (req.method === 'DELETE') {
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede eliminar un reporte' });
+      const { id } = req.body || {};
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      await sql`DELETE FROM reportes_error WHERE id = ${id};`;
+      return res.status(200).json({ ok: true });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

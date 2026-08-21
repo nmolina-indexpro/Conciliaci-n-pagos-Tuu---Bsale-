@@ -55,8 +55,25 @@
   .badge.pendiente{background:var(--amber-dim);color:var(--amber);}
   .badge.en-progreso{background:#DBEAFE;color:#1D4ED8;}
   .badge.resuelto{background:var(--green-bg);color:var(--green);}
+  .badge.observacion{background:#EDE9FE;color:#6D28D9;}
   .empty-note{color:var(--muted);font-size:12.5px;padding:14px 0;}
   select.selectEstado{font-size:11px;padding:5px 8px;}
+  tr.fila-reporte{cursor:pointer;}
+  tr.fila-reporte:hover{background:var(--surface-2);}
+  .btn-eliminar{background:none;border:1px solid var(--line);border-radius:7px;padding:4px 9px;font-size:11px;color:var(--red);cursor:pointer;font-family:'Space Grotesk',sans-serif;font-weight:600;}
+  .btn-eliminar:hover{background:var(--red-bg);border-color:var(--red);}
+
+  .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:20px;}
+  .modal-backdrop.abierto{display:flex;}
+  .modal-box{background:var(--surface);border-radius:14px;max-width:560px;width:100%;max-height:86vh;overflow-y:auto;box-shadow:0 8px 30px rgba(31,42,36,.25);}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line);}
+  .modal-head h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0;}
+  .modal-cerrar{background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer;line-height:1;}
+  .modal-body{padding:18px 22px;}
+  .detalle-fila{display:flex;gap:8px;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line);}
+  .detalle-fila:last-child{border-bottom:none;}
+  .detalle-fila b{min-width:110px;color:var(--muted);font-weight:600;flex-shrink:0;}
+  .modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:16px 22px;border-top:1px solid var(--line);}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -98,6 +115,13 @@
   <div class="card">
     <div id="mensajeForm"></div>
     <div class="campo">
+      <label>Tipo de reporte</label>
+      <select id="fTipo">
+        <option value="error">Error</option>
+        <option value="observacion">Observación</option>
+      </select>
+    </div>
+    <div class="campo">
       <label>¿En qué página pasó?</label>
       <select id="fPagina">
         <option value="">No estoy seguro / no aplica</option>
@@ -122,6 +146,17 @@
     <div id="wrapReportes"><p class="empty-note">Cargando...</p></div>
   </div>
 
+</div>
+
+<div class="modal-backdrop" id="modalDetalle" onclick="if(event.target===this) cerrarModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2 id="modalTitulo">Reporte</h2>
+      <button class="modal-cerrar" onclick="cerrarModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot" id="modalFoot"></div>
+  </div>
 </div>
 
 <script src="restriccion-usuario.js"></script>
@@ -158,6 +193,7 @@ async function enviarReporte(){
   msg.innerHTML = '';
   const descripcion = $('fDescripcion').value.trim();
   const pagina = $('fPagina').value;
+  const tipo = $('fTipo').value;
   if(!descripcion){ msg.innerHTML = `<div class="msg err">Cuéntanos qué pasó antes de enviar.</div>`; return; }
 
   $('btnEnviar').disabled = true;
@@ -165,12 +201,13 @@ async function enviarReporte(){
   try{
     const res = await fetch('/api/negocio?recurso=reportes', {
       method: 'POST', headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ descripcion, pagina })
+      body: JSON.stringify({ descripcion, pagina, tipo })
     });
     const data = await res.json();
     if(!res.ok){ msg.innerHTML = `<div class="msg err">${data.error}</div>`; return; }
     $('fDescripcion').value = '';
     $('fPagina').value = '';
+    $('fTipo').value = 'error';
     if(data.correo && !data.correo.enviado){
       msg.innerHTML = `<div class="msg err">El reporte se guardó, pero el correo de aviso NO se pudo enviar: ${data.correo.motivo || 'motivo desconocido'}</div>`;
     } else {
@@ -185,9 +222,17 @@ async function enviarReporte(){
   }
 }
 
+const RESPONSABLE_FIJO = 'Nicolás Molina';
+let reportesActuales = [];
+
 function badgeEstado(estado){
   const clase = estado.replace(' ', '-');
   return `<span class="badge ${clase}">${estado}</span>`;
+}
+function badgeTipo(tipo){
+  if(tipo === 'objecion') return '<span class="badge en-progreso">Objeción</span>';
+  if(tipo === 'observacion') return '<span class="badge observacion">Observación</span>';
+  return '<span class="badge pendiente">Error</span>';
 }
 
 async function cargarReportes(){
@@ -195,27 +240,30 @@ async function cargarReportes(){
     const res = await fetch('/api/negocio?recurso=reportes');
     const data = await res.json();
     if(!res.ok){ $('wrapReportes').innerHTML = `<p class="empty-note">${data.error}</p>`; return; }
-    const reportes = data.reportes || [];
-    if(reportes.length === 0){ $('wrapReportes').innerHTML = `<p class="empty-note">Sin reportes todavía.</p>`; return; }
+    reportesActuales = data.reportes || [];
+    if(reportesActuales.length === 0){ $('wrapReportes').innerHTML = `<p class="empty-note">Sin reportes todavía.</p>`; return; }
 
     $('wrapReportes').innerHTML = `
       <table>
-        <thead><tr><th>Tipo</th>${rolActual==='admin'?'<th>Usuario</th>':''}<th>Página / SKU</th><th>Descripción</th><th>Fecha</th><th>Estado</th></tr></thead>
+        <thead><tr><th>ID</th><th>Tipo</th>${rolActual==='admin'?'<th>Usuario</th>':''}<th>Responsable</th><th>Página</th><th>Descripción</th><th>Fecha</th><th>Estado</th>${rolActual==='admin'?'<th></th>':''}</tr></thead>
         <tbody>
-          ${reportes.map(r => `
-            <tr>
-              <td>${r.tipo==='objecion'?'<span class="badge en-progreso">Objeción</span>':'<span class="badge pendiente">Error</span>'}</td>
+          ${reportesActuales.map(r => `
+            <tr class="fila-reporte" onclick="abrirDetalleReporte(${r.id})">
+              <td>#${r.id}</td>
+              <td>${badgeTipo(r.tipo)}</td>
               ${rolActual==='admin'?`<td>${r.usuario_nombre || r.usuario_email}</td>`:''}
+              <td>${RESPONSABLE_FIJO}</td>
               <td>${r.pagina || '—'}${r.sku_code?`<br><span class="empty-note">SKU: ${r.sku_code}</span>`:''}</td>
-              <td style="max-width:280px;">${r.descripcion}${r.contexto?`<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--primary);font-size:11px;">Ver datos que veía</summary><pre style="white-space:pre-wrap;font-size:10.5px;background:var(--surface-2);padding:6px 8px;border-radius:6px;margin-top:4px;">${JSON.stringify(r.contexto, null, 2)}</pre></details>`:''}</td>
+              <td style="max-width:260px;">${r.descripcion}</td>
               <td>${new Date(r.created_at).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</td>
-              <td>${rolActual==='admin'
+              <td onclick="event.stopPropagation()">${rolActual==='admin'
                 ? `<select class="selectEstado" onchange="cambiarEstado(${r.id}, this.value)">
                      <option value="pendiente" ${r.estado==='pendiente'?'selected':''}>Pendiente</option>
                      <option value="en progreso" ${r.estado==='en progreso'?'selected':''}>En progreso</option>
                      <option value="resuelto" ${r.estado==='resuelto'?'selected':''}>Resuelto</option>
                    </select>`
                 : badgeEstado(r.estado)}</td>
+              ${rolActual==='admin'?`<td onclick="event.stopPropagation()"><button class="btn-eliminar" onclick="eliminarReporte(${r.id})">Eliminar</button></td>`:''}
             </tr>`).join('')}
         </tbody>
       </table>`;
@@ -230,12 +278,56 @@ async function cambiarEstado(id, estado){
       method: 'PUT', headers: { 'Content-Type':'application/json' },
       body: JSON.stringify({ id, estado })
     });
-    if(!res.ok){ const data = await res.json(); alert(data.error); cargarReportes(); }
+    if(!res.ok){ const data = await res.json(); alert(data.error); }
+    cerrarModal();
+    cargarReportes();
   }catch(err){
     alert('Error: ' + err.message);
     cargarReportes();
   }
 }
+
+async function eliminarReporte(id){
+  if(!confirm(`¿Eliminar el reporte #${id}? Esta acción no se puede deshacer.`)) return;
+  try{
+    const res = await fetch('/api/negocio?recurso=reportes', {
+      method: 'DELETE', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ id })
+    });
+    if(!res.ok){ const data = await res.json(); alert(data.error); }
+    cerrarModal();
+    cargarReportes();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+function abrirDetalleReporte(id){
+  const r = reportesActuales.find(x => x.id === id);
+  if(!r) return;
+  $('modalTitulo').textContent = `Reporte #${r.id}`;
+  $('modalBody').innerHTML = `
+    <div class="detalle-fila"><b>Tipo</b>${badgeTipo(r.tipo)}</div>
+    <div class="detalle-fila"><b>Estado</b>${badgeEstado(r.estado)}</div>
+    <div class="detalle-fila"><b>Responsable</b>${RESPONSABLE_FIJO}</div>
+    <div class="detalle-fila"><b>Usuario</b>${r.usuario_nombre || ''} (${r.usuario_email})</div>
+    <div class="detalle-fila"><b>Página</b>${r.pagina || '—'}</div>
+    ${r.sku_code?`<div class="detalle-fila"><b>SKU</b>${r.sku_code}</div>`:''}
+    <div class="detalle-fila"><b>Fecha</b>${new Date(r.created_at).toLocaleString('es-CL')}</div>
+    <div class="detalle-fila" style="flex-direction:column;"><b>Descripción</b><div style="margin-top:6px;white-space:pre-wrap;">${r.descripcion}</div></div>
+    ${r.contexto?`<div class="detalle-fila" style="flex-direction:column;"><b>Datos que veía</b><pre style="white-space:pre-wrap;font-size:11px;background:var(--surface-2);padding:8px 10px;border-radius:8px;margin-top:6px;">${JSON.stringify(r.contexto, null, 2)}</pre></div>`:''}
+  `;
+  $('modalFoot').innerHTML = rolActual==='admin' ? `
+    <select class="selectEstado" onchange="cambiarEstado(${r.id}, this.value)">
+      <option value="pendiente" ${r.estado==='pendiente'?'selected':''}>Pendiente</option>
+      <option value="en progreso" ${r.estado==='en progreso'?'selected':''}>En progreso</option>
+      <option value="resuelto" ${r.estado==='resuelto'?'selected':''}>Resuelto</option>
+    </select>
+    <button class="btn-eliminar" onclick="eliminarReporte(${r.id})">Eliminar</button>
+  ` : '';
+  $('modalDetalle').classList.add('abierto');
+}
+function cerrarModal(){ $('modalDetalle').classList.remove('abierto'); }
 
 cargarSesionUsuario();
 </script>
