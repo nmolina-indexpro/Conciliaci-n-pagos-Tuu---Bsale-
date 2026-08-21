@@ -1077,6 +1077,7 @@ function renderTablaIndexpro(){
 
   const cols = [
     { key:'clienteNombre', label:'Cliente', render:o=>o.encontradoEnBsale ? o.clienteNombre : `${o.clienteNombre} <span class="empty-note">(no encontrado en Bsale)</span>` },
+    { key:'empresaOriginal', label:'Nombre empresa' },
     { key:'giro', label:'Giro' },
     { key:'numCompras', label:'N° compras', align:'amount', render:o=>o.numCompras ?? '—' },
     { key:'montoTotal', label:'Monto total comprado', align:'amount', render:o=>o.montoTotal!=null ? `<b>${fmtMoneda(o.montoTotal)}</b>` : '—' },
@@ -1085,10 +1086,13 @@ function renderTablaIndexpro(){
     { key:'score', label:'Score', align:'amount', render:o=>`<b>${Math.round(o.score*100)}</b>` },
     { key:'rut', label:'Documento asociado (RUT)' },
     { key:'clienteNombre', label:'', render:o=>{
+        const dominio = dominioSitioWeb(o.email);
+        const web = dominio ? `<a class="btn-icono" href="https://${dominio}" title="Sitio web: ${dominio}" target="_blank" rel="noopener">🌐</a>` : `<span class="btn-icono deshabilitado" title="Sin dominio propio">🌐</span>`;
         const mailto = o.email ? `<a class="btn-icono" href="mailto:${o.email}" title="Correo: ${o.email}" target="_blank" rel="noopener">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`;
         const wa = o.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(o.telefono).replace('+','')}" title="WhatsApp: ${o.telefono}" target="_blank" rel="noopener">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`;
         const historial = o.encontradoEnBsale ? `<button class="btn-icono" title="Ver facturas y total histórico" onclick="abrirModalHistorial(${o.id}, '${(o.clienteNombre||'').replace(/'/g,"\\'")}')">💰</button>` : `<span class="btn-icono deshabilitado" title="Sin cliente Bsale vinculado">💰</span>`;
-        return `<div class="acciones-icono">${mailto}${wa}${historial}</div>`;
+        const eliminar = esAdmin ? `<button class="btn-icono" title="Eliminar de la lista" onclick="eliminarOportunidadIndexpro(${o.id})">🗑️</button>` : '';
+        return `<div class="acciones-icono">${web}${mailto}${wa}${historial}${eliminar}</div>`;
       } },
     { key:'estado', label:'Estado', render:o=>`<select class="estado-select" onchange="cambiarEstadoIndexpro(${o.id}, this.value)">
         ${Object.entries(ESTADOS_INDEXPRO_LABEL).map(([valor,label])=>`<option value="${valor}" ${o.estado===valor?'selected':''}>${label}</option>`).join('')}
@@ -1130,6 +1134,31 @@ async function cambiarEstadoIndexpro(id, estado){
     if(op) op.estado = estadoAnterior;
     alert('Error: ' + err.message);
     renderTablaIndexpro();
+  }
+}
+
+// Dominios de correo genéricos (no son el sitio propio de la empresa) ->
+// para esos no se ofrece el ícono 🌐, sería un link engañoso.
+const DOMINIOS_CORREO_GENERICOS = new Set(['gmail.com','hotmail.com','outlook.com','yahoo.com','live.com','icloud.com','hotmail.es','yahoo.es','msn.com','me.com','protonmail.com']);
+function dominioSitioWeb(email){
+  if(!email || !email.includes('@')) return null;
+  const dominio = email.split('@')[1]?.trim().toLowerCase();
+  if(!dominio || DOMINIOS_CORREO_GENERICOS.has(dominio)) return null;
+  return dominio;
+}
+
+async function eliminarOportunidadIndexpro(id){
+  const op = oportunidadesIndexpro.find(o => o.id === id);
+  if(!confirm(`¿Eliminar "${op ? op.clienteNombre : 'este cliente'}" de la lista de oportunidades Indexpro?`)) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=indexpro-oportunidades&id=${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error || 'No se pudo eliminar.'); return; }
+    oportunidadesIndexpro = oportunidadesIndexpro.filter(o => o.id !== id);
+    renderKpisIndexpro();
+    renderTablaIndexpro();
+  }catch(err){
+    alert('Error: ' + err.message);
   }
 }
 

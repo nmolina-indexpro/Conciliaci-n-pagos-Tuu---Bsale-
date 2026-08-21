@@ -1042,6 +1042,19 @@ async function manejarZohoTickets(req, res, sesion) {
 const ESTADOS_INDEXPRO = ['sin_contactar', 'contactado', 'cotizado', 'ganado', 'perdido'];
 
 async function manejarIndexproOportunidades(req, res, sesion) {
+  if (req.method === 'DELETE') {
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede eliminar oportunidades' });
+    const { id } = req.query;
+    if (!id) return res.status(400).json({ error: 'Falta el id' });
+    try {
+      const sql = await getSql();
+      await asegurarTablaIndexpro(sql);
+      await sql`DELETE FROM indexpro_oportunidades WHERE id = ${id};`;
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      return res.status(500).json({ error: 'Error eliminando la oportunidad', detail: String(err) });
+    }
+  }
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
     const sql = await getSql();
