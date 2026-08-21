@@ -39,7 +39,8 @@ export default async function handler(req, res) {
   if (recurso === 'sync-indexpro') return manejarSyncIndexpro(req, res, sesion);
   if (recurso === 'indexpro-estado') return manejarIndexproEstado(req, res, sesion);
   if (recurso === 'indexpro-historial') return manejarIndexproHistorial(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones, ?recurso=cotizacion-estado, ?recurso=calendario-pagos, ?recurso=calendario-pagos-importar, ?recurso=saldo-bci, ?recurso=indexpro-oportunidades, ?recurso=sync-indexpro, ?recurso=indexpro-estado o ?recurso=indexpro-historial' });
+  if (recurso === 'indexpro-enviar-presentacion') return manejarIndexproEnviarPresentacion(req, res, sesion);
+  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones, ?recurso=cotizacion-estado, ?recurso=calendario-pagos, ?recurso=calendario-pagos-importar, ?recurso=saldo-bci, ?recurso=indexpro-oportunidades, ?recurso=sync-indexpro, ?recurso=indexpro-estado, ?recurso=indexpro-historial o ?recurso=indexpro-enviar-presentacion' });
 }
 
 // ---------------- Facturas de compra (ingresadas a mano) ----------------
@@ -1082,6 +1083,7 @@ async function manejarIndexproOportunidades(req, res, sesion) {
       estado: r.estado,
       actualizadoPor: r.actualizado_por,
       sincronizadoEn: r.sincronizado_en,
+      presentacionEnviadaEn: r.presentacion_enviada_en,
     }));
 
     return res.status(200).json({
@@ -1282,5 +1284,74 @@ async function manejarIndexproHistorial(req, res, sesion) {
     return res.status(200).json({ clienteNombre: fila.cliente_nombre, documentos });
   } catch (err) {
     return res.status(200).json({ error: 'Error consultando el historial en Bsale', detail: String(err), documentos: [] });
+  }
+}
+
+// Correo de primer contacto / presentación comercial NAS QNAP. Mismo
+// argumento de venta que docs/capacitacion-venta-nas.md del proyecto
+// indexpro.cl (gancho del gasto mensual en la nube, complementa Google
+// Workspace, control + continuidad, administrado por nosotros). Sin
+// precios de kits: esos se dan en la llamada de diagnóstico, no en el
+// primer correo (así lo indica la misma guía de ventas), y así este
+// texto no se desactualiza si cambian los precios allá.
+function construirCorreoPresentacionNas(nombreCliente) {
+  const nombre = nombreCliente || 'estimado/a';
+  const texto = `Hola ${nombre},
+
+¿Sabes cuánto están pagando hoy en Google Drive o OneDrive al mes por espacio de almacenamiento? Muchas empresas de su rubro se están ahorrando esa mensualidad con un servidor propio (NAS) que se paga una sola vez.
+
+Es una alternativa simple:
+- No reemplaza Google Workspace, lo complementa: siguen usando correo y colaboración en Google: el NAS se hace cargo de los archivos pesados.
+- Sus archivos quedan en su oficina, accesibles aunque falle internet.
+- Nosotros lo administramos — no necesitan contratar a alguien de TI para eso.
+
+Si les hace sentido, la idea no es venderles nada en este correo, sino agendar un diagnóstico gratuito de 15 minutos para ver el volumen real de archivos y qué opción les conviene.
+
+Más detalles acá: https://www.indexpro.cl/tu-nube-privada/
+
+Quedo atento/a — basta con responder este correo.
+
+Equipo IndexPro`;
+
+  const html = texto
+    .split('\n\n')
+    .map(p => `<p style="margin:0 0 14px;">${p.replace(/\n/g, '<br>').replace(/(https?:\/\/\S+)/g, '<a href="$1">$1</a>')}</p>`)
+    .join('');
+
+  return {
+    asunto: '¿Sabes cuánto pagas al mes por almacenamiento en la nube?',
+    texto,
+    html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1F2A24;">${html}</div>`,
+  };
+}
+
+async function manejarIndexproEnviarPresentacion(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { id } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'Falta el id' });
+
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexpro(sql);
+    const { rows } = await sql`SELECT email, cliente_nombre, empresa_original, estado FROM indexpro_oportunidades WHERE id = ${id};`;
+    const fila = rows[0];
+    if (!fila) return res.status(404).json({ error: 'No encontrado' });
+    if (!fila.email) return res.status(400).json({ error: 'Este cliente no tiene correo registrado' });
+
+    const nombre = fila.cliente_nombre || fila.empresa_original;
+    const correo = construirCorreoPresentacionNas(nombre);
+    const resultado = await enviarCorreo({ para: fila.email, ...correo });
+    if (!resultado.enviado) return res.status(200).json({ error: 'No se pudo enviar el correo', detail: resultado.motivo });
+
+    const nuevoEstado = fila.estado === 'sin_contactar' ? 'contactado' : fila.estado;
+    await sql`
+      UPDATE indexpro_oportunidades SET
+        presentacion_enviada_en = now(), estado = ${nuevoEstado},
+        actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now()
+      WHERE id = ${id};`;
+
+    return res.status(200).json({ ok: true, estado: nuevoEstado });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error enviando el correo', detail: String(err) });
   }
 }

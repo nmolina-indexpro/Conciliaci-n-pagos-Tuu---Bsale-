@@ -396,8 +396,13 @@ const ESTADOS_COTIZACION_LABEL = {
 
 let oportunidadesIndexpro = [];
 let indexproCargado = false;
-let sortColIndexpro = 'score';
-let sortAscIndexpro = false;
+let indexproExpandido = false;
+const INDEXPRO_RESUMEN_TOPE = 15;
+// Orden por defecto: primero los que ya están "Cotizado" (lo más urgente
+// de cerrar), después el resto por avance de embudo.
+const ESTADO_PRIORIDAD_INDEXPRO = { cotizado: 0, contactado: 1, sin_contactar: 2, ganado: 3, perdido: 4 };
+let sortColIndexpro = 'prioridad';
+let sortAscIndexpro = true;
 let sincronizandoIndexpro = false;
 const ESTADOS_INDEXPRO_LABEL = {
   sin_contactar: 'Sin contactar',
@@ -1048,8 +1053,9 @@ async function iniciarSincronizacionIndexpro(){
 }
 
 function cambiarOrdenIndexpro(col){
+  if(col === 'estado') col = 'prioridad'; // clic en "Estado" ordena por prioridad de embudo, no alfabético
   if(sortColIndexpro === col) sortAscIndexpro = !sortAscIndexpro;
-  else { sortColIndexpro = col; sortAscIndexpro = false; }
+  else { sortColIndexpro = col; sortAscIndexpro = col === 'prioridad'; }
   renderTablaIndexpro();
 }
 
@@ -1064,6 +1070,11 @@ function renderTablaIndexpro(){
   );
 
   filas = [...filas].sort((a,b)=>{
+    if(sortColIndexpro === 'prioridad'){
+      const diff = ESTADO_PRIORIDAD_INDEXPRO[a.estado] - ESTADO_PRIORIDAD_INDEXPRO[b.estado];
+      const ordenado = sortAscIndexpro ? diff : -diff;
+      return ordenado !== 0 ? ordenado : (b.score - a.score); // empate: mayor score primero
+    }
     let va = a[sortColIndexpro], vb = b[sortColIndexpro];
     if(va==null) return 1; if(vb==null) return -1;
     if(typeof va === 'string') return sortAscIndexpro ? va.localeCompare(vb) : vb.localeCompare(va);
@@ -1074,6 +1085,9 @@ function renderTablaIndexpro(){
     $('wrapIndexpro').innerHTML = `<p class="empty-note">${oportunidadesIndexpro.length===0 ? 'Sin datos todavía.' : 'Sin resultados para ese filtro.'}</p>`;
     return;
   }
+
+  const totalFilas = filas.length;
+  const filasVisibles = indexproExpandido ? filas : filas.slice(0, INDEXPRO_RESUMEN_TOPE);
 
   const cols = [
     { key:'clienteNombre', label:'Cliente', render:o=>o.encontradoEnBsale ? o.clienteNombre : `${o.clienteNombre} <span class="empty-note">(no encontrado en Bsale)</span>` },
@@ -1091,8 +1105,10 @@ function renderTablaIndexpro(){
         const mailto = o.email ? `<a class="btn-icono" href="mailto:${o.email}" title="Correo: ${o.email}" target="_blank" rel="noopener">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`;
         const wa = o.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(o.telefono).replace('+','')}" title="WhatsApp: ${o.telefono}" target="_blank" rel="noopener">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`;
         const historial = o.encontradoEnBsale ? `<button class="btn-icono" title="Ver facturas y total histórico" onclick="abrirModalHistorial(${o.id}, '${(o.clienteNombre||'').replace(/'/g,"\\'")}')">💰</button>` : `<span class="btn-icono deshabilitado" title="Sin cliente Bsale vinculado">💰</span>`;
+        const tituloPresentacion = o.presentacionEnviadaEn ? `Ya se envió el ${new Date(o.presentacionEnviadaEn).toLocaleDateString('es-CL')} — enviar de nuevo` : 'Enviar presentación comercial (primer contacto)';
+        const presentacion = o.email ? `<button class="btn-icono" title="${tituloPresentacion}" onclick="enviarPresentacionIndexpro(${o.id})">${o.presentacionEnviadaEn ? '📨' : '✉️'}</button>` : `<span class="btn-icono deshabilitado" title="Sin correo">✉️</span>`;
         const eliminar = esAdmin ? `<button class="btn-icono" title="Eliminar de la lista" onclick="eliminarOportunidadIndexpro(${o.id})">🗑️</button>` : '';
-        return `<div class="acciones-icono">${web}${mailto}${wa}${historial}${eliminar}</div>`;
+        return `<div class="acciones-icono">${web}${mailto}${wa}${historial}${presentacion}${eliminar}</div>`;
       } },
     { key:'estado', label:'Estado', render:o=>`<select class="estado-select" onchange="cambiarEstadoIndexpro(${o.id}, this.value)">
         ${Object.entries(ESTADOS_INDEXPRO_LABEL).map(([valor,label])=>`<option value="${valor}" ${o.estado===valor?'selected':''}>${label}</option>`).join('')}
@@ -1100,18 +1116,31 @@ function renderTablaIndexpro(){
   ];
 
   const thead = `<tr>${cols.map(c=>{
-    const marca = sortColIndexpro===c.key ? (sortAscIndexpro?' ▲':' ▼') : '';
+    const claveOrden = c.key === 'estado' ? 'prioridad' : c.key;
+    const marca = sortColIndexpro===claveOrden ? (sortAscIndexpro?' ▲':' ▼') : '';
     return `<th class="${c.align==='amount'?'amount':''}" onclick="cambiarOrdenIndexpro('${c.key}')">${c.label}${marca}</th>`;
   }).join('')}</tr>`;
 
-  const tbody = filas.map(o=>`<tr>${cols.map(col=>{
+  const tbody = filasVisibles.map(o=>`<tr>${cols.map(col=>{
     const claseEstado = col.key==='estado' ? `estado-${o.estado}` : '';
     return `<td class="${[col.align==='amount'?'amount':'', claseEstado].filter(Boolean).join(' ')}">${col.render ? col.render(o) : (o[col.key] ?? '—')}</td>`;
   }).join('')}</tr>`).join('');
 
+  const controlExpandir = totalFilas > INDEXPRO_RESUMEN_TOPE
+    ? `<button class="btn-ghost btn-compact" onclick="toggleExpandidoIndexpro()">${indexproExpandido ? '▲ Ver resumen (15)' : `▼ Ver todos (${totalFilas})`}</button>`
+    : `<span class="empty-note">${totalFilas} oportunidad${totalFilas===1?'':'es'}</span>`;
+
   $('wrapIndexpro').innerHTML = `
-    <div class="controles-tabla"><span class="empty-note">${filas.length} oportunidad${filas.length===1?'':'es'}</span></div>
+    <div class="controles-tabla">
+      <span class="empty-note">Mostrando ${filasVisibles.length} de ${totalFilas}</span>
+      ${controlExpandir}
+    </div>
     <div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
+}
+
+function toggleExpandidoIndexpro(){
+  indexproExpandido = !indexproExpandido;
+  renderTablaIndexpro();
 }
 
 async function cambiarEstadoIndexpro(id, estado){
@@ -1145,6 +1174,25 @@ function dominioSitioWeb(email){
   const dominio = email.split('@')[1]?.trim().toLowerCase();
   if(!dominio || DOMINIOS_CORREO_GENERICOS.has(dominio)) return null;
   return dominio;
+}
+
+async function enviarPresentacionIndexpro(id){
+  const op = oportunidadesIndexpro.find(o => o.id === id);
+  if(!op || !op.email) return;
+  const yaEnviado = op.presentacionEnviadaEn ? `\n\nOjo: ya se le envió este mismo correo el ${new Date(op.presentacionEnviadaEn).toLocaleDateString('es-CL')}.` : '';
+  if(!confirm(`¿Enviar el correo de presentación comercial NAS a ${op.email}?${yaEnviado}`)) return;
+  try{
+    const res = await fetch('/api/negocio?recurso=indexpro-enviar-presentacion', {
+      method: 'POST', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ id })
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.detail || data.error || 'No se pudo enviar el correo.'); return; }
+    await cargarIndexpro();
+    alert('Correo enviado.');
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
 }
 
 async function eliminarOportunidadIndexpro(id){
