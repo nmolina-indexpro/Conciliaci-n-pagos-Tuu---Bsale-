@@ -171,7 +171,11 @@ async function enviarReporte(){
     if(!res.ok){ msg.innerHTML = `<div class="msg err">${data.error}</div>`; return; }
     $('fDescripcion').value = '';
     $('fPagina').value = '';
-    msg.innerHTML = `<div class="msg ok">Reporte enviado. Gracias — lo puedes ver en la lista de abajo.</div>`;
+    if(data.correo && !data.correo.enviado){
+      msg.innerHTML = `<div class="msg err">El reporte se guardó, pero el correo de aviso NO se pudo enviar: ${data.correo.motivo || 'motivo desconocido'}</div>`;
+    } else {
+      msg.innerHTML = `<div class="msg ok">Reporte enviado. Gracias — lo puedes ver en la lista de abajo.</div>`;
+    }
     cargarReportes();
   }catch(err){
     msg.innerHTML = `<div class="msg err">Error: ${err.message}</div>`;
