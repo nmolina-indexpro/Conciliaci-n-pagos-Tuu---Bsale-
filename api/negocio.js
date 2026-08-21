@@ -1040,7 +1040,9 @@ async function manejarZohoTickets(req, res, sesion) {
 // contra el resto de la lista -> el cálculo se hace en el frontend
 // porque depende del máximo/mínimo del conjunto completo cargado en ese
 // momento (igual que la fórmula original de la planilla).
-const ESTADOS_INDEXPRO = ['sin_contactar', 'contactado', 'cotizado', 'ganado', 'perdido'];
+// 'primer_correo' NO la elige una persona -> la pone sola el envío del
+// correo de presentación (ver manejarIndexproEnviarPresentacion).
+const ESTADOS_INDEXPRO = ['sin_contactar', 'primer_correo', 'contactado', 'cotizado', 'ganado', 'perdido'];
 
 async function manejarIndexproOportunidades(req, res, sesion) {
   if (req.method === 'DELETE') {
@@ -1343,7 +1345,7 @@ async function manejarIndexproEnviarPresentacion(req, res, sesion) {
     const resultado = await enviarCorreo({ para: fila.email, ...correo });
     if (!resultado.enviado) return res.status(200).json({ error: 'No se pudo enviar el correo', detail: resultado.motivo });
 
-    const nuevoEstado = fila.estado === 'sin_contactar' ? 'contactado' : fila.estado;
+    const nuevoEstado = fila.estado === 'sin_contactar' ? 'primer_correo' : fila.estado;
     await sql`
       UPDATE indexpro_oportunidades SET
         presentacion_enviada_en = now(), estado = ${nuevoEstado},
