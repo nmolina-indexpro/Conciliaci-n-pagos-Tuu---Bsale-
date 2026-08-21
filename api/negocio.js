@@ -11,7 +11,7 @@
 
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
-import { enviarCorreo } from '../lib/mailer.js';
+import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
 const ESTADOS_VALIDOS = ['pendiente', 'en progreso', 'resuelto'];
@@ -1351,7 +1351,7 @@ async function manejarIndexproEnviarPresentacion(req, res, sesion) {
 
     const nombre = fila.cliente_nombre || fila.empresa_original;
     const correo = construirCorreoPresentacionNas(nombre);
-    const resultado = await enviarCorreo({ para: fila.email, ...correo });
+    const resultado = await enviarCorreoIndexpro({ para: fila.email, ...correo });
     if (!resultado.enviado) return res.status(200).json({ error: 'No se pudo enviar el correo', detail: resultado.motivo });
 
     const nuevoEstado = fila.estado === 'sin_contactar' ? 'primer_correo' : fila.estado;
