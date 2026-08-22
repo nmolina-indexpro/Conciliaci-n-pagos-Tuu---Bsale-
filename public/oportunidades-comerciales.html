@@ -383,8 +383,14 @@ let sincronizando = false;
 
 let cotizaciones = [];
 let cotizacionesCargadas = false;
-let sortColCot = 'fecha';
-let sortAscCot = false;
+// Orden por defecto: primero "Sin contactar" (lo pendiente de gestionar),
+// luego el resto por avance de embudo, dejando ganadas/perdidas al final.
+const ESTADO_PRIORIDAD_COTIZACION = {
+  sin_contactar: 0, contactado: 1, contactado_no_responde: 2,
+  contactado_segunda_vez: 3, mercado_publico: 4, facturada: 5, perdida: 6,
+};
+let sortColCot = 'prioridad';
+let sortAscCot = true;
 let sincronizandoCotizaciones = false;
 const ESTADOS_COTIZACION_LABEL = {
   sin_contactar: 'Sin contactar',
@@ -844,8 +850,9 @@ async function iniciarSincronizacionCotizaciones(){
 }
 
 function cambiarOrdenCotizaciones(col){
+  if(col === 'estado') col = 'prioridad'; // clic en "Estado" ordena por prioridad de embudo, no alfabético
   if(sortColCot === col) sortAscCot = !sortAscCot;
-  else { sortColCot = col; sortAscCot = false; }
+  else { sortColCot = col; sortAscCot = col === 'prioridad'; }
   renderTablaCotizaciones();
 }
 
@@ -877,6 +884,10 @@ function renderTablaCotizaciones(){
   let filas = cotizacionesFiltradas();
 
   filas = [...filas].sort((a,b)=>{
+    if(sortColCot === 'prioridad'){
+      const diff = ESTADO_PRIORIDAD_COTIZACION[a.estado] - ESTADO_PRIORIDAD_COTIZACION[b.estado];
+      return sortAscCot ? diff : -diff;
+    }
     let va = a[sortColCot], vb = b[sortColCot];
     if(va==null) return 1; if(vb==null) return -1;
     if(typeof va === 'string') return sortAscCot ? va.localeCompare(vb) : vb.localeCompare(va);
@@ -910,7 +921,8 @@ function renderTablaCotizaciones(){
   ];
 
   const thead = `<tr>${cols.map(c=>{
-    const marca = sortColCot===c.key ? (sortAscCot?' ▲':' ▼') : '';
+    const claveOrden = c.key === 'estado' ? 'prioridad' : c.key;
+    const marca = sortColCot===claveOrden ? (sortAscCot?' ▲':' ▼') : '';
     return `<th class="${c.align==='amount'?'amount':''}" onclick="cambiarOrdenCotizaciones('${c.key}')">${c.label}${marca}</th>`;
   }).join('')}</tr>`;
 
