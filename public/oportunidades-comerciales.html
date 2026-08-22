@@ -274,8 +274,8 @@
     <div class="seccion" id="seccionVendedores">
       <div class="seccion-head">
         <div>
-          <h2>🧑‍💼 Vendedores — mes actual</h2>
-          <div class="sub">Ordenado de mayor a menor monto vendido (cotizaciones facturadas) en el mes en curso.</div>
+          <h2>🧑‍💼 Vendedores — rango filtrado</h2>
+          <div class="sub">Ordenado de mayor a menor monto vendido (cotizaciones facturadas) en el rango de fechas filtrado arriba.</div>
         </div>
       </div>
       <div id="wrapVendedores"><p class="empty-note">Cargando...</p></div>
@@ -758,12 +758,12 @@ function renderKpisCotizaciones(){
   cards[6].querySelector('.big').textContent = fmtMoneda(facturadoActual);
   $('notaVarFacturado').innerHTML = notaVariacionHtml(calcularVariacionPct(facturadoActual, facturadoAnterior));
 
-  renderVendedores(delMesActual);
+  renderVendedores(filtradas);
 }
 
-function renderVendedores(delMesActual){
+function renderVendedores(delRangoFiltrado){
   const porVendedor = new Map();
-  for(const c of delMesActual){
+  for(const c of delRangoFiltrado){
     const clave = c.vendedorId ?? 'sin_vendedor';
     if(!porVendedor.has(clave)) porVendedor.set(clave, { nombre: c.vendedorNombre || 'Sin vendedor asignado', creadas:0, facturadas:0, montoVendido:0 });
     const v = porVendedor.get(clave);
@@ -773,7 +773,7 @@ function renderVendedores(delMesActual){
   const filas = [...porVendedor.values()].sort((a,b)=>b.montoVendido-a.montoVendido);
 
   if(filas.length === 0){
-    $('wrapVendedores').innerHTML = '<p class="empty-note">No hay cotizaciones este mes todavía.</p>';
+    $('wrapVendedores').innerHTML = '<p class="empty-note">No hay cotizaciones en ese rango de fechas.</p>';
     return;
   }
 
