@@ -91,9 +91,14 @@
     align-items: stretch !important;
   }
   .form-inline .campo{ width: 100%; }
+  /* !important necesario: muchos inputs traen un style="width:180px" (u
+     otro valor) puesto en línea en el HTML de cada página para el layout
+     de escritorio -- un estilo inline gana siempre contra una regla de
+     hoja de estilos externa sin !important, así que sin esto el input se
+     queda angosto y fijo en vez de ocupar el ancho completo en celular. */
   .form-inline select, .form-inline input,
   .toolbar select, .toolbar input{
-    width: 100%;
+    width: 100% !important;
   }
 
   /* Tablas: en vez de aplastar columnas, se dejan scrollear horizontal.
@@ -111,10 +116,19 @@
 
   /* Objetivos de toque más grandes (Apple/Google recomiendan ~44px) */
   button, select, .btn-ghost, .btn-primary, .btn-logout{
-    min-height: 40px;
+    min-height: 44px;
   }
-  input[type=text], input[type=number], input[type=password]{
-    min-height: 40px;
+  input[type=text], input[type=number], input[type=password],
+  input[type=email], input[type=date], input[type=tel]{
+    min-height: 44px;
+  }
+  /* Botones-ícono chicos (ej. 🌐📧💬💰✉️🗑️ en filas de tabla) -- 28px de
+     escritorio es muy chico para el dedo, y varios juntos en la misma
+     celda aumentan el riesgo de tocar el que no corresponde. */
+  .btn-icono{
+    width: 38px !important; height: 38px !important;
+    font-size: 15px !important;
+    margin: 2px;
   }
 
   .accesos .acceso-card{ padding: 16px; }
