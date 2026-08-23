@@ -33,6 +33,17 @@
 .menu-herramientas a:hover{ background:var(--surface-2); }
 .menu-herramientas a.active{ background:var(--primary-dim); color:var(--primary); }
 
+/* ---------- Tarjetas KPI (label + número grande + nota), TODOS los
+   tamaños de pantalla -- venían bastante grandes también en escritorio
+   (18-20px de padding, número a 24px). Se compactan acá para toda la
+   app de una vez, en vez de repetir el ajuste página por página; el
+   bloque ≤900px más abajo las achica todavía más para celular. */
+.card{ padding: 14px 16px; }
+.card .lbl{ font-size: 10px; margin-bottom: 5px; }
+.card .big{ font-size: 19px; }
+.card .note{ font-size: 10.5px; margin-top: 3px; }
+.grid, .grid-2, .grid-3, .grid-4, .grid-5{ gap: 12px; }
+
 /* ---------- Tablet chico / celular grande (≤900px) ---------- */
 @media (max-width: 900px) {
   body{ padding: 18px 16px 48px 16px; }
