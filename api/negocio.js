@@ -998,16 +998,17 @@ async function manejarSyncAnalisis(req, res, sesion) {
 
       if (ventas.length > 0) {
         await sql.query(
-          `INSERT INTO analisis_compras (documento_id, cliente_id, cliente_nombre, fecha, sincronizado_en)
-           SELECT * FROM UNNEST ($1::int[], $2::int[], $3::text[], $4::date[], $5::timestamptz[])
+          `INSERT INTO analisis_compras (documento_id, cliente_id, cliente_nombre, fecha, monto, sincronizado_en)
+           SELECT * FROM UNNEST ($1::int[], $2::int[], $3::text[], $4::date[], $5::numeric[], $6::timestamptz[])
            ON CONFLICT (documento_id) DO UPDATE SET
              cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre,
-             fecha = EXCLUDED.fecha, sincronizado_en = EXCLUDED.sincronizado_en;`,
+             fecha = EXCLUDED.fecha, monto = EXCLUDED.monto, sincronizado_en = EXCLUDED.sincronizado_en;`,
           [
             ventas.map(d => d.id),
             ventas.map(d => d.client.id),
             ventas.map(d => nombreClienteDoc(d.client)),
             ventas.map(d => d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null),
+            ventas.map(d => Number(d.totalAmount) || 0),
             ventas.map(() => new Date().toISOString()),
           ]
         );
@@ -1035,25 +1036,90 @@ async function manejarSyncAnalisis(req, res, sesion) {
   }
 }
 
+const ESTADOS_ANALISIS = ['sin_contactar', 'contactado', 'fidelizado'];
+
 async function manejarAnalisisClientes(req, res, sesion) {
+  if (req.method === 'DELETE') {
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede excluir un cliente del análisis' });
+    const { clienteId } = req.query;
+    if (!clienteId) return res.status(400).json({ error: 'Falta clienteId' });
+    try {
+      const sql = await getSql();
+      await asegurarTablaAnalisis(sql);
+      await sql`INSERT INTO analisis_excluidos (cliente_id, excluido_por) VALUES (${clienteId}, ${sesion.nombre || sesion.email});`;
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      return res.status(500).json({ error: 'Error al excluir el cliente', detail: String(err) });
+    }
+  }
+
+  if (req.method === 'PUT') {
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede cambiar el estado' });
+    const { clienteId, estado } = req.body || {};
+    if (!clienteId || !estado) return res.status(400).json({ error: 'Falta clienteId o estado' });
+    if (!ESTADOS_ANALISIS.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+    try {
+      const sql = await getSql();
+      await asegurarTablaAnalisis(sql);
+      await sql`
+        INSERT INTO analisis_clientes_estado (cliente_id, estado, actualizado_por, actualizado_en)
+        VALUES (${clienteId}, ${estado}, ${sesion.nombre || sesion.email}, now())
+        ON CONFLICT (cliente_id) DO UPDATE SET estado = EXCLUDED.estado, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();
+      `;
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      return res.status(500).json({ error: 'Error al actualizar el estado', detail: String(err) });
+    }
+  }
+
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
     const sql = await getSql();
     await asegurarTablaAnalisis(sql);
+    await asegurarTablaBsalePuntos(sql);
 
+    // Enriquecido con lo que ya sincronizó Puntos Bsale (RUT, empresa,
+    // teléfono, email) -> evita una vuelta nueva a Bsale solo para esto,
+    // ese roster ya cubre prácticamente todos los clientes (~47.000,
+    // programa de fidelización). "Giro" no se replica: en Indexpro viene
+    // de la planilla de 100 leads curados a mano, no existe un equivalente
+    // para clientes de retail en general.
     const { rows } = await sql`
-      SELECT cliente_id, MAX(cliente_nombre) AS cliente_nombre, COUNT(*)::int AS num_compras,
-             MAX(fecha) AS ultima_compra
-      FROM analisis_compras GROUP BY cliente_id ORDER BY num_compras DESC, cliente_nombre ASC;
+      SELECT
+        ac.cliente_id, MAX(ac.cliente_nombre) AS cliente_nombre, COUNT(*)::int AS num_compras,
+        SUM(ac.monto) AS monto_total, MAX(ac.fecha) AS ultima_compra,
+        MAX(bp.rut) AS rut, MAX(bp.empresa) AS empresa, MAX(bp.telefono) AS telefono, MAX(bp.email) AS email,
+        COALESCE(MAX(ace.estado), 'sin_contactar') AS estado
+      FROM analisis_compras ac
+      LEFT JOIN bsale_clientes_puntos bp ON bp.id = ac.cliente_id
+      LEFT JOIN analisis_clientes_estado ace ON ace.cliente_id = ac.cliente_id
+      WHERE ac.cliente_id NOT IN (SELECT cliente_id FROM analisis_excluidos WHERE cliente_id IS NOT NULL)
+        AND ac.cliente_nombre NOT IN (SELECT cliente_nombre FROM analisis_excluidos WHERE cliente_nombre IS NOT NULL)
+      GROUP BY ac.cliente_id
+      ORDER BY num_compras DESC, cliente_nombre ASC;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
+
+    const mapear = r => ({
+      clienteId: r.cliente_id,
+      clienteNombre: r.cliente_nombre,
+      empresa: r.empresa || null,
+      rut: r.rut || null,
+      telefono: r.telefono || null,
+      email: r.email || null,
+      numCompras: r.num_compras,
+      montoTotal: r.monto_total != null ? Number(r.monto_total) : 0,
+      ultimaCompra: r.ultima_compra ? new Date(r.ultima_compra).toISOString().slice(0, 10) : null,
+      estado: r.estado,
+    });
 
     const totalClientes = rows.length;
     const clientesPro = [], clientesRecurrentes = [], clientesOcasionales = [];
     for (const r of rows) {
-      if (r.num_compras >= 3) clientesPro.push(r);
-      else if (r.num_compras === 2) clientesRecurrentes.push(r);
-      else clientesOcasionales.push(r);
+      const item = mapear(r);
+      if (r.num_compras >= 3) clientesPro.push(item);
+      else if (r.num_compras === 2) clientesRecurrentes.push(item);
+      else clientesOcasionales.push(item);
     }
     const pct = n => totalClientes > 0 ? Math.round((n / totalClientes) * 1000) / 10 : 0;
 

@@ -63,17 +63,20 @@
   #syncStatus{font-size:12px;color:var(--muted);margin-top:10px;}
   #syncStatus.err{color:var(--red);}
 
-  .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:20px;}
-  .modal-backdrop.abierto{display:flex;}
-  .modal-box{background:var(--surface);border-radius:14px;max-width:560px;width:100%;max-height:86vh;overflow-y:auto;box-shadow:0 8px 30px rgba(31,42,36,.25);}
-  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line);}
-  .modal-head h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0;}
-  .modal-cerrar{background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer;line-height:1;}
-  .modal-body{padding:10px 22px 20px;}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+
+  .tabla-wrap{overflow-x:auto;}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
-  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:8px;border-bottom:2px solid var(--line);}
-  td{padding:8px;border-bottom:1px solid var(--line);}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
   th.amount, td.amount{text-align:right;}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;background:var(--green-bg);color:var(--green);}
+  .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);text-decoration:none;font-size:13px;cursor:pointer;transition:all .15s;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+  .btn-icono.deshabilitado{opacity:0.3;pointer-events:none;}
+  select.selectEstado{font-size:11.5px;padding:5px 8px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font-family:inherit;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -123,16 +126,17 @@
     <div id="syncStatus"></div>
   </div>
 
-</div>
-
-<div class="modal-backdrop" id="modalSegmento" onclick="if(event.target===this) cerrarModalSegmento()">
-  <div class="modal-box">
-    <div class="modal-head">
-      <h2 id="modalSegmentoTitulo">Clientes</h2>
-      <button class="modal-cerrar" onclick="cerrarModalSegmento()">✕</button>
+  <div class="seccion" id="seccionDetalle" style="display:none;">
+    <div class="seccion-head">
+      <div>
+        <h2 id="detalleTitulo">Clientes</h2>
+        <div class="sub" style="margin-bottom:0;" id="detalleSub"></div>
+      </div>
+      <button class="btn-ghost" onclick="cerrarDetalle()">✕ Cerrar</button>
     </div>
-    <div class="modal-body" id="modalSegmentoBody"></div>
+    <div id="wrapDetalle"></div>
   </div>
+
 </div>
 
 <script src="restriccion-usuario.js"></script>
@@ -181,6 +185,10 @@ async function cargarAnalisis(){
 }
 
 let analisisActual = null;
+let segmentoActual = null; // 'ocasionales' | 'recurrentes' | 'pro'
+const ESTADOS_ANALISIS_LABEL = { sin_contactar: 'Sin contactar', contactado: 'Contactado', fidelizado: 'Fidelizado' };
+
+function fmtMoneda(n){ return '$' + fmtNum(Math.round(n || 0)); }
 
 function renderClientesRecurrentes(data){
   analisisActual = data;
@@ -196,19 +204,19 @@ function renderClientesRecurrentes(data){
         <div class="lbl">Clientes con compras (12 meses)</div>
         <div class="big">${fmtNum(data.totalClientes)}</div>
       </div>
-      <div class="card clicable" onclick="abrirModalSegmento('ocasionales', 'Ocasionales (1 compra)')">
+      <div class="card clicable" onclick="mostrarDetalle('ocasionales', 'Ocasionales (1 compra)')">
         <div class="lbl">Ocasionales (1 compra)</div>
         <div class="big">${fmtNum(data.ocasionales.cantidad)}</div>
         <div class="pct">${data.ocasionales.porcentaje}%</div>
         <div class="ver-detalle">Ver clientes →</div>
       </div>
-      <div class="card destacada clicable" onclick="abrirModalSegmento('recurrentes', 'Recurrentes (2 compras)')">
+      <div class="card destacada clicable" onclick="mostrarDetalle('recurrentes', 'Recurrentes (2 compras)')">
         <div class="lbl">Recurrentes (2 compras)</div>
         <div class="big">${fmtNum(data.recurrentes.cantidad)}</div>
         <div class="pct">${data.recurrentes.porcentaje}%</div>
         <div class="ver-detalle">Ver clientes →</div>
       </div>
-      <div class="card pro clicable" onclick="abrirModalSegmento('pro', 'Pro (3+ compras)')">
+      <div class="card pro clicable" onclick="mostrarDetalle('pro', 'Pro (3+ compras)')">
         <div class="lbl">Pro (3+ compras)</div>
         <div class="big">${fmtNum(data.pro.cantidad)}</div>
         <div class="pct">${data.pro.porcentaje}%</div>
@@ -217,32 +225,111 @@ function renderClientesRecurrentes(data){
     </div>
     ${data.sync?.ultima_pasada_completa_en ? `<div class="note-box">Última sincronización completa: ${new Date(data.sync.ultima_pasada_completa_en).toLocaleString('es-CL')}.</div>` : ''}
   `;
+  // Si ya había un segmento abierto (ej. justo se cambió un estado o se
+  // sincronizó de nuevo), lo vuelve a pintar con los datos frescos.
+  if(segmentoActual) mostrarDetalle(segmentoActual.clave, segmentoActual.titulo);
 }
 
-function abrirModalSegmento(clave, titulo){
+// Mismo criterio que el score de Oportunidades Indexpro: 55% monto total
+// (normalizado), 25% N° de compras (normalizado), 20% fijo porque estos
+// clientes YA están activos en los últimos 12 meses por construcción.
+function calcularScores(lista){
+  const montos = lista.map(c => c.montoTotal || 0);
+  const compras = lista.map(c => c.numCompras || 0);
+  const minMonto = Math.min(...montos, 0), maxMonto = Math.max(...montos, 0);
+  const minCompras = Math.min(...compras, 0), maxCompras = Math.max(...compras, 0);
+  const normalizar = (v, min, max) => (max - min) > 0 ? (v - min) / (max - min) : 0;
+  return lista.map(c => {
+    const nMonto = normalizar(c.montoTotal || 0, minMonto, maxMonto);
+    const nCompras = normalizar(c.numCompras || 0, minCompras, maxCompras);
+    return { ...c, score: 0.55 * nMonto + 0.25 * nCompras + 0.20 };
+  });
+}
+
+function formatearTelefonoWhatsapp(tel){
+  const soloDigitos = (tel||'').replace(/\D/g,'');
+  if(!soloDigitos) return '';
+  if(soloDigitos.startsWith('56')) return '+' + soloDigitos;
+  return '+56' + soloDigitos;
+}
+
+function mostrarDetalle(clave, titulo){
   if(!analisisActual) return;
-  const clientes = analisisActual[clave]?.clientes || [];
-  $('modalSegmentoTitulo').textContent = `${titulo} — ${fmtNum(clientes.length)} cliente(s)`;
+  segmentoActual = { clave, titulo };
+  const esAdmin = rolActual === 'admin';
+  const clientes = calcularScores(analisisActual[clave]?.clientes || []).sort((a,b) => b.score - a.score);
+
+  $('detalleTitulo').textContent = `👥 ${titulo}`;
+  $('detalleSub').textContent = `${fmtNum(clientes.length)} cliente(s), ordenados de mayor a menor score.`;
+
   if(clientes.length === 0){
-    $('modalSegmentoBody').innerHTML = `<p class="empty-note">Sin clientes en este grupo.</p>`;
+    $('wrapDetalle').innerHTML = `<p class="empty-note">Sin clientes en este grupo.</p>`;
   } else {
-    $('modalSegmentoBody').innerHTML = `
-      <table>
-        <thead><tr><th>Cliente</th><th class="amount">N° compras</th><th>Última compra</th></tr></thead>
-        <tbody>
-          ${clientes.map(c => `<tr>
-            <td>${c.cliente_nombre || `Cliente #${c.cliente_id}`}</td>
-            <td class="amount">${fmtNum(c.num_compras)}</td>
-            <td>${c.ultima_compra ? new Date(c.ultima_compra).toLocaleDateString('es-CL') : '—'}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
+    $('wrapDetalle').innerHTML = `
+      <div class="tabla-wrap">
+        <table>
+          <thead><tr>
+            <th>Cliente</th><th>Nombre empresa</th><th class="amount">N° compras</th>
+            <th class="amount">Monto total comprado</th><th>Última compra</th><th>Activo 12M</th>
+            <th class="amount">Score</th><th>Documento asociado (RUT)</th><th></th><th>Estado</th>
+          </tr></thead>
+          <tbody>
+            ${clientes.map(c => `<tr>
+              <td>${c.clienteNombre || `Cliente #${c.clienteId}`}</td>
+              <td>${c.empresa || '<span class="empty-note">—</span>'}</td>
+              <td class="amount">${fmtNum(c.numCompras)}</td>
+              <td class="amount"><b>${fmtMoneda(c.montoTotal)}</b></td>
+              <td>${c.ultimaCompra ? new Date(c.ultimaCompra).toLocaleDateString('es-CL') : '—'}</td>
+              <td><span class="badge">Sí</span></td>
+              <td class="amount">${c.score.toFixed(2)}</td>
+              <td>${c.rut || '<span class="empty-note">—</span>'}</td>
+              <td>
+                ${c.email ? `<a class="btn-icono" href="mailto:${c.email}" title="Correo: ${c.email}">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`}
+                ${c.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(c.telefono).replace('+','')}" target="_blank" rel="noopener" title="WhatsApp: ${c.telefono}">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`}
+                ${esAdmin ? `<button class="btn-icono" title="Sacar del análisis" onclick="eliminarClienteAnalisis(${c.clienteId}, '${(c.clienteNombre||'').replace(/'/g,"\\'")}')">🗑️</button>` : ''}
+              </td>
+              <td>${esAdmin
+                ? `<select class="selectEstado" onchange="cambiarEstadoAnalisis(${c.clienteId}, this.value)">
+                     ${Object.entries(ESTADOS_ANALISIS_LABEL).map(([v,l])=>`<option value="${v}" ${c.estado===v?'selected':''}>${l}</option>`).join('')}
+                   </select>`
+                : (ESTADOS_ANALISIS_LABEL[c.estado] || c.estado)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
     `;
   }
-  $('modalSegmento').classList.add('abierto');
+  $('seccionDetalle').style.display = '';
+  $('seccionDetalle').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
-function cerrarModalSegmento(){
-  $('modalSegmento').classList.remove('abierto');
+
+function cerrarDetalle(){
+  segmentoActual = null;
+  $('seccionDetalle').style.display = 'none';
+}
+
+async function cambiarEstadoAnalisis(clienteId, estado){
+  try{
+    const res = await fetch('/api/negocio?recurso=analisis-clientes', {
+      method: 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ clienteId, estado })
+    });
+    if(!res.ok){ const data = await res.json(); alert(data.error); }
+    cargarAnalisis();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+async function eliminarClienteAnalisis(clienteId, nombre){
+  if(!confirm(`¿Sacar a "${nombre}" del análisis? No va a volver a aparecer aunque compre de nuevo, salvo que lo saques de la lista de exclusión.`)) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=analisis-clientes&clienteId=${clienteId}`, { method: 'DELETE' });
+    if(!res.ok){ const data = await res.json(); alert(data.error); }
+    cargarAnalisis();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
 }
 
 async function iniciarSincronizacion(){
