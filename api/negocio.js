@@ -643,7 +643,20 @@ function esVentaReal(tipoDoc) {
 // product_types.json para no sumar una vuelta extra a Bsale (y su rate
 // limit) solo por esto -> Análisis ya hace bastantes llamadas trayendo
 // documents.json con expand=details de un año completo.
-function categoriaLinea(nombreLinea) {
+// "variant.description" en Bsale NO es el nombre del producto -> es una
+// ficha técnica (ej. "19.5V 2.31A 4.5X3.0MM" para un cargador), confirmado
+// con un documento real vía el modo ?debug=1 de manejarSyncAnalisis. La
+// señal confiable es el PREFIJO del código de SKU (ej. "CARHP06" =
+// Cargador HP #06), mismo criterio de 3 letras que ya usa esta app en
+// otras partes (ver el filtro "PAN-CAR-BAT" de compras.html). El texto
+// de la descripción queda solo como respaldo por si algún SKU no sigue
+// la convención.
+function categoriaLinea(codigoVariante, nombreLinea) {
+  const codigo = (codigoVariante || '').toUpperCase();
+  if (/^CAR/.test(codigo)) return 'cargadores';
+  if (/^PAN/.test(codigo)) return 'pantallas';
+  if (/^BAT/.test(codigo)) return 'baterias';
+  if (/^SER/.test(codigo)) return 'servicios';
   const n = nombreLinea || '';
   if (/pantalla/i.test(n)) return 'pantallas';
   if (/cargador/i.test(n)) return 'cargadores';
@@ -658,8 +671,9 @@ function desglosarCategoriasDocumento(doc) {
   const totales = { servicios: 0, pantallas: 0, cargadores: 0, baterias: 0 };
   const detalles = doc.details?.items || (Array.isArray(doc.details) ? doc.details : []);
   for (const det of detalles) {
-    const nombre = det.variant?.description || det.comment || '';
-    const cat = categoriaLinea(nombre);
+    const codigo = det.variant?.code || '';
+    const nombre = det.variant?.description || det.comment || det.note || '';
+    const cat = categoriaLinea(codigo, nombre);
     if (!cat) continue;
     totales[cat] += (det.quantity || 0) * (det.netUnitValue || 0);
   }
