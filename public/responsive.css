@@ -102,8 +102,14 @@
   }
 
   /* Tablas: en vez de aplastar columnas, se dejan scrollear horizontal.
-     Truco sin JS ni envolver en divs: display:block en <table> la vuelve
-     un bloque con overflow propio, manteniendo el layout interno normal. */
+     Truco sin JS ni envolver en divs: display:block SOLO en <table> la
+     vuelve un bloque con su propio scroll. OJO: no forzar display:table
+     en thead/tbody/tr también -- eso hace que cada <tr> se transforme en
+     su PROPIA tabla independiente, calculando el ancho de columnas fila
+     por fila en vez de una sola vez para toda la tabla, y las columnas
+     terminan desalineadas entre filas (bug real, visto en producción).
+     Dejando thead/tbody/tr con su display por defecto, el navegador arma
+     solo una caja de tabla anónima compartida y las columnas sí calzan. */
   table{
     display: block;
     width: 100%;
@@ -112,7 +118,6 @@
     -webkit-overflow-scrolling: touch;
     white-space: nowrap;
   }
-  thead, tbody, tr{ display: table; width: 100%; table-layout: auto; }
 
   /* Objetivos de toque más grandes (Apple/Google recomiendan ~44px) */
   button, select, .btn-ghost, .btn-primary, .btn-logout{
