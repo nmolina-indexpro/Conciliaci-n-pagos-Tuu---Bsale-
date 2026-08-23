@@ -54,11 +54,26 @@
   .card.destacada{background:var(--primary-dim);border-color:var(--primary);}
   .card.pro{background:#EFE7FD;border-color:#7C3AED;}
   .card.pro .pct{color:#7C3AED;}
+  .card.clicable{cursor:pointer;transition:box-shadow .15s,transform .15s;}
+  .card.clicable:hover{box-shadow:var(--shadow);transform:translateY(-1px);}
+  .card .ver-detalle{font-size:11px;color:var(--muted);margin-top:6px;}
 
   .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-top:16px;color:var(--text);}
   .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
   #syncStatus{font-size:12px;color:var(--muted);margin-top:10px;}
   #syncStatus.err{color:var(--red);}
+
+  .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:20px;}
+  .modal-backdrop.abierto{display:flex;}
+  .modal-box{background:var(--surface);border-radius:14px;max-width:560px;width:100%;max-height:86vh;overflow-y:auto;box-shadow:0 8px 30px rgba(31,42,36,.25);}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line);}
+  .modal-head h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0;}
+  .modal-cerrar{background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer;line-height:1;}
+  .modal-body{padding:10px 22px 20px;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:8px;border-bottom:2px solid var(--line);}
+  td{padding:8px;border-bottom:1px solid var(--line);}
+  th.amount, td.amount{text-align:right;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -110,6 +125,16 @@
 
 </div>
 
+<div class="modal-backdrop" id="modalSegmento" onclick="if(event.target===this) cerrarModalSegmento()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2 id="modalSegmentoTitulo">Clientes</h2>
+      <button class="modal-cerrar" onclick="cerrarModalSegmento()">✕</button>
+    </div>
+    <div class="modal-body" id="modalSegmentoBody"></div>
+  </div>
+</div>
+
 <script src="restriccion-usuario.js"></script>
 <script src="menu-herramientas.js"></script>
 <script>
@@ -155,7 +180,10 @@ async function cargarAnalisis(){
   }
 }
 
+let analisisActual = null;
+
 function renderClientesRecurrentes(data){
+  analisisActual = data;
   if(!data.totalClientes){
     $('wrapClientesRecurrentes').innerHTML = rolActual === 'admin'
       ? `<p class="empty-note">Todavía no hay datos sincronizados. Usa "Sincronizar con Bsale" para traer las ventas de los últimos 12 meses.</p>`
@@ -168,24 +196,53 @@ function renderClientesRecurrentes(data){
         <div class="lbl">Clientes con compras (12 meses)</div>
         <div class="big">${fmtNum(data.totalClientes)}</div>
       </div>
-      <div class="card">
+      <div class="card clicable" onclick="abrirModalSegmento('ocasionales', 'Ocasionales (1 compra)')">
         <div class="lbl">Ocasionales (1 compra)</div>
         <div class="big">${fmtNum(data.ocasionales.cantidad)}</div>
         <div class="pct">${data.ocasionales.porcentaje}%</div>
+        <div class="ver-detalle">Ver clientes →</div>
       </div>
-      <div class="card destacada">
+      <div class="card destacada clicable" onclick="abrirModalSegmento('recurrentes', 'Recurrentes (2 compras)')">
         <div class="lbl">Recurrentes (2 compras)</div>
         <div class="big">${fmtNum(data.recurrentes.cantidad)}</div>
         <div class="pct">${data.recurrentes.porcentaje}%</div>
+        <div class="ver-detalle">Ver clientes →</div>
       </div>
-      <div class="card pro">
+      <div class="card pro clicable" onclick="abrirModalSegmento('pro', 'Pro (3+ compras)')">
         <div class="lbl">Pro (3+ compras)</div>
         <div class="big">${fmtNum(data.pro.cantidad)}</div>
         <div class="pct">${data.pro.porcentaje}%</div>
+        <div class="ver-detalle">Ver clientes →</div>
       </div>
     </div>
     ${data.sync?.ultima_pasada_completa_en ? `<div class="note-box">Última sincronización completa: ${new Date(data.sync.ultima_pasada_completa_en).toLocaleString('es-CL')}.</div>` : ''}
   `;
+}
+
+function abrirModalSegmento(clave, titulo){
+  if(!analisisActual) return;
+  const clientes = analisisActual[clave]?.clientes || [];
+  $('modalSegmentoTitulo').textContent = `${titulo} — ${fmtNum(clientes.length)} cliente(s)`;
+  if(clientes.length === 0){
+    $('modalSegmentoBody').innerHTML = `<p class="empty-note">Sin clientes en este grupo.</p>`;
+  } else {
+    $('modalSegmentoBody').innerHTML = `
+      <table>
+        <thead><tr><th>Cliente</th><th class="amount">N° compras</th><th>Última compra</th></tr></thead>
+        <tbody>
+          ${clientes.map(c => `<tr>
+            <td>${c.cliente_nombre || `Cliente #${c.cliente_id}`}</td>
+            <td class="amount">${fmtNum(c.num_compras)}</td>
+            <td>${c.ultima_compra ? new Date(c.ultima_compra).toLocaleDateString('es-CL') : '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+  $('modalSegmento').classList.add('abierto');
+}
+function cerrarModalSegmento(){
+  $('modalSegmento').classList.remove('abierto');
 }
 
 async function iniciarSincronizacion(){

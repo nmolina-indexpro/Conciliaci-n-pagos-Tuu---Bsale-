@@ -1042,25 +1042,26 @@ async function manejarAnalisisClientes(req, res, sesion) {
     await asegurarTablaAnalisis(sql);
 
     const { rows } = await sql`
-      SELECT cliente_id, MAX(cliente_nombre) AS cliente_nombre, COUNT(*)::int AS num_compras
-      FROM analisis_compras GROUP BY cliente_id;
+      SELECT cliente_id, MAX(cliente_nombre) AS cliente_nombre, COUNT(*)::int AS num_compras,
+             MAX(fecha) AS ultima_compra
+      FROM analisis_compras GROUP BY cliente_id ORDER BY num_compras DESC, cliente_nombre ASC;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
 
     const totalClientes = rows.length;
-    let pro = 0, recurrentes = 0, ocasionales = 0;
+    const clientesPro = [], clientesRecurrentes = [], clientesOcasionales = [];
     for (const r of rows) {
-      if (r.num_compras >= 3) pro++;
-      else if (r.num_compras === 2) recurrentes++;
-      else ocasionales++;
+      if (r.num_compras >= 3) clientesPro.push(r);
+      else if (r.num_compras === 2) clientesRecurrentes.push(r);
+      else clientesOcasionales.push(r);
     }
     const pct = n => totalClientes > 0 ? Math.round((n / totalClientes) * 1000) / 10 : 0;
 
     return res.status(200).json({
       totalClientes,
-      pro: { cantidad: pro, porcentaje: pct(pro) },
-      recurrentes: { cantidad: recurrentes, porcentaje: pct(recurrentes) },
-      ocasionales: { cantidad: ocasionales, porcentaje: pct(ocasionales) },
+      pro: { cantidad: clientesPro.length, porcentaje: pct(clientesPro.length), clientes: clientesPro },
+      recurrentes: { cantidad: clientesRecurrentes.length, porcentaje: pct(clientesRecurrentes.length), clientes: clientesRecurrentes },
+      ocasionales: { cantidad: clientesOcasionales.length, porcentaje: pct(clientesOcasionales.length), clientes: clientesOcasionales },
       sync: estadoRows[0] || null,
     });
   } catch (err) {
