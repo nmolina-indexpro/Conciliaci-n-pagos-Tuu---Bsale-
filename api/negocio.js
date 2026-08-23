@@ -414,7 +414,7 @@ const BSALE_BASE = 'https://api.bsale.io/v1';
 // Compartidas por manejarSyncClientesPuntos y manejarSyncCotizaciones (misma
 // cuenta de Bsale, mismo rate limit de ~8 req/s aplicado en todo /v1/*).
 const PUNTOS_SYNC_PRESUPUESTO_MS = 50000; // deja margen bajo el tope de 60s de Vercel Hobby
-const PUNTOS_SYNC_INTERVALO_MIN_MS = 150; // ritmo ~6.5 req/s, bajo el límite de Bsale (8 req/s) con margen
+const PUNTOS_SYNC_INTERVALO_MIN_MS = 130; // ritmo ~7.7 req/s, bajo el límite de Bsale (8 req/s) con margen
 const PUNTOS_SYNC_LIMIT = 50; // máximo permitido por página en clients.json / documents.json
 
 function nombreCliente(c) {

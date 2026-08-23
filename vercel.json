@@ -10,6 +10,7 @@
     "api/auth-login.js": { "maxDuration": 15 },
     "api/auth-session.js": { "maxDuration": 10 },
     "api/auth-bootstrap.js": { "maxDuration": 15 },
-    "api/usuarios.js": { "maxDuration": 15 }
+    "api/usuarios.js": { "maxDuration": 15 },
+    "api/negocio.js": { "maxDuration": 60 }
   }
 }
