@@ -645,19 +645,22 @@ function esVentaReal(tipoDoc) {
 // documents.json con expand=details de un año completo.
 // "variant.description" en Bsale NO es el nombre del producto -> es una
 // ficha técnica (ej. "19.5V 2.31A 4.5X3.0MM" para un cargador), confirmado
-// con un documento real vía el modo ?debug=1 de manejarSyncAnalisis. La
-// señal confiable es el PREFIJO del código de SKU (ej. "CARHP06" =
-// Cargador HP #06), mismo criterio de 3 letras que ya usa esta app en
-// otras partes (ver el filtro "PAN-CAR-BAT" de compras.html). El texto
-// de la descripción queda solo como respaldo por si algún SKU no sigue
-// la convención.
+// con un documento real vía el modo ?debug=1 de manejarSyncAnalisis. Para
+// cargadores el código sí trae un prefijo limpio ("CARHP06"), pero para
+// pantallas NO existe un prefijo "PAN" (confirmado con ?debug=skus): usan
+// códigos como PSLIM/PNORMAL/PTBEZEL/FDP, o directamente el número de
+// modelo del panel sin ningún prefijo (ej. "M215HCA-L3B"). La señal que sí
+// aparece siempre en esos casos es el patrón de la ficha técnica: tamaño en
+// pulgadas + pines + resolución (ej. `21.5" 30P FHD`) -> se detecta por
+// regex sobre la descripción.
 function categoriaLinea(codigoVariante, nombreLinea) {
   const codigo = (codigoVariante || '').toUpperCase();
   if (/^CAR/.test(codigo)) return 'cargadores';
-  if (/^PAN/.test(codigo)) return 'pantallas';
   if (/^BAT/.test(codigo)) return 'baterias';
   if (/^SER/.test(codigo)) return 'servicios';
+  if (/^(PSLIM|PNORMAL|PTBEZEL|FDP)/.test(codigo)) return 'pantallas';
   const n = nombreLinea || '';
+  if (/\d+(\.\d+)?["″]\s*\d+p\b/i.test(n)) return 'pantallas'; // ej. 15.6" 30P FHD
   if (/pantalla/i.test(n)) return 'pantallas';
   if (/cargador/i.test(n)) return 'cargadores';
   if (/bater[ií]a/i.test(n)) return 'baterias';
