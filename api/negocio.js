@@ -1021,11 +1021,9 @@ async function manejarSyncAnalisis(req, res, sesion) {
     const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
 
     // Modo diagnóstico (?recurso=sync-analisis&debug=1): trae UNA página tal
-    // cual la devuelve Bsale y la muestra cruda, sin tocar la base de datos
-    // -- para confirmar de una vez si "details" realmente viene o no, en
-    // vez de seguir adivinando el motivo de por qué las 4 columnas de
-    // categoría quedan en $0.
-    if (req.query.debug) {
+    // cual la devuelve Bsale, sin tocar la base de datos -- para confirmar
+    // que "details" realmente viene.
+    if (req.query.debug === '1') {
       const urlDebug = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[client,document_type,details]&limit=3&offset=0`;
       const rDebug = await fetchConTimeout(urlDebug, { headers: { access_token: token } }, 15000);
       const dataDebug = await rDebug.json();
@@ -1034,6 +1032,39 @@ async function manejarSyncAnalisis(req, res, sesion) {
         primerDocumentoCompleto: dataDebug.items?.[0] || null,
         tieneDetails: dataDebug.items?.[0]?.details !== undefined,
         formaDeDetails: dataDebug.items?.[0]?.details,
+      });
+    }
+
+    // Modo diagnóstico (?recurso=sync-analisis&debug=skus): recorre varias
+    // páginas y junta los códigos de SKU distintos vistos, separados en
+    // "clasificados" (matchearon categoriaLinea) y "sin clasificar" -- para
+    // ver de una vez qué prefijo/patrón usan de verdad las pantallas (u
+    // otra categoría) en vez de seguir adivinando a ciegas.
+    if (req.query.debug === 'skus') {
+      const vistos = new Map(); // code -> { descripcion, categoria, veces }
+      for (let p = 0; p < 8; p++) {
+        const urlP = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[client,document_type,details]&limit=${PUNTOS_SYNC_LIMIT}&offset=${p * PUNTOS_SYNC_LIMIT}`;
+        const rP = await fetchConTimeout(urlP, { headers: { access_token: token } }, 15000);
+        const dataP = await rP.json();
+        const itemsP = dataP.items || [];
+        for (const doc of itemsP) {
+          const detalles = doc.details?.items || [];
+          for (const det of detalles) {
+            const codigo = det.variant?.code || '';
+            const nombre = det.variant?.description || det.comment || det.note || '';
+            const cat = categoriaLinea(codigo, nombre);
+            if (!vistos.has(codigo)) vistos.set(codigo, { descripcion: nombre, categoria: cat, veces: 0 });
+            vistos.get(codigo).veces++;
+          }
+        }
+        if (itemsP.length < PUNTOS_SYNC_LIMIT) break;
+      }
+      const todos = [...vistos.entries()].map(([codigo, v]) => ({ codigo, ...v }));
+      return res.status(200).json({
+        debug: true,
+        totalSkusDistintos: todos.length,
+        clasificados: todos.filter(s => s.categoria).sort((a, b) => b.veces - a.veces),
+        sinClasificar: todos.filter(s => !s.categoria).sort((a, b) => b.veces - a.veces),
       });
     }
 
@@ -1152,21 +1183,27 @@ async function manejarAnalisisClientes(req, res, sesion) {
   }
 
   if (req.method === 'PUT') {
-    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede cambiar el estado' });
-    const { clienteId, estado } = req.body || {};
-    if (!clienteId || !estado) return res.status(400).json({ error: 'Falta clienteId o estado' });
-    if (!ESTADOS_ANALISIS.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede editar esto' });
+    const { clienteId, estado, comentario } = req.body || {};
+    if (!clienteId) return res.status(400).json({ error: 'Falta clienteId' });
+    if (estado !== undefined && !ESTADOS_ANALISIS.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+    if (estado === undefined && comentario === undefined) return res.status(400).json({ error: 'Falta estado o comentario' });
     try {
       const sql = await getSql();
       await asegurarTablaAnalisis(sql);
-      await sql`
-        INSERT INTO analisis_clientes_estado (cliente_id, estado, actualizado_por, actualizado_en)
-        VALUES (${clienteId}, ${estado}, ${sesion.nombre || sesion.email}, now())
-        ON CONFLICT (cliente_id) DO UPDATE SET estado = EXCLUDED.estado, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();
-      `;
+      // Se asegura la fila primero (con los valores por defecto) y después
+      // se actualiza SOLO lo que vino en la petición -> así un cambio de
+      // comentario no pisa el estado, y viceversa.
+      await sql`INSERT INTO analisis_clientes_estado (cliente_id) VALUES (${clienteId}) ON CONFLICT (cliente_id) DO NOTHING;`;
+      if (estado !== undefined) {
+        await sql`UPDATE analisis_clientes_estado SET estado = ${estado}, actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now() WHERE cliente_id = ${clienteId};`;
+      }
+      if (comentario !== undefined) {
+        await sql`UPDATE analisis_clientes_estado SET comentario = ${comentario || null}, actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now() WHERE cliente_id = ${clienteId};`;
+      }
       return res.status(200).json({ ok: true });
     } catch (err) {
-      return res.status(500).json({ error: 'Error al actualizar el estado', detail: String(err) });
+      return res.status(500).json({ error: 'Error al actualizar', detail: String(err) });
     }
   }
 
@@ -1189,7 +1226,7 @@ async function manejarAnalisisClientes(req, res, sesion) {
         SUM(ac.monto_servicios) AS monto_servicios, SUM(ac.monto_pantallas) AS monto_pantallas,
         SUM(ac.monto_cargadores) AS monto_cargadores, SUM(ac.monto_baterias) AS monto_baterias,
         MAX(bp.rut) AS rut, MAX(bp.empresa) AS empresa, MAX(bp.telefono) AS telefono, MAX(bp.email) AS email,
-        COALESCE(MAX(ace.estado), 'sin_contactar') AS estado
+        COALESCE(MAX(ace.estado), 'sin_contactar') AS estado, MAX(ace.comentario) AS comentario
       FROM analisis_compras ac
       LEFT JOIN bsale_clientes_puntos bp ON bp.id = ac.cliente_id
       LEFT JOIN analisis_clientes_estado ace ON ace.cliente_id = ac.cliente_id
@@ -1215,6 +1252,7 @@ async function manejarAnalisisClientes(req, res, sesion) {
       montoBaterias: r.monto_baterias != null ? Number(r.monto_baterias) : 0,
       ultimaCompra: r.ultima_compra ? new Date(r.ultima_compra).toISOString().slice(0, 10) : null,
       estado: r.estado,
+      comentario: r.comentario || null,
     });
 
     const totalClientes = rows.length;

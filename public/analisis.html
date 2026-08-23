@@ -257,6 +257,17 @@ function formatearTelefonoWhatsapp(tel){
   return '+56' + soloDigitos;
 }
 
+// Dominios de correo genéricos (no son el sitio propio del cliente) -> para
+// esos no se ofrece el ícono 🌐, sería un link engañoso. Mismo criterio que
+// ya usa Oportunidades Indexpro.
+const DOMINIOS_CORREO_GENERICOS = new Set(['gmail.com','hotmail.com','outlook.com','yahoo.com','live.com','icloud.com','hotmail.es','yahoo.es','msn.com','me.com','protonmail.com']);
+function dominioSitioWeb(email){
+  if(!email || !email.includes('@')) return null;
+  const dominio = email.split('@')[1]?.trim().toLowerCase();
+  if(!dominio || DOMINIOS_CORREO_GENERICOS.has(dominio)) return null;
+  return dominio;
+}
+
 function ordenarClientesAnalisis(lista){
   const col = sortColAnalisis;
   return [...lista].sort((a, b) => {
@@ -294,30 +305,31 @@ function mostrarDetalle(clave, titulo){
       <div class="tabla-wrap">
         <table>
           <thead><tr>
-            ${th('clienteNombre','Cliente')}${th('empresa','Nombre empresa')}${th('numCompras','N° compras', true)}
-            ${th('montoTotal','Monto total comprado', true)}
-            ${th('montoServicios','Servicios', true)}${th('montoPantallas','Pantallas', true)}
+            ${th('empresa','Nombre empresa')}${th('clienteNombre','Cliente')}${th('rut','RUT')}
+            ${th('numCompras','N° compras', true)}${th('montoTotal','Monto total comprado', true)}
             ${th('montoCargadores','Cargadores', true)}${th('montoBaterias','Baterías', true)}
-            ${th('ultimaCompra','Última compra')}<th>Activo 12M</th>
-            ${th('score','Score', true)}${th('rut','Documento asociado (RUT)')}<th></th>${th('estado','Estado')}
+            ${th('montoPantallas','Pantallas', true)}${th('montoServicios','Servicios', true)}
+            ${th('ultimaCompra','Última compra')}${th('score','Score', true)}
+            <th></th>${th('estado','Estado')}
           </tr></thead>
           <tbody>
             ${clientes.map(c => `<tr>
-              <td>${c.clienteNombre || `Cliente #${c.clienteId}`}</td>
               <td>${c.empresa || '<span class="empty-note">—</span>'}</td>
+              <td>${c.clienteNombre || `Cliente #${c.clienteId}`}</td>
+              <td>${c.rut || '<span class="empty-note">—</span>'}</td>
               <td class="amount">${fmtNum(c.numCompras)}</td>
               <td class="amount"><b>${fmtMoneda(c.montoTotal)}</b></td>
-              <td class="amount">${c.montoServicios ? fmtMoneda(c.montoServicios) : '<span class="empty-note">—</span>'}</td>
-              <td class="amount">${c.montoPantallas ? fmtMoneda(c.montoPantallas) : '<span class="empty-note">—</span>'}</td>
               <td class="amount">${c.montoCargadores ? fmtMoneda(c.montoCargadores) : '<span class="empty-note">—</span>'}</td>
               <td class="amount">${c.montoBaterias ? fmtMoneda(c.montoBaterias) : '<span class="empty-note">—</span>'}</td>
+              <td class="amount">${c.montoPantallas ? fmtMoneda(c.montoPantallas) : '<span class="empty-note">—</span>'}</td>
+              <td class="amount">${c.montoServicios ? fmtMoneda(c.montoServicios) : '<span class="empty-note">—</span>'}</td>
               <td>${c.ultimaCompra ? new Date(c.ultimaCompra).toLocaleDateString('es-CL') : '—'}</td>
-              <td><span class="badge">Sí</span></td>
               <td class="amount">${c.score.toFixed(2)}</td>
-              <td>${c.rut || '<span class="empty-note">—</span>'}</td>
               <td>
                 ${c.email ? `<a class="btn-icono" href="mailto:${c.email}" title="Correo: ${c.email}">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`}
                 ${c.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(c.telefono).replace('+','')}" target="_blank" rel="noopener" title="WhatsApp: ${c.telefono}">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`}
+                <button class="btn-icono" style="${esAdmin?'':'cursor:default;'}" title="${c.comentario ? 'Comentario: ' + c.comentario : (esAdmin ? 'Sin comentario — clic para agregar' : 'Sin comentario')}" ${esAdmin?`onclick="editarComentarioAnalisis(${c.clienteId}, '${(c.comentario||'').replace(/'/g,"\\'")}')"`:''}>📝</button>
+                ${dominioSitioWeb(c.email) ? `<a class="btn-icono" href="https://${dominioSitioWeb(c.email)}" target="_blank" rel="noopener" title="Sitio web: ${dominioSitioWeb(c.email)}">🌐</a>` : `<span class="btn-icono deshabilitado" title="Sin sitio web conocido">🌐</span>`}
                 ${esAdmin ? `<button class="btn-icono" title="Sacar del análisis" onclick="eliminarClienteAnalisis(${c.clienteId}, '${(c.clienteNombre||'').replace(/'/g,"\\'")}')">🗑️</button>` : ''}
               </td>
               <td>${esAdmin
@@ -338,6 +350,21 @@ function mostrarDetalle(clave, titulo){
 function cerrarDetalle(){
   segmentoActual = null;
   $('seccionDetalle').style.display = 'none';
+}
+
+async function editarComentarioAnalisis(clienteId, actual){
+  const nuevo = prompt('Comentario para este cliente:', actual || '');
+  if(nuevo === null) return; // canceló
+  try{
+    const res = await fetch('/api/negocio?recurso=analisis-clientes', {
+      method: 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ clienteId, comentario: nuevo.trim() })
+    });
+    if(!res.ok){ const data = await res.json(); alert(data.error); }
+    cargarAnalisis();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
 }
 
 async function cambiarEstadoAnalisis(clienteId, estado){
