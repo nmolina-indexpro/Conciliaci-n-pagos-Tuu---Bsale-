@@ -180,6 +180,7 @@ async function cargarSesionUsuario(){
       if(nav) nav.style.display = '';
     }
     aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){

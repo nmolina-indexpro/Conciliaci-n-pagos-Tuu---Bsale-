@@ -75,7 +75,7 @@ $('form').addEventListener('submit', async (ev) => {
       return;
     }
     const params = new URLSearchParams(location.search);
-    location.href = params.get('next') || '/index.html';
+    location.href = params.get('next') || data.landing || '/index.html';
   } catch (err) {
     error.textContent = 'Error de conexión: ' + err.message;
     error.classList.add('show');

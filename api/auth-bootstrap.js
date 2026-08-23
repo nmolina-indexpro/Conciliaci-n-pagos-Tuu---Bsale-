@@ -8,7 +8,7 @@
 // autobloquea del todo — hay que crear cuentas nuevas desde el mantenedor,
 // ya logueado como admin.
 
-import { getSql, asegurarTablaUsuarios } from '../lib/db.js';
+import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles } from '../lib/db.js';
 import { hashPassword, firmarSesion, cookieSesion } from '../lib/auth-node.js';
 
 export default async function handler(req, res) {
@@ -22,6 +22,7 @@ export default async function handler(req, res) {
 
   try {
     const sql = await getSql();
+    await asegurarTablaPerfiles(sql);
     await asegurarTablaUsuarios(sql);
 
     const { rows: existentes } = await sql`SELECT id, email FROM usuarios;`;

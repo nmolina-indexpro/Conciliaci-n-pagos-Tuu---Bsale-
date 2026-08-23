@@ -41,3 +41,23 @@ function aplicarRestriccionMargenes(rol) {
   if (rol === 'admin') return; // admin: ve todo
   document.body.classList.add('sin-margenes');
 }
+
+// Perfiles de acceso a páginas (ver lib/db.js -> asegurarTablaPerfiles):
+// oculta del menú de navegación (.page-nav a y .menu-herramientas a) los
+// links a páginas que el usuario no tiene permitidas, para no mostrar
+// accesos que de todos modos van a rebotar (el bloqueo real ocurre en
+// middleware.ts -- esto es solo para que el menú no muestre opciones
+// muertas).
+//
+// Uso: después de leer /api/auth-session, llamar
+// aplicarRestriccionPaginas(u.paginas). paginas === null significa sin
+// restricción (no oculta nada).
+function aplicarRestriccionPaginas(paginas) {
+  if (!Array.isArray(paginas)) return; // null/undefined = sin restricción
+  document.querySelectorAll('.page-nav a[href], .menu-herramientas a[href]').forEach(a => {
+    const href = a.getAttribute('href').replace(/^\//, '');
+    if (href === 'reportar-error.html') return; // siempre disponible
+    if (href === 'usuarios.html') return; // se rige por rol, no por perfil
+    if (!paginas.includes(href)) a.style.display = 'none';
+  });
+}

@@ -57,6 +57,12 @@
   .error-box{background:var(--red-bg);color:var(--red);border-radius:9px;padding:10px 14px;font-size:13px;margin-bottom:16px;}
   .acciones{display:flex;gap:6px;flex-wrap:wrap;}
   .acciones button{padding:6px 12px;font-size:11.5px;}
+  .checks-paginas{display:flex;flex-wrap:wrap;gap:8px 14px;padding:10px 0;}
+  .checks-paginas label{display:flex;align-items:center;gap:5px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);margin-bottom:0;}
+  .checks-paginas input{padding:0;}
+  .fila-perfil{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;}
+  .fila-perfil-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;}
+  .fila-perfil-head b{font-size:13.5px;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -107,9 +113,27 @@
         <label>Duración temporal (min)</label>
         <input type="number" id="fExpira" style="width:110px;" placeholder="vacío = sin límite" min="1" value="180">
       </div>
+      <div class="campo">
+        <label>Perfil de acceso</label>
+        <select id="fPerfil" style="width:180px;">
+          <option value="">Sin restricción (todas)</option>
+        </select>
+      </div>
       <button class="btn-primary" onclick="crearUsuario()">+ Crear usuario</button>
     </div>
-    <small style="color:var(--muted);display:block;margin-top:10px;">Con "Duración temporal" puesta, el reloj arranca en el primer login exitoso (no al crear la cuenta). Ej: 180 min = 3 horas desde que la persona entra por primera vez. Vacío = cuenta permanente.</small>
+    <small style="color:var(--muted);display:block;margin-top:10px;">Con "Duración temporal" puesta, el reloj arranca en el primer login exitoso (no al crear la cuenta). Ej: 180 min = 3 horas desde que la persona entra por primera vez. Vacío = cuenta permanente. "Perfil de acceso" limita qué páginas puede ver — se define abajo.</small>
+  </div>
+
+  <div class="card" id="perfilesCard" style="display:none;">
+    <h1 style="font-size:15px;margin-bottom:4px;">Perfiles de acceso</h1>
+    <div class="sub" style="margin-bottom:14px;">Define qué páginas puede ver cada perfil. Se asigna a un usuario desde el formulario de arriba o la tabla de abajo. "Reportar un error" y "Usuarios" siempre quedan aparte (soporte y rol de administrador).</div>
+    <div id="errorPerfil"></div>
+    <div class="fila-form" style="align-items:start;margin-bottom:18px;">
+      <div class="campo"><label>Nombre del perfil</label><input type="text" id="fPerfilNombre" style="width:200px;" placeholder="Ej: Vendedor"></div>
+      <div id="checksNuevoPerfil" class="checks-paginas"></div>
+      <button class="btn-primary" onclick="crearPerfil()">+ Crear perfil</button>
+    </div>
+    <div id="wrapPerfiles"><p class="empty-note">Cargando...</p></div>
   </div>
 
   <div class="card">
@@ -123,6 +147,19 @@
 const $ = id => document.getElementById(id);
 let usuarioActual = null;
 let listaUsuarios = [];
+let listaPerfiles = [];
+let paginasDisponibles = [];
+const PAGINAS_LABELS = {
+  'home.html': 'Home',
+  'index.html': 'Flujo de Caja',
+  'conciliacion.html': 'Conciliación',
+  'compras.html': 'Compras',
+  'alertas-stock.html': 'Alertas de Stock',
+  'oportunidades-comerciales.html': 'Oportunidades',
+  'sitio-web.html': 'Sitio Web',
+  'eficiencia-tickets.html': 'Tickets',
+  'guia-uso.html': 'Guía de uso',
+};
 
 async function cargarSesion(){
   try{
@@ -131,10 +168,14 @@ async function cargarSesion(){
     usuarioActual = await res.json();
     $('userBox').innerHTML = `<span>Conectado como <b>${usuarioActual.nombre || usuarioActual.email}</b> (${usuarioActual.rol})</span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
     aplicarRestriccionesUsuario(usuarioActual.rol);
+    aplicarRestriccionPaginas(usuarioActual.paginas);
 
     if(usuarioActual.rol !== 'admin'){
       $('formCard').style.display = 'none';
       $('avisoAcceso').innerHTML = `<div class="error-box">Esta página es solo para administradores. Puedes ver tu propia cuenta abajo, pero no puedes crear ni editar usuarios.</div>`;
+    } else {
+      $('perfilesCard').style.display = '';
+      await cargarPerfiles();
     }
     cargarUsuarios();
   }catch(err){
@@ -145,6 +186,121 @@ async function cargarSesion(){
 async function cerrarSesion(){
   await fetch('/api/auth-session', { method: 'DELETE' });
   location.href = '/login.html';
+}
+
+// ---------------- Perfiles de acceso ----------------
+function renderChecksPaginas(idPrefix, marcadas){
+  return paginasDisponibles.map(p => `
+    <label><input type="checkbox" id="${idPrefix}_${p}" value="${p}" ${marcadas.includes(p)?'checked':''}> ${PAGINAS_LABELS[p] || p}</label>
+  `).join('');
+}
+function paginasMarcadasDe(idPrefix){
+  return paginasDisponibles.filter(p => $(`${idPrefix}_${p}`)?.checked);
+}
+
+async function cargarPerfiles(){
+  try{
+    const res = await fetch('/api/usuarios?recurso=perfiles');
+    const data = await res.json();
+    if(!res.ok){ $('wrapPerfiles').innerHTML = `<p class="empty-note">${data.error}</p>`; return; }
+    listaPerfiles = data.perfiles || [];
+    paginasDisponibles = data.paginasDisponibles || [];
+    $('checksNuevoPerfil').innerHTML = renderChecksPaginas('nuevo', []);
+    renderPerfiles();
+    renderSelectPerfilNuevo();
+    renderTabla(); // por si ya había usuarios cargados, para mostrar su perfil
+  }catch(err){
+    $('wrapPerfiles').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+  }
+}
+
+function renderSelectPerfilNuevo(){
+  const sel = $('fPerfil');
+  const actual = sel.value;
+  sel.innerHTML = `<option value="">Sin restricción (todas)</option>` +
+    listaPerfiles.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('');
+  sel.value = actual;
+}
+
+function renderPerfiles(){
+  if(listaPerfiles.length === 0){
+    $('wrapPerfiles').innerHTML = `<p class="empty-note">Sin perfiles todavía — mientras tanto, todos los usuarios ven todas las páginas.</p>`;
+    return;
+  }
+  $('wrapPerfiles').innerHTML = listaPerfiles.map(p => `
+    <div class="fila-perfil">
+      <div class="fila-perfil-head">
+        <b>${p.nombre}</b>
+        <span class="empty-note">${p.usuarios_asignados} usuario(s) con este perfil</span>
+      </div>
+      <div class="checks-paginas" id="checksPerfil_${p.id}">${renderChecksPaginas('perfil'+p.id, p.paginas||[])}</div>
+      <div class="acciones">
+        <button class="btn-primary" onclick="guardarPaginasPerfil(${p.id})">Guardar páginas</button>
+        <button class="btn-danger" onclick="eliminarPerfil(${p.id})">Eliminar perfil</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function crearPerfil(){
+  const errorEl = $('errorPerfil');
+  errorEl.innerHTML = '';
+  const nombre = $('fPerfilNombre').value.trim();
+  if(!nombre){ errorEl.innerHTML = `<div class="error-box">Ponle un nombre al perfil.</div>`; return; }
+  const paginas = paginasMarcadasDe('nuevo');
+  try{
+    const res = await fetch('/api/usuarios?recurso=perfiles', {
+      method: 'POST', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ nombre, paginas })
+    });
+    const data = await res.json();
+    if(!res.ok){ errorEl.innerHTML = `<div class="error-box">${data.error}</div>`; return; }
+    $('fPerfilNombre').value = '';
+    cargarPerfiles();
+  }catch(err){
+    errorEl.innerHTML = `<div class="error-box">Error: ${err.message}</div>`;
+  }
+}
+
+async function guardarPaginasPerfil(id){
+  const paginas = paginasMarcadasDe('perfil'+id);
+  try{
+    const res = await fetch('/api/usuarios?recurso=perfiles', {
+      method: 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ id, paginas })
+    });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error); return; }
+    cargarPerfiles();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+async function eliminarPerfil(id){
+  if(!confirm('¿Eliminar este perfil? Los usuarios que lo tenían quedan sin restricción (ven todas las páginas).')) return;
+  try{
+    const res = await fetch(`/api/usuarios?recurso=perfiles&id=${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error); return; }
+    cargarPerfiles();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+async function cambiarPerfilUsuario(id, perfilId){
+  try{
+    const res = await fetch('/api/usuarios', {
+      method: 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify(perfilId ? { id, perfilId } : { id, quitarPerfil: true })
+    });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error); cargarUsuarios(); return; }
+    cargarUsuarios();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
 }
 
 async function cargarUsuarios(){
@@ -193,13 +349,19 @@ function renderTabla(){
   const esAdmin = usuarioActual?.rol === 'admin';
   $('tablaWrap').innerHTML = `
     <table>
-      <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Expira</th><th>Último ingreso</th><th>Creado</th>${esAdmin?'<th>Acciones</th>':''}</tr></thead>
+      <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Perfil de acceso</th><th>Estado</th><th>Expira</th><th>Último ingreso</th><th>Creado</th>${esAdmin?'<th>Acciones</th>':''}</tr></thead>
       <tbody>
         ${listaUsuarios.map(u => `
           <tr>
             <td>${u.email}</td>
             <td>${u.nombre||'—'}</td>
             <td><span class="badge ${u.rol}">${u.rol==='admin'?'Administrador':'Usuario'}</span></td>
+            <td>${u.rol==='admin' ? '<span class="empty-note">Sin restricción (admin)</span>' : (esAdmin
+              ? `<select class="selectPerfilUsuario" onchange="cambiarPerfilUsuario(${u.id}, this.value)">
+                   <option value="">Sin restricción</option>
+                   ${listaPerfiles.map(p=>`<option value="${p.id}" ${u.perfil_id===p.id?'selected':''}>${p.nombre}</option>`).join('')}
+                 </select>`
+              : (u.perfil_nombre || '<span class="empty-note">Sin restricción</span>'))}</td>
             <td><span class="badge ${u.activo?'activo':'inactivo'}">${u.activo?'Activo':'Inactivo'}</span></td>
             <td>${badgeExpiracion(u)}</td>
             <td>${u.ultimo_login ? formatoFechaHora(u.ultimo_login) : '<span class="empty-note">Nunca</span>'}</td>
@@ -227,6 +389,7 @@ async function crearUsuario(){
   const rol = $('fRol').value;
   const expiraInput = $('fExpira').value.trim();
   const expiraMinutos = expiraInput ? parseInt(expiraInput, 10) : undefined;
+  const perfilId = $('fPerfil').value || undefined;
 
   if(!email || !password){ errorEl.innerHTML = `<div class="error-box">Email y contraseña son obligatorios.</div>`; return; }
 
@@ -234,14 +397,14 @@ async function crearUsuario(){
     const res = await fetch('/api/usuarios', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, nombre, password, rol, ...(expiraMinutos ? { expiraMinutos } : {}) })
+      body: JSON.stringify({ email, nombre, password, rol, ...(expiraMinutos ? { expiraMinutos } : {}), ...(perfilId ? { perfilId } : {}) })
     });
     const data = await res.json();
     if(!res.ok){ errorEl.innerHTML = `<div class="error-box">${data.error}</div>`; return; }
     if(data.correo && !data.correo.enviado){
       errorEl.innerHTML = `<div class="error-box" style="background:var(--amber-dim,#FDF0DC);color:var(--amber,#D97706);">Usuario creado, pero no se pudo enviar el correo de bienvenida (${data.correo.motivo}). Avísale la contraseña por otro medio.</div>`;
     }
-    $('fEmail').value = ''; $('fNombre').value = ''; $('fPassword').value = ''; $('fRol').value = 'usuario'; $('fExpira').value = '180';
+    $('fEmail').value = ''; $('fNombre').value = ''; $('fPassword').value = ''; $('fRol').value = 'usuario'; $('fExpira').value = '180'; $('fPerfil').value = '';
     cargarUsuarios();
   }catch(err){
     errorEl.innerHTML = `<div class="error-box">Error: ${err.message}</div>`;

@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const sesion = usuarioDesdeRequest(req);
     if (!sesion) return res.status(401).json({ error: 'No hay sesión activa' });
-    return res.status(200).json({ email: sesion.email, nombre: sesion.nombre, rol: sesion.rol });
+    return res.status(200).json({ email: sesion.email, nombre: sesion.nombre, rol: sesion.rol, paginas: sesion.paginas ?? null });
   }
 
   if (req.method === 'DELETE') {

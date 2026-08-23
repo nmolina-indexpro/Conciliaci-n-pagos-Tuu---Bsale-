@@ -403,6 +403,7 @@ async function cargarSesionUsuario(){
     rolActual = u.rol;
     document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
     aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
     aplicarRestriccionMargenes(u.rol);
     if(u.rol === 'admin'){
       const nav = document.getElementById('navUsuarios');

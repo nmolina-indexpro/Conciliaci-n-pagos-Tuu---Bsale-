@@ -21,6 +21,12 @@ const RUTAS_PUBLICAS = new Set([
   '/api/auth-bootstrap',
 ]);
 
+// Páginas que un usuario con un perfil restringido puede ver SIEMPRE, sin
+// importar qué páginas le haya marcado el administrador -- reportar-error
+// es la vía de ayuda/soporte, no tendría sentido poder bloquearla (y sirve
+// de destino de respaldo si un perfil quedara sin ninguna página marcada).
+const PAGINAS_SIEMPRE_PERMITIDAS = new Set(['/reportar-error.html']);
+
 function base64UrlABytes(str) {
   const pad = str.length % 4 === 0 ? '' : '='.repeat(4 - (str.length % 4));
   const base64 = (str + pad).replace(/-/g, '+').replace(/_/g, '/');
@@ -80,5 +86,25 @@ export default async function middleware(req) {
     destino.searchParams.set('next', pathname);
     return Response.redirect(destino, 302);
   }
+  // Perfil de acceso a páginas (ver lib/db.js -> asegurarTablaPerfiles):
+  // sesion.paginas es la lista exacta de páginas .html que puede ver, o
+  // null si no tiene restricción (comportamiento de siempre). Solo aplica
+  // a navegación de páginas .html -- no a assets (css/js/imágenes) ni a
+  // /api/*, para no romper que la página cargue sus propios recursos ni
+  // llamadas de fondo.
+  if (
+    Array.isArray(sesion.paginas) &&
+    pathname.endsWith('.html') &&
+    !PAGINAS_SIEMPRE_PERMITIDAS.has(pathname)
+  ) {
+    const permitido = sesion.paginas.some(p => `/${p}` === pathname);
+    if (!permitido) {
+      const destino = sesion.paginas.length > 0 ? `/${sesion.paginas[0]}` : '/reportar-error.html';
+      // Si el destino de respaldo también fuera la página actual (no
+      // debería pasar, pero por seguridad ante loops) se deja pasar.
+      if (destino !== pathname) return Response.redirect(new URL(destino, req.url), 302);
+    }
+  }
+
   // Sesión válida -> continúa normalmente (no se devuelve nada).
 }

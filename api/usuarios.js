@@ -2,9 +2,19 @@
 // CRUD del mantenedor de usuarios. Solo accesible para usuarios con rol
 // 'admin' — cualquier otro caso devuelve 403.
 
-import { getSql, asegurarTablaUsuarios } from '../lib/db.js';
+import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles } from '../lib/db.js';
 import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo } from '../lib/mailer.js';
+
+// Páginas que se pueden marcar en un perfil de acceso (ver
+// asegurarTablaPerfiles en lib/db.js). No incluye usuarios.html (ya es
+// exclusivo de rol admin, independiente del perfil) ni login.html/
+// reportar-error.html (siempre accesibles, ver middleware.ts).
+const PAGINAS_DISPONIBLES = [
+  'home.html', 'index.html', 'conciliacion.html', 'compras.html',
+  'alertas-stock.html', 'oportunidades-comerciales.html', 'sitio-web.html',
+  'eficiencia-tickets.html', 'guia-uso.html',
+];
 
 export default async function handler(req, res) {
   const sesion = usuarioDesdeRequest(req);
@@ -13,15 +23,24 @@ export default async function handler(req, res) {
 
   try {
     const sql = await getSql();
+    await asegurarTablaPerfiles(sql);
     await asegurarTablaUsuarios(sql);
 
+    if (req.query.recurso === 'perfiles') return manejarPerfiles(req, res, sql);
+
     if (req.method === 'GET') {
-      const { rows } = await sql`SELECT id, email, nombre, rol, activo, expira_en, expira_minutos, ultimo_login, created_at FROM usuarios ORDER BY created_at ASC;`;
+      const { rows } = await sql`
+        SELECT u.id, u.email, u.nombre, u.rol, u.activo, u.expira_en, u.expira_minutos, u.ultimo_login, u.created_at,
+               u.perfil_id, p.nombre AS perfil_nombre
+        FROM usuarios u
+        LEFT JOIN perfiles p ON p.id = u.perfil_id
+        ORDER BY u.created_at ASC;
+      `;
       return res.status(200).json({ usuarios: rows });
     }
 
     if (req.method === 'POST') {
-      const { email, password, nombre, rol, expiraMinutos } = req.body || {};
+      const { email, password, nombre, rol, expiraMinutos, perfilId } = req.body || {};
       if (!email || !password) return res.status(400).json({ error: 'Falta email o contraseña' });
       if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
       const rolFinal = rol === 'admin' ? 'admin' : 'usuario';
@@ -32,11 +51,12 @@ export default async function handler(req, res) {
       // api/auth-login.js), que calcula expira_en = ahora + expira_minutos.
       // Sin expiraMinutos, la cuenta es permanente.
       const duracionPendiente = (typeof expiraMinutos === 'number' && expiraMinutos > 0) ? expiraMinutos : null;
+      const perfilIdFinal = perfilId ? Number(perfilId) : null;
       let usuarioCreado;
       try {
         const { rows } = await sql`
-          INSERT INTO usuarios (email, password_hash, nombre, rol, activo, expira_minutos)
-          VALUES (${email.toLowerCase().trim()}, ${passwordHash}, ${nombre || email}, ${rolFinal}, true, ${duracionPendiente})
+          INSERT INTO usuarios (email, password_hash, nombre, rol, activo, expira_minutos, perfil_id)
+          VALUES (${email.toLowerCase().trim()}, ${passwordHash}, ${nombre || email}, ${rolFinal}, true, ${duracionPendiente}, ${perfilIdFinal})
           RETURNING id, email, nombre, rol, activo, expira_en, expira_minutos, created_at;
         `;
         usuarioCreado = rows[0];
@@ -73,7 +93,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'PUT') {
-      const { id, nombre, rol, activo, password, expiraMinutos, quitarExpiracion } = req.body || {};
+      const { id, nombre, rol, activo, password, expiraMinutos, quitarExpiracion, perfilId, quitarPerfil } = req.body || {};
       if (!id) return res.status(400).json({ error: 'Falta el id del usuario' });
 
       // No permitir que un admin se quite a sí mismo el rol de admin ni se
@@ -88,6 +108,15 @@ export default async function handler(req, res) {
         await sql`UPDATE usuarios SET nombre = COALESCE(${nombre}, nombre), rol = COALESCE(${rol}, rol), activo = COALESCE(${activo}, activo), password_hash = ${passwordHash} WHERE id = ${id};`;
       } else {
         await sql`UPDATE usuarios SET nombre = COALESCE(${nombre}, nombre), rol = COALESCE(${rol}, rol), activo = COALESCE(${activo}, activo) WHERE id = ${id};`;
+      }
+
+      // Igual que con la expiración: aparte porque COALESCE no distingue
+      // "no mandaron este campo" de "lo mandaron en NULL a propósito" (acá,
+      // quitar el perfil = volver a acceso sin restricción).
+      if (quitarPerfil) {
+        await sql`UPDATE usuarios SET perfil_id = NULL WHERE id = ${id};`;
+      } else if (perfilId) {
+        await sql`UPDATE usuarios SET perfil_id = ${Number(perfilId)} WHERE id = ${id};`;
       }
 
       // La expiración se maneja en consultas aparte porque a veces hay que
@@ -106,7 +135,12 @@ export default async function handler(req, res) {
         await sql`UPDATE usuarios SET expira_en = ${nuevaExpira}, expira_minutos = NULL WHERE id = ${id};`;
       }
 
-      const { rows } = await sql`SELECT id, email, nombre, rol, activo, expira_en, expira_minutos, created_at FROM usuarios WHERE id = ${id};`;
+      const { rows } = await sql`
+        SELECT u.id, u.email, u.nombre, u.rol, u.activo, u.expira_en, u.expira_minutos, u.created_at,
+               u.perfil_id, p.nombre AS perfil_nombre
+        FROM usuarios u LEFT JOIN perfiles p ON p.id = u.perfil_id
+        WHERE u.id = ${id};
+      `;
       return res.status(200).json({ usuario: rows[0] });
     }
 
@@ -129,4 +163,58 @@ export default async function handler(req, res) {
   } catch (err) {
     return res.status(500).json({ error: 'Error en el mantenedor de usuarios', detail: String(err) });
   }
+}
+
+// ---------------- Perfiles de acceso (?recurso=perfiles) ----------------
+// Ya se validó arriba que sesion.rol === 'admin' antes de llegar acá.
+async function manejarPerfiles(req, res, sql) {
+  if (req.method === 'GET') {
+    const { rows } = await sql`
+      SELECT p.id, p.nombre, p.paginas, p.created_at,
+             (SELECT COUNT(*)::int FROM usuarios u WHERE u.perfil_id = p.id) AS usuarios_asignados
+      FROM perfiles p ORDER BY p.nombre ASC;
+    `;
+    return res.status(200).json({ perfiles: rows, paginasDisponibles: PAGINAS_DISPONIBLES });
+  }
+
+  if (req.method === 'POST') {
+    const { nombre, paginas } = req.body || {};
+    if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Falta el nombre del perfil' });
+    const paginasValidas = (Array.isArray(paginas) ? paginas : []).filter(p => PAGINAS_DISPONIBLES.includes(p));
+    try {
+      const { rows } = await sql`
+        INSERT INTO perfiles (nombre, paginas) VALUES (${nombre.trim()}, ${JSON.stringify(paginasValidas)})
+        RETURNING id, nombre, paginas, created_at;
+      `;
+      return res.status(200).json({ perfil: rows[0] });
+    } catch (err) {
+      if (String(err).includes('duplicate key')) return res.status(400).json({ error: 'Ya existe un perfil con ese nombre' });
+      throw err;
+    }
+  }
+
+  if (req.method === 'PUT') {
+    const { id, nombre, paginas } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'Falta el id del perfil' });
+    const paginasValidas = Array.isArray(paginas) ? paginas.filter(p => PAGINAS_DISPONIBLES.includes(p)) : undefined;
+    await sql`
+      UPDATE perfiles SET
+        nombre = COALESCE(${nombre || null}, nombre),
+        paginas = COALESCE(${paginasValidas ? JSON.stringify(paginasValidas) : null}, paginas)
+      WHERE id = ${id};
+    `;
+    const { rows } = await sql`SELECT id, nombre, paginas, created_at FROM perfiles WHERE id = ${id};`;
+    return res.status(200).json({ perfil: rows[0] });
+  }
+
+  if (req.method === 'DELETE') {
+    const { id } = req.query;
+    if (!id) return res.status(400).json({ error: 'Falta el id del perfil' });
+    // ON DELETE SET NULL en usuarios.perfil_id -> a quienes tenían este
+    // perfil les queda acceso sin restricción, no se quedan sin páginas.
+    await sql`DELETE FROM perfiles WHERE id = ${id};`;
+    return res.status(200).json({ ok: true });
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
 }
