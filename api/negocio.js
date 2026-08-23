@@ -1014,7 +1014,11 @@ async function manejarSyncAnalisis(req, res, sesion) {
     let pasadaTerminada = total != null && offset >= total;
     while (!pasadaTerminada && presupuestoRestante() > 0) {
       await esperarRitmo();
-      const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=client,document_type,details&limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}`;
+      // OJO: para combinar "details" (relación a muchos) con otros expands
+      // hay que usar la sintaxis de arreglo expand=[a,b,c] -- expand=a,b,c
+      // sin corchetes no trae los detalles (visto ya en bsale-sku-report.js,
+      // que sí usa expand=[details,document_type] con éxito).
+      const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[client,document_type,details]&limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}`;
       const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
       if (!r.ok) {
         const texto = await r.text().catch(() => '');
