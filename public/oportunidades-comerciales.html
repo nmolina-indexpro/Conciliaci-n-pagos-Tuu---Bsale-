@@ -84,6 +84,7 @@
   .campo label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;}
   .controles-tabla{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;}
   .date-field{display:flex;align-items:center;gap:8px;}
+  .filtro-rango-fechas{display:flex;align-items:center;gap:12px;}
   .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
   .doc-link{color:var(--primary);text-decoration:none;font-weight:600;}
   .doc-link:hover{text-decoration:underline;}
@@ -226,8 +227,10 @@
   <div id="tabCotizaciones" style="display:none;">
     <div class="toolbar">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <div class="date-field"><label for="cotizacionesDesde">Desde</label><input type="date" id="cotizacionesDesde" onchange="renderTablaCotizaciones()"></div>
-        <div class="date-field"><label for="cotizacionesHasta">Hasta</label><input type="date" id="cotizacionesHasta" onchange="renderTablaCotizaciones()"></div>
+        <div class="filtro-rango-fechas">
+          <div class="date-field"><label for="cotizacionesDesde">Desde</label><input type="date" id="cotizacionesDesde" onchange="renderTablaCotizaciones()"></div>
+          <div class="date-field"><label for="cotizacionesHasta">Hasta</label><input type="date" id="cotizacionesHasta" onchange="renderTablaCotizaciones()"></div>
+        </div>
         <button class="btn-primary" style="padding:9px 14px;" title="Buscar este rango" onclick="renderTablaCotizaciones()">🔍</button>
         <button class="btn-ghost btn-compact" id="btnCotHoy" onclick="setRangoRapidoCotizaciones('hoy')">Hoy</button>
         <button class="btn-ghost btn-compact" id="btnCotSemana" onclick="setRangoRapidoCotizaciones('semana')">Semana</button>
