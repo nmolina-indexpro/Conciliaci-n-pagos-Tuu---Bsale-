@@ -1014,11 +1014,6 @@ async function manejarSyncAnalisis(req, res, sesion) {
     let procesados = 0;
     let ultimaPeticion = 0;
     const presupuestoRestante = () => PUNTOS_SYNC_PRESUPUESTO_MS - (Date.now() - inicio);
-    const esperarRitmo = async () => {
-      const espera = PUNTOS_SYNC_INTERVALO_MIN_MS - (Date.now() - ultimaPeticion);
-      if (espera > 0) await new Promise(r => setTimeout(r, espera));
-      ultimaPeticion = Date.now();
-    };
 
     const hastaStr = new Date().toISOString().slice(0, 10);
     const desdeStr = new Date(Date.now() - ANALISIS_DIAS_HISTORIAL * 86400000).toISOString().slice(0, 10);
@@ -1042,22 +1037,52 @@ async function manejarSyncAnalisis(req, res, sesion) {
       });
     }
 
+    // Con expand=[...,details] cada página pesa bastante más (trae todas
+    // las líneas de producto de 50 documentos) -> la pausa mínima entre
+    // peticiones deja de ser el cuello de botella real, lo es la latencia
+    // de cada respuesta de Bsale. En vez de una petición a la vez, se
+    // pide una TANDA en paralelo (Promise.all) -> mismo techo de ~8 req/s
+    // de Bsale, pero aprovechado en paralelo en vez de en fila.
+    const TANDA_ANALISIS = 6;
+    const esperarRitmoTanda = async (tam) => {
+      const espera = (tam * PUNTOS_SYNC_INTERVALO_MIN_MS) - (Date.now() - ultimaPeticion);
+      if (espera > 0) await new Promise(r => setTimeout(r, espera));
+      ultimaPeticion = Date.now();
+    };
+
     let pasadaTerminada = total != null && offset >= total;
     while (!pasadaTerminada && presupuestoRestante() > 0) {
-      await esperarRitmo();
+      const offsetsTanda = [];
+      for (let i = 0; i < TANDA_ANALISIS; i++) {
+        const off = offset + i * PUNTOS_SYNC_LIMIT;
+        if (total != null && off >= total) break;
+        offsetsTanda.push(off);
+      }
+      if (offsetsTanda.length === 0) { pasadaTerminada = true; break; }
+
+      await esperarRitmoTanda(offsetsTanda.length);
       // OJO: para combinar "details" (relación a muchos) con otros expands
       // hay que usar la sintaxis de arreglo expand=[a,b,c] -- expand=a,b,c
       // sin corchetes no trae los detalles (visto ya en bsale-sku-report.js,
       // que sí usa expand=[details,document_type] con éxito).
-      const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[client,document_type,details]&limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}`;
-      const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
-      if (!r.ok) {
-        const texto = await r.text().catch(() => '');
-        throw new Error(`Bsale HTTP ${r.status} en documents.json: ${texto.slice(0, 300)}`);
+      const respuestas = await Promise.all(offsetsTanda.map(async off => {
+        const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[client,document_type,details]&limit=${PUNTOS_SYNC_LIMIT}&offset=${off}`;
+        const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
+        if (!r.ok) {
+          const texto = await r.text().catch(() => '');
+          throw new Error(`Bsale HTTP ${r.status} en documents.json: ${texto.slice(0, 300)}`);
+        }
+        return r.json();
+      }));
+
+      let items = [];
+      let ultimaPaginaIncompleta = false;
+      for (const data of respuestas) {
+        if (typeof data.count === 'number') total = data.count;
+        const its = data.items || [];
+        items.push(...its);
+        if (its.length < PUNTOS_SYNC_LIMIT) ultimaPaginaIncompleta = true;
       }
-      const data = await r.json();
-      const items = data.items || [];
-      if (typeof data.count === 'number') total = data.count;
 
       const ventas = items.filter(d => d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type) && d.client?.id);
 
@@ -1087,9 +1112,9 @@ async function manejarSyncAnalisis(req, res, sesion) {
         );
       }
 
-      offset += items.length;
+      offset += offsetsTanda.length * PUNTOS_SYNC_LIMIT;
       procesados += ventas.length;
-      pasadaTerminada = items.length < PUNTOS_SYNC_LIMIT || (total != null && offset >= total);
+      pasadaTerminada = ultimaPaginaIncompleta || (total != null && offset >= total);
       await sql`UPDATE analisis_sync_estado SET offset_actual = ${offset}, total_documentos = ${total}, actualizado_en = now() WHERE id = 1;`;
     }
 
