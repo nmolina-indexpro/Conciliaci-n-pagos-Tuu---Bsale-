@@ -71,14 +71,25 @@
   h1{ font-size: 20px; }
   h2{ font-size: 14.5px; }
 
-  /* Todas las grillas de tarjetas (KPIs, accesos, etc.) a 1 columna */
-  .grid, .grid-2, .grid-3, .grid-4, .grid-5,
-  .dos-columnas, .accesos{
-    grid-template-columns: 1fr !important;
+  /* .dos-columnas son dos paneles de contenido lado a lado (ej. dos
+     secciones con su propia tabla) -> en celular sí necesitan apilarse
+     a 1 columna completa, no encogerse. */
+  .dos-columnas{ grid-template-columns: 1fr !important; }
+
+  /* .grid/.grid-2../.accesos son grillas de tarjetas chicas (KPIs tipo
+     "label + número grande", accesos rápidos) -> 2 por fila se lee mejor
+     y ocupa menos scroll que 1 columna gigante (ver punto 10 del pedido:
+     "1 o 2 indicadores por fila"). Las tarjetas en sí se comprimen abajo
+     para que quepan cómodas de a 2. */
+  .grid, .grid-2, .grid-3, .grid-4, .grid-5, .accesos{
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
   }
 
-  .card{ padding: 14px 16px; }
-  .card .big{ font-size: 20px; }
+  .card{ padding: 12px 13px; }
+  .card .lbl{ font-size: 10px; margin-bottom: 5px; }
+  .card .big{ font-size: 17px; line-height: 1.25; word-break: break-word; }
+  .card .note{ font-size: 10.5px; }
   .seccion{ padding: 16px 16px; margin-bottom: 16px; }
 
   .toolbar{
@@ -146,6 +157,6 @@
 @media (max-width: 480px) {
   body{ padding: 14px 12px 40px 12px; }
   h1{ font-size: 18px; }
-  .card .big{ font-size: 18px; }
+  .card .big{ font-size: 16px; }
   .page-nav a{ padding: 8px 12px; font-size: 12px; }
 }
