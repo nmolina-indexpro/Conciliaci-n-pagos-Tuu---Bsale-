@@ -270,7 +270,10 @@ function mostrarDetalle(clave, titulo){
         <table>
           <thead><tr>
             <th>Cliente</th><th>Nombre empresa</th><th class="amount">N° compras</th>
-            <th class="amount">Monto total comprado</th><th>Última compra</th><th>Activo 12M</th>
+            <th class="amount">Monto total comprado</th>
+            <th class="amount">Servicios</th><th class="amount">Pantallas</th>
+            <th class="amount">Cargadores</th><th class="amount">Baterías</th>
+            <th>Última compra</th><th>Activo 12M</th>
             <th class="amount">Score</th><th>Documento asociado (RUT)</th><th></th><th>Estado</th>
           </tr></thead>
           <tbody>
@@ -279,6 +282,10 @@ function mostrarDetalle(clave, titulo){
               <td>${c.empresa || '<span class="empty-note">—</span>'}</td>
               <td class="amount">${fmtNum(c.numCompras)}</td>
               <td class="amount"><b>${fmtMoneda(c.montoTotal)}</b></td>
+              <td class="amount">${c.montoServicios ? fmtMoneda(c.montoServicios) : '<span class="empty-note">—</span>'}</td>
+              <td class="amount">${c.montoPantallas ? fmtMoneda(c.montoPantallas) : '<span class="empty-note">—</span>'}</td>
+              <td class="amount">${c.montoCargadores ? fmtMoneda(c.montoCargadores) : '<span class="empty-note">—</span>'}</td>
+              <td class="amount">${c.montoBaterias ? fmtMoneda(c.montoBaterias) : '<span class="empty-note">—</span>'}</td>
               <td>${c.ultimaCompra ? new Date(c.ultimaCompra).toLocaleDateString('es-CL') : '—'}</td>
               <td><span class="badge">Sí</span></td>
               <td class="amount">${c.score.toFixed(2)}</td>

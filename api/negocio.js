@@ -636,6 +636,36 @@ function esVentaReal(tipoDoc) {
   return true;
 }
 
+// Clasifica una línea de detalle de venta por texto del producto (nombre
+// de la variante) -> mismo espíritu que pareceServicioPorNombre en
+// bsale-sku-report.js, pero acá se necesitan las 4 categorías, no solo
+// "es servicio o no". Se usa el texto en vez de products.json/
+// product_types.json para no sumar una vuelta extra a Bsale (y su rate
+// limit) solo por esto -> Análisis ya hace bastantes llamadas trayendo
+// documents.json con expand=details de un año completo.
+function categoriaLinea(nombreLinea) {
+  const n = nombreLinea || '';
+  if (/pantalla/i.test(n)) return 'pantallas';
+  if (/cargador/i.test(n)) return 'cargadores';
+  if (/bater[ií]a/i.test(n)) return 'baterias';
+  if (/servicio|instalaci[oó]n|garant[ií]a|mano de obra|diagn[oó]stico|reparaci[oó]n/i.test(n)) return 'servicios';
+  return null;
+}
+
+// Suma, por categoría, el monto neto de las líneas de un documento de
+// venta (una venta puede mezclar categorías, ej. cargador + instalación).
+function desglosarCategoriasDocumento(doc) {
+  const totales = { servicios: 0, pantallas: 0, cargadores: 0, baterias: 0 };
+  const detalles = doc.details?.items || (Array.isArray(doc.details) ? doc.details : []);
+  for (const det of detalles) {
+    const nombre = det.variant?.description || det.comment || '';
+    const cat = categoriaLinea(nombre);
+    if (!cat) continue;
+    totales[cat] += (det.quantity || 0) * (det.netUnitValue || 0);
+  }
+  return totales;
+}
+
 async function manejarCotizacionesClientes(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -984,7 +1014,7 @@ async function manejarSyncAnalisis(req, res, sesion) {
     let pasadaTerminada = total != null && offset >= total;
     while (!pasadaTerminada && presupuestoRestante() > 0) {
       await esperarRitmo();
-      const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=client,document_type&limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}`;
+      const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=client,document_type,details&limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}`;
       const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
       if (!r.ok) {
         const texto = await r.text().catch(() => '');
@@ -997,18 +1027,26 @@ async function manejarSyncAnalisis(req, res, sesion) {
       const ventas = items.filter(d => d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type) && d.client?.id);
 
       if (ventas.length > 0) {
+        const desglosePorDoc = ventas.map(d => desglosarCategoriasDocumento(d));
         await sql.query(
-          `INSERT INTO analisis_compras (documento_id, cliente_id, cliente_nombre, fecha, monto, sincronizado_en)
-           SELECT * FROM UNNEST ($1::int[], $2::int[], $3::text[], $4::date[], $5::numeric[], $6::timestamptz[])
+          `INSERT INTO analisis_compras (documento_id, cliente_id, cliente_nombre, fecha, monto, monto_servicios, monto_pantallas, monto_cargadores, monto_baterias, sincronizado_en)
+           SELECT * FROM UNNEST ($1::int[], $2::int[], $3::text[], $4::date[], $5::numeric[], $6::numeric[], $7::numeric[], $8::numeric[], $9::numeric[], $10::timestamptz[])
            ON CONFLICT (documento_id) DO UPDATE SET
              cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre,
-             fecha = EXCLUDED.fecha, monto = EXCLUDED.monto, sincronizado_en = EXCLUDED.sincronizado_en;`,
+             fecha = EXCLUDED.fecha, monto = EXCLUDED.monto,
+             monto_servicios = EXCLUDED.monto_servicios, monto_pantallas = EXCLUDED.monto_pantallas,
+             monto_cargadores = EXCLUDED.monto_cargadores, monto_baterias = EXCLUDED.monto_baterias,
+             sincronizado_en = EXCLUDED.sincronizado_en;`,
           [
             ventas.map(d => d.id),
             ventas.map(d => d.client.id),
             ventas.map(d => nombreClienteDoc(d.client)),
             ventas.map(d => d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null),
             ventas.map(d => Number(d.totalAmount) || 0),
+            desglosePorDoc.map(d => d.servicios),
+            desglosePorDoc.map(d => d.pantallas),
+            desglosePorDoc.map(d => d.cargadores),
+            desglosePorDoc.map(d => d.baterias),
             ventas.map(() => new Date().toISOString()),
           ]
         );
@@ -1088,6 +1126,8 @@ async function manejarAnalisisClientes(req, res, sesion) {
       SELECT
         ac.cliente_id, MAX(ac.cliente_nombre) AS cliente_nombre, COUNT(*)::int AS num_compras,
         SUM(ac.monto) AS monto_total, MAX(ac.fecha) AS ultima_compra,
+        SUM(ac.monto_servicios) AS monto_servicios, SUM(ac.monto_pantallas) AS monto_pantallas,
+        SUM(ac.monto_cargadores) AS monto_cargadores, SUM(ac.monto_baterias) AS monto_baterias,
         MAX(bp.rut) AS rut, MAX(bp.empresa) AS empresa, MAX(bp.telefono) AS telefono, MAX(bp.email) AS email,
         COALESCE(MAX(ace.estado), 'sin_contactar') AS estado
       FROM analisis_compras ac
@@ -1109,6 +1149,10 @@ async function manejarAnalisisClientes(req, res, sesion) {
       email: r.email || null,
       numCompras: r.num_compras,
       montoTotal: r.monto_total != null ? Number(r.monto_total) : 0,
+      montoServicios: r.monto_servicios != null ? Number(r.monto_servicios) : 0,
+      montoPantallas: r.monto_pantallas != null ? Number(r.monto_pantallas) : 0,
+      montoCargadores: r.monto_cargadores != null ? Number(r.monto_cargadores) : 0,
+      montoBaterias: r.monto_baterias != null ? Number(r.monto_baterias) : 0,
       ultimaCompra: r.ultima_compra ? new Date(r.ultima_compra).toISOString().slice(0, 10) : null,
       estado: r.estado,
     });
