@@ -1011,6 +1011,23 @@ async function manejarSyncAnalisis(req, res, sesion) {
     const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
     const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
 
+    // Modo diagnóstico (?recurso=sync-analisis&debug=1): trae UNA página tal
+    // cual la devuelve Bsale y la muestra cruda, sin tocar la base de datos
+    // -- para confirmar de una vez si "details" realmente viene o no, en
+    // vez de seguir adivinando el motivo de por qué las 4 columnas de
+    // categoría quedan en $0.
+    if (req.query.debug) {
+      const urlDebug = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[client,document_type,details]&limit=3&offset=0`;
+      const rDebug = await fetchConTimeout(urlDebug, { headers: { access_token: token } }, 15000);
+      const dataDebug = await rDebug.json();
+      return res.status(200).json({
+        debug: true, urlUsada: urlDebug, status: rDebug.status,
+        primerDocumentoCompleto: dataDebug.items?.[0] || null,
+        tieneDetails: dataDebug.items?.[0]?.details !== undefined,
+        formaDeDetails: dataDebug.items?.[0]?.details,
+      });
+    }
+
     let pasadaTerminada = total != null && offset >= total;
     while (!pasadaTerminada && presupuestoRestante() > 0) {
       await esperarRitmo();
