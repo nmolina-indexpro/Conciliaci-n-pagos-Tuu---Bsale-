@@ -71,6 +71,8 @@
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
   td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
   th.amount, td.amount{text-align:right;}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
   .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
   .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;background:var(--green-bg);color:var(--green);}
   .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);text-decoration:none;font-size:13px;cursor:pointer;transition:all .15s;}
@@ -186,6 +188,8 @@ async function cargarAnalisis(){
 
 let analisisActual = null;
 let segmentoActual = null; // 'ocasionales' | 'recurrentes' | 'pro'
+let sortColAnalisis = 'score';
+let sortAscAnalisis = false; // arranca de mayor a menor score (los más valiosos primero)
 const ESTADOS_ANALISIS_LABEL = { sin_contactar: 'Sin contactar', contactado: 'Contactado', fidelizado: 'Fidelizado' };
 
 function fmtMoneda(n){ return '$' + fmtNum(Math.round(n || 0)); }
@@ -253,14 +257,35 @@ function formatearTelefonoWhatsapp(tel){
   return '+56' + soloDigitos;
 }
 
+function ordenarClientesAnalisis(lista){
+  const col = sortColAnalisis;
+  return [...lista].sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if(typeof va === 'string' || typeof vb === 'string'){
+      va = va ?? ''; vb = vb ?? '';
+      return sortAscAnalisis ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+    }
+    va = va ?? 0; vb = vb ?? 0;
+    return sortAscAnalisis ? va - vb : vb - va;
+  });
+}
+
+function cambiarOrdenAnalisis(col){
+  if(sortColAnalisis === col) sortAscAnalisis = !sortAscAnalisis;
+  else { sortColAnalisis = col; sortAscAnalisis = true; } // primer clic: menor a mayor
+  if(segmentoActual) mostrarDetalle(segmentoActual.clave, segmentoActual.titulo);
+}
+
 function mostrarDetalle(clave, titulo){
   if(!analisisActual) return;
   segmentoActual = { clave, titulo };
   const esAdmin = rolActual === 'admin';
-  const clientes = calcularScores(analisisActual[clave]?.clientes || []).sort((a,b) => b.score - a.score);
+  const clientes = ordenarClientesAnalisis(calcularScores(analisisActual[clave]?.clientes || []));
+  const marca = col => sortColAnalisis === col ? (sortAscAnalisis ? ' ▲' : ' ▼') : '';
+  const th = (col, label, amount) => `<th class="ordenable${amount?' amount':''}" onclick="cambiarOrdenAnalisis('${col}')">${label}${marca(col)}</th>`;
 
   $('detalleTitulo').textContent = `👥 ${titulo}`;
-  $('detalleSub').textContent = `${fmtNum(clientes.length)} cliente(s), ordenados de mayor a menor score.`;
+  $('detalleSub').textContent = `${fmtNum(clientes.length)} cliente(s) — clic en una columna para ordenar de menor a mayor (o al revés).`;
 
   if(clientes.length === 0){
     $('wrapDetalle').innerHTML = `<p class="empty-note">Sin clientes en este grupo.</p>`;
@@ -269,12 +294,12 @@ function mostrarDetalle(clave, titulo){
       <div class="tabla-wrap">
         <table>
           <thead><tr>
-            <th>Cliente</th><th>Nombre empresa</th><th class="amount">N° compras</th>
-            <th class="amount">Monto total comprado</th>
-            <th class="amount">Servicios</th><th class="amount">Pantallas</th>
-            <th class="amount">Cargadores</th><th class="amount">Baterías</th>
-            <th>Última compra</th><th>Activo 12M</th>
-            <th class="amount">Score</th><th>Documento asociado (RUT)</th><th></th><th>Estado</th>
+            ${th('clienteNombre','Cliente')}${th('empresa','Nombre empresa')}${th('numCompras','N° compras', true)}
+            ${th('montoTotal','Monto total comprado', true)}
+            ${th('montoServicios','Servicios', true)}${th('montoPantallas','Pantallas', true)}
+            ${th('montoCargadores','Cargadores', true)}${th('montoBaterias','Baterías', true)}
+            ${th('ultimaCompra','Última compra')}<th>Activo 12M</th>
+            ${th('score','Score', true)}${th('rut','Documento asociado (RUT)')}<th></th>${th('estado','Estado')}
           </tr></thead>
           <tbody>
             ${clientes.map(c => `<tr>
