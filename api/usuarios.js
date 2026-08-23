@@ -13,7 +13,7 @@ import { enviarCorreo } from '../lib/mailer.js';
 const PAGINAS_DISPONIBLES = [
   'home.html', 'index.html', 'conciliacion.html', 'compras.html',
   'alertas-stock.html', 'oportunidades-comerciales.html', 'sitio-web.html',
-  'eficiencia-tickets.html', 'guia-uso.html',
+  'eficiencia-tickets.html', 'analisis.html', 'guia-uso.html',
 ];
 
 export default async function handler(req, res) {

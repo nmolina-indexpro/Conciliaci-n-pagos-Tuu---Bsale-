@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
@@ -42,7 +42,9 @@ export default async function handler(req, res) {
   if (recurso === 'indexpro-estado') return manejarIndexproEstado(req, res, sesion);
   if (recurso === 'indexpro-historial') return manejarIndexproHistorial(req, res, sesion);
   if (recurso === 'indexpro-enviar-presentacion') return manejarIndexproEnviarPresentacion(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones, ?recurso=cotizacion-estado, ?recurso=calendario-pagos, ?recurso=calendario-pagos-importar, ?recurso=saldo-bci, ?recurso=indexpro-oportunidades, ?recurso=sync-indexpro, ?recurso=indexpro-estado, ?recurso=indexpro-historial o ?recurso=indexpro-enviar-presentacion' });
+  if (recurso === 'analisis-clientes') return manejarAnalisisClientes(req, res, sesion);
+  if (recurso === 'sync-analisis') return manejarSyncAnalisis(req, res, sesion);
+  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones, ?recurso=cotizacion-estado, ?recurso=calendario-pagos, ?recurso=calendario-pagos-importar, ?recurso=saldo-bci, ?recurso=indexpro-oportunidades, ?recurso=sync-indexpro, ?recurso=indexpro-estado, ?recurso=indexpro-historial, ?recurso=indexpro-enviar-presentacion, ?recurso=analisis-clientes o ?recurso=sync-analisis' });
 }
 
 // ---------------- Facturas de compra (ingresadas a mano) ----------------
@@ -932,6 +934,137 @@ async function manejarSyncCotizaciones(req, res, sesion) {
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error sincronizando cotizaciones con Bsale', detail: String(err) });
+  }
+}
+
+// ---------------- Análisis — clientes recurrentes ----------------
+// Clasifica clientes por N° de compras REALES (boletas/facturas, sin
+// cotizaciones ni notas de crédito, ver esVentaReal) en los últimos 12
+// meses:
+//   1 compra    -> ocasional
+//   2 compras   -> recurrente
+//   3+ compras  -> pro
+// Mismo patrón resumible de las otras sincronizaciones con Bsale (ver
+// manejarSyncCotizaciones más arriba): la Fase 1 (única acá, no hay
+// Fase 2) pagina documents.json del período y guarda cada documento;
+// como "documento_id" es PRIMARY KEY, reintentar o repetir una página no
+// duplica el conteo.
+const ANALISIS_DIAS_HISTORIAL = 365;
+
+async function manejarSyncAnalisis(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sincronizar el análisis de clientes' });
+
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+
+  const inicio = Date.now();
+  try {
+    const sql = await getSql();
+    await asegurarTablaAnalisis(sql);
+
+    const { rows: estadoRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
+    const estado = estadoRows[0] || {};
+    let offset = estado.offset_actual || 0;
+    let total = estado.total_documentos ?? null;
+    let procesados = 0;
+    let ultimaPeticion = 0;
+    const presupuestoRestante = () => PUNTOS_SYNC_PRESUPUESTO_MS - (Date.now() - inicio);
+    const esperarRitmo = async () => {
+      const espera = PUNTOS_SYNC_INTERVALO_MIN_MS - (Date.now() - ultimaPeticion);
+      if (espera > 0) await new Promise(r => setTimeout(r, espera));
+      ultimaPeticion = Date.now();
+    };
+
+    const hastaStr = new Date().toISOString().slice(0, 10);
+    const desdeStr = new Date(Date.now() - ANALISIS_DIAS_HISTORIAL * 86400000).toISOString().slice(0, 10);
+    const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
+    const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
+
+    let pasadaTerminada = total != null && offset >= total;
+    while (!pasadaTerminada && presupuestoRestante() > 0) {
+      await esperarRitmo();
+      const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=client,document_type&limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}`;
+      const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
+      if (!r.ok) {
+        const texto = await r.text().catch(() => '');
+        throw new Error(`Bsale HTTP ${r.status} en documents.json: ${texto.slice(0, 300)}`);
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      if (typeof data.count === 'number') total = data.count;
+
+      const ventas = items.filter(d => d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type) && d.client?.id);
+
+      if (ventas.length > 0) {
+        await sql.query(
+          `INSERT INTO analisis_compras (documento_id, cliente_id, cliente_nombre, fecha, sincronizado_en)
+           SELECT * FROM UNNEST ($1::int[], $2::int[], $3::text[], $4::date[], $5::timestamptz[])
+           ON CONFLICT (documento_id) DO UPDATE SET
+             cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre,
+             fecha = EXCLUDED.fecha, sincronizado_en = EXCLUDED.sincronizado_en;`,
+          [
+            ventas.map(d => d.id),
+            ventas.map(d => d.client.id),
+            ventas.map(d => nombreClienteDoc(d.client)),
+            ventas.map(d => d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null),
+            ventas.map(() => new Date().toISOString()),
+          ]
+        );
+      }
+
+      offset += items.length;
+      procesados += ventas.length;
+      pasadaTerminada = items.length < PUNTOS_SYNC_LIMIT || (total != null && offset >= total);
+      await sql`UPDATE analisis_sync_estado SET offset_actual = ${offset}, total_documentos = ${total}, actualizado_en = now() WHERE id = 1;`;
+    }
+
+    if (!pasadaTerminada) {
+      return res.status(200).json({ completo: false, procesadosEnEstaLlamada: procesados, offsetActual: offset, totalDocumentos: total });
+    }
+
+    // Pasada completa: se saca lo que quedó fuera de la ventana de 12
+    // meses (compras que "envejecieron" desde la sincronización anterior)
+    // y se reinicia el offset para la próxima pasada completa.
+    await sql`DELETE FROM analisis_compras WHERE fecha < ${desdeStr};`;
+    await sql`UPDATE analisis_sync_estado SET offset_actual = 0, total_documentos = NULL, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
+
+    return res.status(200).json({ completo: true, procesadosEnEstaLlamada: procesados });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error sincronizando el análisis de clientes con Bsale', detail: String(err) });
+  }
+}
+
+async function manejarAnalisisClientes(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaAnalisis(sql);
+
+    const { rows } = await sql`
+      SELECT cliente_id, MAX(cliente_nombre) AS cliente_nombre, COUNT(*)::int AS num_compras
+      FROM analisis_compras GROUP BY cliente_id;
+    `;
+    const { rows: estadoRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
+
+    const totalClientes = rows.length;
+    let pro = 0, recurrentes = 0, ocasionales = 0;
+    for (const r of rows) {
+      if (r.num_compras >= 3) pro++;
+      else if (r.num_compras === 2) recurrentes++;
+      else ocasionales++;
+    }
+    const pct = n => totalClientes > 0 ? Math.round((n / totalClientes) * 1000) / 10 : 0;
+
+    return res.status(200).json({
+      totalClientes,
+      pro: { cantidad: pro, porcentaje: pct(pro) },
+      recurrentes: { cantidad: recurrentes, porcentaje: pct(recurrentes) },
+      ocasionales: { cantidad: ocasionales, porcentaje: pct(ocasionales) },
+      sync: estadoRows[0] || null,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al calcular el análisis de clientes', detail: String(err) });
   }
 }
 
