@@ -148,6 +148,19 @@ const $ = id => document.getElementById(id);
 let rolActual = 'usuario';
 let sincronizando = false;
 
+// Nombre/empresa vienen de Bsale y "comentario" lo escribe un admin -> todo
+// se renderiza vía innerHTML, así que se escapa antes de interpolar (texto
+// Y atributos tipo title="..."). Evita HTML injection si algún dato trae
+// caracteres como < > " sin querer (o a propósito).
+function escapeHtml(texto){
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function fmtNum(n){ return new Intl.NumberFormat('es-CL').format(n || 0); }
 
 async function cargarSesionUsuario(){
@@ -314,9 +327,9 @@ function mostrarDetalle(clave, titulo){
           </tr></thead>
           <tbody>
             ${clientes.map(c => `<tr>
-              <td>${c.empresa || '<span class="empty-note">—</span>'}</td>
-              <td>${c.clienteNombre || `Cliente #${c.clienteId}`}</td>
-              <td>${c.rut || '<span class="empty-note">—</span>'}</td>
+              <td>${c.empresa ? escapeHtml(c.empresa) : '<span class="empty-note">—</span>'}</td>
+              <td>${c.clienteNombre ? escapeHtml(c.clienteNombre) : `Cliente #${c.clienteId}`}</td>
+              <td>${c.rut ? escapeHtml(c.rut) : '<span class="empty-note">—</span>'}</td>
               <td class="amount">${fmtNum(c.numCompras)}</td>
               <td class="amount"><b>${fmtMoneda(c.montoTotal)}</b></td>
               <td class="amount">${c.montoCargadores ? fmtMoneda(c.montoCargadores) : '<span class="empty-note">—</span>'}</td>
@@ -326,11 +339,11 @@ function mostrarDetalle(clave, titulo){
               <td>${c.ultimaCompra ? new Date(c.ultimaCompra).toLocaleDateString('es-CL') : '—'}</td>
               <td class="amount">${c.score.toFixed(2)}</td>
               <td>
-                ${c.email ? `<a class="btn-icono" href="mailto:${c.email}" title="Correo: ${c.email}">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`}
-                ${c.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(c.telefono).replace('+','')}" target="_blank" rel="noopener" title="WhatsApp: ${c.telefono}">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`}
-                <button class="btn-icono" style="${esAdmin?'':'cursor:default;'}" title="${c.comentario ? 'Comentario: ' + c.comentario : (esAdmin ? 'Sin comentario — clic para agregar' : 'Sin comentario')}" ${esAdmin?`onclick="editarComentarioAnalisis(${c.clienteId}, '${(c.comentario||'').replace(/'/g,"\\'")}')"`:''}>📝</button>
-                ${dominioSitioWeb(c.email) ? `<a class="btn-icono" href="https://${dominioSitioWeb(c.email)}" target="_blank" rel="noopener" title="Sitio web: ${dominioSitioWeb(c.email)}">🌐</a>` : `<span class="btn-icono deshabilitado" title="Sin sitio web conocido">🌐</span>`}
-                ${esAdmin ? `<button class="btn-icono" title="Sacar del análisis" onclick="eliminarClienteAnalisis(${c.clienteId}, '${(c.clienteNombre||'').replace(/'/g,"\\'")}')">🗑️</button>` : ''}
+                ${c.email ? `<a class="btn-icono" href="mailto:${encodeURIComponent(c.email)}" title="Correo: ${escapeHtml(c.email)}">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`}
+                ${c.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(c.telefono).replace('+','')}" target="_blank" rel="noopener" title="WhatsApp: ${escapeHtml(c.telefono)}">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`}
+                <button class="btn-icono" style="${esAdmin?'':'cursor:default;'}" title="${c.comentario ? 'Comentario: ' + escapeHtml(c.comentario) : (esAdmin ? 'Sin comentario — clic para agregar' : 'Sin comentario')}" ${esAdmin?`onclick="editarComentarioAnalisis(${c.clienteId})"`:''}>📝</button>
+                ${dominioSitioWeb(c.email) ? `<a class="btn-icono" href="https://${encodeURIComponent(dominioSitioWeb(c.email))}" target="_blank" rel="noopener" title="Sitio web: ${escapeHtml(dominioSitioWeb(c.email))}">🌐</a>` : `<span class="btn-icono deshabilitado" title="Sin sitio web conocido">🌐</span>`}
+                ${esAdmin ? `<button class="btn-icono" title="Sacar del análisis" onclick="eliminarClienteAnalisis(${c.clienteId})">🗑️</button>` : ''}
               </td>
               <td>${esAdmin
                 ? `<select class="selectEstado" onchange="cambiarEstadoAnalisis(${c.clienteId}, this.value)">
@@ -352,7 +365,21 @@ function cerrarDetalle(){
   $('seccionDetalle').style.display = 'none';
 }
 
-async function editarComentarioAnalisis(clienteId, actual){
+// Busca un cliente por id entre los 3 segmentos ya cargados -> se usa para
+// no tener que pasar texto libre (nombre/comentario) dentro de un
+// onclick="..." interpolado (evita el lío de escapar comillas dentro de un
+// atributo HTML que además contiene un string literal de JS).
+function buscarClienteAnalisis(clienteId){
+  if(!analisisActual) return null;
+  for(const clave of ['ocasionales','recurrentes','pro']){
+    const encontrado = analisisActual[clave]?.clientes?.find(c => c.clienteId === clienteId);
+    if(encontrado) return encontrado;
+  }
+  return null;
+}
+
+async function editarComentarioAnalisis(clienteId){
+  const actual = buscarClienteAnalisis(clienteId)?.comentario;
   const nuevo = prompt('Comentario para este cliente:', actual || '');
   if(nuevo === null) return; // canceló
   try{
@@ -380,7 +407,8 @@ async function cambiarEstadoAnalisis(clienteId, estado){
   }
 }
 
-async function eliminarClienteAnalisis(clienteId, nombre){
+async function eliminarClienteAnalisis(clienteId){
+  const nombre = buscarClienteAnalisis(clienteId)?.clienteNombre || `Cliente #${clienteId}`;
   if(!confirm(`¿Sacar a "${nombre}" del análisis? No va a volver a aparecer aunque compre de nuevo, salvo que lo saques de la lista de exclusión.`)) return;
   try{
     const res = await fetch(`/api/negocio?recurso=analisis-clientes&clienteId=${clienteId}`, { method: 'DELETE' });

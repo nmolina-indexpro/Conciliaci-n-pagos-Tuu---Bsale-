@@ -182,6 +182,20 @@
 <script src="menu-herramientas.js"></script>
 <script>
 const $ = id => document.getElementById(id);
+// La descripción la escribe el propio usuario y se muestra vía innerHTML a
+// otras personas (incluido admin) en la tabla y el modal -> sin esto,
+// cualquiera podría meter <script>/<img onerror=...> como "reporte" y que
+// se ejecute en el navegador de quien lo revise (stored XSS). Se escapan
+// también las comillas (no solo &/</>) para que sea seguro tanto en
+// contenido de texto como dentro de un atributo tipo title="...".
+function escapeHtml(texto){
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 let rolActual = 'usuario';
 
 async function cargarSesionUsuario(){
@@ -330,7 +344,7 @@ async function cargarReportes(){
               ${rolActual==='admin'?`<td>${r.usuario_nombre || r.usuario_email}</td>`:''}
               <td>${RESPONSABLE_FIJO}</td>
               <td>${r.pagina || '—'}${r.sku_code?`<br><span class="empty-note">SKU: ${r.sku_code}</span>`:''}</td>
-              <td style="max-width:260px;">${r.descripcion}</td>
+              <td style="max-width:260px;">${escapeHtml(r.descripcion)}</td>
               <td>${r.imagen?`<img src="${r.imagen}" class="thumb-tabla">`:'—'}</td>
               <td>${new Date(r.created_at).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</td>
               <td onclick="event.stopPropagation()">${rolActual==='admin'
@@ -391,8 +405,8 @@ function abrirDetalleReporte(id){
     <div class="detalle-fila"><b>Página</b>${r.pagina || '—'}</div>
     ${r.sku_code?`<div class="detalle-fila"><b>SKU</b>${r.sku_code}</div>`:''}
     <div class="detalle-fila"><b>Fecha</b>${new Date(r.created_at).toLocaleString('es-CL')}</div>
-    <div class="detalle-fila" style="flex-direction:column;"><b>Descripción</b><div style="margin-top:6px;white-space:pre-wrap;">${r.descripcion}</div></div>
-    ${r.contexto?`<div class="detalle-fila" style="flex-direction:column;"><b>Datos que veía</b><pre style="white-space:pre-wrap;font-size:11px;background:var(--surface-2);padding:8px 10px;border-radius:8px;margin-top:6px;">${JSON.stringify(r.contexto, null, 2)}</pre></div>`:''}
+    <div class="detalle-fila" style="flex-direction:column;"><b>Descripción</b><div style="margin-top:6px;white-space:pre-wrap;">${escapeHtml(r.descripcion)}</div></div>
+    ${r.contexto?`<div class="detalle-fila" style="flex-direction:column;"><b>Datos que veía</b><pre style="white-space:pre-wrap;font-size:11px;background:var(--surface-2);padding:8px 10px;border-radius:8px;margin-top:6px;">${escapeHtml(JSON.stringify(r.contexto, null, 2))}</pre></div>`:''}
     ${r.imagen?`<div class="detalle-fila" style="flex-direction:column;"><b>Captura</b><img src="${r.imagen}" class="imagen-detalle"></div>`:''}
   `;
   $('modalFoot').innerHTML = rolActual==='admin' ? `
