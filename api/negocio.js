@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
@@ -20,6 +20,12 @@ const URL_REPORTES = 'https://conciliaci-n-pagos-tuu-bsale.vercel.app/reportar-e
 const ZOHO_TIMEOUT_MS = 20000;
 
 export default async function handler(req, res) {
+  // El webhook de WhatsApp lo llama Meta directo (sin cookie de sesión) ->
+  // se resuelve ANTES del chequeo de sesión, y con su propia verificación
+  // (firma de Meta). Ver también middleware.ts (esWebhookWhatsappPublico),
+  // que deja pasar ESTA combinación puntual de pathname+recurso sin sesión.
+  if (req.query.recurso === 'whatsapp-webhook') return manejarWhatsappWebhook(req, res);
+
   const sesion = usuarioDesdeRequest(req);
   if (!sesion) return res.status(401).json({ error: 'No hay sesión activa' });
 
@@ -44,7 +50,19 @@ export default async function handler(req, res) {
   if (recurso === 'indexpro-enviar-presentacion') return manejarIndexproEnviarPresentacion(req, res, sesion);
   if (recurso === 'analisis-clientes') return manejarAnalisisClientes(req, res, sesion);
   if (recurso === 'sync-analisis') return manejarSyncAnalisis(req, res, sesion);
-  return res.status(400).json({ error: 'Falta ?recurso=criticos, ?recurso=reportes, ?recurso=zoho-tickets, ?recurso=alerta-conciliacion, ?recurso=facturas-compra, ?recurso=clientes-puntos, ?recurso=sync-clientes-puntos, ?recurso=cotizaciones-clientes, ?recurso=sync-cotizaciones, ?recurso=cotizacion-estado, ?recurso=calendario-pagos, ?recurso=calendario-pagos-importar, ?recurso=saldo-bci, ?recurso=indexpro-oportunidades, ?recurso=sync-indexpro, ?recurso=indexpro-estado, ?recurso=indexpro-historial, ?recurso=indexpro-enviar-presentacion, ?recurso=analisis-clientes o ?recurso=sync-analisis' });
+  if (recurso === 'whatsapp-dashboard') return manejarWhatsappDashboard(req, res, sesion);
+  if (recurso === 'whatsapp-conversaciones') return manejarWhatsappConversaciones(req, res, sesion);
+  if (recurso === 'whatsapp-conversacion-detalle') return manejarWhatsappConversacionDetalle(req, res, sesion);
+  if (recurso === 'whatsapp-clientes') return manejarWhatsappClientes(req, res, sesion);
+  if (recurso === 'whatsapp-cliente-detalle') return manejarWhatsappClienteDetalle(req, res, sesion);
+  if (recurso === 'whatsapp-seguimientos') return manejarWhatsappSeguimientos(req, res, sesion);
+  if (recurso === 'whatsapp-etiquetas') return manejarWhatsappEtiquetas(req, res, sesion);
+  if (recurso === 'whatsapp-venta') return manejarWhatsappVenta(req, res, sesion);
+  if (recurso === 'whatsapp-analitica') return manejarWhatsappAnalitica(req, res, sesion);
+  if (recurso === 'whatsapp-demo-seed') return manejarWhatsappDemoSeed(req, res, sesion);
+  if (recurso === 'whatsapp-demo-clear') return manejarWhatsappDemoClear(req, res, sesion);
+  if (recurso === 'whatsapp-usuarios') return manejarWhatsappUsuarios(req, res, sesion);
+  return res.status(400).json({ error: 'Falta un ?recurso= válido (ver api/negocio.js)' });
 }
 
 // ---------------- Facturas de compra (ingresadas a mano) ----------------
@@ -1725,5 +1743,1031 @@ async function manejarIndexproEnviarPresentacion(req, res, sesion) {
     return res.status(200).json({ ok: true, estado: nuevoEstado });
   } catch (err) {
     return res.status(500).json({ error: 'Error enviando el correo', detail: String(err) });
+  }
+}
+
+// ==================== Clientes WhatsApp ====================
+// Variables de entorno requeridas para conectar de verdad con Meta (hasta
+// que existan, el webhook queda "preparado" pero inactivo -- ver Fase 37
+// del pedido, se usan datos demo mientras tanto):
+//   WHATSAPP_VERIFY_TOKEN   texto que TÚ inventas y pones también en el
+//                           panel de Meta al configurar el webhook (paso
+//                           de verificación GET).
+//   WHATSAPP_APP_SECRET     App Secret de la app de Meta -> firma
+//                           X-Hub-Signature-256 de cada POST.
+const WHATSAPP_ESTADOS = ['nueva', 'abierta', 'esperando_cliente', 'seguimiento', 'cerrada', 'sin_respuesta'];
+const WHATSAPP_RESULTADOS = ['venta', 'cotizacion', 'seguimiento', 'sin_stock', 'cliente_no_responde', 'no_interesado', 'otro'];
+const WHATSAPP_SEGUIMIENTO_ESTADOS = ['pendiente', 'contactado', 'venta', 'cerrado', 'no_interesado'];
+const WHATSAPP_INTENCIONES = ['compra', 'consulta', 'postventa', 'servicio_tecnico', 'garantia', 'seguimiento'];
+const WHATSAPP_MOTIVOS_PERDIDA_LABEL = {
+  cliente_no_responde: 'Cliente dejó de responder', sin_stock: 'Sin stock', precio: 'Precio',
+  respuesta_lenta: 'Respuesta demasiado lenta', producto_incompatible: 'Producto incompatible',
+  sin_seguimiento: 'No se realizó seguimiento', otro: 'Otro',
+};
+const WHATSAPP_CATEGORIAS = ['pantalla', 'cargador', 'bateria', 'servicio_tecnico', 'repuestos', 'cotizacion', 'compatibilidad', 'garantia', 'estado_pedido', 'postventa', 'otra'];
+
+// ---- Webhook (recibe eventos de Meta; ver middleware.ts para el paso público) ----
+async function manejarWhatsappWebhook(req, res) {
+  if (req.method === 'GET') {
+    // Paso de verificación que exige Meta al configurar el webhook: si el
+    // verify_token calza, hay que devolver el "challenge" tal cual, texto
+    // plano (no JSON).
+    const modo = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    const tokenEsperado = process.env.WHATSAPP_VERIFY_TOKEN;
+    if (modo === 'subscribe' && tokenEsperado && token === tokenEsperado) {
+      res.status(200);
+      return res.end(String(challenge || ''));
+    }
+    return res.status(403).json({ error: 'Token de verificación inválido' });
+  }
+
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Verificación de firma de Meta (best-effort): Vercel ya parsea el body
+  // a JSON antes de que este código lo vea, así que el re-serializado acá
+  // puede no calzar byte a byte con lo que Meta realmente mandó (orden de
+  // llaves, espacios). Cuando se conecten credenciales reales, lo correcto
+  // es capturar el body CRUDO antes de parsear para comparar exacto -- por
+  // ahora esto queda como validación best-effort, documentada.
+  try {
+    const secreto = process.env.WHATSAPP_APP_SECRET;
+    const firma = req.headers['x-hub-signature-256'];
+    if (secreto && firma) {
+      const crypto = await import('crypto');
+      const esperada = 'sha256=' + crypto.createHmac('sha256', secreto).update(JSON.stringify(req.body || {})).digest('hex');
+      const a = Buffer.from(firma);
+      const b = Buffer.from(esperada);
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+        console.warn('[whatsapp-webhook] firma no calzó (posible re-serialización distinta al body crudo, ver comentario arriba)');
+      }
+    }
+  } catch (err) {
+    console.warn('[whatsapp-webhook] error validando firma', err);
+  }
+
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    const entradas = req.body?.entry || [];
+    let mensajesProcesados = 0;
+    for (const entrada of entradas) {
+      for (const cambio of (entrada.changes || [])) {
+        const valor = cambio.value || {};
+        const contactosPayload = valor.contacts || [];
+        const mensajesPayload = valor.messages || [];
+        const estadosPayload = valor.statuses || [];
+
+        for (const m of mensajesPayload) {
+          const { rows: yaProcesado } = await sql`SELECT 1 FROM whatsapp_webhook_eventos_procesados WHERE whatsapp_message_id = ${m.id};`;
+          if (yaProcesado.length > 0) continue; // idempotencia (Meta puede reenviar el mismo evento)
+
+          const marcaTiempo = new Date(Number(m.timestamp) * 1000);
+          const infoContacto = contactosPayload.find(c => c.wa_id === m.from) || {};
+          const contacto = await obtenerOCrearContactoWhatsapp(sql, m.from, infoContacto.profile?.name);
+          const conversacion = await obtenerOCrearConversacionWhatsapp(sql, contacto, marcaTiempo);
+          const { tipo, texto, mediaRef } = extraerContenidoMensajeWhatsapp(m);
+
+          await sql`
+            INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto, media_url)
+            VALUES (${conversacion.id}, ${m.id}, ${marcaTiempo.toISOString()}, 'in', 'api', ${tipo}, ${texto}, ${mediaRef})
+            ON CONFLICT (whatsapp_message_id) DO NOTHING;
+          `;
+          await sql`INSERT INTO whatsapp_webhook_eventos_procesados (whatsapp_message_id) VALUES (${m.id}) ON CONFLICT (whatsapp_message_id) DO NOTHING;`;
+
+          if (!conversacion.primer_mensaje_cliente_en) {
+            await sql`UPDATE whatsapp_conversaciones SET primer_mensaje_cliente_en = ${marcaTiempo.toISOString()} WHERE id = ${conversacion.id};`;
+          }
+          await sql`
+            UPDATE whatsapp_conversaciones
+            SET cantidad_mensajes = cantidad_mensajes + 1, ultimo_mensaje_resumen = ${texto ? texto.slice(0, 140) : `[${tipo}]`}, updated_at = now()
+            WHERE id = ${conversacion.id};
+          `;
+          await sql`UPDATE whatsapp_contactos SET ultima_conversacion_en = now(), updated_at = now() WHERE id = ${contacto.id};`;
+          mensajesProcesados++;
+        }
+
+        for (const st of estadosPayload) {
+          if (st.id) await sql`UPDATE whatsapp_mensajes SET estado = ${st.status} WHERE whatsapp_message_id = ${st.id};`;
+        }
+      }
+    }
+
+    return res.status(200).json({ ok: true, mensajesProcesados });
+  } catch (err) {
+    // Meta reintenta agresivamente si no recibe 200 -> se responde 200 aun
+    // en error nuestro (para no generar una tormenta de reintentos), el
+    // detalle queda en los logs de Vercel para diagnosticar.
+    console.error('[whatsapp-webhook] error procesando evento', err);
+    return res.status(200).json({ ok: false, error: String(err) });
+  }
+}
+
+async function obtenerOCrearContactoWhatsapp(sql, waId, nombre) {
+  const { rows } = await sql`SELECT * FROM whatsapp_contactos WHERE whatsapp_id = ${waId};`;
+  if (rows[0]) {
+    if (nombre && !rows[0].nombre) {
+      await sql`UPDATE whatsapp_contactos SET nombre = ${nombre}, updated_at = now() WHERE id = ${rows[0].id};`;
+      rows[0].nombre = nombre;
+    }
+    return rows[0];
+  }
+  const { rows: nuevo } = await sql`
+    INSERT INTO whatsapp_contactos (whatsapp_id, telefono, nombre, primera_conversacion_en)
+    VALUES (${waId}, ${waId}, ${nombre || null}, now())
+    RETURNING *;
+  `;
+  return nuevo[0];
+}
+
+// "conversación" = sesión de mensajes de un mismo contacto, cortada cuando
+// pasan más de X horas sin actividad (configurable, ver whatsapp_config;
+// punto 22 del pedido) -- NO se asume que cada mensaje es una conversación
+// nueva.
+async function obtenerOCrearConversacionWhatsapp(sql, contacto, marcaTiempoMensaje) {
+  const { rows: configRows } = await sql`SELECT horas_nueva_conversacion FROM whatsapp_config WHERE id = 1;`;
+  const horasCorte = configRows[0]?.horas_nueva_conversacion || 24;
+
+  const { rows: abiertas } = await sql`
+    SELECT * FROM whatsapp_conversaciones
+    WHERE contacto_id = ${contacto.id} AND cerrada_en IS NULL
+    ORDER BY iniciada_en DESC LIMIT 1;
+  `;
+  const ultima = abiertas[0];
+  if (ultima) {
+    const horasDesdeUltima = (marcaTiempoMensaje.getTime() - new Date(ultima.updated_at).getTime()) / 3600000;
+    if (horasDesdeUltima < horasCorte) return ultima;
+    await sql`
+      UPDATE whatsapp_conversaciones SET cerrada_en = now(),
+        estado = CASE WHEN estado IN ('nueva','abierta') THEN 'sin_respuesta' ELSE estado END
+      WHERE id = ${ultima.id};
+    `;
+  }
+
+  const { rows: creada } = await sql`
+    INSERT INTO whatsapp_conversaciones (contacto_id, iniciada_en, estado)
+    VALUES (${contacto.id}, ${marcaTiempoMensaje.toISOString()}, 'nueva')
+    RETURNING *;
+  `;
+  await sql`UPDATE whatsapp_contactos SET total_conversaciones = total_conversaciones + 1 WHERE id = ${contacto.id};`;
+  return creada[0];
+}
+
+function extraerContenidoMensajeWhatsapp(m) {
+  const mapaTipos = { text: 'texto', image: 'imagen', audio: 'audio', video: 'video', document: 'documento' };
+  const tipo = mapaTipos[m.type] || 'texto';
+  const texto = m.text?.body || m.button?.text || m.interactive?.button_reply?.title || null;
+  // Meta no manda una URL de descarga directa para multimedia, hay que
+  // resolver el "media id" con otra llamada a su API -> se guarda el id
+  // como referencia por ahora, para resolverlo cuando haya credenciales
+  // reales conectadas.
+  const mediaId = m[m.type]?.id;
+  const mediaRef = mediaId ? `whatsapp-media-id:${mediaId}` : null;
+  return { tipo, texto, mediaRef };
+}
+
+// ---- Usuarios activos, para el selector de "Responsable" (punto 21) ----
+// api/usuarios.js es admin-only (gestión completa de cuentas) -- acá se
+// necesita algo bien distinto: que CUALQUIER usuario logueado pueda ver
+// a quién asignarle una conversación, sin exponer email/rol/hash. Se
+// mantiene multiplexado en negocio.js (tope de 12 funciones serverless).
+async function manejarWhatsappUsuarios(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    const { rows } = await sql`SELECT id, nombre FROM usuarios WHERE activo = true ORDER BY nombre ASC;`;
+    return res.status(200).json({ usuarios: rows });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al cargar usuarios', detail: String(err) });
+  }
+}
+
+// ---- Dashboard (punto 4 del pedido) ----
+async function manejarWhatsappDashboard(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    const { rows } = await sql`
+      SELECT
+        COUNT(*) FILTER (WHERE iniciada_en >= CURRENT_DATE) AS hoy,
+        COUNT(*) FILTER (WHERE iniciada_en >= now() - interval '7 days') AS ult7,
+        COUNT(*) FILTER (WHERE iniciada_en >= now() - interval '14 days' AND iniciada_en < now() - interval '7 days') AS ult7_anterior,
+        COUNT(*) FILTER (WHERE iniciada_en >= date_trunc('month', now())) AS mes,
+        COUNT(*) FILTER (WHERE iniciada_en >= date_trunc('month', now()) - interval '1 month' AND iniciada_en < date_trunc('month', now())) AS mes_anterior,
+        COUNT(DISTINCT contacto_id) FILTER (WHERE iniciada_en >= date_trunc('month', now())) AS clientes_unicos_mes,
+        COUNT(DISTINCT contacto_id) FILTER (WHERE iniciada_en >= date_trunc('month', now()) - interval '1 month' AND iniciada_en < date_trunc('month', now())) AS clientes_unicos_mes_anterior,
+        AVG(primera_respuesta_segundos) FILTER (WHERE primera_respuesta_segundos IS NOT NULL) AS promedio_respuesta_seg,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY primera_respuesta_segundos) FILTER (WHERE primera_respuesta_segundos IS NOT NULL) AS mediana_respuesta_seg,
+        COUNT(*) FILTER (WHERE primera_respuesta_segundos IS NOT NULL) AS con_respuesta,
+        COUNT(*) FILTER (WHERE primera_respuesta_segundos < 300) AS bajo_5min,
+        COUNT(*) FILTER (WHERE primera_respuesta_segundos >= 300 AND primera_respuesta_segundos <= 600) AS entre_5_10min,
+        COUNT(*) FILTER (WHERE primera_respuesta_segundos > 600) AS sobre_10min,
+        COUNT(*) FILTER (WHERE primera_respuesta_segundos IS NULL AND primer_mensaje_cliente_en IS NOT NULL) AS sin_respuesta,
+        COUNT(*) FILTER (WHERE intencion = 'compra') AS con_intencion_compra,
+        COUNT(*) FILTER (WHERE resultado = 'cotizacion') AS cotizaciones,
+        COUNT(*) FILTER (WHERE venta_detectada = true) AS ventas,
+        COALESCE(SUM(venta_monto) FILTER (WHERE venta_detectada = true), 0) AS monto_total_ventas,
+        COUNT(*) FILTER (WHERE requiere_seguimiento = true AND (seguimiento_estado IS NULL OR seguimiento_estado = 'pendiente')) AS requieren_seguimiento,
+        COUNT(*) AS total_conversaciones
+      FROM whatsapp_conversaciones;
+    `;
+    const r = rows[0] || {};
+    const num = v => Number(v) || 0;
+    const variacionPct = (actual, anterior) => {
+      anterior = num(anterior); actual = num(actual);
+      if (anterior === 0) return actual === 0 ? null : Infinity;
+      return Math.round(((actual - anterior) / anterior) * 1000) / 10;
+    };
+    const pct = (parte, total) => total > 0 ? Math.round((parte / total) * 1000) / 10 : 0;
+    const conRespuesta = num(r.con_respuesta);
+
+    return res.status(200).json({
+      conversaciones: {
+        hoy: num(r.hoy),
+        ult7dias: num(r.ult7), ult7diasVariacion: variacionPct(r.ult7, r.ult7_anterior),
+        mes: num(r.mes), mesVariacion: variacionPct(r.mes, r.mes_anterior),
+        clientesUnicosMes: num(r.clientes_unicos_mes), clientesUnicosMesVariacion: variacionPct(r.clientes_unicos_mes, r.clientes_unicos_mes_anterior),
+      },
+      atencion: {
+        promedioSegundos: r.promedio_respuesta_seg != null ? Math.round(Number(r.promedio_respuesta_seg)) : null,
+        medianaSegundos: r.mediana_respuesta_seg != null ? Math.round(Number(r.mediana_respuesta_seg)) : null,
+        pctBajo5min: pct(num(r.bajo_5min), conRespuesta),
+        pctEntre5y10min: pct(num(r.entre_5_10min), conRespuesta),
+        pctSobre10min: pct(num(r.sobre_10min), conRespuesta),
+        sinRespuesta: num(r.sin_respuesta),
+      },
+      comercial: {
+        conIntencionCompra: num(r.con_intencion_compra),
+        cotizaciones: num(r.cotizaciones),
+        ventas: num(r.ventas),
+        montoTotalVentas: num(r.monto_total_ventas),
+        conversionVenta: pct(num(r.ventas), num(r.total_conversaciones)),
+        requierenSeguimiento: num(r.requieren_seguimiento),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error calculando el dashboard de WhatsApp', detail: String(err) });
+  }
+}
+
+// Traduce los filtros de ?query a condiciones SQL parametrizadas -> se
+// arma a mano (en vez de con el tagged-template `sql`) porque el número de
+// condiciones es variable según qué filtros vengan, y el tagged-template
+// no se presta bien para eso. Se usa sql.query(texto, params), mismo
+// mecanismo parametrizado que ya usa el resto del proyecto para inserts
+// masivos -> nunca se concatena el VALOR del usuario directo en el texto.
+function armarFiltrosConversacionesWhatsapp(query) {
+  const cond = [];
+  const params = [];
+  const p = (valor) => { params.push(valor); return `$${params.length}`; };
+
+  if (query.desde) cond.push(`c.iniciada_en >= ${p(query.desde + 'T00:00:00')}`);
+  if (query.hasta) cond.push(`c.iniciada_en <= ${p(query.hasta + 'T23:59:59')}`);
+  if (query.estado) cond.push(`c.estado = ${p(query.estado)}`);
+  if (query.resultado) cond.push(`c.resultado = ${p(query.resultado)}`);
+  if (query.intencion) cond.push(`c.intencion = ${p(query.intencion)}`);
+  if (query.producto) cond.push(`c.producto = ${p(query.producto)}`);
+  if (query.responsableId) cond.push(query.responsableId === 'sin_asignar' ? `c.responsable_id IS NULL` : `c.responsable_id = ${p(Number(query.responsableId))}`);
+
+  if (query.respuesta) {
+    const rangos = {
+      'menos1': `c.primera_respuesta_segundos < 60`,
+      'menos5': `c.primera_respuesta_segundos < 300`,
+      '5a10': `c.primera_respuesta_segundos >= 300 AND c.primera_respuesta_segundos <= 600`,
+      '10a30': `c.primera_respuesta_segundos > 600 AND c.primera_respuesta_segundos <= 1800`,
+      'mas30': `c.primera_respuesta_segundos > 1800`,
+      'sin_respuesta': `c.primera_respuesta_segundos IS NULL AND c.primer_mensaje_cliente_en IS NOT NULL`,
+    };
+    if (rangos[query.respuesta]) cond.push(rangos[query.respuesta]);
+  }
+
+  if (query.probabilidad) {
+    const rangos = {
+      '0a25': `a.probabilidad_compra BETWEEN 0 AND 25`,
+      '26a50': `a.probabilidad_compra BETWEEN 26 AND 50`,
+      '51a75': `a.probabilidad_compra BETWEEN 51 AND 75`,
+      '76a100': `a.probabilidad_compra BETWEEN 76 AND 100`,
+    };
+    if (rangos[query.probabilidad]) cond.push(rangos[query.probabilidad]);
+  }
+
+  if (query.venta === 'con_venta') cond.push(`c.venta_detectada = true`);
+  if (query.venta === 'sin_venta') cond.push(`c.venta_detectada = false`);
+  if (query.seguimiento === 'requiere') cond.push(`c.requiere_seguimiento = true`);
+  if (query.seguimiento === 'no_requiere') cond.push(`c.requiere_seguimiento = false`);
+
+  if (query.q) {
+    const qParam = p(`%${query.q}%`);
+    const idNum = Number(query.q);
+    const condId = Number.isInteger(idNum) ? ` OR c.id = ${p(idNum)}` : '';
+    cond.push(`(
+      ct.nombre ILIKE ${qParam} OR ct.telefono ILIKE ${qParam} OR c.producto ILIKE ${qParam}
+      OR c.marca ILIKE ${qParam} OR c.modelo ILIKE ${qParam} OR c.pedido_asociado ILIKE ${qParam}
+      OR EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.contenido_texto ILIKE ${qParam})
+      ${condId}
+    )`);
+  }
+
+  return { where: cond.length ? `WHERE ${cond.join(' AND ')}` : '', params };
+}
+
+// ---- Conversaciones: listado paginado (punto 8/9/10/33) + edición (punto 25/23/24/15) ----
+async function manejarWhatsappConversaciones(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    if (req.method === 'GET') {
+      const { where, params } = armarFiltrosConversacionesWhatsapp(req.query);
+      const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+      const pageSize = Math.min(100, Math.max(10, parseInt(req.query.pageSize, 10) || 25));
+      const offset = (page - 1) * pageSize;
+
+      const sqlBase = `
+        FROM whatsapp_conversaciones c
+        JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+        LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+        LEFT JOIN usuarios u ON u.id = c.responsable_id
+        ${where}
+      `;
+      const { rows: totalRows } = await sql.query(`SELECT COUNT(*)::int AS n ${sqlBase}`, params);
+      const total = totalRows[0]?.n || 0;
+
+      const paramsConPaginacion = [...params, pageSize, offset];
+      const { rows } = await sql.query(
+        `SELECT
+           c.id, c.iniciada_en, c.estado, c.intencion, c.producto, c.marca, c.modelo,
+           c.primera_respuesta_segundos, c.resultado, c.motivo_perdida, c.venta_detectada, c.venta_monto,
+           c.requiere_seguimiento, c.cantidad_mensajes, c.ultimo_mensaje_resumen, c.responsable_id,
+           ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono,
+           a.probabilidad_compra,
+           u.nombre AS responsable_nombre
+         ${sqlBase}
+         ORDER BY c.iniciada_en DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        paramsConPaginacion
+      );
+
+      return res.status(200).json({
+        conversaciones: rows.map(mapearConversacionWhatsapp),
+        total, page, pageSize, totalPaginas: Math.max(1, Math.ceil(total / pageSize)),
+      });
+    }
+
+    if (req.method === 'PUT') {
+      if (sesion.rol !== 'admin' && !req.body?.soloResponsablePropio) {
+        // Cualquier usuario autenticado puede gestionar sus conversaciones
+        // asignadas; queda abierto a que a futuro se agregue un permiso
+        // más fino (ver Perfiles de acceso) si hace falta restringir por
+        // rol de verdad. Por ahora el control real es: solo se editan
+        // conversaciones, no se borra nada, y todo cambio queda en
+        // whatsapp_auditoria.
+      }
+      const { id, estado, responsableId, intencion, producto, marca, modelo, resultado, motivoPerdida,
+        requiereSeguimiento, seguimientoEn, seguimientoEstado, seguimientoObservaciones, etiquetas } = req.body || {};
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      if (estado && !WHATSAPP_ESTADOS.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+      if (resultado && !WHATSAPP_RESULTADOS.includes(resultado)) return res.status(400).json({ error: 'Resultado inválido' });
+      if (seguimientoEstado && !WHATSAPP_SEGUIMIENTO_ESTADOS.includes(seguimientoEstado)) return res.status(400).json({ error: 'Estado de seguimiento inválido' });
+
+      const { rows: antesRows } = await sql`SELECT * FROM whatsapp_conversaciones WHERE id = ${id};`;
+      const antes = antesRows[0];
+      if (!antes) return res.status(404).json({ error: 'Conversación no encontrada' });
+
+      await sql`
+        UPDATE whatsapp_conversaciones SET
+          estado = COALESCE(${estado}, estado),
+          responsable_id = CASE WHEN ${responsableId !== undefined} THEN ${responsableId || null} ELSE responsable_id END,
+          intencion = COALESCE(${intencion}, intencion),
+          producto = COALESCE(${producto}, producto),
+          marca = COALESCE(${marca}, marca),
+          modelo = COALESCE(${modelo}, modelo),
+          resultado = COALESCE(${resultado}, resultado),
+          motivo_perdida = COALESCE(${motivoPerdida}, motivo_perdida),
+          requiere_seguimiento = COALESCE(${requiereSeguimiento}, requiere_seguimiento),
+          seguimiento_en = CASE WHEN ${seguimientoEn !== undefined} THEN ${seguimientoEn || null} ELSE seguimiento_en END,
+          seguimiento_estado = COALESCE(${seguimientoEstado}, seguimiento_estado),
+          seguimiento_observaciones = CASE WHEN ${seguimientoObservaciones !== undefined} THEN ${seguimientoObservaciones || null} ELSE seguimiento_observaciones END,
+          updated_at = now()
+        WHERE id = ${id};
+      `;
+
+      // Auditoría (punto 36): un renglón legible por cada cambio relevante.
+      const quien = sesion.nombre || sesion.email;
+      const cambios = [];
+      if (responsableId !== undefined && Number(responsableId || 0) !== Number(antes.responsable_id || 0)) {
+        const { rows: nuevoResp } = responsableId ? await sql`SELECT nombre FROM usuarios WHERE id = ${responsableId};` : { rows: [] };
+        const { rows: viejoResp } = antes.responsable_id ? await sql`SELECT nombre FROM usuarios WHERE id = ${antes.responsable_id};` : { rows: [] };
+        cambios.push(`cambió responsable: ${viejoResp[0]?.nombre || 'Sin asignar'} → ${nuevoResp[0]?.nombre || 'Sin asignar'}`);
+      }
+      if (estado && estado !== antes.estado) cambios.push(`cambió estado: ${antes.estado} → ${estado}`);
+      if (resultado && resultado !== antes.resultado) cambios.push(`cambió resultado: ${antes.resultado || '—'} → ${resultado}`);
+      if (seguimientoEstado && seguimientoEstado !== antes.seguimiento_estado) cambios.push(`cambió estado de seguimiento: ${antes.seguimiento_estado || '—'} → ${seguimientoEstado}`);
+      for (const detalle of cambios) {
+        await sql`INSERT INTO whatsapp_auditoria (conversacion_id, usuario_email, accion, detalle) VALUES (${id}, ${quien}, 'edicion', ${detalle});`;
+      }
+
+      // Etiquetas: reemplaza el set completo por el que llegó (más simple
+      // que diffear agregar/quitar, y son pocas por conversación).
+      if (Array.isArray(etiquetas)) {
+        await sql`DELETE FROM whatsapp_conversacion_etiquetas WHERE conversacion_id = ${id};`;
+        for (const nombreEtiqueta of etiquetas) {
+          const { rows: et } = await sql`INSERT INTO whatsapp_etiquetas (nombre) VALUES (${nombreEtiqueta}) ON CONFLICT (nombre) DO UPDATE SET nombre = EXCLUDED.nombre RETURNING id;`;
+          await sql`INSERT INTO whatsapp_conversacion_etiquetas (conversacion_id, etiqueta_id) VALUES (${id}, ${et[0].id}) ON CONFLICT DO NOTHING;`;
+        }
+        await sql`INSERT INTO whatsapp_auditoria (conversacion_id, usuario_email, accion, detalle) VALUES (${id}, ${quien}, 'etiquetas', ${'etiquetas: ' + etiquetas.join(', ')});`;
+      }
+
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en conversaciones de WhatsApp', detail: String(err) });
+  }
+}
+
+function mapearConversacionWhatsapp(r) {
+  return {
+    id: r.id,
+    fecha: r.iniciada_en ? new Date(r.iniciada_en).toISOString() : null,
+    clienteNombre: r.cliente_nombre,
+    clienteTelefono: r.cliente_telefono,
+    estado: r.estado,
+    ultimoMensaje: r.ultimo_mensaje_resumen,
+    intencion: r.intencion,
+    producto: r.producto,
+    marca: r.marca,
+    modelo: r.modelo,
+    primeraRespuestaSegundos: r.primera_respuesta_segundos,
+    probabilidadCompra: r.probabilidad_compra,
+    resultado: r.resultado,
+    motivoPerdida: r.motivo_perdida,
+    venta: r.venta_detectada,
+    montoVenta: r.venta_monto != null ? Number(r.venta_monto) : null,
+    requiereSeguimiento: r.requiere_seguimiento,
+    responsableId: r.responsable_id,
+    responsableNombre: r.responsable_nombre,
+    cantidadMensajes: r.cantidad_mensajes,
+  };
+}
+
+// ---- Detalle de una conversación (punto 11/12/13 del pedido) ----
+async function manejarWhatsappConversacionDetalle(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const { id } = req.query;
+  if (!id) return res.status(400).json({ error: 'Falta id' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    const { rows: convRows } = await sql`
+      SELECT c.*, u.nombre AS responsable_nombre
+      FROM whatsapp_conversaciones c LEFT JOIN usuarios u ON u.id = c.responsable_id
+      WHERE c.id = ${id};
+    `;
+    const conv = convRows[0];
+    if (!conv) return res.status(404).json({ error: 'Conversación no encontrada' });
+
+    const { rows: contactoRows } = await sql`
+      SELECT ct.*, (SELECT COUNT(*)::int FROM whatsapp_conversaciones WHERE contacto_id = ct.id) AS total_conversaciones_real
+      FROM whatsapp_contactos ct WHERE ct.id = ${conv.contacto_id};
+    `;
+    const contacto = contactoRows[0];
+
+    const { rows: mensajes } = await sql`SELECT * FROM whatsapp_mensajes WHERE conversacion_id = ${id} ORDER BY marca_tiempo ASC;`;
+    const { rows: analisisRows } = await sql`SELECT * FROM whatsapp_analisis_ia WHERE conversacion_id = ${id};`;
+    const { rows: auditoria } = await sql`SELECT * FROM whatsapp_auditoria WHERE conversacion_id = ${id} ORDER BY created_at DESC LIMIT 30;`;
+    const { rows: etiquetas } = await sql`
+      SELECT e.nombre FROM whatsapp_conversacion_etiquetas ce
+      JOIN whatsapp_etiquetas e ON e.id = ce.etiqueta_id
+      WHERE ce.conversacion_id = ${id};
+    `;
+    const { rows: ventaRows } = await sql`SELECT * FROM whatsapp_ventas WHERE conversacion_id = ${id} ORDER BY created_at DESC LIMIT 1;`;
+
+    return res.status(200).json({
+      conversacion: {
+        ...mapearConversacionWhatsapp({ ...conv, cliente_nombre: contacto?.nombre, cliente_telefono: contacto?.telefono, probabilidad_compra: analisisRows[0]?.probabilidad_compra }),
+        pedidoAsociado: conv.pedido_asociado,
+      },
+      contacto: contacto ? {
+        id: contacto.id, nombre: contacto.nombre, telefono: contacto.telefono, whatsappId: contacto.whatsapp_id,
+        primeraConversacionEn: contacto.primera_conversacion_en, ultimaConversacionEn: contacto.ultima_conversacion_en,
+        totalConversaciones: contacto.total_conversaciones_real,
+      } : null,
+      mensajes: mensajes.map(m => ({
+        id: m.id, marcaTiempo: m.marca_tiempo, direccion: m.direccion, tipo: m.tipo,
+        texto: m.contenido_texto, mediaUrl: m.media_url, estado: m.estado,
+      })),
+      analisisIa: analisisRows[0] ? {
+        resumen: analisisRows[0].resumen, intencion: analisisRows[0].intencion, categoria: analisisRows[0].categoria,
+        producto: analisisRows[0].producto, marca: analisisRows[0].marca, modelo: analisisRows[0].modelo,
+        problemaCliente: analisisRows[0].problema_cliente, probabilidadCompra: analisisRows[0].probabilidad_compra,
+        resultado: analisisRows[0].resultado, motivoPerdida: analisisRows[0].motivo_perdida,
+        sentimiento: analisisRows[0].sentimiento, calidadAtencionScore: analisisRows[0].calidad_atencion_score,
+        requiereSeguimiento: analisisRows[0].requiere_seguimiento, observaciones: analisisRows[0].observaciones,
+      } : null,
+      etiquetas: etiquetas.map(e => e.nombre),
+      auditoria: auditoria.map(a => ({ accion: a.accion, detalle: a.detalle, usuario: a.usuario_email, fecha: a.created_at })),
+      venta: ventaRows[0] ? {
+        pedidoExterno: ventaRows[0].pedido_externo, fecha: ventaRows[0].fecha_venta,
+        monto: ventaRows[0].monto != null ? Number(ventaRows[0].monto) : null,
+      } : null,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al cargar el detalle de la conversación', detail: String(err) });
+  }
+}
+
+// ---- Clientes (punto 16/17 del pedido: no conversaciones, clientes únicos) ----
+async function manejarWhatsappClientes(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    const q = (req.query.q || '').trim();
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.min(100, Math.max(10, parseInt(req.query.pageSize, 10) || 25));
+    const offset = (page - 1) * pageSize;
+
+    const cond = q ? `WHERE ct.nombre ILIKE $1 OR ct.telefono ILIKE $1` : '';
+    const params = q ? [`%${q}%`] : [];
+
+    const { rows: totalRows } = await sql.query(`SELECT COUNT(*)::int AS n FROM whatsapp_contactos ct ${cond};`, params);
+    const total = totalRows[0]?.n || 0;
+
+    const { rows } = await sql.query(
+      `SELECT
+         ct.id, ct.nombre, ct.telefono, ct.primera_conversacion_en, ct.ultima_conversacion_en, ct.total_conversaciones,
+         (SELECT COUNT(*)::int FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id AND cv.venta_detectada = true) AS num_ventas,
+         (SELECT COALESCE(SUM(venta_monto),0) FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id AND cv.venta_detectada = true) AS total_comprado,
+         (SELECT array_agg(DISTINCT producto) FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id AND producto IS NOT NULL) AS productos_consultados,
+         (SELECT intencion FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id ORDER BY iniciada_en DESC LIMIT 1) AS ultima_intencion,
+         (SELECT estado FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id ORDER BY iniciada_en DESC LIMIT 1) AS ultimo_estado
+       FROM whatsapp_contactos ct
+       ${cond}
+       ORDER BY ct.ultima_conversacion_en DESC NULLS LAST
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2};`,
+      [...params, pageSize, offset]
+    );
+
+    return res.status(200).json({
+      clientes: rows.map(r => ({
+        id: r.id, nombre: r.nombre, telefono: r.telefono,
+        primeraConversacion: r.primera_conversacion_en, ultimaConversacion: r.ultima_conversacion_en,
+        numConversaciones: r.total_conversaciones,
+        productosConsultados: r.productos_consultados || [],
+        numVentas: r.num_ventas,
+        totalComprado: Number(r.total_comprado) || 0,
+        ultimaIntencion: r.ultima_intencion,
+        estado: r.ultimo_estado,
+      })),
+      total, page, pageSize, totalPaginas: Math.max(1, Math.ceil(total / pageSize)),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al cargar clientes de WhatsApp', detail: String(err) });
+  }
+}
+
+async function manejarWhatsappClienteDetalle(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const { id } = req.query;
+  if (!id) return res.status(400).json({ error: 'Falta id' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    const { rows: contactoRows } = await sql`SELECT * FROM whatsapp_contactos WHERE id = ${id};`;
+    const contacto = contactoRows[0];
+    if (!contacto) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+    const { rows: conversaciones } = await sql`
+      SELECT c.*, a.probabilidad_compra
+      FROM whatsapp_conversaciones c LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+      WHERE c.contacto_id = ${id} ORDER BY c.iniciada_en DESC;
+    `;
+
+    return res.status(200).json({
+      cliente: {
+        id: contacto.id, nombre: contacto.nombre, telefono: contacto.telefono, whatsappId: contacto.whatsapp_id,
+        primeraConversacion: contacto.primera_conversacion_en, ultimaConversacion: contacto.ultima_conversacion_en,
+        totalConversaciones: contacto.total_conversaciones,
+      },
+      conversaciones: conversaciones.map(r => mapearConversacionWhatsapp({ ...r, cliente_nombre: contacto.nombre, cliente_telefono: contacto.telefono })),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al cargar el cliente', detail: String(err) });
+  }
+}
+
+// ---- Seguimientos (punto 15 del pedido) ----
+async function manejarWhatsappSeguimientos(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    if (req.method === 'GET') {
+      const estadoFiltro = req.query.estado;
+      const { rows } = await sql`
+        SELECT c.*, ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono, a.probabilidad_compra, u.nombre AS responsable_nombre
+        FROM whatsapp_conversaciones c
+        JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+        LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+        LEFT JOIN usuarios u ON u.id = c.responsable_id
+        WHERE c.requiere_seguimiento = true
+        ORDER BY c.seguimiento_en ASC NULLS LAST, c.iniciada_en DESC;
+      `;
+      const filtradas = estadoFiltro ? rows.filter(r => (r.seguimiento_estado || 'pendiente') === estadoFiltro) : rows;
+      return res.status(200).json({
+        seguimientos: filtradas.map(r => ({
+          ...mapearConversacionWhatsapp(r),
+          seguimientoEn: r.seguimiento_en,
+          seguimientoEstado: r.seguimiento_estado || 'pendiente',
+          seguimientoObservaciones: r.seguimiento_observaciones,
+        })),
+      });
+    }
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al cargar seguimientos de WhatsApp', detail: String(err) });
+  }
+}
+
+// ---- Etiquetas (punto 26) ----
+async function manejarWhatsappEtiquetas(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    if (req.method === 'GET') {
+      const { rows } = await sql`SELECT nombre FROM whatsapp_etiquetas ORDER BY nombre ASC;`;
+      return res.status(200).json({ etiquetas: rows.map(r => r.nombre) });
+    }
+    if (req.method === 'POST') {
+      const { nombre } = req.body || {};
+      if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Falta el nombre de la etiqueta' });
+      await sql`INSERT INTO whatsapp_etiquetas (nombre) VALUES (${nombre.trim()}) ON CONFLICT (nombre) DO NOTHING;`;
+      return res.status(200).json({ ok: true });
+    }
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en etiquetas de WhatsApp', detail: String(err) });
+  }
+}
+
+// ---- Asociar venta (punto 24) ----
+async function manejarWhatsappVenta(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { conversacionId, pedidoExterno, monto, fecha } = req.body || {};
+  if (!conversacionId || !monto) return res.status(400).json({ error: 'Falta conversacionId o monto' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const { rows: convRows } = await sql`SELECT contacto_id FROM whatsapp_conversaciones WHERE id = ${conversacionId};`;
+    if (!convRows[0]) return res.status(404).json({ error: 'Conversación no encontrada' });
+
+    await sql`
+      INSERT INTO whatsapp_ventas (conversacion_id, contacto_id, pedido_externo, fecha_venta, monto, creado_por)
+      VALUES (${conversacionId}, ${convRows[0].contacto_id}, ${pedidoExterno || null}, ${fecha || new Date().toISOString().slice(0,10)}, ${monto}, ${sesion.nombre || sesion.email});
+    `;
+    await sql`
+      UPDATE whatsapp_conversaciones SET venta_detectada = true, venta_monto = ${monto}, pedido_asociado = ${pedidoExterno || null}, resultado = 'venta', updated_at = now()
+      WHERE id = ${conversacionId};
+    `;
+    await sql`INSERT INTO whatsapp_auditoria (conversacion_id, usuario_email, accion, detalle) VALUES (${conversacionId}, ${sesion.nombre || sesion.email}, 'venta_asociada', ${`Venta asociada: $${monto}${pedidoExterno ? ' — Pedido ' + pedidoExterno : ''}`});`;
+
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al asociar la venta', detail: String(err) });
+  }
+}
+
+// ---- Analítica (puntos 5/6/7/29/30 del pedido) ----
+async function manejarWhatsappAnalitica(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    const rango = req.query.rango || '30d';
+    const dias = { '7d': 7, '30d': 30, '90d': 90, 'anio': 365 }[rango] || 30;
+    // 7/30 días: por día. 90 días: por semana (si no, son demasiadas
+    // barras). Año: por mes.
+    const agrupacion = (rango === '7d' || rango === '30d') ? 'day' : (rango === '90d' ? 'week' : 'month');
+    const desde = new Date(Date.now() - dias * 86400000).toISOString();
+
+    const { rows: serie } = await sql.query(
+      `SELECT date_trunc($1, c.iniciada_en) AS bucket,
+              COUNT(*)::int AS conversaciones,
+              COUNT(DISTINCT c.contacto_id)::int AS clientes_unicos,
+              COUNT(*) FILTER (WHERE c.venta_detectada)::int AS ventas
+       FROM whatsapp_conversaciones c
+       WHERE c.iniciada_en >= $2
+       GROUP BY bucket ORDER BY bucket ASC;`,
+      [agrupacion, desde]
+    );
+
+    const { rows: categoriaRows } = await sql.query(
+      `SELECT COALESCE(categoria,'otra') AS categoria, COUNT(*)::int AS n
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 GROUP BY categoria ORDER BY n DESC;`,
+      [desde]
+    );
+
+    // Motivos de pérdida: solo conversaciones que NO terminaron en venta ni
+    // siguen en curso (cotización/seguimiento son "todavía no perdidas").
+    const { rows: motivosRows } = await sql.query(
+      `SELECT COALESCE(motivo_perdida, resultado, 'otro') AS motivo, COUNT(*)::int AS n
+       FROM whatsapp_conversaciones
+       WHERE iniciada_en >= $1 AND venta_detectada = false
+         AND resultado IS NOT NULL AND resultado NOT IN ('cotizacion','seguimiento')
+       GROUP BY motivo ORDER BY n DESC;`,
+      [desde]
+    );
+    const totalPerdidas = motivosRows.reduce((a, r) => a + r.n, 0);
+
+    const { rows: productosRows } = await sql.query(
+      `SELECT producto, COUNT(*)::int AS consultas, COUNT(*) FILTER (WHERE venta_detectada)::int AS ventas
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND producto IS NOT NULL
+       GROUP BY producto ORDER BY consultas DESC LIMIT 15;`,
+      [desde]
+    );
+    const { rows: marcasRows } = await sql.query(
+      `SELECT marca, COUNT(*)::int AS consultas FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND marca IS NOT NULL GROUP BY marca ORDER BY consultas DESC LIMIT 10;`,
+      [desde]
+    );
+    const { rows: modelosRows } = await sql.query(
+      `SELECT modelo, COUNT(*)::int AS consultas FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND modelo IS NOT NULL GROUP BY modelo ORDER BY consultas DESC LIMIT 10;`,
+      [desde]
+    );
+    const { rows: resultadosRows } = await sql.query(
+      `SELECT COALESCE(resultado,'sin_resultado') AS resultado, COUNT(*)::int AS n
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 GROUP BY resultado ORDER BY n DESC;`,
+      [desde]
+    );
+    const { rows: embudoRows } = await sql.query(
+      `SELECT
+        COUNT(*)::int AS conversaciones,
+        COUNT(*) FILTER (WHERE intencion = 'compra')::int AS intencion_compra,
+        COUNT(*) FILTER (WHERE resultado = 'cotizacion' OR venta_detectada)::int AS cotizacion,
+        COUNT(*) FILTER (WHERE venta_detectada)::int AS venta
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1;`,
+      [desde]
+    );
+
+    return res.status(200).json({
+      rango, agrupacion,
+      serie: serie.map(r => ({ fecha: r.bucket, conversaciones: r.conversaciones, clientesUnicos: r.clientes_unicos, ventas: r.ventas })),
+      distribucionCategoria: categoriaRows.map(r => ({ categoria: r.categoria, cantidad: r.n })),
+      motivosPerdida: motivosRows.map(r => ({
+        motivo: r.motivo, etiqueta: WHATSAPP_MOTIVOS_PERDIDA_LABEL[r.motivo] || r.motivo,
+        cantidad: r.n, porcentaje: totalPerdidas > 0 ? Math.round((r.n / totalPerdidas) * 1000) / 10 : 0,
+      })),
+      rankingProductos: productosRows.map(r => ({
+        producto: r.producto, consultas: r.consultas, ventas: r.ventas,
+        conversion: r.consultas > 0 ? Math.round((r.ventas / r.consultas) * 1000) / 10 : 0,
+      })),
+      rankingMarcas: marcasRows.map(r => ({ marca: r.marca, consultas: r.consultas })),
+      rankingModelos: modelosRows.map(r => ({ modelo: r.modelo, consultas: r.consultas })),
+      resultados: resultadosRows.map(r => ({ resultado: r.resultado, cantidad: r.n })),
+      embudo: embudoRows[0] || { conversaciones: 0, intencion_compra: 0, cotizacion: 0, venta: 0 },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error calculando analítica de WhatsApp', detail: String(err) });
+  }
+}
+
+// ---- Datos demo (punto 37 del pedido) ----
+// Mientras no haya credenciales reales de Meta conectadas, esto es lo que
+// puebla el módulo para poder construir y evaluar toda la interfaz. Se
+// marcan con es_demo=true en whatsapp_contactos para poder borrarlos de
+// un solo golpe (manejarWhatsappDemoClear) sin arriesgar datos reales que
+// hayan llegado después por el webhook.
+const WHATSAPP_DEMO_NOMBRES = [
+  'Juan Pérez','María Soto','Carlos Silva','Ana Muñoz','Pedro Rojas','Camila Fuentes','Diego Torres','Valentina Castro',
+  'Felipe Vargas','Javiera Reyes','Matías González','Francisca Morales','Sebastián Díaz','Antonia Herrera','Cristóbal Flores',
+  'Constanza Araya','Nicolás Contreras','Fernanda Espinoza','Tomás Sepúlveda','Isidora Núñez','Benjamín Vega','Martina Cortés',
+  'Vicente Gutiérrez','Josefa Bravo','Joaquín Pizarro','Emilia Carrasco','Gabriel Riquelme','Florencia Zúñiga','Ignacio Alarcón',
+  'Amanda Sáez','Maximiliano Toro','Renata Guzmán','Agustín Salazar','Trinidad Miranda','Rodrigo Campos','Paulina Aguilera',
+  'Andrés Palma','Daniela Ojeda','Cristian Ortiz','Carolina Figueroa',
+];
+const WHATSAPP_DEMO_PRODUCTOS = [
+  { producto: 'Pantalla', categoria: 'pantalla', marcas: ['Lenovo', 'HP', 'Dell', 'Asus', 'Acer'], modelos: ['IdeaPad 3 15ITL6', 'ThinkPad E14', 'Pavilion 15', '240 G8', 'Inspiron 15 3000', 'Latitude 5420', 'VivoBook 15', 'Aspire 5', 'Nitro 5', 'Vostro 3510'], precioMin: 70000, precioMax: 180000 },
+  { producto: 'Cargador', categoria: 'cargador', marcas: ['HP', 'Lenovo', 'Dell', 'Asus', 'Acer'], modelos: ['19.5V 2.31A', '20V 3.25A', '19V 3.42A', '19.5V 3.33A', '19V 2.37A'], precioMin: 14000, precioMax: 32000 },
+  { producto: 'Batería', categoria: 'bateria', marcas: ['HP', 'Lenovo', 'Dell', 'Asus', 'Acer'], modelos: ['YRDD6', 'L19M4PC1', 'WDX0R', 'C41N1806', 'AP18E8M'], precioMin: 38000, precioMax: 85000 },
+  { producto: 'Servicio técnico', categoria: 'servicio_tecnico', marcas: ['HP', 'Lenovo', 'Dell', 'Asus', 'Acer', 'Samsung'], modelos: ['Diagnóstico', 'Limpieza', 'Cambio de teclado', 'Reinstalación'], precioMin: 12000, precioMax: 45000 },
+  { producto: 'Repuestos', categoria: 'repuestos', marcas: ['HP', 'Lenovo', 'Dell', 'Asus'], modelos: ['Teclado', 'Bisagra', 'Ventilador', 'Carcasa'], precioMin: 15000, precioMax: 40000 },
+];
+const WHATSAPP_DEMO_INTENCIONES_POND = ['compra', 'compra', 'compra', 'consulta', 'consulta', 'postventa', 'servicio_tecnico', 'garantia', 'seguimiento'];
+// Ponderado: la mayoría se pierde por no responder o queda cotizando; unas
+// pocas terminan en venta -> conversion "realista" para una demo.
+const WHATSAPP_DEMO_RESULTADOS_POND = [
+  'venta', 'venta',
+  'cotizacion', 'cotizacion', 'cotizacion',
+  'cliente_no_responde', 'cliente_no_responde', 'cliente_no_responde',
+  'sin_stock', 'no_interesado', 'otro',
+];
+const WHATSAPP_DEMO_MOTIVOS_POR_RESULTADO = {
+  cliente_no_responde: 'cliente_no_responde', sin_stock: 'sin_stock', no_interesado: 'precio', otro: 'otro',
+};
+
+function elegirAlAzar(lista) { return lista[Math.floor(Math.random() * lista.length)]; }
+function enteroAlAzar(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+function generarMensajesDemo(prod, marca, modelo, resultado, precio) {
+  const mensajes = [];
+  mensajes.push({ dir: 'in', texto: `Hola! Consulta, ¿tienen ${prod.producto.toLowerCase()} para ${marca} ${modelo}?` });
+  mensajes.push({ dir: 'out', texto: `Hola, ¡buenas! Sí, tenemos disponible. El valor es $${precio.toLocaleString('es-CL')}. ¿Te sirve?` });
+  if (resultado === 'cliente_no_responde') return mensajes; // se corta ahí, nunca más contestó
+  mensajes.push({ dir: 'in', texto: '¿Tiene garantía?' });
+  mensajes.push({ dir: 'out', texto: 'Sí, 3 meses de garantía por escrito 👍' });
+  if (resultado === 'sin_stock') { mensajes[1].texto = `Uy, justo se nos agotó ese modelo. Te aviso apenas llegue stock.`; return mensajes; }
+  if (resultado === 'no_interesado') { mensajes.push({ dir: 'in', texto: 'Ya, gracias, voy a seguir mirando otras opciones.' }); return mensajes; }
+  mensajes.push({ dir: 'in', texto: '¿Puedo pasar hoy a retirarlo o hacen despacho?' });
+  mensajes.push({ dir: 'out', texto: 'Puedes pasar a la tienda o coordinamos despacho, como prefieras.' });
+  if (resultado === 'venta') mensajes.push({ dir: 'in', texto: 'Perfecto, voy a pasar entonces. ¡Gracias!' });
+  else mensajes.push({ dir: 'in', texto: 'Dale, lo voy a pensar y te confirmo.' });
+  return mensajes;
+}
+
+async function manejarWhatsappDemoSeed(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede generar datos demo' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    const { rows: usuariosActivos } = await sql`SELECT id FROM usuarios WHERE activo = true LIMIT 8;`;
+    const idsResponsables = usuariosActivos.map(u => u.id);
+
+    // ---- Contactos ----
+    const nombres = WHATSAPP_DEMO_NOMBRES;
+    const waIds = nombres.map((_, i) => `569${String(10000000 + i * 137).padStart(8, '0')}`);
+    const { rows: contactosCreados } = await sql.query(
+      `INSERT INTO whatsapp_contactos (whatsapp_id, telefono, nombre, es_demo)
+       SELECT * FROM UNNEST ($1::text[], $2::text[], $3::text[], $4::bool[])
+       ON CONFLICT (whatsapp_id) DO UPDATE SET nombre = EXCLUDED.nombre
+       RETURNING id;`,
+      [waIds, waIds.map(w => '+' + w), nombres, nombres.map(() => true)]
+    );
+
+    // ---- Conversaciones (1 a 4 por contacto, ~300 en total) ----
+    const filasConv = []; // { contactoId, ... }
+    for (const contactoId of contactosCreados.map(c => c.id)) {
+      const numConv = enteroAlAzar(1, 4);
+      for (let i = 0; i < numConv; i++) {
+        const diasAtras = enteroAlAzar(0, 150);
+        const iniciada = new Date(Date.now() - diasAtras * 86400000 - enteroAlAzar(0, 82800) * 1000);
+        const prod = elegirAlAzar(WHATSAPP_DEMO_PRODUCTOS);
+        const marca = elegirAlAzar(prod.marcas);
+        const modelo = elegirAlAzar(prod.modelos);
+        const precio = enteroAlAzar(prod.precioMin, prod.precioMax);
+        const intencion = elegirAlAzar(WHATSAPP_DEMO_INTENCIONES_POND);
+        const resultado = elegirAlAzar(WHATSAPP_DEMO_RESULTADOS_POND);
+        const venta = resultado === 'venta';
+        const perdida = ['cliente_no_responde', 'sin_stock', 'no_interesado', 'otro'].includes(resultado);
+        const motivoPerdida = perdida ? WHATSAPP_DEMO_MOTIVOS_POR_RESULTADO[resultado] : null;
+        const sinRespuesta = Math.random() < 0.08; // ~8% nunca se les contestó
+        const respuestaSeg = sinRespuesta ? null : elegirAlAzar([25, 48, 90, 134, 187, 260, 340, 410, 520, 640, 780, 950, 1200, 1800, 2400, 3600]);
+        const requiereSeguimiento = resultado === 'cotizacion' || (resultado === 'seguimiento');
+        const estado = venta ? 'cerrada' : sinRespuesta ? 'sin_respuesta' : requiereSeguimiento ? 'seguimiento' : (Math.random() < 0.5 ? 'cerrada' : 'abierta');
+        const mensajesDemo = generarMensajesDemo(prod, marca, modelo, resultado, precio);
+        filasConv.push({
+          contactoId, iniciada, prod, marca, modelo, precio, intencion, resultado, motivoPerdida,
+          venta, requiereSeguimiento, sinRespuesta, respuestaSeg, estado, mensajesDemo,
+        });
+      }
+    }
+
+    const { rows: conversacionesCreadas } = await sql.query(
+      `INSERT INTO whatsapp_conversaciones (
+         contacto_id, iniciada_en, primer_mensaje_cliente_en, primera_respuesta_segundos,
+         estado, responsable_id, intencion, categoria, producto, marca, modelo, resultado, motivo_perdida,
+         requiere_seguimiento, seguimiento_estado, venta_detectada, venta_monto, cantidad_mensajes, ultimo_mensaje_resumen
+       )
+       SELECT * FROM UNNEST (
+         $1::int[], $2::timestamptz[], $3::timestamptz[], $4::int[],
+         $5::text[], $6::int[], $7::text[], $8::text[], $9::text[], $10::text[], $11::text[], $12::text[], $13::text[],
+         $14::bool[], $15::text[], $16::bool[], $17::numeric[], $18::int[], $19::text[]
+       )
+       RETURNING id;`,
+      [
+        filasConv.map(f => f.contactoId),
+        filasConv.map(f => f.iniciada.toISOString()),
+        filasConv.map(f => f.iniciada.toISOString()),
+        filasConv.map(f => f.respuestaSeg),
+        filasConv.map(f => f.estado),
+        filasConv.map(() => idsResponsables.length && Math.random() > 0.25 ? elegirAlAzar(idsResponsables) : null),
+        filasConv.map(f => f.intencion),
+        filasConv.map(f => f.prod.categoria),
+        filasConv.map(f => f.prod.producto),
+        filasConv.map(f => f.marca),
+        filasConv.map(f => f.modelo),
+        filasConv.map(f => f.resultado),
+        filasConv.map(f => f.motivoPerdida),
+        filasConv.map(f => f.requiereSeguimiento),
+        filasConv.map(f => f.requiereSeguimiento ? elegirAlAzar(['pendiente', 'pendiente', 'contactado']) : null),
+        filasConv.map(f => f.venta),
+        filasConv.map(f => f.venta ? f.precio : null),
+        filasConv.map(f => f.mensajesDemo.length),
+        filasConv.map(f => f.mensajesDemo[f.mensajesDemo.length - 1].texto.slice(0, 140)),
+      ]
+    );
+
+    // ---- Mensajes, análisis IA y ventas (usan el id real ya asignado) ----
+    const filasMsg = { convId: [], marcaTiempo: [], direccion: [], tipo: [], texto: [] };
+    const filasAnalisis = { convId: [], resumen: [], intencion: [], categoria: [], producto: [], marca: [], modelo: [], probabilidad: [], resultado: [], motivo: [], sentimiento: [], score: [], seguimiento: [] };
+    const filasVenta = { convId: [], contactoId: [], monto: [] };
+    const filasEtiquetas = [];
+
+    filasConv.forEach((f, idx) => {
+      const convId = conversacionesCreadas[idx].id;
+      f.mensajesDemo.forEach((m, mi) => {
+        filasMsg.convId.push(convId);
+        filasMsg.marcaTiempo.push(new Date(f.iniciada.getTime() + mi * 90000).toISOString());
+        filasMsg.direccion.push(m.dir === 'in' ? 'in' : 'out');
+        filasMsg.tipo.push('texto');
+        filasMsg.texto.push(m.texto);
+      });
+
+      const probabilidad = f.venta ? enteroAlAzar(76, 100) : f.resultado === 'cotizacion' ? enteroAlAzar(51, 85) : f.sinRespuesta ? enteroAlAzar(0, 25) : enteroAlAzar(20, 60);
+      filasAnalisis.convId.push(convId);
+      filasAnalisis.resumen.push(`Cliente consultó por ${f.prod.producto.toLowerCase()} ${f.marca} ${f.modelo}. ${f.venta ? 'Se concretó la compra.' : f.resultado === 'cotizacion' ? 'Se envió cotización, cliente evaluando.' : f.sinRespuesta ? 'No hubo respuesta del cliente tras la cotización.' : 'Cliente no continuó la conversación.'}`);
+      filasAnalisis.intencion.push(f.intencion);
+      filasAnalisis.categoria.push(f.prod.categoria);
+      filasAnalisis.producto.push(f.prod.producto);
+      filasAnalisis.marca.push(f.marca);
+      filasAnalisis.modelo.push(f.modelo);
+      filasAnalisis.probabilidad.push(probabilidad);
+      filasAnalisis.resultado.push(f.resultado);
+      filasAnalisis.motivo.push(f.motivoPerdida);
+      filasAnalisis.sentimiento.push(elegirAlAzar(['positivo', 'positivo', 'neutro', 'neutro', 'negativo']));
+      filasAnalisis.score.push(enteroAlAzar(60, 100));
+      filasAnalisis.seguimiento.push(f.requiereSeguimiento);
+
+      if (f.venta) {
+        filasVenta.convId.push(convId); filasVenta.contactoId.push(f.contactoId); filasVenta.monto.push(f.precio);
+      }
+      if (Math.random() < 0.3) filasEtiquetas.push({ convId, etiqueta: elegirAlAzar(['Cliente recurrente', 'Compra urgente', 'Cliente empresa', 'Sin stock']) });
+    });
+
+    if (filasMsg.convId.length) {
+      await sql.query(
+        `INSERT INTO whatsapp_mensajes (conversacion_id, marca_tiempo, direccion, origen, tipo, contenido_texto)
+         SELECT * FROM UNNEST ($1::int[], $2::timestamptz[], $3::text[], $4::text[], $5::text[], $6::text[]);`,
+        [
+          filasMsg.convId, filasMsg.marcaTiempo, filasMsg.direccion,
+          filasMsg.convId.map(() => 'app'), filasMsg.convId.map(() => 'texto'), filasMsg.texto,
+        ]
+      );
+    }
+
+    if (filasAnalisis.convId.length) {
+      await sql.query(
+        `INSERT INTO whatsapp_analisis_ia (conversacion_id, resumen, intencion, categoria, producto, marca, modelo, probabilidad_compra, resultado, motivo_perdida, sentimiento, calidad_atencion_score, requiere_seguimiento)
+         SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::int[], $9::text[], $10::text[], $11::text[], $12::int[], $13::bool[])
+         ON CONFLICT (conversacion_id) DO NOTHING;`,
+        [
+          filasAnalisis.convId, filasAnalisis.resumen, filasAnalisis.intencion, filasAnalisis.categoria,
+          filasAnalisis.producto, filasAnalisis.marca, filasAnalisis.modelo, filasAnalisis.probabilidad,
+          filasAnalisis.resultado, filasAnalisis.motivo, filasAnalisis.sentimiento, filasAnalisis.score, filasAnalisis.seguimiento,
+        ]
+      );
+    }
+
+    if (filasVenta.convId.length) {
+      await sql.query(
+        `INSERT INTO whatsapp_ventas (conversacion_id, contacto_id, monto, fecha_venta, creado_por)
+         SELECT c, ct, m, CURRENT_DATE, 'demo' FROM UNNEST ($1::int[], $2::int[], $3::numeric[]) AS x(c, ct, m);`,
+        [filasVenta.convId, filasVenta.contactoId, filasVenta.monto]
+      );
+    }
+
+    for (const et of filasEtiquetas) {
+      const { rows: etRows } = await sql`INSERT INTO whatsapp_etiquetas (nombre) VALUES (${et.etiqueta}) ON CONFLICT (nombre) DO UPDATE SET nombre = EXCLUDED.nombre RETURNING id;`;
+      await sql`INSERT INTO whatsapp_conversacion_etiquetas (conversacion_id, etiqueta_id) VALUES (${et.convId}, ${etRows[0].id}) ON CONFLICT DO NOTHING;`;
+    }
+
+    return res.status(200).json({ ok: true, contactos: contactosCreados.length, conversaciones: conversacionesCreadas.length, mensajes: filasMsg.convId.length });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error generando datos demo de WhatsApp', detail: String(err) });
+  }
+}
+
+async function manejarWhatsappDemoClear(req, res, sesion) {
+  if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede borrar los datos demo' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    // ON DELETE CASCADE en conversaciones/mensajes/análisis/ventas/
+    // etiquetas se encarga del resto al borrar los contactos demo.
+    const { rows } = await sql`DELETE FROM whatsapp_contactos WHERE es_demo = true RETURNING id;`;
+    return res.status(200).json({ ok: true, contactosBorrados: rows.length });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error borrando los datos demo de WhatsApp', detail: String(err) });
   }
 }

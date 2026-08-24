@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Clientes WhatsApp — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --purple:#7C3AED; --purple-bg:#EFE7FD;
+    --wa-out:#D9FDD3; --wa-in:#FFFFFF;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:22px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:0 0 4px;}
+  .sub{color:var(--muted);font-size:13px;}
+
+  /* ---- pestañas principales (punto 28) ---- */
+  .tabs-modulo{display:flex;gap:4px;background:var(--surface-2);padding:4px;border-radius:11px;margin:18px 0 20px;overflow-x:auto;}
+  .tab-modulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;color:var(--muted);background:none;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;white-space:nowrap;flex-shrink:0;}
+  .tab-modulo.activo{background:var(--surface);color:var(--primary);box-shadow:var(--shadow);}
+  .vista-modulo{display:none;}
+  .vista-modulo.activa{display:block;}
+
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:20px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 16px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.activo{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:11.5px;padding:7px 12px;}
+  .btn-danger{background:var(--red-bg);color:var(--red);}
+
+  input,select,textarea{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:9px 12px;border-radius:9px;font-size:13px;}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);}
+  label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;display:block;margin-bottom:5px;}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+  @media (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
+  .card .lbl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:7px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:23px;font-weight:600;color:var(--text);}
+  .card .cmp{font-size:11.5px;font-weight:700;margin-top:4px;}
+  .card .cmp.up{color:var(--green);} .card .cmp.down{color:var(--red);} .card .cmp.flat{color:var(--muted);}
+  .card.destacada{background:var(--primary-dim);border-color:var(--primary);}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  th.amount, td.amount{text-align:right;}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  tr.fila-clic{cursor:pointer;}
+  tr.fila-clic:hover{background:var(--surface-2);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:12px 0;}
+
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;}
+  .badge.b-verde{background:var(--green-bg);color:var(--green);}
+  .badge.b-ambar{background:var(--amber-dim);color:var(--amber);}
+  .badge.b-rojo{background:var(--red-bg);color:var(--red);}
+  .badge.b-azul{background:var(--blue-bg);color:var(--blue);}
+  .badge.b-gris{background:var(--surface-2);color:var(--muted);}
+  .badge.b-morado{background:var(--purple-bg);color:var(--purple);}
+
+  /* Semáforo comercial (punto 14): color + texto/ícono, nunca solo color */
+  .semaforo{display:inline-flex;align-items:center;gap:5px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+  .semaforo.alta{background:var(--green-bg);color:var(--green);}
+  .semaforo.media{background:var(--amber-dim);color:var(--amber);}
+  .semaforo.baja{background:#FDECD8;color:#C2540A;}
+  .semaforo.muybaja{background:var(--red-bg);color:var(--red);}
+
+  .etiqueta-chip{display:inline-block;background:var(--surface-2);border:1px solid var(--line);color:var(--text);font-size:10.5px;padding:2px 8px;border-radius:999px;margin:0 3px 3px 0;}
+
+  .filtros-panel{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:14px;}
+  .filtros-panel .campo{display:flex;flex-direction:column;gap:4px;min-width:150px;}
+  .buscador-wrap{position:relative;flex:1;min-width:220px;}
+  .buscador-wrap input{width:100%;padding-left:32px;}
+  .buscador-wrap .icono-buscar{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px;}
+
+  /* Modal genérico (usado en varias pestañas para detalle) */
+  .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(31,42,36,.5);z-index:100;align-items:center;justify-content:center;padding:16px;}
+  .modal-backdrop.abierto{display:flex;}
+  .modal-box{background:var(--surface);border-radius:14px;max-width:620px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 8px 30px rgba(31,42,36,.25);}
+  .modal-box.ancho{max-width:1100px;}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface);z-index:2;}
+  .modal-head h2{font-size:15px;margin:0;}
+  .modal-cerrar{background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer;line-height:1;}
+  .modal-body{padding:18px 20px;}
+
+  /* ---- Detalle de conversación estilo WhatsApp (punto 11/12) ---- */
+  .detalle-conv{display:grid;grid-template-columns:1.3fr 1fr;gap:0;min-height:520px;}
+  @media (max-width:860px){.detalle-conv{grid-template-columns:1fr;}}
+  .panel-hilo{background:#EFE9E1;padding:16px;display:flex;flex-direction:column;gap:8px;max-height:70vh;overflow-y:auto;}
+  .burbuja{max-width:75%;padding:8px 11px;border-radius:9px;font-size:13px;line-height:1.4;position:relative;box-shadow:0 1px 1px rgba(0,0,0,.08);}
+  .burbuja.in{background:var(--wa-in);align-self:flex-start;border-top-left-radius:2px;}
+  .burbuja.out{background:var(--wa-out);align-self:flex-end;border-top-right-radius:2px;}
+  .burbuja .hora{display:block;text-align:right;font-size:10px;color:var(--muted);margin-top:3px;}
+  .burbuja .tipo-media{font-size:11px;color:var(--muted);font-style:italic;}
+  .panel-ficha{padding:16px 18px;border-left:1px solid var(--line);overflow-y:auto;max-height:70vh;}
+  @media (max-width:860px){.panel-ficha{border-left:none;border-top:1px solid var(--line);}}
+  .ficha-grupo{margin-bottom:16px;}
+  .ficha-grupo h3{font-family:'Space Grotesk',sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:0 0 8px;}
+  .ficha-fila{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--line);}
+  .ficha-fila:last-child{border-bottom:none;}
+  .ficha-fila b{color:var(--text);text-align:right;}
+
+  .alerta-chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;margin:0 6px 6px 0;}
+  .alerta-chip.demorada{background:var(--amber-dim);color:var(--amber);}
+  .alerta-chip.critica{background:var(--red-bg);color:var(--red);}
+  .alerta-chip.oportunidad{background:var(--green-bg);color:var(--green);}
+  .alerta-chip.seguimiento{background:var(--blue-bg);color:var(--blue);}
+
+  .barra-chart{display:flex;align-items:flex-end;gap:4px;height:110px;padding-top:6px;}
+  .barra-chart .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0;}
+  .barra-chart .col .bar{width:100%;background:var(--primary);border-radius:4px 4px 0 0;min-height:2px;}
+  .barra-chart .col .lbl-x{font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+
+  .barra-horizontal{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+  .barra-horizontal .nombre{width:150px;flex-shrink:0;font-size:12px;}
+  .barra-horizontal .pista{flex:1;background:var(--surface-2);border-radius:6px;height:18px;overflow:hidden;}
+  .barra-horizontal .pista .relleno{height:100%;background:var(--primary);border-radius:6px;}
+  .barra-horizontal .valor{width:60px;text-align:right;flex-shrink:0;font-size:11.5px;font-family:'IBM Plex Mono',monospace;}
+
+  .embudo{display:flex;flex-direction:column;gap:6px;max-width:420px;}
+  .embudo .paso{background:var(--primary-dim);border-radius:8px;padding:10px 16px;font-size:12.5px;display:flex;justify-content:space-between;}
+  .embudo .paso b{font-family:'IBM Plex Mono',monospace;}
+  .embudo .flecha{text-align:center;color:var(--muted);font-size:11px;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <a href="index.html">Flujo de Caja</a>
+      <a href="conciliacion.html">Conciliación</a>
+      <a href="compras.html">Compras</a>
+      <a href="alertas-stock.html">Alertas de Stock</a>
+      <a href="oportunidades-comerciales.html">Oportunidades</a>
+      <a href="sitio-web.html">Sitio Web</a>
+      <a href="eficiencia-tickets.html">Tickets</a>
+      <a href="analisis.html">Análisis</a>
+      <a href="clientes-whatsapp.html" class="active">WhatsApp</a>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+    <div>
+      <h1>💬 Clientes WhatsApp</h1>
+      <div class="sub">Conversaciones, seguimiento comercial y analítica de WhatsApp Business.</div>
+    </div>
+    <div id="accionesDemo" style="display:none;">
+      <button class="btn-ghost btn-compact" onclick="generarDatosDemo()" id="btnDemoSeed">🧪 Generar datos demo</button>
+      <button class="btn-ghost btn-compact" onclick="borrarDatosDemo()" id="btnDemoClear">🗑️ Borrar datos demo</button>
+    </div>
+  </div>
+  <div id="avisoConfig"></div>
+
+  <div class="tabs-modulo" id="tabsModulo">
+    <button class="tab-modulo activo" data-vista="dashboard" onclick="cambiarVistaModulo('dashboard')">📊 Dashboard</button>
+    <button class="tab-modulo" data-vista="conversaciones" onclick="cambiarVistaModulo('conversaciones')">💬 Conversaciones</button>
+    <button class="tab-modulo" data-vista="seguimientos" onclick="cambiarVistaModulo('seguimientos')">📌 Seguimientos</button>
+    <button class="tab-modulo" data-vista="clientes" onclick="cambiarVistaModulo('clientes')">👥 Clientes</button>
+    <button class="tab-modulo" data-vista="analitica" onclick="cambiarVistaModulo('analitica')">📈 Analítica</button>
+  </div>
+
+  <div id="vistaDashboard" class="vista-modulo activa"></div>
+  <div id="vistaConversaciones" class="vista-modulo"></div>
+  <div id="vistaSeguimientos" class="vista-modulo"></div>
+  <div id="vistaClientes" class="vista-modulo"></div>
+  <div id="vistaAnalitica" class="vista-modulo"></div>
+
+</div>
+
+<div class="modal-backdrop" id="modalConversacion" onclick="if(event.target===this) cerrarModalConversacion()">
+  <div class="modal-box ancho">
+    <div class="modal-head">
+      <h2 id="modalConvTitulo">Conversación</h2>
+      <button class="modal-cerrar" onclick="cerrarModalConversacion()">✕</button>
+    </div>
+    <div class="modal-body" id="modalConvBody"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modalCliente" onclick="if(event.target===this) cerrarModalCliente()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2 id="modalClienteTitulo">Cliente</h2>
+      <button class="modal-cerrar" onclick="cerrarModalCliente()">✕</button>
+    </div>
+    <div class="modal-body" id="modalClienteBody"></div>
+  </div>
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script src="clientes-whatsapp.js"></script>
+<script>
+cargarSesionUsuario();
+</script>
+</body>
+</html>

@@ -21,6 +21,19 @@ const RUTAS_PUBLICAS = new Set([
   '/api/auth-bootstrap',
 ]);
 
+// El webhook de WhatsApp lo llama Meta directo, sin la cookie de sesión de
+// esta app -> tiene que quedar público. Vive multiplexado dentro de
+// /api/negocio (mismo motivo que todo lo demás: tope de 12 funciones
+// serverless del plan Hobby de Vercel), así que NO se puede eximir la ruta
+// completa (dejaría público todo lo demás que maneja ese archivo) -> se
+// distingue por el query param ?recurso=whatsapp-webhook específicamente.
+// La seguridad real de este endpoint puntual la hace la verificación de
+// firma de Meta (X-Hub-Signature-256) dentro del propio handler, ver
+// manejarWhatsappWebhook en api/negocio.js.
+function esWebhookWhatsappPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'whatsapp-webhook';
+}
+
 // Páginas que un usuario con un perfil restringido puede ver SIEMPRE, sin
 // importar qué páginas le haya marcado el administrador -- reportar-error
 // es la vía de ayuda/soporte, no tendría sentido poder bloquearla (y sirve
@@ -65,7 +78,7 @@ export default async function middleware(req) {
   const { pathname } = url;
   console.log('[middleware] request a', pathname); // visible en Vercel > Logs, para confirmar que esto SI esta corriendo
 
-  if (RUTAS_PUBLICAS.has(pathname)) return; // deja pasar sin exigir sesión
+  if (RUTAS_PUBLICAS.has(pathname) || esWebhookWhatsappPublico(pathname, url.searchParams)) return; // deja pasar sin exigir sesión
 
   const cookieHeader = req.headers.get('cookie') || '';
   const match = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith('session='));
