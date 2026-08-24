@@ -15,6 +15,7 @@
 // El access_token vive SOLO en el servidor (variable de entorno BSALE_ACCESS_TOKEN).
 
 import { getSql, asegurarTablaStockExtra } from '../lib/db.js';
+import { usuarioDesdeRequest } from '../lib/auth-node.js';
 
 const BSALE_BASE = 'https://api.bsale.io/v1';
 const TIMEOUT_MS = 25000;
@@ -111,6 +112,16 @@ function ajustarASiguienteDiaHabil(dateStr) {
 }
 
 export default async function handler(req, res) {
+  // Defensa en profundidad: middleware.ts (Edge) ya bloquea con 401 a quien
+  // no tenga sesión antes de llegar acá, pero acá además se necesita el rol
+  // -> márgenes/costo y "producto estrella" son datos que la UI (ver
+  // restriccion-usuario.js) solo muestra a admin; antes SOLO se ocultaban
+  // con CSS, así que cualquier "usuario" podía verlos igual pegándole
+  // directo a este endpoint. Se sacan del JSON server-side para quien no
+  // sea admin, en vez de confiar solo en que el frontend los esconda.
+  const sesion = usuarioDesdeRequest(req);
+  const esAdmin = sesion?.rol === 'admin';
+
   const { days, startDate: qStart, endDate: qEnd, debug } = req.query;
   const token = process.env.BSALE_ACCESS_TOKEN;
   if (!token) {
@@ -682,6 +693,17 @@ export default async function handler(req, res) {
     const topCantidad = Math.max(1, Math.ceil(conVenta.length * 0.2));
     const codigosEstrella = new Set(conVenta.slice(0, topCantidad).map(s=>s.code));
     for (const s of skus) s.esEstrella = codigosEstrella.has(s.code);
+
+    // Mismo set de campos que la UI oculta con la clase "solo-admin" (ver
+    // public/compras.html) -> acá se sacan de verdad, no solo se esconden.
+    if (!esAdmin) {
+      for (const s of skus) {
+        delete s.margenUnitario;
+        delete s.margenPorcentaje;
+        delete s.esEstrella;
+        delete s.margenPerdidoPorQuiebre;
+      }
+    }
 
     skus.sort((a, b) => b.unidadesVendidas - a.unidadesVendidas);
 
