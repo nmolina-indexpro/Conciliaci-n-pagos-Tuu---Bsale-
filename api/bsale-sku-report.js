@@ -632,13 +632,20 @@ export default async function handler(req, res) {
           ? Math.round(diasQuiebreHist.length * ventaDiariaConStock * margenUnitario)
           : null;
 
+        // "venta.nombre" (variant.description de Bsale) es solo la ficha
+        // técnica (ej. "19.5V 2.31A 4.5X3.0MM"), NO el nombre del producto
+        // -> se combina con el nombre real del catálogo (products.json,
+        // ej. "CARGADOR ORIGINAL HP") para armar algo legible como
+        // "CARGADOR ORIGINAL HP 19.5V 2.31A 4.5X3.0MM". Si el SKU no
+        // vendió nada en el período, "venta.nombre" cae al propio código
+        // (ver arriba) -> ahí no tiene sentido pegarlo, se usa solo el
+        // nombre de catálogo (o el código, como último recurso).
+        const specVenta = (venta.nombre && venta.nombre !== code) ? venta.nombre : '';
+        const nombreProducto = [nombrePorCode[code], specVenta].filter(Boolean).join(' ') || venta.nombre || code;
+
         return {
           code,
-          // Si el SKU no vendió nada en este período, "venta.nombre" no existe
-          // (viene de las líneas de venta) y antes se mostraba el código. Ahora
-          // cae al nombre real del catálogo (products.json) antes de usar el
-          // código como último recurso.
-          nombre: venta.nombre || nombrePorCode[code] || code,
+          nombre: nombreProducto,
           categoria: categoriaPorCode[code] || 'Sin categoría',
           unidadesVendidas: venta.unidades,
           montoVentas: Math.round(venta.montoNeto),
