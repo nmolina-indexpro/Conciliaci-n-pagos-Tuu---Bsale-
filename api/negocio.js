@@ -2208,9 +2208,10 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
       const paramsConPaginacion = [...params, pageSize, offset];
       const { rows } = await sql.query(
         `SELECT
-           c.id, c.iniciada_en, c.estado, c.intencion, c.producto, c.marca, c.modelo,
+           c.id, c.iniciada_en, c.estado, c.intencion, c.categoria, c.producto, c.marca, c.modelo,
            c.primera_respuesta_segundos, c.resultado, c.motivo_perdida, c.venta_detectada, c.venta_monto,
            c.requiere_seguimiento, c.cantidad_mensajes, c.ultimo_mensaje_resumen, c.responsable_id, c.vendedor_detectado,
+           c.shopify_producto_url, c.shopify_producto_titulo,
            ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono,
            a.probabilidad_compra,
            u.nombre AS responsable_nombre
@@ -2308,6 +2309,7 @@ function mapearConversacionWhatsapp(r) {
     estado: r.estado,
     ultimoMensaje: r.ultimo_mensaje_resumen,
     intencion: r.intencion,
+    categoria: r.categoria,
     producto: r.producto,
     marca: r.marca,
     modelo: r.modelo,
@@ -2321,6 +2323,8 @@ function mapearConversacionWhatsapp(r) {
     responsableId: r.responsable_id,
     responsableNombre: r.responsable_nombre,
     vendedorDetectado: r.vendedor_detectado,
+    shopifyProductoUrl: r.shopify_producto_url,
+    shopifyProductoTitulo: r.shopify_producto_titulo,
     cantidadMensajes: r.cantidad_mensajes,
   };
 }
@@ -2583,6 +2587,47 @@ async function manejarWhatsappVenta(req, res, sesion) {
 // vez de pedirle JSON en texto libre y parsearlo a mano -- más confiable.
 // Requiere ANTHROPIC_API_KEY; sin ella, error controlado (mismo patrón
 // que el resto de integraciones externas de este archivo).
+// Busca en Shopify el producto que mejor calza con marca+modelo detectados
+// por el Análisis IA -- mismo mecanismo de autenticación (Client
+// Credentials Grant) que api/shopify-report.js, duplicado acá porque cada
+// función de /api en este proyecto es standalone (ver CLAUDE.md). Usa
+// GraphQL en vez de REST porque el campo onlineStoreUrl viene resuelto
+// directo (evita tener que reconstruir la URL a mano combinando dominio +
+// handle, que puede no calzar si la tienda usa un dominio propio).
+// "Mejor esfuerzo": cualquier error acá no debe tumbar el análisis IA
+// completo, se atrapa aparte y sencillamente no queda link.
+async function buscarProductoShopify(marca, modelo) {
+  const busqueda = [marca, modelo].filter(Boolean).join(' ').trim();
+  if (!busqueda) return null;
+  const domain = (process.env.SHOPIFY_STORE_DOMAIN || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  const clientId = (process.env.SHOPIFY_CLIENT_ID || '').trim();
+  const clientSecret = (process.env.SHOPIFY_CLIENT_SECRET || '').trim();
+  if (!domain || !clientId || !clientSecret) return null;
+
+  try {
+    const rToken = await fetchConTimeout(`https://${domain}/admin/oauth/access_token`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials' }),
+    }, 12000);
+    const bodyToken = await rToken.json().catch(() => ({}));
+    if (!rToken.ok || !bodyToken.access_token) return null;
+
+    const query = `query($q: String!) { products(first: 3, query: $q) { edges { node { title onlineStoreUrl } } } }`;
+    const rBusqueda = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': bodyToken.access_token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { q: busqueda } }),
+    }, 12000);
+    if (!rBusqueda.ok) return null;
+    const bodyBusqueda = await rBusqueda.json().catch(() => ({}));
+    const encontrado = (bodyBusqueda.data?.products?.edges || []).find(e => e.node.onlineStoreUrl);
+    if (!encontrado) return null;
+    return { titulo: encontrado.node.title, url: encontrado.node.onlineStoreUrl };
+  } catch {
+    return null; // mejor esfuerzo -- no interrumpe el análisis IA
+  }
+}
+
 // Vendedores del equipo de IndexStore que atienden WhatsApp -- WhatsApp no
 // dice qué persona respondió desde la app, así que se detecta por si firma
 // o se menciona en los mensajes salientes (ej. "Te habla Stefanie 😊").
@@ -2680,6 +2725,7 @@ async function manejarWhatsappAnalizar(req, res, sesion) {
     const probabilidad = Math.max(0, Math.min(100, Math.round(Number(a.probabilidad_compra) || 0)));
     const scoreAtencion = Math.max(0, Math.min(100, Math.round(Number(a.calidad_atencion_score) || 0)));
     const vendedorDetectado = WHATSAPP_VENDEDORES.includes(a.vendedor) ? a.vendedor : null;
+    const productoShopify = await buscarProductoShopify(marca, modelo);
 
     // Si el vendedor detectado ya tiene cuenta creada en el ERP (match por
     // nombre, sin distinguir acentos/mayúsculas), y la conversación no
@@ -2731,6 +2777,8 @@ async function manejarWhatsappAnalizar(req, res, sesion) {
         motivo_perdida = COALESCE(motivo_perdida, ${motivoPerdida}),
         vendedor_detectado = COALESCE(${vendedorDetectado}, vendedor_detectado),
         responsable_id = COALESCE(responsable_id, ${responsableIdAsignado}),
+        shopify_producto_url = COALESCE(${productoShopify?.url || null}, shopify_producto_url),
+        shopify_producto_titulo = COALESCE(${productoShopify?.titulo || null}, shopify_producto_titulo),
         updated_at = now()
       WHERE id = ${conversacionId};
     `;

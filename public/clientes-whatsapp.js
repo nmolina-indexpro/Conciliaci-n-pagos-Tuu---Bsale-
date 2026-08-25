@@ -80,6 +80,16 @@ function responsableCellHtml(c){
   if (c.vendedorDetectado) return `<span class="sub">${escapeHtml(c.vendedorDetectado)} <span title="Detectado por IA, todavía sin cuenta de usuario">🤖</span></span>`;
   return 'Sin asignar';
 }
+// "Pantalla HP 250 G8": categoría/producto detectado + marca + modelo, en
+// vez de mostrar solo la marca+modelo (sin contexto de qué se pedía).
+function productoDisplayHtml(c){
+  const partes = [c.producto || (c.categoria ? CATEGORIA_LABEL[c.categoria] : null), c.marca, c.modelo].filter(Boolean);
+  return partes.length ? escapeHtml(partes.join(' ')) : '—';
+}
+function shopifyCellHtml(c){
+  if (!c.shopifyProductoUrl) return '—';
+  return `<a href="${escapeHtml(c.shopifyProductoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="${escapeHtml(c.shopifyProductoTitulo || '')}" class="btn-ghost btn-compact" style="text-decoration:none;">🛒 Ver</a>`;
+}
 function debounce(fn, ms){
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
@@ -268,12 +278,12 @@ function initConversaciones(){
           <thead><tr>
             <th class="ordenable" onclick="ordenarConv('fecha')">Fecha</th>
             <th>Cliente</th><th>Teléfono</th><th>Estado</th><th>Último mensaje</th>
-            <th>Intención</th><th>Producto</th>
+            <th>Intención</th><th>Producto</th><th>Shopify</th>
             <th class="ordenable" onclick="ordenarConv('respuesta')">1ª respuesta</th>
             <th>Prob. compra</th><th>Resultado</th>
             <th class="amount">Venta</th><th>Responsable</th><th>Alertas</th>
           </tr></thead>
-          <tbody id="tablaConv"><tr><td colspan="13" class="empty-note">Cargando…</td></tr></tbody>
+          <tbody id="tablaConv"><tr><td colspan="14" class="empty-note">Cargando…</td></tr></tbody>
         </table>
       </div>
       <div id="paginacionConv" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12.5px;color:var(--muted);"></div>
@@ -324,16 +334,16 @@ async function cargarConversaciones(){
   try{
     const res = await fetch('/api/negocio?recurso=whatsapp-conversaciones&' + params.toString());
     const data = await res.json();
-    if (!res.ok || data.error) { $('tablaConv').innerHTML = `<tr><td colspan="13" class="empty-note">${data.error || 'Error al cargar.'}</td></tr>`; return; }
+    if (!res.ok || data.error) { $('tablaConv').innerHTML = `<tr><td colspan="14" class="empty-note">${data.error || 'Error al cargar.'}</td></tr>`; return; }
     convState.total = data.total; convState.totalPaginas = data.totalPaginas; convState.ultimaData = data.conversaciones;
     renderTablaConv(data.conversaciones);
     renderPaginacionConv();
   }catch(err){
-    $('tablaConv').innerHTML = `<tr><td colspan="13" class="empty-note">Error: ${escapeHtml(err.message)}</td></tr>`;
+    $('tablaConv').innerHTML = `<tr><td colspan="14" class="empty-note">Error: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 function renderTablaConv(lista){
-  if (!lista.length) { $('tablaConv').innerHTML = '<tr><td colspan="13" class="empty-note">No hay conversaciones que calcen con los filtros.</td></tr>'; return; }
+  if (!lista.length) { $('tablaConv').innerHTML = '<tr><td colspan="14" class="empty-note">No hay conversaciones que calcen con los filtros.</td></tr>'; return; }
   let ordenada = [...lista];
   if (convState.orden === 'fecha_asc') ordenada.sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
   else if (convState.orden === 'fecha_desc') ordenada.sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
@@ -348,7 +358,8 @@ function renderTablaConv(lista){
       <td>${badgeEstado(c.estado)}</td>
       <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.ultimoMensaje || '—')}</td>
       <td>${c.intencion ? (INTENCION_LABEL[c.intencion] || c.intencion) : '—'}</td>
-      <td>${escapeHtml(c.marca ? c.marca + (c.modelo ? ' ' + c.modelo : '') : (c.producto ? CATEGORIA_LABEL[c.producto] || c.producto : '—'))}</td>
+      <td>${productoDisplayHtml(c)}</td>
+      <td>${shopifyCellHtml(c)}</td>
       <td>${c.primeraRespuestaSegundos != null ? fmtDuracion(c.primeraRespuestaSegundos) : (c.cantidadMensajes > 0 ? '<span class="badge b-rojo">Sin respuesta</span>' : '—')}</td>
       <td>${semaforoHtml(c.probabilidadCompra)}</td>
       <td>${badgeResultado(c.resultado)}</td>
@@ -451,7 +462,8 @@ function renderDetalleConversacion(data){
         <div class="ficha-grupo">
           <h3>📈 Comercial</h3>
           <div class="ficha-fila"><span>Intención</span><b>${c.intencion ? (INTENCION_LABEL[c.intencion]||c.intencion) : '—'}</b></div>
-          <div class="ficha-fila"><span>Producto / marca / modelo</span><b>${escapeHtml([c.producto ? CATEGORIA_LABEL[c.producto]||c.producto : null, c.marca, c.modelo].filter(Boolean).join(' — ') || '—')}</b></div>
+          <div class="ficha-fila"><span>Producto / marca / modelo</span><b>${productoDisplayHtml(c)}</b></div>
+          ${c.shopifyProductoUrl ? `<div class="ficha-fila"><span>Shopify</span><b>${shopifyCellHtml(c)}</b></div>` : ''}
           <div class="ficha-fila"><span>Probabilidad de compra</span><b>${semaforoHtml(c.probabilidadCompra)}</b></div>
           <div class="ficha-fila"><span>Resultado</span><b><select id="editResultado" onchange="guardarCampoConv(${c.id}, 'resultado', this.value)"><option value="">—</option>${WHATSAPP_RESULTADOS.map(r => `<option value="${r}" ${r===c.resultado?'selected':''}>${RESULTADO_LABEL[r]}</option>`).join('')}</select></b></div>
           ${c.motivoPerdida ? `<div class="ficha-fila"><span>Motivo de pérdida</span><b>${MOTIVO_PERDIDA_LABEL[c.motivoPerdida] || escapeHtml(c.motivoPerdida)}</b></div>` : ''}
@@ -656,7 +668,7 @@ async function abrirCliente(id){
             ${data.conversaciones.map(c => `
               <tr class="fila-clic" onclick="cerrarModalCliente(); abrirConversacion(${c.id});">
                 <td>${fmtFechaHora(c.fecha)}</td><td>${badgeEstado(c.estado)}</td>
-                <td>${escapeHtml(c.marca || (c.producto ? CATEGORIA_LABEL[c.producto]||c.producto : '—'))}</td>
+                <td>${productoDisplayHtml(c)}</td>
                 <td>${badgeResultado(c.resultado)}</td><td class="amount">${c.venta ? fmtMoneda(c.montoVenta) : '—'}</td>
               </tr>
             `).join('') || '<tr><td colspan="5" class="empty-note">Sin conversaciones.</td></tr>'}
