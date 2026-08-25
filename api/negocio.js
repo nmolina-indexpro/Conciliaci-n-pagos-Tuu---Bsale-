@@ -2688,6 +2688,14 @@ const WHATSAPP_CATEGORIA_PALABRA_SHOPIFY = {
   compatibilidad: null, garantia: null, estado_pedido: null, postventa: null, otra: null,
 };
 
+// Tipos de equipo que cambian el producto por completo aunque la
+// categoría y la marca sean las mismas (ej. "Pantalla HP" de notebook y
+// "Pantalla HP All in One" son productos distintos en el catálogo real,
+// aunque ambos digan "pantalla" y "HP"). Ver tipoEquipoBuscado en
+// buscarProductoShopify. Todo en minúsculas y sin tildes (se compara con
+// normalizarTexto).
+const WHATSAPP_TIPOS_EQUIPO = ['all in one', 'aio', 'todo en uno', 'macbook', 'imac', 'pc de escritorio', 'desktop'];
+
 // Busca en Shopify el producto que mejor calza con la categoría+marca+modelo
 // detectados por el Análisis IA -- mismo mecanismo de autenticación (Client
 // Credentials Grant) que api/shopify-report.js, duplicado acá porque cada
@@ -2789,9 +2797,17 @@ async function buscarProductoShopify(producto, categoria, marca, modelo, especif
     // Palabra que el título debería tener: la de la categoría si se
     // reconoce, si no, el nombre de producto que dio la IA tal cual.
     const palabraEsperada = normalizarTexto(WHATSAPP_CATEGORIA_PALABRA_SHOPIFY[categoria] || producto || '');
-    const conCategoriaCorrecta = (candidatos) => palabraEsperada
-      ? candidatos.find(e => normalizarTexto(e.node.title).includes(palabraEsperada))
-      : candidatos[0];
+    // Tipo de equipo (All in One, Macbook, etc.) -- cambia el producto por
+    // completo aunque la categoría y la marca sean las mismas (una
+    // "Pantalla HP" de notebook y una "Pantalla HP All in One" son
+    // productos distintos en el catálogo). Si se detectó uno, el título
+    // tiene que mencionarlo también, no basta con que calce la categoría.
+    const tipoEquipoBuscado = WHATSAPP_TIPOS_EQUIPO.find(t => normalizarTexto(especificaciones || '').includes(t) || normalizarTexto(producto || '').includes(t)) || null;
+    const conCategoriaCorrecta = (candidatos) => {
+      let lista = palabraEsperada ? candidatos.filter(e => normalizarTexto(e.node.title).includes(palabraEsperada)) : candidatos;
+      if (tipoEquipoBuscado) lista = lista.filter(e => normalizarTexto(e.node.title).includes(tipoEquipoBuscado));
+      return lista[0] || null;
+    };
 
     // De más específico (todo junto) a más amplio (solo marca+modelo, o
     // solo marca). Cada nivel intermedio va soltando el término que
@@ -2911,7 +2927,7 @@ const WHATSAPP_ANALISIS_TOOL = {
       marca: { type: 'string', description: 'Marca del equipo mencionada (ej. HP, Lenovo, Dell, Asus, Acer). Cadena vacía si no se menciona.' },
       modelo: { type: 'string', description: 'Modelo específico del equipo mencionado. Cadena vacía si no se menciona.' },
       problema_cliente: { type: 'string', description: 'Problema o necesidad concreta del cliente, en sus palabras.' },
-      especificaciones: { type: 'string', description: 'Detalles técnicos específicos que el cliente o el negocio mencionan y que distinguen el producto exacto de otros similares -- sobre todo importante en cargadores (potencia, voltaje/amperaje, tipo de conector: USB-C, punta redonda, etc.), pero aplica a cualquier categoría (ej. "65W USB-C", "20V 3.25A", "táctil", "Full HD"). Cadena vacía si no se menciona ningún detalle así.' },
+      especificaciones: { type: 'string', description: 'Detalles técnicos específicos que el cliente o el negocio mencionan y que distinguen el producto exacto de otros similares. Dos casos particularmente importantes: (1) en cargadores, potencia/voltaje/amperaje/tipo de conector (ej. "65W USB-C", "20V 3.25A"); (2) en pantallas, el TIPO DE EQUIPO -- "All in One" (PC de escritorio todo-en-uno) es un producto completamente distinto a una pantalla de notebook, aunque sea la misma marca, así que si el cliente dice "All in One", "todo en uno", "PC de escritorio" o similar, regístralo tal cual acá (ej. "All in One"). También aplica a otros casos: "táctil", "Full HD", "Macbook" vs notebook normal, etc. Cadena vacía si no se menciona ningún detalle así.' },
       probabilidad_compra: { type: 'integer', description: 'Probabilidad de 0 a 100 de que esta conversación termine en una venta, según el interés mostrado.' },
       resultado: { type: 'string', enum: WHATSAPP_RESULTADOS, description: 'En qué terminó (o va quedando) la conversación.' },
       motivo_perdida: { type: 'string', enum: Object.keys(WHATSAPP_MOTIVOS_PERDIDA_LABEL), description: 'Si el resultado indica que se perdió la venta, por qué. Omitir el campo si no aplica.' },
