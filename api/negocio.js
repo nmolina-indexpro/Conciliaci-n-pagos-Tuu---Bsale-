@@ -92,6 +92,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-demo-seed') return manejarWhatsappDemoSeed(req, res, sesion);
   if (recurso === 'whatsapp-demo-clear') return manejarWhatsappDemoClear(req, res, sesion);
   if (recurso === 'whatsapp-usuarios') return manejarWhatsappUsuarios(req, res, sesion);
+  if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
   return res.status(400).json({ error: 'Falta un ?recurso= válido (ver api/negocio.js)' });
 }
 
@@ -2723,27 +2724,48 @@ function normalizarTexto(s) {
 // esfuerzo -- se sigue analizando el resto de la conversación sin la foto.
 async function obtenerImagenWhatsapp(mediaRef) {
   const accessToken = (process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
-  if (!accessToken || !mediaRef || !mediaRef.startsWith('whatsapp-media-id:')) return null;
+  if (!accessToken) { console.warn('[obtenerImagenWhatsapp] WHATSAPP_ACCESS_TOKEN no configurado'); return null; }
+  if (!mediaRef || !mediaRef.startsWith('whatsapp-media-id:')) { console.warn('[obtenerImagenWhatsapp] media_url sin el formato esperado:', mediaRef); return null; }
   const mediaId = mediaRef.slice('whatsapp-media-id:'.length);
   try {
     const rInfo = await fetchConTimeout(`https://graph.facebook.com/v21.0/${mediaId}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     }, 10000);
-    if (!rInfo.ok) return null;
+    if (!rInfo.ok) {
+      console.warn('[obtenerImagenWhatsapp] error pidiendo info del media', mediaId, rInfo.status, await rInfo.text().catch(() => ''));
+      return null;
+    }
     const info = await rInfo.json().catch(() => ({}));
-    if (!info.url) return null;
+    if (!info.url) { console.warn('[obtenerImagenWhatsapp] respuesta sin url', mediaId, JSON.stringify(info).slice(0, 300)); return null; }
 
     const rDescarga = await fetchConTimeout(info.url, { headers: { Authorization: `Bearer ${accessToken}` } }, 15000);
-    if (!rDescarga.ok) return null;
+    if (!rDescarga.ok) { console.warn('[obtenerImagenWhatsapp] error descargando el archivo', mediaId, rDescarga.status); return null; }
     const buffer = Buffer.from(await rDescarga.arrayBuffer());
-    if (buffer.length > 5 * 1024 * 1024) return null; // tope razonable, no mandar imágenes gigantes a la API
+    if (buffer.length > 5 * 1024 * 1024) { console.warn('[obtenerImagenWhatsapp] imagen muy grande, se omite', mediaId, buffer.length); return null; }
 
     const TIPOS_SOPORTADOS = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     const mediaType = TIPOS_SOPORTADOS.includes(info.mime_type) ? info.mime_type : 'image/jpeg';
     return { mediaType, base64: buffer.toString('base64') };
-  } catch {
+  } catch (err) {
+    console.warn('[obtenerImagenWhatsapp] error inesperado', mediaId, err);
     return null;
   }
+}
+
+// Puente entre el navegador y la imagen real de WhatsApp -- el navegador
+// no puede pedirle la foto directo a la API de Meta (necesita el
+// WHATSAPP_ACCESS_TOKEN, que nunca sale del servidor), así que esto la
+// descarga acá y se la sirve tal cual. Requiere sesión (como todo lo
+// demás de este archivo, ver el chequeo al principio del handler).
+async function manejarWhatsappMedia(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const { ref } = req.query;
+  if (!ref) return res.status(400).json({ error: 'Falta ref' });
+  const imagen = await obtenerImagenWhatsapp(ref);
+  if (!imagen) return res.status(404).json({ error: 'No se pudo obtener la imagen' });
+  res.setHeader('Content-Type', imagen.mediaType);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  return res.status(200).send(Buffer.from(imagen.base64, 'base64'));
 }
 
 const WHATSAPP_ANALISIS_TOOL = {

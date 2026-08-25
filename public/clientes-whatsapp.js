@@ -399,8 +399,14 @@ function cerrarModalConversacion(){ $('modalConversacion').classList.remove('abi
 function burbujaMensaje(m){
   const clase = m.direccion === 'in' ? 'in' : 'out';
   let contenido;
-  if (m.tipo === 'texto') contenido = escapeHtml(m.texto || '');
-  else contenido = `<span class="tipo-media">📎 [${m.tipo}]${m.texto ? ' — ' + escapeHtml(m.texto) : ''}</span>`;
+  if (m.tipo === 'texto') {
+    contenido = escapeHtml(m.texto || '');
+  } else if (m.tipo === 'imagen' && m.mediaUrl) {
+    const src = '/api/negocio?recurso=whatsapp-media&ref=' + encodeURIComponent(m.mediaUrl);
+    contenido = `<img src="${src}" loading="lazy" alt="Imagen" style="max-width:220px;max-height:220px;border-radius:8px;display:block;object-fit:cover;" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'tipo-media',textContent:'📎 [imagen no disponible]'}))">`;
+  } else {
+    contenido = `<span class="tipo-media">📎 [${m.tipo}]${m.texto ? ' — ' + escapeHtml(m.texto) : ''}</span>`;
+  }
   return `<div class="burbuja ${clase}">${contenido}<span class="hora">${fmtHora(m.marcaTiempo)}${m.estado ? ' · ' + escapeHtml(m.estado) : ''}</span></div>`;
 }
 
