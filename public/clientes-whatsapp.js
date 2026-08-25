@@ -72,6 +72,14 @@ function fmtDuracion(seg){
   const h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60);
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
+// Responsable real (usuario del ERP) si ya está asignado; si no, muestra
+// el vendedor que la IA detectó firmando el mensaje (todavía sin cuenta
+// creada) como pista visual mientras tanto.
+function responsableCellHtml(c){
+  if (c.responsableNombre) return escapeHtml(c.responsableNombre);
+  if (c.vendedorDetectado) return `<span class="sub">${escapeHtml(c.vendedorDetectado)} <span title="Detectado por IA, todavía sin cuenta de usuario">🤖</span></span>`;
+  return 'Sin asignar';
+}
 function debounce(fn, ms){
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
@@ -345,7 +353,7 @@ function renderTablaConv(lista){
       <td>${semaforoHtml(c.probabilidadCompra)}</td>
       <td>${badgeResultado(c.resultado)}</td>
       <td class="amount">${c.venta ? fmtMoneda(c.montoVenta) : '—'}</td>
-      <td>${escapeHtml(c.responsableNombre || 'Sin asignar')}</td>
+      <td>${responsableCellHtml(c)}</td>
       <td>${alertasConversacion(c)}</td>
     </tr>
   `).join('');
@@ -438,6 +446,7 @@ function renderDetalleConversacion(data){
           <div class="ficha-fila"><span>1ª respuesta</span><b>${c.primeraRespuestaSegundos != null ? fmtDuracion(c.primeraRespuestaSegundos) : 'Sin respuesta'}</b></div>
           <div class="ficha-fila"><span>Estado</span><b><select id="editEstado" onchange="guardarCampoConv(${c.id}, 'estado', this.value)">${WHATSAPP_ESTADOS.map(e => `<option value="${e}" ${e===c.estado?'selected':''}>${ESTADO_LABEL[e]}</option>`).join('')}</select></b></div>
           <div class="ficha-fila"><span>Responsable</span><b><select id="editResponsable" onchange="guardarCampoConv(${c.id}, 'responsableId', this.value)">${opcionesResponsable(c.responsableId, false)}</select></b></div>
+          ${c.vendedorDetectado ? `<div class="ficha-fila"><span>Vendedor detectado (IA)</span><b>${escapeHtml(c.vendedorDetectado)}${!c.responsableId ? ' <span class="sub">(sin cuenta todavía)</span>' : ''}</b></div>` : ''}
         </div>
         <div class="ficha-grupo">
           <h3>📈 Comercial</h3>
@@ -555,7 +564,7 @@ async function cargarSeguimientos(){
         <td>${s.motivoPerdida ? (MOTIVO_PERDIDA_LABEL[s.motivoPerdida]||s.motivoPerdida) : (s.resultado ? RESULTADO_LABEL[s.resultado]||s.resultado : '—')}</td>
         <td>${semaforoHtml(s.probabilidadCompra)}</td>
         <td>${s.seguimientoEn ? fmtFecha(s.seguimientoEn) : '—'}</td>
-        <td>${escapeHtml(s.responsableNombre || 'Sin asignar')}</td>
+        <td>${responsableCellHtml(s)}</td>
         <td><span class="badge ${SEGUIMIENTO_ESTADO_BADGE[s.seguimientoEstado] || 'b-gris'}">${SEGUIMIENTO_ESTADO_LABEL[s.seguimientoEstado] || s.seguimientoEstado}</span></td>
       </tr>
     `).join('');

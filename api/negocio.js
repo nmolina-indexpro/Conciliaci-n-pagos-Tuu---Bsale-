@@ -2210,7 +2210,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
         `SELECT
            c.id, c.iniciada_en, c.estado, c.intencion, c.producto, c.marca, c.modelo,
            c.primera_respuesta_segundos, c.resultado, c.motivo_perdida, c.venta_detectada, c.venta_monto,
-           c.requiere_seguimiento, c.cantidad_mensajes, c.ultimo_mensaje_resumen, c.responsable_id,
+           c.requiere_seguimiento, c.cantidad_mensajes, c.ultimo_mensaje_resumen, c.responsable_id, c.vendedor_detectado,
            ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono,
            a.probabilidad_compra,
            u.nombre AS responsable_nombre
@@ -2320,6 +2320,7 @@ function mapearConversacionWhatsapp(r) {
     requiereSeguimiento: r.requiere_seguimiento,
     responsableId: r.responsable_id,
     responsableNombre: r.responsable_nombre,
+    vendedorDetectado: r.vendedor_detectado,
     cantidadMensajes: r.cantidad_mensajes,
   };
 }
@@ -2582,6 +2583,16 @@ async function manejarWhatsappVenta(req, res, sesion) {
 // vez de pedirle JSON en texto libre y parsearlo a mano -- más confiable.
 // Requiere ANTHROPIC_API_KEY; sin ella, error controlado (mismo patrón
 // que el resto de integraciones externas de este archivo).
+// Vendedores del equipo de IndexStore que atienden WhatsApp -- WhatsApp no
+// dice qué persona respondió desde la app, así que se detecta por si firma
+// o se menciona en los mensajes salientes (ej. "Te habla Stefanie 😊").
+// Lista fija por ahora; si el equipo cambia, hay que actualizarla acá.
+const WHATSAPP_VENDEDORES = ['Stefanie', 'David', 'Nathalia', 'Fernando', 'Nicolas'];
+
+function normalizarNombrePersona(s) {
+  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
 const WHATSAPP_ANALISIS_TOOL = {
   name: 'registrar_analisis',
   description: 'Registra el análisis estructurado de una conversación de WhatsApp de atención al cliente de IndexStore (venta y servicio técnico de notebooks).',
@@ -2589,6 +2600,7 @@ const WHATSAPP_ANALISIS_TOOL = {
     type: 'object',
     properties: {
       resumen: { type: 'string', description: 'Resumen de 1-2 frases de qué necesitaba el cliente y en qué quedó la conversación.' },
+      vendedor: { type: 'string', enum: [...WHATSAPP_VENDEDORES, ''], description: `Nombre del vendedor/a de IndexStore que firma o es mencionado en los mensajes salientes (del negocio) de la conversación, ej. "Te habla Stefanie", "Saludos, David". Solo puede ser uno de: ${WHATSAPP_VENDEDORES.join(', ')}. Cadena vacía si ningún mensaje del negocio menciona su nombre.` },
       intencion: { type: 'string', enum: WHATSAPP_INTENCIONES, description: 'Intención principal del cliente.' },
       categoria: { type: 'string', enum: WHATSAPP_CATEGORIAS, description: 'Categoría del producto o servicio consultado.' },
       producto: { type: 'string', description: 'Nombre corto del producto específico (ej. "Pantalla", "Cargador", "Teclado"). Cadena vacía si no se menciona ninguno.' },
@@ -2625,7 +2637,7 @@ async function manejarWhatsappAnalizar(req, res, sesion) {
     `;
     if (mensajes.length === 0) return res.status(400).json({ error: 'Esta conversación no tiene mensajes para analizar' });
 
-    const { rows: convRows } = await sql`SELECT id FROM whatsapp_conversaciones WHERE id = ${conversacionId};`;
+    const { rows: convRows } = await sql`SELECT id, responsable_id FROM whatsapp_conversaciones WHERE id = ${conversacionId};`;
     if (!convRows[0]) return res.status(404).json({ error: 'Conversación no encontrada' });
 
     const transcripcion = mensajes.map(m => {
@@ -2641,7 +2653,7 @@ async function manejarWhatsappAnalizar(req, res, sesion) {
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1024,
-        system: 'Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. Analiza la conversación de WhatsApp entre un cliente y el negocio que te va a pasar el usuario, y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.',
+        system: `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Analiza la conversación de WhatsApp entre un cliente y el negocio que te va a pasar el usuario, y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`,
         messages: [{ role: 'user', content: `Conversación:\n\n${transcripcion}` }],
         tools: [WHATSAPP_ANALISIS_TOOL],
         tool_choice: { type: 'tool', name: 'registrar_analisis' },
@@ -2667,6 +2679,21 @@ async function manejarWhatsappAnalizar(req, res, sesion) {
     const modelo = limpiar(a.modelo);
     const probabilidad = Math.max(0, Math.min(100, Math.round(Number(a.probabilidad_compra) || 0)));
     const scoreAtencion = Math.max(0, Math.min(100, Math.round(Number(a.calidad_atencion_score) || 0)));
+    const vendedorDetectado = WHATSAPP_VENDEDORES.includes(a.vendedor) ? a.vendedor : null;
+
+    // Si el vendedor detectado ya tiene cuenta creada en el ERP (match por
+    // nombre, sin distinguir acentos/mayúsculas), y la conversación no
+    // tiene responsable asignado todavía, se asigna solo -- mientras no
+    // exista la cuenta, igual queda guardado en vendedor_detectado para no
+    // perder la información hasta que se cree.
+    let responsableIdAsignado = null;
+    let responsableNombreAsignado = null;
+    if (vendedorDetectado && !convRows[0].responsable_id) {
+      const { rows: usuariosActivos } = await sql`SELECT id, nombre FROM usuarios WHERE activo = true;`;
+      const buscado = normalizarNombrePersona(vendedorDetectado);
+      const match = usuariosActivos.find(u => normalizarNombrePersona(u.nombre).includes(buscado));
+      if (match) { responsableIdAsignado = match.id; responsableNombreAsignado = match.nombre; }
+    }
 
     await sql`
       INSERT INTO whatsapp_analisis_ia (
@@ -2702,11 +2729,18 @@ async function manejarWhatsappAnalizar(req, res, sesion) {
         modelo = COALESCE(modelo, ${modelo}),
         resultado = COALESCE(resultado, ${resultado}),
         motivo_perdida = COALESCE(motivo_perdida, ${motivoPerdida}),
+        vendedor_detectado = COALESCE(${vendedorDetectado}, vendedor_detectado),
+        responsable_id = COALESCE(responsable_id, ${responsableIdAsignado}),
         updated_at = now()
       WHERE id = ${conversacionId};
     `;
 
-    await sql`INSERT INTO whatsapp_auditoria (conversacion_id, usuario_email, accion, detalle) VALUES (${conversacionId}, ${sesion.nombre || sesion.email}, 'analisis_ia', 'Se generó el análisis con IA');`;
+    const detalleAuditoria = responsableIdAsignado
+      ? `Se generó el análisis con IA (vendedor detectado: ${vendedorDetectado} → asignado como responsable: ${responsableNombreAsignado})`
+      : vendedorDetectado
+        ? `Se generó el análisis con IA (vendedor detectado: ${vendedorDetectado}, sin cuenta de usuario todavía)`
+        : 'Se generó el análisis con IA';
+    await sql`INSERT INTO whatsapp_auditoria (conversacion_id, usuario_email, accion, detalle) VALUES (${conversacionId}, ${sesion.nombre || sesion.email}, 'analisis_ia', ${detalleAuditoria});`;
 
     return res.status(200).json({ ok: true });
   } catch (err) {
