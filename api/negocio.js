@@ -2662,12 +2662,12 @@ async function buscarProductoShopify(producto, categoria, marca, modelo, especif
   // el modelo, con el conector equivocado).
   const modeloParaBusqueda = categoria === 'cargador' ? null : modelo;
   const partes = [producto, marca, modeloParaBusqueda, especificaciones].filter(Boolean);
-  if (partes.length < 2) return null; // necesita al menos categoría+algo más para ser confiable
+  if (partes.length < 2) { console.warn('[buscarProductoShopify] muy pocos datos para buscar', { producto, categoria, marca, modelo, especificaciones }); return null; }
   const busqueda = partes.join(' ').trim();
   const domain = (process.env.SHOPIFY_STORE_DOMAIN || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
   const clientId = (process.env.SHOPIFY_CLIENT_ID || '').trim();
   const clientSecret = (process.env.SHOPIFY_CLIENT_SECRET || '').trim();
-  if (!domain || !clientId || !clientSecret) return null;
+  if (!domain || !clientId || !clientSecret) { console.warn('[buscarProductoShopify] faltan credenciales de Shopify en el servidor'); return null; }
 
   try {
     const rToken = await fetchConTimeout(`https://${domain}/admin/oauth/access_token`, {
@@ -2675,7 +2675,7 @@ async function buscarProductoShopify(producto, categoria, marca, modelo, especif
       body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials' }),
     }, 12000);
     const bodyToken = await rToken.json().catch(() => ({}));
-    if (!rToken.ok || !bodyToken.access_token) return null;
+    if (!rToken.ok || !bodyToken.access_token) { console.warn('[buscarProductoShopify] no se pudo obtener token de Shopify', rToken.status, JSON.stringify(bodyToken).slice(0, 300)); return null; }
 
     const query = `query($q: String!) { products(first: 5, query: $q) { edges { node { title onlineStoreUrl } } } }`;
     const rBusqueda = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
@@ -2683,21 +2683,30 @@ async function buscarProductoShopify(producto, categoria, marca, modelo, especif
       headers: { 'X-Shopify-Access-Token': bodyToken.access_token, 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, variables: { q: busqueda } }),
     }, 12000);
-    if (!rBusqueda.ok) return null;
+    if (!rBusqueda.ok) { console.warn('[buscarProductoShopify] error HTTP en la búsqueda', busqueda, rBusqueda.status); return null; }
     const bodyBusqueda = await rBusqueda.json().catch(() => ({}));
+    if (bodyBusqueda.errors) { console.warn('[buscarProductoShopify] GraphQL devolvió errores', busqueda, JSON.stringify(bodyBusqueda.errors).slice(0, 300)); return null; }
     const candidatos = (bodyBusqueda.data?.products?.edges || []).filter(e => e.node.onlineStoreUrl);
-    if (!candidatos.length) return null;
+    if (!candidatos.length) {
+      const totalSinFiltrar = (bodyBusqueda.data?.products?.edges || []).length;
+      console.warn('[buscarProductoShopify] sin candidatos publicados en la tienda online', busqueda, `(${totalSinFiltrar} resultado(s) totales, pero ninguno con onlineStoreUrl)`);
+      return null;
+    }
 
     // Palabra que el título debería tener: la de la categoría si se
     // reconoce, si no, el nombre de producto que dio la IA tal cual.
     const palabraEsperada = normalizarTexto(WHATSAPP_CATEGORIA_PALABRA_SHOPIFY[categoria] || producto || '');
     if (palabraEsperada) {
       const conCategoriaCorrecta = candidatos.find(e => normalizarTexto(e.node.title).includes(palabraEsperada));
-      if (!conCategoriaCorrecta) return null; // ningún resultado calza con la categoría -> no mostrar nada mal
+      if (!conCategoriaCorrecta) {
+        console.warn('[buscarProductoShopify] ningún candidato calzó con la categoría esperada', busqueda, `esperaba "${palabraEsperada}"`, 'candidatos:', candidatos.map(c => c.node.title));
+        return null; // ningún resultado calza con la categoría -> no mostrar nada mal
+      }
       return { titulo: conCategoriaCorrecta.node.title, url: conCategoriaCorrecta.node.onlineStoreUrl };
     }
     return { titulo: candidatos[0].node.title, url: candidatos[0].node.onlineStoreUrl };
-  } catch {
+  } catch (err) {
+    console.warn('[buscarProductoShopify] error inesperado', busqueda, err);
     return null; // mejor esfuerzo -- no interrumpe el análisis IA
   }
 }
