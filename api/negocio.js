@@ -2710,6 +2710,42 @@ function normalizarTexto(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 }
 
+// Descarga una imagen recibida por WhatsApp para poder mandársela a Claude
+// (que sí puede leer una etiqueta de modelo en una foto -- muy típico que
+// el cliente no sepa el modelo exacto de su notebook y mande una foto de
+// la etiqueta del fondo del equipo en su lugar). media_url en la base de
+// datos guarda solo la referencia "whatsapp-media-id:{id}" (ver
+// extraerContenidoMensajeWhatsapp) porque Meta no manda una URL de
+// descarga directa en el webhook -- hay que resolverla en dos pasos:
+// 1) pedir la URL temporal real con el media id, 2) descargar esa URL,
+// ambos pasos autenticados con el mismo token de acceso permanente.
+// Requiere WHATSAPP_ACCESS_TOKEN; sin él, o ante cualquier error, mejor
+// esfuerzo -- se sigue analizando el resto de la conversación sin la foto.
+async function obtenerImagenWhatsapp(mediaRef) {
+  const accessToken = (process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+  if (!accessToken || !mediaRef || !mediaRef.startsWith('whatsapp-media-id:')) return null;
+  const mediaId = mediaRef.slice('whatsapp-media-id:'.length);
+  try {
+    const rInfo = await fetchConTimeout(`https://graph.facebook.com/v21.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }, 10000);
+    if (!rInfo.ok) return null;
+    const info = await rInfo.json().catch(() => ({}));
+    if (!info.url) return null;
+
+    const rDescarga = await fetchConTimeout(info.url, { headers: { Authorization: `Bearer ${accessToken}` } }, 15000);
+    if (!rDescarga.ok) return null;
+    const buffer = Buffer.from(await rDescarga.arrayBuffer());
+    if (buffer.length > 5 * 1024 * 1024) return null; // tope razonable, no mandar imágenes gigantes a la API
+
+    const TIPOS_SOPORTADOS = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const mediaType = TIPOS_SOPORTADOS.includes(info.mime_type) ? info.mime_type : 'image/jpeg';
+    return { mediaType, base64: buffer.toString('base64') };
+  } catch {
+    return null;
+  }
+}
+
 const WHATSAPP_ANALISIS_TOOL = {
   name: 'registrar_analisis',
   description: 'Registra el análisis estructurado de una conversación de WhatsApp de atención al cliente de IndexStore (venta y servicio técnico de notebooks).',
@@ -2749,7 +2785,7 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   if (!apiKey) return { ok: false, motivo: 'sin_api_key' };
 
   const { rows: mensajes } = await sql`
-    SELECT direccion, tipo, contenido_texto, marca_tiempo FROM whatsapp_mensajes
+    SELECT direccion, tipo, contenido_texto, media_url, marca_tiempo FROM whatsapp_mensajes
     WHERE conversacion_id = ${conversacionId} ORDER BY marca_tiempo ASC;
   `;
   if (mensajes.length === 0) return { ok: false, motivo: 'sin_mensajes' };
@@ -2757,12 +2793,35 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   const { rows: convRows } = await sql`SELECT id, responsable_id FROM whatsapp_conversaciones WHERE id = ${conversacionId};`;
   if (!convRows[0]) return { ok: false, motivo: 'no_encontrada' };
 
-  const transcripcion = mensajes.map(m => {
+  // Las fotos SÍ se le mandan a Claude (que puede leerlas) -- es muy común
+  // que el cliente no sepa el modelo exacto de su notebook y en vez de
+  // escribirlo mande una foto de la etiqueta pegada en la carcasa. Tope de
+  // 4 imágenes por conversación (costo/latencia) y se descargan todas en
+  // paralelo antes de armar el mensaje para no encadenar la espera.
+  const TOPE_IMAGENES = 4;
+  const indicesConImagen = mensajes
+    .map((m, i) => ({ m, i }))
+    .filter(({ m }) => m.tipo === 'imagen' && m.media_url)
+    .slice(0, TOPE_IMAGENES)
+    .map(({ i }) => i);
+  const imagenesDescargadas = new Map(); // índice en "mensajes" -> {mediaType, base64} | null
+  await Promise.all(indicesConImagen.map(async (i) => {
+    imagenesDescargadas.set(i, await obtenerImagenWhatsapp(mensajes[i].media_url));
+  }));
+
+  const contenido = [{ type: 'text', text: 'Conversación de WhatsApp (en orden cronológico):' }];
+  mensajes.forEach((m, i) => {
     const remitente = m.direccion === 'in' ? 'Cliente' : 'IndexStore';
     const hora = new Date(m.marca_tiempo).toLocaleString('es-CL');
-    const contenido = m.tipo === 'texto' ? (m.contenido_texto || '') : `[${m.tipo}]`;
-    return `[${hora}] ${remitente}: ${contenido}`;
-  }).join('\n');
+    const imagen = imagenesDescargadas.get(i);
+    if (m.tipo === 'imagen' && imagen) {
+      contenido.push({ type: 'text', text: `[${hora}] ${remitente} envió esta imagen:` });
+      contenido.push({ type: 'image', source: { type: 'base64', media_type: imagen.mediaType, data: imagen.base64 } });
+    } else {
+      const texto = m.tipo === 'texto' ? (m.contenido_texto || '') : `[${m.tipo}, no disponible para ver]`;
+      contenido.push({ type: 'text', text: `[${hora}] ${remitente}: ${texto}` });
+    }
+  });
 
   const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -2770,8 +2829,8 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
-      system: `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Analiza la conversación de WhatsApp entre un cliente y el negocio que te va a pasar el usuario, y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`,
-      messages: [{ role: 'user', content: `Conversación:\n\n${transcripcion}` }],
+      system: `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Si el cliente manda una foto de la etiqueta/sticker pegada en la carcasa o la base del notebook, léela para identificar marca y modelo exactos (suele ser más confiable que lo que el cliente escribe de memoria) y úsalo para los campos marca/modelo. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`,
+      messages: [{ role: 'user', content: contenido }],
       tools: [WHATSAPP_ANALISIS_TOOL],
       tool_choice: { type: 'tool', name: 'registrar_analisis' },
     }),
