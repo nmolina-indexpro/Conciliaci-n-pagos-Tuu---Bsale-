@@ -115,6 +115,13 @@
   .modal-box.ancho{max-width:1100px;}
   .modal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface);z-index:2;}
   .modal-head h2{font-size:15px;margin:0;}
+
+  /* Visor de imagen ampliada (clic en una foto del hilo) -- por encima del
+     modal de conversación (z-index más alto), se abre sobre él. */
+  .lightbox-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;align-items:center;justify-content:center;padding:24px;cursor:zoom-out;}
+  .lightbox-backdrop.abierto{display:flex;}
+  .lightbox-backdrop img{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:6px;box-shadow:0 8px 40px rgba(0,0,0,.5);}
+  .lightbox-cerrar{position:fixed;top:16px;right:20px;background:none;border:none;color:#fff;font-size:28px;cursor:pointer;line-height:1;}
   .modal-cerrar{background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer;line-height:1;}
   .modal-body{padding:18px 20px;}
 
@@ -239,6 +246,11 @@
     </div>
     <div class="modal-body" id="modalClienteBody"></div>
   </div>
+</div>
+
+<div class="lightbox-backdrop" id="lightboxImagen" onclick="cerrarImagenAmpliada()">
+  <button class="lightbox-cerrar" onclick="cerrarImagenAmpliada()">✕</button>
+  <img id="lightboxImagenImg" src="" alt="Imagen ampliada">
 </div>
 
 <script src="restriccion-usuario.js"></script>

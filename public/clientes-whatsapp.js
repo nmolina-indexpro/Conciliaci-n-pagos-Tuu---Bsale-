@@ -417,6 +417,16 @@ async function abrirConversacion(id){
 }
 function cerrarModalConversacion(){ $('modalConversacion').classList.remove('abierto'); }
 
+function abrirImagenAmpliada(src){
+  $('lightboxImagenImg').src = src;
+  $('lightboxImagen').classList.add('abierto');
+}
+function cerrarImagenAmpliada(){
+  $('lightboxImagen').classList.remove('abierto');
+  $('lightboxImagenImg').src = '';
+}
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') cerrarImagenAmpliada(); });
+
 function burbujaMensaje(m){
   const clase = m.direccion === 'in' ? 'in' : 'out';
   let contenido;
@@ -424,7 +434,7 @@ function burbujaMensaje(m){
     contenido = escapeHtml(m.texto || '');
   } else if (m.tipo === 'imagen' && m.mediaUrl) {
     const src = '/api/negocio?recurso=whatsapp-media&ref=' + encodeURIComponent(m.mediaUrl);
-    contenido = `<img src="${src}" loading="lazy" alt="Imagen" style="max-width:220px;max-height:220px;border-radius:8px;display:block;object-fit:cover;" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'tipo-media',textContent:'📎 [imagen no disponible]'}))">`;
+    contenido = `<img src="${src}" loading="lazy" alt="Imagen" style="max-width:220px;max-height:220px;border-radius:8px;display:block;object-fit:cover;cursor:zoom-in;" onclick="event.stopPropagation(); abrirImagenAmpliada('${src.replace(/'/g, "\\'")}')" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'tipo-media',textContent:'📎 [imagen no disponible]'}))">`;
   } else {
     contenido = `<span class="tipo-media">📎 [${m.tipo}]${m.texto ? ' — ' + escapeHtml(m.texto) : ''}</span>`;
   }
