@@ -88,6 +88,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-venta') return manejarWhatsappVenta(req, res, sesion);
   if (recurso === 'whatsapp-analizar') return manejarWhatsappAnalizar(req, res, sesion);
   if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
+  if (recurso === 'whatsapp-actualizar-shopify') return manejarWhatsappActualizarShopify(req, res, sesion);
   if (recurso === 'whatsapp-analitica') return manejarWhatsappAnalitica(req, res, sesion);
   if (recurso === 'whatsapp-demo-seed') return manejarWhatsappDemoSeed(req, res, sesion);
   if (recurso === 'whatsapp-demo-clear') return manejarWhatsappDemoClear(req, res, sesion);
@@ -2249,7 +2250,8 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
            c.shopify_producto_url, c.shopify_producto_titulo,
            ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono,
            a.probabilidad_compra,
-           u.nombre AS responsable_nombre
+           u.nombre AS responsable_nombre,
+           (SELECT COUNT(*)::int FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.tipo = 'imagen') AS cantidad_imagenes
          ${sqlBase}
          ORDER BY c.iniciada_en DESC
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -2361,6 +2363,7 @@ function mapearConversacionWhatsapp(r) {
     shopifyProductoUrl: r.shopify_producto_url,
     shopifyProductoTitulo: r.shopify_producto_titulo,
     cantidadMensajes: r.cantidad_mensajes,
+    cantidadImagenes: r.cantidad_imagenes || 0,
   };
 }
 
@@ -3018,6 +3021,60 @@ async function manejarWhatsappAnalizarPendientes(req, res, sesion) {
     return res.status(200).json({ analizadas, errores, restantes, completo: restantes === 0 });
   } catch (err) {
     return res.status(500).json({ error: 'Error analizando conversaciones pendientes', detail: String(err) });
+  }
+}
+
+// Actualiza SOLO el link de Shopify de conversaciones que ya tienen
+// Análisis IA -- sin volver a llamar a Claude. Sirve para corregir en
+// lote matches viejos (guardados con una versión anterior de
+// buscarProductoShopify) sin gastar de nuevo en la API de Anthropic; solo
+// consume la API de Shopify. Admin-only. Paginado por offset explícito
+// (no por "WHERE shopify IS NULL") a propósito: se quiere poder
+// refrescar TODAS las conversaciones, incluidas las que ya tienen un
+// link (posiblemente incorrecto), no solo las que no tienen ninguno.
+async function manejarWhatsappActualizarShopify(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede actualizar los links de Shopify en lote' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const offset = Math.max(0, Number(req.body?.offset) || 0);
+
+    const { rows: candidatas } = await sql`
+      SELECT c.id, a.producto, a.categoria, a.marca, a.modelo, a.especificaciones
+      FROM whatsapp_conversaciones c
+      JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+      WHERE a.producto IS NOT NULL OR a.marca IS NOT NULL
+      ORDER BY c.iniciada_en ASC LIMIT 30 OFFSET ${offset};
+    `;
+
+    let actualizadas = 0;
+    for (const fila of candidatas) {
+      try {
+        const productoShopify = await buscarProductoShopify(fila.producto, fila.categoria, fila.marca, fila.modelo, fila.especificaciones);
+        await sql`
+          UPDATE whatsapp_conversaciones SET
+            shopify_producto_url = ${productoShopify?.url || null},
+            shopify_producto_titulo = ${productoShopify?.titulo || null}
+          WHERE id = ${fila.id};
+        `;
+        actualizadas++;
+      } catch (err) {
+        console.error('[whatsapp-actualizar-shopify] error en conversación', fila.id, err);
+      }
+    }
+
+    const { rows: totalRows } = await sql`
+      SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones c
+      JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+      WHERE a.producto IS NOT NULL OR a.marca IS NOT NULL;
+    `;
+    const total = totalRows[0]?.n || 0;
+    const nuevoOffset = offset + candidatas.length;
+
+    return res.status(200).json({ actualizadas, offset: nuevoOffset, total, completo: nuevoOffset >= total });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error actualizando links de Shopify', detail: String(err) });
   }
 }
 

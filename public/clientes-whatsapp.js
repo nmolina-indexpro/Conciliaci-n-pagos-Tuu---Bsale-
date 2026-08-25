@@ -353,7 +353,7 @@ function renderTablaConv(lista){
   $('tablaConv').innerHTML = ordenada.map(c => `
     <tr class="fila-clic" onclick="abrirConversacion(${c.id})">
       <td>${fmtFechaHora(c.fecha)}</td>
-      <td>${escapeHtml(c.clienteNombre || 'Sin nombre')}</td>
+      <td>${escapeHtml(c.clienteNombre || 'Sin nombre')}${c.cantidadImagenes > 0 ? ` <span title="${c.cantidadImagenes} foto(s) en esta conversación">📷</span>` : ''}</td>
       <td>${escapeHtml(c.clienteTelefono || '—')}</td>
       <td>${badgeEstado(c.estado)}</td>
       <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.ultimoMensaje || '—')}</td>
@@ -874,6 +874,37 @@ async function analizarPendientesIA(){
     cambiarVistaModulo(vistaActiva);
   }catch(err){ alert('Error: ' + err.message); }
   finally{ btn.disabled = false; btn.textContent = '🤖 Analizar pendientes'; }
+}
+
+// Solo actualiza el link de Shopify de conversaciones que YA tienen
+// Análisis IA (sin volver a llamar a Claude, mucho más barato) -- sirve
+// para corregir en lote matches viejos guardados con una versión anterior
+// de la búsqueda, o para conversaciones que se analizaron antes de tener
+// Shopify configurado.
+async function actualizarShopifyEnLote(){
+  if (!confirm('¿Actualizar el link de Shopify de todas las conversaciones ya analizadas? No vuelve a usar la API de Claude, solo consulta Shopify.')) return;
+  const btn = $('btnActualizarShopify');
+  btn.disabled = true;
+  let offset = 0, totalActualizadas = 0, total = 0;
+  try{
+    let completo = false;
+    while (!completo) {
+      btn.textContent = totalActualizadas > 0 ? `🛒 Actualizando… (${totalActualizadas}/${total || '?'})` : '🛒 Actualizando…';
+      const res = await fetch('/api/negocio?recurso=whatsapp-actualizar-shopify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ offset }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { alert(data.error || 'No se pudo actualizar los links de Shopify.'); break; }
+      totalActualizadas += data.actualizadas; offset = data.offset; total = data.total;
+      completo = data.completo;
+      if (data.actualizadas === 0 && !completo) break; // nada avanzó, evita loop infinito
+    }
+    alert(`Links de Shopify actualizados: ${totalActualizadas} de ${total}.`);
+    vistasCargadas.clear();
+    const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
+    cambiarVistaModulo(vistaActiva);
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ btn.disabled = false; btn.textContent = '🛒 Actualizar Shopify'; }
 }
 
 // ================= Datos demo (admin, punto 37) =================
