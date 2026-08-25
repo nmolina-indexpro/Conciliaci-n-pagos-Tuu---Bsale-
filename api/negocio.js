@@ -2621,18 +2621,37 @@ async function manejarWhatsappVenta(req, res, sesion) {
 // vez de pedirle JSON en texto libre y parsearlo a mano -- más confiable.
 // Requiere ANTHROPIC_API_KEY; sin ella, error controlado (mismo patrón
 // que el resto de integraciones externas de este archivo).
-// Busca en Shopify el producto que mejor calza con marca+modelo detectados
-// por el Análisis IA -- mismo mecanismo de autenticación (Client
+// Palabra clave en español que debería aparecer en el título de Shopify
+// para cada categoría -- sirve tanto para armar la búsqueda como para
+// verificar después que el resultado sea del tipo correcto (ver abajo).
+const WHATSAPP_CATEGORIA_PALABRA_SHOPIFY = {
+  pantalla: 'pantalla', cargador: 'cargador', bateria: 'bateria',
+  repuestos: 'repuesto', servicio_tecnico: null, cotizacion: null,
+  compatibilidad: null, garantia: null, estado_pedido: null, postventa: null, otra: null,
+};
+
+// Busca en Shopify el producto que mejor calza con la categoría+marca+modelo
+// detectados por el Análisis IA -- mismo mecanismo de autenticación (Client
 // Credentials Grant) que api/shopify-report.js, duplicado acá porque cada
 // función de /api en este proyecto es standalone (ver CLAUDE.md). Usa
 // GraphQL en vez de REST porque el campo onlineStoreUrl viene resuelto
 // directo (evita tener que reconstruir la URL a mano combinando dominio +
 // handle, que puede no calzar si la tienda usa un dominio propio).
+//
+// Buscar solo por marca+modelo NO alcanza: un mismo modelo de notebook
+// tiene pantalla, batería, cargador y teclado como accesorios distintos
+// en el catálogo, todos con "marca + modelo" en el título -> hay que
+// incluir la categoría en la búsqueda, y además verificar que el título
+// del resultado la mencione de verdad antes de devolverlo con confianza
+// (si Shopify igual devuelve el producto equivocado, mejor no mostrar
+// ningún link que mostrar uno de la categoría incorrecta).
+//
 // "Mejor esfuerzo": cualquier error acá no debe tumbar el análisis IA
 // completo, se atrapa aparte y sencillamente no queda link.
-async function buscarProductoShopify(marca, modelo) {
-  const busqueda = [marca, modelo].filter(Boolean).join(' ').trim();
-  if (!busqueda) return null;
+async function buscarProductoShopify(producto, categoria, marca, modelo) {
+  const partes = [producto, marca, modelo].filter(Boolean);
+  if (partes.length < 2) return null; // necesita al menos categoría+algo más para ser confiable
+  const busqueda = partes.join(' ').trim();
   const domain = (process.env.SHOPIFY_STORE_DOMAIN || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
   const clientId = (process.env.SHOPIFY_CLIENT_ID || '').trim();
   const clientSecret = (process.env.SHOPIFY_CLIENT_SECRET || '').trim();
@@ -2646,7 +2665,7 @@ async function buscarProductoShopify(marca, modelo) {
     const bodyToken = await rToken.json().catch(() => ({}));
     if (!rToken.ok || !bodyToken.access_token) return null;
 
-    const query = `query($q: String!) { products(first: 3, query: $q) { edges { node { title onlineStoreUrl } } } }`;
+    const query = `query($q: String!) { products(first: 5, query: $q) { edges { node { title onlineStoreUrl } } } }`;
     const rBusqueda = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
       method: 'POST',
       headers: { 'X-Shopify-Access-Token': bodyToken.access_token, 'Content-Type': 'application/json' },
@@ -2654,9 +2673,18 @@ async function buscarProductoShopify(marca, modelo) {
     }, 12000);
     if (!rBusqueda.ok) return null;
     const bodyBusqueda = await rBusqueda.json().catch(() => ({}));
-    const encontrado = (bodyBusqueda.data?.products?.edges || []).find(e => e.node.onlineStoreUrl);
-    if (!encontrado) return null;
-    return { titulo: encontrado.node.title, url: encontrado.node.onlineStoreUrl };
+    const candidatos = (bodyBusqueda.data?.products?.edges || []).filter(e => e.node.onlineStoreUrl);
+    if (!candidatos.length) return null;
+
+    // Palabra que el título debería tener: la de la categoría si se
+    // reconoce, si no, el nombre de producto que dio la IA tal cual.
+    const palabraEsperada = normalizarTexto(WHATSAPP_CATEGORIA_PALABRA_SHOPIFY[categoria] || producto || '');
+    if (palabraEsperada) {
+      const conCategoriaCorrecta = candidatos.find(e => normalizarTexto(e.node.title).includes(palabraEsperada));
+      if (!conCategoriaCorrecta) return null; // ningún resultado calza con la categoría -> no mostrar nada mal
+      return { titulo: conCategoriaCorrecta.node.title, url: conCategoriaCorrecta.node.onlineStoreUrl };
+    }
+    return { titulo: candidatos[0].node.title, url: candidatos[0].node.onlineStoreUrl };
   } catch {
     return null; // mejor esfuerzo -- no interrumpe el análisis IA
   }
@@ -2668,7 +2696,9 @@ async function buscarProductoShopify(marca, modelo) {
 // Lista fija por ahora; si el equipo cambia, hay que actualizarla acá.
 const WHATSAPP_VENDEDORES = ['Stefanie', 'David', 'Nathalia', 'Fernando', 'Nicolas'];
 
-function normalizarNombrePersona(s) {
+// Genérico: acentos fuera + minúsculas, para comparar nombres de personas
+// o títulos de producto sin que un tilde o mayúscula haga fallar el match.
+function normalizarTexto(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 }
 
@@ -2758,7 +2788,7 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   const probabilidad = Math.max(0, Math.min(100, Math.round(Number(a.probabilidad_compra) || 0)));
   const scoreAtencion = Math.max(0, Math.min(100, Math.round(Number(a.calidad_atencion_score) || 0)));
   const vendedorDetectado = WHATSAPP_VENDEDORES.includes(a.vendedor) ? a.vendedor : null;
-  const productoShopify = await buscarProductoShopify(marca, modelo);
+  const productoShopify = await buscarProductoShopify(producto, categoria, marca, modelo);
 
   // Si el vendedor detectado ya tiene cuenta creada en el ERP (match por
   // nombre, sin distinguir acentos/mayúsculas), y la conversación no
@@ -2769,8 +2799,8 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   let responsableNombreAsignado = null;
   if (vendedorDetectado && !convRows[0].responsable_id) {
     const { rows: usuariosActivos } = await sql`SELECT id, nombre FROM usuarios WHERE activo = true;`;
-    const buscado = normalizarNombrePersona(vendedorDetectado);
-    const match = usuariosActivos.find(u => normalizarNombrePersona(u.nombre).includes(buscado));
+    const buscado = normalizarTexto(vendedorDetectado);
+    const match = usuariosActivos.find(u => normalizarTexto(u.nombre).includes(buscado));
     if (match) { responsableIdAsignado = match.id; responsableNombreAsignado = match.nombre; }
   }
 
@@ -2799,6 +2829,9 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   // DEFAULT false en la tabla, no hay forma de distinguir "nunca
   // tocado" de "una persona lo dejó en false a propósito" -> la persona
   // sigue decidiendo eso a mano, informada por lo que sugiere la IA acá.
+  // El link de Shopify es la excepción: SÍ se pisa siempre (no COALESCE)
+  // porque no lo edita ningún humano -- cada reanálisis debe poder
+  // corregir un match anterior que haya quedado mal, no dejarlo pegado.
   await sql`
     UPDATE whatsapp_conversaciones SET
       intencion = COALESCE(intencion, ${intencion}),
@@ -2810,8 +2843,8 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
       motivo_perdida = COALESCE(motivo_perdida, ${motivoPerdida}),
       vendedor_detectado = COALESCE(${vendedorDetectado}, vendedor_detectado),
       responsable_id = COALESCE(responsable_id, ${responsableIdAsignado}),
-      shopify_producto_url = COALESCE(${productoShopify?.url || null}, shopify_producto_url),
-      shopify_producto_titulo = COALESCE(${productoShopify?.titulo || null}, shopify_producto_titulo),
+      shopify_producto_url = ${productoShopify?.url || null},
+      shopify_producto_titulo = ${productoShopify?.titulo || null},
       updated_at = now()
     WHERE id = ${conversacionId};
   `;
