@@ -1849,6 +1849,7 @@ async function manejarWhatsappWebhook(req, res) {
 
     const entradas = req.body?.entry || [];
     let mensajesProcesados = 0;
+    const conversacionesTocadas = new Set(); // para el análisis IA automático, ver más abajo
     for (const entrada of entradas) {
       for (const cambio of (entrada.changes || [])) {
         const valor = cambio.value || {};
@@ -1890,6 +1891,7 @@ async function manejarWhatsappWebhook(req, res) {
           `;
           await sql`UPDATE whatsapp_contactos SET ultima_conversacion_en = now(), updated_at = now() WHERE id = ${contacto.id};`;
           mensajesProcesados++;
+          conversacionesTocadas.add(conversacion.id);
         }
 
         for (const m of echosPayload) {
@@ -1931,11 +1933,42 @@ async function manejarWhatsappWebhook(req, res) {
             WHERE id = ${conversacion.id};
           `;
           mensajesProcesados++;
+          conversacionesTocadas.add(conversacion.id);
         }
 
         for (const st of estadosPayload) {
           if (st.id) await sql`UPDATE whatsapp_mensajes SET estado = ${st.status} WHERE whatsapp_message_id = ${st.id};`;
         }
+      }
+    }
+
+    // Análisis IA automático (pedido por el usuario): se dispara para cada
+    // conversación que recibió mensajes nuevos en esta llamada, con un
+    // debounce de unos minutos para no reanalizar en cada mensaje suelto
+    // de una ráfaga -- Meta no avisa "el cliente ya terminó de escribir",
+    // así que esto es la aproximación práctica sin tener una cola/cron en
+    // este entorno serverless: si ya se analizó hace poco, se salta, y el
+    // siguiente mensaje (o el próximo webhook) lo vuelve a intentar más
+    // tarde. Nunca debe tumbar la respuesta 200 al webhook (Meta reintenta
+    // agresivo si no la recibe) -> aislado en su propio try/catch, mejor
+    // esfuerzo, sin bloquear el resto.
+    const DEBOUNCE_ANALISIS_IA_MS = 3 * 60 * 1000;
+    // Tope defensivo: Meta casi siempre manda 1 mensaje por llamada de
+    // webhook (rara vez toca más de una conversación distinta a la vez),
+    // pero si alguna vez llegara un lote grande, esto evita que la función
+    // se pase del límite de duración (60s, ver vercel.json) encadenando
+    // demasiadas llamadas a Anthropic una tras otra.
+    let analisisRestantes = 5;
+    for (const conversacionId of conversacionesTocadas) {
+      if (analisisRestantes-- <= 0) break;
+      try {
+        const { rows: previo } = await sql`SELECT updated_at FROM whatsapp_analisis_ia WHERE conversacion_id = ${conversacionId};`;
+        const ultimaVez = previo[0]?.updated_at ? new Date(previo[0].updated_at).getTime() : 0;
+        if (Date.now() - ultimaVez > DEBOUNCE_ANALISIS_IA_MS) {
+          await ejecutarAnalisisIA(sql, conversacionId, 'Sistema (análisis automático)');
+        }
+      } catch (err) {
+        console.error('[whatsapp-webhook] error en análisis IA automático de la conversación', conversacionId, err);
       }
     }
 
@@ -2664,132 +2697,152 @@ const WHATSAPP_ANALISIS_TOOL = {
   },
 };
 
+// Lógica central del Análisis IA, sin nada de HTTP -- la usa tanto el
+// botón manual (manejarWhatsappAnalizar, con usuario real para la
+// auditoría) como el disparo automático desde el webhook (con "quien" =
+// 'sistema (automático)'). Devuelve {ok:true} o {ok:false, motivo} en vez
+// de tirar error para los casos esperables (sin API key, sin mensajes,
+// conversación inexistente) -- errores de verdad (Anthropic caído, etc.)
+// sí se propagan, que el llamador decida cómo mostrarlos.
+async function ejecutarAnalisisIA(sql, conversacionId, quien) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return { ok: false, motivo: 'sin_api_key' };
+
+  const { rows: mensajes } = await sql`
+    SELECT direccion, tipo, contenido_texto, marca_tiempo FROM whatsapp_mensajes
+    WHERE conversacion_id = ${conversacionId} ORDER BY marca_tiempo ASC;
+  `;
+  if (mensajes.length === 0) return { ok: false, motivo: 'sin_mensajes' };
+
+  const { rows: convRows } = await sql`SELECT id, responsable_id FROM whatsapp_conversaciones WHERE id = ${conversacionId};`;
+  if (!convRows[0]) return { ok: false, motivo: 'no_encontrada' };
+
+  const transcripcion = mensajes.map(m => {
+    const remitente = m.direccion === 'in' ? 'Cliente' : 'IndexStore';
+    const hora = new Date(m.marca_tiempo).toLocaleString('es-CL');
+    const contenido = m.tipo === 'texto' ? (m.contenido_texto || '') : `[${m.tipo}]`;
+    return `[${hora}] ${remitente}: ${contenido}`;
+  }).join('\n');
+
+  const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      system: `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Analiza la conversación de WhatsApp entre un cliente y el negocio que te va a pasar el usuario, y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`,
+      messages: [{ role: 'user', content: `Conversación:\n\n${transcripcion}` }],
+      tools: [WHATSAPP_ANALISIS_TOOL],
+      tool_choice: { type: 'tool', name: 'registrar_analisis' },
+    }),
+  }, 30000);
+
+  if (!respuestaIA.ok) {
+    const texto = await respuestaIA.text().catch(() => '');
+    throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
+  }
+  const dataIA = await respuestaIA.json();
+  const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
+  if (!bloqueHerramienta) throw new Error('La IA no devolvió un análisis estructurado');
+  const a = bloqueHerramienta.input || {};
+
+  const limpiar = (v) => (v && String(v).trim()) ? String(v).trim() : null;
+  const intencion = WHATSAPP_INTENCIONES.includes(a.intencion) ? a.intencion : null;
+  const categoria = WHATSAPP_CATEGORIAS.includes(a.categoria) ? a.categoria : null;
+  const resultado = WHATSAPP_RESULTADOS.includes(a.resultado) ? a.resultado : null;
+  const motivoPerdida = Object.keys(WHATSAPP_MOTIVOS_PERDIDA_LABEL).includes(a.motivo_perdida) ? a.motivo_perdida : null;
+  const producto = limpiar(a.producto);
+  const marca = limpiar(a.marca);
+  const modelo = limpiar(a.modelo);
+  const probabilidad = Math.max(0, Math.min(100, Math.round(Number(a.probabilidad_compra) || 0)));
+  const scoreAtencion = Math.max(0, Math.min(100, Math.round(Number(a.calidad_atencion_score) || 0)));
+  const vendedorDetectado = WHATSAPP_VENDEDORES.includes(a.vendedor) ? a.vendedor : null;
+  const productoShopify = await buscarProductoShopify(marca, modelo);
+
+  // Si el vendedor detectado ya tiene cuenta creada en el ERP (match por
+  // nombre, sin distinguir acentos/mayúsculas), y la conversación no
+  // tiene responsable asignado todavía, se asigna solo -- mientras no
+  // exista la cuenta, igual queda guardado en vendedor_detectado para no
+  // perder la información hasta que se cree.
+  let responsableIdAsignado = null;
+  let responsableNombreAsignado = null;
+  if (vendedorDetectado && !convRows[0].responsable_id) {
+    const { rows: usuariosActivos } = await sql`SELECT id, nombre FROM usuarios WHERE activo = true;`;
+    const buscado = normalizarNombrePersona(vendedorDetectado);
+    const match = usuariosActivos.find(u => normalizarNombrePersona(u.nombre).includes(buscado));
+    if (match) { responsableIdAsignado = match.id; responsableNombreAsignado = match.nombre; }
+  }
+
+  await sql`
+    INSERT INTO whatsapp_analisis_ia (
+      conversacion_id, resumen, intencion, categoria, producto, marca, modelo, problema_cliente,
+      probabilidad_compra, resultado, motivo_perdida, sentimiento, calidad_atencion_score,
+      requiere_seguimiento, observaciones, updated_at
+    ) VALUES (
+      ${conversacionId}, ${limpiar(a.resumen)}, ${intencion}, ${categoria}, ${producto}, ${marca}, ${modelo},
+      ${limpiar(a.problema_cliente)}, ${probabilidad}, ${resultado}, ${motivoPerdida}, ${limpiar(a.sentimiento)}, ${scoreAtencion},
+      ${!!a.requiere_seguimiento}, ${limpiar(a.observaciones)}, now()
+    )
+    ON CONFLICT (conversacion_id) DO UPDATE SET
+      resumen = EXCLUDED.resumen, intencion = EXCLUDED.intencion, categoria = EXCLUDED.categoria,
+      producto = EXCLUDED.producto, marca = EXCLUDED.marca, modelo = EXCLUDED.modelo,
+      problema_cliente = EXCLUDED.problema_cliente, probabilidad_compra = EXCLUDED.probabilidad_compra,
+      resultado = EXCLUDED.resultado, motivo_perdida = EXCLUDED.motivo_perdida, sentimiento = EXCLUDED.sentimiento,
+      calidad_atencion_score = EXCLUDED.calidad_atencion_score, requiere_seguimiento = EXCLUDED.requiere_seguimiento,
+      observaciones = EXCLUDED.observaciones, updated_at = now();
+  `;
+
+  // Solo rellena los campos "de trabajo" de la conversación si están
+  // vacíos -- nunca pisa algo que un humano ya haya editado a mano.
+  // requiere_seguimiento queda fuera a propósito: al ser NOT NULL
+  // DEFAULT false en la tabla, no hay forma de distinguir "nunca
+  // tocado" de "una persona lo dejó en false a propósito" -> la persona
+  // sigue decidiendo eso a mano, informada por lo que sugiere la IA acá.
+  await sql`
+    UPDATE whatsapp_conversaciones SET
+      intencion = COALESCE(intencion, ${intencion}),
+      categoria = COALESCE(categoria, ${categoria}),
+      producto = COALESCE(producto, ${producto}),
+      marca = COALESCE(marca, ${marca}),
+      modelo = COALESCE(modelo, ${modelo}),
+      resultado = COALESCE(resultado, ${resultado}),
+      motivo_perdida = COALESCE(motivo_perdida, ${motivoPerdida}),
+      vendedor_detectado = COALESCE(${vendedorDetectado}, vendedor_detectado),
+      responsable_id = COALESCE(responsable_id, ${responsableIdAsignado}),
+      shopify_producto_url = COALESCE(${productoShopify?.url || null}, shopify_producto_url),
+      shopify_producto_titulo = COALESCE(${productoShopify?.titulo || null}, shopify_producto_titulo),
+      updated_at = now()
+    WHERE id = ${conversacionId};
+  `;
+
+  const detalleAuditoria = responsableIdAsignado
+    ? `Se generó el análisis con IA (vendedor detectado: ${vendedorDetectado} → asignado como responsable: ${responsableNombreAsignado})`
+    : vendedorDetectado
+      ? `Se generó el análisis con IA (vendedor detectado: ${vendedorDetectado}, sin cuenta de usuario todavía)`
+      : 'Se generó el análisis con IA';
+  await sql`INSERT INTO whatsapp_auditoria (conversacion_id, usuario_email, accion, detalle) VALUES (${conversacionId}, ${quien}, 'analisis_ia', ${detalleAuditoria});`;
+
+  return { ok: true };
+}
+
+// Botón manual "Analizar con IA" en el detalle de conversación.
 async function manejarWhatsappAnalizar(req, res, sesion) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const { conversacionId } = req.body || {};
   if (!conversacionId) return res.status(400).json({ error: 'Falta conversacionId' });
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return res.status(200).json({ error: 'ANTHROPIC_API_KEY no está configurada en el servidor' });
-
   try {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
-
-    const { rows: mensajes } = await sql`
-      SELECT direccion, tipo, contenido_texto, marca_tiempo FROM whatsapp_mensajes
-      WHERE conversacion_id = ${conversacionId} ORDER BY marca_tiempo ASC;
-    `;
-    if (mensajes.length === 0) return res.status(400).json({ error: 'Esta conversación no tiene mensajes para analizar' });
-
-    const { rows: convRows } = await sql`SELECT id, responsable_id FROM whatsapp_conversaciones WHERE id = ${conversacionId};`;
-    if (!convRows[0]) return res.status(404).json({ error: 'Conversación no encontrada' });
-
-    const transcripcion = mensajes.map(m => {
-      const quien = m.direccion === 'in' ? 'Cliente' : 'IndexStore';
-      const hora = new Date(m.marca_tiempo).toLocaleString('es-CL');
-      const contenido = m.tipo === 'texto' ? (m.contenido_texto || '') : `[${m.tipo}]`;
-      return `[${hora}] ${quien}: ${contenido}`;
-    }).join('\n');
-
-    const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1024,
-        system: `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Analiza la conversación de WhatsApp entre un cliente y el negocio que te va a pasar el usuario, y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`,
-        messages: [{ role: 'user', content: `Conversación:\n\n${transcripcion}` }],
-        tools: [WHATSAPP_ANALISIS_TOOL],
-        tool_choice: { type: 'tool', name: 'registrar_analisis' },
-      }),
-    }, 30000);
-
-    if (!respuestaIA.ok) {
-      const texto = await respuestaIA.text().catch(() => '');
-      throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
+    const resultado = await ejecutarAnalisisIA(sql, conversacionId, sesion.nombre || sesion.email);
+    if (!resultado.ok) {
+      const mensajesError = {
+        sin_api_key: 'ANTHROPIC_API_KEY no está configurada en el servidor',
+        sin_mensajes: 'Esta conversación no tiene mensajes para analizar',
+        no_encontrada: 'Conversación no encontrada',
+      };
+      const status = resultado.motivo === 'no_encontrada' ? 404 : resultado.motivo === 'sin_mensajes' ? 400 : 200;
+      return res.status(status).json({ error: mensajesError[resultado.motivo] || 'No se pudo analizar la conversación' });
     }
-    const dataIA = await respuestaIA.json();
-    const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
-    if (!bloqueHerramienta) throw new Error('La IA no devolvió un análisis estructurado');
-    const a = bloqueHerramienta.input || {};
-
-    const limpiar = (v) => (v && String(v).trim()) ? String(v).trim() : null;
-    const intencion = WHATSAPP_INTENCIONES.includes(a.intencion) ? a.intencion : null;
-    const categoria = WHATSAPP_CATEGORIAS.includes(a.categoria) ? a.categoria : null;
-    const resultado = WHATSAPP_RESULTADOS.includes(a.resultado) ? a.resultado : null;
-    const motivoPerdida = Object.keys(WHATSAPP_MOTIVOS_PERDIDA_LABEL).includes(a.motivo_perdida) ? a.motivo_perdida : null;
-    const producto = limpiar(a.producto);
-    const marca = limpiar(a.marca);
-    const modelo = limpiar(a.modelo);
-    const probabilidad = Math.max(0, Math.min(100, Math.round(Number(a.probabilidad_compra) || 0)));
-    const scoreAtencion = Math.max(0, Math.min(100, Math.round(Number(a.calidad_atencion_score) || 0)));
-    const vendedorDetectado = WHATSAPP_VENDEDORES.includes(a.vendedor) ? a.vendedor : null;
-    const productoShopify = await buscarProductoShopify(marca, modelo);
-
-    // Si el vendedor detectado ya tiene cuenta creada en el ERP (match por
-    // nombre, sin distinguir acentos/mayúsculas), y la conversación no
-    // tiene responsable asignado todavía, se asigna solo -- mientras no
-    // exista la cuenta, igual queda guardado en vendedor_detectado para no
-    // perder la información hasta que se cree.
-    let responsableIdAsignado = null;
-    let responsableNombreAsignado = null;
-    if (vendedorDetectado && !convRows[0].responsable_id) {
-      const { rows: usuariosActivos } = await sql`SELECT id, nombre FROM usuarios WHERE activo = true;`;
-      const buscado = normalizarNombrePersona(vendedorDetectado);
-      const match = usuariosActivos.find(u => normalizarNombrePersona(u.nombre).includes(buscado));
-      if (match) { responsableIdAsignado = match.id; responsableNombreAsignado = match.nombre; }
-    }
-
-    await sql`
-      INSERT INTO whatsapp_analisis_ia (
-        conversacion_id, resumen, intencion, categoria, producto, marca, modelo, problema_cliente,
-        probabilidad_compra, resultado, motivo_perdida, sentimiento, calidad_atencion_score,
-        requiere_seguimiento, observaciones, updated_at
-      ) VALUES (
-        ${conversacionId}, ${limpiar(a.resumen)}, ${intencion}, ${categoria}, ${producto}, ${marca}, ${modelo},
-        ${limpiar(a.problema_cliente)}, ${probabilidad}, ${resultado}, ${motivoPerdida}, ${limpiar(a.sentimiento)}, ${scoreAtencion},
-        ${!!a.requiere_seguimiento}, ${limpiar(a.observaciones)}, now()
-      )
-      ON CONFLICT (conversacion_id) DO UPDATE SET
-        resumen = EXCLUDED.resumen, intencion = EXCLUDED.intencion, categoria = EXCLUDED.categoria,
-        producto = EXCLUDED.producto, marca = EXCLUDED.marca, modelo = EXCLUDED.modelo,
-        problema_cliente = EXCLUDED.problema_cliente, probabilidad_compra = EXCLUDED.probabilidad_compra,
-        resultado = EXCLUDED.resultado, motivo_perdida = EXCLUDED.motivo_perdida, sentimiento = EXCLUDED.sentimiento,
-        calidad_atencion_score = EXCLUDED.calidad_atencion_score, requiere_seguimiento = EXCLUDED.requiere_seguimiento,
-        observaciones = EXCLUDED.observaciones, updated_at = now();
-    `;
-
-    // Solo rellena los campos "de trabajo" de la conversación si están
-    // vacíos -- nunca pisa algo que un humano ya haya editado a mano.
-    // requiere_seguimiento queda fuera a propósito: al ser NOT NULL
-    // DEFAULT false en la tabla, no hay forma de distinguir "nunca
-    // tocado" de "una persona lo dejó en false a propósito" -> la persona
-    // sigue decidiendo eso a mano, informada por lo que sugiere la IA acá.
-    await sql`
-      UPDATE whatsapp_conversaciones SET
-        intencion = COALESCE(intencion, ${intencion}),
-        categoria = COALESCE(categoria, ${categoria}),
-        producto = COALESCE(producto, ${producto}),
-        marca = COALESCE(marca, ${marca}),
-        modelo = COALESCE(modelo, ${modelo}),
-        resultado = COALESCE(resultado, ${resultado}),
-        motivo_perdida = COALESCE(motivo_perdida, ${motivoPerdida}),
-        vendedor_detectado = COALESCE(${vendedorDetectado}, vendedor_detectado),
-        responsable_id = COALESCE(responsable_id, ${responsableIdAsignado}),
-        shopify_producto_url = COALESCE(${productoShopify?.url || null}, shopify_producto_url),
-        shopify_producto_titulo = COALESCE(${productoShopify?.titulo || null}, shopify_producto_titulo),
-        updated_at = now()
-      WHERE id = ${conversacionId};
-    `;
-
-    const detalleAuditoria = responsableIdAsignado
-      ? `Se generó el análisis con IA (vendedor detectado: ${vendedorDetectado} → asignado como responsable: ${responsableNombreAsignado})`
-      : vendedorDetectado
-        ? `Se generó el análisis con IA (vendedor detectado: ${vendedorDetectado}, sin cuenta de usuario todavía)`
-        : 'Se generó el análisis con IA';
-    await sql`INSERT INTO whatsapp_auditoria (conversacion_id, usuario_email, accion, detalle) VALUES (${conversacionId}, ${sesion.nombre || sesion.email}, 'analisis_ia', ${detalleAuditoria});`;
-
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: 'Error al analizar la conversación con IA', detail: String(err) });
