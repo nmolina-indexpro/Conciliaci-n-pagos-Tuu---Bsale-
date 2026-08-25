@@ -2942,11 +2942,28 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   if (mensajes.length === 0) return { ok: false, motivo: 'sin_mensajes' };
 
   const { rows: convRows } = await sql`
-    SELECT c.id, c.responsable_id, c.iniciada_en, c.venta_detectada, ct.telefono AS contacto_telefono
+    SELECT c.id, c.contacto_id, c.responsable_id, c.iniciada_en, c.venta_detectada, ct.telefono AS contacto_telefono
     FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
     WHERE c.id = ${conversacionId};
   `;
   if (!convRows[0]) return { ok: false, motivo: 'no_encontrada' };
+
+  // Un seguimiento ("Gracias por la info", "Lo voy a pensar") a veces cae
+  // en una conversación NUEVA (se cortó por las 24h sin actividad, ver
+  // obtenerOCrearConversacionWhatsapp) sin mencionar de nuevo el producto
+  // -- si no se le da contexto, la IA no tiene cómo saber de qué se está
+  // haciendo seguimiento. Se le pasa como referencia (no se copia
+  // directo) la conversación anterior más reciente de este mismo
+  // contacto, si tuvo análisis.
+  const { rows: anteriorRows } = await sql`
+    SELECT c2.iniciada_en, a2.resumen, a2.categoria, a2.producto, a2.marca, a2.modelo
+    FROM whatsapp_conversaciones c2
+    JOIN whatsapp_analisis_ia a2 ON a2.conversacion_id = c2.id
+    WHERE c2.contacto_id = ${convRows[0].contacto_id} AND c2.id != ${conversacionId} AND c2.iniciada_en < ${convRows[0].iniciada_en}
+      AND (a2.producto IS NOT NULL OR a2.marca IS NOT NULL OR a2.categoria IS NOT NULL)
+    ORDER BY c2.iniciada_en DESC LIMIT 1;
+  `;
+  const conversacionAnterior = anteriorRows[0] || null;
 
   // Las fotos SÍ se le mandan a Claude (que puede leerlas) -- es muy común
   // que el cliente no sepa el modelo exacto de su notebook y en vez de
@@ -2964,7 +2981,20 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
     imagenesDescargadas.set(i, await obtenerImagenWhatsapp(mensajes[i].media_url));
   }));
 
-  const contenido = [{ type: 'text', text: 'Conversación de WhatsApp (en orden cronológico):' }];
+  const contenido = [];
+  if (conversacionAnterior) {
+    const detalles = [
+      conversacionAnterior.categoria ? `categoría: ${conversacionAnterior.categoria}` : null,
+      conversacionAnterior.producto ? `producto: ${conversacionAnterior.producto}` : null,
+      conversacionAnterior.marca ? `marca: ${conversacionAnterior.marca}` : null,
+      conversacionAnterior.modelo ? `modelo: ${conversacionAnterior.modelo}` : null,
+    ].filter(Boolean).join(', ');
+    contenido.push({
+      type: 'text',
+      text: `Contexto (NO es la conversación a analizar, solo referencia): este mismo cliente tuvo una conversación anterior el ${new Date(conversacionAnterior.iniciada_en).toLocaleDateString('es-CL')} donde se detectó ${detalles || 'sin detalles adicionales'}. Resumen de esa conversación anterior: "${conversacionAnterior.resumen || 'sin resumen'}". Si la conversación de abajo es claramente un seguimiento de eso (el cliente no menciona un producto nuevo, ej. "gracias por la info", "lo voy a pensar", "sí, las dos"), puedes usar esos datos para completar categoría/producto/marca/modelo de la conversación actual también. Si la conversación de abajo es sobre algo distinto, ignora este contexto.`,
+    });
+  }
+  contenido.push({ type: 'text', text: 'Conversación de WhatsApp a analizar (en orden cronológico):' });
   mensajes.forEach((m, i) => {
     const remitente = m.direccion === 'in' ? 'Cliente' : 'IndexStore';
     const hora = new Date(m.marca_tiempo).toLocaleString('es-CL');
@@ -2984,7 +3014,7 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
-      system: `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Si el cliente manda una foto de la etiqueta/sticker pegada en la carcasa o la base del notebook, léela para identificar marca y modelo exactos (suele ser más confiable que lo que el cliente escribe de memoria) y úsalo para los campos marca/modelo. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`,
+      system: `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Si el cliente manda una foto de la etiqueta/sticker pegada en la carcasa o la base del notebook, léela para identificar marca y modelo exactos (suele ser más confiable que lo que el cliente escribe de memoria) y úsalo para los campos marca/modelo. A veces el mensaje del usuario incluye primero un bloque de "Contexto" con datos de una conversación anterior del mismo cliente (las conversaciones se cortan automáticamente tras 24h sin actividad, así que un seguimiento corto como "gracias por la info" puede quedar en una conversación separada sin mencionar el producto de nuevo) -- úsalo solo si la conversación actual es claramente ese seguimiento, nunca si trata de algo distinto. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`,
       messages: [{ role: 'user', content: contenido }],
       tools: [WHATSAPP_ANALISIS_TOOL],
       tool_choice: { type: 'tool', name: 'registrar_analisis' },
