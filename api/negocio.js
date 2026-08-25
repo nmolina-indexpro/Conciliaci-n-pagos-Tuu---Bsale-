@@ -89,6 +89,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-analizar') return manejarWhatsappAnalizar(req, res, sesion);
   if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
   if (recurso === 'whatsapp-actualizar-shopify') return manejarWhatsappActualizarShopify(req, res, sesion);
+  if (recurso === 'whatsapp-actualizar-ventas-bsale') return manejarWhatsappActualizarVentasBsale(req, res, sesion);
   if (recurso === 'whatsapp-analitica') return manejarWhatsappAnalitica(req, res, sesion);
   if (recurso === 'whatsapp-demo-seed') return manejarWhatsappDemoSeed(req, res, sesion);
   if (recurso === 'whatsapp-demo-clear') return manejarWhatsappDemoClear(req, res, sesion);
@@ -2055,6 +2056,52 @@ async function buscarClienteBsalePorTelefono(sql, telefono) {
   return rows[0] || null;
 }
 
+// Busca si el cliente vinculado por teléfono (ver buscarClienteBsalePorTelefono)
+// tiene una compra real en Bsale relacionada con esta conversación --
+// puramente informativo/sugerido, para detectar automáticamente ventas
+// que nadie asoció a mano todavía (no reemplaza el botón "Asociar
+// venta", que sigue siendo la confirmación humana). Se queda solo con
+// compras EN O DESPUÉS del inicio de la conversación, dentro de una
+// ventana de 30 días: una compra de hace meses no necesariamente tiene
+// que ver con esta conversación puntual, mejor no sugerir nada que
+// sugerir algo sin relación real. "Mejor esfuerzo": cualquier error acá
+// no debe tumbar el análisis IA completo.
+async function buscarVentaBsalePorTelefono(sql, telefono, fechaConversacionIso) {
+  const token = (process.env.BSALE_ACCESS_TOKEN || '').trim();
+  if (!token || !telefono || !fechaConversacionIso) return null;
+  try {
+    const clienteBsale = await buscarClienteBsalePorTelefono(sql, telefono);
+    if (!clienteBsale) return null;
+
+    const compras = await obtenerHistorialCompras(token, clienteBsale.id);
+    if (!compras.length) return null;
+
+    const inicioMs = new Date(fechaConversacionIso).getTime();
+    const VENTANA_MS = 30 * 86400000; // 30 días
+    const candidatas = compras
+      .map(d => ({ d, fechaMs: d.emissionDate ? d.emissionDate * 1000 : null }))
+      .filter(({ fechaMs }) => fechaMs != null && fechaMs >= inicioMs && fechaMs <= inicioMs + VENTANA_MS)
+      .sort((a, b) => a.fechaMs - b.fechaMs); // la más cercana al inicio de la conversación primero
+
+    if (!candidatas.length) {
+      console.warn('[buscarVentaBsalePorTelefono] cliente con compras en Bsale pero ninguna dentro de los 30 días siguientes al inicio de la conversación', telefono);
+      return null;
+    }
+
+    const { d } = candidatas[0];
+    return {
+      numero: d.number ? String(d.number) : null,
+      tipo: d.document_type?.name || null,
+      monto: Number(d.totalAmount) || 0,
+      fecha: d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null,
+      url: d.urlPublicView || d.urlPublicViewOriginal || null,
+    };
+  } catch (err) {
+    console.warn('[buscarVentaBsalePorTelefono] error inesperado', telefono, err);
+    return null; // mejor esfuerzo -- no interrumpe el análisis IA
+  }
+}
+
 function extraerContenidoMensajeWhatsapp(m) {
   const mapaTipos = { text: 'texto', image: 'imagen', audio: 'audio', video: 'video', document: 'documento' };
   const tipo = mapaTipos[m.type] || 'texto';
@@ -2248,6 +2295,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
            c.primera_respuesta_segundos, c.resultado, c.motivo_perdida, c.venta_detectada, c.venta_monto,
            c.requiere_seguimiento, c.cantidad_mensajes, c.ultimo_mensaje_resumen, c.responsable_id, c.vendedor_detectado,
            c.shopify_producto_url, c.shopify_producto_titulo, c.shopify_producto_confianza,
+           c.bsale_documento_numero, c.bsale_documento_tipo, c.bsale_documento_monto, c.bsale_documento_fecha, c.bsale_documento_url,
            ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono,
            a.probabilidad_compra,
            u.nombre AS responsable_nombre,
@@ -2363,6 +2411,11 @@ function mapearConversacionWhatsapp(r) {
     shopifyProductoUrl: r.shopify_producto_url,
     shopifyProductoTitulo: r.shopify_producto_titulo,
     shopifyProductoConfianza: r.shopify_producto_confianza,
+    bsaleDocumentoNumero: r.bsale_documento_numero,
+    bsaleDocumentoTipo: r.bsale_documento_tipo,
+    bsaleDocumentoMonto: r.bsale_documento_monto != null ? Number(r.bsale_documento_monto) : null,
+    bsaleDocumentoFecha: r.bsale_documento_fecha,
+    bsaleDocumentoUrl: r.bsale_documento_url,
     cantidadMensajes: r.cantidad_mensajes,
     cantidadImagenes: r.cantidad_imagenes || 0,
   };
@@ -2888,7 +2941,11 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   `;
   if (mensajes.length === 0) return { ok: false, motivo: 'sin_mensajes' };
 
-  const { rows: convRows } = await sql`SELECT id, responsable_id FROM whatsapp_conversaciones WHERE id = ${conversacionId};`;
+  const { rows: convRows } = await sql`
+    SELECT c.id, c.responsable_id, c.iniciada_en, c.venta_detectada, ct.telefono AS contacto_telefono
+    FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+    WHERE c.id = ${conversacionId};
+  `;
   if (!convRows[0]) return { ok: false, motivo: 'no_encontrada' };
 
   // Las fotos SÍ se le mandan a Claude (que puede leerlas) -- es muy común
@@ -2956,6 +3013,11 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   const scoreAtencion = Math.max(0, Math.min(100, Math.round(Number(a.calidad_atencion_score) || 0)));
   const vendedorDetectado = WHATSAPP_VENDEDORES.includes(a.vendedor) ? a.vendedor : null;
   const productoShopify = await buscarProductoShopify(producto, categoria, marca, modelo, especificaciones);
+  // Si ya hay una venta confirmada a mano ("Asociar venta"), no hace falta
+  // gastar una consulta a Bsale buscando una sugerencia -- ya está resuelto.
+  const ventaBsale = convRows[0].venta_detectada
+    ? null
+    : await buscarVentaBsalePorTelefono(sql, convRows[0].contacto_telefono, convRows[0].iniciada_en);
 
   // Si el vendedor detectado ya tiene cuenta creada en el ERP (match por
   // nombre, sin distinguir acentos/mayúsculas), y la conversación no
@@ -3013,6 +3075,11 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
       shopify_producto_url = ${productoShopify?.url || null},
       shopify_producto_titulo = ${productoShopify?.titulo || null},
       shopify_producto_confianza = ${productoShopify?.confianza ?? null},
+      bsale_documento_numero = ${ventaBsale?.numero || null},
+      bsale_documento_tipo = ${ventaBsale?.tipo || null},
+      bsale_documento_monto = ${ventaBsale?.monto ?? null},
+      bsale_documento_fecha = ${ventaBsale?.fecha || null},
+      bsale_documento_url = ${ventaBsale?.url || null},
       updated_at = now()
     WHERE id = ${conversacionId};
   `;
@@ -3150,6 +3217,66 @@ async function manejarWhatsappActualizarShopify(req, res, sesion) {
     return res.status(200).json({ actualizadas, offset: nuevoOffset, total, completo: nuevoOffset >= total });
   } catch (err) {
     return res.status(500).json({ error: 'Error actualizando links de Shopify', detail: String(err) });
+  }
+}
+
+// Busca ventas de Bsale (por teléfono, ver buscarVentaBsalePorTelefono)
+// para conversaciones que todavía no tienen ni una venta confirmada a
+// mano ni una sugerencia encontrada. Admin-only. Lote más chico que el de
+// Shopify (15, no 30) y con pausa entre cada una -- golpea la API real de
+// Bsale (rate limit ~8 req/s, mismo límite que usan las demás
+// sincronizaciones de este archivo), no solo Shopify.
+//
+// bsale_documento_numero = '' (string vacío, NO NULL) marca "ya se
+// revisó, no se encontró nada" -- necesario para que el WHERE
+// "bsale_documento_numero IS NULL" se vaya vaciando de verdad en cada
+// llamada (si se dejara NULL para "no encontrado", la misma conversación
+// se re-revisaría en cada llamada para siempre, sin avanzar nunca).
+async function manejarWhatsappActualizarVentasBsale(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede buscar ventas de Bsale en lote' });
+  if (!(process.env.BSALE_ACCESS_TOKEN || '').trim()) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    const { rows: candidatas } = await sql`
+      SELECT c.id, c.iniciada_en, ct.telefono AS contacto_telefono
+      FROM whatsapp_conversaciones c
+      JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+      WHERE c.venta_detectada = false AND c.bsale_documento_numero IS NULL
+      ORDER BY c.iniciada_en ASC LIMIT 15;
+    `;
+
+    let encontradas = 0;
+    for (const fila of candidatas) {
+      try {
+        const ventaBsale = await buscarVentaBsalePorTelefono(sql, fila.contacto_telefono, fila.iniciada_en);
+        await sql`
+          UPDATE whatsapp_conversaciones SET
+            bsale_documento_numero = ${ventaBsale?.numero || ''},
+            bsale_documento_tipo = ${ventaBsale?.tipo || null},
+            bsale_documento_monto = ${ventaBsale?.monto ?? null},
+            bsale_documento_fecha = ${ventaBsale?.fecha || null},
+            bsale_documento_url = ${ventaBsale?.url || null}
+          WHERE id = ${fila.id};
+        `;
+        if (ventaBsale) encontradas++;
+      } catch (err) {
+        console.error('[whatsapp-actualizar-ventas-bsale] error en conversación', fila.id, err);
+      }
+      await new Promise(r => setTimeout(r, PUNTOS_SYNC_INTERVALO_MIN_MS)); // ritmo bajo el límite de Bsale
+    }
+
+    const { rows: restantesRows } = await sql`
+      SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones
+      WHERE venta_detectada = false AND bsale_documento_numero IS NULL;
+    `;
+    const restantes = restantesRows[0]?.n || 0;
+
+    return res.status(200).json({ revisadas: candidatas.length, encontradas, restantes, completo: restantes === 0 });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error buscando ventas de Bsale', detail: String(err) });
   }
 }
 

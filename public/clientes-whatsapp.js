@@ -96,6 +96,21 @@ function shopifyCellHtml(c){
   const tooltip = `${c.shopifyProductoTitulo || ''}${conf != null ? ` — confianza aprox. ${conf}%` : ''}`;
   return `<a href="${escapeHtml(c.shopifyProductoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="${escapeHtml(tooltip)}" class="btn-ghost btn-compact" style="text-decoration:none;white-space:nowrap;">🛒 Ver${escapeHtml(etiquetaConf)}</a>`;
 }
+// Venta confirmada a mano (prioridad) o, si no hay, sugerencia detectada
+// automáticamente por teléfono contra Bsale (ver buscarVentaBsalePorTelefono)
+// -- se distingue con "🧾 sugerido" para que quede claro que no es una
+// confirmación humana, solo una pista para revisar.
+function ventaCellHtml(c){
+  if (c.venta) return fmtMoneda(c.montoVenta);
+  if (c.bsaleDocumentoNumero) {
+    const tooltip = `Detectado automáticamente por teléfono — ${c.bsaleDocumentoTipo || 'documento'} ${c.bsaleDocumentoNumero}${c.bsaleDocumentoFecha ? ', ' + fmtFecha(c.bsaleDocumentoFecha) : ''}. No es una confirmación manual.`;
+    const contenido = `🧾 ${fmtMoneda(c.bsaleDocumentoMonto)} <span class="sub">(sugerido)</span>`;
+    return c.bsaleDocumentoUrl
+      ? `<a href="${escapeHtml(c.bsaleDocumentoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="${escapeHtml(tooltip)}" style="text-decoration:none;color:inherit;">${contenido}</a>`
+      : `<span title="${escapeHtml(tooltip)}">${contenido}</span>`;
+  }
+  return '—';
+}
 function debounce(fn, ms){
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
@@ -369,7 +384,7 @@ function renderTablaConv(lista){
       <td>${c.primeraRespuestaSegundos != null ? fmtDuracion(c.primeraRespuestaSegundos) : (c.cantidadMensajes > 0 ? '<span class="badge b-rojo">Sin respuesta</span>' : '—')}</td>
       <td>${semaforoHtml(c.probabilidadCompra)}</td>
       <td>${badgeResultado(c.resultado)}</td>
-      <td class="amount">${c.venta ? fmtMoneda(c.montoVenta) : '—'}</td>
+      <td class="amount">${ventaCellHtml(c)}</td>
       <td>${responsableCellHtml(c)}</td>
       <td>${alertasConversacion(c)}</td>
     </tr>
@@ -446,9 +461,22 @@ function renderDetalleConversacion(data){
     </div>
   ` : `<div class="ficha-grupo"><h3 style="display:flex;justify-content:space-between;align-items:center;">🤖 Análisis IA ${botonAnalizar}</h3><p class="sub">Sin análisis todavía.</p></div>`;
 
-  const ventaHtml = c.venta
-    ? `<div class="ficha-fila"><span>Venta</span><b>${fmtMoneda(c.montoVenta)}${c.pedidoAsociado ? ' — Pedido ' + escapeHtml(c.pedidoAsociado) : ''}</b></div>`
-    : `<div class="ficha-fila"><span>Venta</span><b><button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id})">Asociar venta</button></b></div>`;
+  let ventaHtml;
+  if (c.venta) {
+    ventaHtml = `<div class="ficha-fila"><span>Venta</span><b>${fmtMoneda(c.montoVenta)}${c.pedidoAsociado ? ' — Pedido ' + escapeHtml(c.pedidoAsociado) : ''}</b></div>`;
+  } else if (c.bsaleDocumentoNumero) {
+    // Sugerencia automática (por teléfono, ver buscarVentaBsalePorTelefono)
+    // -- todavía no es una venta confirmada, solo una pista para revisar.
+    ventaHtml = `
+      <div class="ficha-fila"><span>Venta</span><b>
+        <span class="sub">🧾 Sugerido: ${fmtMoneda(c.bsaleDocumentoMonto)} — ${escapeHtml(c.bsaleDocumentoTipo || 'Documento')} ${escapeHtml(c.bsaleDocumentoNumero)}${c.bsaleDocumentoUrl ? ` <a href="${escapeHtml(c.bsaleDocumentoUrl)}" target="_blank" rel="noopener">(ver)</a>` : ''}</span>
+      </b></div>
+      <div class="ficha-fila"><span></span><b>
+        <button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id}, ${c.bsaleDocumentoMonto || 0}, '${escapeHtml(c.bsaleDocumentoNumero)}')">Confirmar esta venta</button>
+      </b></div>`;
+  } else {
+    ventaHtml = `<div class="ficha-fila"><span>Venta</span><b><button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id})">Asociar venta</button></b></div>`;
+  }
 
   $('modalConvBody').innerHTML = `
     <div class="detalle-conv">
@@ -512,10 +540,10 @@ async function guardarCampoConv(id, campo, valor){
     cargarConversaciones();
   }catch(err){ alert('Error: ' + err.message); }
 }
-function abrirAsociarVenta(conversacionId){
-  const monto = prompt('Monto de la venta (CLP):');
+function abrirAsociarVenta(conversacionId, montoSugerido, pedidoSugerido){
+  const monto = prompt('Monto de la venta (CLP):', montoSugerido != null ? String(montoSugerido) : '');
   if (!monto || isNaN(Number(monto))) return;
-  const pedido = prompt('Número de pedido asociado (opcional):') || null;
+  const pedido = prompt('Número de pedido asociado (opcional):', pedidoSugerido || '') || null;
   (async () => {
     try{
       const res = await fetch('/api/negocio?recurso=whatsapp-venta', {
@@ -682,7 +710,7 @@ async function abrirCliente(id){
               <tr class="fila-clic" onclick="cerrarModalCliente(); abrirConversacion(${c.id});">
                 <td>${fmtFechaHora(c.fecha)}</td><td>${badgeEstado(c.estado)}</td>
                 <td>${productoDisplayHtml(c)}</td>
-                <td>${badgeResultado(c.resultado)}</td><td class="amount">${c.venta ? fmtMoneda(c.montoVenta) : '—'}</td>
+                <td>${badgeResultado(c.resultado)}</td><td class="amount">${ventaCellHtml(c)}</td>
               </tr>
             `).join('') || '<tr><td colspan="5" class="empty-note">Sin conversaciones.</td></tr>'}
           </tbody>
@@ -911,6 +939,34 @@ async function actualizarShopifyEnLote(){
     cambiarVistaModulo(vistaActiva);
   }catch(err){ alert('Error: ' + err.message); }
   finally{ btn.disabled = false; btn.textContent = '🛒 Actualizar Shopify'; }
+}
+
+// Busca en Bsale (por teléfono) ventas que podrían corresponder a
+// conversaciones sin venta confirmada todavía -- puramente sugerido, ver
+// buscarVentaBsalePorTelefono. Golpea la API real de Bsale (más lenta que
+// Shopify), así que puede tardar bastante más con muchas conversaciones.
+async function buscarVentasBsaleEnLote(){
+  if (!confirm('¿Buscar en Bsale (por teléfono) ventas que podrían corresponder a conversaciones sin venta confirmada? Es solo una sugerencia para revisar, no confirma nada automáticamente. Puede tardar varios minutos.')) return;
+  const btn = $('btnBuscarVentasBsale');
+  btn.disabled = true;
+  let totalRevisadas = 0, totalEncontradas = 0;
+  try{
+    let completo = false;
+    while (!completo) {
+      btn.textContent = totalRevisadas > 0 ? `🧾 Buscando… (${totalEncontradas} encontradas)` : '🧾 Buscando…';
+      const res = await fetch('/api/negocio?recurso=whatsapp-actualizar-ventas-bsale', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || data.error) { alert(data.error || 'No se pudo buscar ventas en Bsale.'); break; }
+      totalRevisadas += data.revisadas; totalEncontradas += data.encontradas;
+      completo = data.completo;
+      if (data.revisadas === 0 && !completo) break; // nada avanzó, evita loop infinito
+    }
+    alert(`Búsqueda terminada: ${totalRevisadas} conversaciones revisadas, ${totalEncontradas} con una venta sugerida en Bsale.`);
+    vistasCargadas.clear();
+    const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
+    cambiarVistaModulo(vistaActiva);
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ btn.disabled = false; btn.textContent = '🧾 Buscar ventas Bsale'; }
 }
 
 // ================= Datos demo (admin, punto 37) =================
