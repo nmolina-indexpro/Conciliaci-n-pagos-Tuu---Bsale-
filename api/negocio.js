@@ -2970,13 +2970,23 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   // -- si no se le da contexto, la IA no tiene cómo saber de qué se está
   // haciendo seguimiento. Se le pasa como referencia (no se copia
   // directo) la conversación anterior más reciente de este mismo
-  // contacto, si tuvo análisis.
+  // contacto que tenga algún dato de producto.
+  //
+  // Se filtra por los campos de whatsapp_conversaciones (c2.producto/
+  // marca/categoria), NO por whatsapp_analisis_ia -- esos campos son los
+  // "de trabajo" reales (los rellena el auto-fill de un análisis previo,
+  // pero también los puede haber editado una persona a mano) y existen
+  // aunque esa conversación anterior nunca se haya llegado a analizar con
+  // IA. Antes esto exigía (JOIN normal) que la conversación anterior
+  // tuviera análisis, así que una anterior sin analizar quedaba invisible
+  // aunque tuviera datos útiles -- LEFT JOIN solo para traer el resumen
+  // si existe, opcional.
   const { rows: anteriorRows } = await sql`
-    SELECT c2.iniciada_en, a2.resumen, a2.categoria, a2.producto, a2.marca, a2.modelo
+    SELECT c2.iniciada_en, a2.resumen, c2.categoria, c2.producto, c2.marca, c2.modelo
     FROM whatsapp_conversaciones c2
-    JOIN whatsapp_analisis_ia a2 ON a2.conversacion_id = c2.id
+    LEFT JOIN whatsapp_analisis_ia a2 ON a2.conversacion_id = c2.id
     WHERE c2.contacto_id = ${convRows[0].contacto_id} AND c2.id != ${conversacionId} AND c2.iniciada_en < ${convRows[0].iniciada_en}
-      AND (a2.producto IS NOT NULL OR a2.marca IS NOT NULL OR a2.categoria IS NOT NULL)
+      AND (c2.producto IS NOT NULL OR c2.marca IS NOT NULL OR c2.categoria IS NOT NULL)
     ORDER BY c2.iniciada_en DESC LIMIT 1;
   `;
   const conversacionAnterior = anteriorRows[0] || null;
