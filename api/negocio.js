@@ -87,6 +87,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-etiquetas') return manejarWhatsappEtiquetas(req, res, sesion);
   if (recurso === 'whatsapp-venta') return manejarWhatsappVenta(req, res, sesion);
   if (recurso === 'whatsapp-analizar') return manejarWhatsappAnalizar(req, res, sesion);
+  if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
   if (recurso === 'whatsapp-analitica') return manejarWhatsappAnalitica(req, res, sesion);
   if (recurso === 'whatsapp-demo-seed') return manejarWhatsappDemoSeed(req, res, sesion);
   if (recurso === 'whatsapp-demo-clear') return manejarWhatsappDemoClear(req, res, sesion);
@@ -2846,6 +2847,53 @@ async function manejarWhatsappAnalizar(req, res, sesion) {
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: 'Error al analizar la conversación con IA', detail: String(err) });
+  }
+}
+
+// Analiza en lote las conversaciones que quedaron sin Análisis IA -- el
+// disparo automático del webhook (ver manejarWhatsappWebhook) solo corre
+// para mensajes NUEVOS que llegan después de que esa función quedó
+// desplegada; conversaciones que ya existían antes se quedan sin analizar
+// para siempre a menos que alguien las abra y le dé "Analizar con IA" una
+// por una, o corra esto. Admin-only (golpea la API de Claude repetidas
+// veces). Resumible como el resto de sincronizaciones del proyecto: tope
+// de 15 por llamada para no arriesgar el límite de duración de la
+// función, el frontend la vuelve a llamar hasta que completo=true.
+async function manejarWhatsappAnalizarPendientes(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede analizar en lote' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    const { rows: pendientes } = await sql`
+      SELECT c.id FROM whatsapp_conversaciones c
+      LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+      WHERE a.conversacion_id IS NULL AND c.cantidad_mensajes > 0
+      ORDER BY c.iniciada_en ASC LIMIT 15;
+    `;
+
+    let analizadas = 0, errores = 0;
+    for (const fila of pendientes) {
+      try {
+        const resultado = await ejecutarAnalisisIA(sql, fila.id, 'Sistema (análisis en lote)');
+        if (resultado.ok) analizadas++; else errores++;
+      } catch (err) {
+        errores++;
+        console.error('[whatsapp-analizar-pendientes] error analizando conversación', fila.id, err);
+      }
+    }
+
+    const { rows: restantesRows } = await sql`
+      SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones c
+      LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+      WHERE a.conversacion_id IS NULL AND c.cantidad_mensajes > 0;
+    `;
+    const restantes = restantesRows[0]?.n || 0;
+
+    return res.status(200).json({ analizadas, errores, restantes, completo: restantes === 0 });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error analizando conversaciones pendientes', detail: String(err) });
   }
 }
 

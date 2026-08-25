@@ -841,6 +841,34 @@ function renderChartResultados(resultados){
   `).join('');
 }
 
+// ================= Análisis IA en lote (admin) =================
+// El disparo automático (webhook) solo corre para mensajes NUEVOS -- las
+// conversaciones que ya existían antes de activarlo se quedan sin
+// analizar para siempre a menos que se corra esto una vez.
+async function analizarPendientesIA(){
+  if (!confirm('¿Analizar con IA todas las conversaciones que todavía no tienen análisis? Puede tardar varios minutos si hay muchas, y cada conversación tiene un costo pequeño en la API de Claude.')) return;
+  const btn = $('btnAnalizarPendientes');
+  btn.disabled = true;
+  let totalAnalizadas = 0, totalErrores = 0;
+  try{
+    let completo = false;
+    while (!completo) {
+      btn.textContent = totalAnalizadas > 0 ? `🤖 Analizando… (${totalAnalizadas} listas)` : '🤖 Analizando…';
+      const res = await fetch('/api/negocio?recurso=whatsapp-analizar-pendientes', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || data.error) { alert(data.error || 'No se pudo analizar las conversaciones pendientes.'); break; }
+      totalAnalizadas += data.analizadas; totalErrores += data.errores;
+      completo = data.completo;
+      if (data.analizadas === 0 && !completo) break; // nada avanzó, evita loop infinito
+    }
+    alert(`Análisis en lote terminado: ${totalAnalizadas} conversaciones analizadas${totalErrores ? `, ${totalErrores} con error` : ''}.`);
+    vistasCargadas.clear();
+    const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
+    cambiarVistaModulo(vistaActiva);
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ btn.disabled = false; btn.textContent = '🤖 Analizar pendientes'; }
+}
+
 // ================= Datos demo (admin, punto 37) =================
 async function generarDatosDemo(){
   if (!confirm('¿Generar datos demo (contactos, conversaciones y mensajes de prueba)? Podrás borrarlos después con un solo clic.')) return;
