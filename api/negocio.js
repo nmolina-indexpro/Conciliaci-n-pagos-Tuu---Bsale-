@@ -2247,7 +2247,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
            c.id, c.iniciada_en, c.estado, c.intencion, c.categoria, c.producto, c.marca, c.modelo,
            c.primera_respuesta_segundos, c.resultado, c.motivo_perdida, c.venta_detectada, c.venta_monto,
            c.requiere_seguimiento, c.cantidad_mensajes, c.ultimo_mensaje_resumen, c.responsable_id, c.vendedor_detectado,
-           c.shopify_producto_url, c.shopify_producto_titulo,
+           c.shopify_producto_url, c.shopify_producto_titulo, c.shopify_producto_confianza,
            ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono,
            a.probabilidad_compra,
            u.nombre AS responsable_nombre,
@@ -2362,6 +2362,7 @@ function mapearConversacionWhatsapp(r) {
     vendedorDetectado: r.vendedor_detectado,
     shopifyProductoUrl: r.shopify_producto_url,
     shopifyProductoTitulo: r.shopify_producto_titulo,
+    shopifyProductoConfianza: r.shopify_producto_confianza,
     cantidadMensajes: r.cantidad_mensajes,
     cantidadImagenes: r.cantidad_imagenes || 0,
   };
@@ -2652,18 +2653,72 @@ const WHATSAPP_CATEGORIA_PALABRA_SHOPIFY = {
 //
 // "Mejor esfuerzo": cualquier error acá no debe tumbar el análisis IA
 // completo, se atrapa aparte y sencillamente no queda link.
+// Separa un texto en palabras "buscables" (2+ caracteres, sin comas ni
+// dos-puntos que puedan romper la sintaxis de búsqueda de Shopify).
+function palabrasBuscables(texto) {
+  return (texto || '')
+    .replace(/[",:]/g, ' ')
+    .split(/\s+/)
+    .map(p => p.trim())
+    .filter(p => p.length >= 2);
+}
+
+// Arma una consulta con comodín por palabra ("title:*HP* AND title:*250*
+// AND ...") en vez de una frase exacta -- la búsqueda por defecto de
+// Shopify exige que el texto calce bastante literal, y en la práctica casi
+// nunca calzaba (ver conversación con el usuario: "Pantalla ASUS TUF Dash
+// F15 FX517ZC" daba 0 resultados aunque el producto sí existe). Con
+// comodines por palabra alcanza con que cada palabra aparezca en algún
+// lado del título, sin importar el orden ni el formato exacto.
+async function consultarShopify(domain, accessToken, palabras) {
+  if (!palabras.length) return [];
+  const q = palabras.map(p => `title:*${p}*`).join(' AND ');
+  const query = `query($q: String!) { products(first: 8, query: $q) { edges { node { title onlineStoreUrl } } } }`;
+  const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
+    method: 'POST',
+    headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables: { q } }),
+  }, 12000);
+  if (!r.ok) { console.warn('[buscarProductoShopify] error HTTP en la búsqueda', q, r.status); return []; }
+  const body = await r.json().catch(() => ({}));
+  if (body.errors) { console.warn('[buscarProductoShopify] GraphQL devolvió errores', q, JSON.stringify(body.errors).slice(0, 300)); return []; }
+  const total = (body.data?.products?.edges || []).length;
+  const candidatos = (body.data?.products?.edges || []).filter(e => e.node.onlineStoreUrl);
+  if (total > 0 && candidatos.length === 0) console.warn('[buscarProductoShopify] hubo resultados pero ninguno publicado en la tienda online', q, `(${total} total)`);
+  return candidatos;
+}
+
+// Busca en Shopify el producto que mejor calza con la categoría+marca+modelo
+// detectados por el Análisis IA -- mismo mecanismo de autenticación (Client
+// Credentials Grant) que api/shopify-report.js, duplicado acá porque cada
+// función de /api en este proyecto es standalone (ver CLAUDE.md). Usa
+// GraphQL en vez de REST porque el campo onlineStoreUrl viene resuelto
+// directo (evita tener que reconstruir la URL a mano combinando dominio +
+// handle, que puede no calzar si la tienda usa un dominio propio).
+//
+// Escalera de intentos, de más específico a más amplio -- si el más
+// específico no encuentra nada, se afloja de a poco en vez de rendirse de
+// inmediato (la búsqueda de Shopify es sensible al formato exacto). Cada
+// intento exitoso queda con un % de confianza heurístico según qué tan
+// ceñido fue el criterio que sí encontró algo -- no es una probabilidad
+// real, es una señal de "qué tanto se aflojó la búsqueda para encontrarlo".
+// En todos los niveles se verifica que el título mencione la categoría
+// esperada antes de aceptar el resultado (si ninguno calza, no se
+// devuelve nada en vez de mostrar un link de la categoría equivocada).
+//
+// "Mejor esfuerzo": cualquier error acá no debe tumbar el análisis IA
+// completo, se atrapa aparte y sencillamente no queda link.
 async function buscarProductoShopify(producto, categoria, marca, modelo, especificaciones) {
   // Los cargadores no se catalogan por modelo de notebook (un mismo
   // cargador cubre muchos modelos distintos) -- lo que realmente
   // distingue el producto correcto es la potencia/voltaje/conector, que
-  // va en "especificaciones" si el cliente lo mencionó. Meter el modelo
-  // del notebook en la búsqueda de un cargador hace más daño que bien
-  // (puede traer un cargador "de marca genérica X" solo porque coincide
-  // el modelo, con el conector equivocado).
+  // va en "especificaciones" si el cliente lo mencionó.
   const modeloParaBusqueda = categoria === 'cargador' ? null : modelo;
-  const partes = [producto, marca, modeloParaBusqueda, especificaciones].filter(Boolean);
-  if (partes.length < 2) { console.warn('[buscarProductoShopify] muy pocos datos para buscar', { producto, categoria, marca, modelo, especificaciones }); return null; }
-  const busqueda = partes.join(' ').trim();
+  if (![producto, marca, modeloParaBusqueda, especificaciones].some(Boolean)) {
+    console.warn('[buscarProductoShopify] muy pocos datos para buscar', { producto, categoria, marca, modelo, especificaciones });
+    return null;
+  }
+
   const domain = (process.env.SHOPIFY_STORE_DOMAIN || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
   const clientId = (process.env.SHOPIFY_CLIENT_ID || '').trim();
   const clientSecret = (process.env.SHOPIFY_CLIENT_SECRET || '').trim();
@@ -2676,37 +2731,46 @@ async function buscarProductoShopify(producto, categoria, marca, modelo, especif
     }, 12000);
     const bodyToken = await rToken.json().catch(() => ({}));
     if (!rToken.ok || !bodyToken.access_token) { console.warn('[buscarProductoShopify] no se pudo obtener token de Shopify', rToken.status, JSON.stringify(bodyToken).slice(0, 300)); return null; }
-
-    const query = `query($q: String!) { products(first: 5, query: $q) { edges { node { title onlineStoreUrl } } } }`;
-    const rBusqueda = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
-      method: 'POST',
-      headers: { 'X-Shopify-Access-Token': bodyToken.access_token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: { q: busqueda } }),
-    }, 12000);
-    if (!rBusqueda.ok) { console.warn('[buscarProductoShopify] error HTTP en la búsqueda', busqueda, rBusqueda.status); return null; }
-    const bodyBusqueda = await rBusqueda.json().catch(() => ({}));
-    if (bodyBusqueda.errors) { console.warn('[buscarProductoShopify] GraphQL devolvió errores', busqueda, JSON.stringify(bodyBusqueda.errors).slice(0, 300)); return null; }
-    const candidatos = (bodyBusqueda.data?.products?.edges || []).filter(e => e.node.onlineStoreUrl);
-    if (!candidatos.length) {
-      const totalSinFiltrar = (bodyBusqueda.data?.products?.edges || []).length;
-      console.warn('[buscarProductoShopify] sin candidatos publicados en la tienda online', busqueda, `(${totalSinFiltrar} resultado(s) totales, pero ninguno con onlineStoreUrl)`);
-      return null;
-    }
+    const accessToken = bodyToken.access_token;
 
     // Palabra que el título debería tener: la de la categoría si se
     // reconoce, si no, el nombre de producto que dio la IA tal cual.
     const palabraEsperada = normalizarTexto(WHATSAPP_CATEGORIA_PALABRA_SHOPIFY[categoria] || producto || '');
-    if (palabraEsperada) {
-      const conCategoriaCorrecta = candidatos.find(e => normalizarTexto(e.node.title).includes(palabraEsperada));
-      if (!conCategoriaCorrecta) {
-        console.warn('[buscarProductoShopify] ningún candidato calzó con la categoría esperada', busqueda, `esperaba "${palabraEsperada}"`, 'candidatos:', candidatos.map(c => c.node.title));
-        return null; // ningún resultado calza con la categoría -> no mostrar nada mal
+    const conCategoriaCorrecta = (candidatos) => palabraEsperada
+      ? candidatos.find(e => normalizarTexto(e.node.title).includes(palabraEsperada))
+      : candidatos[0];
+
+    // De más específico (todo junto) a más amplio (solo marca+modelo, o
+    // solo marca). Cada nivel intermedio va soltando el término que
+    // menos ayuda a identificar el producto exacto.
+    const niveles = [
+      { palabras: palabrasBuscables([producto, marca, modeloParaBusqueda, especificaciones].filter(Boolean).join(' ')), confianza: 90 },
+      { palabras: palabrasBuscables([producto, marca, modeloParaBusqueda].filter(Boolean).join(' ')), confianza: 75 },
+      { palabras: palabrasBuscables([marca, modeloParaBusqueda].filter(Boolean).join(' ')), confianza: 60 },
+      { palabras: palabrasBuscables([producto, marca].filter(Boolean).join(' ')), confianza: 40 },
+    ];
+
+    const vistos = new Set();
+    for (const nivel of niveles) {
+      const clave = nivel.palabras.join(' ');
+      if (!clave || vistos.has(clave)) continue; // nivel vacío o repetido (ej. sin modelo, dos niveles quedan iguales)
+      vistos.add(clave);
+
+      const candidatos = await consultarShopify(domain, accessToken, nivel.palabras);
+      if (!candidatos.length) { console.warn('[buscarProductoShopify] sin resultados', clave, `(confianza ${nivel.confianza}%)`); continue; }
+
+      const elegido = conCategoriaCorrecta(candidatos);
+      if (!elegido) {
+        console.warn('[buscarProductoShopify] resultados pero ninguno calzó con la categoría esperada', clave, `esperaba "${palabraEsperada}"`, 'candidatos:', candidatos.map(c => c.node.title));
+        continue;
       }
-      return { titulo: conCategoriaCorrecta.node.title, url: conCategoriaCorrecta.node.onlineStoreUrl };
+      return { titulo: elegido.node.title, url: elegido.node.onlineStoreUrl, confianza: nivel.confianza };
     }
-    return { titulo: candidatos[0].node.title, url: candidatos[0].node.onlineStoreUrl };
+
+    console.warn('[buscarProductoShopify] ningún nivel de búsqueda encontró un producto válido', { producto, categoria, marca, modelo, especificaciones });
+    return null;
   } catch (err) {
-    console.warn('[buscarProductoShopify] error inesperado', busqueda, err);
+    console.warn('[buscarProductoShopify] error inesperado', { producto, marca, modelo }, err);
     return null; // mejor esfuerzo -- no interrumpe el análisis IA
   }
 }
@@ -2948,6 +3012,7 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
       responsable_id = COALESCE(responsable_id, ${responsableIdAsignado}),
       shopify_producto_url = ${productoShopify?.url || null},
       shopify_producto_titulo = ${productoShopify?.titulo || null},
+      shopify_producto_confianza = ${productoShopify?.confianza ?? null},
       updated_at = now()
     WHERE id = ${conversacionId};
   `;
@@ -3064,7 +3129,8 @@ async function manejarWhatsappActualizarShopify(req, res, sesion) {
         await sql`
           UPDATE whatsapp_conversaciones SET
             shopify_producto_url = ${productoShopify?.url || null},
-            shopify_producto_titulo = ${productoShopify?.titulo || null}
+            shopify_producto_titulo = ${productoShopify?.titulo || null},
+            shopify_producto_confianza = ${productoShopify?.confianza ?? null}
           WHERE id = ${fila.id};
         `;
         actualizadas++;

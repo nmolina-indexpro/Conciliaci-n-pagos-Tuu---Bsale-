@@ -88,7 +88,13 @@ function productoDisplayHtml(c){
 }
 function shopifyCellHtml(c){
   if (!c.shopifyProductoUrl) return '—';
-  return `<a href="${escapeHtml(c.shopifyProductoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="${escapeHtml(c.shopifyProductoTitulo || '')}" class="btn-ghost btn-compact" style="text-decoration:none;">🛒 Ver</a>`;
+  // La confianza es una heurística (qué tan específica fue la búsqueda
+  // que encontró el producto), no una probabilidad real -- se muestra
+  // igual para que quien lo use sepa cuándo conviene confirmar a mano.
+  const conf = c.shopifyProductoConfianza;
+  const etiquetaConf = conf == null ? '' : conf >= 85 ? ' (alta confianza)' : conf >= 65 ? ` (${conf}% aprox.)` : ` (${conf}% — revisar)`;
+  const tooltip = `${c.shopifyProductoTitulo || ''}${conf != null ? ` — confianza aprox. ${conf}%` : ''}`;
+  return `<a href="${escapeHtml(c.shopifyProductoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="${escapeHtml(tooltip)}" class="btn-ghost btn-compact" style="text-decoration:none;white-space:nowrap;">🛒 Ver${escapeHtml(etiquetaConf)}</a>`;
 }
 function debounce(fn, ms){
   let t;
