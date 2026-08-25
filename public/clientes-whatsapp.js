@@ -400,17 +400,19 @@ function renderDetalleConversacion(data){
 
   const etiquetasHtml = (data.etiquetas || []).map(e => `<span class="etiqueta-chip">${escapeHtml(e)}</span>`).join('') || '<span class="sub">Sin etiquetas</span>';
 
+  const botonAnalizar = `<button class="btn-ghost btn-compact" id="btnAnalizarIA" onclick="analizarConversacionIA(${c.id})">${ai ? '🔄 Volver a analizar' : '🤖 Analizar con IA'}</button>`;
   const analisisHtml = ai ? `
     <div class="ficha-grupo">
-      <h3>🤖 Análisis IA</h3>
+      <h3 style="display:flex;justify-content:space-between;align-items:center;">🤖 Análisis IA ${botonAnalizar}</h3>
       <div class="ficha-fila"><span>Resumen</span><b style="text-align:left;max-width:220px;">${escapeHtml(ai.resumen || '—')}</b></div>
       <div class="ficha-fila"><span>Categoría</span><b>${CATEGORIA_LABEL[ai.categoria] || ai.categoria || '—'}</b></div>
       <div class="ficha-fila"><span>Problema del cliente</span><b style="text-align:left;max-width:220px;">${escapeHtml(ai.problemaCliente || '—')}</b></div>
       <div class="ficha-fila"><span>Sentimiento</span><b>${escapeHtml(ai.sentimiento || '—')}</b></div>
       <div class="ficha-fila"><span>Calidad de atención</span><b>${ai.calidadAtencionScore != null ? ai.calidadAtencionScore + '/100' : '—'}</b></div>
+      <div class="ficha-fila"><span>¿IA sugiere seguimiento?</span><b>${ai.requiereSeguimiento ? 'Sí' : 'No'}</b></div>
       <div class="ficha-fila"><span>Observaciones IA</span><b style="text-align:left;max-width:220px;">${escapeHtml(ai.observaciones || '—')}</b></div>
     </div>
-  ` : `<div class="ficha-grupo"><h3>🤖 Análisis IA</h3><p class="sub">Preparado para integración futura — sin análisis todavía.</p></div>`;
+  ` : `<div class="ficha-grupo"><h3 style="display:flex;justify-content:space-between;align-items:center;">🤖 Análisis IA ${botonAnalizar}</h3><p class="sub">Sin análisis todavía.</p></div>`;
 
   const ventaHtml = c.venta
     ? `<div class="ficha-fila"><span>Venta</span><b>${fmtMoneda(c.montoVenta)}${c.pedidoAsociado ? ' — Pedido ' + escapeHtml(c.pedidoAsociado) : ''}</b></div>`
@@ -492,6 +494,24 @@ function abrirAsociarVenta(conversacionId){
       cargarConversaciones();
     }catch(err){ alert('Error: ' + err.message); }
   })();
+}
+
+async function analizarConversacionIA(conversacionId){
+  const btn = $('btnAnalizarIA');
+  if (btn){ btn.disabled = true; btn.textContent = 'Analizando…'; }
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-analizar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversacionId }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) { alert(data.error || 'No se pudo analizar la conversación.'); if (btn){ btn.disabled = false; btn.textContent = '🤖 Analizar con IA'; } return; }
+    abrirConversacion(conversacionId);
+    cargarConversaciones();
+  }catch(err){
+    alert('Error: ' + err.message);
+    if (btn){ btn.disabled = false; btn.textContent = '🤖 Analizar con IA'; }
+  }
 }
 
 // ================= SEGUIMIENTOS =================
