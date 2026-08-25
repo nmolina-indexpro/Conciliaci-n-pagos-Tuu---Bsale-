@@ -385,6 +385,11 @@ function burbujaMensaje(m){
   return `<div class="burbuja ${clase}">${contenido}<span class="hora">${fmtHora(m.marcaTiempo)}${m.estado ? ' · ' + escapeHtml(m.estado) : ''}</span></div>`;
 }
 
+function bsaleMatchHtml(clienteBsale){
+  if (!clienteBsale) return '<div class="ficha-fila"><span>Cliente Bsale</span><b class="sub">No identificado</b></div>';
+  return `<div class="ficha-fila"><span>Cliente Bsale</span><b><span class="badge b-verde">✓ ${escapeHtml(clienteBsale.nombre)}</span>${clienteBsale.rut ? ' <span class="sub">' + escapeHtml(clienteBsale.rut) + '</span>' : ''}</b></div>`;
+}
+
 function renderDetalleConversacion(data){
   const c = data.conversacion, ct = data.contacto, ai = data.analisisIa;
   $('modalConvTitulo').innerHTML = `Conversación con ${escapeHtml(ct?.nombre || 'Sin nombre')} <span class="badge b-gris">#${c.id}</span>`;
@@ -422,6 +427,7 @@ function renderDetalleConversacion(data){
           <div class="ficha-fila"><span>Primera conversación</span><b>${fmtFecha(ct?.primeraConversacionEn)}</b></div>
           <div class="ficha-fila"><span>Última conversación</span><b>${fmtFecha(ct?.ultimaConversacionEn)}</b></div>
           <div class="ficha-fila"><span>Total conversaciones</span><b>${fmtNum(ct?.totalConversaciones)}</b></div>
+          ${bsaleMatchHtml(data.clienteBsale)}
         </div>
         <div class="ficha-grupo">
           <h3>💬 Conversación actual</h3>
@@ -570,7 +576,7 @@ async function cargarClientes(){
     if (!data.clientes.length) { $('tablaClientes').innerHTML = '<tr><td colspan="10" class="empty-note">No hay clientes que calcen con la búsqueda.</td></tr>'; return; }
     $('tablaClientes').innerHTML = data.clientes.map(c => `
       <tr class="fila-clic" onclick="abrirCliente(${c.id})">
-        <td>${escapeHtml(c.nombre || 'Sin nombre')}</td>
+        <td>${escapeHtml(c.nombre || 'Sin nombre')}${c.bsaleClienteId ? ' <span class="badge b-verde" title="Cliente Bsale: ' + escapeHtml(c.bsaleClienteNombre) + '">✓ Bsale</span>' : ''}</td>
         <td>${escapeHtml(c.telefono || '—')}</td>
         <td>${fmtFecha(c.primeraConversacion)}</td>
         <td>${fmtFecha(c.ultimaConversacion)}</td>
@@ -611,6 +617,7 @@ async function abrirCliente(id){
         <div class="ficha-fila"><span>Primera conversación</span><b>${fmtFecha(cl.primeraConversacion)}</b></div>
         <div class="ficha-fila"><span>Última conversación</span><b>${fmtFecha(cl.ultimaConversacion)}</b></div>
         <div class="ficha-fila"><span>Total conversaciones</span><b>${fmtNum(cl.totalConversaciones)}</b></div>
+        ${bsaleMatchHtml(data.clienteBsale)}
       </div>
       <h3 style="font-family:'Space Grotesk',sans-serif;font-size:12px;text-transform:uppercase;color:var(--muted);margin:16px 0 8px;">Historial de conversaciones</h3>
       <div class="tabla-wrap">

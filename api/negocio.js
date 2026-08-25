@@ -1998,6 +1998,26 @@ async function obtenerOCrearConversacionWhatsapp(sql, contacto, marcaTiempoMensa
   return creada[0];
 }
 
+// Vinculación automática con Bsale por teléfono -- puramente informativa
+// (identifica si el contacto de WhatsApp es un cliente ya conocido en
+// Bsale). NO reemplaza el botón manual "Asociar venta": esto solo dice
+// "este número aparece en Bsale como fulano", no crea ninguna venta.
+// Cruza por los últimos 9 dígitos (columna generada telefono_normalizado
+// en bsale_clientes_puntos, ver lib/db.js) para tolerar formatos
+// distintos (+56, espacios, con o sin código de país). Límites reales: un
+// número mal cargado, compartido o reciclado en Bsale puede dar un match
+// incorrecto, y no encuentra nada si nunca se corrió la sincronización de
+// "Puntos Bsale" (admin, en Oportunidades Comerciales).
+async function buscarClienteBsalePorTelefono(sql, telefono) {
+  if (!telefono) return null;
+  const { rows } = await sql`
+    SELECT id, nombre, rut, empresa, puntos FROM bsale_clientes_puntos
+    WHERE telefono_normalizado <> '' AND telefono_normalizado = right(regexp_replace(${telefono}, '[^0-9]', '', 'g'), 9)
+    LIMIT 1;
+  `;
+  return rows[0] || null;
+}
+
 function extraerContenidoMensajeWhatsapp(m) {
   const mapaTipos = { text: 'texto', image: 'imagen', audio: 'audio', video: 'video', document: 'documento' };
   const tipo = mapaTipos[m.type] || 'texto';
@@ -2307,6 +2327,7 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
+    await asegurarTablaBsalePuntos(sql);
 
     const { rows: convRows } = await sql`
       SELECT c.*, u.nombre AS responsable_nombre
@@ -2321,6 +2342,7 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
       FROM whatsapp_contactos ct WHERE ct.id = ${conv.contacto_id};
     `;
     const contacto = contactoRows[0];
+    const clienteBsale = await buscarClienteBsalePorTelefono(sql, contacto?.telefono);
 
     const { rows: mensajes } = await sql`SELECT * FROM whatsapp_mensajes WHERE conversacion_id = ${id} ORDER BY marca_tiempo ASC;`;
     const { rows: analisisRows } = await sql`SELECT * FROM whatsapp_analisis_ia WHERE conversacion_id = ${id};`;
@@ -2341,6 +2363,10 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
         id: contacto.id, nombre: contacto.nombre, telefono: contacto.telefono, whatsappId: contacto.whatsapp_id,
         primeraConversacionEn: contacto.primera_conversacion_en, ultimaConversacionEn: contacto.ultima_conversacion_en,
         totalConversaciones: contacto.total_conversaciones_real,
+      } : null,
+      clienteBsale: clienteBsale ? {
+        id: clienteBsale.id, nombre: clienteBsale.nombre, rut: clienteBsale.rut,
+        empresa: clienteBsale.empresa, puntos: clienteBsale.puntos,
       } : null,
       mensajes: mensajes.map(m => ({
         id: m.id, marcaTiempo: m.marca_tiempo, direccion: m.direccion, tipo: m.tipo,
@@ -2372,6 +2398,7 @@ async function manejarWhatsappClientes(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
+    await asegurarTablaBsalePuntos(sql);
 
     const q = (req.query.q || '').trim();
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -2391,8 +2418,14 @@ async function manejarWhatsappClientes(req, res, sesion) {
          (SELECT COALESCE(SUM(venta_monto),0) FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id AND cv.venta_detectada = true) AS total_comprado,
          (SELECT array_agg(DISTINCT producto) FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id AND producto IS NOT NULL) AS productos_consultados,
          (SELECT intencion FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id ORDER BY iniciada_en DESC LIMIT 1) AS ultima_intencion,
-         (SELECT estado FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id ORDER BY iniciada_en DESC LIMIT 1) AS ultimo_estado
+         (SELECT estado FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id ORDER BY iniciada_en DESC LIMIT 1) AS ultimo_estado,
+         bcli.id AS bsale_cliente_id, bcli.nombre AS bsale_cliente_nombre
        FROM whatsapp_contactos ct
+       LEFT JOIN LATERAL (
+         SELECT bp.id, bp.nombre FROM bsale_clientes_puntos bp
+         WHERE bp.telefono_normalizado <> '' AND bp.telefono_normalizado = right(regexp_replace(coalesce(ct.telefono, ''), '[^0-9]', '', 'g'), 9)
+         LIMIT 1
+       ) bcli ON true
        ${cond}
        ORDER BY ct.ultima_conversacion_en DESC NULLS LAST
        LIMIT $${params.length + 1} OFFSET $${params.length + 2};`,
@@ -2409,6 +2442,8 @@ async function manejarWhatsappClientes(req, res, sesion) {
         totalComprado: Number(r.total_comprado) || 0,
         ultimaIntencion: r.ultima_intencion,
         estado: r.ultimo_estado,
+        bsaleClienteId: r.bsale_cliente_id,
+        bsaleClienteNombre: r.bsale_cliente_nombre,
       })),
       total, page, pageSize, totalPaginas: Math.max(1, Math.ceil(total / pageSize)),
     });
@@ -2424,10 +2459,12 @@ async function manejarWhatsappClienteDetalle(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
+    await asegurarTablaBsalePuntos(sql);
 
     const { rows: contactoRows } = await sql`SELECT * FROM whatsapp_contactos WHERE id = ${id};`;
     const contacto = contactoRows[0];
     if (!contacto) return res.status(404).json({ error: 'Cliente no encontrado' });
+    const clienteBsale = await buscarClienteBsalePorTelefono(sql, contacto.telefono);
 
     const { rows: conversaciones } = await sql`
       SELECT c.*, a.probabilidad_compra
@@ -2441,6 +2478,10 @@ async function manejarWhatsappClienteDetalle(req, res, sesion) {
         primeraConversacion: contacto.primera_conversacion_en, ultimaConversacion: contacto.ultima_conversacion_en,
         totalConversaciones: contacto.total_conversaciones,
       },
+      clienteBsale: clienteBsale ? {
+        id: clienteBsale.id, nombre: clienteBsale.nombre, rut: clienteBsale.rut,
+        empresa: clienteBsale.empresa, puntos: clienteBsale.puntos,
+      } : null,
       conversaciones: conversaciones.map(r => mapearConversacionWhatsapp({ ...r, cliente_nombre: contacto.nombre, cliente_telefono: contacto.telefono })),
     });
   } catch (err) {
