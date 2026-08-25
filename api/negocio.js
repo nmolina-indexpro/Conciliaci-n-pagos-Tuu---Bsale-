@@ -19,11 +19,39 @@ const RESPONSABLE_REPORTES = 'Nicolás Molina'; // fijo por ahora, ver reportar-
 const URL_REPORTES = 'https://conciliaci-n-pagos-tuu-bsale.vercel.app/reportar-error.html';
 const ZOHO_TIMEOUT_MS = 20000;
 
+// Vercel parsea el body a JSON automáticamente por defecto -- pero el
+// webhook de WhatsApp necesita los bytes CRUDOS exactos que mandó Meta para
+// poder verificar su firma (X-Hub-Signature-256), y un JSON.stringify(req.body)
+// re-serializado no calza byte a byte (orden de llaves, espacios). Se apaga
+// el parseo automático para todo el archivo y se hace a mano una sola vez
+// al principio del handler, guardando el crudo ANTES de parsear -- así el
+// resto de los ~30 recursos de este archivo siguen viendo req.body como un
+// objeto normal, sin cambiar nada de su código.
+export const config = { api: { bodyParser: false } };
+
+function leerCuerpoCrudo(req) {
+  return new Promise((resolve, reject) => {
+    const partes = [];
+    req.on('data', (chunk) => partes.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(partes).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
 export default async function handler(req, res) {
+  const cuerpoCrudo = await leerCuerpoCrudo(req);
+  req.rawBody = cuerpoCrudo;
+  try {
+    req.body = cuerpoCrudo ? JSON.parse(cuerpoCrudo) : {};
+  } catch {
+    req.body = {};
+  }
+
   // El webhook de WhatsApp lo llama Meta directo (sin cookie de sesión) ->
   // se resuelve ANTES del chequeo de sesión, y con su propia verificación
-  // (firma de Meta). Ver también middleware.ts (esWebhookWhatsappPublico),
-  // que deja pasar ESTA combinación puntual de pathname+recurso sin sesión.
+  // (firma de Meta, sobre req.rawBody). Ver también middleware.ts
+  // (esWebhookWhatsappPublico), que deja pasar ESTA combinación puntual de
+  // pathname+recurso sin sesión.
   if (req.query.recurso === 'whatsapp-webhook') return manejarWhatsappWebhook(req, res);
 
   const sesion = usuarioDesdeRequest(req);
@@ -1785,26 +1813,33 @@ async function manejarWhatsappWebhook(req, res) {
 
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // Verificación de firma de Meta (best-effort): Vercel ya parsea el body
-  // a JSON antes de que este código lo vea, así que el re-serializado acá
-  // puede no calzar byte a byte con lo que Meta realmente mandó (orden de
-  // llaves, espacios). Cuando se conecten credenciales reales, lo correcto
-  // es capturar el body CRUDO antes de parsear para comparar exacto -- por
-  // ahora esto queda como validación best-effort, documentada.
-  try {
-    const secreto = process.env.WHATSAPP_APP_SECRET;
-    const firma = req.headers['x-hub-signature-256'];
-    if (secreto && firma) {
+  // Verificación de firma de Meta: usa req.rawBody (los bytes EXACTOS que
+  // mandó Meta, capturados en handler() antes de parsear JSON) -> ahora sí
+  // calza byte a byte y se puede rechazar de verdad, no solo avisar. Si no
+  // hay WHATSAPP_APP_SECRET configurado todavía, se deja pasar sin
+  // verificar (fase de conexión inicial) pero queda registrado en logs.
+  const secreto = process.env.WHATSAPP_APP_SECRET;
+  const firma = req.headers['x-hub-signature-256'];
+  if (secreto) {
+    if (!firma) {
+      console.warn('[whatsapp-webhook] rechazado: falta X-Hub-Signature-256');
+      return res.status(401).json({ error: 'Falta firma' });
+    }
+    try {
       const crypto = await import('crypto');
-      const esperada = 'sha256=' + crypto.createHmac('sha256', secreto).update(JSON.stringify(req.body || {})).digest('hex');
+      const esperada = 'sha256=' + crypto.createHmac('sha256', secreto).update(req.rawBody || '').digest('hex');
       const a = Buffer.from(firma);
       const b = Buffer.from(esperada);
       if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-        console.warn('[whatsapp-webhook] firma no calzó (posible re-serialización distinta al body crudo, ver comentario arriba)');
+        console.warn('[whatsapp-webhook] rechazado: firma no calzó');
+        return res.status(401).json({ error: 'Firma inválida' });
       }
+    } catch (err) {
+      console.warn('[whatsapp-webhook] error validando firma', err);
+      return res.status(401).json({ error: 'Error validando firma' });
     }
-  } catch (err) {
-    console.warn('[whatsapp-webhook] error validando firma', err);
+  } else {
+    console.warn('[whatsapp-webhook] WHATSAPP_APP_SECRET no configurado -- evento aceptado SIN verificar firma');
   }
 
   try {
@@ -1818,6 +1853,13 @@ async function manejarWhatsappWebhook(req, res) {
         const valor = cambio.value || {};
         const contactosPayload = valor.contacts || [];
         const mensajesPayload = valor.messages || [];
+        // Mensajes que el NEGOCIO manda desde la app de WhatsApp Business
+        // (coexistencia) -> Meta los manda por un campo de webhook aparte,
+        // "message_echoes" (hay que suscribirlo en Meta además de
+        // "messages"), porque no pasan por la Cloud API. Sin esto, la
+        // conversación en el ERP solo mostraría lo que escribe el cliente,
+        // nunca las respuestas reales del negocio.
+        const echosPayload = valor.message_echoes || [];
         const estadosPayload = valor.statuses || [];
 
         for (const m of mensajesPayload) {
@@ -1846,6 +1888,47 @@ async function manejarWhatsappWebhook(req, res) {
             WHERE id = ${conversacion.id};
           `;
           await sql`UPDATE whatsapp_contactos SET ultima_conversacion_en = now(), updated_at = now() WHERE id = ${contacto.id};`;
+          mensajesProcesados++;
+        }
+
+        for (const m of echosPayload) {
+          if (!m.id) continue;
+          const { rows: yaProcesado } = await sql`SELECT 1 FROM whatsapp_webhook_eventos_procesados WHERE whatsapp_message_id = ${m.id};`;
+          if (yaProcesado.length > 0) continue;
+
+          // En un echo, "to" es el cliente (el negocio es "from") -- al
+          // revés que en un mensaje entrante normal.
+          const waIdCliente = m.to;
+          if (!waIdCliente) continue;
+          const marcaTiempo = new Date(Number(m.timestamp) * 1000);
+          const contacto = await obtenerOCrearContactoWhatsapp(sql, waIdCliente, null);
+          const conversacion = await obtenerOCrearConversacionWhatsapp(sql, contacto, marcaTiempo);
+          const { tipo, texto, mediaRef } = extraerContenidoMensajeWhatsapp(m);
+
+          await sql`
+            INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto, media_url)
+            VALUES (${conversacion.id}, ${m.id}, ${marcaTiempo.toISOString()}, 'out', 'app', ${tipo}, ${texto}, ${mediaRef})
+            ON CONFLICT (whatsapp_message_id) DO NOTHING;
+          `;
+          await sql`INSERT INTO whatsapp_webhook_eventos_procesados (whatsapp_message_id) VALUES (${m.id}) ON CONFLICT (whatsapp_message_id) DO NOTHING;`;
+
+          // Punto 20 del pedido: tiempo de primera respuesta -- se calcula
+          // la primera vez que el negocio contesta después del primer
+          // mensaje del cliente en esta conversación.
+          if (conversacion.primer_mensaje_cliente_en && !conversacion.primera_respuesta_empresa_en) {
+            const segundos = Math.max(0, Math.round((marcaTiempo.getTime() - new Date(conversacion.primer_mensaje_cliente_en).getTime()) / 1000));
+            await sql`
+              UPDATE whatsapp_conversaciones
+              SET primera_respuesta_empresa_en = ${marcaTiempo.toISOString()}, primera_respuesta_segundos = ${segundos},
+                  estado = CASE WHEN estado = 'nueva' THEN 'abierta' ELSE estado END
+              WHERE id = ${conversacion.id};
+            `;
+          }
+          await sql`
+            UPDATE whatsapp_conversaciones
+            SET cantidad_mensajes = cantidad_mensajes + 1, ultimo_mensaje_resumen = ${texto ? texto.slice(0, 140) : `[${tipo}]`}, updated_at = now()
+            WHERE id = ${conversacion.id};
+          `;
           mensajesProcesados++;
         }
 
