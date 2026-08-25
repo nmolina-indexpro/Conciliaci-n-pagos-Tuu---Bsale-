@@ -2419,7 +2419,7 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
       analisisIa: analisisRows[0] ? {
         resumen: analisisRows[0].resumen, intencion: analisisRows[0].intencion, categoria: analisisRows[0].categoria,
         producto: analisisRows[0].producto, marca: analisisRows[0].marca, modelo: analisisRows[0].modelo,
-        problemaCliente: analisisRows[0].problema_cliente, probabilidadCompra: analisisRows[0].probabilidad_compra,
+        problemaCliente: analisisRows[0].problema_cliente, especificaciones: analisisRows[0].especificaciones, probabilidadCompra: analisisRows[0].probabilidad_compra,
         resultado: analisisRows[0].resultado, motivoPerdida: analisisRows[0].motivo_perdida,
         sentimiento: analisisRows[0].sentimiento, calidadAtencionScore: analisisRows[0].calidad_atencion_score,
         requiereSeguimiento: analisisRows[0].requiere_seguimiento, observaciones: analisisRows[0].observaciones,
@@ -2648,8 +2648,16 @@ const WHATSAPP_CATEGORIA_PALABRA_SHOPIFY = {
 //
 // "Mejor esfuerzo": cualquier error acá no debe tumbar el análisis IA
 // completo, se atrapa aparte y sencillamente no queda link.
-async function buscarProductoShopify(producto, categoria, marca, modelo) {
-  const partes = [producto, marca, modelo].filter(Boolean);
+async function buscarProductoShopify(producto, categoria, marca, modelo, especificaciones) {
+  // Los cargadores no se catalogan por modelo de notebook (un mismo
+  // cargador cubre muchos modelos distintos) -- lo que realmente
+  // distingue el producto correcto es la potencia/voltaje/conector, que
+  // va en "especificaciones" si el cliente lo mencionó. Meter el modelo
+  // del notebook en la búsqueda de un cargador hace más daño que bien
+  // (puede traer un cargador "de marca genérica X" solo porque coincide
+  // el modelo, con el conector equivocado).
+  const modeloParaBusqueda = categoria === 'cargador' ? null : modelo;
+  const partes = [producto, marca, modeloParaBusqueda, especificaciones].filter(Boolean);
   if (partes.length < 2) return null; // necesita al menos categoría+algo más para ser confiable
   const busqueda = partes.join(' ').trim();
   const domain = (process.env.SHOPIFY_STORE_DOMAIN || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
@@ -2716,6 +2724,7 @@ const WHATSAPP_ANALISIS_TOOL = {
       marca: { type: 'string', description: 'Marca del equipo mencionada (ej. HP, Lenovo, Dell, Asus, Acer). Cadena vacía si no se menciona.' },
       modelo: { type: 'string', description: 'Modelo específico del equipo mencionado. Cadena vacía si no se menciona.' },
       problema_cliente: { type: 'string', description: 'Problema o necesidad concreta del cliente, en sus palabras.' },
+      especificaciones: { type: 'string', description: 'Detalles técnicos específicos que el cliente o el negocio mencionan y que distinguen el producto exacto de otros similares -- sobre todo importante en cargadores (potencia, voltaje/amperaje, tipo de conector: USB-C, punta redonda, etc.), pero aplica a cualquier categoría (ej. "65W USB-C", "20V 3.25A", "táctil", "Full HD"). Cadena vacía si no se menciona ningún detalle así.' },
       probabilidad_compra: { type: 'integer', description: 'Probabilidad de 0 a 100 de que esta conversación termine en una venta, según el interés mostrado.' },
       resultado: { type: 'string', enum: WHATSAPP_RESULTADOS, description: 'En qué terminó (o va quedando) la conversación.' },
       motivo_perdida: { type: 'string', enum: Object.keys(WHATSAPP_MOTIVOS_PERDIDA_LABEL), description: 'Si el resultado indica que se perdió la venta, por qué. Omitir el campo si no aplica.' },
@@ -2785,10 +2794,11 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   const producto = limpiar(a.producto);
   const marca = limpiar(a.marca);
   const modelo = limpiar(a.modelo);
+  const especificaciones = limpiar(a.especificaciones);
   const probabilidad = Math.max(0, Math.min(100, Math.round(Number(a.probabilidad_compra) || 0)));
   const scoreAtencion = Math.max(0, Math.min(100, Math.round(Number(a.calidad_atencion_score) || 0)));
   const vendedorDetectado = WHATSAPP_VENDEDORES.includes(a.vendedor) ? a.vendedor : null;
-  const productoShopify = await buscarProductoShopify(producto, categoria, marca, modelo);
+  const productoShopify = await buscarProductoShopify(producto, categoria, marca, modelo, especificaciones);
 
   // Si el vendedor detectado ya tiene cuenta creada en el ERP (match por
   // nombre, sin distinguir acentos/mayúsculas), y la conversación no
@@ -2806,18 +2816,18 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
 
   await sql`
     INSERT INTO whatsapp_analisis_ia (
-      conversacion_id, resumen, intencion, categoria, producto, marca, modelo, problema_cliente,
+      conversacion_id, resumen, intencion, categoria, producto, marca, modelo, problema_cliente, especificaciones,
       probabilidad_compra, resultado, motivo_perdida, sentimiento, calidad_atencion_score,
       requiere_seguimiento, observaciones, updated_at
     ) VALUES (
       ${conversacionId}, ${limpiar(a.resumen)}, ${intencion}, ${categoria}, ${producto}, ${marca}, ${modelo},
-      ${limpiar(a.problema_cliente)}, ${probabilidad}, ${resultado}, ${motivoPerdida}, ${limpiar(a.sentimiento)}, ${scoreAtencion},
+      ${limpiar(a.problema_cliente)}, ${especificaciones}, ${probabilidad}, ${resultado}, ${motivoPerdida}, ${limpiar(a.sentimiento)}, ${scoreAtencion},
       ${!!a.requiere_seguimiento}, ${limpiar(a.observaciones)}, now()
     )
     ON CONFLICT (conversacion_id) DO UPDATE SET
       resumen = EXCLUDED.resumen, intencion = EXCLUDED.intencion, categoria = EXCLUDED.categoria,
       producto = EXCLUDED.producto, marca = EXCLUDED.marca, modelo = EXCLUDED.modelo,
-      problema_cliente = EXCLUDED.problema_cliente, probabilidad_compra = EXCLUDED.probabilidad_compra,
+      problema_cliente = EXCLUDED.problema_cliente, especificaciones = EXCLUDED.especificaciones, probabilidad_compra = EXCLUDED.probabilidad_compra,
       resultado = EXCLUDED.resultado, motivo_perdida = EXCLUDED.motivo_perdida, sentimiento = EXCLUDED.sentimiento,
       calidad_atencion_score = EXCLUDED.calidad_atencion_score, requiere_seguimiento = EXCLUDED.requiere_seguimiento,
       observaciones = EXCLUDED.observaciones, updated_at = now();

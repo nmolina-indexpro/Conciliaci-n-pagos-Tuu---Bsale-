@@ -426,6 +426,7 @@ function renderDetalleConversacion(data){
       <div class="ficha-fila"><span>Resumen</span><b style="text-align:left;max-width:220px;">${escapeHtml(ai.resumen || '—')}</b></div>
       <div class="ficha-fila"><span>Categoría</span><b>${CATEGORIA_LABEL[ai.categoria] || ai.categoria || '—'}</b></div>
       <div class="ficha-fila"><span>Problema del cliente</span><b style="text-align:left;max-width:220px;">${escapeHtml(ai.problemaCliente || '—')}</b></div>
+      ${ai.especificaciones ? `<div class="ficha-fila"><span>Especificaciones</span><b style="text-align:left;max-width:220px;">${escapeHtml(ai.especificaciones)}</b></div>` : ''}
       <div class="ficha-fila"><span>Sentimiento</span><b>${escapeHtml(ai.sentimiento || '—')}</b></div>
       <div class="ficha-fila"><span>Calidad de atención</span><b>${ai.calidadAtencionScore != null ? ai.calidadAtencionScore + '/100' : '—'}</b></div>
       <div class="ficha-fila"><span>¿IA sugiere seguimiento?</span><b>${ai.requiereSeguimiento ? 'Sí' : 'No'}</b></div>
