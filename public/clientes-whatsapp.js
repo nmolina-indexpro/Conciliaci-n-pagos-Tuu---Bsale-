@@ -115,6 +115,14 @@ function debounce(fn, ms){
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
+// Origen de la conversación: anuncio pagado de Meta (referral) o un link
+// con UTM que el cliente pegó en el chat (ver extraerUtmDeTexto) -- dos
+// fuentes distintas, mismo juego de campos (fuenteTipo/Titulo/Url/Id).
+function fuenteInfo(c){
+  if (!c.fuenteTipo) return { icono: '❓', texto: 'Origen desconocido', esSub: true };
+  if (c.fuenteTipo === 'utm') return { icono: '🔗', texto: `Link de la tienda${c.fuenteTitulo ? ' — ' + c.fuenteTitulo : ''}`, esSub: false };
+  return { icono: '📢', texto: `Anuncio${c.fuenteTitulo ? ' — ' + c.fuenteTitulo : ''}`, esSub: false };
+}
 
 // ---- Semáforo comercial (punto 14): color + texto, nunca solo color ----
 function semaforoHtml(prob){
@@ -374,7 +382,7 @@ function renderTablaConv(lista){
   $('tablaConv').innerHTML = ordenada.map(c => `
     <tr class="fila-clic" onclick="abrirConversacion(${c.id})">
       <td>${fmtFechaHora(c.fecha)}</td>
-      <td>${escapeHtml(c.clienteNombre || 'Sin nombre')}${c.cantidadImagenes > 0 ? ` <span title="${c.cantidadImagenes} foto(s) en esta conversación">📷</span>` : ''}${c.fuenteTipo ? ` <span title="Vino de un anuncio${c.fuenteTitulo ? ': ' + escapeHtml(c.fuenteTitulo) : ''}">📢</span>` : ''}</td>
+      <td>${escapeHtml(c.clienteNombre || 'Sin nombre')}${c.cantidadImagenes > 0 ? ` <span title="${c.cantidadImagenes} foto(s) en esta conversación">📷</span>` : ''}${c.fuenteTipo ? ` <span title="${escapeHtml(fuenteInfo(c).texto)}">${fuenteInfo(c).icono}</span>` : ''}</td>
       <td>${escapeHtml(c.clienteTelefono || '—')}</td>
       <td>${badgeEstado(c.estado)}</td>
       <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.ultimoMensaje || '—')}</td>
@@ -525,7 +533,7 @@ function renderDetalleConversacion(data){
         <div class="ficha-grupo">
           <h3>💬 Conversación actual</h3>
           <div class="ficha-fila"><span>Fecha inicio</span><b>${fmtFechaHora(c.fecha)}</b></div>
-          <div class="ficha-fila"><span>Origen</span><b>${c.fuenteTipo ? `📢 Anuncio${c.fuenteTitulo ? ' — ' + escapeHtml(c.fuenteTitulo) : ''}${c.fuenteUrl ? ` <a href="${escapeHtml(c.fuenteUrl)}" target="_blank" rel="noopener">(ver)</a>` : ''}` : '<span class="sub">❓ Origen desconocido</span>'}</b></div>
+          <div class="ficha-fila"><span>Origen</span><b>${(() => { const f = fuenteInfo(c); const contenido = `${f.icono} ${escapeHtml(f.texto)}${c.fuenteUrl ? ` <a href="${escapeHtml(c.fuenteUrl)}" target="_blank" rel="noopener">(ver)</a>` : ''}`; return f.esSub ? `<span class="sub">${contenido}</span>` : contenido; })()}</b></div>
           <div class="ficha-fila"><span>Cantidad de mensajes</span><b>${fmtNum(c.cantidadMensajes)}</b></div>
           <div class="ficha-fila"><span>1ª respuesta</span><b>${c.primeraRespuestaSegundos != null ? fmtDuracion(c.primeraRespuestaSegundos) : 'Sin respuesta'}</b></div>
           <div class="ficha-fila"><span>Estado</span><b><select id="editEstado" onchange="guardarCampoConv(${c.id}, 'estado', this.value)">${WHATSAPP_ESTADOS.map(e => `<option value="${e}" ${e===c.estado?'selected':''}>${ESTADO_LABEL[e]}</option>`).join('')}</select></b></div>

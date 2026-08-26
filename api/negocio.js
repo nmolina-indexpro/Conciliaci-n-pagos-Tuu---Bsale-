@@ -1906,6 +1906,21 @@ async function manejarWhatsappWebhook(req, res) {
               WHERE id = ${conversacion.id};
             `;
           }
+          // Segunda fuente de origen: un link con UTM pegado en el propio
+          // texto del mensaje (ver extraerUtmDeTexto) -- el COALESCE hace
+          // que si ya había un referral de anuncio pagado, ese quede
+          // primero (más autoritativo que un link que el cliente pegó).
+          const utm = extraerUtmDeTexto(texto);
+          if (utm) {
+            await sql`
+              UPDATE whatsapp_conversaciones SET
+                fuente_tipo = COALESCE(fuente_tipo, 'utm'),
+                fuente_titulo = COALESCE(fuente_titulo, ${utm.etiqueta}),
+                fuente_url = COALESCE(fuente_url, ${utm.urlLimpia}),
+                fuente_id = COALESCE(fuente_id, ${utm.id})
+              WHERE id = ${conversacion.id};
+            `;
+          }
           await sql`
             UPDATE whatsapp_conversaciones
             SET cantidad_mensajes = cantidad_mensajes + 1, ultimo_mensaje_resumen = ${texto ? texto.slice(0, 140) : `[${tipo}]`}, updated_at = now()
@@ -2221,6 +2236,33 @@ function extraerContenidoMensajeWhatsapp(m) {
   const mediaId = m[m.type]?.id;
   const mediaRef = mediaId ? `whatsapp-media-id:${mediaId}` : null;
   return { tipo, texto, mediaRef };
+}
+
+// Segunda fuente de "de dónde viene el cliente", además del referral de
+// anuncios pagados de Meta (ver más arriba): muchos clientes pegan en el
+// chat el link de un producto de la tienda (compartido desde la página, o
+// por un botón de WhatsApp del sitio) que trae utm_source/utm_medium/
+// utm_campaign -- ej. "?utm_source=wsp-DT&utm_medium=wsp-DT&utm_campaign=wsp-DT"
+// (un botón de WhatsApp en la ficha del producto). Usa las mismas columnas
+// fuente_* que el referral, con tipo='utm' para distinguirlo.
+function extraerUtmDeTexto(texto) {
+  if (!texto) return null;
+  const match = texto.match(/https?:\/\/[^\s]+/);
+  if (!match) return null;
+  try {
+    const url = new URL(match[0]);
+    const source = url.searchParams.get('utm_source');
+    const medium = url.searchParams.get('utm_medium');
+    const campaign = url.searchParams.get('utm_campaign');
+    if (!source && !medium && !campaign) return null;
+    return {
+      urlLimpia: url.origin + url.pathname, // sin los query params, más legible
+      etiqueta: [source, medium, campaign].filter((v, i, arr) => v && arr.indexOf(v) === i).join(' / '),
+      id: campaign || medium || source,
+    };
+  } catch {
+    return null; // URL mal formada -- no vale la pena registrar el error, es solo texto de un cliente
+  }
 }
 
 // ---- Usuarios activos, para el selector de "Responsable" (punto 21) ----
@@ -3179,6 +3221,26 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
     WHERE conversacion_id = ${conversacionId} ORDER BY marca_tiempo ASC;
   `;
   if (mensajes.length === 0) return { ok: false, motivo: 'sin_mensajes' };
+
+  // Backfill del origen (ver extraerUtmDeTexto): si esta conversación es
+  // vieja y nunca pasó por el chequeo en vivo del webhook (o el link con
+  // UTM llegó en un mensaje que no era el primero), reanalizar la deja al
+  // día igual, sin depender de un mensaje nuevo. No cuesta nada extra (no
+  // llama a la IA), así que se hace siempre, independiente de si el
+  // análisis con Claude más abajo llega a correr o falla.
+  for (const m of mensajes) {
+    const utm = extraerUtmDeTexto(m.contenido_texto);
+    if (!utm) continue;
+    await sql`
+      UPDATE whatsapp_conversaciones SET
+        fuente_tipo = COALESCE(fuente_tipo, 'utm'),
+        fuente_titulo = COALESCE(fuente_titulo, ${utm.etiqueta}),
+        fuente_url = COALESCE(fuente_url, ${utm.urlLimpia}),
+        fuente_id = COALESCE(fuente_id, ${utm.id})
+      WHERE id = ${conversacionId};
+    `;
+    break; // ya se encontró uno, no hace falta seguir mirando el resto
+  }
 
   const { rows: convRows } = await sql`
     SELECT c.id, c.contacto_id, c.responsable_id, c.iniciada_en, c.venta_detectada, ct.telefono AS contacto_telefono
