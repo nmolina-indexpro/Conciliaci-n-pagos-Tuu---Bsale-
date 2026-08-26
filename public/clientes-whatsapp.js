@@ -1037,6 +1037,35 @@ async function reanalizarDesactualizadas(){
   finally{ btn.disabled = false; btn.textContent = '🔄 Reanalizar desactualizadas'; }
 }
 
+// Vuelve a correr el Análisis IA (con costo real de Claude) sobre TODAS
+// las conversaciones ya analizadas -- sirve para que mejoras al prompt
+// (ej. la corrección de categoria='otra' pegada) se apliquen a
+// conversaciones viejas, no solo a las nuevas.
+async function recategorizarEnLote(){
+  if (!confirm('¿Volver a analizar con IA TODAS las conversaciones ya analizadas? Esto SÍ vuelve a usar la API de Claude para cada una (costo bajo pero real) y puede tardar varios minutos.')) return;
+  const btn = $('btnRecategorizar');
+  btn.disabled = true;
+  let offset = 0, totalReanalizadas = 0, total = 0;
+  try{
+    let completo = false;
+    while (!completo) {
+      btn.textContent = totalReanalizadas > 0 ? `🏷️ Recategorizando… (${offset}/${total || '?'})` : '🏷️ Recategorizando…';
+      const res = await fetch('/api/negocio?recurso=whatsapp-recategorizar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ offset }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { alert(data.error || 'No se pudo recategorizar en lote.'); break; }
+      totalReanalizadas += data.reanalizadas; offset = data.offset; total = data.total;
+      completo = data.completo;
+    }
+    alert(`Recategorización terminada: ${totalReanalizadas} conversaciones reanalizadas de ${total}.`);
+    vistasCargadas.clear();
+    const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
+    cambiarVistaModulo(vistaActiva);
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ btn.disabled = false; btn.textContent = '🏷️ Recategorizar todo'; }
+}
+
 // Solo actualiza el link de Shopify de conversaciones que YA tienen
 // Análisis IA (sin volver a llamar a Claude, mucho más barato) -- sirve
 // para corregir en lote matches viejos guardados con una versión anterior

@@ -92,6 +92,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-reanalizar-desactualizadas') return manejarWhatsappReanalizarDesactualizadas(req, res, sesion);
   if (recurso === 'whatsapp-actualizar-shopify') return manejarWhatsappActualizarShopify(req, res, sesion);
   if (recurso === 'whatsapp-actualizar-ventas-bsale') return manejarWhatsappActualizarVentasBsale(req, res, sesion);
+  if (recurso === 'whatsapp-recategorizar') return manejarWhatsappRecategorizar(req, res, sesion);
   if (recurso === 'whatsapp-analitica') return manejarWhatsappAnalitica(req, res, sesion);
   if (recurso === 'whatsapp-demo-seed') return manejarWhatsappDemoSeed(req, res, sesion);
   if (recurso === 'whatsapp-demo-clear') return manejarWhatsappDemoClear(req, res, sesion);
@@ -3633,6 +3634,58 @@ async function manejarWhatsappReanalizarDesactualizadas(req, res, sesion) {
     return res.status(200).json({ reanalizadas, errores, restantes, completo: restantes === 0 });
   } catch (err) {
     return res.status(500).json({ error: 'Error reanalizando conversaciones desactualizadas', detail: String(err) });
+  }
+}
+
+// Vuelve a correr el Análisis IA completo (Claude, con costo real de API)
+// sobre TODAS las conversaciones que ya tienen un análisis previo, para
+// que apliquen mejoras hechas al prompt/tool después de ese análisis --
+// el caso concreto que motivó esto: categoria='otra' quedaba pegada en
+// muchas conversaciones donde el producto ya era claro (ver instrucción
+// agregada al campo "categoria" en WHATSAPP_ANALISIS_TOOL), y solo un
+// mensaje nuevo dispara un reanálisis automático (ver
+// manejarWhatsappReanalizarDesactualizadas), no un cambio de prompt.
+// Paginado por offset explícito, igual que manejarWhatsappActualizarShopify,
+// a propósito: tiene que poder re-tocar TODAS las filas, incluidas las que
+// ya están bien categorizadas (si se filtrara por categoria='otra' las
+// conversaciones correctamente categorizadas como 'otra' nunca saldrían
+// del WHERE y el lote no terminaría de avanzar nunca). Admin-only, lote de
+// 15 como el resto de los análisis con Claude (más lento que los lotes que
+// solo golpean Shopify/Bsale).
+async function manejarWhatsappRecategorizar(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede recategorizar en lote' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const offset = Math.max(0, Number(req.body?.offset) || 0);
+
+    const { rows: candidatas } = await sql`
+      SELECT c.id FROM whatsapp_conversaciones c
+      JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+      ORDER BY c.iniciada_en ASC LIMIT 15 OFFSET ${offset};
+    `;
+
+    let reanalizadas = 0, errores = 0;
+    for (const fila of candidatas) {
+      try {
+        const resultado = await ejecutarAnalisisIA(sql, fila.id, 'Sistema (recategorización en lote)');
+        if (resultado.ok) reanalizadas++; else errores++;
+      } catch (err) {
+        errores++;
+        console.error('[whatsapp-recategorizar] error en conversación', fila.id, err);
+      }
+    }
+
+    const { rows: totalRows } = await sql`
+      SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones c JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id;
+    `;
+    const total = totalRows[0]?.n || 0;
+    const nuevoOffset = offset + candidatas.length;
+
+    return res.status(200).json({ reanalizadas, errores, offset: nuevoOffset, total, completo: nuevoOffset >= total });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error recategorizando conversaciones', detail: String(err) });
   }
 }
 
