@@ -488,9 +488,23 @@ function renderDetalleConversacion(data){
     ventaHtml = `<div class="ficha-fila"><span>Venta</span><b><button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id})">Asociar venta</button></b></div>`;
   }
 
+  // Responder desde el ERP: solo texto libre, y solo dentro de la ventana
+  // de 24h desde el último mensaje del cliente (WhatsApp exige plantillas
+  // pre-aprobadas fuera de eso, no implementado todavía). ventanaAbierta
+  // la calcula el servidor (fuente de verdad real), no este JS.
+  const composerHtml = data.ventanaAbierta
+    ? `<div class="composer-hilo">
+         <textarea id="composerTexto${c.id}" rows="1" placeholder="Escribe una respuesta…" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); enviarMensajeWhatsapp(${c.id});}"></textarea>
+         <button class="btn-primary btn-compact btn-enviar" id="btnEnviarMensaje" onclick="enviarMensajeWhatsapp(${c.id})">Enviar</button>
+       </div>`
+    : `<div class="composer-cerrado">🔒 Pasaron más de 24h desde el último mensaje del cliente — WhatsApp ya no permite texto libre acá (se necesita una plantilla pre-aprobada, no disponible todavía).</div>`;
+
   $('modalConvBody').innerHTML = `
     <div class="detalle-conv">
-      <div class="panel-hilo">${hilo}</div>
+      <div class="columna-hilo">
+        <div class="panel-hilo" id="panelHilo">${hilo}</div>
+        ${composerHtml}
+      </div>
       <div class="panel-ficha">
         <div class="ficha-grupo">
           <h3>👤 Cliente</h3>
@@ -537,6 +551,8 @@ function renderDetalleConversacion(data){
       </div>
     </div>
   `;
+  const panelHilo = $('panelHilo');
+  if (panelHilo) panelHilo.scrollTop = panelHilo.scrollHeight;
 }
 async function guardarCampoConv(id, campo, valor){
   try{
@@ -549,6 +565,31 @@ async function guardarCampoConv(id, campo, valor){
     if (!res.ok || data.error) { alert(data.error || 'No se pudo guardar el cambio.'); return; }
     cargarConversaciones();
   }catch(err){ alert('Error: ' + err.message); }
+}
+async function enviarMensajeWhatsapp(conversacionId){
+  const textarea = $('composerTexto' + conversacionId);
+  const btn = $('btnEnviarMensaje');
+  const texto = textarea.value.trim();
+  if (!texto) return;
+  textarea.disabled = true;
+  if (btn) btn.disabled = true;
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-enviar-mensaje', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversacionId, texto }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) { alert(data.error || 'No se pudo enviar el mensaje.'); return; }
+    await abrirConversacion(conversacionId); // recarga el hilo con el mensaje ya enviado
+    cargarConversaciones();
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{
+    // El textarea puede ya no existir si abrirConversacion recargó el modal.
+    const t = $('composerTexto' + conversacionId);
+    if (t) t.disabled = false;
+    const b = $('btnEnviarMensaje');
+    if (b) b.disabled = false;
+  }
 }
 function abrirAsociarVenta(conversacionId, montoSugerido, pedidoSugerido){
   const monto = prompt('Monto de la venta (CLP):', montoSugerido != null ? String(montoSugerido) : '');

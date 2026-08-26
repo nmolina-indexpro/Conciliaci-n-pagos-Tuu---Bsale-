@@ -86,6 +86,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-seguimientos') return manejarWhatsappSeguimientos(req, res, sesion);
   if (recurso === 'whatsapp-etiquetas') return manejarWhatsappEtiquetas(req, res, sesion);
   if (recurso === 'whatsapp-venta') return manejarWhatsappVenta(req, res, sesion);
+  if (recurso === 'whatsapp-enviar-mensaje') return manejarWhatsappEnviarMensaje(req, res, sesion);
   if (recurso === 'whatsapp-analizar') return manejarWhatsappAnalizar(req, res, sesion);
   if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
   if (recurso === 'whatsapp-reanalizar-desactualizadas') return manejarWhatsappReanalizarDesactualizadas(req, res, sesion);
@@ -2547,11 +2548,22 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
     `;
     const { rows: ventaRows } = await sql`SELECT * FROM whatsapp_ventas WHERE conversacion_id = ${id} ORDER BY created_at DESC LIMIT 1;`;
 
+    // Ventana de 24h de WhatsApp: solo se puede mandar texto libre si el
+    // cliente escribió dentro de las últimas 24h desde su último mensaje
+    // -- pasado eso, la API de Meta rechaza cualquier mensaje que no sea
+    // una plantilla pre-aprobada (no implementado todavía). Se calcula acá
+    // (no en el frontend) para que sea la misma fuente de verdad que usa
+    // manejarWhatsappEnviarMensaje al validar antes de mandar.
+    const ultimoInboundEn = [...mensajes].reverse().find(m => m.direccion === 'in')?.marca_tiempo || null;
+    const ventanaExpiraEn = ultimoInboundEn ? new Date(new Date(ultimoInboundEn).getTime() + 24 * 3600000).toISOString() : null;
+    const ventanaAbierta = ventanaExpiraEn ? new Date(ventanaExpiraEn).getTime() > Date.now() : false;
+
     return res.status(200).json({
       conversacion: {
         ...mapearConversacionWhatsapp({ ...conv, cliente_nombre: contacto?.nombre, cliente_telefono: contacto?.telefono, probabilidad_compra: analisisRows[0]?.probabilidad_compra }),
         pedidoAsociado: conv.pedido_asociado,
       },
+      ventanaAbierta, ventanaExpiraEn,
       contacto: contacto ? {
         id: contacto.id, nombre: contacto.nombre, telefono: contacto.telefono, whatsappId: contacto.whatsapp_id,
         primeraConversacionEn: contacto.primera_conversacion_en, ultimaConversacionEn: contacto.ultima_conversacion_en,
@@ -2760,6 +2772,96 @@ async function manejarWhatsappVenta(req, res, sesion) {
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: 'Error al asociar la venta', detail: String(err) });
+  }
+}
+
+// ---- Responder desde el ERP (fase 2 del pedido original) ----
+// Solo texto libre, y solo dentro de la ventana de 24h desde el último
+// mensaje del cliente -- fuera de esa ventana, WhatsApp exige una
+// plantilla pre-aprobada (no implementado todavía; el error de Meta al
+// intentarlo queda registrado si igual llega a pasar el chequeo propio).
+// Requiere WHATSAPP_ACCESS_TOKEN (Usuario del sistema, permanente) y
+// WHATSAPP_PHONE_NUMBER_ID (el de tu número real conectado).
+async function manejarWhatsappEnviarMensaje(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { conversacionId, texto } = req.body || {};
+  if (!conversacionId || !texto || !String(texto).trim()) return res.status(400).json({ error: 'Falta conversacionId o texto' });
+
+  const accessToken = (process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+  const phoneNumberId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+  if (!accessToken || !phoneNumberId) return res.status(200).json({ error: 'WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID no están configurados en el servidor' });
+
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    const { rows: convRows } = await sql`
+      SELECT c.id, c.responsable_id, c.primer_mensaje_cliente_en, c.primera_respuesta_empresa_en, c.estado, ct.whatsapp_id
+      FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+      WHERE c.id = ${conversacionId};
+    `;
+    const conv = convRows[0];
+    if (!conv) return res.status(404).json({ error: 'Conversación no encontrada' });
+
+    // Ventana de 24h -- mismo cálculo que manejarWhatsappConversacionDetalle
+    // (fuente de verdad server-side, no confía en lo que haya calculado el
+    // frontend antes de mostrar el botón).
+    const { rows: ultimoInboundRows } = await sql`
+      SELECT MAX(marca_tiempo) AS ultimo FROM whatsapp_mensajes WHERE conversacion_id = ${conversacionId} AND direccion = 'in';
+    `;
+    const ultimoInbound = ultimoInboundRows[0]?.ultimo;
+    const ventanaAbierta = ultimoInbound && (new Date(ultimoInbound).getTime() + 24 * 3600000) > Date.now();
+    if (!ventanaAbierta) {
+      return res.status(400).json({ error: 'Pasaron más de 24h desde el último mensaje del cliente -- WhatsApp ya no permite texto libre en esta conversación, se necesita una plantilla pre-aprobada (no disponible todavía).' });
+    }
+
+    const textoLimpio = String(texto).trim().slice(0, 4096);
+    const rEnvio = await fetchConTimeout(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to: conv.whatsapp_id, type: 'text', text: { body: textoLimpio } }),
+    }, 15000);
+    const bodyEnvio = await rEnvio.json().catch(() => ({}));
+    if (!rEnvio.ok) {
+      console.error('[whatsapp-enviar-mensaje] Meta rechazó el envío', conversacionId, rEnvio.status, JSON.stringify(bodyEnvio).slice(0, 500));
+      return res.status(502).json({ error: bodyEnvio.error?.message || 'Meta rechazó el envío del mensaje' });
+    }
+
+    const whatsappMessageId = bodyEnvio.messages?.[0]?.id || null;
+    const ahora = new Date();
+    await sql`
+      INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto)
+      VALUES (${conversacionId}, ${whatsappMessageId}, ${ahora.toISOString()}, 'out', 'api', 'texto', ${textoLimpio})
+      ON CONFLICT (whatsapp_message_id) DO NOTHING;
+    `;
+
+    // Igual que en message_echoes: si es la primera respuesta del negocio
+    // en esta conversación, calcula el tiempo de primera respuesta.
+    if (conv.primer_mensaje_cliente_en && !conv.primera_respuesta_empresa_en) {
+      const segundos = Math.max(0, Math.round((ahora.getTime() - new Date(conv.primer_mensaje_cliente_en).getTime()) / 1000));
+      await sql`
+        UPDATE whatsapp_conversaciones SET primera_respuesta_empresa_en = ${ahora.toISOString()}, primera_respuesta_segundos = ${segundos}
+        WHERE id = ${conversacionId};
+      `;
+    }
+    // Quien manda el mensaje queda como responsable si todavía no había
+    // ninguno asignado -- no pisa una asignación previa.
+    await sql`
+      UPDATE whatsapp_conversaciones SET
+        cantidad_mensajes = cantidad_mensajes + 1,
+        ultimo_mensaje_resumen = ${textoLimpio.slice(0, 140)},
+        estado = CASE WHEN estado = 'nueva' THEN 'abierta' ELSE estado END,
+        responsable_id = COALESCE(responsable_id, ${sesion.uid || null}),
+        updated_at = now()
+      WHERE id = ${conversacionId};
+    `;
+
+    const quien = sesion.nombre || sesion.email;
+    await sql`INSERT INTO whatsapp_auditoria (conversacion_id, usuario_email, accion, detalle) VALUES (${conversacionId}, ${quien}, 'mensaje_enviado', ${`Envió: "${textoLimpio.slice(0, 80)}${textoLimpio.length > 80 ? '…' : ''}"`});`;
+
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al enviar el mensaje', detail: String(err) });
   }
 }
 
