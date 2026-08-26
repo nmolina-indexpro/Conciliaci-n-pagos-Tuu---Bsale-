@@ -2283,33 +2283,38 @@ async function manejarWhatsappUsuarios(req, res, sesion) {
   }
 }
 
-// Diagnóstico puntual: muestra real de conversaciones de una categoría
-// dada (por defecto 'otra'), con resumen/producto/primer mensaje del
-// cliente, para revisar si el listado de categorías de
-// WHATSAPP_CATEGORIAS está capturando bien la realidad. Uso temporal
+// Diagnóstico puntual: muestra real de conversaciones donde un campo
+// "comodín" (categoria u motivo_perdida) tiene un valor dado (por
+// defecto 'otra'/'otro'), con resumen/producto/primer mensaje del
+// cliente, para revisar si el enum correspondiente está capturando bien
+// la realidad. campo whitelisteado a propósito (nunca interpolar un
+// nombre de columna que venga directo de la query string). Uso temporal
 // vía navegador ya logueado: /api/negocio?recurso=whatsapp-debug-categoria
 async function manejarWhatsappDebugCategoria(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
     const sql = await getSql();
-    const categoria = String(req.query.categoria || 'otra');
+    const camposValidos = { categoria: 'c.categoria', motivo_perdida: 'c.motivo_perdida' };
+    const campo = camposValidos[req.query.campo] ? req.query.campo : 'categoria';
+    const columna = camposValidos[campo];
+    const valor = String(req.query.valor || req.query.categoria || (campo === 'motivo_perdida' ? 'otro' : 'otra'));
     const limite = Math.min(parseInt(req.query.limite, 10) || 25, 50);
     const { rows } = await sql.query(
-      `SELECT c.id, c.producto, c.marca, c.modelo, c.intencion,
-              a.resumen, a.problema_cliente,
+      `SELECT c.id, c.producto, c.marca, c.modelo, c.intencion, c.categoria, c.resultado, c.motivo_perdida,
+              a.resumen, a.problema_cliente, a.observaciones,
               (SELECT contenido_texto FROM whatsapp_mensajes m
                 WHERE m.conversacion_id = c.id AND m.direccion = 'in' AND m.contenido_texto IS NOT NULL
                 ORDER BY m.marca_tiempo ASC LIMIT 1) AS primer_mensaje_cliente
        FROM whatsapp_conversaciones c
        LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
-       WHERE c.categoria = $1
+       WHERE ${columna} = $1
        ORDER BY c.iniciada_en DESC
        LIMIT $2;`,
-      [categoria, limite]
+      [valor, limite]
     );
-    return res.status(200).json({ categoria, total: rows.length, muestras: rows });
+    return res.status(200).json({ campo, valor, total: rows.length, muestras: rows });
   } catch (err) {
-    return res.status(500).json({ error: 'Error al cargar muestra de categoría', detail: String(err) });
+    return res.status(500).json({ error: 'Error al cargar muestra de diagnóstico', detail: String(err) });
   }
 }
 
