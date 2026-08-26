@@ -31,7 +31,7 @@ const CATEGORIA_LABEL = {
 const MOTIVO_PERDIDA_LABEL = {
   cliente_no_responde: 'Cliente dejó de responder', sin_stock: 'Sin stock', precio: 'Precio',
   respuesta_lenta: 'Respuesta demasiado lenta', producto_incompatible: 'Producto incompatible',
-  sin_seguimiento: 'No se realizó seguimiento', otro: 'Otro',
+  sin_seguimiento: 'No se realizó seguimiento', compro_en_otro_lugar: 'Compró en la competencia', otro: 'Otro',
 };
 const SEGUIMIENTO_ESTADO_LABEL = { pendiente: 'Pendiente', contactado: 'Contactado', venta: 'Venta', cerrado: 'Cerrado', no_interesado: 'No interesado' };
 const SEGUIMIENTO_ESTADO_BADGE = { pendiente: 'b-ambar', contactado: 'b-azul', venta: 'b-verde', cerrado: 'b-gris', no_interesado: 'b-rojo' };

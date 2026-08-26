@@ -1799,7 +1799,7 @@ const WHATSAPP_INTENCIONES = ['compra', 'consulta', 'postventa', 'servicio_tecni
 const WHATSAPP_MOTIVOS_PERDIDA_LABEL = {
   cliente_no_responde: 'Cliente dejó de responder', sin_stock: 'Sin stock', precio: 'Precio',
   respuesta_lenta: 'Respuesta demasiado lenta', producto_incompatible: 'Producto incompatible',
-  sin_seguimiento: 'No se realizó seguimiento', otro: 'Otro',
+  sin_seguimiento: 'No se realizó seguimiento', compro_en_otro_lugar: 'Compró en la competencia', otro: 'Otro',
 };
 const WHATSAPP_CATEGORIAS = ['pantalla', 'cargador', 'bateria', 'servicio_tecnico', 'repuestos', 'cotizacion', 'compatibilidad', 'garantia', 'estado_pedido', 'postventa', 'otra'];
 
@@ -3261,7 +3261,7 @@ const WHATSAPP_ANALISIS_TOOL = {
       especificaciones: { type: 'string', description: 'Detalles técnicos específicos que el cliente o el negocio mencionan y que distinguen el producto exacto de otros similares. Dos casos particularmente importantes: (1) en cargadores, potencia/voltaje/amperaje/tipo de conector (ej. "65W USB-C", "20V 3.25A"); (2) en pantallas, el TIPO DE EQUIPO -- "All in One" (PC de escritorio todo-en-uno) es un producto completamente distinto a una pantalla de notebook, aunque sea la misma marca, así que si el cliente dice "All in One", "todo en uno", "PC de escritorio" o similar, regístralo tal cual acá (ej. "All in One"). También aplica a otros casos: "táctil", "Full HD", "Macbook" vs notebook normal, etc. Cadena vacía si no se menciona ningún detalle así.' },
       probabilidad_compra: { type: 'integer', description: 'Probabilidad de 0 a 100 de que esta conversación termine en una venta, según el interés mostrado.' },
       resultado: { type: 'string', enum: WHATSAPP_RESULTADOS, description: 'En qué terminó (o va quedando) la conversación.' },
-      motivo_perdida: { type: 'string', enum: Object.keys(WHATSAPP_MOTIVOS_PERDIDA_LABEL), description: 'Si el resultado indica que se perdió la venta, por qué. Omitir el campo si no aplica.' },
+      motivo_perdida: { type: 'string', enum: Object.keys(WHATSAPP_MOTIVOS_PERDIDA_LABEL), description: 'Si el resultado indica que se perdió la venta, por qué. Omitir el campo si no aplica. Usa la razón más específica posible según lo que digan los mensajes o lo que tú mismo hayas notado en la conversación: si el cliente dice que ya compró o va a comprar en otro lado / la competencia, usa "compro_en_otro_lugar"; si el negocio nunca respondió o respondió muy tarde, usa "respuesta_lenta"; si el negocio respondió pero nunca volvió a contactar al cliente para cerrar, usa "sin_seguimiento"; si el cliente dejó de responder sin motivo claro, "cliente_no_responde"; si fue por precio, "precio"; si fue por falta de stock, "sin_stock"; si el producto no era compatible con su equipo, "producto_incompatible". Usa "otro" SOLO si de verdad ninguna de esas aplica (ej. conversación demasiado confusa o corta para saber qué pasó).' },
       sentimiento: { type: 'string', enum: ['positivo', 'neutro', 'negativo'], description: 'Tono general del cliente en la conversación.' },
       calidad_atencion_score: { type: 'integer', description: 'De 0 a 100, qué tan buena fue la atención del negocio (rapidez, claridad, resolución). Si el negocio todavía no ha respondido nada, usar 0.' },
       requiere_seguimiento: { type: 'boolean', description: 'Si esta conversación debería seguirse contactando (ej. cotización enviada sin respuesta, cliente evaluando).' },
