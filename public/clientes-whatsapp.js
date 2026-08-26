@@ -525,7 +525,7 @@ function renderDetalleConversacion(data){
         <div class="ficha-grupo">
           <h3>💬 Conversación actual</h3>
           <div class="ficha-fila"><span>Fecha inicio</span><b>${fmtFechaHora(c.fecha)}</b></div>
-          <div class="ficha-fila"><span>Origen</span><b>${c.fuenteTipo ? `📢 Anuncio${c.fuenteTitulo ? ' — ' + escapeHtml(c.fuenteTitulo) : ''}${c.fuenteUrl ? ` <a href="${escapeHtml(c.fuenteUrl)}" target="_blank" rel="noopener">(ver)</a>` : ''}` : '<span class="sub">💬 Contacto directo</span>'}</b></div>
+          <div class="ficha-fila"><span>Origen</span><b>${c.fuenteTipo ? `📢 Anuncio${c.fuenteTitulo ? ' — ' + escapeHtml(c.fuenteTitulo) : ''}${c.fuenteUrl ? ` <a href="${escapeHtml(c.fuenteUrl)}" target="_blank" rel="noopener">(ver)</a>` : ''}` : '<span class="sub">❓ Origen desconocido</span>'}</b></div>
           <div class="ficha-fila"><span>Cantidad de mensajes</span><b>${fmtNum(c.cantidadMensajes)}</b></div>
           <div class="ficha-fila"><span>1ª respuesta</span><b>${c.primeraRespuestaSegundos != null ? fmtDuracion(c.primeraRespuestaSegundos) : 'Sin respuesta'}</b></div>
           <div class="ficha-fila"><span>Estado</span><b><select id="editEstado" onchange="guardarCampoConv(${c.id}, 'estado', this.value)">${WHATSAPP_ESTADOS.map(e => `<option value="${e}" ${e===c.estado?'selected':''}>${ESTADO_LABEL[e]}</option>`).join('')}</select></b></div>
