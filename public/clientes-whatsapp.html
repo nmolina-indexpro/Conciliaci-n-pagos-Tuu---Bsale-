@@ -238,7 +238,11 @@
   <div class="modal-box ancho">
     <div class="modal-head">
       <h2 id="modalConvTitulo">Conversación</h2>
-      <button class="modal-cerrar" onclick="cerrarModalConversacion()">✕</button>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button class="btn-ghost btn-compact" id="btnConvAnterior" onclick="irConversacionAdyacente(-1)" title="Conversación anterior en la lista">← Anterior</button>
+        <button class="btn-ghost btn-compact" id="btnConvSiguiente" onclick="irConversacionAdyacente(1)" title="Conversación siguiente en la lista">Siguiente →</button>
+        <button class="modal-cerrar" onclick="cerrarModalConversacion()">✕</button>
+      </div>
     </div>
     <div class="modal-body" id="modalConvBody"></div>
   </div>

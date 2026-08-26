@@ -378,9 +378,10 @@ function renderTablaConv(lista){
   else if (convState.orden === 'fecha_desc') ordenada.sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
   else if (convState.orden === 'respuesta_asc') ordenada.sort((a,b) => (a.primeraRespuestaSegundos ?? Infinity) - (b.primeraRespuestaSegundos ?? Infinity));
   else if (convState.orden === 'respuesta_desc') ordenada.sort((a,b) => (b.primeraRespuestaSegundos ?? -1) - (a.primeraRespuestaSegundos ?? -1));
+  convState.ultimaDataOrdenada = ordenada; // orden realmente mostrado -- lo usa la navegación "Anterior/Siguiente" del detalle
 
   $('tablaConv').innerHTML = ordenada.map(c => `
-    <tr class="fila-clic" onclick="abrirConversacion(${c.id})">
+    <tr class="fila-clic" onclick="abrirConversacion(${c.id}, 'conversaciones')">
       <td>${fmtFechaHora(c.fecha)}</td>
       <td>${escapeHtml(c.clienteNombre || 'Sin nombre')}${c.cantidadImagenes > 0 ? ` <span title="${c.cantidadImagenes} foto(s) en esta conversación">📷</span>` : ''}${c.fuenteTipo ? ` <span title="${escapeHtml(fuenteInfo(c).texto)}">${fuenteInfo(c).icono}</span>` : ''}</td>
       <td>${escapeHtml(c.clienteTelefono || '—')}</td>
@@ -410,11 +411,41 @@ function renderPaginacionConv(){
 function irPaginaConv(p){ convState.page = p; cargarConversaciones(); }
 
 // ---- Detalle de conversación (modal, punto 11/12/13) ----
-async function abrirConversacion(id){
+let conversacionAbiertaId = null;
+// Lista para los botones "← Anterior"/"Siguiente →" del modal -- solo
+// tiene sentido cuando se abre desde la tabla de Conversaciones (mismo
+// orden que se ve ahí, filtros y ordenamiento incluidos); si se abre
+// desde Seguimientos o el historial de un Cliente, queda null y los
+// botones se ocultan (no hay una "lista" clara de la cual sea obvio
+// cuál es la anterior/siguiente en esos contextos).
+let listaNavegacionConv = null;
+
+async function abrirConversacion(id, origenLista){
+  conversacionAbiertaId = id;
+  listaNavegacionConv = origenLista === 'conversaciones' ? (convState.ultimaDataOrdenada || null) : null;
   $('modalConvTitulo').textContent = 'Conversación #' + id;
   $('modalConvBody').innerHTML = '<p class="empty-note">Cargando…</p>';
   $('modalConversacion').classList.add('abierto');
+  actualizarBotonesNavegacionConv();
   await refrescarConversacionAbierta(id);
+}
+function actualizarBotonesNavegacionConv(){
+  const btnAnt = $('btnConvAnterior'), btnSig = $('btnConvSiguiente');
+  if (!listaNavegacionConv || !listaNavegacionConv.length) {
+    btnAnt.style.display = 'none'; btnSig.style.display = 'none';
+    return;
+  }
+  btnAnt.style.display = ''; btnSig.style.display = '';
+  const idx = listaNavegacionConv.findIndex(c => c.id === conversacionAbiertaId);
+  btnAnt.disabled = idx <= 0;
+  btnSig.disabled = idx === -1 || idx >= listaNavegacionConv.length - 1;
+}
+function irConversacionAdyacente(delta){
+  if (!listaNavegacionConv) return;
+  const idx = listaNavegacionConv.findIndex(c => c.id === conversacionAbiertaId);
+  const nuevoIdx = idx + delta;
+  if (idx === -1 || nuevoIdx < 0 || nuevoIdx >= listaNavegacionConv.length) return;
+  abrirConversacion(listaNavegacionConv[nuevoIdx].id, 'conversaciones');
 }
 // Vuelve a pedir el detalle y repinta el contenido, SIN pasar por el
 // estado de "Cargando…" ni tocar la clase "abierto" -- eso es lo que
