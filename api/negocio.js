@@ -3649,9 +3649,14 @@ async function manejarWhatsappReanalizarDesactualizadas(req, res, sesion) {
 // a propósito: tiene que poder re-tocar TODAS las filas, incluidas las que
 // ya están bien categorizadas (si se filtrara por categoria='otra' las
 // conversaciones correctamente categorizadas como 'otra' nunca saldrían
-// del WHERE y el lote no terminaría de avanzar nunca). Admin-only, lote de
-// 15 como el resto de los análisis con Claude (más lento que los lotes que
-// solo golpean Shopify/Bsale).
+// del WHERE y el lote no terminaría de avanzar nunca). Admin-only. Lote
+// de solo 5 (no 15 como whatsapp-analizar-pendientes): a diferencia de
+// "pendientes" (que en su mayoría son conversaciones cortas recién
+// llegadas), este recorre TODO el historial incluyendo conversaciones
+// largas con varias fotos -- 15 de esas seguidas superó el
+// maxDuration de 60s de la función (Vercel corta con
+// FUNCTION_INVOCATION_TIMEOUT, que ni siquiera devuelve JSON) y el
+// frontend seguía sin problema con la próxima llamada por el offset.
 async function manejarWhatsappRecategorizar(req, res, sesion) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede recategorizar en lote' });
@@ -3663,7 +3668,7 @@ async function manejarWhatsappRecategorizar(req, res, sesion) {
     const { rows: candidatas } = await sql`
       SELECT c.id FROM whatsapp_conversaciones c
       JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
-      ORDER BY c.iniciada_en ASC LIMIT 15 OFFSET ${offset};
+      ORDER BY c.iniciada_en ASC LIMIT 5 OFFSET ${offset};
     `;
 
     let reanalizadas = 0, errores = 0;
