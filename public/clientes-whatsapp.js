@@ -255,7 +255,7 @@ async function cargarDashboard(){
 }
 
 // ================= CONVERSACIONES =================
-let convState = { page: 1, pageSize: 25, q: '', filtros: {}, orden: 'fecha_desc', total: 0, totalPaginas: 1 };
+let convState = { page: 1, pageSize: 200, q: '', filtros: {}, orden: 'fecha_desc', total: 0, totalPaginas: 1 };
 
 function initConversaciones(){
   $('vistaConversaciones').innerHTML = `

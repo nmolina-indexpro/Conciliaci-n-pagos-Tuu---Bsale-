@@ -2366,7 +2366,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
     if (req.method === 'GET') {
       const { where, params } = armarFiltrosConversacionesWhatsapp(req.query);
       const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-      const pageSize = Math.min(100, Math.max(10, parseInt(req.query.pageSize, 10) || 25));
+      const pageSize = Math.min(200, Math.max(10, parseInt(req.query.pageSize, 10) || 25));
       const offset = (page - 1) * pageSize;
 
       const sqlBase = `
