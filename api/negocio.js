@@ -59,6 +59,7 @@ export default async function handler(req, res) {
 
   const recurso = req.query.recurso;
   if (recurso === 'criticos') return manejarCriticos(req, res, sesion);
+  if (recurso === 'alertas-stock-shopify') return manejarAlertasStockShopify(req, res, sesion);
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
@@ -3116,6 +3117,53 @@ async function obtenerAccesoShopify() {
   const bodyToken = await rToken.json().catch(() => ({}));
   if (!rToken.ok || !bodyToken.access_token) return null;
   return { domain, accessToken: bodyToken.access_token };
+}
+
+// Trae el estado (active/draft/archived) de CADA variante del catálogo de
+// Shopify, indexado por SKU -- para la alerta de "stock en Bsale pero no
+// visible en la tienda" en alertas-stock.html (ver conversación con el
+// usuario: SKU CARALUSBC01 con stock real pero archivado en Shopify, sin
+// que nadie lo notara hasta revisar a mano). A propósito NO se filtra por
+// status en la consulta (a diferencia de shopify-images-report.js, que
+// solo necesita productos activos) -- acá el punto es encontrar justamente
+// los que NO están activos. REST en vez de GraphQL porque products.json
+// ya trae variantes+SKU+status en una sola pasada paginada por Link header,
+// igual que shopify-images-report.js.
+async function obtenerEstadoShopifyPorSku() {
+  const acceso = await obtenerAccesoShopify();
+  if (!acceso) return null;
+  const { domain, accessToken } = acceso;
+
+  const estadoPorSku = {};
+  let url = `https://${domain}/admin/api/2024-10/products.json?limit=250&fields=id,title,status,variants`;
+  let guard = 0;
+  while (url && guard < 40) { // tope de seguridad: 40 páginas (~10.000 productos)
+    const r = await fetchConTimeout(url, { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }, 20000);
+    if (!r.ok) throw new Error(`Shopify HTTP ${r.status} listando productos`);
+    const body = await r.json();
+    for (const p of (body.products || [])) {
+      for (const v of (p.variants || [])) {
+        if (!v.sku) continue;
+        estadoPorSku[v.sku] = { status: p.status, productoId: p.id, titulo: p.title, adminUrl: `https://${domain}/admin/products/${p.id}` };
+      }
+    }
+    const linkHeader = r.headers.get('link');
+    const siguiente = linkHeader && linkHeader.split(',').find(l => l.includes('rel="next"'));
+    url = siguiente ? siguiente.match(/<([^>]+)>/)?.[1] || null : null;
+    guard++;
+  }
+  return estadoPorSku;
+}
+
+async function manejarAlertasStockShopify(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const estadoPorSku = await obtenerEstadoShopifyPorSku();
+    if (estadoPorSku === null) return res.status(200).json({ error: 'Faltan credenciales de Shopify (SHOPIFY_STORE_DOMAIN/CLIENT_ID/CLIENT_SECRET)', estadoPorSku: {} });
+    return res.status(200).json({ estadoPorSku, totalSkus: Object.keys(estadoPorSku).length });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error consultando estado de productos en Shopify', detail: String(err), estadoPorSku: {} });
+  }
 }
 
 async function buscarProductoShopify(producto, categoria, marca, modelo, especificaciones) {
