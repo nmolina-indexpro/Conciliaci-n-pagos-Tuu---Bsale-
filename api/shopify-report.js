@@ -210,6 +210,36 @@ function fechaStr(v) {
   return typeof v === 'string' ? v.slice(0, 10) : v.toISOString().slice(0, 10);
 }
 
+// ---- Estado de las variantes en Bsale, indexado por SKU ----
+// Para saber si un producto agotado que sigue publicado en Shopify tiene
+// todavía un equivalente vigente en Bsale, o si ya se descontinuó (SKU
+// eliminado o inhabilitado) -- mismo criterio "state === 0 significa
+// vigente" que ya usa este proyecto para documentos de Bsale (ver
+// bsale-sku-report.js, doc.state !== 0).
+const BSALE_BASE = 'https://api.bsale.io/v1';
+async function bsaleGet(path, token) {
+  const r = await fetchWithTimeout(`${BSALE_BASE}${path}`, { headers: { access_token: token } }, 20000);
+  if (!r.ok) throw new Error(`Bsale HTTP ${r.status} en ${path}`);
+  return r.json();
+}
+async function obtenerEstadoVariantesBsale(token) {
+  const estadoPorCode = new Map();
+  const limit = 50;
+  const primera = await bsaleGet(`/variants.json?limit=${limit}&offset=0`, token);
+  const registrar = items => { for (const v of items) if (v.code) estadoPorCode.set(v.code, v.state); };
+  registrar(primera.items || []);
+  const total = primera.count || 0;
+  const topePaginas = 80; // ~4.000 variantes
+  const totalPaginas = Math.min(Math.ceil(total / limit), topePaginas);
+  if (totalPaginas > 1) {
+    const promesas = [];
+    for (let p = 1; p < totalPaginas; p++) promesas.push(bsaleGet(`/variants.json?limit=${limit}&offset=${p * limit}`, token));
+    const resto = await Promise.all(promesas);
+    for (const r of resto) registrar(r.items || []);
+  }
+  return estadoPorCode;
+}
+
 // ---------------- Alertas Sitio web: productos agotados ----------------
 // Cargadores/pantallas/baterías sin stock, identificados por colección (no
 // hay un product_type limpio para esto en el catálogo real). La fecha en
@@ -232,12 +262,12 @@ async function manejarAgotados(req, res) {
     // La consulta de productos de una colección vía GraphQL solo pide
     // read_products, que sí está concedido (ya lo usan los otros reportes
     // de Shopify). De paso, totalInventory ya viene sumado por Shopify.
-    const productosPorId = new Map(); // id -> { nombre, categoria, stock }
+    const productosPorId = new Map(); // id -> { nombre, categoria, stock, sku }
     const query = `
       query($id: ID!, $cursor: String) {
         collection(id: $id) {
           products(first: 100, after: $cursor) {
-            edges { node { id title totalInventory } }
+            edges { node { id title totalInventory variants(first: 1) { edges { node { sku } } } } }
             pageInfo { hasNextPage endCursor }
           }
         }
@@ -268,7 +298,8 @@ async function manejarAgotados(req, res) {
           // Un producto puede vivir en más de una colección de alerta (ej.
           // ambas de cargadores) -> se queda con la primera categoría vista.
           if (!productosPorId.has(idNumerico)) {
-            productosPorId.set(idNumerico, { nombre: p.title, categoria, stock: p.totalInventory });
+            const sku = p.variants?.edges?.[0]?.node?.sku || null;
+            productosPorId.set(idNumerico, { nombre: p.title, categoria, stock: p.totalInventory, sku });
           }
         }
         if (!conexion.pageInfo.hasNextPage) break;
@@ -279,7 +310,7 @@ async function manejarAgotados(req, res) {
 
     const agotadosAhora = [...productosPorId.entries()]
       .filter(([, p]) => p.stock <= 0)
-      .map(([id, p]) => ({ id, nombre: p.nombre, categoria: p.categoria }));
+      .map(([id, p]) => ({ id, nombre: p.nombre, categoria: p.categoria, sku: p.sku }));
 
     // ---- Fecha en que se detectó cada uno sin stock (persistida) ----
     let resultado = agotadosAhora.map(p => ({ ...p, fechaDetectado: null }));
@@ -303,21 +334,43 @@ async function manejarAgotados(req, res) {
       // nuevo (o había vuelto a tener stock), queda con la fecha de hoy.
       for (const p of agotadosAhora) {
         await sql`
-          INSERT INTO shopify_agotados (producto_id, nombre, categoria, fecha_detectado, activo)
-          VALUES (${p.id}, ${p.nombre}, ${p.categoria}, CURRENT_DATE, true)
+          INSERT INTO shopify_agotados (producto_id, nombre, categoria, sku, fecha_detectado, activo)
+          VALUES (${p.id}, ${p.nombre}, ${p.categoria}, ${p.sku}, CURRENT_DATE, true)
           ON CONFLICT (producto_id) DO UPDATE SET
             nombre = EXCLUDED.nombre,
             categoria = EXCLUDED.categoria,
+            sku = EXCLUDED.sku,
             fecha_detectado = CASE WHEN shopify_agotados.activo THEN shopify_agotados.fecha_detectado ELSE CURRENT_DATE END,
             activo = true;
         `;
       }
 
-      const { rows } = await sql`SELECT producto_id, nombre, categoria, fecha_detectado FROM shopify_agotados WHERE activo = true ORDER BY fecha_detectado ASC;`;
-      resultado = rows.map(r => ({ id: r.producto_id, nombre: r.nombre, categoria: r.categoria, fechaDetectado: fechaStr(r.fecha_detectado) }));
+      const { rows } = await sql`SELECT producto_id, nombre, categoria, sku, fecha_detectado FROM shopify_agotados WHERE activo = true ORDER BY fecha_detectado ASC;`;
+      resultado = rows.map(r => ({ id: r.producto_id, nombre: r.nombre, categoria: r.categoria, sku: r.sku, fechaDetectado: fechaStr(r.fecha_detectado) }));
     } catch (dbErr) {
       // Sin base de datos disponible, igual se muestra la lista actual (sin fecha).
     }
+
+    // ---- Cruce con Bsale: ¿el SKU sigue vigente allá? ----
+    // Si no hay BSALE_ACCESS_TOKEN configurado, o la consulta falla, se
+    // sigue mostrando la lista igual, solo sin este dato extra (mismo
+    // criterio de degradación que el resto del proyecto).
+    const bsaleToken = (process.env.BSALE_ACCESS_TOKEN || '').trim();
+    let estadoBsalePorCode = null;
+    if (bsaleToken) {
+      try { estadoBsalePorCode = await obtenerEstadoVariantesBsale(bsaleToken); }
+      catch (err) { /* sigue sin el cruce de Bsale */ }
+    }
+
+    resultado = resultado.map(p => {
+      let estadoBsale = null;
+      if (estadoBsalePorCode) {
+        if (!p.sku) estadoBsale = null; // sin SKU legible en Shopify, no se puede cruzar
+        else if (!estadoBsalePorCode.has(p.sku)) estadoBsale = 'no_existe';
+        else if (estadoBsalePorCode.get(p.sku) !== 0) estadoBsale = 'archivado';
+      }
+      return { ...p, estadoBsale, adminUrl: `https://${dominioLimpio}/admin/products/${p.id}` };
+    });
 
     return res.status(200).json({ agotados: resultado });
   } catch (err) {

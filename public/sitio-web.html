@@ -68,6 +68,9 @@
   .badge.pantallas{background:var(--blue-bg);color:var(--blue);}
   .badge.baterias{background:var(--red-bg);color:var(--red);}
   .badge.quiebre{background:var(--red);color:#fff;}
+  .badge.riesgo{background:var(--amber);color:#fff;}
+  th.sortable{cursor:pointer;user-select:none;}
+  th.sortable:hover{color:var(--primary);}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -228,6 +231,29 @@ function renderKpis(){
   $('cBaterias').textContent = fmtNum(ultimosAgotados.filter(p=>p.categoria==='Baterías').length);
 }
 
+// Estado del SKU en Bsale (ver manejarAgotados): 'no_existe' = el SKU ya
+// no aparece en Bsale (probablemente descontinuado y nunca despublicado);
+// 'archivado' = existe pero está deshabilitado allá. Ambos son productos
+// que siguen mostrándose (agotados) en la tienda sin un respaldo real en
+// el sistema interno.
+const ESTADO_BSALE_LABEL = { no_existe: 'SKU no existe en Bsale', archivado: 'Archivado en Bsale' };
+const ESTADO_BSALE_CLASE = { no_existe: 'quiebre', archivado: 'riesgo' };
+
+let sortCol = 'dias';
+let sortAsc = true; // por defecto, de menor a mayor
+
+function ordenarPor(col){
+  if(sortCol === col) sortAsc = !sortAsc; else { sortCol = col; sortAsc = true; }
+  renderTabla();
+}
+function valorOrden(p, col){
+  if(col === 'nombre') return (p.nombre || '').toLowerCase();
+  if(col === 'estadoBsale') return p.estadoBsale || '';
+  if(col === 'fecha') return p.fechaDetectado || '';
+  if(col === 'dias') return p.fechaDetectado ? diasDesde(p.fechaDetectado) : -1;
+  return '';
+}
+
 function renderTabla(){
   const filtro = $('filtroCategoria').value;
   const lista = filtro ? ultimosAgotados.filter(p=>p.categoria===filtro) : ultimosAgotados;
@@ -236,21 +262,44 @@ function renderTabla(){
     wrap.innerHTML = `<p class="empty-note">Sin productos agotados en esta categoría. 🎉</p>`;
     return;
   }
-  const ordenada = [...lista].sort((a,b) => (a.fechaDetectado||'').localeCompare(b.fechaDetectado||''));
-  wrap.innerHTML = `
-    <table>
-      <thead><tr><th>Categoría</th><th>Producto</th><th>Fecha sin stock</th><th class="amount">Días sin stock</th></tr></thead>
-      <tbody>
-        ${ordenada.map(p => `
-          <tr>
-            <td><span class="badge ${claseCategoria(p.categoria)}">${p.categoria}</span></td>
-            <td>${p.nombre}</td>
-            <td>${p.fechaDetectado || '—'}</td>
-            <td class="amount">${p.fechaDetectado ? fmtNum(diasDesde(p.fechaDetectado)) : '—'}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>
-  `;
+
+  const flecha = col => sortCol === col ? (sortAsc ? ' ▲' : ' ▼') : '';
+  const th = (col, label, claseExtra='') => `<th class="sortable ${claseExtra}" onclick="ordenarPor('${col}')">${label}${flecha(col)}</th>`;
+
+  // Agrupado por categoría (cada una con su propia tabla) en vez de una
+  // lista mezclada -- más fácil de revisar cuando se ven todas juntas.
+  const categorias = [...new Set(lista.map(p => p.categoria))].sort();
+  wrap.innerHTML = categorias.map(cat => {
+    const grupo = lista.filter(p => p.categoria === cat);
+    const ordenado = [...grupo].sort((a, b) => {
+      const va = valorOrden(a, sortCol), vb = valorOrden(b, sortCol);
+      const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : String(va).localeCompare(String(vb));
+      return sortAsc ? cmp : -cmp;
+    });
+    return `
+      <h2 style="font-size:13px;margin:18px 0 8px 0;">
+        <span class="badge ${claseCategoria(cat)}">${cat}</span> — ${grupo.length} agotado(s)
+      </h2>
+      <table>
+        <thead><tr>
+          ${th('nombre', 'Producto')}
+          ${th('estadoBsale', 'Estado en Bsale')}
+          ${th('fecha', 'Fecha sin stock')}
+          ${th('dias', 'Días sin stock', 'amount')}
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${ordenado.map(p => `
+            <tr>
+              <td>${p.nombre}</td>
+              <td>${p.estadoBsale ? `<span class="badge ${ESTADO_BSALE_CLASE[p.estadoBsale]}">${ESTADO_BSALE_LABEL[p.estadoBsale]}</span>` : '—'}</td>
+              <td>${p.fechaDetectado || '—'}</td>
+              <td class="amount">${p.fechaDetectado ? fmtNum(diasDesde(p.fechaDetectado)) : '—'}</td>
+              <td>${p.adminUrl ? `<a href="${p.adminUrl}" target="_blank" rel="noopener" title="Ver en Shopify">🔗</a>` : ''}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }).join('');
 }
 
 async function cargarSesionUsuario(){
