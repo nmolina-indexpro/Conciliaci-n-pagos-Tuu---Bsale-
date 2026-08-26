@@ -3121,35 +3121,57 @@ async function obtenerAccesoShopify() {
 
 // Trae el estado (active/draft/archived) de CADA variante del catálogo de
 // Shopify, indexado por SKU -- para la alerta de "stock en Bsale pero no
-// visible en la tienda" en alertas-stock.html (ver conversación con el
+// visible en la tienda" en sitio-web.html (ver conversación con el
 // usuario: SKU CARALUSBC01 con stock real pero archivado en Shopify, sin
 // que nadie lo notara hasta revisar a mano). A propósito NO se filtra por
-// status en la consulta (a diferencia de shopify-images-report.js, que
-// solo necesita productos activos) -- acá el punto es encontrar justamente
-// los que NO están activos. REST en vez de GraphQL porque products.json
-// ya trae variantes+SKU+status en una sola pasada paginada por Link header,
-// igual que shopify-images-report.js.
+// status en la consulta -- acá el punto es encontrar justamente los que NO
+// están activos.
+//
+// GraphQL (no REST) a propósito: el intento original con REST
+// /products.json?fields=... devolvió error consultando Shopify en
+// producción; manejarAgotados (más abajo en este mismo archivo, función
+// hermana en shopify-report.js) ya documenta que el token de esta app NO
+// tiene el scope read_product_listings que algunas variantes de la REST
+// API de productos piden -- la consulta de productos vía GraphQL (sin
+// filtro de colección, a diferencia de manejarAgotados) solo necesita
+// read_products, que sí está concedido y es justo lo que ya usa
+// buscarProductoShopify más abajo.
 async function obtenerEstadoShopifyPorSku() {
   const acceso = await obtenerAccesoShopify();
   if (!acceso) return null;
   const { domain, accessToken } = acceso;
 
   const estadoPorSku = {};
-  let url = `https://${domain}/admin/api/2024-10/products.json?limit=250&fields=id,title,status,variants`;
-  let guard = 0;
-  while (url && guard < 40) { // tope de seguridad: 40 páginas (~10.000 productos)
-    const r = await fetchConTimeout(url, { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }, 20000);
-    if (!r.ok) throw new Error(`Shopify HTTP ${r.status} listando productos`);
-    const body = await r.json();
-    for (const p of (body.products || [])) {
-      for (const v of (p.variants || [])) {
-        if (!v.sku) continue;
-        estadoPorSku[v.sku] = { status: p.status, productoId: p.id, titulo: p.title, adminUrl: `https://${domain}/admin/products/${p.id}` };
+  const query = `
+    query($cursor: String) {
+      products(first: 100, after: $cursor) {
+        edges { node { id title status variants(first: 100) { edges { node { sku } } } } }
+        pageInfo { hasNextPage endCursor }
       }
     }
-    const linkHeader = r.headers.get('link');
-    const siguiente = linkHeader && linkHeader.split(',').find(l => l.includes('rel="next"'));
-    url = siguiente ? siguiente.match(/<([^>]+)>/)?.[1] || null : null;
+  `;
+  let cursor = null;
+  let guard = 0;
+  while (guard < 60) { // tope de seguridad: 60 páginas (~6.000 productos)
+    const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { cursor } }),
+    }, 20000);
+    if (!r.ok) throw new Error(`Shopify HTTP ${r.status} listando productos`);
+    const body = await r.json();
+    if (body.errors) throw new Error(`Shopify GraphQL error: ${JSON.stringify(body.errors).slice(0, 300)}`);
+    const conexion = body.data?.products;
+    if (!conexion) break;
+    for (const { node: p } of conexion.edges) {
+      const idNumerico = p.id.split('/').pop();
+      for (const { node: v } of (p.variants?.edges || [])) {
+        if (!v.sku) continue;
+        estadoPorSku[v.sku] = { status: (p.status || '').toLowerCase(), productoId: idNumerico, titulo: p.title, adminUrl: `https://${domain}/admin/products/${idNumerico}` };
+      }
+    }
+    if (!conexion.pageInfo.hasNextPage) break;
+    cursor = conexion.pageInfo.endCursor;
     guard++;
   }
   return estadoPorSku;

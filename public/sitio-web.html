@@ -67,6 +67,7 @@
   .badge.cargadores{background:var(--amber-dim);color:var(--amber);}
   .badge.pantallas{background:var(--blue-bg);color:var(--blue);}
   .badge.baterias{background:var(--red-bg);color:var(--red);}
+  .badge.quiebre{background:var(--red);color:#fff;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -109,6 +110,7 @@
     <button class="btn-ghost" onclick="cargar()">↻ Actualizar</button>
   </div>
   <div id="status"></div>
+  <div id="avisoWrap"></div>
 
   <div class="grid" id="kpiWrap">
     <div class="card alert"><div class="lbl">Total agotados</div><div class="big" id="cTotal">—</div></div>
@@ -154,12 +156,54 @@ function claseCategoria(cat){
 
 let ultimosAgotados = [];
 
+// ---------- Aviso: stock en Bsale pero no visible en Shopify ----------
+// Cruza el stock real de Bsale contra el estado de cada SKU en Shopify --
+// si un producto tiene stock disponible pero está "draft"/"archived" en la
+// tienda, no aparece para los clientes y se pierden ventas sin que nadie lo
+// note (caso real que motivó esto: SKU CARALUSBC01 con stock pero
+// archivado). Solo se avisa de SKUs que SÍ existen en Shopify con otro
+// estado -- un SKU de Bsale que nunca se sube a la tienda (ej. un insumo
+// interno) no es una alerta real, así que no se asume nada de los que no
+// aparecen en el mapa. days=1 en bsale-sku-report: acá solo interesa el
+// stock actual (siempre es "de hoy", no depende del período), no el
+// historial de ventas -- pedir el período más corto evita cargar de más.
+const ESTADO_SHOPIFY_LABEL = { draft: 'Borrador', archived: 'Archivado' };
+function renderAvisoStockShopify(skusBsale, estadoPorSku, error){
+  if(error) return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo revisar el estado de los productos en Shopify: ${error}</div>`;
+  if(!Object.keys(estadoPorSku).length) return '';
+
+  const conProblema = skusBsale
+    .filter(s => s.stockActual > 0)
+    .map(s => ({ ...s, shopify: estadoPorSku[s.code] }))
+    .filter(s => s.shopify && s.shopify.status !== 'active');
+  if(!conProblema.length) return '';
+
+  conProblema.sort((a,b) => b.stockActual - a.stockActual);
+  const filas = conProblema.slice(0, 20).map(s => `
+    <li>
+      <b>${s.code}</b> — ${s.nombre} · Stock: ${fmtNum(s.stockActual)} ·
+      <span class="badge quiebre">${ESTADO_SHOPIFY_LABEL[s.shopify.status] || s.shopify.status}</span>
+      <a href="${s.shopify.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
+    </li>`).join('');
+  const nota = conProblema.length > 20 ? `<div class="empty-note">...y ${conProblema.length - 20} más.</div>` : '';
+
+  return `<div class="note-box" style="background:var(--red-bg);border-color:#F5C6C6;">
+    ⚠ <b>${conProblema.length} producto(s) con stock disponible pero no visibles en la tienda online</b> (archivados o en borrador en Shopify) — se están perdiendo ventas.
+    <ul style="margin:8px 0 0 0;padding-left:18px;">${filas}</ul>
+    ${nota}
+  </div>`;
+}
+
 async function cargar(){
   const status = $('status');
   status.className = '';
   status.textContent = 'Consultando Shopify...';
   try{
-    const res = await fetch('/api/shopify-report?recurso=agotados').then(r=>r.json());
+    const [res, bsaleRes, estadoRes] = await Promise.all([
+      fetch('/api/shopify-report?recurso=agotados').then(r=>r.json()),
+      fetch('/api/bsale-sku-report?days=1').then(r=>r.json()).catch(()=>({skus:[]})),
+      fetch('/api/negocio?recurso=alertas-stock-shopify').then(r=>r.json()).catch(()=>({estadoPorSku:{}}))
+    ]);
     if(res.error){
       status.className = 'err';
       status.textContent = 'Error: ' + res.error;
@@ -167,6 +211,7 @@ async function cargar(){
       return;
     }
     ultimosAgotados = res.agotados || [];
+    $('avisoWrap').innerHTML = renderAvisoStockShopify(bsaleRes.skus || [], estadoRes.estadoPorSku || {}, estadoRes.error);
     renderKpis();
     renderTabla();
     status.textContent = `Actualizado — ${ultimosAgotados.length} producto(s) agotado(s)`;

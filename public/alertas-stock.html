@@ -418,42 +418,6 @@ async function cerrarSesion(){
   location.href = '/login.html';
 }
 
-// ---------- Aviso: stock en Bsale pero no visible en Shopify ----------
-// Cruza el stock real de Bsale (datosSkus, ya cargado con el reporte
-// normal) contra el estado de cada SKU en Shopify -- si un producto tiene
-// stock disponible pero está "draft"/"archived" en la tienda, no aparece
-// para los clientes y se pierden ventas sin que nadie lo note (caso real
-// que motivó esto: SKU CARALUSBC01 con stock pero archivado). Solo se
-// avisa de SKUs que SÍ existen en Shopify con otro estado -- un SKU de
-// Bsale que nunca se sube a la tienda (ej. un insumo interno) no es una
-// alerta real, así que no se asume nada de los que no aparecen en el mapa.
-const ESTADO_SHOPIFY_LABEL = { draft: 'Borrador', archived: 'Archivado' };
-function renderAvisoStockShopify(estadoPorSku, error){
-  if(error) return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo revisar el estado de los productos en Shopify: ${error}</div>`;
-  if(!Object.keys(estadoPorSku).length) return '';
-
-  const conProblema = datosSkus
-    .filter(s => s.stockActual > 0)
-    .map(s => ({ ...s, shopify: estadoPorSku[s.code] }))
-    .filter(s => s.shopify && s.shopify.status !== 'active');
-  if(!conProblema.length) return '';
-
-  conProblema.sort((a,b) => b.stockActual - a.stockActual);
-  const filas = conProblema.slice(0, 20).map(s => `
-    <li>
-      <b>${s.code}</b> — ${s.nombre} · Stock: ${fmtNum(s.stockActual)} ·
-      <span class="badge quiebre">${ESTADO_SHOPIFY_LABEL[s.shopify.status] || s.shopify.status}</span>
-      <a href="${s.shopify.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
-    </li>`).join('');
-  const nota = conProblema.length > 20 ? `<div class="empty-note">...y ${conProblema.length - 20} más.</div>` : '';
-
-  return `<div class="note-box" style="background:var(--red-bg);border-color:#F5C6C6;">
-    ⚠ <b>${conProblema.length} producto(s) con stock disponible pero no visibles en la tienda online</b> (archivados o en borrador en Shopify) — se están perdiendo ventas.
-    <ul style="margin:8px 0 0 0;padding-left:18px;">${filas}</ul>
-    ${nota}
-  </div>`;
-}
-
 // ---------- Carga principal ----------
 async function cargar(){
   const dias = parseInt($('diasInput').value, 10) || 90;
@@ -465,10 +429,9 @@ async function cargar(){
   });
 
   try{
-    const [res, criticosRes, shopifyRes] = await Promise.all([
+    const [res, criticosRes] = await Promise.all([
       fetch(`/api/bsale-sku-report?days=${dias}`).then(r=>r.json()),
-      fetch(`/api/negocio?recurso=criticos`).then(r=>r.json()).catch(()=>({productos:[]})),
-      fetch(`/api/negocio?recurso=alertas-stock-shopify`).then(r=>r.json()).catch(()=>({estadoPorSku:{}}))
+      fetch(`/api/negocio?recurso=criticos`).then(r=>r.json()).catch(()=>({productos:[]}))
     ]);
     if(res.error){
       status.className = 'err';
@@ -484,7 +447,6 @@ async function cargar(){
 
     let avisos = '';
     if(res.ventasTruncadas) avisos += `<div class="note-box">⚠ El movimiento es grande y se truncó la consulta — los números pueden estar incompletos. Prueba con un período más corto.</div>`;
-    avisos += renderAvisoStockShopify(shopifyRes.estadoPorSku || {}, shopifyRes.error);
     $('avisoWrap').innerHTML = avisos;
 
     renderKpis();
