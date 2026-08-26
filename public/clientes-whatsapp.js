@@ -406,6 +406,13 @@ async function abrirConversacion(id){
   $('modalConvTitulo').textContent = 'Conversación #' + id;
   $('modalConvBody').innerHTML = '<p class="empty-note">Cargando…</p>';
   $('modalConversacion').classList.add('abierto');
+  await refrescarConversacionAbierta(id);
+}
+// Vuelve a pedir el detalle y repinta el contenido, SIN pasar por el
+// estado de "Cargando…" ni tocar la clase "abierto" -- eso es lo que
+// causaba el parpadeo/minimizado al enviar un mensaje: abrirConversacion
+// reseteaba el modal entero aunque ya estuviera abierto y mostrando algo.
+async function refrescarConversacionAbierta(id){
   try{
     const res = await fetch('/api/negocio?recurso=whatsapp-conversacion-detalle&id=' + id);
     const data = await res.json();
@@ -580,7 +587,7 @@ async function enviarMensajeWhatsapp(conversacionId){
     });
     const data = await res.json();
     if (!res.ok || data.error) { alert(data.error || 'No se pudo enviar el mensaje.'); return; }
-    await abrirConversacion(conversacionId); // recarga el hilo con el mensaje ya enviado
+    await refrescarConversacionAbierta(conversacionId); // recarga el hilo con el mensaje ya enviado, sin parpadeo
     cargarConversaciones();
   }catch(err){ alert('Error: ' + err.message); }
   finally{
