@@ -2335,15 +2335,31 @@ async function manejarWhatsappDashboard(req, res, sesion) {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
 
+    // La sesión de Postgres corre en GMT/UTC (confirmado con
+    // ?campo=zona del endpoint de diagnóstico), así que CURRENT_DATE y
+    // date_trunc('month', now()) sin más marcan el corte de "hoy"/"este
+    // mes" a la medianoche UTC -- en Chile (UTC-3/-4 según horario de
+    // verano) eso corta el día real 3-4 horas antes de tiempo. "zona"
+    // calcula el inicio del día/mes en hora de Chile (convierte a hora
+    // local, trunca, y vuelve a convertir a instante UTC real para poder
+    // compararlo contra iniciada_en, que es timestamptz). ult7/ult7_anterior
+    // no llevan este ajuste porque son una resta de duración fija desde el
+    // instante actual, no un corte de día calendario -- no dependen de
+    // huso horario.
     const { rows } = await sql`
+      WITH zona AS (
+        SELECT
+          (date_trunc('day', now() AT TIME ZONE 'America/Santiago') AT TIME ZONE 'America/Santiago') AS inicio_hoy,
+          (date_trunc('month', now() AT TIME ZONE 'America/Santiago') AT TIME ZONE 'America/Santiago') AS inicio_mes
+      )
       SELECT
-        COUNT(*) FILTER (WHERE iniciada_en >= CURRENT_DATE) AS hoy,
+        COUNT(*) FILTER (WHERE iniciada_en >= zona.inicio_hoy) AS hoy,
         COUNT(*) FILTER (WHERE iniciada_en >= now() - interval '7 days') AS ult7,
         COUNT(*) FILTER (WHERE iniciada_en >= now() - interval '14 days' AND iniciada_en < now() - interval '7 days') AS ult7_anterior,
-        COUNT(*) FILTER (WHERE iniciada_en >= date_trunc('month', now())) AS mes,
-        COUNT(*) FILTER (WHERE iniciada_en >= date_trunc('month', now()) - interval '1 month' AND iniciada_en < date_trunc('month', now())) AS mes_anterior,
-        COUNT(DISTINCT contacto_id) FILTER (WHERE iniciada_en >= date_trunc('month', now())) AS clientes_unicos_mes,
-        COUNT(DISTINCT contacto_id) FILTER (WHERE iniciada_en >= date_trunc('month', now()) - interval '1 month' AND iniciada_en < date_trunc('month', now())) AS clientes_unicos_mes_anterior,
+        COUNT(*) FILTER (WHERE iniciada_en >= zona.inicio_mes) AS mes,
+        COUNT(*) FILTER (WHERE iniciada_en >= zona.inicio_mes - interval '1 month' AND iniciada_en < zona.inicio_mes) AS mes_anterior,
+        COUNT(DISTINCT contacto_id) FILTER (WHERE iniciada_en >= zona.inicio_mes) AS clientes_unicos_mes,
+        COUNT(DISTINCT contacto_id) FILTER (WHERE iniciada_en >= zona.inicio_mes - interval '1 month' AND iniciada_en < zona.inicio_mes) AS clientes_unicos_mes_anterior,
         AVG(primera_respuesta_segundos) FILTER (WHERE primera_respuesta_segundos IS NOT NULL) AS promedio_respuesta_seg,
         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY primera_respuesta_segundos) FILTER (WHERE primera_respuesta_segundos IS NOT NULL) AS mediana_respuesta_seg,
         COUNT(*) FILTER (WHERE primera_respuesta_segundos IS NOT NULL) AS con_respuesta,
@@ -2357,7 +2373,7 @@ async function manejarWhatsappDashboard(req, res, sesion) {
         COALESCE(SUM(venta_monto) FILTER (WHERE venta_detectada = true), 0) AS monto_total_ventas,
         COUNT(*) FILTER (WHERE requiere_seguimiento = true AND (seguimiento_estado IS NULL OR seguimiento_estado = 'pendiente')) AS requieren_seguimiento,
         COUNT(*) AS total_conversaciones
-      FROM whatsapp_conversaciones;
+      FROM whatsapp_conversaciones, zona;
     `;
     const r = rows[0] || {};
     const num = v => Number(v) || 0;
