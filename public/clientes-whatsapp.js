@@ -920,6 +920,35 @@ async function analizarPendientesIA(){
   finally{ btn.disabled = false; btn.textContent = '🤖 Analizar pendientes'; }
 }
 
+// El disparo automático a veces analiza con muy poca información todavía
+// (ej. solo el saludo, antes de que el cliente diga qué producto quiere)
+// y ese resultado queda pegado -- esto reanaliza las conversaciones donde
+// llegaron mensajes nuevos después del último análisis, para ponerse al
+// día en lote. Ver el comentario junto a DEBOUNCE_ANALISIS_IA_MS.
+async function reanalizarDesactualizadas(){
+  if (!confirm('¿Reanalizar conversaciones donde llegaron mensajes nuevos después del último análisis con IA? Puede tardar varios minutos, y cada reanálisis tiene un costo pequeño en la API de Claude.')) return;
+  const btn = $('btnReanalizarDesactualizadas');
+  btn.disabled = true;
+  let totalReanalizadas = 0, totalErrores = 0;
+  try{
+    let completo = false;
+    while (!completo) {
+      btn.textContent = totalReanalizadas > 0 ? `🔄 Reanalizando… (${totalReanalizadas} listas)` : '🔄 Reanalizando…';
+      const res = await fetch('/api/negocio?recurso=whatsapp-reanalizar-desactualizadas', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || data.error) { alert(data.error || 'No se pudo reanalizar las conversaciones desactualizadas.'); break; }
+      totalReanalizadas += data.reanalizadas; totalErrores += data.errores;
+      completo = data.completo;
+      if (data.reanalizadas === 0 && !completo) break; // nada avanzó, evita loop infinito
+    }
+    alert(`Reanálisis terminado: ${totalReanalizadas} conversaciones actualizadas${totalErrores ? `, ${totalErrores} con error` : ''}.`);
+    vistasCargadas.clear();
+    const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
+    cambiarVistaModulo(vistaActiva);
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ btn.disabled = false; btn.textContent = '🔄 Reanalizar desactualizadas'; }
+}
+
 // Solo actualiza el link de Shopify de conversaciones que YA tienen
 // Análisis IA (sin volver a llamar a Claude, mucho más barato) -- sirve
 // para corregir en lote matches viejos guardados con una versión anterior

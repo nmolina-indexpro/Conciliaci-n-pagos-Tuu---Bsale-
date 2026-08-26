@@ -88,6 +88,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-venta') return manejarWhatsappVenta(req, res, sesion);
   if (recurso === 'whatsapp-analizar') return manejarWhatsappAnalizar(req, res, sesion);
   if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
+  if (recurso === 'whatsapp-reanalizar-desactualizadas') return manejarWhatsappReanalizarDesactualizadas(req, res, sesion);
   if (recurso === 'whatsapp-actualizar-shopify') return manejarWhatsappActualizarShopify(req, res, sesion);
   if (recurso === 'whatsapp-actualizar-ventas-bsale') return manejarWhatsappActualizarVentasBsale(req, res, sesion);
   if (recurso === 'whatsapp-analitica') return manejarWhatsappAnalitica(req, res, sesion);
@@ -1947,16 +1948,27 @@ async function manejarWhatsappWebhook(req, res) {
     }
 
     // Análisis IA automático (pedido por el usuario): se dispara para cada
-    // conversación que recibió mensajes nuevos en esta llamada, con un
-    // debounce de unos minutos para no reanalizar en cada mensaje suelto
-    // de una ráfaga -- Meta no avisa "el cliente ya terminó de escribir",
-    // así que esto es la aproximación práctica sin tener una cola/cron en
-    // este entorno serverless: si ya se analizó hace poco, se salta, y el
-    // siguiente mensaje (o el próximo webhook) lo vuelve a intentar más
-    // tarde. Nunca debe tumbar la respuesta 200 al webhook (Meta reintenta
+    // conversación que recibió mensajes nuevos en esta llamada.
+    //
+    // Limitación real, documentada a propósito: esto analiza al toque
+    // (sin esperar), no después de que el cliente "termine de escribir"
+    // -- Meta no avisa eso, y este entorno serverless no tiene cola/cron
+    // frecuente para implementar una espera de verdad (Vercel Hobby limita
+    // los cron jobs a una vez al día, insuficiente para esto). Si un
+    // cliente manda 3 mensajes seguidos en una ráfaga (ej. "Hola" -> foto
+    // -> "tiene stock?"), el primer webhook puede analizar con SOLO el
+    // "Hola" ya presente, y sin la ventana bien corta de acá abajo, ese
+    // resultado incompleto quedaría "protegido" por horas sin volver a
+    // intentarse. Por eso la ventana es corta (no minutos): sirve para no
+    // relanzar el análisis en cada mensaje individual de una ráfaga muy
+    // pegada (segundos), pero deja que la conversación se vuelva a
+    // analizar pronto si sigue llegando algo. Aun así, algo puede quedar
+    // desactualizado -- ver el botón admin "Reanalizar desactualizadas"
+    // (whatsapp-reanalizar-desactualizadas) para ponerse al día en lote.
+    // Nunca debe tumbar la respuesta 200 al webhook (Meta reintenta
     // agresivo si no la recibe) -> aislado en su propio try/catch, mejor
     // esfuerzo, sin bloquear el resto.
-    const DEBOUNCE_ANALISIS_IA_MS = 3 * 60 * 1000;
+    const DEBOUNCE_ANALISIS_IA_MS = 45 * 1000;
     // Tope defensivo: Meta casi siempre manda 1 mensaje por llamada de
     // webhook (rara vez toca más de una conversación distinta a la vez),
     // pero si alguna vez llegara un lote grande, esto evita que la función
@@ -3309,6 +3321,63 @@ async function manejarWhatsappAnalizarPendientes(req, res, sesion) {
     return res.status(200).json({ analizadas, errores, restantes, completo: restantes === 0 });
   } catch (err) {
     return res.status(500).json({ error: 'Error analizando conversaciones pendientes', detail: String(err) });
+  }
+}
+
+// Reanaliza conversaciones cuyo análisis quedó DESACTUALIZADO -- llegaron
+// mensajes nuevos después de la última vez que se analizaron. Pasa sobre
+// todo por la limitación real del disparo automático (ver el comentario
+// junto a DEBOUNCE_ANALISIS_IA_MS en manejarWhatsappWebhook): si el
+// cliente manda varios mensajes en una ráfaga, el primer webhook puede
+// analizar con muy poca información todavía (ej. solo el saludo, sin el
+// producto que pide después), y ese resultado incompleto se queda pegado
+// hasta que algo lo actualice. Este botón es ese "algo" para ponerse al
+// día en lote sin tener que abrir conversación por conversación.
+//
+// La condición (¿hay algún mensaje MÁS NUEVO que la última vez que se
+// analizó?) usa la marca de tiempo real de los mensajes, no
+// c.updated_at -- ese campo lo toca tanto un mensaje nuevo como el
+// propio análisis (que actualiza c.updated_at al terminar), así que
+// comparar contra él daría falsos positivos justo después de analizar.
+async function manejarWhatsappReanalizarDesactualizadas(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede reanalizar en lote' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    const { rows: desactualizadas } = await sql`
+      SELECT c.id FROM whatsapp_conversaciones c
+      JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+      WHERE EXISTS (
+        SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.marca_tiempo > a.updated_at
+      )
+      ORDER BY c.iniciada_en ASC LIMIT 15;
+    `;
+
+    let reanalizadas = 0, errores = 0;
+    for (const fila of desactualizadas) {
+      try {
+        const resultado = await ejecutarAnalisisIA(sql, fila.id, 'Sistema (reanálisis en lote)');
+        if (resultado.ok) reanalizadas++; else errores++;
+      } catch (err) {
+        errores++;
+        console.error('[whatsapp-reanalizar-desactualizadas] error reanalizando conversación', fila.id, err);
+      }
+    }
+
+    const { rows: restantesRows } = await sql`
+      SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones c
+      JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+      WHERE EXISTS (
+        SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.marca_tiempo > a.updated_at
+      );
+    `;
+    const restantes = restantesRows[0]?.n || 0;
+
+    return res.status(200).json({ reanalizadas, errores, restantes, completo: restantes === 0 });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error reanalizando conversaciones desactualizadas', detail: String(err) });
   }
 }
 
