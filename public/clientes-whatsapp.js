@@ -956,7 +956,7 @@ async function actualizarShopifyEnLote(){
 // buscarVentaBsalePorTelefono. Golpea la API real de Bsale (más lenta que
 // Shopify), así que puede tardar bastante más con muchas conversaciones.
 async function buscarVentasBsaleEnLote(){
-  if (!confirm('¿Buscar en Bsale (por teléfono) ventas que podrían corresponder a conversaciones sin venta confirmada? Es solo una sugerencia para revisar, no confirma nada automáticamente. Puede tardar varios minutos.')) return;
+  if (!confirm('¿Buscar en Bsale y Shopify (por teléfono) ventas que podrían corresponder a conversaciones sin venta confirmada? Es solo una sugerencia para revisar, no confirma nada automáticamente. Puede tardar varios minutos.')) return;
   const btn = $('btnBuscarVentasBsale');
   btn.disabled = true;
   let totalRevisadas = 0, totalEncontradas = 0;
@@ -976,7 +976,7 @@ async function buscarVentasBsaleEnLote(){
     const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
     cambiarVistaModulo(vistaActiva);
   }catch(err){ alert('Error: ' + err.message); }
-  finally{ btn.disabled = false; btn.textContent = '🧾 Buscar ventas Bsale'; }
+  finally{ btn.disabled = false; btn.textContent = '🧾 Buscar ventas (Bsale/Shopify)'; }
 }
 
 // ================= Datos demo (admin, punto 37) =================

@@ -2102,6 +2102,85 @@ async function buscarVentaBsalePorTelefono(sql, telefono, fechaConversacionIso) 
   }
 }
 
+// Igual que buscarVentaBsalePorTelefono, pero contra pedidos de Shopify --
+// útil para pedidos de la tienda online que todavía no se sincronizaron
+// como documento a Bsale (o nunca se sincronizan, ej. pagos por Webpay
+// directo). Busca al cliente por teléfono (comodín sobre los últimos 9
+// dígitos, mismo criterio que el resto de los cruces por teléfono de este
+// archivo) y sus pedidos pagados de los últimos 5, quedándose con el que
+// haya sido creado dentro de los 30 días siguientes al inicio de la
+// conversación. "Mejor esfuerzo": cualquier error acá no debe tumbar el
+// análisis IA completo.
+async function buscarVentaShopifyPorTelefono(telefono, fechaConversacionIso) {
+  if (!telefono || !fechaConversacionIso) return null;
+  try {
+    const acceso = await obtenerAccesoShopify();
+    if (!acceso) { console.warn('[buscarVentaShopifyPorTelefono] faltan credenciales de Shopify o no se pudo obtener token'); return null; }
+    const { domain, accessToken } = acceso;
+
+    const ultimos9 = telefono.replace(/[^0-9]/g, '').slice(-9);
+    if (ultimos9.length < 9) return null;
+
+    const query = `
+      query($q: String!) {
+        customers(first: 3, query: $q) {
+          edges { node {
+            orders(first: 5, sortKey: CREATED_AT, reverse: true) {
+              edges { node { name createdAt displayFinancialStatus statusPageUrl totalPriceSet { shopMoney { amount } } } }
+            }
+          } }
+        }
+      }`;
+    const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { q: `phone:*${ultimos9}*` } }),
+    }, 12000);
+    if (!r.ok) { console.warn('[buscarVentaShopifyPorTelefono] error HTTP', telefono, r.status); return null; }
+    const body = await r.json().catch(() => ({}));
+    if (body.errors) { console.warn('[buscarVentaShopifyPorTelefono] GraphQL devolvió errores', telefono, JSON.stringify(body.errors).slice(0, 300)); return null; }
+
+    const pedidos = (body.data?.customers?.edges || []).flatMap(c => (c.node.orders?.edges || []).map(o => o.node));
+    if (!pedidos.length) { console.warn('[buscarVentaShopifyPorTelefono] sin cliente o sin pedidos en Shopify', telefono); return null; }
+
+    const inicioMs = new Date(fechaConversacionIso).getTime();
+    const VENTANA_MS = 30 * 86400000; // 30 días, mismo criterio que Bsale
+    const candidatos = pedidos
+      .filter(o => o.displayFinancialStatus === 'PAID' || o.displayFinancialStatus === 'PARTIALLY_REFUNDED')
+      .map(o => ({ o, fechaMs: new Date(o.createdAt).getTime() }))
+      .filter(({ fechaMs }) => fechaMs >= inicioMs && fechaMs <= inicioMs + VENTANA_MS)
+      .sort((a, b) => a.fechaMs - b.fechaMs);
+
+    if (!candidatos.length) {
+      console.warn('[buscarVentaShopifyPorTelefono] cliente con pedidos en Shopify pero ninguno pagado dentro de los 30 días siguientes al inicio de la conversación', telefono);
+      return null;
+    }
+
+    const { o } = candidatos[0];
+    return {
+      numero: o.name || null,
+      tipo: 'Pedido Shopify',
+      monto: Number(o.totalPriceSet?.shopMoney?.amount) || 0,
+      fecha: o.createdAt ? o.createdAt.slice(0, 10) : null,
+      url: o.statusPageUrl || null,
+    };
+  } catch (err) {
+    console.warn('[buscarVentaShopifyPorTelefono] error inesperado', telefono, err);
+    return null;
+  }
+}
+
+// Intenta primero Bsale (suele tener más historial e incluye ventas en
+// tienda física) y si no encuentra nada, Shopify (cubre pedidos web que
+// todavía no se sincronizaron a Bsale). Devuelve el mismo formato
+// {numero, tipo, monto, fecha, url} sea cual sea la fuente -- el campo
+// "tipo" indica de dónde salió.
+async function buscarVentaPorTelefono(sql, telefono, fechaConversacionIso) {
+  const deBsale = await buscarVentaBsalePorTelefono(sql, telefono, fechaConversacionIso);
+  if (deBsale) return deBsale;
+  return buscarVentaShopifyPorTelefono(telefono, fechaConversacionIso);
+}
+
 function extraerContenidoMensajeWhatsapp(m) {
   const mapaTipos = { text: 'texto', image: 'imagen', audio: 'audio', video: 'video', document: 'documento' };
   const tipo = mapaTipos[m.type] || 'texto';
@@ -2769,6 +2848,24 @@ async function consultarShopify(domain, accessToken, palabras) {
 //
 // "Mejor esfuerzo": cualquier error acá no debe tumbar el análisis IA
 // completo, se atrapa aparte y sencillamente no queda link.
+// Client Credentials Grant de Shopify (mismo mecanismo que api/shopify-report.js,
+// factorizado acá porque dentro de ESTE archivo ya se usa en más de un lugar
+// -- ver buscarProductoShopify y buscarVentaShopifyPorTelefono).
+async function obtenerAccesoShopify() {
+  const domain = (process.env.SHOPIFY_STORE_DOMAIN || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  const clientId = (process.env.SHOPIFY_CLIENT_ID || '').trim();
+  const clientSecret = (process.env.SHOPIFY_CLIENT_SECRET || '').trim();
+  if (!domain || !clientId || !clientSecret) return null;
+
+  const rToken = await fetchConTimeout(`https://${domain}/admin/oauth/access_token`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials' }),
+  }, 12000);
+  const bodyToken = await rToken.json().catch(() => ({}));
+  if (!rToken.ok || !bodyToken.access_token) return null;
+  return { domain, accessToken: bodyToken.access_token };
+}
+
 async function buscarProductoShopify(producto, categoria, marca, modelo, especificaciones) {
   // Los cargadores no se catalogan por modelo de notebook (un mismo
   // cargador cubre muchos modelos distintos) -- lo que realmente
@@ -2780,19 +2877,10 @@ async function buscarProductoShopify(producto, categoria, marca, modelo, especif
     return null;
   }
 
-  const domain = (process.env.SHOPIFY_STORE_DOMAIN || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-  const clientId = (process.env.SHOPIFY_CLIENT_ID || '').trim();
-  const clientSecret = (process.env.SHOPIFY_CLIENT_SECRET || '').trim();
-  if (!domain || !clientId || !clientSecret) { console.warn('[buscarProductoShopify] faltan credenciales de Shopify en el servidor'); return null; }
-
   try {
-    const rToken = await fetchConTimeout(`https://${domain}/admin/oauth/access_token`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials' }),
-    }, 12000);
-    const bodyToken = await rToken.json().catch(() => ({}));
-    if (!rToken.ok || !bodyToken.access_token) { console.warn('[buscarProductoShopify] no se pudo obtener token de Shopify', rToken.status, JSON.stringify(bodyToken).slice(0, 300)); return null; }
-    const accessToken = bodyToken.access_token;
+    const acceso = await obtenerAccesoShopify();
+    if (!acceso) { console.warn('[buscarProductoShopify] faltan credenciales de Shopify o no se pudo obtener token'); return null; }
+    const { domain, accessToken } = acceso;
 
     // Palabra que el título debería tener: la de la categoría si se
     // reconoce, si no, el nombre de producto que dio la IA tal cual.
@@ -3070,10 +3158,13 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   const vendedorDetectado = WHATSAPP_VENDEDORES.includes(a.vendedor) ? a.vendedor : null;
   const productoShopify = await buscarProductoShopify(producto, categoria, marca, modelo, especificaciones);
   // Si ya hay una venta confirmada a mano ("Asociar venta"), no hace falta
-  // gastar una consulta a Bsale buscando una sugerencia -- ya está resuelto.
+  // gastar una consulta a Bsale/Shopify buscando una sugerencia -- ya está
+  // resuelto. Variable se sigue llamando "ventaBsale" en el resto de esta
+  // función por simplicidad, aunque ahora puede venir de Shopify también
+  // (ver buscarVentaPorTelefono).
   const ventaBsale = convRows[0].venta_detectada
     ? null
-    : await buscarVentaBsalePorTelefono(sql, convRows[0].contacto_telefono, convRows[0].iniciada_en);
+    : await buscarVentaPorTelefono(sql, convRows[0].contacto_telefono, convRows[0].iniciada_en);
 
   // Si el vendedor detectado ya tiene cuenta creada en el ERP (match por
   // nombre, sin distinguir acentos/mayúsculas), y la conversación no
@@ -3276,12 +3367,12 @@ async function manejarWhatsappActualizarShopify(req, res, sesion) {
   }
 }
 
-// Busca ventas de Bsale (por teléfono, ver buscarVentaBsalePorTelefono)
-// para conversaciones que todavía no tienen ni una venta confirmada a
-// mano ni una sugerencia encontrada. Admin-only. Lote más chico que el de
-// Shopify (15, no 30) y con pausa entre cada una -- golpea la API real de
-// Bsale (rate limit ~8 req/s, mismo límite que usan las demás
-// sincronizaciones de este archivo), no solo Shopify.
+// Busca ventas (Bsale primero, Shopify como respaldo -- ver
+// buscarVentaPorTelefono) para conversaciones que todavía no tienen ni una
+// venta confirmada a mano ni una sugerencia encontrada. Admin-only. Lote
+// más chico que el de buscarProductoShopify (15, no 30) y con pausa entre
+// cada una -- golpea la API real de Bsale (rate limit ~8 req/s, mismo
+// límite que usan las demás sincronizaciones de este archivo).
 //
 // bsale_documento_numero = '' (string vacío, NO NULL) marca "ya se
 // revisó, no se encontró nada" -- necesario para que el WHERE
@@ -3307,7 +3398,7 @@ async function manejarWhatsappActualizarVentasBsale(req, res, sesion) {
     let encontradas = 0;
     for (const fila of candidatas) {
       try {
-        const ventaBsale = await buscarVentaBsalePorTelefono(sql, fila.contacto_telefono, fila.iniciada_en);
+        const ventaBsale = await buscarVentaPorTelefono(sql, fila.contacto_telefono, fila.iniciada_en);
         await sql`
           UPDATE whatsapp_conversaciones SET
             bsale_documento_numero = ${ventaBsale?.numero || ''},
