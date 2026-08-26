@@ -2483,6 +2483,17 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
       const antes = antesRows[0];
       if (!antes) return res.status(404).json({ error: 'Conversación no encontrada' });
 
+      // Marca como "editado a mano" cualquiera de estos 6 campos que venga
+      // en la solicitud -- así el Análisis IA (ver ejecutarAnalisisIA) sabe
+      // que ya no debe tocarlos en reanálisis futuros, automáticos o no.
+      const editadosNuevos = new Set(antes.campos_editados_manualmente || []);
+      if (intencion !== undefined) editadosNuevos.add('intencion');
+      if (producto !== undefined) editadosNuevos.add('producto');
+      if (marca !== undefined) editadosNuevos.add('marca');
+      if (modelo !== undefined) editadosNuevos.add('modelo');
+      if (resultado !== undefined) editadosNuevos.add('resultado');
+      if (motivoPerdida !== undefined) editadosNuevos.add('motivo_perdida');
+
       await sql`
         UPDATE whatsapp_conversaciones SET
           estado = COALESCE(${estado}, estado),
@@ -2497,6 +2508,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
           seguimiento_en = CASE WHEN ${seguimientoEn !== undefined} THEN ${seguimientoEn || null} ELSE seguimiento_en END,
           seguimiento_estado = COALESCE(${seguimientoEstado}, seguimiento_estado),
           seguimiento_observaciones = CASE WHEN ${seguimientoObservaciones !== undefined} THEN ${seguimientoObservaciones || null} ELSE seguimiento_observaciones END,
+          campos_editados_manualmente = ${[...editadosNuevos]},
           updated_at = now()
         WHERE id = ${id};
       `;
@@ -3413,8 +3425,18 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
       observaciones = EXCLUDED.observaciones, updated_at = now();
   `;
 
-  // Solo rellena los campos "de trabajo" de la conversación si están
-  // vacíos -- nunca pisa algo que un humano ya haya editado a mano.
+  // Los campos "de trabajo" ahora SÍ se pueden corregir en cada
+  // reanálisis (antes con COALESCE(campo, nuevo) un valor mal leído por
+  // la IA quedaba pegado para siempre, porque nunca volvía a estar NULL)
+  // -- pero nunca si una persona ya lo editó a mano (ver
+  // campos_editados_manualmente, seteado en el PUT de
+  // manejarWhatsappConversaciones). Y si la IA esta vez no detectó nada
+  // nuevo para un campo (${producto} etc. viene NULL), se conserva el
+  // valor anterior en vez de borrarlo. Importante porque el análisis
+  // también se dispara automático en cada mensaje nuevo (debounced) -- sin
+  // el bloqueo por campos_editados_manualmente, ese disparo automático
+  // podría pisar una corrección manual reciente.
+  //
   // requiere_seguimiento queda fuera a propósito: al ser NOT NULL
   // DEFAULT false en la tabla, no hay forma de distinguir "nunca
   // tocado" de "una persona lo dejó en false a propósito" -> la persona
@@ -3424,13 +3446,13 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   // corregir un match anterior que haya quedado mal, no dejarlo pegado.
   await sql`
     UPDATE whatsapp_conversaciones SET
-      intencion = COALESCE(intencion, ${intencion}),
-      categoria = COALESCE(categoria, ${categoria}),
-      producto = COALESCE(producto, ${producto}),
-      marca = COALESCE(marca, ${marca}),
-      modelo = COALESCE(modelo, ${modelo}),
-      resultado = COALESCE(resultado, ${resultado}),
-      motivo_perdida = COALESCE(motivo_perdida, ${motivoPerdida}),
+      intencion = CASE WHEN 'intencion' = ANY(campos_editados_manualmente) THEN intencion WHEN ${intencion}::text IS NOT NULL THEN ${intencion} ELSE intencion END,
+      categoria = CASE WHEN 'categoria' = ANY(campos_editados_manualmente) THEN categoria WHEN ${categoria}::text IS NOT NULL THEN ${categoria} ELSE categoria END,
+      producto = CASE WHEN 'producto' = ANY(campos_editados_manualmente) THEN producto WHEN ${producto}::text IS NOT NULL THEN ${producto} ELSE producto END,
+      marca = CASE WHEN 'marca' = ANY(campos_editados_manualmente) THEN marca WHEN ${marca}::text IS NOT NULL THEN ${marca} ELSE marca END,
+      modelo = CASE WHEN 'modelo' = ANY(campos_editados_manualmente) THEN modelo WHEN ${modelo}::text IS NOT NULL THEN ${modelo} ELSE modelo END,
+      resultado = CASE WHEN 'resultado' = ANY(campos_editados_manualmente) THEN resultado WHEN ${resultado}::text IS NOT NULL THEN ${resultado} ELSE resultado END,
+      motivo_perdida = CASE WHEN 'motivo_perdida' = ANY(campos_editados_manualmente) THEN motivo_perdida WHEN ${motivoPerdida}::text IS NOT NULL THEN ${motivoPerdida} ELSE motivo_perdida END,
       vendedor_detectado = COALESCE(${vendedorDetectado}, vendedor_detectado),
       responsable_id = COALESCE(responsable_id, ${responsableIdAsignado}),
       shopify_producto_url = ${productoShopify?.url || null},
