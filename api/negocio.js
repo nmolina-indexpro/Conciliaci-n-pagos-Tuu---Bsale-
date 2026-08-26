@@ -2294,6 +2294,16 @@ async function manejarWhatsappDebugCategoria(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
     const sql = await getSql();
+    // Chequeo puntual de zona horaria de la sesión de Postgres -- ver
+    // conversación sobre si "hoy"/"este mes" del dashboard usan hora de
+    // Chile o UTC (CURRENT_DATE/now() dependen de esto).
+    if (req.query.campo === 'zona') {
+      const { rows: zonaRows } = await sql.query(
+        `SELECT now() AS ahora_utc, CURRENT_DATE AS fecha_actual_sesion, current_setting('TIMEZONE') AS timezone_sesion,
+                now() AT TIME ZONE 'America/Santiago' AS ahora_santiago;`
+      );
+      return res.status(200).json(zonaRows[0]);
+    }
     const camposValidos = { categoria: 'c.categoria', motivo_perdida: 'c.motivo_perdida' };
     const campo = camposValidos[req.query.campo] ? req.query.campo : 'categoria';
     const columna = camposValidos[campo];
