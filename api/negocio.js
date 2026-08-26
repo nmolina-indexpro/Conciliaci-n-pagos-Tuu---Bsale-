@@ -3115,6 +3115,23 @@ async function buscarProductoShopify(producto, categoria, marca, modelo, especif
 // Lista fija por ahora; si el equipo cambia, hay que actualizarla acá.
 const WHATSAPP_VENDEDORES = ['Stefanie', 'David', 'Nathalia', 'Fernando', 'Nicolas'];
 
+// Series/líneas reales de notebooks por marca -- ayuda a la IA a leer bien
+// una etiqueta o lo que escribe el cliente: el modelo real casi siempre
+// empieza con una de estas series seguida de un número de generación (ej.
+// "IdeaPad Gaming 3 15IMH05"). Sin esto, la IA a veces toma cualquier
+// código alfanumérico de la etiqueta como si fuera el modelo (ej. tomó
+// "41WH106" -- casi seguro la capacidad de la batería en Wh, no el
+// modelo -- en vez de "IdeaPad Gaming 3 15IMH05" que sí estaba en la
+// misma foto). Lista dada por el usuario; si el catálogo de marcas/series
+// que atienden cambia, hay que actualizarla acá.
+const WHATSAPP_SERIES_NOTEBOOK = {
+  Lenovo: ['Lenovo', 'Chromebook', 'Flex', 'IdeaCentre', 'IdeaPad', 'IdeaPad Flex', 'IdeaPad Gaming', 'IdeaPad Slim', 'Legion'],
+  HP: ['Chromebook', 'Compaq', 'EliteBook', 'EliteDesk', 'Envy', 'Omen', 'Pavilion'],
+  Asus: ['AsusPro', 'Chromebook', 'ExpertBook', 'ProArt StudioBook', 'ROG', 'ROG Flow', 'ROG Strix', 'ROG Zephyrus', 'TUF'],
+  Dell: ['Inspiron', 'Latitude', 'OptiPlex', 'Precision', 'Vostro', 'Wyse', 'XPS'],
+  Acer: ['Aspire', 'Chromebook', 'Nitro', 'Predator', 'Spin', 'Swift', 'Switch Alpha', 'TravelMate'],
+};
+
 // Genérico: acentos fuera + minúsculas, para comparar nombres de personas
 // o títulos de producto sin que un tilde o mayúscula haga fallar el match.
 function normalizarTexto(s) {
@@ -3325,7 +3342,7 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
-      system: `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Si el cliente manda una foto de la etiqueta/sticker pegada en la carcasa o la base del equipo, léela para identificar marca y modelo exactos (suele ser más confiable que lo que el cliente escribe de memoria) y úsalo para los campos marca/modelo. Estas etiquetas suelen traer VARIOS códigos distintos -- usa el que sea el modelo comercial del producto (el que identifica al equipo específico que compraría alguien, ej. "24-dd0092la" en un HP All-in-One, o "15-ef2xxx" en un notebook), y NO el "Regulatory model number"/"Model reglamentario" (un código interno de certificación FCC/IC que no corresponde al modelo real, ej. "TPC-0089-24"), ni el número de serie ("Serial No."/"S/N"), ni el PPID. A veces el mensaje del usuario incluye primero un bloque de "Contexto" con datos de una conversación anterior del mismo cliente (las conversaciones se cortan automáticamente tras 24h sin actividad, así que un seguimiento corto como "gracias por la info" puede quedar en una conversación separada sin mencionar el producto de nuevo) -- úsalo solo si la conversación actual es claramente ese seguimiento, nunca si trata de algo distinto. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`,
+      system: `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Si el cliente manda una foto de la etiqueta/sticker pegada en la carcasa o la base del equipo, léela para identificar marca y modelo exactos (suele ser más confiable que lo que el cliente escribe de memoria) y úsalo para los campos marca/modelo. Estas etiquetas suelen traer VARIOS códigos distintos -- usa el que sea el modelo comercial del producto (el que identifica al equipo específico que compraría alguien, ej. "24-dd0092la" en un HP All-in-One, o "15-ef2xxx" en un notebook), y NO el "Regulatory model number"/"Model reglamentario" (un código interno de certificación FCC/IC que no corresponde al modelo real, ej. "TPC-0089-24"), ni el número de serie ("Serial No."/"S/N"), ni el PPID. Series/líneas reales de notebooks por marca (el modelo real casi siempre empieza con una de estas seguida de un número de generación, ej. "IdeaPad Gaming 3 15IMH05"): ${Object.entries(WHATSAPP_SERIES_NOTEBOOK).map(([marca, series]) => `${marca}: ${series.join(', ')}`).join(' | ')}. Si el único código visible en la etiqueta NO corresponde a ninguna de estas series (puede ser la capacidad de la batería en Wh, un part number, un código regulatorio, etc.), NO lo registres como modelo -- busca en la misma foto o mensaje el nombre de la serie real. A veces el mensaje del usuario incluye primero un bloque de "Contexto" con datos de una conversación anterior del mismo cliente (las conversaciones se cortan automáticamente tras 24h sin actividad, así que un seguimiento corto como "gracias por la info" puede quedar en una conversación separada sin mencionar el producto de nuevo) -- úsalo solo si la conversación actual es claramente ese seguimiento, nunca si trata de algo distinto. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`,
       messages: [{ role: 'user', content: contenido }],
       tools: [WHATSAPP_ANALISIS_TOOL],
       tool_choice: { type: 'tool', name: 'registrar_analisis' },
