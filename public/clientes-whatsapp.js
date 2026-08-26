@@ -374,7 +374,7 @@ function renderTablaConv(lista){
   $('tablaConv').innerHTML = ordenada.map(c => `
     <tr class="fila-clic" onclick="abrirConversacion(${c.id})">
       <td>${fmtFechaHora(c.fecha)}</td>
-      <td>${escapeHtml(c.clienteNombre || 'Sin nombre')}${c.cantidadImagenes > 0 ? ` <span title="${c.cantidadImagenes} foto(s) en esta conversación">📷</span>` : ''}</td>
+      <td>${escapeHtml(c.clienteNombre || 'Sin nombre')}${c.cantidadImagenes > 0 ? ` <span title="${c.cantidadImagenes} foto(s) en esta conversación">📷</span>` : ''}${c.fuenteTipo ? ` <span title="Vino de un anuncio${c.fuenteTitulo ? ': ' + escapeHtml(c.fuenteTitulo) : ''}">📢</span>` : ''}</td>
       <td>${escapeHtml(c.clienteTelefono || '—')}</td>
       <td>${badgeEstado(c.estado)}</td>
       <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.ultimoMensaje || '—')}</td>
@@ -525,6 +525,7 @@ function renderDetalleConversacion(data){
         <div class="ficha-grupo">
           <h3>💬 Conversación actual</h3>
           <div class="ficha-fila"><span>Fecha inicio</span><b>${fmtFechaHora(c.fecha)}</b></div>
+          <div class="ficha-fila"><span>Origen</span><b>${c.fuenteTipo ? `📢 Anuncio${c.fuenteTitulo ? ' — ' + escapeHtml(c.fuenteTitulo) : ''}${c.fuenteUrl ? ` <a href="${escapeHtml(c.fuenteUrl)}" target="_blank" rel="noopener">(ver)</a>` : ''}` : '<span class="sub">💬 Contacto directo</span>'}</b></div>
           <div class="ficha-fila"><span>Cantidad de mensajes</span><b>${fmtNum(c.cantidadMensajes)}</b></div>
           <div class="ficha-fila"><span>1ª respuesta</span><b>${c.primeraRespuestaSegundos != null ? fmtDuracion(c.primeraRespuestaSegundos) : 'Sin respuesta'}</b></div>
           <div class="ficha-fila"><span>Estado</span><b><select id="editEstado" onchange="guardarCampoConv(${c.id}, 'estado', this.value)">${WHATSAPP_ESTADOS.map(e => `<option value="${e}" ${e===c.estado?'selected':''}>${ESTADO_LABEL[e]}</option>`).join('')}</select></b></div>

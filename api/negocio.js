@@ -1890,6 +1890,22 @@ async function manejarWhatsappWebhook(req, res) {
           if (!conversacion.primer_mensaje_cliente_en) {
             await sql`UPDATE whatsapp_conversaciones SET primer_mensaje_cliente_en = ${marcaTiempo.toISOString()} WHERE id = ${conversacion.id};`;
           }
+          // Origen de la conversación (el "UTM" de WhatsApp): cuando el
+          // cliente escribe desde un anuncio de "Click to WhatsApp" de
+          // Meta, el mensaje trae este objeto -- normalmente solo en el
+          // primer mensaje del click, así que se guarda con COALESCE
+          // (nunca pisa un origen ya registrado con un mensaje posterior
+          // que no lo traiga).
+          if (m.referral) {
+            await sql`
+              UPDATE whatsapp_conversaciones SET
+                fuente_tipo = COALESCE(fuente_tipo, ${m.referral.source_type || 'ad'}),
+                fuente_titulo = COALESCE(fuente_titulo, ${m.referral.headline || null}),
+                fuente_url = COALESCE(fuente_url, ${m.referral.source_url || null}),
+                fuente_id = COALESCE(fuente_id, ${m.referral.source_id || m.referral.ctwa_clid || null})
+              WHERE id = ${conversacion.id};
+            `;
+          }
           await sql`
             UPDATE whatsapp_conversaciones
             SET cantidad_mensajes = cantidad_mensajes + 1, ultimo_mensaje_resumen = ${texto ? texto.slice(0, 140) : `[${tipo}]`}, updated_at = now()
@@ -2388,6 +2404,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
            c.requiere_seguimiento, c.cantidad_mensajes, c.ultimo_mensaje_resumen, c.responsable_id, c.vendedor_detectado,
            c.shopify_producto_url, c.shopify_producto_titulo, c.shopify_producto_confianza,
            c.bsale_documento_numero, c.bsale_documento_tipo, c.bsale_documento_monto, c.bsale_documento_fecha, c.bsale_documento_url,
+           c.fuente_tipo, c.fuente_titulo, c.fuente_url, c.fuente_id,
            ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono,
            a.probabilidad_compra,
            u.nombre AS responsable_nombre,
@@ -2508,6 +2525,10 @@ function mapearConversacionWhatsapp(r) {
     bsaleDocumentoMonto: r.bsale_documento_monto != null ? Number(r.bsale_documento_monto) : null,
     bsaleDocumentoFecha: r.bsale_documento_fecha,
     bsaleDocumentoUrl: r.bsale_documento_url,
+    fuenteTipo: r.fuente_tipo,
+    fuenteTitulo: r.fuente_titulo,
+    fuenteUrl: r.fuente_url,
+    fuenteId: r.fuente_id,
     cantidadMensajes: r.cantidad_mensajes,
     cantidadImagenes: r.cantidad_imagenes || 0,
   };
