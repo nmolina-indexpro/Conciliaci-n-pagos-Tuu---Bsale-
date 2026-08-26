@@ -3782,12 +3782,19 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
        FROM whatsapp_conversaciones WHERE iniciada_en >= $1 GROUP BY resultado ORDER BY n DESC;`,
       [desde]
     );
+    // "Venta" del embudo cuenta tanto las confirmadas a mano
+    // (venta_detectada, botón "Asociar venta") como las sugeridas
+    // automáticamente por teléfono contra Bsale o Shopify
+    // (bsale_documento_numero -- ver buscarVentaPorTelefono). Ese campo
+    // queda en '' (string vacío) cuando ya se buscó y no se encontró nada,
+    // y en NULL cuando nunca se ha buscado -- por eso el filtro exige que
+    // no sea NULL y tampoco ''.
     const { rows: embudoRows } = await sql.query(
       `SELECT
         COUNT(*)::int AS conversaciones,
         COUNT(*) FILTER (WHERE intencion = 'compra')::int AS intencion_compra,
-        COUNT(*) FILTER (WHERE resultado = 'cotizacion' OR venta_detectada)::int AS cotizacion,
-        COUNT(*) FILTER (WHERE venta_detectada)::int AS venta
+        COUNT(*) FILTER (WHERE resultado = 'cotizacion' OR venta_detectada OR (bsale_documento_numero IS NOT NULL AND bsale_documento_numero <> ''))::int AS cotizacion,
+        COUNT(*) FILTER (WHERE venta_detectada OR (bsale_documento_numero IS NOT NULL AND bsale_documento_numero <> ''))::int AS venta
        FROM whatsapp_conversaciones WHERE iniciada_en >= $1;`,
       [desde]
     );
