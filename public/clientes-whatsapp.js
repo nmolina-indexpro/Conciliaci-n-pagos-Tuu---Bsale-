@@ -822,18 +822,39 @@ async function abrirCliente(id){
 function cerrarModalCliente(){ $('modalCliente').classList.remove('abierto'); }
 
 // ================= ANALÍTICA =================
+function hoyStrAnalitica(){ return new Date().toLocaleDateString('en-CA'); } // en-CA = YYYY-MM-DD
+function addDiasAnalitica(dateStr, dias){
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  dt.setUTCDate(dt.getUTCDate() + dias);
+  return dt.toISOString().slice(0,10);
+}
+function primerDiaMesAnalitica(dateStr){
+  const [y,m] = dateStr.split('-').map(Number);
+  return `${y}-${String(m).padStart(2,'0')}-01`;
+}
+
 function initAnalitica(){
   $('vistaAnalitica').innerHTML = `
     <div class="seccion">
       <div class="seccion-head">
-        <div><h2>Evolución temporal</h2><div class="sub">Conversaciones, clientes únicos y ventas.</div></div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn-ghost btn-compact activo" data-rango="7d" onclick="cambiarRangoAnalitica('7d')">7 días</button>
-          <button class="btn-ghost btn-compact" data-rango="30d" onclick="cambiarRangoAnalitica('30d')">30 días</button>
-          <button class="btn-ghost btn-compact" data-rango="90d" onclick="cambiarRangoAnalitica('90d')">90 días</button>
-          <button class="btn-ghost btn-compact" data-rango="anio" onclick="cambiarRangoAnalitica('anio')">Año</button>
-        </div>
+        <div><h2>Período</h2><div class="sub">Elige el rango de fechas para toda la analítica.</div></div>
       </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div class="date-field"><label for="analiticaDesde">Desde</label><input type="date" id="analiticaDesde"></div>
+        <div class="date-field"><label for="analiticaHasta">Hasta</label><input type="date" id="analiticaHasta"></div>
+        <button class="btn-primary btn-compact" title="Buscar este rango" onclick="buscarRangoAnalitica()">🔍</button>
+        <button class="btn-ghost btn-compact" data-rango-rapido="dia" onclick="setRangoRapidoAnalitica('dia')">Día (Hoy)</button>
+        <button class="btn-ghost btn-compact" data-rango-rapido="ayer" onclick="setRangoRapidoAnalitica('ayer')">Ayer</button>
+        <button class="btn-ghost btn-compact" data-rango-rapido="semana" onclick="setRangoRapidoAnalitica('semana')">Última semana</button>
+        <button class="btn-ghost btn-compact" data-rango-rapido="mes" onclick="setRangoRapidoAnalitica('mes')">Este mes</button>
+        <button class="btn-ghost btn-compact activo" data-rango-rapido="30d" onclick="setRangoRapidoAnalitica('30d')">30 días</button>
+        <button class="btn-primary btn-compact" onclick="buscarRangoAnalitica()">Actualizar</button>
+      </div>
+    </div>
+    <div class="seccion">
+      <h2>Evolución temporal</h2>
+      <div class="sub">Conversaciones, clientes únicos y ventas.</div>
       <div id="chartSerie"></div>
     </div>
     <div class="grid" style="grid-template-columns:1fr 1fr;">
@@ -845,6 +866,16 @@ function initAnalitica(){
         <h2>Embudo de conversión</h2>
         <div id="chartEmbudo" style="margin-top:12px;"></div>
       </div>
+    </div>
+    <div class="seccion">
+      <div class="seccion-head">
+        <div><h2>Fuente de ingreso</h2><div class="sub">De dónde vienen las conversaciones: anuncios de Meta, links con UTM de la tienda, u origen desconocido.</div></div>
+      </div>
+      <div id="chartFuentes" style="margin-bottom:14px;"></div>
+      <div class="tabla-wrap"><table>
+        <thead><tr><th>Fuente</th><th>Detalle</th><th>Conversaciones</th></tr></thead>
+        <tbody id="tablaFuentesDetalle"></tbody>
+      </table></div>
     </div>
     <div class="seccion">
       <h2>Motivos de pérdida</h2>
@@ -867,20 +898,41 @@ function initAnalitica(){
       <div id="chartResultados" style="margin-top:12px;"></div>
     </div>
   `;
-  cargarAnalitica('30d');
+  const hoy = hoyStrAnalitica();
+  $('analiticaDesde').value = addDiasAnalitica(hoy, -29);
+  $('analiticaHasta').value = hoy;
+  cargarAnalitica();
 }
-function cambiarRangoAnalitica(rango){
-  document.querySelectorAll('[data-rango]').forEach(b => b.classList.toggle('activo', b.dataset.rango === rango));
-  cargarAnalitica(rango);
+function setRangoRapidoAnalitica(tipo){
+  const hoy = hoyStrAnalitica();
+  let desde, hasta = hoy;
+  if(tipo === 'dia'){ desde = hoy; }
+  else if(tipo === 'ayer'){ desde = addDiasAnalitica(hoy, -1); hasta = desde; }
+  else if(tipo === 'semana'){ desde = addDiasAnalitica(hoy, -6); }
+  else if(tipo === 'mes'){ desde = primerDiaMesAnalitica(hoy); }
+  else { desde = addDiasAnalitica(hoy, -29); } // '30d'
+  $('analiticaDesde').value = desde;
+  $('analiticaHasta').value = hasta;
+  document.querySelectorAll('[data-rango-rapido]').forEach(b => b.classList.toggle('activo', b.dataset.rangoRapido === tipo));
+  cargarAnalitica();
 }
-async function cargarAnalitica(rango){
+function buscarRangoAnalitica(){
+  document.querySelectorAll('[data-rango-rapido]').forEach(b => b.classList.remove('activo'));
+  cargarAnalitica();
+}
+async function cargarAnalitica(){
+  const desde = $('analiticaDesde').value;
+  const hasta = $('analiticaHasta').value;
+  if(!desde || !hasta) return;
+  if(desde > hasta){ $('chartSerie').innerHTML = '<p class="empty-note">"Desde" no puede ser posterior a "Hasta".</p>'; return; }
   try{
-    const res = await fetch('/api/negocio?recurso=whatsapp-analitica&rango=' + rango);
+    const res = await fetch(`/api/negocio?recurso=whatsapp-analitica&desde=${desde}&hasta=${hasta}`);
     const data = await res.json();
     if (!res.ok || data.error) { $('chartSerie').innerHTML = `<p class="empty-note">${data.error || 'Error al cargar.'}</p>`; return; }
     renderChartSerie(data.serie, data.agrupacion);
     renderChartCategorias(data.distribucionCategoria);
     renderChartEmbudo(data.embudo);
+    renderFuentes(data.fuentes, data.fuentesDetalle);
     renderTablaMotivos(data.motivosPerdida);
     renderTablaProductos(data.rankingProductos);
     renderRanking('rankMarcas', data.rankingMarcas, 'marca');
@@ -889,6 +941,25 @@ async function cargarAnalitica(rango){
   }catch(err){
     $('chartSerie').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
   }
+}
+const FUENTE_TIPO_LABEL_ANALITICA = { utm: '🔗 Link de la tienda', anuncio: '📢 Anuncio (Meta Ads)', desconocido: '❓ Origen desconocido' };
+function renderFuentes(fuentes, detalle){
+  if (!fuentes || !fuentes.length) { $('chartFuentes').innerHTML = '<p class="empty-note">Sin datos.</p>'; $('tablaFuentesDetalle').innerHTML = ''; return; }
+  const max = Math.max(1, ...fuentes.map(f => f.cantidad));
+  $('chartFuentes').innerHTML = fuentes.map(f => `
+    <div class="barra-horizontal">
+      <div class="nombre">${FUENTE_TIPO_LABEL_ANALITICA[f.tipo] || f.tipo}</div>
+      <div class="pista"><div class="relleno" style="width:${(f.cantidad/max)*100}%;"></div></div>
+      <div class="valor">${fmtNum(f.cantidad)} · ${fmtNum(f.ventas)} venta(s)</div>
+    </div>
+  `).join('');
+  if (!detalle || !detalle.length) {
+    $('tablaFuentesDetalle').innerHTML = '<tr><td colspan="3" class="empty-note">Sin detalle todavía (nadie llegó por un link con UTM o un anuncio identificado con nombre en este período).</td></tr>';
+    return;
+  }
+  $('tablaFuentesDetalle').innerHTML = detalle.map(d => `
+    <tr><td>${FUENTE_TIPO_LABEL_ANALITICA[d.tipo] || d.tipo}</td><td>${escapeHtml(d.titulo || '—')}</td><td>${fmtNum(d.cantidad)}</td></tr>
+  `).join('');
 }
 function labelBucket(fecha, agrupacion){
   const d = new Date(fecha);

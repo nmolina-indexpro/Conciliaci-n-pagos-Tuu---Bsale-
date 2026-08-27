@@ -3917,12 +3917,39 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
 
-    const rango = req.query.rango || '30d';
-    const dias = { '7d': 7, '30d': 30, '90d': 90, 'anio': 365 }[rango] || 30;
-    // 7/30 días: por día. 90 días: por semana (si no, son demasiadas
-    // barras). Año: por mes.
-    const agrupacion = (rango === '7d' || rango === '30d') ? 'day' : (rango === '90d' ? 'week' : 'month');
-    const desde = new Date(Date.now() - dias * 86400000).toISOString();
+    // Dos formas de elegir el período: los botones rápidos de siempre
+    // (?rango=7d|30d|90d|anio), o un rango de fechas explícito
+    // (?desde=YYYY-MM-DD&hasta=YYYY-MM-DD, ambos inclusive) para el nuevo
+    // selector de fechas. El rango explícito manda si viene completo.
+    const esFechaValida = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const qDesde = esFechaValida(req.query.desde) ? req.query.desde : null;
+    const qHasta = esFechaValida(req.query.hasta) ? req.query.hasta : null;
+    const rango = req.query.rango || (qDesde && qHasta ? 'personalizado' : '30d');
+
+    let desde, hasta, agrupacion;
+    if (qDesde && qHasta) {
+      // Límites del rango en hora de Chile, no UTC (mismo criterio que el
+      // Dashboard -- ver conversación sobre timezone_sesion='GMT'):
+      // "hasta" es EXCLUSIVO (medianoche del día siguiente en Santiago),
+      // así que el día "hasta" queda incluido completo.
+      const { rows: rangoRows } = await sql.query(
+        `SELECT
+           ($1::date)::timestamp AT TIME ZONE 'America/Santiago' AS desde_ts,
+           (($2::date + 1))::timestamp AT TIME ZONE 'America/Santiago' AS hasta_ts;`,
+        [qDesde, qHasta]
+      );
+      desde = rangoRows[0].desde_ts;
+      hasta = rangoRows[0].hasta_ts;
+      const diasSpan = Math.max(1, Math.round((new Date(hasta) - new Date(desde)) / 86400000));
+      agrupacion = diasSpan <= 31 ? 'day' : (diasSpan <= 180 ? 'week' : 'month');
+    } else {
+      const dias = { '7d': 7, '30d': 30, '90d': 90, 'anio': 365 }[rango] || 30;
+      // 7/30 días: por día. 90 días: por semana (si no, son demasiadas
+      // barras). Año: por mes.
+      agrupacion = (rango === '7d' || rango === '30d') ? 'day' : (rango === '90d' ? 'week' : 'month');
+      desde = new Date(Date.now() - dias * 86400000).toISOString();
+      hasta = new Date().toISOString();
+    }
 
     const { rows: serie } = await sql.query(
       `SELECT date_trunc($1, c.iniciada_en) AS bucket,
@@ -3930,15 +3957,15 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
               COUNT(DISTINCT c.contacto_id)::int AS clientes_unicos,
               COUNT(*) FILTER (WHERE c.venta_detectada)::int AS ventas
        FROM whatsapp_conversaciones c
-       WHERE c.iniciada_en >= $2
+       WHERE c.iniciada_en >= $2 AND c.iniciada_en < $3
        GROUP BY bucket ORDER BY bucket ASC;`,
-      [agrupacion, desde]
+      [agrupacion, desde, hasta]
     );
 
     const { rows: categoriaRows } = await sql.query(
       `SELECT COALESCE(categoria,'otra') AS categoria, COUNT(*)::int AS n
-       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 GROUP BY categoria ORDER BY n DESC;`,
-      [desde]
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 GROUP BY categoria ORDER BY n DESC;`,
+      [desde, hasta]
     );
 
     // Motivos de pérdida: solo conversaciones que NO terminaron en venta ni
@@ -3946,31 +3973,31 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
     const { rows: motivosRows } = await sql.query(
       `SELECT COALESCE(motivo_perdida, resultado, 'otro') AS motivo, COUNT(*)::int AS n
        FROM whatsapp_conversaciones
-       WHERE iniciada_en >= $1 AND venta_detectada = false
+       WHERE iniciada_en >= $1 AND iniciada_en < $2 AND venta_detectada = false
          AND resultado IS NOT NULL AND resultado NOT IN ('cotizacion','seguimiento')
        GROUP BY motivo ORDER BY n DESC;`,
-      [desde]
+      [desde, hasta]
     );
     const totalPerdidas = motivosRows.reduce((a, r) => a + r.n, 0);
 
     const { rows: productosRows } = await sql.query(
       `SELECT producto, COUNT(*)::int AS consultas, COUNT(*) FILTER (WHERE venta_detectada)::int AS ventas
-       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND producto IS NOT NULL
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 AND producto IS NOT NULL
        GROUP BY producto ORDER BY consultas DESC LIMIT 15;`,
-      [desde]
+      [desde, hasta]
     );
     const { rows: marcasRows } = await sql.query(
-      `SELECT marca, COUNT(*)::int AS consultas FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND marca IS NOT NULL GROUP BY marca ORDER BY consultas DESC LIMIT 10;`,
-      [desde]
+      `SELECT marca, COUNT(*)::int AS consultas FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 AND marca IS NOT NULL GROUP BY marca ORDER BY consultas DESC LIMIT 10;`,
+      [desde, hasta]
     );
     const { rows: modelosRows } = await sql.query(
-      `SELECT modelo, COUNT(*)::int AS consultas FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND modelo IS NOT NULL GROUP BY modelo ORDER BY consultas DESC LIMIT 10;`,
-      [desde]
+      `SELECT modelo, COUNT(*)::int AS consultas FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 AND modelo IS NOT NULL GROUP BY modelo ORDER BY consultas DESC LIMIT 10;`,
+      [desde, hasta]
     );
     const { rows: resultadosRows } = await sql.query(
       `SELECT COALESCE(resultado,'sin_resultado') AS resultado, COUNT(*)::int AS n
-       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 GROUP BY resultado ORDER BY n DESC;`,
-      [desde]
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 GROUP BY resultado ORDER BY n DESC;`,
+      [desde, hasta]
     );
     // "Venta" del embudo cuenta tanto las confirmadas a mano
     // (venta_detectada, botón "Asociar venta") como las sugeridas
@@ -3985,12 +4012,38 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
         COUNT(*) FILTER (WHERE intencion = 'compra')::int AS intencion_compra,
         COUNT(*) FILTER (WHERE resultado = 'cotizacion' OR venta_detectada OR (bsale_documento_numero IS NOT NULL AND bsale_documento_numero <> ''))::int AS cotizacion,
         COUNT(*) FILTER (WHERE venta_detectada OR (bsale_documento_numero IS NOT NULL AND bsale_documento_numero <> ''))::int AS venta
-       FROM whatsapp_conversaciones WHERE iniciada_en >= $1;`,
-      [desde]
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2;`,
+      [desde, hasta]
+    );
+
+    // Fuente de ingreso (de dónde viene el cliente): referral de anuncios
+    // Click-to-WhatsApp, UTM detectado en un link que el cliente mandó, o
+    // desconocido si no se detectó ninguno de los dos (ver fuente_tipo en
+    // extraerUtmDeTexto / el campo "referral" del webhook de Meta). Se
+    // agrupa en 3 baldes (utm/anuncio/desconocido), no por el fuente_tipo
+    // crudo -- Meta manda distintos source_type según el formato del
+    // anuncio (ad/post/ig_reels/...) y aquí solo interesa distinguir
+    // "vino de un anuncio" de "vino de un link con UTM", igual que ya
+    // hace fuenteInfo() en el frontend para la ficha de cada conversación.
+    const BALDE_FUENTE = `CASE WHEN fuente_tipo IS NULL THEN 'desconocido' WHEN fuente_tipo = 'utm' THEN 'utm' ELSE 'anuncio' END`;
+    const { rows: fuenteRows } = await sql.query(
+      `SELECT ${BALDE_FUENTE} AS tipo, COUNT(*)::int AS cantidad,
+              COUNT(*) FILTER (WHERE venta_detectada OR (bsale_documento_numero IS NOT NULL AND bsale_documento_numero <> ''))::int AS ventas
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2
+       GROUP BY tipo ORDER BY cantidad DESC;`,
+      [desde, hasta]
+    );
+    const { rows: fuenteDetalleRows } = await sql.query(
+      `SELECT ${BALDE_FUENTE} AS tipo, fuente_titulo AS titulo, COUNT(*)::int AS cantidad
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 AND fuente_titulo IS NOT NULL
+       GROUP BY tipo, titulo ORDER BY cantidad DESC LIMIT 15;`,
+      [desde, hasta]
     );
 
     return res.status(200).json({
       rango, agrupacion,
+      desde: new Date(desde).toISOString().slice(0, 10),
+      hasta: new Date(new Date(hasta).getTime() - 1).toISOString().slice(0, 10), // vuelve a ser inclusivo para mostrar en el UI
       serie: serie.map(r => ({ fecha: r.bucket, conversaciones: r.conversaciones, clientesUnicos: r.clientes_unicos, ventas: r.ventas })),
       distribucionCategoria: categoriaRows.map(r => ({ categoria: r.categoria, cantidad: r.n })),
       motivosPerdida: motivosRows.map(r => ({
@@ -4005,6 +4058,8 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       rankingModelos: modelosRows.map(r => ({ modelo: r.modelo, consultas: r.consultas })),
       resultados: resultadosRows.map(r => ({ resultado: r.resultado, cantidad: r.n })),
       embudo: embudoRows[0] || { conversaciones: 0, intencion_compra: 0, cotizacion: 0, venta: 0 },
+      fuentes: fuenteRows.map(r => ({ tipo: r.tipo, cantidad: r.cantidad, ventas: r.ventas })),
+      fuentesDetalle: fuenteDetalleRows.map(r => ({ tipo: r.tipo, titulo: r.titulo, cantidad: r.cantidad })),
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error calculando analítica de WhatsApp', detail: String(err) });
