@@ -2305,6 +2305,30 @@ async function manejarWhatsappDebugCategoria(req, res, sesion) {
       );
       return res.status(200).json(zonaRows[0]);
     }
+    // Muestra de conversaciones con fuente_tipo desconocida (NULL) -- para
+    // ver si hay algún patrón real (ej. un mensaje de plantilla repetido,
+    // un vendedor que las inició) que permita detectar una fuente
+    // específica en vez de dejarlas todas en "Origen desconocido".
+    if (req.query.campo === 'fuente_desconocido') {
+      const limite = Math.min(parseInt(req.query.limite, 10) || 25, 50);
+      const { rows } = await sql.query(
+        `SELECT c.id, c.intencion, c.categoria, c.resultado, c.vendedor_detectado, c.responsable_id,
+                (SELECT contenido_texto FROM whatsapp_mensajes m
+                  WHERE m.conversacion_id = c.id AND m.direccion = 'in'
+                  ORDER BY m.marca_tiempo ASC LIMIT 1) AS primer_mensaje_cliente,
+                (SELECT contenido_texto FROM whatsapp_mensajes m
+                  WHERE m.conversacion_id = c.id AND m.direccion = 'out'
+                  ORDER BY m.marca_tiempo ASC LIMIT 1) AS primer_mensaje_negocio,
+                (SELECT direccion FROM whatsapp_mensajes m
+                  WHERE m.conversacion_id = c.id ORDER BY m.marca_tiempo ASC LIMIT 1) AS quien_partio
+         FROM whatsapp_conversaciones c
+         WHERE c.fuente_tipo IS NULL
+         ORDER BY c.iniciada_en DESC
+         LIMIT $1;`,
+        [limite]
+      );
+      return res.status(200).json({ campo: 'fuente_desconocido', total: rows.length, muestras: rows });
+    }
     const camposValidos = { categoria: 'c.categoria', motivo_perdida: 'c.motivo_perdida' };
     const campo = camposValidos[req.query.campo] ? req.query.campo : 'categoria';
     const columna = camposValidos[campo];
