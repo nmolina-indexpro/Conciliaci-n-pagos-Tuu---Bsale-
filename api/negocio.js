@@ -2251,21 +2251,40 @@ function extraerContenidoMensajeWhatsapp(m) {
 function extraerUtmDeTexto(texto) {
   if (!texto) return null;
   const match = texto.match(/https?:\/\/[^\s]+/);
-  if (!match) return null;
-  try {
-    const url = new URL(match[0]);
-    const source = url.searchParams.get('utm_source');
-    const medium = url.searchParams.get('utm_medium');
-    const campaign = url.searchParams.get('utm_campaign');
-    if (!source && !medium && !campaign) return null;
-    return {
-      urlLimpia: url.origin + url.pathname, // sin los query params, más legible
-      etiqueta: [source, medium, campaign].filter((v, i, arr) => v && arr.indexOf(v) === i).join(' / '),
-      id: campaign || medium || source,
-    };
-  } catch {
-    return null; // URL mal formada -- no vale la pena registrar el error, es solo texto de un cliente
+  if (match) {
+    try {
+      const url = new URL(match[0]);
+      const source = url.searchParams.get('utm_source');
+      const medium = url.searchParams.get('utm_medium');
+      const campaign = url.searchParams.get('utm_campaign');
+      if (source || medium || campaign) {
+        return {
+          urlLimpia: url.origin + url.pathname, // sin los query params, más legible
+          etiqueta: [source, medium, campaign].filter((v, i, arr) => v && arr.indexOf(v) === i).join(' / '),
+          id: campaign || medium || source,
+        };
+      }
+    } catch {
+      // URL mal formada -- sigue al fallback de abajo en vez de cortar acá
+    }
   }
+
+  // Fallback: el botón de WhatsApp de las fichas de producto del sitio a
+  // veces manda el mismo mensaje de siempre pero solo con el TÍTULO de la
+  // página en vez de un link http real con utm_* (ej. "Url: Cargador para
+  // notebook | Original y Alternativo - IndexStore.cl") -- detectado
+  // auditando "Origen desconocido" en Analítica: ~1 de cada 4 casos tenía
+  // este patrón exacto. Se reconoce por el texto fijo del mensaje ("si
+  // busca Cargador... Indícanos el Modelo del equipo"), no por cualquier
+  // "Url:" suelto, para no confundir un mensaje real de un cliente que
+  // casualmente escriba esa palabra.
+  if (/si busca cargador/i.test(texto) && /ind[ií]canos el modelo/i.test(texto)) {
+    const m = texto.match(/url:\s*(.+)$/is);
+    const titulo = m ? m[1].trim() : null;
+    if (titulo) return { urlLimpia: null, etiqueta: titulo, id: titulo };
+  }
+
+  return null;
 }
 
 // ---- Usuarios activos, para el selector de "Responsable" (punto 21) ----
