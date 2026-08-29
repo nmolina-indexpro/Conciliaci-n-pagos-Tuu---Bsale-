@@ -1113,7 +1113,7 @@ async function reanalizarDesactualizadas(){
 // (ej. la corrección de categoria='otra' pegada) se apliquen a
 // conversaciones viejas, no solo a las nuevas.
 async function recategorizarEnLote(){
-  if (!confirm('¿Volver a analizar con IA TODAS las conversaciones ya analizadas? Esto SÍ vuelve a usar la API de Claude para cada una (costo bajo pero real) y puede tardar varios minutos.')) return;
+  if (!confirm('¿Volver a analizar con IA TODAS las conversaciones ya analizadas? Esto SÍ vuelve a usar la API de Claude para cada una (costo bajo pero real, incluye re-leer fotos) y puede tardar varios minutos.\n\nÚsalo solo después de cambiar de verdad las instrucciones de análisis (categoria, motivo_perdida, etc.) -- no lo corras seguido "por si acaso", cada corrida reprocesa TODO el historial.')) return;
   const btn = $('btnRecategorizar');
   btn.disabled = true;
   let offset = 0, totalReanalizadas = 0, total = 0;
