@@ -886,6 +886,7 @@ function descargarRecomendacion(){
     'Sem -1': s.semana1,
     'Ventas diarias prom': s.ventaDiariaPromedio,
     'Vendidas (período)': s.unidadesVendidas,
+    'Stock actual': s.stockActual,
     'Sugerencia a comprar': s[ultimaRecomendacion.campoSugerencia],
     'Margen $': s.margenUnitario ?? '',
     'Margen %': s.margenPorcentaje ?? '',
@@ -898,7 +899,7 @@ function descargarRecomendacion(){
   ];
 
   const hoja = XLSX.utils.json_to_sheet(filas);
-  hoja['!cols'] = [{wch:14},{wch:38},{wch:10},{wch:10},{wch:10},{wch:10},{wch:16},{wch:16},{wch:18},{wch:12},{wch:12},{wch:10}];
+  hoja['!cols'] = [{wch:14},{wch:38},{wch:10},{wch:10},{wch:10},{wch:10},{wch:16},{wch:16},{wch:12},{wch:18},{wch:12},{wch:12},{wch:10}];
   const libro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(libro, hoja, `Recomendacion ${horizonte}d`);
 
