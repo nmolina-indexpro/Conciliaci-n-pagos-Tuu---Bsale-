@@ -969,9 +969,22 @@ async function manejarSyncCotizaciones(req, res, sesion) {
     // muchas cotizaciones legítimamente nunca se facturan, así que NO
     // bloquea -> las que queden sin resolver se reintentan en la próxima
     // sincronización completa (por si se facturan más tarde).
+    // "cliente_ha_comprado" se resuelve UNA vez por cliente (nunca vuelve a
+    // NULL) -> ese motivo de reintento siempre se acota solo. En cambio
+    // "documento_asociado_id IS NULL" se reintentaba PARA SIEMPRE en cada
+    // sincronización completa (muchas cotizaciones legítimamente nunca se
+    // facturan), acumulando cada vez más clientes -> eso era la mayor
+    // parte del tiempo de sync en régimen (una llamada a Bsale por
+    // cliente). Se acota a cotizaciones de los últimos 45 días: si una
+    // cotización no se facturó en mes y medio, en la práctica ya no se va
+    // a facturar -- no vale la pena seguir gastando una consulta a Bsale
+    // por ella en cada sincronización futura.
     const { rows: clientesPendientes } = await sql`
       SELECT DISTINCT cliente_id FROM bsale_cotizaciones
-      WHERE cliente_id IS NOT NULL AND (cliente_ha_comprado IS NULL OR documento_asociado_id IS NULL)
+      WHERE cliente_id IS NOT NULL AND (
+        cliente_ha_comprado IS NULL
+        OR (documento_asociado_id IS NULL AND fecha >= CURRENT_DATE - INTERVAL '45 days')
+      )
       LIMIT 2000;
     `;
     let clientesRevisados = 0;
