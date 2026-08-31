@@ -3266,8 +3266,14 @@ async function obtenerPreciosBsalePorSku() {
   // secuencial) -- mismo patrón que el resto del proyecto para paginar
   // APIs externas (ver CLAUDE.md), necesario para no sumar minutos de
   // espera en una lista con miles de variantes.
+  // "variantValue" de la lista de precios de Bsale viene NETO (sin IVA) --
+  // el precio de Shopify sí incluye IVA (es lo que paga el cliente), así
+  // que hay que sumarlo acá para comparar peras con peras. Confirmado con
+  // datos reales: valores netos como $205.798 correspondían a $244.900 en
+  // Shopify -- exactamente 205798 * 1.19. IVA fijo en 19% (Chile).
+  const IVA = 1.19;
   const precioPorSku = {};
-  const registrar = items => { for (const item of items) { const code = item.variant?.code; if (code && item.variantValue != null) precioPorSku[code] = Number(item.variantValue); } };
+  const registrar = items => { for (const item of items) { const code = item.variant?.code; if (code && item.variantValue != null) precioPorSku[code] = Math.round(Number(item.variantValue) * IVA); } };
   const limit = 50;
   const primera = await bsaleGet(`/price_lists/${lista.id}/details.json?expand=[variant]&limit=${limit}&offset=0`);
   registrar(primera.items || []);
