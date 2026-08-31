@@ -3196,7 +3196,7 @@ async function obtenerEstadoShopifyPorSku() {
   const query = `
     query($cursor: String) {
       products(first: 100, after: $cursor) {
-        edges { node { id title status variants(first: 100) { edges { node { sku } } } } }
+        edges { node { id title status variants(first: 100) { edges { node { sku price } } } } }
         pageInfo { hasNextPage endCursor }
       }
     }
@@ -3218,7 +3218,11 @@ async function obtenerEstadoShopifyPorSku() {
       const idNumerico = p.id.split('/').pop();
       for (const { node: v } of (p.variants?.edges || [])) {
         if (!v.sku) continue;
-        estadoPorSku[v.sku] = { status: (p.status || '').toLowerCase(), productoId: idNumerico, titulo: p.title, adminUrl: `https://${domain}/admin/products/${idNumerico}` };
+        estadoPorSku[v.sku] = {
+          status: (p.status || '').toLowerCase(), productoId: idNumerico, titulo: p.title,
+          adminUrl: `https://${domain}/admin/products/${idNumerico}`,
+          precio: v.price != null ? Number(v.price) : null,
+        };
       }
     }
     if (!conexion.pageInfo.hasNextPage) break;
@@ -3228,12 +3232,59 @@ async function obtenerEstadoShopifyPorSku() {
   return estadoPorSku;
 }
 
+// Precio de cada SKU en Bsale, según la lista de precios -- necesario para
+// la alerta de "precio distinto entre Bsale y Shopify" (ver conversación
+// con el usuario). Bsale no guarda un precio único por variante: vive en
+// una "lista de precios" aparte (puede haber varias). Acá se usa la
+// marcada como predeterminada si existe, o la primera si no -- ASUNCIÓN
+// sin poder verificarla en vivo contra la cuenta real, revisar
+// "listaPrecioNombre" en la respuesta para confirmar que es la lista
+// correcta (la que de verdad se usa para vender online/en tienda).
+async function obtenerPreciosBsalePorSku() {
+  const token = (process.env.BSALE_ACCESS_TOKEN || '').trim();
+  if (!token) return null;
+  const BSALE_BASE = 'https://api.bsale.io/v1';
+  const bsaleGet = async (path) => {
+    const r = await fetchConTimeout(`${BSALE_BASE}${path}`, { headers: { access_token: token } }, 15000);
+    if (!r.ok) throw new Error(`Bsale HTTP ${r.status} en ${path}`);
+    return r.json();
+  };
+
+  const listas = (await bsaleGet('/price_lists.json?limit=25')).items || [];
+  if (!listas.length) return null;
+  const lista = listas.find(l => l.isDefault) || listas[0];
+
+  const precioPorSku = {};
+  const limit = 50;
+  let offset = 0, total = Infinity, guard = 0;
+  while (offset < total && guard < 80) { // tope de seguridad: 80 páginas (~4.000 variantes)
+    const body = await bsaleGet(`/price_lists/${lista.id}/details.json?expand=[variant]&limit=${limit}&offset=${offset}`);
+    total = body.count ?? 0;
+    for (const item of (body.items || [])) {
+      const code = item.variant?.code;
+      if (code && item.variantValue != null) precioPorSku[code] = Number(item.variantValue);
+    }
+    offset += limit;
+    guard++;
+  }
+  return { listaId: lista.id, listaNombre: lista.name, precioPorSku };
+}
+
 async function manejarAlertasStockShopify(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
     const estadoPorSku = await obtenerEstadoShopifyPorSku();
     if (estadoPorSku === null) return res.status(200).json({ error: 'Faltan credenciales de Shopify (SHOPIFY_STORE_DOMAIN/CLIENT_ID/CLIENT_SECRET)', estadoPorSku: {} });
-    return res.status(200).json({ estadoPorSku, totalSkus: Object.keys(estadoPorSku).length });
+
+    let preciosBsale = null;
+    try { preciosBsale = await obtenerPreciosBsalePorSku(); }
+    catch (err) { console.warn('[alertas-stock-shopify] no se pudo traer precios de Bsale', err); }
+
+    return res.status(200).json({
+      estadoPorSku, totalSkus: Object.keys(estadoPorSku).length,
+      preciosBsalePorSku: preciosBsale?.precioPorSku || {},
+      listaPrecioBsaleNombre: preciosBsale?.listaNombre || null,
+    });
   } catch (err) {
     return res.status(200).json({ error: 'Error consultando estado de productos en Shopify', detail: String(err), estadoPorSku: {} });
   }

@@ -115,30 +115,6 @@
   <div id="status"></div>
   <div id="avisoWrap"></div>
 
-  <div class="grid" id="kpiWrap">
-    <div class="card alert"><div class="lbl">Total agotados</div><div class="big" id="cTotal">—</div></div>
-    <div class="card"><div class="lbl">Cargadores agotados</div><div class="big" id="cCargadores">—</div></div>
-    <div class="card"><div class="lbl">Pantallas agotadas</div><div class="big" id="cPantallas">—</div></div>
-    <div class="card"><div class="lbl">Baterías agotadas</div><div class="big" id="cBaterias">—</div></div>
-  </div>
-
-  <div class="seccion">
-    <div class="seccion-head">
-      <div>
-        <h2>🚨 Alertas Sitio web</h2>
-        <div class="sub">Productos de Shopify agotados en las categorías cargadores, pantallas y baterías.</div>
-      </div>
-      <select id="filtroCategoria" onchange="renderTabla()">
-        <option value="">Todas las categorías</option>
-        <option value="Cargadores">Cargadores</option>
-        <option value="Pantallas">Pantallas</option>
-        <option value="Baterías">Baterías</option>
-      </select>
-    </div>
-    <div class="note-box">La fecha corresponde a la primera vez que este sistema detectó el producto sin stock. Si ya estaba agotado antes de que existiera esta página, no se puede saber la fecha real — vas a ver la fecha del primer chequeo.</div>
-    <div id="agotadosWrap"><p class="empty-note">Cargando...</p></div>
-  </div>
-
 </div>
 
 <script src="restriccion-usuario.js"></script>
@@ -146,19 +122,6 @@
 <script>
 const $ = id => document.getElementById(id);
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
-function diasDesde(fechaStr){
-  if(!fechaStr) return null;
-  const [y,m,d] = fechaStr.split('-').map(Number);
-  const hoy = new Date();
-  const hoyUtc = Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
-  return Math.max(0, Math.round((hoyUtc - Date.UTC(y,m-1,d)) / 86400000));
-}
-function claseCategoria(cat){
-  return cat === 'Cargadores' ? 'cargadores' : cat === 'Pantallas' ? 'pantallas' : 'baterias';
-}
-
-let ultimosAgotados = [];
-
 // ---------- Aviso: stock en Bsale pero no visible en Shopify ----------
 // Cruza el stock real de Bsale contra el estado de cada SKU en Shopify --
 // si un producto tiene stock disponible pero está "draft"/"archived" en la
@@ -197,110 +160,60 @@ function renderAvisoStockShopify(skusBsale, estadoPorSku, error){
   </div>`;
 }
 
+function fmtMoneda(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
+
+// ---------- Aviso: precio distinto entre Bsale y Shopify ----------
+// Cruza el precio de cada SKU ACTIVO en Shopify (visible/comprable) contra
+// su precio en la lista de precios de Bsale (ver obtenerPreciosBsalePorSku
+// en negocio.js) -- si difieren, se le está cobrando distinto al cliente
+// según por dónde compre. Bsale no tiene un único precio por SKU (vive en
+// listas de precio separadas, puede haber varias) -- listaNombre viene del
+// backend para poder confirmar a ojo que es la lista correcta.
+function renderAvisoPreciosDistintos(estadoPorSku, preciosBsalePorSku, listaNombre, error){
+  if(error || !preciosBsalePorSku || !Object.keys(preciosBsalePorSku).length) return '';
+
+  const TOLERANCIA = 1; // ignora diferencias de menos de $1 (redondeo)
+  const conProblema = Object.entries(estadoPorSku)
+    .filter(([, s]) => s.status === 'active' && s.precio != null)
+    .map(([sku, s]) => ({ sku, ...s, precioBsale: preciosBsalePorSku[sku] }))
+    .filter(s => s.precioBsale != null && Math.abs(s.precioBsale - s.precio) > TOLERANCIA);
+  if(!conProblema.length) return '';
+
+  conProblema.sort((a,b) => Math.abs(b.precioBsale - b.precio) - Math.abs(a.precioBsale - a.precio));
+  const filas = conProblema.slice(0, 20).map(s => `
+    <li>
+      <b>${s.sku}</b> — ${s.titulo} · Bsale: ${fmtMoneda(s.precioBsale)} · Shopify: ${fmtMoneda(s.precio)}
+      <a href="${s.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
+    </li>`).join('');
+  const nota = conProblema.length > 20 ? `<div class="empty-note">...y ${conProblema.length - 20} más.</div>` : '';
+  const notaLista = listaNombre ? `<div class="empty-note" style="margin-top:6px;">Precio de Bsale tomado de la lista "${listaNombre}" -- si no es la lista correcta, avisa para ajustarlo.</div>` : '';
+
+  return `<div class="note-box" style="background:var(--red-bg);border-color:#F5C6C6;">
+    💲 <b>${conProblema.length} producto(s) con precio distinto entre Bsale y Shopify</b> — revisa cuál es el correcto antes de que un cliente pague de más o de menos.
+    <ul style="margin:8px 0 0 0;padding-left:18px;">${filas}</ul>
+    ${nota}${notaLista}
+  </div>`;
+}
+
 async function cargar(){
   const status = $('status');
   status.className = '';
-  status.textContent = 'Consultando Shopify...';
+  status.textContent = 'Consultando Shopify y Bsale...';
   try{
-    const [res, bsaleRes, estadoRes] = await Promise.all([
-      fetch('/api/shopify-report?recurso=agotados').then(r=>r.json()),
+    const [bsaleRes, estadoRes] = await Promise.all([
       fetch('/api/bsale-sku-report?days=1').then(r=>r.json()).catch(()=>({skus:[]})),
       fetch('/api/negocio?recurso=alertas-stock-shopify').then(r=>r.json()).catch(()=>({estadoPorSku:{}}))
     ]);
-    if(res.error){
-      status.className = 'err';
-      status.textContent = 'Error: ' + res.error;
-      $('agotadosWrap').innerHTML = `<p class="empty-note">No se pudo cargar: ${res.error}${res.detail ? '<br><code>'+res.detail+'</code>' : ''}</p>`;
-      return;
-    }
-    ultimosAgotados = res.agotados || [];
-    $('avisoWrap').innerHTML = renderAvisoStockShopify(bsaleRes.skus || [], estadoRes.estadoPorSku || {}, estadoRes.error);
-    renderKpis();
-    renderTabla();
-    status.textContent = `Actualizado — ${ultimosAgotados.length} producto(s) agotado(s)`;
+    const avisoStock = renderAvisoStockShopify(bsaleRes.skus || [], estadoRes.estadoPorSku || {}, estadoRes.error);
+    const avisoPrecios = renderAvisoPreciosDistintos(estadoRes.estadoPorSku || {}, estadoRes.preciosBsalePorSku || {}, estadoRes.listaPrecioBsaleNombre, estadoRes.error);
+    $('avisoWrap').innerHTML = avisoStock + avisoPrecios || '<p class="empty-note">Sin alertas por ahora. 🎉</p>';
+    status.textContent = 'Actualizado.';
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
   }
 }
 
-function renderKpis(){
-  $('cTotal').textContent = fmtNum(ultimosAgotados.length);
-  $('cCargadores').textContent = fmtNum(ultimosAgotados.filter(p=>p.categoria==='Cargadores').length);
-  $('cPantallas').textContent = fmtNum(ultimosAgotados.filter(p=>p.categoria==='Pantallas').length);
-  $('cBaterias').textContent = fmtNum(ultimosAgotados.filter(p=>p.categoria==='Baterías').length);
-}
-
-// Estado del SKU en Bsale (ver manejarAgotados): 'no_existe' = el SKU ya
-// no aparece en Bsale (probablemente descontinuado y nunca despublicado);
-// 'archivado' = existe pero está deshabilitado allá. Ambos son productos
-// que siguen mostrándose (agotados) en la tienda sin un respaldo real en
-// el sistema interno.
-const ESTADO_BSALE_LABEL = { no_existe: 'SKU no existe en Bsale', archivado: 'Archivado en Bsale' };
-const ESTADO_BSALE_CLASE = { no_existe: 'quiebre', archivado: 'riesgo' };
-
-let sortCol = 'dias';
-let sortAsc = true; // por defecto, de menor a mayor
-
-function ordenarPor(col){
-  if(sortCol === col) sortAsc = !sortAsc; else { sortCol = col; sortAsc = true; }
-  renderTabla();
-}
-function valorOrden(p, col){
-  if(col === 'nombre') return (p.nombre || '').toLowerCase();
-  if(col === 'estadoBsale') return p.estadoBsale || '';
-  if(col === 'fecha') return p.fechaDetectado || '';
-  if(col === 'dias') return p.fechaDetectado ? diasDesde(p.fechaDetectado) : -1;
-  return '';
-}
-
-function renderTabla(){
-  const filtro = $('filtroCategoria').value;
-  const lista = filtro ? ultimosAgotados.filter(p=>p.categoria===filtro) : ultimosAgotados;
-  const wrap = $('agotadosWrap');
-  if(lista.length === 0){
-    wrap.innerHTML = `<p class="empty-note">Sin productos agotados en esta categoría. 🎉</p>`;
-    return;
-  }
-
-  const flecha = col => sortCol === col ? (sortAsc ? ' ▲' : ' ▼') : '';
-  const th = (col, label, claseExtra='') => `<th class="sortable ${claseExtra}" onclick="ordenarPor('${col}')">${label}${flecha(col)}</th>`;
-
-  // Agrupado por categoría (cada una con su propia tabla) en vez de una
-  // lista mezclada -- más fácil de revisar cuando se ven todas juntas.
-  const categorias = [...new Set(lista.map(p => p.categoria))].sort();
-  wrap.innerHTML = categorias.map(cat => {
-    const grupo = lista.filter(p => p.categoria === cat);
-    const ordenado = [...grupo].sort((a, b) => {
-      const va = valorOrden(a, sortCol), vb = valorOrden(b, sortCol);
-      const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : String(va).localeCompare(String(vb));
-      return sortAsc ? cmp : -cmp;
-    });
-    return `
-      <h2 style="font-size:13px;margin:18px 0 8px 0;">
-        <span class="badge ${claseCategoria(cat)}">${cat}</span> — ${grupo.length} agotado(s)
-      </h2>
-      <table>
-        <thead><tr>
-          ${th('nombre', 'Producto')}
-          ${th('estadoBsale', 'Estado en Bsale')}
-          ${th('fecha', 'Fecha sin stock')}
-          ${th('dias', 'Días sin stock', 'amount')}
-          <th></th>
-        </tr></thead>
-        <tbody>
-          ${ordenado.map(p => `
-            <tr>
-              <td>${p.nombre}</td>
-              <td>${p.estadoBsale ? `<span class="badge ${ESTADO_BSALE_CLASE[p.estadoBsale]}">${ESTADO_BSALE_LABEL[p.estadoBsale]}</span>` : '—'}</td>
-              <td>${p.fechaDetectado || '—'}</td>
-              <td class="amount">${p.fechaDetectado ? fmtNum(diasDesde(p.fechaDetectado)) : '—'}</td>
-              <td>${p.adminUrl ? `<a href="${p.adminUrl}" target="_blank" rel="noopener" title="Ver en Shopify">🔗</a>` : ''}</td>
-            </tr>`).join('')}
-        </tbody>
-      </table>`;
-  }).join('');
-}
 
 async function cargarSesionUsuario(){
   try{
