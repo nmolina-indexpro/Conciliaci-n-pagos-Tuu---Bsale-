@@ -3252,7 +3252,15 @@ async function obtenerPreciosBsalePorSku() {
 
   const listas = (await bsaleGet('/price_lists.json?limit=25')).items || [];
   if (!listas.length) return null;
-  const lista = listas.find(l => l.isDefault) || listas[0];
+  // "LISTA DE PRECIOS BASE" confirmada por el usuario como la lista real de
+  // venta -- se busca por nombre en vez de asumir isDefault (que no tiene
+  // por qué coincidir). Si por algún motivo no aparece (renombrada,
+  // eliminada), cae a isDefault o a la primera, para no dejar la alerta sin
+  // datos -- pero en ese caso el nombre real usado queda igual expuesto en
+  // la respuesta (listaNombre) para notar la discrepancia.
+  const lista = listas.find(l => (l.name || '').trim().toUpperCase() === 'LISTA DE PRECIOS BASE')
+    || listas.find(l => l.isDefault)
+    || listas[0];
 
   const precioPorSku = {};
   const limit = 50;
