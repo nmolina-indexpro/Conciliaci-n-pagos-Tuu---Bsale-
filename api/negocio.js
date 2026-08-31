@@ -3697,6 +3697,12 @@ async function manejarWhatsappAnalizar(req, res, sesion) {
 // veces). Resumible como el resto de sincronizaciones del proyecto: tope
 // de 15 por llamada para no arriesgar el límite de duración de la
 // función, el frontend la vuelve a llamar hasta que completo=true.
+// ?horas=N (opcional): acota a conversaciones iniciadas en las últimas N
+// horas -- para el botón rápido "Analizar recientes" (ver conversación con
+// el usuario), que solo quiere ponerse al día con lo de hoy sin disparar
+// una corrida sobre todo el backlog histórico de conversaciones sin
+// analizar (eso sigue siendo lo que hace este mismo endpoint sin ?horas=,
+// usado por "Analizar pendientes").
 async function manejarWhatsappAnalizarPendientes(req, res, sesion) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede analizar en lote' });
@@ -3704,12 +3710,15 @@ async function manejarWhatsappAnalizarPendientes(req, res, sesion) {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
 
-    const { rows: pendientes } = await sql`
-      SELECT c.id FROM whatsapp_conversaciones c
-      LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
-      WHERE a.conversacion_id IS NULL AND c.cantidad_mensajes > 0
-      ORDER BY c.iniciada_en ASC LIMIT 15;
-    `;
+    const horas = Math.max(0, parseInt(req.query.horas, 10) || 0);
+    const condHoras = horas > 0 ? `AND c.iniciada_en >= now() - (INTERVAL '1 hour' * ${horas})` : '';
+
+    const { rows: pendientes } = await sql.query(
+      `SELECT c.id FROM whatsapp_conversaciones c
+       LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+       WHERE a.conversacion_id IS NULL AND c.cantidad_mensajes > 0 ${condHoras}
+       ORDER BY c.iniciada_en ASC LIMIT 15;`
+    );
 
     let analizadas = 0, errores = 0;
     for (const fila of pendientes) {
@@ -3722,11 +3731,11 @@ async function manejarWhatsappAnalizarPendientes(req, res, sesion) {
       }
     }
 
-    const { rows: restantesRows } = await sql`
-      SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones c
-      LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
-      WHERE a.conversacion_id IS NULL AND c.cantidad_mensajes > 0;
-    `;
+    const { rows: restantesRows } = await sql.query(
+      `SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones c
+       LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+       WHERE a.conversacion_id IS NULL AND c.cantidad_mensajes > 0 ${condHoras};`
+    );
     const restantes = restantesRows[0]?.n || 0;
 
     return res.status(200).json({ analizadas, errores, restantes, completo: restantes === 0 });

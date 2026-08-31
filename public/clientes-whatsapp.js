@@ -1077,6 +1077,38 @@ function renderChartResultados(resultados){
 // El disparo automático (webhook) solo corre para mensajes NUEVOS -- las
 // conversaciones que ya existían antes de activarlo se quedan sin
 // analizar para siempre a menos que se corra esto una vez.
+// Versión rápida y acotada de "Analizar pendientes": solo conversaciones
+// iniciadas en las últimas 12 horas y sin análisis todavía -- pensado para
+// ponerse al día con lo de hoy sin disparar una corrida sobre todo el
+// backlog histórico (eso lo sigue haciendo "Analizar pendientes").
+async function analizarRecientesIA(){
+  const btn = $('btnAnalizarRecientes');
+  btn.disabled = true;
+  let totalAnalizadas = 0, totalErrores = 0;
+  try{
+    let completo = false;
+    while (!completo) {
+      btn.textContent = totalAnalizadas > 0 ? `🤖 Analizando… (${totalAnalizadas} listas)` : '🤖 Analizando…';
+      const res = await fetch('/api/negocio?recurso=whatsapp-analizar-pendientes&horas=12', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || data.error) { alert(data.error || 'No se pudo analizar las conversaciones recientes.'); break; }
+      totalAnalizadas += data.analizadas; totalErrores += data.errores;
+      completo = data.completo;
+      if (data.analizadas === 0 && !completo) break; // nada avanzó, evita loop infinito
+    }
+    if (totalAnalizadas === 0 && totalErrores === 0) {
+      // Silencioso a propósito (sin confirm/alert): pensado para poder
+      // darle clic seguido sin fricción -- si no había nada pendiente,
+      // no hace falta interrumpir con un aviso.
+    } else {
+      alert(`Análisis de recientes terminado: ${totalAnalizadas} conversaciones analizadas${totalErrores ? `, ${totalErrores} con error` : ''}.`);
+    }
+    vistasCargadas.clear();
+    const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
+    cambiarVistaModulo(vistaActiva);
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ btn.disabled = false; btn.textContent = '🤖 Analizar recientes (12h)'; }
+}
 async function analizarPendientesIA(){
   if (!confirm('¿Analizar con IA todas las conversaciones que todavía no tienen análisis? Puede tardar varios minutos si hay muchas, y cada conversación tiene un costo pequeño en la API de Claude.')) return;
   const btn = $('btnAnalizarPendientes');
