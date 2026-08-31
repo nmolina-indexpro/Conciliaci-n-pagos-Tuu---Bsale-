@@ -3713,11 +3713,15 @@ async function manejarWhatsappAnalizarPendientes(req, res, sesion) {
     const horas = Math.max(0, parseInt(req.query.horas, 10) || 0);
     const condHoras = horas > 0 ? `AND c.iniciada_en >= now() - (INTERVAL '1 hour' * ${horas})` : '';
 
+    // Lote de 5 (no 15): cada análisis puede leer hasta 2 fotos con Claude,
+    // y 15 seguidas alguna vez superó el maxDuration de 60s de la función
+    // (FUNCTION_INVOCATION_TIMEOUT, devuelve HTML en vez de JSON -- ver
+    // mismo ajuste ya hecho en whatsapp-recategorizar).
     const { rows: pendientes } = await sql.query(
       `SELECT c.id FROM whatsapp_conversaciones c
        LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
        WHERE a.conversacion_id IS NULL AND c.cantidad_mensajes > 0 ${condHoras}
-       ORDER BY c.iniciada_en ASC LIMIT 15;`
+       ORDER BY c.iniciada_en ASC LIMIT 5;`
     );
 
     let analizadas = 0, errores = 0;
@@ -3766,13 +3770,15 @@ async function manejarWhatsappReanalizarDesactualizadas(req, res, sesion) {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
 
+    // Lote de 5 (no 15) -- mismo ajuste que whatsapp-analizar-pendientes,
+    // ver comentario ahí sobre el timeout de 60s con lotes más grandes.
     const { rows: desactualizadas } = await sql`
       SELECT c.id FROM whatsapp_conversaciones c
       JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
       WHERE EXISTS (
         SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.marca_tiempo > a.updated_at
       )
-      ORDER BY c.iniciada_en ASC LIMIT 15;
+      ORDER BY c.iniciada_en ASC LIMIT 5;
     `;
 
     let reanalizadas = 0, errores = 0;
