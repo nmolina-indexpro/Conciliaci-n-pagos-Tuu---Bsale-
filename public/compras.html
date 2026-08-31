@@ -877,34 +877,28 @@ function descargarRecomendacion(){
   }
   const { dentroPresupuesto, fueraPresupuesto, presupuesto, acumulado, horizonte } = ultimaRecomendacion;
 
-  const filaExportRecomendacion = (s, decision) => ({
-    'SKU': s.code, 'Producto': s.nombre, 'Categoría': s.categoria,
-    'Vendidas (período)': s.unidadesVendidas, 'Venta diaria prom.': s.ventaDiariaPromedio,
-    'Sem. -4 (22-28d atrás)': s.semana4, 'Sem. -3 (15-21d atrás)': s.semana3,
-    'Sem. -2 (8-14d atrás)': s.semana2, 'Sem. -1 (últimos 7d)': s.semana1,
-    'Stock actual': s.stockActual, 'Días de cobertura': s.diasCobertura === null ? '' : s.diasCobertura,
-    'Días sin stock': s.diasQuiebreHistorico || 0,
-    'Compradas (período)': s.unidadesCompradas,
-    'Último costo comprado': s.ultimoCosto ?? '',
-    'Última fecha de compra': s.fechaUltimaCompra ?? '',
-    'Última fecha de venta': s.fechaUltimaVenta ?? '',
-    ...(rolActual === 'admin' ? {
-      'Margen $': s.margenUnitario ?? '', 'Margen %': s.margenPorcentaje ?? '',
-      'Producto estrella': s.esEstrella ? 'Sí' : '',
-      'Margen perdido estimado': s.margenPerdidoPorQuiebre ?? '',
-    } : {}),
-    [`Sugerencia (${ultimaRecomendacion.horizonte}d)`]: s[ultimaRecomendacion.campoSugerencia],
-    'Último costo': s.ultimoCosto, 'Costo línea': s.costoLinea,
-    'Decisión': decision
+  const filaExportRecomendacion = (s) => ({
+    'SKU': s.code,
+    'Producto': s.nombre,
+    'Sem -4': s.semana4,
+    'Sem -3': s.semana3,
+    'Sem -2': s.semana2,
+    'Sem -1': s.semana1,
+    'Ventas diarias prom': s.ventaDiariaPromedio,
+    'Vendidas (período)': s.unidadesVendidas,
+    'Sugerencia a comprar': s[ultimaRecomendacion.campoSugerencia],
+    'Margen $': s.margenUnitario ?? '',
+    'Margen %': s.margenPorcentaje ?? '',
+    'Estrella': s.esEstrella ? 'Sí' : '',
   });
 
   const filas = [
-    ...dentroPresupuesto.map(s => filaExportRecomendacion(s, 'Comprar')),
-    ...fueraPresupuesto.map(s => filaExportRecomendacion(s, 'Esperar (excede presupuesto)'))
+    ...dentroPresupuesto.map(s => filaExportRecomendacion(s)),
+    ...fueraPresupuesto.map(s => filaExportRecomendacion(s))
   ];
 
   const hoja = XLSX.utils.json_to_sheet(filas);
-  hoja['!cols'] = [{wch:14},{wch:38},{wch:22},{wch:12},{wch:14},{wch:14},{wch:16},{wch:12},{wch:14},{wch:24}];
+  hoja['!cols'] = [{wch:14},{wch:38},{wch:10},{wch:10},{wch:10},{wch:10},{wch:16},{wch:16},{wch:18},{wch:12},{wch:12},{wch:10}];
   const libro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(libro, hoja, `Recomendacion ${horizonte}d`);
 
