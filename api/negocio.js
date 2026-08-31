@@ -95,8 +95,6 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-actualizar-ventas-bsale') return manejarWhatsappActualizarVentasBsale(req, res, sesion);
   if (recurso === 'whatsapp-recategorizar') return manejarWhatsappRecategorizar(req, res, sesion);
   if (recurso === 'whatsapp-analitica') return manejarWhatsappAnalitica(req, res, sesion);
-  if (recurso === 'whatsapp-demo-seed') return manejarWhatsappDemoSeed(req, res, sesion);
-  if (recurso === 'whatsapp-demo-clear') return manejarWhatsappDemoClear(req, res, sesion);
   if (recurso === 'whatsapp-usuarios') return manejarWhatsappUsuarios(req, res, sesion);
   if (recurso === 'whatsapp-debug-categoria') return manejarWhatsappDebugCategoria(req, res, sesion);
   if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
@@ -2557,7 +2555,16 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
            ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono,
            a.probabilidad_compra,
            u.nombre AS responsable_nombre,
-           (SELECT COUNT(*)::int FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.tipo = 'imagen') AS cantidad_imagenes
+           (SELECT COUNT(*)::int FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.tipo = 'imagen') AS cantidad_imagenes,
+           -- Para el botón "Analizar con IA" del listado (no solo dentro del
+           -- detalle): true si nunca se analizó, o si llegaron mensajes
+           -- nuevos después del último análisis (mismo criterio que
+           -- manejarWhatsappReanalizarDesactualizadas). Solo aplica a
+           -- conversaciones con mensajes de verdad.
+           (c.cantidad_mensajes > 0 AND (
+             a.conversacion_id IS NULL
+             OR EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.marca_tiempo > a.updated_at)
+           )) AS analisis_desactualizado
          ${sqlBase}
          ORDER BY c.iniciada_en DESC
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -2692,6 +2699,7 @@ function mapearConversacionWhatsapp(r) {
     fuenteId: r.fuente_id,
     cantidadMensajes: r.cantidad_mensajes,
     cantidadImagenes: r.cantidad_imagenes || 0,
+    analisisDesactualizado: r.analisis_desactualizado === true,
   };
 }
 
@@ -4112,234 +4120,3 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
   }
 }
 
-// ---- Datos demo (punto 37 del pedido) ----
-// Mientras no haya credenciales reales de Meta conectadas, esto es lo que
-// puebla el módulo para poder construir y evaluar toda la interfaz. Se
-// marcan con es_demo=true en whatsapp_contactos para poder borrarlos de
-// un solo golpe (manejarWhatsappDemoClear) sin arriesgar datos reales que
-// hayan llegado después por el webhook.
-const WHATSAPP_DEMO_NOMBRES = [
-  'Juan Pérez','María Soto','Carlos Silva','Ana Muñoz','Pedro Rojas','Camila Fuentes','Diego Torres','Valentina Castro',
-  'Felipe Vargas','Javiera Reyes','Matías González','Francisca Morales','Sebastián Díaz','Antonia Herrera','Cristóbal Flores',
-  'Constanza Araya','Nicolás Contreras','Fernanda Espinoza','Tomás Sepúlveda','Isidora Núñez','Benjamín Vega','Martina Cortés',
-  'Vicente Gutiérrez','Josefa Bravo','Joaquín Pizarro','Emilia Carrasco','Gabriel Riquelme','Florencia Zúñiga','Ignacio Alarcón',
-  'Amanda Sáez','Maximiliano Toro','Renata Guzmán','Agustín Salazar','Trinidad Miranda','Rodrigo Campos','Paulina Aguilera',
-  'Andrés Palma','Daniela Ojeda','Cristian Ortiz','Carolina Figueroa',
-];
-const WHATSAPP_DEMO_PRODUCTOS = [
-  { producto: 'Pantalla', categoria: 'pantalla', marcas: ['Lenovo', 'HP', 'Dell', 'Asus', 'Acer'], modelos: ['IdeaPad 3 15ITL6', 'ThinkPad E14', 'Pavilion 15', '240 G8', 'Inspiron 15 3000', 'Latitude 5420', 'VivoBook 15', 'Aspire 5', 'Nitro 5', 'Vostro 3510'], precioMin: 70000, precioMax: 180000 },
-  { producto: 'Cargador', categoria: 'cargador', marcas: ['HP', 'Lenovo', 'Dell', 'Asus', 'Acer'], modelos: ['19.5V 2.31A', '20V 3.25A', '19V 3.42A', '19.5V 3.33A', '19V 2.37A'], precioMin: 14000, precioMax: 32000 },
-  { producto: 'Batería', categoria: 'bateria', marcas: ['HP', 'Lenovo', 'Dell', 'Asus', 'Acer'], modelos: ['YRDD6', 'L19M4PC1', 'WDX0R', 'C41N1806', 'AP18E8M'], precioMin: 38000, precioMax: 85000 },
-  { producto: 'Servicio técnico', categoria: 'servicio_tecnico', marcas: ['HP', 'Lenovo', 'Dell', 'Asus', 'Acer', 'Samsung'], modelos: ['Diagnóstico', 'Limpieza', 'Cambio de teclado', 'Reinstalación'], precioMin: 12000, precioMax: 45000 },
-  { producto: 'Repuestos', categoria: 'repuestos', marcas: ['HP', 'Lenovo', 'Dell', 'Asus'], modelos: ['Teclado', 'Bisagra', 'Ventilador', 'Carcasa'], precioMin: 15000, precioMax: 40000 },
-];
-const WHATSAPP_DEMO_INTENCIONES_POND = ['compra', 'compra', 'compra', 'consulta', 'consulta', 'postventa', 'servicio_tecnico', 'garantia', 'seguimiento'];
-// Ponderado: la mayoría se pierde por no responder o queda cotizando; unas
-// pocas terminan en venta -> conversion "realista" para una demo.
-const WHATSAPP_DEMO_RESULTADOS_POND = [
-  'venta', 'venta',
-  'cotizacion', 'cotizacion', 'cotizacion',
-  'cliente_no_responde', 'cliente_no_responde', 'cliente_no_responde',
-  'sin_stock', 'no_interesado', 'otro',
-];
-const WHATSAPP_DEMO_MOTIVOS_POR_RESULTADO = {
-  cliente_no_responde: 'cliente_no_responde', sin_stock: 'sin_stock', no_interesado: 'precio', otro: 'otro',
-};
-
-function elegirAlAzar(lista) { return lista[Math.floor(Math.random() * lista.length)]; }
-function enteroAlAzar(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
-
-function generarMensajesDemo(prod, marca, modelo, resultado, precio) {
-  const mensajes = [];
-  mensajes.push({ dir: 'in', texto: `Hola! Consulta, ¿tienen ${prod.producto.toLowerCase()} para ${marca} ${modelo}?` });
-  mensajes.push({ dir: 'out', texto: `Hola, ¡buenas! Sí, tenemos disponible. El valor es $${precio.toLocaleString('es-CL')}. ¿Te sirve?` });
-  if (resultado === 'cliente_no_responde') return mensajes; // se corta ahí, nunca más contestó
-  mensajes.push({ dir: 'in', texto: '¿Tiene garantía?' });
-  mensajes.push({ dir: 'out', texto: 'Sí, 3 meses de garantía por escrito 👍' });
-  if (resultado === 'sin_stock') { mensajes[1].texto = `Uy, justo se nos agotó ese modelo. Te aviso apenas llegue stock.`; return mensajes; }
-  if (resultado === 'no_interesado') { mensajes.push({ dir: 'in', texto: 'Ya, gracias, voy a seguir mirando otras opciones.' }); return mensajes; }
-  mensajes.push({ dir: 'in', texto: '¿Puedo pasar hoy a retirarlo o hacen despacho?' });
-  mensajes.push({ dir: 'out', texto: 'Puedes pasar a la tienda o coordinamos despacho, como prefieras.' });
-  if (resultado === 'venta') mensajes.push({ dir: 'in', texto: 'Perfecto, voy a pasar entonces. ¡Gracias!' });
-  else mensajes.push({ dir: 'in', texto: 'Dale, lo voy a pensar y te confirmo.' });
-  return mensajes;
-}
-
-async function manejarWhatsappDemoSeed(req, res, sesion) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede generar datos demo' });
-  try {
-    const sql = await getSql();
-    await asegurarTablaWhatsapp(sql);
-
-    const { rows: usuariosActivos } = await sql`SELECT id FROM usuarios WHERE activo = true LIMIT 8;`;
-    const idsResponsables = usuariosActivos.map(u => u.id);
-
-    // ---- Contactos ----
-    const nombres = WHATSAPP_DEMO_NOMBRES;
-    const waIds = nombres.map((_, i) => `569${String(10000000 + i * 137).padStart(8, '0')}`);
-    const { rows: contactosCreados } = await sql.query(
-      `INSERT INTO whatsapp_contactos (whatsapp_id, telefono, nombre, es_demo)
-       SELECT * FROM UNNEST ($1::text[], $2::text[], $3::text[], $4::bool[])
-       ON CONFLICT (whatsapp_id) DO UPDATE SET nombre = EXCLUDED.nombre
-       RETURNING id;`,
-      [waIds, waIds.map(w => '+' + w), nombres, nombres.map(() => true)]
-    );
-
-    // ---- Conversaciones (1 a 4 por contacto, ~300 en total) ----
-    const filasConv = []; // { contactoId, ... }
-    for (const contactoId of contactosCreados.map(c => c.id)) {
-      const numConv = enteroAlAzar(1, 4);
-      for (let i = 0; i < numConv; i++) {
-        const diasAtras = enteroAlAzar(0, 150);
-        const iniciada = new Date(Date.now() - diasAtras * 86400000 - enteroAlAzar(0, 82800) * 1000);
-        const prod = elegirAlAzar(WHATSAPP_DEMO_PRODUCTOS);
-        const marca = elegirAlAzar(prod.marcas);
-        const modelo = elegirAlAzar(prod.modelos);
-        const precio = enteroAlAzar(prod.precioMin, prod.precioMax);
-        const intencion = elegirAlAzar(WHATSAPP_DEMO_INTENCIONES_POND);
-        const resultado = elegirAlAzar(WHATSAPP_DEMO_RESULTADOS_POND);
-        const venta = resultado === 'venta';
-        const perdida = ['cliente_no_responde', 'sin_stock', 'no_interesado', 'otro'].includes(resultado);
-        const motivoPerdida = perdida ? WHATSAPP_DEMO_MOTIVOS_POR_RESULTADO[resultado] : null;
-        const sinRespuesta = Math.random() < 0.08; // ~8% nunca se les contestó
-        const respuestaSeg = sinRespuesta ? null : elegirAlAzar([25, 48, 90, 134, 187, 260, 340, 410, 520, 640, 780, 950, 1200, 1800, 2400, 3600]);
-        const requiereSeguimiento = resultado === 'cotizacion' || (resultado === 'seguimiento');
-        const estado = venta ? 'cerrada' : sinRespuesta ? 'sin_respuesta' : requiereSeguimiento ? 'seguimiento' : (Math.random() < 0.5 ? 'cerrada' : 'abierta');
-        const mensajesDemo = generarMensajesDemo(prod, marca, modelo, resultado, precio);
-        filasConv.push({
-          contactoId, iniciada, prod, marca, modelo, precio, intencion, resultado, motivoPerdida,
-          venta, requiereSeguimiento, sinRespuesta, respuestaSeg, estado, mensajesDemo,
-        });
-      }
-    }
-
-    const { rows: conversacionesCreadas } = await sql.query(
-      `INSERT INTO whatsapp_conversaciones (
-         contacto_id, iniciada_en, primer_mensaje_cliente_en, primera_respuesta_segundos,
-         estado, responsable_id, intencion, categoria, producto, marca, modelo, resultado, motivo_perdida,
-         requiere_seguimiento, seguimiento_estado, venta_detectada, venta_monto, cantidad_mensajes, ultimo_mensaje_resumen
-       )
-       SELECT * FROM UNNEST (
-         $1::int[], $2::timestamptz[], $3::timestamptz[], $4::int[],
-         $5::text[], $6::int[], $7::text[], $8::text[], $9::text[], $10::text[], $11::text[], $12::text[], $13::text[],
-         $14::bool[], $15::text[], $16::bool[], $17::numeric[], $18::int[], $19::text[]
-       )
-       RETURNING id;`,
-      [
-        filasConv.map(f => f.contactoId),
-        filasConv.map(f => f.iniciada.toISOString()),
-        filasConv.map(f => f.iniciada.toISOString()),
-        filasConv.map(f => f.respuestaSeg),
-        filasConv.map(f => f.estado),
-        filasConv.map(() => idsResponsables.length && Math.random() > 0.25 ? elegirAlAzar(idsResponsables) : null),
-        filasConv.map(f => f.intencion),
-        filasConv.map(f => f.prod.categoria),
-        filasConv.map(f => f.prod.producto),
-        filasConv.map(f => f.marca),
-        filasConv.map(f => f.modelo),
-        filasConv.map(f => f.resultado),
-        filasConv.map(f => f.motivoPerdida),
-        filasConv.map(f => f.requiereSeguimiento),
-        filasConv.map(f => f.requiereSeguimiento ? elegirAlAzar(['pendiente', 'pendiente', 'contactado']) : null),
-        filasConv.map(f => f.venta),
-        filasConv.map(f => f.venta ? f.precio : null),
-        filasConv.map(f => f.mensajesDemo.length),
-        filasConv.map(f => f.mensajesDemo[f.mensajesDemo.length - 1].texto.slice(0, 140)),
-      ]
-    );
-
-    // ---- Mensajes, análisis IA y ventas (usan el id real ya asignado) ----
-    const filasMsg = { convId: [], marcaTiempo: [], direccion: [], tipo: [], texto: [] };
-    const filasAnalisis = { convId: [], resumen: [], intencion: [], categoria: [], producto: [], marca: [], modelo: [], probabilidad: [], resultado: [], motivo: [], sentimiento: [], score: [], seguimiento: [] };
-    const filasVenta = { convId: [], contactoId: [], monto: [] };
-    const filasEtiquetas = [];
-
-    filasConv.forEach((f, idx) => {
-      const convId = conversacionesCreadas[idx].id;
-      f.mensajesDemo.forEach((m, mi) => {
-        filasMsg.convId.push(convId);
-        filasMsg.marcaTiempo.push(new Date(f.iniciada.getTime() + mi * 90000).toISOString());
-        filasMsg.direccion.push(m.dir === 'in' ? 'in' : 'out');
-        filasMsg.tipo.push('texto');
-        filasMsg.texto.push(m.texto);
-      });
-
-      const probabilidad = f.venta ? enteroAlAzar(76, 100) : f.resultado === 'cotizacion' ? enteroAlAzar(51, 85) : f.sinRespuesta ? enteroAlAzar(0, 25) : enteroAlAzar(20, 60);
-      filasAnalisis.convId.push(convId);
-      filasAnalisis.resumen.push(`Cliente consultó por ${f.prod.producto.toLowerCase()} ${f.marca} ${f.modelo}. ${f.venta ? 'Se concretó la compra.' : f.resultado === 'cotizacion' ? 'Se envió cotización, cliente evaluando.' : f.sinRespuesta ? 'No hubo respuesta del cliente tras la cotización.' : 'Cliente no continuó la conversación.'}`);
-      filasAnalisis.intencion.push(f.intencion);
-      filasAnalisis.categoria.push(f.prod.categoria);
-      filasAnalisis.producto.push(f.prod.producto);
-      filasAnalisis.marca.push(f.marca);
-      filasAnalisis.modelo.push(f.modelo);
-      filasAnalisis.probabilidad.push(probabilidad);
-      filasAnalisis.resultado.push(f.resultado);
-      filasAnalisis.motivo.push(f.motivoPerdida);
-      filasAnalisis.sentimiento.push(elegirAlAzar(['positivo', 'positivo', 'neutro', 'neutro', 'negativo']));
-      filasAnalisis.score.push(enteroAlAzar(60, 100));
-      filasAnalisis.seguimiento.push(f.requiereSeguimiento);
-
-      if (f.venta) {
-        filasVenta.convId.push(convId); filasVenta.contactoId.push(f.contactoId); filasVenta.monto.push(f.precio);
-      }
-      if (Math.random() < 0.3) filasEtiquetas.push({ convId, etiqueta: elegirAlAzar(['Cliente recurrente', 'Compra urgente', 'Cliente empresa', 'Sin stock']) });
-    });
-
-    if (filasMsg.convId.length) {
-      await sql.query(
-        `INSERT INTO whatsapp_mensajes (conversacion_id, marca_tiempo, direccion, origen, tipo, contenido_texto)
-         SELECT * FROM UNNEST ($1::int[], $2::timestamptz[], $3::text[], $4::text[], $5::text[], $6::text[]);`,
-        [
-          filasMsg.convId, filasMsg.marcaTiempo, filasMsg.direccion,
-          filasMsg.convId.map(() => 'app'), filasMsg.convId.map(() => 'texto'), filasMsg.texto,
-        ]
-      );
-    }
-
-    if (filasAnalisis.convId.length) {
-      await sql.query(
-        `INSERT INTO whatsapp_analisis_ia (conversacion_id, resumen, intencion, categoria, producto, marca, modelo, probabilidad_compra, resultado, motivo_perdida, sentimiento, calidad_atencion_score, requiere_seguimiento)
-         SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::int[], $9::text[], $10::text[], $11::text[], $12::int[], $13::bool[])
-         ON CONFLICT (conversacion_id) DO NOTHING;`,
-        [
-          filasAnalisis.convId, filasAnalisis.resumen, filasAnalisis.intencion, filasAnalisis.categoria,
-          filasAnalisis.producto, filasAnalisis.marca, filasAnalisis.modelo, filasAnalisis.probabilidad,
-          filasAnalisis.resultado, filasAnalisis.motivo, filasAnalisis.sentimiento, filasAnalisis.score, filasAnalisis.seguimiento,
-        ]
-      );
-    }
-
-    if (filasVenta.convId.length) {
-      await sql.query(
-        `INSERT INTO whatsapp_ventas (conversacion_id, contacto_id, monto, fecha_venta, creado_por)
-         SELECT c, ct, m, CURRENT_DATE, 'demo' FROM UNNEST ($1::int[], $2::int[], $3::numeric[]) AS x(c, ct, m);`,
-        [filasVenta.convId, filasVenta.contactoId, filasVenta.monto]
-      );
-    }
-
-    for (const et of filasEtiquetas) {
-      const { rows: etRows } = await sql`INSERT INTO whatsapp_etiquetas (nombre) VALUES (${et.etiqueta}) ON CONFLICT (nombre) DO UPDATE SET nombre = EXCLUDED.nombre RETURNING id;`;
-      await sql`INSERT INTO whatsapp_conversacion_etiquetas (conversacion_id, etiqueta_id) VALUES (${et.convId}, ${etRows[0].id}) ON CONFLICT DO NOTHING;`;
-    }
-
-    return res.status(200).json({ ok: true, contactos: contactosCreados.length, conversaciones: conversacionesCreadas.length, mensajes: filasMsg.convId.length });
-  } catch (err) {
-    return res.status(500).json({ error: 'Error generando datos demo de WhatsApp', detail: String(err) });
-  }
-}
-
-async function manejarWhatsappDemoClear(req, res, sesion) {
-  if (req.method !== 'DELETE') return res.status(405).json({ error: 'Method not allowed' });
-  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede borrar los datos demo' });
-  try {
-    const sql = await getSql();
-    await asegurarTablaWhatsapp(sql);
-    // ON DELETE CASCADE en conversaciones/mensajes/análisis/ventas/
-    // etiquetas se encarga del resto al borrar los contactos demo.
-    const { rows } = await sql`DELETE FROM whatsapp_contactos WHERE es_demo = true RETURNING id;`;
-    return res.status(200).json({ ok: true, contactosBorrados: rows.length });
-  } catch (err) {
-    return res.status(500).json({ error: 'Error borrando los datos demo de WhatsApp', detail: String(err) });
-  }
-}

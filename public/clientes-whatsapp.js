@@ -310,9 +310,9 @@ function initConversaciones(){
             <th>Intención</th><th>Producto</th><th>Shopify</th>
             <th class="ordenable" onclick="ordenarConv('respuesta')">1ª respuesta</th>
             <th>Prob. compra</th><th>Resultado</th>
-            <th class="amount">Venta</th><th>Responsable</th><th>Alertas</th>
+            <th class="amount">Venta</th><th>Responsable</th><th>Alertas</th><th>IA</th>
           </tr></thead>
-          <tbody id="tablaConv"><tr><td colspan="14" class="empty-note">Cargando…</td></tr></tbody>
+          <tbody id="tablaConv"><tr><td colspan="15" class="empty-note">Cargando…</td></tr></tbody>
         </table>
       </div>
       <div id="paginacionConv" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12.5px;color:var(--muted);"></div>
@@ -372,7 +372,7 @@ async function cargarConversaciones(){
   }
 }
 function renderTablaConv(lista){
-  if (!lista.length) { $('tablaConv').innerHTML = '<tr><td colspan="14" class="empty-note">No hay conversaciones que calcen con los filtros.</td></tr>'; return; }
+  if (!lista.length) { $('tablaConv').innerHTML = '<tr><td colspan="15" class="empty-note">No hay conversaciones que calcen con los filtros.</td></tr>'; return; }
   let ordenada = [...lista];
   if (convState.orden === 'fecha_asc') ordenada.sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
   else if (convState.orden === 'fecha_desc') ordenada.sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
@@ -396,8 +396,30 @@ function renderTablaConv(lista){
       <td class="amount">${ventaCellHtml(c)}</td>
       <td>${responsableCellHtml(c)}</td>
       <td>${alertasConversacion(c)}</td>
+      <td>${c.analisisDesactualizado
+        ? `<button class="btn-ghost btn-compact" title="Nunca analizada, o llegaron mensajes nuevos después del último análisis" onclick="event.stopPropagation(); analizarDesdeListado(${c.id}, this)">🤖 Analizar</button>`
+        : ''}</td>
     </tr>
   `).join('');
+}
+// Analizar con IA una conversación directo desde el listado (sin tener que
+// abrirla) -- botón solo visible si analisisDesactualizado (ver
+// mapearConversacionWhatsapp). event.stopPropagation() en el onclick evita
+// que dispare también el click de la fila (que abre el detalle).
+async function analizarDesdeListado(conversacionId, btn){
+  btn.disabled = true; btn.textContent = 'Analizando…';
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-analizar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversacionId }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) { alert(data.error || 'No se pudo analizar la conversación.'); btn.disabled = false; btn.textContent = '🤖 Analizar'; return; }
+    cargarConversaciones();
+  }catch(err){
+    alert('Error: ' + err.message);
+    btn.disabled = false; btn.textContent = '🤖 Analizar';
+  }
 }
 function renderPaginacionConv(){
   $('paginacionConv').innerHTML = `
@@ -1196,32 +1218,3 @@ async function buscarVentasBsaleEnLote(){
   finally{ btn.disabled = false; btn.textContent = '🧾 Buscar ventas (Bsale/Shopify)'; }
 }
 
-// ================= Datos demo (admin, punto 37) =================
-async function generarDatosDemo(){
-  if (!confirm('¿Generar datos demo (contactos, conversaciones y mensajes de prueba)? Podrás borrarlos después con un solo clic.')) return;
-  $('btnDemoSeed').disabled = true;
-  try{
-    const res = await fetch('/api/negocio?recurso=whatsapp-demo-seed', { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok || data.error) { alert(data.error || 'No se pudo generar los datos demo.'); return; }
-    alert(`Datos demo generados: ${data.contactos} clientes, ${data.conversaciones} conversaciones, ${data.mensajes} mensajes.`);
-    vistasCargadas.clear();
-    const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
-    cambiarVistaModulo(vistaActiva);
-  }catch(err){ alert('Error: ' + err.message); }
-  finally{ $('btnDemoSeed').disabled = false; }
-}
-async function borrarDatosDemo(){
-  if (!confirm('¿Borrar todos los datos demo de WhatsApp? Esta acción no se puede deshacer (los datos reales que hayan llegado por el webhook no se ven afectados).')) return;
-  $('btnDemoClear').disabled = true;
-  try{
-    const res = await fetch('/api/negocio?recurso=whatsapp-demo-clear', { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok || data.error) { alert(data.error || 'No se pudo borrar los datos demo.'); return; }
-    alert('Datos demo borrados.');
-    vistasCargadas.clear();
-    const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
-    cambiarVistaModulo(vistaActiva);
-  }catch(err){ alert('Error: ' + err.message); }
-  finally{ $('btnDemoClear').disabled = false; }
-}
