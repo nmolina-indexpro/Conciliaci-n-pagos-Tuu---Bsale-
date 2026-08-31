@@ -127,38 +127,29 @@ function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
 // si un producto tiene stock disponible pero está "draft"/"archived" en la
 // tienda, no aparece para los clientes y se pierden ventas sin que nadie lo
 // note (caso real que motivó esto: SKU CARALUSBC01 con stock pero
-// archivado). Solo se avisa de SKUs que SÍ existen en Shopify con otro
-// estado -- un SKU de Bsale que nunca se sube a la tienda (ej. un insumo
-// interno) no es una alerta real, así que no se asume nada de los que no
-// aparecen en el mapa. days=1 en bsale-sku-report: acá solo interesa el
-// stock actual (siempre es "de hoy", no depende del período), no el
-// historial de ventas -- pedir el período más corto evita cargar de más.
+// archivado). El cruce ya viene hecho del backend (calcularAlertasSitioWeb
+// en negocio.js, también usado por el aviso por correo) -- acá solo se
+// renderiza. stockNoVisible === null significa "no se pudo revisar" (falta
+// BSALE_ACCESS_TOKEN o falló la consulta), distinto de [] = revisado, sin
+// problemas.
 const ESTADO_SHOPIFY_LABEL = { draft: 'Borrador', archived: 'Archivado' };
-function renderAvisoStockShopify(skusBsale, estadoPorSku, error){
-  // Siempre un resultado explícito -- ver renderAvisoPreciosDistintos para
-  // el mismo criterio (revisado-sin-problemas se ve distinto de no-revisado).
+function renderAvisoStockShopify(stockNoVisible, error){
   if(error) return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo revisar el estado de los productos en Shopify: ${error}</div>`;
-  if(!Object.keys(estadoPorSku).length) return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo obtener el catálogo de Shopify para comparar contra el stock de Bsale.</div>`;
-
-  const conProblema = skusBsale
-    .filter(s => s.stockActual > 0)
-    .map(s => ({ ...s, shopify: estadoPorSku[s.code] }))
-    .filter(s => s.shopify && s.shopify.status !== 'active');
-  if(!conProblema.length){
+  if(stockNoVisible === null) return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo obtener el stock de Bsale para comparar contra Shopify (revisa que BSALE_ACCESS_TOKEN esté configurado).</div>`;
+  if(!stockNoVisible.length){
     return `<div class="note-box" style="background:var(--green-bg);border-color:#B7E4C7;">✅ <b>No hay productos con stock disponible que estén archivados o en borrador en Shopify.</b></div>`;
   }
 
-  conProblema.sort((a,b) => b.stockActual - a.stockActual);
-  const filas = conProblema.slice(0, 20).map(s => `
+  const filas = stockNoVisible.slice(0, 20).map(s => `
     <li>
-      <b>${s.code}</b> — ${s.nombre} · Stock: ${fmtNum(s.stockActual)} ·
-      <span class="badge quiebre">${ESTADO_SHOPIFY_LABEL[s.shopify.status] || s.shopify.status}</span>
-      <a href="${s.shopify.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
+      <b>${s.sku}</b> — ${s.nombre || ''} · Stock: ${fmtNum(s.stock)} ·
+      <span class="badge quiebre">${ESTADO_SHOPIFY_LABEL[s.estado] || s.estado}</span>
+      <a href="${s.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
     </li>`).join('');
-  const nota = conProblema.length > 20 ? `<div class="empty-note">...y ${conProblema.length - 20} más.</div>` : '';
+  const nota = stockNoVisible.length > 20 ? `<div class="empty-note">...y ${stockNoVisible.length - 20} más.</div>` : '';
 
   return `<div class="note-box" style="background:var(--red-bg);border-color:#F5C6C6;">
-    ⚠ <b>${conProblema.length} producto(s) con stock disponible pero no visibles en la tienda online</b> (archivados o en borrador en Shopify) — se están perdiendo ventas.
+    ⚠ <b>${stockNoVisible.length} producto(s) con stock disponible pero no visibles en la tienda online</b> (archivados o en borrador en Shopify) — se están perdiendo ventas.
     <ul style="margin:8px 0 0 0;padding-left:18px;">${filas}</ul>
     ${nota}
   </div>`;
@@ -167,48 +158,34 @@ function renderAvisoStockShopify(skusBsale, estadoPorSku, error){
 function fmtMoneda(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
 
 // ---------- Aviso: precio distinto entre Bsale y Shopify ----------
-// Cruza el precio de cada SKU ACTIVO en Shopify (visible/comprable) contra
-// su precio en la lista de precios de Bsale (ver obtenerPreciosBsalePorSku
-// en negocio.js) -- si difieren, se le está cobrando distinto al cliente
-// según por dónde compre. Bsale no tiene un único precio por SKU (vive en
-// listas de precio separadas, puede haber varias) -- listaNombre viene del
-// backend para poder confirmar a ojo que es la lista correcta.
-function renderAvisoPreciosDistintos(estadoPorSku, preciosBsalePorSku, listaNombre, error){
-  // Siempre se muestra un resultado explícito -- "revisé y no encontré
-  // nada" (verde) tiene que verse distinto de "no revisé" (ámbar), para no
-  // dejar la duda de si simplemente no se comparó nada.
+// Mismo criterio: preciosDistintos === null = no se pudo revisar,
+// [] = revisado sin diferencias, con datos = hay diferencias reales.
+function renderAvisoPreciosDistintos(preciosDistintos, listaNombre, error){
   if(error){
     return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo comparar precios entre Bsale y Shopify: ${error}</div>`;
   }
-  if(!preciosBsalePorSku || !Object.keys(preciosBsalePorSku).length){
+  if(preciosDistintos === null){
     return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo obtener la lista de precios de Bsale para comparar (revisa que BSALE_ACCESS_TOKEN esté configurado y que exista la lista "LISTA DE PRECIOS BASE").</div>`;
   }
 
-  const TOLERANCIA = 1; // ignora diferencias de menos de $1 (redondeo)
-  const conProblema = Object.entries(estadoPorSku)
-    .filter(([, s]) => s.status === 'active' && s.precio != null)
-    .map(([sku, s]) => ({ sku, ...s, precioBsale: preciosBsalePorSku[sku] }))
-    .filter(s => s.precioBsale != null && Math.abs(s.precioBsale - s.precio) > TOLERANCIA);
-
   const notaLista = listaNombre ? `<div class="empty-note" style="margin-top:6px;">Precio de Bsale (con IVA) tomado de la lista "${listaNombre}".</div>` : '';
 
-  if(!conProblema.length){
+  if(!preciosDistintos.length){
     return `<div class="note-box" style="background:var(--green-bg);border-color:#B7E4C7;">
       ✅ <b>No se encontraron diferencias de precio entre Bsale y Shopify.</b>
       ${notaLista}
     </div>`;
   }
 
-  conProblema.sort((a,b) => Math.abs(b.precioBsale - b.precio) - Math.abs(a.precioBsale - a.precio));
-  const filas = conProblema.slice(0, 20).map(s => `
+  const filas = preciosDistintos.slice(0, 20).map(s => `
     <li>
-      <b>${s.sku}</b> — ${s.titulo} · Bsale: ${fmtMoneda(s.precioBsale)} · Shopify: ${fmtMoneda(s.precio)}
+      <b>${s.sku}</b> — ${s.nombre || ''} · Bsale: ${fmtMoneda(s.precioBsale)} · Shopify: ${fmtMoneda(s.precioShopify)}
       <a href="${s.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
     </li>`).join('');
-  const nota = conProblema.length > 20 ? `<div class="empty-note">...y ${conProblema.length - 20} más.</div>` : '';
+  const nota = preciosDistintos.length > 20 ? `<div class="empty-note">...y ${preciosDistintos.length - 20} más.</div>` : '';
 
   return `<div class="note-box" style="background:var(--red-bg);border-color:#F5C6C6;">
-    💲 <b>${conProblema.length} producto(s) con precio distinto entre Bsale y Shopify</b> — revisa cuál es el correcto antes de que un cliente pague de más o de menos.
+    💲 <b>${preciosDistintos.length} producto(s) con precio distinto entre Bsale y Shopify</b> — revisa cuál es el correcto antes de que un cliente pague de más o de menos.
     <ul style="margin:8px 0 0 0;padding-left:18px;">${filas}</ul>
     ${nota}${notaLista}
   </div>`;
@@ -219,12 +196,9 @@ async function cargar(){
   status.className = '';
   status.textContent = 'Consultando Shopify y Bsale...';
   try{
-    const [bsaleRes, estadoRes] = await Promise.all([
-      fetch('/api/bsale-sku-report?days=1').then(r=>r.json()).catch(()=>({skus:[]})),
-      fetch('/api/negocio?recurso=alertas-stock-shopify').then(r=>r.json()).catch(()=>({estadoPorSku:{}}))
-    ]);
-    const avisoStock = renderAvisoStockShopify(bsaleRes.skus || [], estadoRes.estadoPorSku || {}, estadoRes.error);
-    const avisoPrecios = renderAvisoPreciosDistintos(estadoRes.estadoPorSku || {}, estadoRes.preciosBsalePorSku || {}, estadoRes.listaPrecioBsaleNombre, estadoRes.error);
+    const data = await fetch('/api/negocio?recurso=alertas-stock-shopify').then(r=>r.json());
+    const avisoStock = renderAvisoStockShopify(data.stockNoVisible ?? null, data.error);
+    const avisoPrecios = renderAvisoPreciosDistintos(data.preciosDistintos ?? null, data.listaPrecioBsaleNombre, data.error);
     $('avisoWrap').innerHTML = avisoStock + avisoPrecios; // ambas funciones siempre devuelven un resultado explícito, nunca vacío
     status.textContent = 'Actualizado.';
   }catch(err){

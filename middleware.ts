@@ -34,6 +34,16 @@ function esWebhookWhatsappPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'whatsapp-webhook';
 }
 
+// El cron diario de alertas de Sitio Web (ver vercel.json y
+// manejarAlertasSitioWebNotificar en api/negocio.js) lo dispara Vercel
+// Cron, sin la cookie de sesión de esta app -> mismo motivo y mismo
+// patrón que el webhook de WhatsApp arriba: se distingue por el query
+// param puntual, no se exime la ruta completa. La seguridad real la hace
+// el chequeo de CRON_SECRET dentro del propio handler.
+function esAlertasSitioWebNotificarPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'alertas-sitio-web-notificar';
+}
+
 // Páginas que un usuario con un perfil restringido puede ver SIEMPRE, sin
 // importar qué páginas le haya marcado el administrador -- reportar-error
 // es la vía de ayuda/soporte, no tendría sentido poder bloquearla (y sirve
@@ -78,7 +88,11 @@ export default async function middleware(req) {
   const { pathname } = url;
   console.log('[middleware] request a', pathname); // visible en Vercel > Logs, para confirmar que esto SI esta corriendo
 
-  if (RUTAS_PUBLICAS.has(pathname) || esWebhookWhatsappPublico(pathname, url.searchParams)) return; // deja pasar sin exigir sesión
+  if (
+    RUTAS_PUBLICAS.has(pathname) ||
+    esWebhookWhatsappPublico(pathname, url.searchParams) ||
+    esAlertasSitioWebNotificarPublico(pathname, url.searchParams)
+  ) return; // deja pasar sin exigir sesión
 
   const cookieHeader = req.headers.get('cookie') || '';
   const match = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith('session='));

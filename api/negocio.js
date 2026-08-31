@@ -53,6 +53,12 @@ export default async function handler(req, res) {
   // (esWebhookWhatsappPublico), que deja pasar ESTA combinación puntual de
   // pathname+recurso sin sesión.
   if (req.query.recurso === 'whatsapp-webhook') return manejarWhatsappWebhook(req, res);
+  // El cron diario de alertas de Sitio Web tampoco trae cookie de sesión
+  // (lo llama Vercel Cron, no un navegador) -> mismo patrón que el webhook
+  // de WhatsApp: se resuelve antes del chequeo de sesión, con su propia
+  // verificación (CRON_SECRET) adentro del handler. Ver también
+  // middleware.ts (esAlertasSitioWebNotificarPublico).
+  if (req.query.recurso === 'alertas-sitio-web-notificar') return manejarAlertasSitioWebNotificar(req, res);
 
   const sesion = usuarioDesdeRequest(req);
   if (!sesion) return res.status(401).json({ error: 'No hay sesión activa' });
@@ -3289,26 +3295,131 @@ async function obtenerPreciosBsalePorSku() {
   return { listaId: lista.id, listaNombre: lista.name, precioPorSku };
 }
 
+// Stock actual por SKU en Bsale -- versión liviana, solo lo que necesitan
+// las alertas de Sitio Web (a diferencia de bsale-sku-report.js, que
+// además calcula ventas/compras/quiebres históricos; pedir todo eso acá
+// sería trabajo de sobra y hacía más lenta la carga de la página, ver
+// conversación con el usuario).
+async function obtenerStockBsalePorSku() {
+  const token = (process.env.BSALE_ACCESS_TOKEN || '').trim();
+  if (!token) return null;
+  const BSALE_BASE = 'https://api.bsale.io/v1';
+  const bsaleGet = async (path) => {
+    const r = await fetchConTimeout(`${BSALE_BASE}${path}`, { headers: { access_token: token } }, 15000);
+    if (!r.ok) throw new Error(`Bsale HTTP ${r.status} en ${path}`);
+    return r.json();
+  };
+
+  const stockPorSku = {};
+  const registrar = items => { for (const s of items) { const code = s.variant?.code; if (!code) continue; stockPorSku[code] = (stockPorSku[code] || 0) + (s.quantityAvailable ?? s.quantity ?? 0); } };
+  const limit = 50;
+  const primera = await bsaleGet(`/stocks.json?expand=variant&limit=${limit}&offset=0`);
+  registrar(primera.items || []);
+  const total = primera.count ?? 0;
+  const topePaginas = 80;
+  const totalPaginas = Math.min(Math.ceil(total / limit), topePaginas);
+  if (totalPaginas > 1) {
+    const promesas = [];
+    for (let p = 1; p < totalPaginas; p++) promesas.push(bsaleGet(`/stocks.json?expand=variant&limit=${limit}&offset=${p * limit}`));
+    const resto = await Promise.all(promesas);
+    for (const r of resto) registrar(r.items || []);
+  }
+  return stockPorSku;
+}
+
+// Lógica central de las alertas de Sitio Web -- compartida entre el
+// endpoint interactivo (manejarAlertasStockShopify, lo consulta
+// sitio-web.html) y el aviso por correo (manejarAlertasSitioWebNotificar,
+// lo dispara el cron diario) para no mantener el cruce duplicado en dos
+// lados. Cada fuente (Shopify, stock de Bsale, precios de Bsale) se
+// resuelve en paralelo y se degrada por separado: si una falla, esa parte
+// queda en null ("no se pudo revisar", distinto de "revisado, sin
+// problemas" = []) y las demás igual se calculan.
+async function calcularAlertasSitioWeb() {
+  const [estadoPorSku, stockBsale, preciosBsale] = await Promise.all([
+    obtenerEstadoShopifyPorSku(),
+    obtenerStockBsalePorSku().catch(err => { console.warn('[calcularAlertasSitioWeb] no se pudo traer stock de Bsale', err); return null; }),
+    obtenerPreciosBsalePorSku().catch(err => { console.warn('[calcularAlertasSitioWeb] no se pudo traer precios de Bsale', err); return null; }),
+  ]);
+  if (estadoPorSku === null) return { error: 'Faltan credenciales de Shopify (SHOPIFY_STORE_DOMAIN/CLIENT_ID/CLIENT_SECRET)' };
+
+  let stockNoVisible = null;
+  if (stockBsale) {
+    stockNoVisible = Object.entries(stockBsale)
+      .filter(([, stock]) => stock > 0)
+      .map(([sku, stock]) => ({ sku, stock, shopify: estadoPorSku[sku] }))
+      .filter(x => x.shopify && x.shopify.status !== 'active')
+      .map(x => ({ sku: x.sku, nombre: x.shopify.titulo, stock: x.stock, estado: x.shopify.status, adminUrl: x.shopify.adminUrl }))
+      .sort((a, b) => b.stock - a.stock);
+  }
+
+  let preciosDistintos = null;
+  let listaPrecioBsaleNombre = null;
+  if (preciosBsale) {
+    listaPrecioBsaleNombre = preciosBsale.listaNombre;
+    const TOLERANCIA = 1; // ignora diferencias de menos de $1 (redondeo)
+    preciosDistintos = Object.entries(estadoPorSku)
+      .filter(([, s]) => s.status === 'active' && s.precio != null)
+      .map(([sku, s]) => ({ sku, nombre: s.titulo, precioShopify: s.precio, precioBsale: preciosBsale.precioPorSku[sku], adminUrl: s.adminUrl }))
+      .filter(s => s.precioBsale != null && Math.abs(s.precioBsale - s.precioShopify) > TOLERANCIA)
+      .sort((a, b) => Math.abs(b.precioBsale - b.precioShopify) - Math.abs(a.precioBsale - a.precioShopify));
+  }
+
+  return { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre };
+}
+
 async function manejarAlertasStockShopify(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    // En paralelo, no en serie -- Shopify (catálogo completo) y Bsale (lista
-    // de precios completa) son dos catálogos grandes e independientes entre
-    // sí; esperarlos uno tras otro sumaba sus tiempos en vez de solo tomar
-    // el del más lento (ver conversación con el usuario sobre carga lenta).
-    const [estadoPorSku, preciosBsale] = await Promise.all([
-      obtenerEstadoShopifyPorSku(),
-      obtenerPreciosBsalePorSku().catch(err => { console.warn('[alertas-stock-shopify] no se pudo traer precios de Bsale', err); return null; }),
-    ]);
-    if (estadoPorSku === null) return res.status(200).json({ error: 'Faltan credenciales de Shopify (SHOPIFY_STORE_DOMAIN/CLIENT_ID/CLIENT_SECRET)', estadoPorSku: {} });
-
-    return res.status(200).json({
-      estadoPorSku, totalSkus: Object.keys(estadoPorSku).length,
-      preciosBsalePorSku: preciosBsale?.precioPorSku || {},
-      listaPrecioBsaleNombre: preciosBsale?.listaNombre || null,
-    });
+    return res.status(200).json(await calcularAlertasSitioWeb());
   } catch (err) {
-    return res.status(200).json({ error: 'Error consultando estado de productos en Shopify', detail: String(err), estadoPorSku: {} });
+    return res.status(200).json({ error: 'Error consultando estado de productos en Shopify', detail: String(err) });
+  }
+}
+
+// Correo diario a lcelis@indexstore.cl y nmolina@indexstore.cl cuando hay
+// productos con stock disponible pero no visibles en la tienda, o SKUs con
+// precio distinto entre Bsale y Shopify (ver conversación con el usuario).
+// Lo dispara un cron de Vercel (ver vercel.json), sin sesión de usuario --
+// protegido por CRON_SECRET (header Authorization: Bearer <secreto>, que
+// Vercel agrega solo si esa env var está configurada) en vez de la cookie
+// de sesión normal. Público a nivel de middleware (ver
+// esAlertasSitioWebNotificarPublico en middleware.ts), igual que el
+// webhook de WhatsApp -- la seguridad real la hace este chequeo, no el
+// middleware.
+async function manejarAlertasSitioWebNotificar(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  try {
+    const resultado = await calcularAlertasSitioWeb();
+    if (resultado.error) return res.status(200).json({ ok: false, motivo: resultado.error });
+
+    const { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre } = resultado;
+    const hayStock = Array.isArray(stockNoVisible) && stockNoVisible.length > 0;
+    const hayPrecios = Array.isArray(preciosDistintos) && preciosDistintos.length > 0;
+    if (!hayStock && !hayPrecios) return res.status(200).json({ ok: true, enviado: false, motivo: 'Sin problemas detectados hoy' });
+
+    const filaStock = p => `<li><b>${p.sku}</b> — ${p.nombre || ''} · Stock: ${p.stock} · ${p.estado === 'draft' ? 'Borrador' : 'Archivado'} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
+    const filaPrecio = p => `<li><b>${p.sku}</b> — ${p.nombre || ''} · Bsale: $${Math.round(p.precioBsale).toLocaleString('es-CL')} · Shopify: $${Math.round(p.precioShopify).toLocaleString('es-CL')} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
+    const html = `
+      <h2>Alertas de Sitio Web -- IndexStore</h2>
+      ${hayStock ? `<h3>⚠ ${stockNoVisible.length} producto(s) con stock disponible pero no visibles en la tienda</h3><ul>${stockNoVisible.slice(0, 30).map(filaStock).join('')}</ul>` : ''}
+      ${hayPrecios ? `<h3>💲 ${preciosDistintos.length} producto(s) con precio distinto entre Bsale y Shopify</h3><ul>${preciosDistintos.slice(0, 30).map(filaPrecio).join('')}</ul><p style="color:#666;font-size:12px;">Precio de Bsale (con IVA) según la lista "${listaPrecioBsaleNombre || '—'}".</p>` : ''}
+      <p><a href="https://conciliaci-n-pagos-tuu-bsale.vercel.app/sitio-web.html">Revisar en el ERP -- página Sitio Web</a></p>
+    `;
+    const asunto = `⚠ Alertas Sitio Web IndexStore -- ${stockNoVisible?.length || 0} sin stock visible, ${preciosDistintos?.length || 0} con precio distinto`;
+
+    const destinatarios = ['lcelis@indexstore.cl', 'nmolina@indexstore.cl'];
+    const envios = [];
+    for (const para of destinatarios) {
+      envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
+    }
+    return res.status(200).json({ ok: true, enviado: true, envios });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error generando o enviando las alertas de Sitio Web', detail: String(err) });
   }
 }
 
