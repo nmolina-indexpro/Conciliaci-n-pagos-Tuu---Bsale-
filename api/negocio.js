@@ -3262,18 +3262,23 @@ async function obtenerPreciosBsalePorSku() {
     || listas.find(l => l.isDefault)
     || listas[0];
 
+  // Primera página para saber el total, y el resto EN PARALELO (no
+  // secuencial) -- mismo patrón que el resto del proyecto para paginar
+  // APIs externas (ver CLAUDE.md), necesario para no sumar minutos de
+  // espera en una lista con miles de variantes.
   const precioPorSku = {};
+  const registrar = items => { for (const item of items) { const code = item.variant?.code; if (code && item.variantValue != null) precioPorSku[code] = Number(item.variantValue); } };
   const limit = 50;
-  let offset = 0, total = Infinity, guard = 0;
-  while (offset < total && guard < 80) { // tope de seguridad: 80 páginas (~4.000 variantes)
-    const body = await bsaleGet(`/price_lists/${lista.id}/details.json?expand=[variant]&limit=${limit}&offset=${offset}`);
-    total = body.count ?? 0;
-    for (const item of (body.items || [])) {
-      const code = item.variant?.code;
-      if (code && item.variantValue != null) precioPorSku[code] = Number(item.variantValue);
-    }
-    offset += limit;
-    guard++;
+  const primera = await bsaleGet(`/price_lists/${lista.id}/details.json?expand=[variant]&limit=${limit}&offset=0`);
+  registrar(primera.items || []);
+  const total = primera.count ?? 0;
+  const topePaginas = 80; // ~4.000 variantes
+  const totalPaginas = Math.min(Math.ceil(total / limit), topePaginas);
+  if (totalPaginas > 1) {
+    const promesas = [];
+    for (let p = 1; p < totalPaginas; p++) promesas.push(bsaleGet(`/price_lists/${lista.id}/details.json?expand=[variant]&limit=${limit}&offset=${p * limit}`));
+    const resto = await Promise.all(promesas);
+    for (const r of resto) registrar(r.items || []);
   }
   return { listaId: lista.id, listaNombre: lista.name, precioPorSku };
 }
@@ -3281,12 +3286,15 @@ async function obtenerPreciosBsalePorSku() {
 async function manejarAlertasStockShopify(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    const estadoPorSku = await obtenerEstadoShopifyPorSku();
+    // En paralelo, no en serie -- Shopify (catálogo completo) y Bsale (lista
+    // de precios completa) son dos catálogos grandes e independientes entre
+    // sí; esperarlos uno tras otro sumaba sus tiempos en vez de solo tomar
+    // el del más lento (ver conversación con el usuario sobre carga lenta).
+    const [estadoPorSku, preciosBsale] = await Promise.all([
+      obtenerEstadoShopifyPorSku(),
+      obtenerPreciosBsalePorSku().catch(err => { console.warn('[alertas-stock-shopify] no se pudo traer precios de Bsale', err); return null; }),
+    ]);
     if (estadoPorSku === null) return res.status(200).json({ error: 'Faltan credenciales de Shopify (SHOPIFY_STORE_DOMAIN/CLIENT_ID/CLIENT_SECRET)', estadoPorSku: {} });
-
-    let preciosBsale = null;
-    try { preciosBsale = await obtenerPreciosBsalePorSku(); }
-    catch (err) { console.warn('[alertas-stock-shopify] no se pudo traer precios de Bsale', err); }
 
     return res.status(200).json({
       estadoPorSku, totalSkus: Object.keys(estadoPorSku).length,
