@@ -2003,7 +2003,7 @@ async function manejarWhatsappWebhook(req, res) {
     // Nunca debe tumbar la respuesta 200 al webhook (Meta reintenta
     // agresivo si no la recibe) -> aislado en su propio try/catch, mejor
     // esfuerzo, sin bloquear el resto.
-    const DEBOUNCE_ANALISIS_IA_MS = 45 * 1000;
+    const DEBOUNCE_ANALISIS_IA_MS = 90 * 1000; // 90s (subido de 45s tras revisión de costo de API, ver conversación con el usuario) -- sigue corto a propósito, ver comentario arriba
     // Tope defensivo: Meta casi siempre manda 1 mensaje por llamada de
     // webhook (rara vez toca más de una conversación distinta a la vez),
     // pero si alguna vez llegara un lote grande, esto evita que la función
@@ -3484,9 +3484,12 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   // Las fotos SÍ se le mandan a Claude (que puede leerlas) -- es muy común
   // que el cliente no sepa el modelo exacto de su notebook y en vez de
   // escribirlo mande una foto de la etiqueta pegada en la carcasa. Tope de
-  // 4 imágenes por conversación (costo/latencia) y se descargan todas en
-  // paralelo antes de armar el mensaje para no encadenar la espera.
-  const TOPE_IMAGENES = 4;
+  // 2 imágenes por conversación (bajado de 4 tras revisión de costo de API
+  // de visión, ver conversación con el usuario) y se descargan todas en
+  // paralelo antes de armar el mensaje para no encadenar la espera. Si el
+  // cliente manda más de 2 fotos, se usan las 2 primeras (normalmente la
+  // más relevante -- la etiqueta del equipo -- llega temprano).
+  const TOPE_IMAGENES = 2;
   const indicesConImagen = mensajes
     .map((m, i) => ({ m, i }))
     .filter(({ m }) => m.tipo === 'imagen' && m.media_url)
