@@ -3705,6 +3705,30 @@ async function manejarColeccionesModelosNotebook(req, res, sesion) {
   if (!acceso) return res.status(200).json({ error: 'Faltan credenciales de Shopify (SHOPIFY_STORE_DOMAIN/CLIENT_ID/CLIENT_SECRET)' });
   const { domain, accessToken } = acceso;
 
+  // Modo diagnóstico puntual (?debug=pantalla|bateria|cargador): devuelve
+  // la respuesta CRUDA de Shopify (resolución del id + primera página de
+  // productos) sin procesar nada -- para ver de verdad qué está
+  // contestando la API en vez de seguir adivinando (0 productos sin
+  // ningún error en las 3 colecciones, caso real reportado por el usuario).
+  if (req.query.debug) {
+    const categoria = String(req.query.debug);
+    const handle = COLECCIONES_MODELOS_NOTEBOOK[categoria];
+    if (!handle) return res.status(400).json({ error: `?debug= debe ser una de: ${Object.keys(COLECCIONES_MODELOS_NOTEBOOK).join(', ')}` });
+    try {
+      const queryId = `query($handle: String!) { collectionByHandle(handle: $handle) { id title handle } }`;
+      const bodyId = await shopifyGraphQLConReintento(domain, accessToken, queryId, { handle });
+      const gid = bodyId.data?.collectionByHandle?.id || null;
+      let bodyProductos = null;
+      if (gid) {
+        const queryProductos = `query($id: ID!) { collection(id: $id) { id title productsCount { count } products(first: 5) { edges { node { id title } } pageInfo { hasNextPage } } } }`;
+        bodyProductos = await shopifyGraphQLConReintento(domain, accessToken, queryProductos, { id: gid });
+      }
+      return res.status(200).json({ handle, resolucionPorHandle: bodyId, gid, primeraPaginaProductos: bodyProductos });
+    } catch (err) {
+      return res.status(200).json({ handle, error: String(err) });
+    }
+  }
+
   // En serie, no en paralelo -- 3 consultas de colección a la vez suman su
   // costo de golpe contra el mismo cupo de Shopify; en serie el cupo tiene
   // tiempo de recuperarse entre una y otra.
