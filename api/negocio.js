@@ -3629,6 +3629,34 @@ const COLECCIONES_MODELOS_NOTEBOOK = {
   cargador: 'cargadores-notebook-modelos-equipos',
 };
 
+// Llama al GraphQL de Shopify con reintento automático si responde
+// THROTTLED (cupo de "costo" agotado -- ver
+// https://shopify.dev/api/usage/rate-limits). Esta página YA hace una
+// consulta pesada al catálogo completo justo antes (alertas-stock-shopify,
+// hasta 60 páginas) -- sin este reintento, las colecciones llegaban a
+// pedir justo cuando el cupo todavía no se recuperaba y fallaban las 3 de
+// una, con "0 modelos detectados" sin explicación visible (caso real
+// reportado por el usuario).
+async function shopifyGraphQLConReintento(domain, accessToken, query, variables) {
+  const intentosMax = 4;
+  for (let intento = 0; intento < intentosMax; intento++) {
+    const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables }),
+    }, 20000);
+    if (!r.ok) throw new Error(`Shopify HTTP ${r.status}`);
+    const body = await r.json();
+    const throttled = Array.isArray(body.errors) && body.errors.some(e => e.extensions?.code === 'THROTTLED');
+    if (throttled && intento < intentosMax - 1) {
+      await new Promise(res => setTimeout(res, 1500 * (intento + 1))); // espera creciente: 1.5s, 3s, 4.5s
+      continue;
+    }
+    if (body.errors) throw new Error(`Shopify GraphQL error: ${JSON.stringify(body.errors).slice(0, 300)}`);
+    return body;
+  }
+}
+
 async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle) {
   const productos = [];
   const query = `
@@ -3643,14 +3671,7 @@ async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle)
   `;
   let cursor = null, guard = 0;
   while (guard < 30) { // tope de seguridad: 30 páginas (~3.000 productos) por colección
-    const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
-      method: 'POST',
-      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: { handle, cursor } }),
-    }, 20000);
-    if (!r.ok) throw new Error(`Shopify HTTP ${r.status} en colección "${handle}"`);
-    const body = await r.json();
-    if (body.errors) throw new Error(`Shopify GraphQL error en colección "${handle}": ${JSON.stringify(body.errors).slice(0, 300)}`);
+    const body = await shopifyGraphQLConReintento(domain, accessToken, query, { handle, cursor });
     const coleccion = body.data?.collectionByHandle;
     if (!coleccion) throw new Error(`No se encontró la colección "${handle}" en Shopify (¿el handle cambió?)`);
     const conexion = coleccion.products;
@@ -3674,9 +3695,12 @@ async function manejarColeccionesModelosNotebook(req, res, sesion) {
   if (!acceso) return res.status(200).json({ error: 'Faltan credenciales de Shopify (SHOPIFY_STORE_DOMAIN/CLIENT_ID/CLIENT_SECRET)' });
   const { domain, accessToken } = acceso;
 
+  // En serie, no en paralelo -- 3 consultas de colección a la vez suman su
+  // costo de golpe contra el mismo cupo de Shopify; en serie el cupo tiene
+  // tiempo de recuperarse entre una y otra.
   const resultado = {};
   const erroresPorCategoria = {};
-  await Promise.all(Object.entries(COLECCIONES_MODELOS_NOTEBOOK).map(async ([categoria, handle]) => {
+  for (const [categoria, handle] of Object.entries(COLECCIONES_MODELOS_NOTEBOOK)) {
     try {
       resultado[categoria] = await obtenerProductosDeColeccionPorHandle(domain, accessToken, handle);
     } catch (err) {
@@ -3684,7 +3708,7 @@ async function manejarColeccionesModelosNotebook(req, res, sesion) {
       erroresPorCategoria[categoria] = String(err);
       resultado[categoria] = [];
     }
-  }));
+  }
 
   return res.status(200).json({ ...resultado, erroresPorCategoria: Object.keys(erroresPorCategoria).length ? erroresPorCategoria : null });
 }
