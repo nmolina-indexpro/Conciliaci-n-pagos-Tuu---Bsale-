@@ -3655,10 +3655,24 @@ async function shopifyGraphQLConReintento(domain, accessToken, query, variables)
 }
 
 async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle) {
+  // 1) Resuelve el handle a ID numérico -- consulta liviana aparte, solo
+  // pide el id (no products), para no depender de cómo resuelva
+  // "collectionByHandle" la conexión de productos (que en la práctica
+  // devolvió 0 productos siempre, aunque la colección sí tenga -- caso
+  // real reportado por el usuario).
+  const queryId = `query($handle: String!) { collectionByHandle(handle: $handle) { id } }`;
+  const bodyId = await shopifyGraphQLConReintento(domain, accessToken, queryId, { handle });
+  const gid = bodyId.data?.collectionByHandle?.id;
+  if (!gid) throw new Error(`No se encontró la colección "${handle}" en Shopify (¿el handle cambió?)`);
+
+  // 2) Pagina los productos por ID con "collection(id:)" -- mismo patrón
+  // que ya se sabía que funcionaba (usado antes en la función "agotados"
+  // que existía en shopify-report.js, ver historial), a diferencia de
+  // "collectionByHandle(...).products" que en la práctica no traía nada.
   const productos = [];
   const query = `
-    query($handle: String!, $cursor: String) {
-      collectionByHandle(handle: $handle) {
+    query($id: ID!, $cursor: String) {
+      collection(id: $id) {
         products(first: 100, after: $cursor) {
           edges { node { id title variants(first: 5) { edges { node { sku } } } } }
           pageInfo { hasNextPage endCursor }
@@ -3668,10 +3682,9 @@ async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle)
   `;
   let cursor = null, guard = 0;
   while (guard < 30) { // tope de seguridad: 30 páginas (~3.000 productos) por colección
-    const body = await shopifyGraphQLConReintento(domain, accessToken, query, { handle, cursor });
-    const coleccion = body.data?.collectionByHandle;
-    if (!coleccion) throw new Error(`No se encontró la colección "${handle}" en Shopify (¿el handle cambió?)`);
-    const conexion = coleccion.products;
+    const body = await shopifyGraphQLConReintento(domain, accessToken, query, { id: gid, cursor });
+    const conexion = body.data?.collection?.products;
+    if (!conexion) break;
     for (const { node: p } of conexion.edges) {
       const idNumerico = p.id.split('/').pop();
       for (const { node: v } of (p.variants?.edges || [])) {
