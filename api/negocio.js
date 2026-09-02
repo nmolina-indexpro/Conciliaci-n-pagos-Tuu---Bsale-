@@ -3658,7 +3658,23 @@ async function shopifyGraphQLConReintento(domain, accessToken, query, variables)
   }
 }
 
-async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle) {
+// El SKU real de estos productos de referencia no vive en la variante
+// (viene vacía/null -- comprobado contra Shopify) sino en un metacampo
+// -- distinto por categoría, encontrado inspeccionando productos reales
+// de cada colección:
+//   pantalla -> custom.sku_base_pantallas (lista, ej. ["PSLIM08"])
+//   bateria  -> custom.sku_base_baterias  (lista, ej. ["BATHP10"])
+//   cargador -> custom.sku_base           (texto simple, ej. "CARDXAC01")
+// Ese SKU base es el que de verdad existe como producto vendible en
+// Shopify/Bsale (confirmado: coincide con el SKU real del producto que
+// referencia el metacampo "producto_real_bsale").
+const METACAMPO_SKU_POR_CATEGORIA = {
+  pantalla: { namespace: 'custom', key: 'sku_base_pantallas' },
+  bateria: { namespace: 'custom', key: 'sku_base_baterias' },
+  cargador: { namespace: 'custom', key: 'sku_base' },
+};
+
+async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle, categoria) {
   // 1) Resuelve el handle a ID numérico -- consulta liviana aparte, solo
   // pide el id (no products), para no depender de cómo resuelva
   // "collectionByHandle" la conexión de productos (que en la práctica
@@ -3673,12 +3689,17 @@ async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle)
   // que ya se sabía que funcionaba (usado antes en la función "agotados"
   // que existía en shopify-report.js, ver historial), a diferencia de
   // "collectionByHandle(...).products" que en la práctica no traía nada.
+  const metaSpec = METACAMPO_SKU_POR_CATEGORIA[categoria] || null;
   const productos = [];
   const query = `
-    query($id: ID!, $cursor: String) {
+    query($id: ID!, $cursor: String, $ns: String!, $key: String!) {
       collection(id: $id) {
         products(first: 100, after: $cursor) {
-          edges { node { id title variants(first: 5) { edges { node { sku } } } } }
+          edges { node {
+            id title
+            variants(first: 5) { edges { node { sku } } }
+            skuMeta: metafield(namespace: $ns, key: $key) { value type }
+          } }
           pageInfo { hasNextPage endCursor }
         }
       }
@@ -3686,22 +3707,26 @@ async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle)
   `;
   let cursor = null, guard = 0;
   while (guard < 30) { // tope de seguridad: 30 páginas (~3.000 productos) por colección
-    const body = await shopifyGraphQLConReintento(domain, accessToken, query, { id: gid, cursor });
+    const body = await shopifyGraphQLConReintento(domain, accessToken, query, {
+      id: gid, cursor, ns: metaSpec?.namespace || 'custom', key: metaSpec?.key || 'sku_base',
+    });
     const conexion = body.data?.collection?.products;
     if (!conexion) break;
     for (const { node: p } of conexion.edges) {
       const idNumerico = p.id.split('/').pop();
-      // Estos productos son de colecciones de referencia ("qué modelos
-      // existen"), no de inventario real -- comprobado contra Shopify: la
-      // variante "Default Title" viene con sku vacío/null en la práctica
-      // (ej. "Pantalla Acer Aspire 1 A114-32 HD"). Antes se descartaba el
-      // producto entero si no tenía sku, así que las 3 colecciones siempre
-      // volvían vacías sin ningún error. Ahora se guarda igual (sku puede
-      // quedar null) porque lo que importa acá es el TÍTULO para extraer
-      // marca+modelo -- el sku real (si aplica) se completa después con la
-      // búsqueda de respaldo contra el catálogo completo.
-      const primeraSku = (p.variants?.edges || []).map(e => e.node.sku).find(s => s) || null;
-      productos.push({ sku: primeraSku, titulo: p.title, adminUrl: `https://${domain}/admin/products/${idNumerico}` });
+      let skuMeta = null;
+      const mf = p.skuMeta;
+      if (mf?.value) {
+        try {
+          skuMeta = mf.type?.startsWith('list.') ? (JSON.parse(mf.value)[0] || null) : mf.value;
+        } catch { skuMeta = null; }
+      }
+      // Si por lo que sea el producto no tiene el metacampo esperado, se
+      // guarda igual (sku puede quedar null) -- lo que importa acá es el
+      // TÍTULO para extraer marca+modelo; el sku se completa después con
+      // la búsqueda de respaldo contra el catálogo completo si hace falta.
+      const primeraVarianteSku = (p.variants?.edges || []).map(e => e.node.sku).find(s => s) || null;
+      productos.push({ sku: skuMeta || primeraVarianteSku, titulo: p.title, adminUrl: `https://${domain}/admin/products/${idNumerico}` });
     }
     if (!conexion.pageInfo.hasNextPage) break;
     cursor = conexion.pageInfo.endCursor;
@@ -3747,7 +3772,7 @@ async function manejarColeccionesModelosNotebook(req, res, sesion) {
   const erroresPorCategoria = {};
   for (const [categoria, handle] of Object.entries(COLECCIONES_MODELOS_NOTEBOOK)) {
     try {
-      resultado[categoria] = await obtenerProductosDeColeccionPorHandle(domain, accessToken, handle);
+      resultado[categoria] = await obtenerProductosDeColeccionPorHandle(domain, accessToken, handle, categoria);
     } catch (err) {
       console.warn('[colecciones-modelos-notebook]', categoria, err);
       erroresPorCategoria[categoria] = String(err);
