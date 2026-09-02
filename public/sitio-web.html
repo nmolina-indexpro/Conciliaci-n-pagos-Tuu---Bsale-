@@ -503,6 +503,34 @@ function seleccionarMarca(marca){
 function seleccionarSerie(serie){
   serieSeleccionada = serie;
   renderNavegacionModelos();
+  buscarPendientesVisibles();
+}
+// La búsqueda de respaldo al cargar la página (ver procesarBusquedaBateriaCargador)
+// solo alcanza a procesar los primeros TOPE_BUSQUEDA de ~700+ candidatos en
+// el orden en que salieron del catálogo -- nada garantiza que los de la
+// marca+serie que la persona elige después estén entre esos primeros, así
+// que quedaban en "buscando…" para siempre sin que "Seguir buscando"
+// llegara a ellos pronto (caso real reportado por el usuario: Asus
+// ZenBook). Al elegir una serie, se prioriza buscar justo lo que se está
+// viendo, sacándolo primero de la cola general si ya estaba ahí.
+async function buscarPendientesVisibles(){
+  const pendientes = candidatosVisibles().filter(c => c.buscando);
+  if(!pendientes.length) return;
+  const claves = new Set(pendientes.map(c => c.clave));
+  colaPendientesBusqueda = colaPendientesBusqueda.filter(c => !claves.has(c.clave));
+  const aProcesar = pendientes.slice(0, TOPE_BUSQUEDA);
+  const resto = pendientes.slice(TOPE_BUSQUEDA);
+  if(resto.length) colaPendientesBusqueda = [...resto, ...colaPendientesBusqueda];
+  actualizarBotonSeguirBuscando();
+  const marcaAlBuscar = marcaSeleccionada, serieAlBuscar = serieSeleccionada;
+  $('estadoDescubrimiento').textContent = `Buscando batería/pantalla/cargador para los ${aProcesar.length} modelo(s) de ${marcaAlBuscar} ${serieAlBuscar}...`;
+  await buscarLotePendientes(aProcesar);
+  actualizarBotonSeguirBuscando();
+  // Si mientras tanto la persona cambió de marca/serie, no pisa el estado
+  // de la vista nueva con el resumen de la búsqueda vieja.
+  if(marcaSeleccionada === marcaAlBuscar && serieSeleccionada === serieAlBuscar){
+    $('estadoDescubrimiento').textContent = `Listo -- ${marcaAlBuscar} ${serieAlBuscar} completado. ${resumenConteosColecciones()}`;
+  }
 }
 function volverAMarcas(){
   marcaSeleccionada = null;
