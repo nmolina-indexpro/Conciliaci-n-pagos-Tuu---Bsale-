@@ -523,7 +523,7 @@ function renderNavMarcas(){
   }
   cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">1. Elige una marca:</div>` +
     conteos.map(([marca, n]) => `
-      <button class="${marca === marcaSeleccionada ? 'btn-primary' : 'btn-ghost'} btn-compact" style="margin:0 6px 6px 0;" onclick="seleccionarMarca(${JSON.stringify(marca)})">${marca} <span style="opacity:.75;">(${n})</span></button>
+      <button class="${marca === marcaSeleccionada ? 'btn-primary' : 'btn-ghost'} btn-compact" style="margin:0 6px 6px 0;" onclick='seleccionarMarca(${JSON.stringify(marca)})'>${marca} <span style="opacity:.75;">(${n})</span></button>
     `).join('');
 }
 function renderNavSeries(){
@@ -532,7 +532,7 @@ function renderNavSeries(){
   const conteos = contarPorSerie(marcaSeleccionada);
   cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin:10px 0 6px 0;">2. Elige una serie de ${marcaSeleccionada}: <button class="btn-ghost btn-compact" style="margin-left:8px;" onclick="volverAMarcas()">← Cambiar marca</button></div>` +
     conteos.map(([serie, n]) => `
-      <button class="${serie === serieSeleccionada ? 'btn-primary' : 'btn-ghost'} btn-compact" style="margin:0 6px 6px 0;" onclick="seleccionarSerie(${JSON.stringify(serie)})">${serie} <span style="opacity:.75;">(${n})</span></button>
+      <button class="${serie === serieSeleccionada ? 'btn-primary' : 'btn-ghost'} btn-compact" style="margin:0 6px 6px 0;" onclick='seleccionarSerie(${JSON.stringify(serie)})'>${serie} <span style="opacity:.75;">(${n})</span></button>
     `).join('');
 }
 function actualizarModeloDescubierto(clave, valor){
@@ -561,12 +561,12 @@ function renderTablaDescubrimiento(){
   tbody.innerHTML = visibles.map(c => `
     <tr>
       <td>${c.marca}</td>
-      <td><input type="text" value="${c.modelo}" onchange="actualizarModeloDescubierto(${JSON.stringify(c.clave)}, this.value)" style="width:210px;"></td>
+      <td><input type="text" value="${c.modelo}" onchange='actualizarModeloDescubierto(${JSON.stringify(c.clave)}, this.value)' style="width:210px;"></td>
       <td class="empty-note" style="max-width:260px;font-size:11px;" title="${c.tituloOriginal}">${c.tituloOriginal}</td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuPantalla ? `<code>${c.skuPantalla}</code>` : '<span class="empty-note">sin match</span>')}</td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuBateria ? `<code>${c.skuBateria}</code>` : '<span class="empty-note">sin match</span>')}</td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuCargador ? `<code>${c.skuCargador}</code>` : '<span class="empty-note">sin match</span>')}</td>
-      <td><button class="btn-ghost btn-compact" onclick="guardarUnoDescubierto(${JSON.stringify(c.clave)})">💾</button></td>
+      <td><button class="btn-ghost btn-compact" onclick='guardarUnoDescubierto(${JSON.stringify(c.clave)})'>💾</button></td>
     </tr>
   `).join('');
   btnGuardar.style.display = '';
