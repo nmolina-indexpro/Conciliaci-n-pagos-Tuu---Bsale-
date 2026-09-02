@@ -3214,14 +3214,18 @@ async function consultarShopify(domain, accessToken, palabras) {
   if (!palabras.length) return [];
   const q = palabras.map(p => `title:*${p}*`).join(' AND ');
   const query = `query($q: String!) { products(first: 8, query: $q) { edges { node { title onlineStoreUrl variants(first: 1) { edges { node { sku } } } } } } }`;
-  const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
-    method: 'POST',
-    headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables: { q } }),
-  }, 12000);
-  if (!r.ok) { console.warn('[buscarProductoShopify] error HTTP en la búsqueda', q, r.status); return []; }
-  const body = await r.json().catch(() => ({}));
-  if (body.errors) { console.warn('[buscarProductoShopify] GraphQL devolvió errores', q, JSON.stringify(body.errors).slice(0, 300)); return []; }
+  // Usa el mismo reintento con espera creciente que el resto de las
+  // consultas a Shopify -- "Compatibilidad de modelos" ahora dispara varias
+  // de estas en paralelo (ver procesarBusquedaBateriaCargador en
+  // sitio-web.html), así que un THROTTLED puntual ya no debe perderse la
+  // búsqueda entera silenciosamente.
+  let body;
+  try {
+    body = await shopifyGraphQLConReintento(domain, accessToken, query, { q });
+  } catch (err) {
+    console.warn('[buscarProductoShopify] error en la búsqueda', q, String(err));
+    return [];
+  }
   const total = (body.data?.products?.edges || []).length;
   const candidatos = (body.data?.products?.edges || []).filter(e => e.node.onlineStoreUrl);
   if (total > 0 && candidatos.length === 0) console.warn('[buscarProductoShopify] hubo resultados pero ninguno publicado en la tienda online', q, `(${total} total)`);

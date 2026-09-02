@@ -286,10 +286,16 @@ async function cargar(){
 // bien pero no se pudo extraer marca+modelo del título".
 let ultimosConteosColecciones = { pantalla: 0, bateria: 0, cargador: 0 };
 let ultimosErroresColecciones = null; // se muestra SIEMPRE junto al resumen final -- ver resumenConteosColecciones (antes se perdía: procesarBusquedaBateriaCargador sobreescribía el aviso de error casi al toque)
+let ultimoOmitidosYaGuardados = 0; // modelos que no se vuelven a mostrar/buscar porque ya están en "Compatibilidad de modelos" -- ver iniciarDescubrimientoModelos
 async function cargarColeccionesYDescubrir(){
   $('estadoDescubrimiento').textContent = 'Consultando las colecciones de pantalla/batería/cargador por modelo...';
   ultimosErroresColecciones = null;
   try{
+    // Espera a que "Compatibilidad de modelos" (memoria persistente en la
+    // base de datos) esté cargada antes de descubrir -- así los modelos que
+    // el usuario ya guardó en una carga anterior no se vuelven a mostrar ni
+    // a buscar en Shopify de nuevo cada vez que se abre la página.
+    if(promesaModelosCompatIniciales) await promesaModelosCompatIniciales;
     const data = await fetch('/api/negocio?recurso=colecciones-modelos-notebook').then(r=>r.json());
     if(data.error){ $('estadoDescubrimiento').textContent = data.error; return; }
     ultimosConteosColecciones = { pantalla: (data.pantalla||[]).length, bateria: (data.bateria||[]).length, cargador: (data.cargador||[]).length };
@@ -302,6 +308,7 @@ async function cargarColeccionesYDescubrir(){
 function resumenConteosColecciones(){
   const c = ultimosConteosColecciones;
   let resumen = `Colecciones: ${c.pantalla} pantalla(s), ${c.bateria} batería(s), ${c.cargador} cargador(es).`;
+  if(ultimoOmitidosYaGuardados > 0) resumen += ` ${ultimoOmitidosYaGuardados} modelo(s) omitido(s) por ya estar guardado(s) en Compatibilidad.`;
   if(ultimosErroresColecciones){
     const detalle = Object.entries(ultimosErroresColecciones).map(([cat,msg]) => `${cat}: ${msg}`).join(' · ');
     resumen += ` ⚠ ${detalle}`;
@@ -384,8 +391,16 @@ function iniciarDescubrimientoModelos(coleccionesPorCategoria){
   }
   // 3) Arma la lista final -- el texto de modelo que se muestra es el de
   // la fuente más específica disponible (pantalla > batería > cargador).
+  // Se omiten los modelos que ya están guardados en "Compatibilidad de
+  // modelos" (misma clave marca+serie) -- si no, cada carga de la página
+  // vuelve a mostrar y a buscar en Shopify modelos que el usuario ya
+  // confirmó y guardó antes, lo que hacía la carga cada vez más lenta a
+  // medida que se guardaban más modelos.
+  const clavesYaGuardadas = new Set(ultimosModelosCompat.map(m => claveAgrupacionModelo(m.marca, m.modelo)));
   candidatosDescubiertos = [];
-  for(const entrada of mapaPorClave.values()){
+  ultimoOmitidosYaGuardados = 0;
+  for(const [clave, entrada] of mapaPorClave.entries()){
+    if(clavesYaGuardadas.has(clave)){ ultimoOmitidosYaGuardados++; continue; }
     const fuente = entrada.pantalla || entrada.bateria || entrada.cargador;
     candidatosDescubiertos.push({
       marca: entrada.marca, modelo: fuente.modelo, tituloOriginal: fuente.tituloOriginal,
@@ -431,23 +446,26 @@ async function procesarBusquedaBateriaCargador(){
     return;
   }
   const TOPE = 25; // ritmo suave -- no golpear Shopify de más con cientos de búsquedas seguidas
-  $('estadoDescubrimiento').textContent = `${candidatosDescubiertos.length} modelo(s) detectado(s) -- completando batería/cargador faltantes (respaldo) para los primeros ${Math.min(TOPE, pendientes.length)} de ${pendientes.length}...`;
+  const CONCURRENCIA = 5; // varias búsquedas a la vez en vez de una por una con pausa fija -- cada búsqueda ya hace sus propias 3 consultas en paralelo (ver buscarSkusModeloNotebook) y el cupo de Shopify es amplio (2000, se recupera 100/seg), así que este es el cuello de botella real de tiempo de carga
+  const aProcesar = pendientes.slice(0, TOPE);
+  $('estadoDescubrimiento').textContent = `${candidatosDescubiertos.length} modelo(s) detectado(s) -- completando batería/cargador/pantalla faltantes (respaldo) para los primeros ${aProcesar.length} de ${pendientes.length}...`;
   let procesados = 0;
-  for(let i = 0; i < pendientes.length && i < TOPE; i++){
-    const c = pendientes[i];
-    try{
-      const data = await fetch(`/api/negocio?recurso=buscar-repuestos-modelo&marca=${encodeURIComponent(c.marca)}&modelo=${encodeURIComponent(c.modelo)}`).then(r=>r.json());
-      if(!data.error){
-        if(!c.skuPantalla && data.pantalla?.sku) c.skuPantalla = data.pantalla.sku;
-        if(!c.skuBateria && data.bateria?.sku) c.skuBateria = data.bateria.sku;
-        if(!c.skuCargador && data.cargador?.sku) c.skuCargador = data.cargador.sku;
-      }
-    }catch(err){ /* deja sin match, sigue con el resto */ }
-    c.buscando = false;
-    procesados++;
+  for(let i = 0; i < aProcesar.length; i += CONCURRENCIA){
+    const lote = aProcesar.slice(i, i + CONCURRENCIA);
+    await Promise.all(lote.map(async c => {
+      try{
+        const data = await fetch(`/api/negocio?recurso=buscar-repuestos-modelo&marca=${encodeURIComponent(c.marca)}&modelo=${encodeURIComponent(c.modelo)}`).then(r=>r.json());
+        if(!data.error){
+          if(!c.skuPantalla && data.pantalla?.sku) c.skuPantalla = data.pantalla.sku;
+          if(!c.skuBateria && data.bateria?.sku) c.skuBateria = data.bateria.sku;
+          if(!c.skuCargador && data.cargador?.sku) c.skuCargador = data.cargador.sku;
+        }
+      }catch(err){ /* deja sin match, sigue con el resto */ }
+      c.buscando = false;
+      procesados++;
+    }));
     renderTablaDescubrimiento();
-    $('estadoDescubrimiento').textContent = `Completando datos faltantes (respaldo)... ${procesados} de ${Math.min(TOPE, pendientes.length)} revisados.`;
-    await new Promise(r => setTimeout(r, 250));
+    $('estadoDescubrimiento').textContent = `Completando datos faltantes (respaldo)... ${procesados} de ${aProcesar.length} revisados.`;
   }
   for(let i = TOPE; i < pendientes.length; i++) pendientes[i].buscando = false;
   renderTablaDescubrimiento();
@@ -494,6 +512,7 @@ async function guardarTodosDescubiertos(){
 let editandoCompatId = null;
 
 let ultimosModelosCompat = [];
+let promesaModelosCompatIniciales = null; // ver cargarColeccionesYDescubrir -- descubrimiento espera esto para saber qué modelos omitir
 
 async function cargarModelosCompat(){
   const tbody = $('tablaCompat');
@@ -645,7 +664,7 @@ async function cerrarSesion(){
 }
 
 cargar();
-cargarModelosCompat();
+promesaModelosCompatIniciales = cargarModelosCompat();
 cargarSesionUsuario();
 
 // Autocompletado sin botón: apenas hay marca y modelo escritos, busca sola
