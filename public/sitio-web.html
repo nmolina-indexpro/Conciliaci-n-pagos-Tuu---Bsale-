@@ -160,6 +160,10 @@
 <script>
 const $ = id => document.getElementById(id);
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+function debounce(fn, ms){
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
 // ---------- Aviso: stock en Bsale pero no visible en Shopify ----------
 // Cruza el stock real de Bsale contra el estado de cada SKU en Shopify --
 // si un producto tiene stock disponible pero está "draft"/"archived" en la
@@ -291,11 +295,14 @@ function renderTablaCompat(modelos){
 // WhatsApp) los repuestos que calzan con la marca+modelo escritos, y
 // pre-rellena los 3 campos de SKU -- el usuario revisa/corrige antes de
 // guardar, nunca se guarda solo por buscar.
-async function buscarEnShopifyCompat(){
+async function buscarEnShopifyCompat(automatico){
   const marca = $('fCompatMarca').value.trim();
   const modelo = $('fCompatModelo').value.trim();
   if(!marca || !modelo){
-    $('errorCompat').innerHTML = '<p class="empty-note" style="color:var(--red);">Escribe marca y modelo antes de buscar.</p>';
+    // Disparo automático (al escribir): si todavía falta un campo, espera
+    // en silencio a que se complete en vez de mostrar un error en cada
+    // tecla.
+    if(!automatico) $('errorCompat').innerHTML = '<p class="empty-note" style="color:var(--red);">Escribe marca y modelo antes de buscar.</p>';
     return;
   }
   const btn = $('btnBuscarShopifyCompat');
@@ -406,6 +413,14 @@ async function cerrarSesion(){
 cargar();
 cargarModelosCompat();
 cargarSesionUsuario();
+
+// Autocompletado sin botón: apenas hay marca y modelo escritos, busca sola
+// en Shopify (debounced -- no dispara en cada tecla, espera a que la
+// persona pare de escribir un momento). El botón "🔍 Buscar en Shopify"
+// se deja igual para poder re-disparar la búsqueda a mano cuando haga falta.
+const buscarAutoCompatDebounced = debounce(() => buscarEnShopifyCompat(true), 600);
+$('fCompatMarca').addEventListener('input', buscarAutoCompatDebounced);
+$('fCompatModelo').addEventListener('input', buscarAutoCompatDebounced);
 </script>
 </body>
 </html>
