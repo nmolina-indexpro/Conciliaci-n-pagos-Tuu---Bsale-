@@ -3687,10 +3687,17 @@ async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle)
     if (!conexion) break;
     for (const { node: p } of conexion.edges) {
       const idNumerico = p.id.split('/').pop();
-      for (const { node: v } of (p.variants?.edges || [])) {
-        if (!v.sku) continue;
-        productos.push({ sku: v.sku, titulo: p.title, adminUrl: `https://${domain}/admin/products/${idNumerico}` });
-      }
+      // Estos productos son de colecciones de referencia ("qué modelos
+      // existen"), no de inventario real -- comprobado contra Shopify: la
+      // variante "Default Title" viene con sku vacío/null en la práctica
+      // (ej. "Pantalla Acer Aspire 1 A114-32 HD"). Antes se descartaba el
+      // producto entero si no tenía sku, así que las 3 colecciones siempre
+      // volvían vacías sin ningún error. Ahora se guarda igual (sku puede
+      // quedar null) porque lo que importa acá es el TÍTULO para extraer
+      // marca+modelo -- el sku real (si aplica) se completa después con la
+      // búsqueda de respaldo contra el catálogo completo.
+      const primeraSku = (p.variants?.edges || []).map(e => e.node.sku).find(s => s) || null;
+      productos.push({ sku: primeraSku, titulo: p.title, adminUrl: `https://${domain}/admin/products/${idNumerico}` });
     }
     if (!conexion.pageInfo.hasNextPage) break;
     cursor = conexion.pageInfo.endCursor;

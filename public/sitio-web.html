@@ -390,7 +390,11 @@ function iniciarDescubrimientoModelos(coleccionesPorCategoria){
     candidatosDescubiertos.push({
       marca: entrada.marca, modelo: fuente.modelo, tituloOriginal: fuente.tituloOriginal,
       skuPantalla: entrada.pantalla?.sku || null, skuBateria: entrada.bateria?.sku || null, skuCargador: entrada.cargador?.sku || null,
-      buscando: !(entrada.pantalla && entrada.bateria && entrada.cargador), // ya completo con match directo -> no hace falta buscar
+      // Estas colecciones son de referencia (solo título, casi nunca traen
+      // sku real -- comprobado contra Shopify) -- lo que de verdad importa
+      // para saber si falta buscar es si YA hay un sku utilizable, no si
+      // hubo match de título por categoría.
+      buscando: !(entrada.pantalla?.sku && entrada.bateria?.sku && entrada.cargador?.sku),
     });
   }
   renderTablaDescubrimiento();
@@ -408,7 +412,7 @@ function renderTablaDescubrimiento(){
       <td>${c.marca}</td>
       <td><input type="text" value="${c.modelo}" onchange="candidatosDescubiertos[${i}].modelo = this.value" style="width:210px;"></td>
       <td class="empty-note" style="max-width:260px;font-size:11px;" title="${c.tituloOriginal}">${c.tituloOriginal}</td>
-      <td><code>${c.skuPantalla}</code></td>
+      <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuPantalla ? `<code>${c.skuPantalla}</code>` : '<span class="empty-note">sin match</span>')}</td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuBateria ? `<code>${c.skuBateria}</code>` : '<span class="empty-note">sin match</span>')}</td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuCargador ? `<code>${c.skuCargador}</code>` : '<span class="empty-note">sin match</span>')}</td>
       <td><button class="btn-ghost btn-compact" onclick="guardarUnoDescubierto(${i})">💾</button></td>
@@ -434,6 +438,7 @@ async function procesarBusquedaBateriaCargador(){
     try{
       const data = await fetch(`/api/negocio?recurso=buscar-repuestos-modelo&marca=${encodeURIComponent(c.marca)}&modelo=${encodeURIComponent(c.modelo)}`).then(r=>r.json());
       if(!data.error){
+        if(!c.skuPantalla && data.pantalla?.sku) c.skuPantalla = data.pantalla.sku;
         if(!c.skuBateria && data.bateria?.sku) c.skuBateria = data.bateria.sku;
         if(!c.skuCargador && data.cargador?.sku) c.skuCargador = data.cargador.sku;
       }
