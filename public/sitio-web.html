@@ -280,11 +280,17 @@ async function cargar(){
 // título, que podía dar falsos positivos/negativos. Petición aparte de
 // alertas-stock-shopify porque es una consulta distinta a Shopify
 // (colecciones puntuales, no el catálogo completo).
+// Conteos crudos de cada colección -- se muestran siempre en el estado
+// final (ver iniciarDescubrimientoModelos/procesarBusquedaBateriaCargador)
+// para poder distinguir "las colecciones vinieron vacías/mal" de "vinieron
+// bien pero no se pudo extraer marca+modelo del título".
+let ultimosConteosColecciones = { pantalla: 0, bateria: 0, cargador: 0 };
 async function cargarColeccionesYDescubrir(){
   $('estadoDescubrimiento').textContent = 'Consultando las colecciones de pantalla/batería/cargador por modelo...';
   try{
     const data = await fetch('/api/negocio?recurso=colecciones-modelos-notebook').then(r=>r.json());
     if(data.error){ $('estadoDescubrimiento').textContent = data.error; return; }
+    ultimosConteosColecciones = { pantalla: (data.pantalla||[]).length, bateria: (data.bateria||[]).length, cargador: (data.cargador||[]).length };
     if(data.erroresPorCategoria){
       const detalle = Object.entries(data.erroresPorCategoria).map(([cat,msg]) => `${cat}: ${msg}`).join(' · ');
       $('estadoDescubrimiento').textContent = `⚠ Alguna colección no se pudo leer -- ${detalle}`;
@@ -293,6 +299,10 @@ async function cargarColeccionesYDescubrir(){
   }catch(err){
     $('estadoDescubrimiento').textContent = 'Error consultando las colecciones: ' + err.message;
   }
+}
+function resumenConteosColecciones(){
+  const c = ultimosConteosColecciones;
+  return `Colecciones: ${c.pantalla} pantalla(s), ${c.bateria} batería(s), ${c.cargador} cargador(es).`;
 }
 
 // ---------- Descubrimiento automático de modelos ----------
@@ -385,7 +395,7 @@ function iniciarDescubrimientoModelos(coleccionesPorCategoria){
 function renderTablaDescubrimiento(){
   const tbody = $('tablaDescubrimiento');
   if(!candidatosDescubiertos.length){
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-note">No se detectaron modelos nuevos en los productos de pantalla del catálogo.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-note">No se detectó ningún modelo en las 3 colecciones (revisa el detalle de arriba).</td></tr>';
     $('btnGuardarDescubiertos').style.display = 'none';
     return;
   }
@@ -409,7 +419,7 @@ async function procesarBusquedaBateriaCargador(){
   // difusa (buscar-repuestos-modelo).
   const pendientes = candidatosDescubiertos.filter(c => c.buscando);
   if(!pendientes.length){
-    $('estadoDescubrimiento').textContent = `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s), todos con match directo en el catálogo (pantalla+batería+cargador ya vinculados por serie).`;
+    $('estadoDescubrimiento').textContent = `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s), todos con match directo en el catálogo (pantalla+batería+cargador ya vinculados por serie). ${resumenConteosColecciones()}`;
     return;
   }
   const TOPE = 25; // ritmo suave -- no golpear Shopify de más con cientos de búsquedas seguidas
@@ -432,9 +442,9 @@ async function procesarBusquedaBateriaCargador(){
   }
   for(let i = TOPE; i < pendientes.length; i++) pendientes[i].buscando = false;
   renderTablaDescubrimiento();
-  $('estadoDescubrimiento').textContent = pendientes.length > TOPE
+  $('estadoDescubrimiento').textContent = (pendientes.length > TOPE
     ? `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s). Se completaron los primeros ${TOPE} pendientes; el resto quedó sin buscar batería/cargador automáticamente para no sobrecargar Shopify -- guárdalos igual y usa "Buscar en Shopify" arriba para completarlos uno por uno.`
-    : `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s). Revisa marca/modelo/batería/cargador antes de guardar.`;
+    : `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s). Revisa marca/modelo/batería/cargador antes de guardar.`) + ' ' + resumenConteosColecciones();
 }
 async function guardarUnoDescubierto(i){
   const c = candidatosDescubiertos[i];
