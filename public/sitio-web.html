@@ -167,6 +167,7 @@
     </table></div>
     <div style="margin-top:14px;">
       <button class="btn-primary btn-compact" id="btnGuardarDescubiertos" onclick="guardarTodosDescubiertos()" style="display:none;">💾 Guardar todos en la tabla de arriba</button>
+      <button class="btn-ghost btn-compact" id="btnSeguirBuscando" onclick="continuarBusquedaPendientes()" style="display:none;">🔍 Seguir buscando en los que faltan</button>
     </div>
   </div>
 
@@ -435,23 +436,23 @@ function renderTablaDescubrimiento(){
   `).join('');
   $('btnGuardarDescubiertos').style.display = '';
 }
-async function procesarBusquedaBateriaCargador(){
-  // Solo respaldo: los que ya quedaron completos con match directo del
-  // catálogo (agrupados por serie, ver iniciarDescubrimientoModelos) no
-  // se tocan -- esto solo intenta rellenar lo que faltó con la búsqueda
-  // difusa (buscar-repuestos-modelo).
-  const pendientes = candidatosDescubiertos.filter(c => c.buscando);
-  if(!pendientes.length){
-    $('estadoDescubrimiento').textContent = `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s), todos con match directo en el catálogo (pantalla+batería+cargador ya vinculados por serie). ${resumenConteosColecciones()}`;
-    return;
+const TOPE_BUSQUEDA = 25; // ritmo suave por tanda -- no golpear Shopify de más con cientos de búsquedas seguidas
+const CONCURRENCIA_BUSQUEDA = 5; // varias búsquedas a la vez en vez de una por una con pausa fija -- cada búsqueda ya hace sus propias 3 consultas en paralelo (ver buscarSkusModeloNotebook) y el cupo de Shopify es amplio (2000, se recupera 100/seg), así que este es el cuello de botella real de tiempo de carga
+let colaPendientesBusqueda = []; // lo que NO entró en la tanda actual -- se sigue buscando con el botón "Seguir buscando", no se pierde silenciosamente
+function actualizarBotonSeguirBuscando(){
+  const btn = $('btnSeguirBuscando');
+  if(colaPendientesBusqueda.length > 0){
+    btn.style.display = '';
+    btn.disabled = false;
+    btn.textContent = `🔍 Seguir buscando en los que faltan (${colaPendientesBusqueda.length})`;
+  } else {
+    btn.style.display = 'none';
   }
-  const TOPE = 25; // ritmo suave -- no golpear Shopify de más con cientos de búsquedas seguidas
-  const CONCURRENCIA = 5; // varias búsquedas a la vez en vez de una por una con pausa fija -- cada búsqueda ya hace sus propias 3 consultas en paralelo (ver buscarSkusModeloNotebook) y el cupo de Shopify es amplio (2000, se recupera 100/seg), así que este es el cuello de botella real de tiempo de carga
-  const aProcesar = pendientes.slice(0, TOPE);
-  $('estadoDescubrimiento').textContent = `${candidatosDescubiertos.length} modelo(s) detectado(s) -- completando batería/cargador/pantalla faltantes (respaldo) para los primeros ${aProcesar.length} de ${pendientes.length}...`;
+}
+async function buscarLotePendientes(lista){
   let procesados = 0;
-  for(let i = 0; i < aProcesar.length; i += CONCURRENCIA){
-    const lote = aProcesar.slice(i, i + CONCURRENCIA);
+  for(let i = 0; i < lista.length; i += CONCURRENCIA_BUSQUEDA){
+    const lote = lista.slice(i, i + CONCURRENCIA_BUSQUEDA);
     await Promise.all(lote.map(async c => {
       try{
         const data = await fetch(`/api/negocio?recurso=buscar-repuestos-modelo&marca=${encodeURIComponent(c.marca)}&modelo=${encodeURIComponent(c.modelo)}`).then(r=>r.json());
@@ -465,13 +466,42 @@ async function procesarBusquedaBateriaCargador(){
       procesados++;
     }));
     renderTablaDescubrimiento();
-    $('estadoDescubrimiento').textContent = `Completando datos faltantes (respaldo)... ${procesados} de ${aProcesar.length} revisados.`;
+    $('estadoDescubrimiento').textContent = `Completando datos faltantes (respaldo)... ${procesados} de ${lista.length} revisados.`;
   }
-  for(let i = TOPE; i < pendientes.length; i++) pendientes[i].buscando = false;
-  renderTablaDescubrimiento();
-  $('estadoDescubrimiento').textContent = (pendientes.length > TOPE
-    ? `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s). Se completaron los primeros ${TOPE} pendientes; el resto quedó sin buscar batería/cargador automáticamente para no sobrecargar Shopify -- guárdalos igual y usa "Buscar en Shopify" arriba para completarlos uno por uno.`
+}
+async function procesarBusquedaBateriaCargador(){
+  // Solo respaldo: los que ya quedaron completos con match directo del
+  // catálogo (agrupados por serie, ver iniciarDescubrimientoModelos) no
+  // se tocan -- esto solo intenta rellenar lo que faltó con la búsqueda
+  // difusa (buscar-repuestos-modelo).
+  const pendientes = candidatosDescubiertos.filter(c => c.buscando);
+  if(!pendientes.length){
+    colaPendientesBusqueda = [];
+    actualizarBotonSeguirBuscando();
+    $('estadoDescubrimiento').textContent = `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s), todos con match directo en el catálogo (pantalla+batería+cargador ya vinculados por serie). ${resumenConteosColecciones()}`;
+    return;
+  }
+  const aProcesar = pendientes.slice(0, TOPE_BUSQUEDA);
+  colaPendientesBusqueda = pendientes.slice(TOPE_BUSQUEDA);
+  $('estadoDescubrimiento').textContent = `${candidatosDescubiertos.length} modelo(s) detectado(s) -- completando batería/cargador/pantalla faltantes (respaldo) para los primeros ${aProcesar.length} de ${pendientes.length}...`;
+  await buscarLotePendientes(aProcesar);
+  actualizarBotonSeguirBuscando();
+  $('estadoDescubrimiento').textContent = (colaPendientesBusqueda.length > 0
+    ? `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s). Se completaron ${aProcesar.length} pendientes; quedan ${colaPendientesBusqueda.length} sin buscar (tope de ${TOPE_BUSQUEDA} por tanda, para no sobrecargar Shopify) -- usa "Seguir buscando en los que faltan" para completarlos, o guarda igual y complétalos a mano con "Buscar en Shopify" arriba.`
     : `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s). Revisa marca/modelo/batería/cargador antes de guardar.`) + ' ' + resumenConteosColecciones();
+}
+async function continuarBusquedaPendientes(){
+  if(!colaPendientesBusqueda.length) return;
+  const btn = $('btnSeguirBuscando');
+  btn.disabled = true;
+  const aProcesar = colaPendientesBusqueda.slice(0, TOPE_BUSQUEDA);
+  colaPendientesBusqueda = colaPendientesBusqueda.slice(TOPE_BUSQUEDA);
+  $('estadoDescubrimiento').textContent = `Buscando en ${aProcesar.length} modelo(s) más...`;
+  await buscarLotePendientes(aProcesar);
+  actualizarBotonSeguirBuscando();
+  $('estadoDescubrimiento').textContent = (colaPendientesBusqueda.length > 0
+    ? `Listo -- se completaron ${aProcesar.length} más. Quedan ${colaPendientesBusqueda.length} sin buscar -- sigue con "Seguir buscando en los que faltan".`
+    : `Listo -- ya se buscó batería/cargador/pantalla en todos los modelos detectados.`) + ' ' + resumenConteosColecciones();
 }
 async function guardarUnoDescubierto(i){
   const c = candidatosDescubiertos[i];
