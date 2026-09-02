@@ -68,6 +68,7 @@ export default async function handler(req, res) {
   if (recurso === 'alertas-stock-shopify') return manejarAlertasStockShopify(req, res, sesion);
   if (recurso === 'modelos-compatibilidad') return manejarModelosCompatibilidad(req, res, sesion);
   if (recurso === 'buscar-repuestos-modelo') return manejarBuscarRepuestosModelo(req, res, sesion);
+  if (recurso === 'colecciones-modelos-notebook') return manejarColeccionesModelosNotebook(req, res, sesion);
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
@@ -3614,6 +3615,78 @@ async function manejarBuscarRepuestosModelo(req, res, sesion) {
   } catch (err) {
     return res.status(200).json({ error: 'Error buscando en Shopify', detail: String(err) });
   }
+}
+
+// Colecciones reales de indexstore.cl curadas específicamente por modelo de
+// equipo (dadas por el usuario) -- fuente mucho más confiable que adivinar
+// la categoría de un producto por si su título contiene la palabra
+// "batería"/"pantalla"/"cargador" (lo que se usaba antes): estas
+// colecciones YA garantizan que cada producto ahí adentro es justamente
+// eso, cargado a mano por el equipo de la tienda.
+const COLECCIONES_MODELOS_NOTEBOOK = {
+  pantalla: 'pantalla-notebook-modelos-equipos',
+  bateria: 'baterias-notebook-modelos-equipos',
+  cargador: 'cargadores-notebook-modelos-equipos',
+};
+
+async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle) {
+  const productos = [];
+  const query = `
+    query($handle: String!, $cursor: String) {
+      collectionByHandle(handle: $handle) {
+        products(first: 100, after: $cursor) {
+          edges { node { id title variants(first: 5) { edges { node { sku } } } } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+  `;
+  let cursor = null, guard = 0;
+  while (guard < 30) { // tope de seguridad: 30 páginas (~3.000 productos) por colección
+    const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { handle, cursor } }),
+    }, 20000);
+    if (!r.ok) throw new Error(`Shopify HTTP ${r.status} en colección "${handle}"`);
+    const body = await r.json();
+    if (body.errors) throw new Error(`Shopify GraphQL error en colección "${handle}": ${JSON.stringify(body.errors).slice(0, 300)}`);
+    const coleccion = body.data?.collectionByHandle;
+    if (!coleccion) throw new Error(`No se encontró la colección "${handle}" en Shopify (¿el handle cambió?)`);
+    const conexion = coleccion.products;
+    for (const { node: p } of conexion.edges) {
+      const idNumerico = p.id.split('/').pop();
+      for (const { node: v } of (p.variants?.edges || [])) {
+        if (!v.sku) continue;
+        productos.push({ sku: v.sku, titulo: p.title, adminUrl: `https://${domain}/admin/products/${idNumerico}` });
+      }
+    }
+    if (!conexion.pageInfo.hasNextPage) break;
+    cursor = conexion.pageInfo.endCursor;
+    guard++;
+  }
+  return productos;
+}
+
+async function manejarColeccionesModelosNotebook(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const acceso = await obtenerAccesoShopify();
+  if (!acceso) return res.status(200).json({ error: 'Faltan credenciales de Shopify (SHOPIFY_STORE_DOMAIN/CLIENT_ID/CLIENT_SECRET)' });
+  const { domain, accessToken } = acceso;
+
+  const resultado = {};
+  const erroresPorCategoria = {};
+  await Promise.all(Object.entries(COLECCIONES_MODELOS_NOTEBOOK).map(async ([categoria, handle]) => {
+    try {
+      resultado[categoria] = await obtenerProductosDeColeccionPorHandle(domain, accessToken, handle);
+    } catch (err) {
+      console.warn('[colecciones-modelos-notebook]', categoria, err);
+      erroresPorCategoria[categoria] = String(err);
+      resultado[categoria] = [];
+    }
+  }));
+
+  return res.status(200).json({ ...resultado, erroresPorCategoria: Object.keys(erroresPorCategoria).length ? erroresPorCategoria : null });
 }
 
 // Vendedores del equipo de IndexStore que atienden WhatsApp -- WhatsApp no

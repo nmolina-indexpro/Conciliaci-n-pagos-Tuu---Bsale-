@@ -266,13 +266,32 @@ async function cargar(){
     if(data.catalogoSku){
       $('listaSkusCompat').innerHTML = Object.entries(data.catalogoSku)
         .map(([sku, titulo]) => `<option value="${sku}">${titulo || ''}</option>`).join('');
-      iniciarDescubrimientoModelos(data.catalogoSku);
-    } else {
-      $('estadoDescubrimiento').textContent = 'No se pudo cargar el catálogo de Shopify.';
     }
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
+  }
+  cargarColeccionesYDescubrir();
+}
+
+// Trae las 3 colecciones reales de indexstore.cl curadas por modelo de
+// equipo (dadas por el usuario) -- reemplaza el intento anterior de
+// adivinar la categoría de cada producto por palabras clave en el
+// título, que podía dar falsos positivos/negativos. Petición aparte de
+// alertas-stock-shopify porque es una consulta distinta a Shopify
+// (colecciones puntuales, no el catálogo completo).
+async function cargarColeccionesYDescubrir(){
+  $('estadoDescubrimiento').textContent = 'Consultando las colecciones de pantalla/batería/cargador por modelo...';
+  try{
+    const data = await fetch('/api/negocio?recurso=colecciones-modelos-notebook').then(r=>r.json());
+    if(data.error){ $('estadoDescubrimiento').textContent = data.error; return; }
+    if(data.erroresPorCategoria){
+      const detalle = Object.entries(data.erroresPorCategoria).map(([cat,msg]) => `${cat}: ${msg}`).join(' · ');
+      $('estadoDescubrimiento').textContent = `⚠ Alguna colección no se pudo leer -- ${detalle}`;
+    }
+    iniciarDescubrimientoModelos({ pantalla: data.pantalla || [], bateria: data.bateria || [], cargador: data.cargador || [] });
+  }catch(err){
+    $('estadoDescubrimiento').textContent = 'Error consultando las colecciones: ' + err.message;
   }
 }
 
@@ -325,22 +344,20 @@ function claveAgrupacionModelo(marca, modelo){
   const clave = (m && m[1]) ? (m[1] + (m[2] ? ' ' + m[2].replace(/\s+/g,'').toLowerCase() : '')) : (modelo.split(/\s+/)[0] || modelo);
   return normalizarTextoLocal(marca) + '|' + normalizarTextoLocal(clave);
 }
-function categoriaDeTituloNormalizado(tituloNorm){
-  if(tituloNorm.includes('pantalla')) return 'pantalla';
-  if(tituloNorm.includes('bateria')) return 'bateria';
-  if(tituloNorm.includes('cargador')) return 'cargador';
-  return null;
-}
 let candidatosDescubiertos = [];
-function iniciarDescubrimientoModelos(catalogoSku){
-  // 1) Escanea las 3 categorías por separado.
+// coleccionesPorCategoria = { pantalla: [{sku,titulo}], bateria: [...], cargador: [...] }
+// -- ya vienen clasificados por categoría de verdad (colecciones reales de
+// indexstore.cl curadas a mano por el equipo de la tienda), no por
+// adivinar palabras clave en el título.
+function iniciarDescubrimientoModelos(coleccionesPorCategoria){
+  // 1) Extrae marca+modelo de cada producto de las 3 colecciones.
   const porCategoria = { pantalla: [], bateria: [], cargador: [] };
-  for(const [sku, titulo] of Object.entries(catalogoSku)){
-    const cat = categoriaDeTituloNormalizado(normalizarTextoLocal(titulo));
-    if(!cat) continue;
-    const detectado = extraerMarcaModeloDeTitulo(titulo);
-    if(!detectado) continue;
-    porCategoria[cat].push({ sku, marca: detectado.marca, modelo: detectado.modelo, tituloOriginal: titulo, clave: claveAgrupacionModelo(detectado.marca, detectado.modelo) });
+  for(const cat of ['pantalla','bateria','cargador']){
+    for(const { sku, titulo } of (coleccionesPorCategoria[cat] || [])){
+      const detectado = extraerMarcaModeloDeTitulo(titulo);
+      if(!detectado) continue;
+      porCategoria[cat].push({ sku, marca: detectado.marca, modelo: detectado.modelo, tituloOriginal: titulo, clave: claveAgrupacionModelo(detectado.marca, detectado.modelo) });
+    }
   }
   // 2) Agrupa por marca+clave -- el primer match de cada categoría gana.
   const mapaPorClave = new Map();
