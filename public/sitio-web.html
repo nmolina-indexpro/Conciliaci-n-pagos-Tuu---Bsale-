@@ -192,8 +192,8 @@ function debounce(fn, ms){
 // BSALE_ACCESS_TOKEN o falló la consulta), distinto de [] = revisado, sin
 // problemas.
 const ESTADO_SHOPIFY_LABEL = { draft: 'Borrador', archived: 'Archivado' };
-function renderAvisoStockShopify(stockNoVisible, error){
-  if(error) return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo revisar el estado de los productos en Shopify: ${error}</div>`;
+function renderAvisoStockShopify(stockNoVisible, error, detail){
+  if(error) return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo revisar el estado de los productos en Shopify: ${error}${detail ? `<br><code style="font-size:11px;">${detail}</code>` : ''}</div>`;
   if(stockNoVisible === null) return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo obtener el stock de Bsale para comparar contra Shopify (revisa que BSALE_ACCESS_TOKEN esté configurado).</div>`;
   if(!stockNoVisible.length){
     return `<div class="note-box" style="background:var(--green-bg);border-color:#B7E4C7;">✅ <b>No hay productos con stock disponible que estén archivados o en borrador en Shopify.</b></div>`;
@@ -219,9 +219,9 @@ function fmtMoneda(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
 // ---------- Aviso: precio distinto entre Bsale y Shopify ----------
 // Mismo criterio: preciosDistintos === null = no se pudo revisar,
 // [] = revisado sin diferencias, con datos = hay diferencias reales.
-function renderAvisoPreciosDistintos(preciosDistintos, listaNombre, error){
+function renderAvisoPreciosDistintos(preciosDistintos, listaNombre, error, detail){
   if(error){
-    return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo comparar precios entre Bsale y Shopify: ${error}</div>`;
+    return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo comparar precios entre Bsale y Shopify: ${error}${detail ? `<br><code style="font-size:11px;">${detail}</code>` : ''}</div>`;
   }
   if(preciosDistintos === null){
     return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo obtener la lista de precios de Bsale para comparar (revisa que BSALE_ACCESS_TOKEN esté configurado y que exista la lista "LISTA DE PRECIOS BASE").</div>`;
@@ -256,8 +256,8 @@ async function cargar(){
   status.textContent = 'Consultando Shopify y Bsale...';
   try{
     const data = await fetch('/api/negocio?recurso=alertas-stock-shopify').then(r=>r.json());
-    const avisoStock = renderAvisoStockShopify(data.stockNoVisible ?? null, data.error);
-    const avisoPrecios = renderAvisoPreciosDistintos(data.preciosDistintos ?? null, data.listaPrecioBsaleNombre, data.error);
+    const avisoStock = renderAvisoStockShopify(data.stockNoVisible ?? null, data.error, data.detail);
+    const avisoPrecios = renderAvisoPreciosDistintos(data.preciosDistintos ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
     $('avisoWrap').innerHTML = avisoStock + avisoPrecios; // ambas funciones siempre devuelven un resultado explícito, nunca vacío
     status.textContent = 'Actualizado.';
     // Autocompletado del formulario de compatibilidad (SKU -> título),

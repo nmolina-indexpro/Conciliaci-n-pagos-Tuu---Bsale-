@@ -3300,14 +3300,11 @@ async function obtenerEstadoShopifyPorSku() {
   let cursor = null;
   let guard = 0;
   while (guard < 60) { // tope de seguridad: 60 páginas (~6.000 productos)
-    const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
-      method: 'POST',
-      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables: { cursor } }),
-    }, 20000);
-    if (!r.ok) throw new Error(`Shopify HTTP ${r.status} listando productos`);
-    const body = await r.json();
-    if (body.errors) throw new Error(`Shopify GraphQL error: ${JSON.stringify(body.errors).slice(0, 300)}`);
+    // Con reintento (ver shopifyGraphQLConReintento) -- este catálogo
+    // completo es la consulta más pesada de la página, la que más
+    // seguido agota el cupo de costo de Shopify (THROTTLED) cuando se
+    // combina con las demás consultas de sitio-web.html.
+    const body = await shopifyGraphQLConReintento(domain, accessToken, query, { cursor });
     const conexion = body.data?.products;
     if (!conexion) break;
     for (const { node: p } of conexion.edges) {
