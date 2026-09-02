@@ -285,7 +285,7 @@ async function cargar(forzar){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
   }
-  cargarColeccionesYDescubrir();
+  cargarColeccionesYDescubrir(forzar);
 }
 
 // Trae las 3 colecciones reales de indexstore.cl curadas por modelo de
@@ -301,8 +301,14 @@ async function cargar(forzar){
 let ultimosConteosColecciones = { pantalla: 0, bateria: 0, cargador: 0 };
 let ultimosErroresColecciones = null; // se muestra SIEMPRE junto al resumen final -- ver resumenConteosColecciones (antes se perdía: procesarBusquedaBateriaCargador sobreescribía el aviso de error casi al toque)
 let ultimoOmitidosYaGuardados = 0; // modelos que no se vuelven a mostrar/buscar porque ya están en "Compatibilidad de modelos" -- ver iniciarDescubrimientoModelos
-async function cargarColeccionesYDescubrir(){
-  $('estadoDescubrimiento').textContent = 'Consultando las colecciones de pantalla/batería/cargador por modelo...';
+let ultimoCalculadoEnColecciones = null; // fecha del último escaneo guardado en el backend (ver asegurarTablaModelosNotebookCache) -- se muestra para dejar claro que esto viene de memoria, no de un escaneo recién hecho
+let ultimoDeCacheColecciones = false;
+// El escaneo de las 3 colecciones (~5.000 productos) lo cachea el backend
+// (ver manejarColeccionesModelosNotebook) -- una carga normal lee ese
+// resultado guardado; "forzar=true" (mismo botón "↻ Actualizar ahora" de
+// arriba, ver cargar()) pide un reescaneo en vivo puntual.
+async function cargarColeccionesYDescubrir(forzar){
+  $('estadoDescubrimiento').textContent = forzar ? 'Reescaneando las colecciones en vivo...' : 'Consultando las colecciones guardadas...';
   ultimosErroresColecciones = null;
   try{
     // Espera a que "Compatibilidad de modelos" (memoria persistente en la
@@ -310,10 +316,12 @@ async function cargarColeccionesYDescubrir(){
     // el usuario ya guardó en una carga anterior no se vuelven a mostrar ni
     // a buscar en Shopify de nuevo cada vez que se abre la página.
     if(promesaModelosCompatIniciales) await promesaModelosCompatIniciales;
-    const data = await fetch('/api/negocio?recurso=colecciones-modelos-notebook').then(r=>r.json());
+    const data = await fetch('/api/negocio?recurso=colecciones-modelos-notebook' + (forzar ? '&forzar=1' : '')).then(r=>r.json());
     if(data.error){ $('estadoDescubrimiento').textContent = data.error; return; }
     ultimosConteosColecciones = { pantalla: (data.pantalla||[]).length, bateria: (data.bateria||[]).length, cargador: (data.cargador||[]).length };
     ultimosErroresColecciones = data.erroresPorCategoria || null;
+    ultimoCalculadoEnColecciones = data.calculadoEn || null;
+    ultimoDeCacheColecciones = !!data.deCache;
     iniciarDescubrimientoModelos({ pantalla: data.pantalla || [], bateria: data.bateria || [], cargador: data.cargador || [] });
   }catch(err){
     $('estadoDescubrimiento').textContent = 'Error consultando las colecciones: ' + err.message;
@@ -321,7 +329,10 @@ async function cargarColeccionesYDescubrir(){
 }
 function resumenConteosColecciones(){
   const c = ultimosConteosColecciones;
-  let resumen = `Colecciones: ${c.pantalla} pantalla(s), ${c.bateria} batería(s), ${c.cargador} cargador(es).`;
+  let resumen = `Colecciones: ${c.pantalla} pantalla(s), ${c.bateria} batería(s), ${c.cargador} cargador(es)`;
+  resumen += ultimoCalculadoEnColecciones
+    ? ` (${ultimoDeCacheColecciones ? 'datos guardados del' : 'reescaneado ahora,'} ${new Date(ultimoCalculadoEnColecciones).toLocaleString('es-CL')}).`
+    : '.';
   if(ultimoOmitidosYaGuardados > 0) resumen += ` ${ultimoOmitidosYaGuardados} modelo(s) omitido(s) por ya estar guardado(s) en Compatibilidad.`;
   if(ultimosErroresColecciones){
     const detalle = Object.entries(ultimosErroresColecciones).map(([cat,msg]) => `${cat}: ${msg}`).join(' · ');

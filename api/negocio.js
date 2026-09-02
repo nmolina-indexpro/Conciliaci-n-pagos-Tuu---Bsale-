@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
@@ -3542,6 +3542,20 @@ async function manejarAlertasSitioWebNotificar(req, res) {
       await guardarCacheAlertasSitioWeb(sql, resultado);
     } catch (err) { console.warn('[manejarAlertasSitioWebNotificar] no se pudo actualizar el caché', err); }
 
+    // Ídem con el caché de "Modelos detectados en el catálogo" (Sitio
+    // Web) -- de paso, ya que este cron corre una vez al día, se
+    // reescanean las 3 colecciones de pantalla/batería/cargador y quedan
+    // "recordadas" en la base de datos sin que nadie tenga que esperar
+    // ese escaneo abriendo la página.
+    try {
+      const accesoModelos = await obtenerAccesoShopify();
+      if (accesoModelos) {
+        const sql = await getSql();
+        const resultadoModelos = await escanearColeccionesModelosNotebook(accesoModelos.domain, accesoModelos.accessToken);
+        await guardarCacheModelosNotebook(sql, resultadoModelos);
+      }
+    } catch (err) { console.warn('[manejarAlertasSitioWebNotificar] no se pudo actualizar el caché de modelos de notebook', err); }
+
     const { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre } = resultado;
     const hayStock = Array.isArray(stockNoVisible) && stockNoVisible.length > 0;
     const hayPrecios = Array.isArray(preciosDistintos) && preciosDistintos.length > 0;
@@ -3813,9 +3827,41 @@ async function manejarColeccionesModelosNotebook(req, res, sesion) {
     }
   }
 
-  // En serie, no en paralelo -- 3 consultas de colección a la vez suman su
-  // costo de golpe contra el mismo cupo de Shopify; en serie el cupo tiene
-  // tiempo de recuperarse entre una y otra.
+  // Sin ?debug -- lee del caché por defecto (ver
+  // asegurarTablaModelosNotebookCache en lib/db.js): paginar ~5.000
+  // productos entre las 3 colecciones es lento para hacerlo en cada carga
+  // de la página. El cron diario (ver manejarAlertasSitioWebNotificar) y
+  // ?forzar=1 (botón "Actualizar ahora" de la página) son los que de
+  // verdad vuelven a escanear Shopify.
+  const forzar = req.query.forzar === '1' || req.query.forzar === 'true';
+  try {
+    const sql = await getSql();
+    await asegurarTablaModelosNotebookCache(sql);
+    if (!forzar) {
+      const { rows } = await sql`SELECT datos, calculado_en FROM modelos_notebook_cache WHERE id = 1;`;
+      if (rows.length && rows[0].datos) {
+        return res.status(200).json({ ...rows[0].datos, calculadoEn: rows[0].calculado_en, deCache: true });
+      }
+    }
+    const resultado = await escanearColeccionesModelosNotebook(domain, accessToken);
+    await guardarCacheModelosNotebook(sql, resultado);
+    return res.status(200).json({ ...resultado, calculadoEn: new Date().toISOString(), deCache: false });
+  } catch (err) {
+    // Sin Postgres (POSTGRES_URL no configurada) u otro error de caché --
+    // igual escanea en vivo en vez de fallar la sección entera.
+    try {
+      const resultado = await escanearColeccionesModelosNotebook(domain, accessToken);
+      return res.status(200).json({ ...resultado, calculadoEn: new Date().toISOString(), deCache: false });
+    } catch (err2) {
+      return res.status(200).json({ error: 'Error consultando las colecciones de modelos en Shopify', detail: String(err2) });
+    }
+  }
+}
+
+// En serie, no en paralelo -- 3 consultas de colección a la vez suman su
+// costo de golpe contra el mismo cupo de Shopify; en serie el cupo tiene
+// tiempo de recuperarse entre una y otra.
+async function escanearColeccionesModelosNotebook(domain, accessToken) {
   const resultado = {};
   const erroresPorCategoria = {};
   for (const [categoria, handle] of Object.entries(COLECCIONES_MODELOS_NOTEBOOK)) {
@@ -3827,8 +3873,22 @@ async function manejarColeccionesModelosNotebook(req, res, sesion) {
       resultado[categoria] = [];
     }
   }
+  return { ...resultado, erroresPorCategoria: Object.keys(erroresPorCategoria).length ? erroresPorCategoria : null };
+}
 
-  return res.status(200).json({ ...resultado, erroresPorCategoria: Object.keys(erroresPorCategoria).length ? erroresPorCategoria : null });
+// Guarda el resultado en caché (1 fila) -- "mejor esfuerzo", si falla no
+// debe tumbar la respuesta real (la sección igual muestra lo recién
+// escaneado, solo no queda guardado para la próxima carga).
+async function guardarCacheModelosNotebook(sql, resultado) {
+  try {
+    await asegurarTablaModelosNotebookCache(sql);
+    await sql`
+      INSERT INTO modelos_notebook_cache (id, datos, calculado_en) VALUES (1, ${JSON.stringify(resultado)}::jsonb, now())
+      ON CONFLICT (id) DO UPDATE SET datos = EXCLUDED.datos, calculado_en = EXCLUDED.calculado_en;
+    `;
+  } catch (err) {
+    console.warn('[guardarCacheModelosNotebook] no se pudo guardar el caché', err);
+  }
 }
 
 // Vendedores del equipo de IndexStore que atienden WhatsApp -- WhatsApp no
