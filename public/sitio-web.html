@@ -51,6 +51,7 @@
   .campo{display:flex;flex-direction:column;gap:5px;}
   .campo label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;}
   .tabla-wrap{overflow-x:auto;}
+  .marca-badge{display:inline-block;padding:2px 8px;border-radius:5px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.3px;vertical-align:middle;line-height:1.6;}
 
   .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
   #status{font-size:12px;color:var(--muted);}
@@ -354,7 +355,34 @@ function resumenConteosColecciones(){
 // adivinar. Solo si a un modelo detectado le falta batería o cargador
 // después de agrupar, se usa la búsqueda con confianza
 // (buscar-repuestos-modelo) como respaldo.
-const MARCAS_NOTEBOOK_CONOCIDAS = ['MacBook','Apple','Lenovo','HP','Dell','Asus','Acer','MSI','Samsung','Toshiba','Gigabyte','Huawei','Sony','LG','Positivo'];
+// Sony/Samsung/Toshiba/Huawei excluidos a pedido del usuario -- IndexStore
+// no vende repuestos para esas marcas, así que solo generaban ruido en la
+// navegación por marca.
+const MARCAS_NOTEBOOK_CONOCIDAS = ['MacBook','Apple','Lenovo','HP','Dell','Asus','Acer','MSI','Gigabyte','LG','Positivo'];
+
+// Insignia de color por marca para los botones de navegación -- pedido del
+// usuario ("un pequeño logo... para que se distinga"). Se usa un chip con
+// el color corporativo real de cada marca en vez de hotlinkear el
+// artwork oficial del logo desde un servicio externo: esta página vive
+// detrás de login, así que un ícono externo roto (CDN caído, ícono
+// renombrado) fallaría en silencio sin que nadie lo note pronto; un color
+// + texto no depende de red y no puede quedar "roto".
+const MARCA_BADGE = {
+  HP: { bg: '#0096D6', fg: '#fff', texto: 'hp' },
+  Dell: { bg: '#0672C4', fg: '#fff', texto: 'DELL' },
+  Lenovo: { bg: '#E2231A', fg: '#fff', texto: 'Lenovo' },
+  Asus: { bg: '#000000', fg: '#fff', texto: 'ASUS' },
+  Acer: { bg: '#83B81A', fg: '#fff', texto: 'acer' },
+  MSI: { bg: '#FF0000', fg: '#fff', texto: 'MSI' },
+  Gigabyte: { bg: '#E4032E', fg: '#fff', texto: 'GIGABYTE' },
+  LG: { bg: '#A50034', fg: '#fff', texto: 'LG' },
+  Apple: { bg: '#000000', fg: '#fff', texto: 'Apple' },
+  MacBook: { bg: '#000000', fg: '#fff', texto: 'Apple' },
+};
+function badgeMarca(marca){
+  const b = MARCA_BADGE[marca];
+  return b ? `<span class="marca-badge" style="background:${b.bg};color:${b.fg};">${b.texto}</span>` : marca;
+}
 
 // Series conocidas por marca, para el segundo nivel de navegación (marca ->
 // serie -> modelos, pedido por el usuario). Dentro de cada marca van
@@ -551,7 +579,7 @@ function renderNavMarcas(){
   }
   cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">1. Elige una marca:</div>` +
     conteos.map(([marca, n]) => `
-      <button class="${marca === marcaSeleccionada ? 'btn-primary' : 'btn-ghost'} btn-compact" style="margin:0 6px 6px 0;" onclick='seleccionarMarca(${JSON.stringify(marca)})'>${marca} <span style="opacity:.75;">(${n})</span></button>
+      <button class="${marca === marcaSeleccionada ? 'btn-primary' : 'btn-ghost'} btn-compact" style="margin:0 6px 6px 0;" onclick='seleccionarMarca(${JSON.stringify(marca)})'>${badgeMarca(marca)} <span style="opacity:.75;">(${n})</span></button>
     `).join('');
 }
 function renderNavSeries(){
@@ -588,7 +616,7 @@ function renderTablaDescubrimiento(){
   }
   tbody.innerHTML = visibles.map(c => `
     <tr>
-      <td>${c.marca}</td>
+      <td>${badgeMarca(c.marca)}</td>
       <td><input type="text" value="${c.modelo}" onchange='actualizarModeloDescubierto(${JSON.stringify(c.clave)}, this.value)' style="width:210px;"></td>
       <td class="empty-note" style="max-width:260px;font-size:11px;" title="${c.tituloOriginal}">${c.tituloOriginal}</td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuPantalla ? `<code>${c.skuPantalla}</code>` : '<span class="empty-note">sin match</span>')}</td>
