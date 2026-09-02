@@ -157,7 +157,7 @@
     <div class="seccion-head">
       <div>
         <h2>🔎 Modelos detectados en el catálogo</h2>
-        <div class="sub">Se detectan solos a partir de los productos de <b>pantalla</b> de Shopify (marca+modelo suele venir en el título) y se busca automáticamente la batería/cargador de cada uno -- sin escribir ni hacer clic en nada. Batería y cargador suelen NO traer el modelo del notebook en su propio título (una batería/cargador cubre varios modelos), así que revisa esas dos columnas antes de guardar -- marca y modelo son editables si la detección se equivocó.</div>
+        <div class="sub">Se detectan solos a partir de pantallas, baterías y cargadores de Shopify -- se agrupan por marca+serie (ej. "HP 240 G4") usando lo que ya está escrito en cada título, sin escribir ni hacer clic en nada. Cuando a un modelo le falta batería o cargador, se completa como respaldo con la misma búsqueda con confianza del formulario de arriba. Marca y modelo son editables por si la detección se equivocó -- la columna "Título en Shopify" te muestra siempre el origen real.</div>
       </div>
     </div>
     <div id="estadoDescubrimiento" class="empty-note">Esperando el catálogo de Shopify...</div>
@@ -276,15 +276,17 @@ async function cargar(){
   }
 }
 
-// ---------- Descubrimiento automático de modelos (desde pantallas) ----------
-// Baterías y cargadores casi nunca traen el modelo del notebook en su
-// propio título (una batería o un cargador cubre varios modelos a la
-// vez) -- pero las PANTALLAS sí, porque una pantalla es específica de un
-// chasis exacto. Por eso el descubrimiento parte de ahí: se detecta
-// marca+modelo en los títulos de pantalla del catálogo, y para cada uno
-// se reutiliza la misma búsqueda con confianza (buscar-repuestos-modelo)
-// para completar batería/cargador -- todo automático, sin que la persona
-// tenga que escribir ni hacer clic en nada.
+// ---------- Descubrimiento automático de modelos ----------
+// Primer intento: asumir que solo las PANTALLAS traen el modelo del
+// notebook en el título. Un ejemplo real del usuario lo desmintió --
+// "Batería HP 240 G4 Series (HS04)" y "Cargador Notebook HP 240 G4, G7
+// (65W)" SÍ mencionan el modelo, calzando con "Pantalla Hp 240 G4, G5,
+// G6". Por eso ahora se escanean las 3 categorías por igual y se agrupan
+// por marca + un "número de serie" común (ej. "240 G4") sacado del propio
+// texto -- match directo contra lo que de verdad existe en Shopify, sin
+// adivinar. Solo si a un modelo detectado le falta batería o cargador
+// después de agrupar, se usa la búsqueda con confianza
+// (buscar-repuestos-modelo) como respaldo.
 const MARCAS_NOTEBOOK_CONOCIDAS = ['MacBook','Apple','Lenovo','HP','Dell','Asus','Acer','MSI','Samsung','Toshiba','Gigabyte','Huawei','Sony','LG','Positivo'];
 function normalizarTextoLocal(s){
   return (s||'').toLowerCase()
@@ -314,18 +316,51 @@ function extraerMarcaModeloDeTitulo(titulo){
   return { marca, modelo };
 }
 
+// Clave de agrupación entre categorías -- el "número de serie" que
+// comparten (ej. "240 G4" en pantalla/batería/cargador HP), no el modelo
+// completo (que trae variantes como "G4, G5, G6" en pantalla vs "G4
+// Series" en batería, textualmente distintas aunque sean la misma línea).
+function claveAgrupacionModelo(marca, modelo){
+  const m = modelo.match(/(\d{2,4})\s*[-\s]?\s*(g\d+|gen\s*\d+)?/i);
+  const clave = (m && m[1]) ? (m[1] + (m[2] ? ' ' + m[2].replace(/\s+/g,'').toLowerCase() : '')) : (modelo.split(/\s+/)[0] || modelo);
+  return normalizarTextoLocal(marca) + '|' + normalizarTextoLocal(clave);
+}
+function categoriaDeTituloNormalizado(tituloNorm){
+  if(tituloNorm.includes('pantalla')) return 'pantalla';
+  if(tituloNorm.includes('bateria')) return 'bateria';
+  if(tituloNorm.includes('cargador')) return 'cargador';
+  return null;
+}
 let candidatosDescubiertos = [];
 function iniciarDescubrimientoModelos(catalogoSku){
-  const vistos = new Set();
-  candidatosDescubiertos = [];
+  // 1) Escanea las 3 categorías por separado.
+  const porCategoria = { pantalla: [], bateria: [], cargador: [] };
   for(const [sku, titulo] of Object.entries(catalogoSku)){
-    if(!normalizarTextoLocal(titulo).includes('pantalla')) continue;
+    const cat = categoriaDeTituloNormalizado(normalizarTextoLocal(titulo));
+    if(!cat) continue;
     const detectado = extraerMarcaModeloDeTitulo(titulo);
     if(!detectado) continue;
-    const clave = detectado.marca.toLowerCase() + '|' + detectado.modelo.toLowerCase();
-    if(vistos.has(clave)) continue;
-    vistos.add(clave);
-    candidatosDescubiertos.push({ marca: detectado.marca, modelo: detectado.modelo, tituloOriginal: titulo, skuPantalla: sku, skuBateria: null, skuCargador: null, buscando: true });
+    porCategoria[cat].push({ sku, marca: detectado.marca, modelo: detectado.modelo, tituloOriginal: titulo, clave: claveAgrupacionModelo(detectado.marca, detectado.modelo) });
+  }
+  // 2) Agrupa por marca+clave -- el primer match de cada categoría gana.
+  const mapaPorClave = new Map();
+  for(const cat of ['pantalla','bateria','cargador']){
+    for(const item of porCategoria[cat]){
+      if(!mapaPorClave.has(item.clave)) mapaPorClave.set(item.clave, { marca: item.marca, pantalla: null, bateria: null, cargador: null });
+      const entrada = mapaPorClave.get(item.clave);
+      if(!entrada[cat]) entrada[cat] = item;
+    }
+  }
+  // 3) Arma la lista final -- el texto de modelo que se muestra es el de
+  // la fuente más específica disponible (pantalla > batería > cargador).
+  candidatosDescubiertos = [];
+  for(const entrada of mapaPorClave.values()){
+    const fuente = entrada.pantalla || entrada.bateria || entrada.cargador;
+    candidatosDescubiertos.push({
+      marca: entrada.marca, modelo: fuente.modelo, tituloOriginal: fuente.tituloOriginal,
+      skuPantalla: entrada.pantalla?.sku || null, skuBateria: entrada.bateria?.sku || null, skuCargador: entrada.cargador?.sku || null,
+      buscando: !(entrada.pantalla && entrada.bateria && entrada.cargador), // ya completo con match directo -> no hace falta buscar
+    });
   }
   renderTablaDescubrimiento();
   procesarBusquedaBateriaCargador();
@@ -351,29 +386,38 @@ function renderTablaDescubrimiento(){
   $('btnGuardarDescubiertos').style.display = '';
 }
 async function procesarBusquedaBateriaCargador(){
+  // Solo respaldo: los que ya quedaron completos con match directo del
+  // catálogo (agrupados por serie, ver iniciarDescubrimientoModelos) no
+  // se tocan -- esto solo intenta rellenar lo que faltó con la búsqueda
+  // difusa (buscar-repuestos-modelo).
+  const pendientes = candidatosDescubiertos.filter(c => c.buscando);
+  if(!pendientes.length){
+    $('estadoDescubrimiento').textContent = `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s), todos con match directo en el catálogo (pantalla+batería+cargador ya vinculados por serie).`;
+    return;
+  }
   const TOPE = 25; // ritmo suave -- no golpear Shopify de más con cientos de búsquedas seguidas
-  $('estadoDescubrimiento').textContent = `${candidatosDescubiertos.length} modelo(s) detectado(s) en pantallas -- buscando batería/cargador para los primeros ${Math.min(TOPE, candidatosDescubiertos.length)}...`;
+  $('estadoDescubrimiento').textContent = `${candidatosDescubiertos.length} modelo(s) detectado(s) -- completando batería/cargador faltantes (respaldo) para los primeros ${Math.min(TOPE, pendientes.length)} de ${pendientes.length}...`;
   let procesados = 0;
-  for(let i = 0; i < candidatosDescubiertos.length && i < TOPE; i++){
-    const c = candidatosDescubiertos[i];
+  for(let i = 0; i < pendientes.length && i < TOPE; i++){
+    const c = pendientes[i];
     try{
       const data = await fetch(`/api/negocio?recurso=buscar-repuestos-modelo&marca=${encodeURIComponent(c.marca)}&modelo=${encodeURIComponent(c.modelo)}`).then(r=>r.json());
       if(!data.error){
-        c.skuBateria = data.bateria?.sku || null;
-        c.skuCargador = data.cargador?.sku || null;
+        if(!c.skuBateria && data.bateria?.sku) c.skuBateria = data.bateria.sku;
+        if(!c.skuCargador && data.cargador?.sku) c.skuCargador = data.cargador.sku;
       }
     }catch(err){ /* deja sin match, sigue con el resto */ }
     c.buscando = false;
     procesados++;
     renderTablaDescubrimiento();
-    $('estadoDescubrimiento').textContent = `Buscando batería/cargador... ${procesados} de ${Math.min(TOPE, candidatosDescubiertos.length)} revisados.`;
+    $('estadoDescubrimiento').textContent = `Completando datos faltantes (respaldo)... ${procesados} de ${Math.min(TOPE, pendientes.length)} revisados.`;
     await new Promise(r => setTimeout(r, 250));
   }
-  for(let i = TOPE; i < candidatosDescubiertos.length; i++) candidatosDescubiertos[i].buscando = false;
+  for(let i = TOPE; i < pendientes.length; i++) pendientes[i].buscando = false;
   renderTablaDescubrimiento();
-  $('estadoDescubrimiento').textContent = candidatosDescubiertos.length > TOPE
-    ? `Listo -- se procesaron los primeros ${TOPE} de ${candidatosDescubiertos.length} modelos detectados. El resto quedó sin buscar batería/cargador automáticamente para no sobrecargar Shopify -- guárdalos igual y usa "Buscar en Shopify" arriba para completarlos uno por uno.`
-    : `Listo -- ${candidatosDescubiertos.length} modelo(s) revisado(s). Revisa marca/modelo/batería/cargador antes de guardar.`;
+  $('estadoDescubrimiento').textContent = pendientes.length > TOPE
+    ? `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s). Se completaron los primeros ${TOPE} pendientes; el resto quedó sin buscar batería/cargador automáticamente para no sobrecargar Shopify -- guárdalos igual y usa "Buscar en Shopify" arriba para completarlos uno por uno.`
+    : `Listo -- ${candidatosDescubiertos.length} modelo(s) detectado(s). Revisa marca/modelo/batería/cargador antes de guardar.`;
 }
 async function guardarUnoDescubierto(i){
   const c = candidatosDescubiertos[i];
