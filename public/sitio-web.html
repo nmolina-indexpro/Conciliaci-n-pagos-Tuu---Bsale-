@@ -162,7 +162,7 @@
     </div>
     <div id="estadoDescubrimiento" class="empty-note">Esperando el catálogo de Shopify...</div>
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Marca</th><th>Modelo (editable)</th><th>SKU Pantalla</th><th>SKU Batería</th><th>SKU Cargador</th><th></th></tr></thead>
+      <thead><tr><th>Marca</th><th>Modelo (editable)</th><th>Título en Shopify (origen)</th><th>SKU Pantalla</th><th>SKU Batería</th><th>SKU Cargador</th><th></th></tr></thead>
       <tbody id="tablaDescubrimiento"></tbody>
     </table></div>
     <div style="margin-top:14px;">
@@ -301,12 +301,14 @@ function extraerMarcaModeloDeTitulo(titulo){
   }
   if(!marca) return null;
   let resto = titulo.slice(finMarca);
-  // corta en el primer marcador de "ruido" -- separador, ficha técnica,
-  // nombre de la tienda, etc. -- lo que queda antes es la mejor
-  // aproximación al modelo; se muestra editable porque esto es heurística,
-  // no siempre calza perfecto.
-  const corte = resto.search(/\s[-|]\s|\(|indexstore|s\/b\b|ips\b|fhd\b|\bhd\b|\d+\.?\d*"\s*\d+\s*pines/i);
-  if(corte > 0) resto = resto.slice(0, corte);
+  // Antes esto recortaba en la primera palabra "de ruido" (S/B, IPS, FHD,
+  // etc.) para "limpiar" el modelo -- pero esas palabras a veces son parte
+  // real del nombre del producto, y el corte se comía pedazos del modelo
+  // de verdad (ej. "Pavilion" desaparecía). Ahora solo se saca el nombre
+  // de la tienda al final (" - IndexStore", " | IndexStore...") -- el
+  // resto queda EXACTAMENTE como está escrito en Shopify, tal cual lo
+  // pidió el usuario.
+  resto = resto.replace(/\s*[-|]\s*indexstore.*$/i, '');
   const modelo = resto.trim();
   if(modelo.length < 2) return null;
   return { marca, modelo };
@@ -323,7 +325,7 @@ function iniciarDescubrimientoModelos(catalogoSku){
     const clave = detectado.marca.toLowerCase() + '|' + detectado.modelo.toLowerCase();
     if(vistos.has(clave)) continue;
     vistos.add(clave);
-    candidatosDescubiertos.push({ marca: detectado.marca, modelo: detectado.modelo, skuPantalla: sku, skuBateria: null, skuCargador: null, buscando: true });
+    candidatosDescubiertos.push({ marca: detectado.marca, modelo: detectado.modelo, tituloOriginal: titulo, skuPantalla: sku, skuBateria: null, skuCargador: null, buscando: true });
   }
   renderTablaDescubrimiento();
   procesarBusquedaBateriaCargador();
@@ -331,7 +333,7 @@ function iniciarDescubrimientoModelos(catalogoSku){
 function renderTablaDescubrimiento(){
   const tbody = $('tablaDescubrimiento');
   if(!candidatosDescubiertos.length){
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-note">No se detectaron modelos nuevos en los productos de pantalla del catálogo.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-note">No se detectaron modelos nuevos en los productos de pantalla del catálogo.</td></tr>';
     $('btnGuardarDescubiertos').style.display = 'none';
     return;
   }
@@ -339,6 +341,7 @@ function renderTablaDescubrimiento(){
     <tr>
       <td>${c.marca}</td>
       <td><input type="text" value="${c.modelo}" onchange="candidatosDescubiertos[${i}].modelo = this.value" style="width:210px;"></td>
+      <td class="empty-note" style="max-width:260px;font-size:11px;" title="${c.tituloOriginal}">${c.tituloOriginal}</td>
       <td><code>${c.skuPantalla}</code></td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuBateria ? `<code>${c.skuBateria}</code>` : '<span class="empty-note">sin match</span>')}</td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuCargador ? `<code>${c.skuCargador}</code>` : '<span class="empty-note">sin match</span>')}</td>
