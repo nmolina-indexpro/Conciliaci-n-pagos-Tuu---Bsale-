@@ -157,10 +157,12 @@
     <div class="seccion-head">
       <div>
         <h2>🔎 Modelos detectados en el catálogo</h2>
-        <div class="sub">Se detectan solos a partir de pantallas, baterías y cargadores de Shopify -- se agrupan por marca+serie (ej. "HP 240 G4") usando lo que ya está escrito en cada título, sin escribir ni hacer clic en nada. Cuando a un modelo le falta batería o cargador, se completa como respaldo con la misma búsqueda con confianza del formulario de arriba. Marca y modelo son editables por si la detección se equivocó -- la columna "Título en Shopify" te muestra siempre el origen real.</div>
+        <div class="sub">Se detectan solos a partir de pantallas, baterías y cargadores de Shopify -- se agrupan por marca+serie (ej. "HP 240 G4") usando lo que ya está escrito en cada título, sin escribir ni hacer clic en nada. Elige marca y luego serie para ver sus modelos. Cuando a un modelo le falta batería o cargador, se completa como respaldo con la misma búsqueda con confianza del formulario de arriba. Marca y modelo son editables por si la detección se equivocó -- la columna "Título en Shopify" te muestra siempre el origen real.</div>
       </div>
     </div>
     <div id="estadoDescubrimiento" class="empty-note">Esperando el catálogo de Shopify...</div>
+    <div id="navMarcas"></div>
+    <div id="navSeries"></div>
     <div class="tabla-wrap"><table>
       <thead><tr><th>Marca</th><th>Modelo (editable)</th><th>Título en Shopify (origen)</th><th>SKU Pantalla</th><th>SKU Batería</th><th>SKU Cargador</th><th></th></tr></thead>
       <tbody id="tablaDescubrimiento"></tbody>
@@ -353,6 +355,33 @@ function resumenConteosColecciones(){
 // después de agrupar, se usa la búsqueda con confianza
 // (buscar-repuestos-modelo) como respaldo.
 const MARCAS_NOTEBOOK_CONOCIDAS = ['MacBook','Apple','Lenovo','HP','Dell','Asus','Acer','MSI','Samsung','Toshiba','Gigabyte','Huawei','Sony','LG','Positivo'];
+
+// Series conocidas por marca, para el segundo nivel de navegación (marca ->
+// serie -> modelos, pedido por el usuario). Dentro de cada marca van
+// ordenadas de la más específica a la más genérica (ej. "IdeaPad Gaming"
+// antes que "IdeaPad") porque extraerSerieDeModelo() usa el PRIMER match --
+// si "IdeaPad" fuera primero, "IdeaPad Gaming 3 15IMH05" quedaría mal
+// agrupado bajo la serie genérica. Un modelo cuyo texto no empieza con
+// ninguna serie conocida (ej. "HP 240 G4", que va directo al número) queda
+// en el balde "(Sin serie)" -- se ve en la práctica: la mayoría de los
+// notebooks HP/Dell del catálogo no llevan nombre de serie, solo número.
+const SERIES_NOTEBOOK_POR_MARCA = {
+  Acer: ['Switch Alpha','TravelMate','Aspire','Chromebook','Nitro','Predator','Spin','Swift'],
+  Asus: ['ProArt StudioBook','ROG Zephyrus','ROG Strix','ROG Flow','TUF Gaming','AsusPro','ExpertBook','Chromebook','VivoBook','ZenBook','ROG','TUF'],
+  Dell: ['Inspiron','Latitude','OptiPlex','Precision','Vostro','Wyse','XPS'],
+  HP: ['Elite Dragonfly','Pavilion Gaming','Pavilion Power','EliteBook','EliteDesk','ChromeBook','Compaq','Envy','Omen','Pavilion','ProBook','ProDesk','Slimlin','Spectre','Split','Steam','Victus','ZBook'],
+  Lenovo: ['IdeaPad Gaming','IdeaPad Flex','IdeaPad Slim','IdeaCentre','ThinkStation','ThinkCentre','ThinkBook','ThinkPad','Chromebook','Yoga Slim','Legion','IdeaPad','Miix','Flex','Yoga'],
+};
+function extraerSerieDeModelo(marca, modelo){
+  const series = SERIES_NOTEBOOK_POR_MARCA[marca];
+  if(!series || !modelo) return null;
+  for(const serie of series){
+    const re = new RegExp('^\\s*' + serie.replace(/\s+/g, '\\s+') + '\\b', 'i');
+    if(re.test(modelo)) return serie;
+  }
+  return null;
+}
+
 function normalizarTextoLocal(s){
   return (s||'').toLowerCase()
     .replace(/[áàäâ]/g,'a').replace(/[éèëê]/g,'e').replace(/[íìïî]/g,'i')
@@ -428,7 +457,9 @@ function iniciarDescubrimientoModelos(coleccionesPorCategoria){
     if(clavesYaGuardadas.has(clave)){ ultimoOmitidosYaGuardados++; continue; }
     const fuente = entrada.pantalla || entrada.bateria || entrada.cargador;
     candidatosDescubiertos.push({
-      marca: entrada.marca, modelo: fuente.modelo, tituloOriginal: fuente.tituloOriginal,
+      clave,
+      marca: entrada.marca, modelo: fuente.modelo, serie: extraerSerieDeModelo(entrada.marca, fuente.modelo) || '(Sin serie)',
+      tituloOriginal: fuente.tituloOriginal,
       skuPantalla: entrada.pantalla?.sku || null, skuBateria: entrada.bateria?.sku || null, skuCargador: entrada.cargador?.sku || null,
       // Estas colecciones son de referencia (solo título, casi nunca traen
       // sku real -- comprobado contra Shopify) -- lo que de verdad importa
@@ -437,28 +468,109 @@ function iniciarDescubrimientoModelos(coleccionesPorCategoria){
       buscando: !(entrada.pantalla?.sku && entrada.bateria?.sku && entrada.cargador?.sku),
     });
   }
-  renderTablaDescubrimiento();
+  renderNavegacionModelos();
   procesarBusquedaBateriaCargador();
+}
+
+// ---------- Navegación marca -> serie -> modelos ----------
+// Antes se listaban los ~700+ modelos detectados de una sola vez, dificil
+// de escanear -- ahora se elige marca y después serie, y solo ahí se
+// muestra la tabla de modelos de esa combinación (pedido del usuario).
+let marcaSeleccionada = null;
+let serieSeleccionada = null;
+function contarPorMarca(){
+  const mapa = new Map();
+  for(const c of candidatosDescubiertos) mapa.set(c.marca, (mapa.get(c.marca) || 0) + 1);
+  return [...mapa.entries()].sort((a, b) => b[1] - a[1]);
+}
+function contarPorSerie(marca){
+  const mapa = new Map();
+  for(const c of candidatosDescubiertos){
+    if(c.marca !== marca) continue;
+    mapa.set(c.serie, (mapa.get(c.serie) || 0) + 1);
+  }
+  return [...mapa.entries()].sort((a, b) => b[1] - a[1]);
+}
+function candidatosVisibles(){
+  if(!marcaSeleccionada || !serieSeleccionada) return [];
+  return candidatosDescubiertos.filter(c => c.marca === marcaSeleccionada && c.serie === serieSeleccionada);
+}
+function seleccionarMarca(marca){
+  marcaSeleccionada = marca;
+  serieSeleccionada = null;
+  renderNavegacionModelos();
+}
+function seleccionarSerie(serie){
+  serieSeleccionada = serie;
+  renderNavegacionModelos();
+}
+function volverAMarcas(){
+  marcaSeleccionada = null;
+  serieSeleccionada = null;
+  renderNavegacionModelos();
+}
+function renderNavegacionModelos(){
+  renderNavMarcas();
+  renderNavSeries();
+  renderTablaDescubrimiento();
+}
+function renderNavMarcas(){
+  const cont = $('navMarcas');
+  const conteos = contarPorMarca();
+  if(!conteos.length){
+    cont.innerHTML = '<div class="empty-note">No se detectó ningún modelo pendiente en las 3 colecciones (puede que ya estén todos guardados en Compatibilidad de arriba).</div>';
+    return;
+  }
+  cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">1. Elige una marca:</div>` +
+    conteos.map(([marca, n]) => `
+      <button class="${marca === marcaSeleccionada ? 'btn-primary' : 'btn-ghost'} btn-compact" style="margin:0 6px 6px 0;" onclick="seleccionarMarca(${JSON.stringify(marca)})">${marca} <span style="opacity:.75;">(${n})</span></button>
+    `).join('');
+}
+function renderNavSeries(){
+  const cont = $('navSeries');
+  if(!marcaSeleccionada){ cont.innerHTML = ''; return; }
+  const conteos = contarPorSerie(marcaSeleccionada);
+  cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin:10px 0 6px 0;">2. Elige una serie de ${marcaSeleccionada}: <button class="btn-ghost btn-compact" style="margin-left:8px;" onclick="volverAMarcas()">← Cambiar marca</button></div>` +
+    conteos.map(([serie, n]) => `
+      <button class="${serie === serieSeleccionada ? 'btn-primary' : 'btn-ghost'} btn-compact" style="margin:0 6px 6px 0;" onclick="seleccionarSerie(${JSON.stringify(serie)})">${serie} <span style="opacity:.75;">(${n})</span></button>
+    `).join('');
+}
+function actualizarModeloDescubierto(clave, valor){
+  const c = candidatosDescubiertos.find(x => x.clave === clave);
+  if(c) c.modelo = valor;
 }
 function renderTablaDescubrimiento(){
   const tbody = $('tablaDescubrimiento');
-  if(!candidatosDescubiertos.length){
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-note">No se detectó ningún modelo en las 3 colecciones (revisa el detalle de arriba).</td></tr>';
-    $('btnGuardarDescubiertos').style.display = 'none';
+  const btnGuardar = $('btnGuardarDescubiertos');
+  if(!marcaSeleccionada){
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-note">Elige una marca arriba para ver sus series.</td></tr>';
+    btnGuardar.style.display = 'none';
     return;
   }
-  tbody.innerHTML = candidatosDescubiertos.map((c, i) => `
+  if(!serieSeleccionada){
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-note">Elige una serie arriba para ver sus modelos.</td></tr>';
+    btnGuardar.style.display = 'none';
+    return;
+  }
+  const visibles = candidatosVisibles();
+  if(!visibles.length){
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-note">Sin modelos pendientes en esta serie.</td></tr>';
+    btnGuardar.style.display = 'none';
+    return;
+  }
+  tbody.innerHTML = visibles.map(c => `
     <tr>
       <td>${c.marca}</td>
-      <td><input type="text" value="${c.modelo}" onchange="candidatosDescubiertos[${i}].modelo = this.value" style="width:210px;"></td>
+      <td><input type="text" value="${c.modelo}" onchange="actualizarModeloDescubierto(${JSON.stringify(c.clave)}, this.value)" style="width:210px;"></td>
       <td class="empty-note" style="max-width:260px;font-size:11px;" title="${c.tituloOriginal}">${c.tituloOriginal}</td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuPantalla ? `<code>${c.skuPantalla}</code>` : '<span class="empty-note">sin match</span>')}</td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuBateria ? `<code>${c.skuBateria}</code>` : '<span class="empty-note">sin match</span>')}</td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuCargador ? `<code>${c.skuCargador}</code>` : '<span class="empty-note">sin match</span>')}</td>
-      <td><button class="btn-ghost btn-compact" onclick="guardarUnoDescubierto(${i})">💾</button></td>
+      <td><button class="btn-ghost btn-compact" onclick="guardarUnoDescubierto(${JSON.stringify(c.clave)})">💾</button></td>
     </tr>
   `).join('');
-  $('btnGuardarDescubiertos').style.display = '';
+  btnGuardar.style.display = '';
+  btnGuardar.textContent = `💾 Guardar los ${visibles.length} de ${marcaSeleccionada} ${serieSeleccionada}`;
 }
 const TOPE_BUSQUEDA = 25; // ritmo suave por tanda -- no golpear Shopify de más con cientos de búsquedas seguidas
 const CONCURRENCIA_BUSQUEDA = 5; // varias búsquedas a la vez en vez de una por una con pausa fija -- cada búsqueda ya hace sus propias 3 consultas en paralelo (ver buscarSkusModeloNotebook) y el cupo de Shopify es amplio (2000, se recupera 100/seg), así que este es el cuello de botella real de tiempo de carga
@@ -527,8 +639,10 @@ async function continuarBusquedaPendientes(){
     ? `Listo -- se completaron ${aProcesar.length} más. Quedan ${colaPendientesBusqueda.length} sin buscar -- sigue con "Seguir buscando en los que faltan".`
     : `Listo -- ya se buscó batería/cargador/pantalla en todos los modelos detectados.`) + ' ' + resumenConteosColecciones();
 }
-async function guardarUnoDescubierto(i){
-  const c = candidatosDescubiertos[i];
+async function guardarUnoDescubierto(clave){
+  const idx = candidatosDescubiertos.findIndex(x => x.clave === clave);
+  if(idx === -1) return;
+  const c = candidatosDescubiertos[idx];
   try{
     const res = await fetch('/api/negocio?recurso=modelos-compatibilidad', {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -536,17 +650,25 @@ async function guardarUnoDescubierto(i){
     });
     const data = await res.json();
     if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar.'); return; }
-    candidatosDescubiertos.splice(i, 1);
-    renderTablaDescubrimiento();
+    candidatosDescubiertos.splice(idx, 1);
+    renderNavegacionModelos();
     cargarModelosCompat();
   }catch(err){ alert('Error: ' + err.message); }
 }
+// Guarda solo lo visible (marca+serie elegidas), no los ~700+ modelos
+// detectados de golpe -- coherente con la navegación de a una serie a la
+// vez (pedido del usuario).
 async function guardarTodosDescubiertos(){
-  if(!confirm(`¿Guardar los ${candidatosDescubiertos.length} modelos detectados en la tabla de Compatibilidad de arriba? Puedes editarlos después si hace falta.`)) return;
+  const visibles = candidatosVisibles();
+  if(!visibles.length) return;
+  if(!confirm(`¿Guardar los ${visibles.length} modelos de ${marcaSeleccionada} ${serieSeleccionada} en la tabla de Compatibilidad de arriba? Puedes editarlos después si hace falta.`)) return;
   const btn = $('btnGuardarDescubiertos');
   btn.disabled = true;
   let guardados = 0;
-  for(const c of [...candidatosDescubiertos]){
+  const claves = visibles.map(c => c.clave);
+  for(const clave of claves){
+    const c = candidatosDescubiertos.find(x => x.clave === clave);
+    if(!c) continue;
     try{
       const res = await fetch('/api/negocio?recurso=modelos-compatibilidad', {
         method: 'POST', headers: {'Content-Type':'application/json'},
@@ -555,8 +677,9 @@ async function guardarTodosDescubiertos(){
       if(res.ok) guardados++;
     }catch(err){ /* sigue con el resto */ }
   }
-  candidatosDescubiertos = [];
-  renderTablaDescubrimiento();
+  const claveSet = new Set(claves);
+  candidatosDescubiertos = candidatosDescubiertos.filter(c => !claveSet.has(c.clave));
+  renderNavegacionModelos();
   cargarModelosCompat();
   btn.disabled = false;
   alert(`${guardados} modelo(s) guardados en la tabla de Compatibilidad.`);
