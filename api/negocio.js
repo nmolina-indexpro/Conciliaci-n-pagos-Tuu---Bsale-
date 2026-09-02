@@ -67,6 +67,7 @@ export default async function handler(req, res) {
   if (recurso === 'criticos') return manejarCriticos(req, res, sesion);
   if (recurso === 'alertas-stock-shopify') return manejarAlertasStockShopify(req, res, sesion);
   if (recurso === 'modelos-compatibilidad') return manejarModelosCompatibilidad(req, res, sesion);
+  if (recurso === 'buscar-repuestos-modelo') return manejarBuscarRepuestosModelo(req, res, sesion);
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
@@ -3211,7 +3212,7 @@ function palabrasBuscables(texto) {
 async function consultarShopify(domain, accessToken, palabras) {
   if (!palabras.length) return [];
   const q = palabras.map(p => `title:*${p}*`).join(' AND ');
-  const query = `query($q: String!) { products(first: 8, query: $q) { edges { node { title onlineStoreUrl } } } }`;
+  const query = `query($q: String!) { products(first: 8, query: $q) { edges { node { title onlineStoreUrl variants(first: 1) { edges { node { sku } } } } } } }`;
   const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
     method: 'POST',
     headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
@@ -3572,7 +3573,10 @@ async function buscarProductoShopify(producto, categoria, marca, modelo, especif
         console.warn('[buscarProductoShopify] resultados pero ninguno calzó con la categoría esperada', clave, `esperaba "${palabraEsperada}"`, 'candidatos:', candidatos.map(c => c.node.title));
         continue;
       }
-      return { titulo: elegido.node.title, url: elegido.node.onlineStoreUrl, confianza: nivel.confianza };
+      return {
+        titulo: elegido.node.title, url: elegido.node.onlineStoreUrl, confianza: nivel.confianza,
+        sku: elegido.node.variants?.edges?.[0]?.node?.sku || null,
+      };
     }
 
     console.warn('[buscarProductoShopify] ningún nivel de búsqueda encontró un producto válido', { producto, categoria, marca, modelo, especificaciones });
@@ -3580,6 +3584,35 @@ async function buscarProductoShopify(producto, categoria, marca, modelo, especif
   } catch (err) {
     console.warn('[buscarProductoShopify] error inesperado', { producto, marca, modelo }, err);
     return null; // mejor esfuerzo -- no interrumpe el análisis IA
+  }
+}
+
+// Busca en Shopify, para un modelo de notebook dado, los 3 repuestos que
+// la vista "Compatibilidad de modelos" de Sitio Web quiere pre-rellenar --
+// reutiliza el mismo buscador con confianza (buscarProductoShopify) que ya
+// usa el Análisis IA de WhatsApp, en vez de duplicar la lógica de
+// búsqueda. Cargador no se busca por modelo (un mismo cargador cubre
+// muchos modelos -- ver comentario en buscarProductoShopify), así que ese
+// resultado suele salir con más incertidumbre; es solo una sugerencia,
+// el usuario confirma o corrige antes de guardar.
+async function buscarSkusModeloNotebook(marca, modelo) {
+  const [bateria, pantalla, cargador] = await Promise.all([
+    buscarProductoShopify('Batería', 'bateria', marca, modelo, null),
+    buscarProductoShopify('Pantalla', 'pantalla', marca, modelo, null),
+    buscarProductoShopify('Cargador', 'cargador', marca, modelo, null),
+  ]);
+  return { bateria, pantalla, cargador };
+}
+
+async function manejarBuscarRepuestosModelo(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const marca = String(req.query.marca || '').trim();
+  const modelo = String(req.query.modelo || '').trim();
+  if (!marca || !modelo) return res.status(400).json({ error: 'Falta marca o modelo' });
+  try {
+    return res.status(200).json(await buscarSkusModeloNotebook(marca, modelo));
+  } catch (err) {
+    return res.status(200).json({ error: 'Error buscando en Shopify', detail: String(err) });
   }
 }
 
