@@ -37,10 +37,20 @@
   .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
   .btn-logout:hover{border-color:var(--red);color:var(--red);}
 
-  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+  select,input[type=text]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+  input[type=text]:focus,select:focus{outline:none;border-color:var(--primary);}
   button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
   .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
   .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-danger{background:var(--red-bg);color:var(--red);}
+  .btn-compact{font-size:11.5px;padding:6px 12px;}
+  .form-inline{display:flex;gap:10px;align-items:end;flex-wrap:wrap;}
+  .campo{display:flex;flex-direction:column;gap:5px;}
+  .campo label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;}
+  .tabla-wrap{overflow-x:auto;}
 
   .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
   #status{font-size:12px;color:var(--muted);}
@@ -114,6 +124,30 @@
   </div>
   <div id="status"></div>
   <div id="avisoWrap"></div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>🔧 Compatibilidad de modelos</h2>
+        <div class="sub">Para cada modelo de notebook, qué SKU de batería/pantalla/cargador le corresponde. Carga manual (Bsale y Shopify no modelan esta relación).</div>
+      </div>
+    </div>
+    <div class="form-inline" style="margin-bottom:16px;">
+      <div class="campo"><label>Marca</label><input type="text" id="fCompatMarca" placeholder="Ej. Lenovo" style="width:130px;"></div>
+      <div class="campo"><label>Modelo</label><input type="text" id="fCompatModelo" placeholder="Ej. IdeaPad Gaming 3 15IMH05" style="width:220px;"></div>
+      <div class="campo"><label>SKU Batería</label><input type="text" id="fCompatBateria" list="listaSkusCompat" placeholder="Código SKU" style="width:160px;"></div>
+      <div class="campo"><label>SKU Pantalla</label><input type="text" id="fCompatPantalla" list="listaSkusCompat" placeholder="Código SKU" style="width:160px;"></div>
+      <div class="campo"><label>SKU Cargador</label><input type="text" id="fCompatCargador" list="listaSkusCompat" placeholder="Código SKU" style="width:160px;"></div>
+      <datalist id="listaSkusCompat"></datalist>
+      <button class="btn-primary btn-compact" id="btnGuardarCompat" onclick="guardarModeloCompat()">+ Guardar</button>
+      <button class="btn-ghost btn-compact" id="btnCancelarCompat" onclick="cancelarEdicionCompat()" style="display:none;">Cancelar edición</button>
+    </div>
+    <div id="errorCompat"></div>
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Marca</th><th>Modelo</th><th>Batería</th><th>Pantalla</th><th>Cargador</th><th>Actualizado</th><th></th></tr></thead>
+      <tbody id="tablaCompat"><tr><td colspan="7" class="empty-note">Cargando...</td></tr></tbody>
+    </table></div>
+  </div>
 
 </div>
 
@@ -201,12 +235,114 @@ async function cargar(){
     const avisoPrecios = renderAvisoPreciosDistintos(data.preciosDistintos ?? null, data.listaPrecioBsaleNombre, data.error);
     $('avisoWrap').innerHTML = avisoStock + avisoPrecios; // ambas funciones siempre devuelven un resultado explícito, nunca vacío
     status.textContent = 'Actualizado.';
+    // Autocompletado del formulario de compatibilidad (SKU -> título),
+    // reutilizando el mismo catálogo de Shopify que ya se trajo arriba --
+    // sin golpear Shopify de nuevo aparte.
+    if(data.catalogoSku){
+      $('listaSkusCompat').innerHTML = Object.entries(data.catalogoSku)
+        .map(([sku, titulo]) => `<option value="${sku}">${titulo || ''}</option>`).join('');
+    }
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
   }
 }
 
+// ---------- Compatibilidad de modelos (batería/pantalla/cargador) ----------
+let editandoCompatId = null;
+
+let ultimosModelosCompat = [];
+
+async function cargarModelosCompat(){
+  const tbody = $('tablaCompat');
+  try{
+    const data = await fetch('/api/negocio?recurso=modelos-compatibilidad').then(r=>r.json());
+    if(data.error){ tbody.innerHTML = `<tr><td colspan="7" class="empty-note">${data.error}</td></tr>`; return; }
+    ultimosModelosCompat = data.modelos || [];
+    renderTablaCompat(ultimosModelosCompat);
+  }catch(err){
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-note">Error: ${err.message}</td></tr>`;
+  }
+}
+function renderTablaCompat(modelos){
+  const tbody = $('tablaCompat');
+  if(!modelos.length){ tbody.innerHTML = '<tr><td colspan="7" class="empty-note">Sin modelos cargados todavía.</td></tr>'; return; }
+  const celdaSku = sku => sku ? `<code>${sku}</code>` : '<span class="empty-note">—</span>';
+  tbody.innerHTML = modelos.map(m => `
+    <tr>
+      <td>${m.marca}</td>
+      <td>${m.modelo}</td>
+      <td>${celdaSku(m.skuBateria)}</td>
+      <td>${celdaSku(m.skuPantalla)}</td>
+      <td>${celdaSku(m.skuCargador)}</td>
+      <td class="empty-note">${m.actualizadoPor || '—'}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn-ghost btn-compact" onclick="editarModeloCompat(${m.id})">✏️</button>
+        <button class="btn-danger btn-compact" onclick="eliminarModeloCompat(${m.id})">🗑️</button>
+      </td>
+    </tr>
+  `).join('');
+}
+function editarModeloCompat(id){
+  const m = ultimosModelosCompat.find(x => x.id === id);
+  if(!m) return;
+  editandoCompatId = m.id;
+  $('fCompatMarca').value = m.marca;
+  $('fCompatModelo').value = m.modelo;
+  $('fCompatBateria').value = m.skuBateria || '';
+  $('fCompatPantalla').value = m.skuPantalla || '';
+  $('fCompatCargador').value = m.skuCargador || '';
+  $('btnGuardarCompat').textContent = '✓ Actualizar';
+  $('btnCancelarCompat').style.display = '';
+  $('fCompatMarca').scrollIntoView({behavior:'smooth', block:'center'});
+}
+function cancelarEdicionCompat(){
+  editandoCompatId = null;
+  ['fCompatMarca','fCompatModelo','fCompatBateria','fCompatPantalla','fCompatCargador'].forEach(id => $(id).value = '');
+  $('btnGuardarCompat').textContent = '+ Guardar';
+  $('btnCancelarCompat').style.display = 'none';
+  $('errorCompat').innerHTML = '';
+}
+async function guardarModeloCompat(){
+  const marca = $('fCompatMarca').value.trim();
+  const modelo = $('fCompatModelo').value.trim();
+  if(!marca || !modelo){
+    $('errorCompat').innerHTML = '<p class="empty-note" style="color:var(--red);">Marca y modelo son obligatorios.</p>';
+    return;
+  }
+  const cuerpo = {
+    marca, modelo,
+    skuBateria: $('fCompatBateria').value.trim(),
+    skuPantalla: $('fCompatPantalla').value.trim(),
+    skuCargador: $('fCompatCargador').value.trim(),
+  };
+  const btn = $('btnGuardarCompat');
+  btn.disabled = true;
+  try{
+    const res = editandoCompatId
+      ? await fetch('/api/negocio?recurso=modelos-compatibilidad', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: editandoCompatId, ...cuerpo }) })
+      : await fetch('/api/negocio?recurso=modelos-compatibilidad', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(cuerpo) });
+    const data = await res.json();
+    if(!res.ok || data.error){ $('errorCompat').innerHTML = `<p class="empty-note" style="color:var(--red);">${data.error || 'No se pudo guardar.'}</p>`; return; }
+    cancelarEdicionCompat();
+    cargarModelosCompat();
+  }catch(err){
+    $('errorCompat').innerHTML = `<p class="empty-note" style="color:var(--red);">Error: ${err.message}</p>`;
+  }finally{
+    btn.disabled = false;
+  }
+}
+async function eliminarModeloCompat(id){
+  const m = ultimosModelosCompat.find(x => x.id === id);
+  if(!confirm(`¿Eliminar la compatibilidad cargada para "${m ? m.marca + ' ' + m.modelo : 'este modelo'}"?`)) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=modelos-compatibilidad&id=${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo eliminar.'); return; }
+    if(editandoCompatId === id) cancelarEdicionCompat();
+    cargarModelosCompat();
+  }catch(err){ alert('Error: ' + err.message); }
+}
 
 async function cargarSesionUsuario(){
   try{
@@ -228,6 +364,7 @@ async function cerrarSesion(){
 }
 
 cargar();
+cargarModelosCompat();
 cargarSesionUsuario();
 </script>
 </body>

@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
@@ -66,6 +66,7 @@ export default async function handler(req, res) {
   const recurso = req.query.recurso;
   if (recurso === 'criticos') return manejarCriticos(req, res, sesion);
   if (recurso === 'alertas-stock-shopify') return manejarAlertasStockShopify(req, res, sesion);
+  if (recurso === 'modelos-compatibilidad') return manejarModelosCompatibilidad(req, res, sesion);
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
@@ -374,6 +375,80 @@ async function manejarCriticos(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error en productos críticos', detail: String(err) });
+  }
+}
+
+function limpiarSkuCompat(v) { return (v && String(v).trim()) ? String(v).trim().toUpperCase() : null; }
+function mapearModeloCompat(r) {
+  return {
+    id: r.id, marca: r.marca, modelo: r.modelo,
+    skuBateria: r.sku_bateria, skuPantalla: r.sku_pantalla, skuCargador: r.sku_cargador,
+    actualizadoPor: r.actualizado_por, actualizadoEn: r.updated_at,
+  };
+}
+
+// ---------------- Compatibilidad notebook -> repuestos (Sitio Web) ----------------
+// Tabla chica y curada a mano por un admin (no viene de Bsale ni Shopify,
+// que no modelan esta relación en ningún lado) -- ver
+// asegurarTablaCompatibilidadNotebook en lib/db.js.
+async function manejarModelosCompatibilidad(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaCompatibilidadNotebook(sql);
+
+    if (req.method === 'GET') {
+      const { rows } = await sql`SELECT * FROM notebook_compatibilidad ORDER BY marca ASC, modelo ASC;`;
+      return res.status(200).json({ modelos: rows.map(mapearModeloCompat) });
+    }
+
+    if (req.method === 'POST') {
+      const { marca, modelo, skuBateria, skuPantalla, skuCargador } = req.body || {};
+      if (!marca || !String(marca).trim() || !modelo || !String(modelo).trim()) {
+        return res.status(400).json({ error: 'Falta marca o modelo' });
+      }
+      const { rows } = await sql`
+        INSERT INTO notebook_compatibilidad (marca, modelo, sku_bateria, sku_pantalla, sku_cargador, actualizado_por)
+        VALUES (${marca.trim()}, ${modelo.trim()}, ${limpiarSkuCompat(skuBateria)}, ${limpiarSkuCompat(skuPantalla)}, ${limpiarSkuCompat(skuCargador)}, ${sesion.nombre || sesion.email})
+        ON CONFLICT (marca, modelo) DO UPDATE SET
+          sku_bateria = EXCLUDED.sku_bateria, sku_pantalla = EXCLUDED.sku_pantalla, sku_cargador = EXCLUDED.sku_cargador,
+          actualizado_por = EXCLUDED.actualizado_por, updated_at = now()
+        RETURNING *;
+      `;
+      return res.status(200).json({ modelo: mapearModeloCompat(rows[0]) });
+    }
+
+    if (req.method === 'PUT') {
+      const { id, marca, modelo, skuBateria, skuPantalla, skuCargador } = req.body || {};
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      if (!marca || !String(marca).trim() || !modelo || !String(modelo).trim()) {
+        return res.status(400).json({ error: 'Falta marca o modelo' });
+      }
+      const { rows } = await sql`
+        UPDATE notebook_compatibilidad SET
+          marca = ${marca.trim()}, modelo = ${modelo.trim()},
+          sku_bateria = ${limpiarSkuCompat(skuBateria)}, sku_pantalla = ${limpiarSkuCompat(skuPantalla)}, sku_cargador = ${limpiarSkuCompat(skuCargador)},
+          actualizado_por = ${sesion.nombre || sesion.email}, updated_at = now()
+        WHERE id = ${id}
+        RETURNING *;
+      `;
+      if (!rows[0]) return res.status(404).json({ error: 'No encontrado' });
+      return res.status(200).json({ modelo: mapearModeloCompat(rows[0]) });
+    }
+
+    if (req.method === 'DELETE') {
+      const { id } = req.query;
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      await sql`DELETE FROM notebook_compatibilidad WHERE id = ${id};`;
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    // Violación de UNIQUE(marca, modelo) -- código 23505 de Postgres.
+    if (String(err).includes('23505') || /duplicate key|unique constraint/i.test(String(err))) {
+      return res.status(400).json({ error: 'Ya existe una fila para esa marca y modelo' });
+    }
+    return res.status(500).json({ error: 'Error en compatibilidad de notebooks', detail: String(err) });
   }
 }
 
@@ -3378,7 +3453,13 @@ async function calcularAlertasSitioWeb() {
       .sort((a, b) => Math.abs(b.precioBsale - b.precioShopify) - Math.abs(a.precioBsale - a.precioShopify));
   }
 
-  return { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre };
+  // Mapa liviano sku -> título, para el autocompletado del formulario de
+  // "Compatibilidad de modelos" (asociar batería/pantalla/cargador a un
+  // modelo) sin tener que volver a golpear el catálogo de Shopify aparte.
+  const catalogoSku = {};
+  for (const [sku, s] of Object.entries(estadoPorSku)) catalogoSku[sku] = s.titulo;
+
+  return { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre, catalogoSku };
 }
 
 async function manejarAlertasStockShopify(req, res, sesion) {
