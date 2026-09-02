@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
@@ -3465,12 +3465,51 @@ async function calcularAlertasSitioWeb() {
   return { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre, catalogoSku };
 }
 
+// Guarda el resultado en caché (1 fila, ver asegurarTablaAlertasSitioWebCache
+// en lib/db.js) -- "mejor esfuerzo", si falla no debe tumbar la respuesta
+// real (la página igual muestra el resultado recién calculado, solo no
+// queda guardado para la próxima carga).
+async function guardarCacheAlertasSitioWeb(sql, resultado) {
+  try {
+    await asegurarTablaAlertasSitioWebCache(sql);
+    await sql`
+      INSERT INTO alertas_sitio_web_cache (id, datos, calculado_en) VALUES (1, ${JSON.stringify(resultado)}::jsonb, now())
+      ON CONFLICT (id) DO UPDATE SET datos = EXCLUDED.datos, calculado_en = EXCLUDED.calculado_en;
+    `;
+  } catch (err) {
+    console.warn('[guardarCacheAlertasSitioWeb] no se pudo guardar el caché', err);
+  }
+}
+
+// Antes recalculaba todo (catálogo completo de Shopify + stock y precios de
+// Bsale) en CADA carga de la página -- pesado y lento. Ahora lee el último
+// resultado guardado (el cron diario lo mantiene al día, ver
+// manejarAlertasSitioWebNotificar) y solo recalcula en vivo si todavía no
+// hay nada en caché o si se pide explícitamente con ?forzar=1 (botón
+// "Actualizar ahora" de la página).
 async function manejarAlertasStockShopify(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const forzar = req.query.forzar === '1' || req.query.forzar === 'true';
   try {
-    return res.status(200).json(await calcularAlertasSitioWeb());
+    const sql = await getSql();
+    await asegurarTablaAlertasSitioWebCache(sql);
+    if (!forzar) {
+      const { rows } = await sql`SELECT datos, calculado_en FROM alertas_sitio_web_cache WHERE id = 1;`;
+      if (rows.length && rows[0].datos) {
+        return res.status(200).json({ ...rows[0].datos, calculadoEn: rows[0].calculado_en, deCache: true });
+      }
+    }
+    const resultado = await calcularAlertasSitioWeb();
+    if (!resultado.error) await guardarCacheAlertasSitioWeb(sql, resultado);
+    return res.status(200).json({ ...resultado, calculadoEn: new Date().toISOString(), deCache: false });
   } catch (err) {
-    return res.status(200).json({ error: 'Error consultando estado de productos en Shopify', detail: String(err) });
+    // Sin Postgres (POSTGRES_URL no configurada) u otro error de caché --
+    // igual calcula en vivo en vez de fallar la página entera.
+    try {
+      return res.status(200).json({ ...(await calcularAlertasSitioWeb()), calculadoEn: new Date().toISOString(), deCache: false });
+    } catch (err2) {
+      return res.status(200).json({ error: 'Error consultando estado de productos en Shopify', detail: String(err2) });
+    }
   }
 }
 
@@ -3493,6 +3532,15 @@ async function manejarAlertasSitioWebNotificar(req, res) {
   try {
     const resultado = await calcularAlertasSitioWeb();
     if (resultado.error) return res.status(200).json({ ok: false, motivo: resultado.error });
+
+    // Deja el caché al día para que la página no tenga que recalcular en
+    // cada carga (ver manejarAlertasStockShopify) -- este cron corre una
+    // vez al día (ver vercel.json), así que de paso "refresca" el caché
+    // sin que nadie tenga que abrir la página.
+    try {
+      const sql = await getSql();
+      await guardarCacheAlertasSitioWeb(sql, resultado);
+    } catch (err) { console.warn('[manejarAlertasSitioWebNotificar] no se pudo actualizar el caché', err); }
 
     const { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre } = resultado;
     const hayStock = Array.isArray(stockNoVisible) && stockNoVisible.length > 0;

@@ -120,7 +120,7 @@
       <h1>Sitio <span>Web</span></h1>
       <div class="sub">Estado del catálogo publicado en indexstore.cl.</div>
     </div>
-    <button class="btn-ghost" onclick="cargar()">↻ Actualizar</button>
+    <button class="btn-ghost" onclick="cargar(true)">↻ Actualizar ahora</button>
   </div>
   <div id="status"></div>
   <div id="avisoWrap"></div>
@@ -251,16 +251,29 @@ function renderAvisoPreciosDistintos(preciosDistintos, listaNombre, error, detai
   </div>`;
 }
 
-async function cargar(){
+// Este cálculo (catálogo completo de Shopify + stock y precios de Bsale) es
+// pesado -- el backend lo cachea (ver manejarAlertasStockShopify en
+// api/negocio.js) y lo mantiene al día con un cron diario, así que una
+// carga normal de la página lee ese resultado guardado en vez de
+// recalcularlo entero cada vez. "forzar=true" (botón "↻ Actualizar ahora")
+// pide un recálculo en vivo puntual.
+async function cargar(forzar){
   const status = $('status');
   status.className = '';
-  status.textContent = 'Consultando Shopify y Bsale...';
+  status.textContent = forzar ? 'Recalculando en vivo (Shopify + Bsale)...' : 'Consultando...';
   try{
-    const data = await fetch('/api/negocio?recurso=alertas-stock-shopify').then(r=>r.json());
+    const data = await fetch('/api/negocio?recurso=alertas-stock-shopify' + (forzar ? '&forzar=1' : '')).then(r=>r.json());
     const avisoStock = renderAvisoStockShopify(data.stockNoVisible ?? null, data.error, data.detail);
     const avisoPrecios = renderAvisoPreciosDistintos(data.preciosDistintos ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
     $('avisoWrap').innerHTML = avisoStock + avisoPrecios; // ambas funciones siempre devuelven un resultado explícito, nunca vacío
-    status.textContent = 'Actualizado.';
+    if(data.calculadoEn){
+      const fecha = new Date(data.calculadoEn).toLocaleString('es-CL');
+      status.textContent = data.deCache
+        ? `Datos guardados del ${fecha} -- usa "↻ Actualizar ahora" para recalcular en vivo.`
+        : `Recalculado ahora (${fecha}).`;
+    } else {
+      status.textContent = 'Actualizado.';
+    }
     // Autocompletado del formulario de compatibilidad (SKU -> título),
     // reutilizando el mismo catálogo de Shopify que ya se trajo arriba --
     // sin golpear Shopify de nuevo aparte.
