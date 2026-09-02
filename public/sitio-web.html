@@ -285,16 +285,15 @@ async function cargar(){
 // para poder distinguir "las colecciones vinieron vacías/mal" de "vinieron
 // bien pero no se pudo extraer marca+modelo del título".
 let ultimosConteosColecciones = { pantalla: 0, bateria: 0, cargador: 0 };
+let ultimosErroresColecciones = null; // se muestra SIEMPRE junto al resumen final -- ver resumenConteosColecciones (antes se perdía: procesarBusquedaBateriaCargador sobreescribía el aviso de error casi al toque)
 async function cargarColeccionesYDescubrir(){
   $('estadoDescubrimiento').textContent = 'Consultando las colecciones de pantalla/batería/cargador por modelo...';
+  ultimosErroresColecciones = null;
   try{
     const data = await fetch('/api/negocio?recurso=colecciones-modelos-notebook').then(r=>r.json());
     if(data.error){ $('estadoDescubrimiento').textContent = data.error; return; }
     ultimosConteosColecciones = { pantalla: (data.pantalla||[]).length, bateria: (data.bateria||[]).length, cargador: (data.cargador||[]).length };
-    if(data.erroresPorCategoria){
-      const detalle = Object.entries(data.erroresPorCategoria).map(([cat,msg]) => `${cat}: ${msg}`).join(' · ');
-      $('estadoDescubrimiento').textContent = `⚠ Alguna colección no se pudo leer -- ${detalle}`;
-    }
+    ultimosErroresColecciones = data.erroresPorCategoria || null;
     iniciarDescubrimientoModelos({ pantalla: data.pantalla || [], bateria: data.bateria || [], cargador: data.cargador || [] });
   }catch(err){
     $('estadoDescubrimiento').textContent = 'Error consultando las colecciones: ' + err.message;
@@ -302,7 +301,12 @@ async function cargarColeccionesYDescubrir(){
 }
 function resumenConteosColecciones(){
   const c = ultimosConteosColecciones;
-  return `Colecciones: ${c.pantalla} pantalla(s), ${c.bateria} batería(s), ${c.cargador} cargador(es).`;
+  let resumen = `Colecciones: ${c.pantalla} pantalla(s), ${c.bateria} batería(s), ${c.cargador} cargador(es).`;
+  if(ultimosErroresColecciones){
+    const detalle = Object.entries(ultimosErroresColecciones).map(([cat,msg]) => `${cat}: ${msg}`).join(' · ');
+    resumen += ` ⚠ ${detalle}`;
+  }
+  return resumen;
 }
 
 // ---------- Descubrimiento automático de modelos ----------
