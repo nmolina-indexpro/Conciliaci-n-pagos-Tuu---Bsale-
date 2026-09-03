@@ -299,6 +299,15 @@ async function cargar(forzar){
   status.className = '';
   status.textContent = forzar ? 'Recalculando en vivo (Shopify + Bsale)...' : 'Consultando...';
   try{
+    // Si se fuerza un recálculo en vivo, primero se reescanean las
+    // colecciones de "Modelos detectados" -- el aviso de precio
+    // desincronizado de abajo compara el precio propio de esos listados
+    // contra ese mismo escaneo, así que necesita estar fresco ANTES de
+    // calcular las alertas, no después (mismo orden que el cron diario,
+    // ver manejarAlertasSitioWebNotificar en api/negocio.js) -- si no, el
+    // aviso seguía comparando contra el escaneo de ayer aunque se hiciera
+    // clic en "Actualizar ahora" (caso real reportado por el usuario).
+    if(forzar) await cargarColeccionesYDescubrir(true);
     const data = await fetch('/api/negocio?recurso=alertas-stock-shopify' + (forzar ? '&forzar=1' : '')).then(r=>r.json());
     const avisoStock = renderAvisoStockShopify(data.stockNoVisible ?? null, data.error, data.detail);
     const avisoPrecios = renderAvisoPreciosDistintos(data.preciosDistintos ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
@@ -323,7 +332,7 @@ async function cargar(forzar){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
   }
-  cargarColeccionesYDescubrir(forzar);
+  if(!forzar) cargarColeccionesYDescubrir(); // si se forzó, ya se hizo arriba (antes de las alertas)
 }
 
 // Trae las 3 colecciones reales de indexstore.cl curadas por modelo de

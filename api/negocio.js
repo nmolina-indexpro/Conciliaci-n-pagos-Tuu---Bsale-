@@ -3426,7 +3426,12 @@ async function obtenerStockBsalePorSku() {
 // resuelve en paralelo y se degrada por separado: si una falla, esa parte
 // queda en null ("no se pudo revisar", distinto de "revisado, sin
 // problemas" = []) y las demás igual se calculan.
-async function calcularAlertasSitioWeb() {
+// coleccionesModelos (opcional): resultado YA escaneado de
+// escanearColeccionesModelosNotebook, para cuando el llamador (el cron,
+// ver manejarAlertasSitioWebNotificar) lo acaba de escanear en vivo -- si
+// no se pasa, calcularPreciosDesincronizados cae al caché guardado en la
+// base (ver ahí).
+async function calcularAlertasSitioWeb(coleccionesModelos) {
   const [estadoPorSku, stockBsale, preciosBsale] = await Promise.all([
     obtenerEstadoShopifyPorSku(),
     obtenerStockBsalePorSku().catch(err => { console.warn('[calcularAlertasSitioWeb] no se pudo traer stock de Bsale', err); return null; }),
@@ -3474,7 +3479,7 @@ async function calcularAlertasSitioWeb() {
   // apuntan a CARAC03 quedaron en $25.000.
   let preciosDesincronizados = null;
   try {
-    preciosDesincronizados = await calcularPreciosDesincronizados(estadoPorSku);
+    preciosDesincronizados = await calcularPreciosDesincronizados(estadoPorSku, coleccionesModelos);
   } catch (err) {
     console.warn('[calcularAlertasSitioWeb] no se pudo revisar precios desincronizados de los productos de referencia', err);
   }
@@ -3487,25 +3492,35 @@ async function calcularAlertasSitioWeb() {
 // comentario en calcularAlertasSitioWeb). TOLERANCIA de $1 -- mismo
 // criterio que el resto de las comparaciones de precio de esta página.
 //
-// A propósito NO vuelve a escanear las 3 colecciones de Shopify en vivo --
-// esta función ya se llama dentro de calcularAlertasSitioWeb, que corre
-// dentro del tope de 60s de la función (ver vercel.json); escanear
-// pantalla+batería+cargador (~5.000 productos, hasta 52 páginas) de nuevo
-// arriba del catálogo completo que ya escanea obtenerEstadoShopifyPorSku
-// arriesgaba un FUNCTION_INVOCATION_TIMEOUT (ya pasó antes en este
-// proyecto con lotes muy grandes, ver WhatsApp). En vez de eso, lee el
-// caché de "Modelos detectados en el catálogo" (modelos_notebook_cache,
-// ver asegurarTablaModelosNotebookCache) que el cron diario ya mantiene al
-// día -- el precio propio de cada listado puede quedar hasta un día
-// desactualizado con este enfoque, mismo trade-off que ya se aceptó para
-// esa sección, pero de todos modos agarra el problema real (un precio que
-// queda mal por semanas), que es lo que importa acá.
-async function calcularPreciosDesincronizados(estadoPorSku) {
+// A propósito NO vuelve a escanear las 3 colecciones de Shopify en vivo si
+// no se le pasan ya escaneadas (coleccionesModelos) -- esta función se
+// llama dentro de calcularAlertasSitioWeb, que corre dentro del tope de
+// 60s de la función (ver vercel.json); escanear pantalla+batería+cargador
+// (~5.000 productos, hasta 52 páginas) de nuevo arriba del catálogo
+// completo que ya escanea obtenerEstadoShopifyPorSku arriesgaba un
+// FUNCTION_INVOCATION_TIMEOUT (ya pasó antes en este proyecto con lotes
+// muy grandes, ver WhatsApp). Si no vienen provistas, cae al caché de
+// "Modelos detectados en el catálogo" (modelos_notebook_cache) -- el
+// precio propio de cada listado puede quedar desactualizado con este
+// enfoque, mismo trade-off que ya se aceptó para esa sección, pero de
+// todos modos agarra el problema real (un precio que queda mal por
+// semanas), que es lo que importa acá. El cron diario (ver
+// manejarAlertasSitioWebNotificar) sí pasa el escaneo recién hecho, para
+// no comparar contra el caché de ayer -- si el escaneo pasara DESPUÉS de
+// calcular esta alerta en vez de antes, esta comparación siempre
+// quedaría un día atrás del precio propio real (bug real detectado: el
+// primer intento de esta alerta comparaba contra un caché de "Modelos
+// detectados" de antes de que ese escaneo guardara precioPropio, y por
+// eso no encontraba nada).
+async function calcularPreciosDesincronizados(estadoPorSku, coleccionesModelos) {
   try {
-    const sql = await getSql();
-    await asegurarTablaModelosNotebookCache(sql);
-    const { rows } = await sql`SELECT datos FROM modelos_notebook_cache WHERE id = 1;`;
-    const datos = rows[0]?.datos;
+    let datos = coleccionesModelos;
+    if (!datos) {
+      const sql = await getSql();
+      await asegurarTablaModelosNotebookCache(sql);
+      const { rows } = await sql`SELECT datos FROM modelos_notebook_cache WHERE id = 1;`;
+      datos = rows[0]?.datos;
+    }
     if (!datos) return null; // todavía no hay caché de colecciones -- se completa solo (cron diario, o abriendo "Modelos detectados")
 
     const TOLERANCIA = 1;
@@ -3607,7 +3622,27 @@ async function manejarAlertasSitioWebNotificar(req, res) {
     return res.status(401).json({ error: 'No autorizado' });
   }
   try {
-    const resultado = await calcularAlertasSitioWeb();
+    // Escanea y guarda PRIMERO el caché de "Modelos detectados en el
+    // catálogo" (pantalla/batería/cargador por modelo) -- va antes, no
+    // después, porque calcularAlertasSitioWeb compara el precio propio de
+    // esos listados contra el producto real (preciosDesincronizados) y
+    // necesita el escaneo de HOY para que esa comparación tenga sentido;
+    // si el escaneo fuera después, la comparación siempre quedaría un día
+    // atrás (bug real: la primera versión de esta alerta comparaba contra
+    // un caché de "Modelos detectados" de antes de que ese escaneo
+    // empezara a guardar el precio propio, y por eso nunca encontraba
+    // nada).
+    let resultadoModelos = null;
+    try {
+      const accesoModelos = await obtenerAccesoShopify();
+      if (accesoModelos) {
+        resultadoModelos = await escanearColeccionesModelosNotebook(accesoModelos.domain, accesoModelos.accessToken);
+        const sql = await getSql();
+        await guardarCacheModelosNotebook(sql, resultadoModelos);
+      }
+    } catch (err) { console.warn('[manejarAlertasSitioWebNotificar] no se pudo actualizar el caché de modelos de notebook', err); }
+
+    const resultado = await calcularAlertasSitioWeb(resultadoModelos);
     if (resultado.error) return res.status(200).json({ ok: false, motivo: resultado.error });
 
     // Deja el caché al día para que la página no tenga que recalcular en
@@ -3618,20 +3653,6 @@ async function manejarAlertasSitioWebNotificar(req, res) {
       const sql = await getSql();
       await guardarCacheAlertasSitioWeb(sql, resultado);
     } catch (err) { console.warn('[manejarAlertasSitioWebNotificar] no se pudo actualizar el caché', err); }
-
-    // Ídem con el caché de "Modelos detectados en el catálogo" (Sitio
-    // Web) -- de paso, ya que este cron corre una vez al día, se
-    // reescanean las 3 colecciones de pantalla/batería/cargador y quedan
-    // "recordadas" en la base de datos sin que nadie tenga que esperar
-    // ese escaneo abriendo la página.
-    try {
-      const accesoModelos = await obtenerAccesoShopify();
-      if (accesoModelos) {
-        const sql = await getSql();
-        const resultadoModelos = await escanearColeccionesModelosNotebook(accesoModelos.domain, accesoModelos.accessToken);
-        await guardarCacheModelosNotebook(sql, resultadoModelos);
-      }
-    } catch (err) { console.warn('[manejarAlertasSitioWebNotificar] no se pudo actualizar el caché de modelos de notebook', err); }
 
     const { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre, preciosDesincronizados } = resultado;
     const hayStock = Array.isArray(stockNoVisible) && stockNoVisible.length > 0;
