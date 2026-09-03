@@ -3487,6 +3487,17 @@ async function guardarCacheAlertasSitioWeb(sql, resultado) {
 // manejarAlertasSitioWebNotificar) y solo recalcula en vivo si todavía no
 // hay nada en caché o si se pide explícitamente con ?forzar=1 (botón
 // "Actualizar ahora" de la página).
+// Tope de antigüedad para confiar en el caché sin recalcular -- el cron
+// diario (ver manejarAlertasSitioWebNotificar) puede dejar pasar hasta 24h
+// entre cálculos, y esto es una alerta de PRECIO (plata real, a diferencia
+// del descubrimiento de modelos que es solo informativo): un precio mal
+// puesto en Shopify que se corrige antes del próximo cálculo diario nunca
+// llegaría a mostrarse -- caso real reportado por el usuario (CARAC03 con
+// diferencia real que la alerta no detectó a tiempo). Con este tope, el
+// primer que abra la página después de 3 horas dispara un recálculo en
+// vivo solo -- sin depender de que el cron alcance a correr más seguido
+// (Vercel Hobby limita los cron jobs a una vez al día).
+const TOPE_ANTIGUEDAD_CACHE_ALERTAS_MS = 3 * 60 * 60 * 1000;
 async function manejarAlertasStockShopify(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   const forzar = req.query.forzar === '1' || req.query.forzar === 'true';
@@ -3495,7 +3506,8 @@ async function manejarAlertasStockShopify(req, res, sesion) {
     await asegurarTablaAlertasSitioWebCache(sql);
     if (!forzar) {
       const { rows } = await sql`SELECT datos, calculado_en FROM alertas_sitio_web_cache WHERE id = 1;`;
-      if (rows.length && rows[0].datos) {
+      const antiguedadMs = rows.length && rows[0].calculado_en ? Date.now() - new Date(rows[0].calculado_en).getTime() : Infinity;
+      if (rows.length && rows[0].datos && antiguedadMs < TOPE_ANTIGUEDAD_CACHE_ALERTAS_MS) {
         return res.status(200).json({ ...rows[0].datos, calculadoEn: rows[0].calculado_en, deCache: true });
       }
     }
