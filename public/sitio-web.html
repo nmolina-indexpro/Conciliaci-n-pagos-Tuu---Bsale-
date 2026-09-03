@@ -254,6 +254,40 @@ function renderAvisoPreciosDistintos(preciosDistintos, listaNombre, error, detai
   </div>`;
 }
 
+// ---------- Aviso: productos "de referencia" con precio desincronizado ----------
+// Pantalla/batería/cargador por modelo (ej. "Cargador Notebook Acer Aspire
+// 1 A114-33 - Original") son productos Shopify SEPARADOS que apuntan al
+// producto real vía metacampo (custom.sku_base*), cada uno con su PROPIO
+// precio -- nada los mantiene sincronizados si el precio del producto real
+// cambia. Caso real reportado por el usuario: CARAC03 subió a $32.900 pero
+// varios listados que apuntan a CARAC03 quedaron en $25.000, y la alerta
+// de precio Bsale/Shopify de arriba no los agarra (no tienen SKU propio).
+const CATEGORIA_LABEL_DESINCRONIZADO = { pantalla: 'Pantalla', bateria: 'Batería', cargador: 'Cargador' };
+function renderAvisoPreciosDesincronizados(preciosDesincronizados, error, detail){
+  if(error) return ''; // ya se explica en el aviso de arriba, no repetir el mismo error dos veces
+  if(preciosDesincronizados === null){
+    return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo revisar el precio de los productos "de referencia" (pantalla/batería/cargador por modelo) contra el producto real que representan.</div>`;
+  }
+  if(!preciosDesincronizados.length){
+    return `<div class="note-box" style="background:var(--green-bg);border-color:#B7E4C7;">
+      ✅ <b>Los productos "de referencia" (pantalla/batería/cargador por modelo) tienen el mismo precio que el producto real al que apuntan.</b>
+    </div>`;
+  }
+  const filas = preciosDesincronizados.slice(0, 20).map(p => `
+    <li>
+      <b>${CATEGORIA_LABEL_DESINCRONIZADO[p.categoria] || p.categoria}</b> — ${p.titulo || ''} (apunta a <code>${p.skuBase}</code>) ·
+      Este listado: ${fmtMoneda(p.precioPropio)} · Debería ser: ${fmtMoneda(p.precioCanonico)}
+      <a href="${p.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
+    </li>`).join('');
+  const nota = preciosDesincronizados.length > 20 ? `<div class="empty-note">...y ${preciosDesincronizados.length - 20} más.</div>` : '';
+
+  return `<div class="note-box" style="background:var(--red-bg);border-color:#F5C6C6;">
+    💲 <b>${preciosDesincronizados.length} producto(s) "de referencia" con precio distinto al del producto real que representan</b> — un cliente que compre por ese listado paga de más o de menos.
+    <ul style="margin:8px 0 0 0;padding-left:18px;">${filas}</ul>
+    ${nota}
+  </div>`;
+}
+
 // Este cálculo (catálogo completo de Shopify + stock y precios de Bsale) es
 // pesado -- el backend lo cachea (ver manejarAlertasStockShopify en
 // api/negocio.js) y lo mantiene al día con un cron diario, así que una
@@ -268,7 +302,8 @@ async function cargar(forzar){
     const data = await fetch('/api/negocio?recurso=alertas-stock-shopify' + (forzar ? '&forzar=1' : '')).then(r=>r.json());
     const avisoStock = renderAvisoStockShopify(data.stockNoVisible ?? null, data.error, data.detail);
     const avisoPrecios = renderAvisoPreciosDistintos(data.preciosDistintos ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
-    $('avisoWrap').innerHTML = avisoStock + avisoPrecios; // ambas funciones siempre devuelven un resultado explícito, nunca vacío
+    const avisoDesincronizados = renderAvisoPreciosDesincronizados(data.preciosDesincronizados ?? null, data.error, data.detail);
+    $('avisoWrap').innerHTML = avisoStock + avisoPrecios + avisoDesincronizados; // las 3 funciones siempre devuelven un resultado explícito, nunca vacío
     if(data.calculadoEn){
       const fecha = new Date(data.calculadoEn).toLocaleString('es-CL');
       status.textContent = data.deCache

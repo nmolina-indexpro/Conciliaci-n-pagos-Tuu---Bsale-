@@ -3462,7 +3462,72 @@ async function calcularAlertasSitioWeb() {
   const catalogoSku = {};
   for (const [sku, s] of Object.entries(estadoPorSku)) catalogoSku[sku] = s.titulo;
 
-  return { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre, catalogoSku };
+  // Productos "de referencia" (pantalla/batería/cargador por modelo, ver
+  // COLECCIONES_MODELOS_NOTEBOOK) son productos Shopify SEPARADOS y
+  // vendibles -- cada uno con su propio precio -- que apuntan al producto
+  // real vía un metacampo (custom.sku_base*), no por SKU de variante. Nada
+  // los mantiene sincronizados automáticamente: si el precio del producto
+  // real cambia, cada uno de esos listados hay que actualizarlo a mano, y
+  // la alerta de precio Bsale/Shopify de arriba no los agarra (no tienen
+  // SKU propio). Caso real reportado por el usuario: CARAC03 subió a
+  // $32.900 pero varios "Cargador Notebook Acer ... - Original" que
+  // apuntan a CARAC03 quedaron en $25.000.
+  let preciosDesincronizados = null;
+  try {
+    preciosDesincronizados = await calcularPreciosDesincronizados(estadoPorSku);
+  } catch (err) {
+    console.warn('[calcularAlertasSitioWeb] no se pudo revisar precios desincronizados de los productos de referencia', err);
+  }
+
+  return { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre, catalogoSku, preciosDesincronizados };
+}
+
+// Compara el precio de cada producto "de referencia" (pantalla/batería/
+// cargador por modelo) contra el precio real del SKU al que apunta (ver
+// comentario en calcularAlertasSitioWeb). TOLERANCIA de $1 -- mismo
+// criterio que el resto de las comparaciones de precio de esta página.
+//
+// A propósito NO vuelve a escanear las 3 colecciones de Shopify en vivo --
+// esta función ya se llama dentro de calcularAlertasSitioWeb, que corre
+// dentro del tope de 60s de la función (ver vercel.json); escanear
+// pantalla+batería+cargador (~5.000 productos, hasta 52 páginas) de nuevo
+// arriba del catálogo completo que ya escanea obtenerEstadoShopifyPorSku
+// arriesgaba un FUNCTION_INVOCATION_TIMEOUT (ya pasó antes en este
+// proyecto con lotes muy grandes, ver WhatsApp). En vez de eso, lee el
+// caché de "Modelos detectados en el catálogo" (modelos_notebook_cache,
+// ver asegurarTablaModelosNotebookCache) que el cron diario ya mantiene al
+// día -- el precio propio de cada listado puede quedar hasta un día
+// desactualizado con este enfoque, mismo trade-off que ya se aceptó para
+// esa sección, pero de todos modos agarra el problema real (un precio que
+// queda mal por semanas), que es lo que importa acá.
+async function calcularPreciosDesincronizados(estadoPorSku) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaModelosNotebookCache(sql);
+    const { rows } = await sql`SELECT datos FROM modelos_notebook_cache WHERE id = 1;`;
+    const datos = rows[0]?.datos;
+    if (!datos) return null; // todavía no hay caché de colecciones -- se completa solo (cron diario, o abriendo "Modelos detectados")
+
+    const TOLERANCIA = 1;
+    const problemas = [];
+    for (const categoria of ['pantalla', 'bateria', 'cargador']) {
+      for (const p of (datos[categoria] || [])) {
+        if (!p.sku || p.precioPropio == null) continue; // sin sku base o sin precio propio -- no hay con qué comparar
+        const canonico = estadoPorSku[p.sku];
+        if (!canonico || canonico.precio == null) continue; // el sku base no existe como producto real vendible -- no se puede validar
+        if (Math.abs(canonico.precio - p.precioPropio) > TOLERANCIA) {
+          problemas.push({
+            categoria, skuBase: p.sku, titulo: p.titulo, adminUrl: p.adminUrl,
+            precioPropio: p.precioPropio, precioCanonico: canonico.precio,
+          });
+        }
+      }
+    }
+    return problemas.sort((a, b) => Math.abs(b.precioCanonico - b.precioPropio) - Math.abs(a.precioCanonico - a.precioPropio));
+  } catch (err) {
+    console.warn('[calcularPreciosDesincronizados] no se pudo leer el caché de colecciones', err);
+    return null;
+  }
 }
 
 // Guarda el resultado en caché (1 fila, ver asegurarTablaAlertasSitioWebCache
@@ -3568,20 +3633,23 @@ async function manejarAlertasSitioWebNotificar(req, res) {
       }
     } catch (err) { console.warn('[manejarAlertasSitioWebNotificar] no se pudo actualizar el caché de modelos de notebook', err); }
 
-    const { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre } = resultado;
+    const { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre, preciosDesincronizados } = resultado;
     const hayStock = Array.isArray(stockNoVisible) && stockNoVisible.length > 0;
     const hayPrecios = Array.isArray(preciosDistintos) && preciosDistintos.length > 0;
-    if (!hayStock && !hayPrecios) return res.status(200).json({ ok: true, enviado: false, motivo: 'Sin problemas detectados hoy' });
+    const hayDesincronizados = Array.isArray(preciosDesincronizados) && preciosDesincronizados.length > 0;
+    if (!hayStock && !hayPrecios && !hayDesincronizados) return res.status(200).json({ ok: true, enviado: false, motivo: 'Sin problemas detectados hoy' });
 
     const filaStock = p => `<li><b>${p.sku}</b> — ${p.nombre || ''} · Stock: ${p.stock} · ${p.estado === 'draft' ? 'Borrador' : 'Archivado'} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
     const filaPrecio = p => `<li><b>${p.sku}</b> — ${p.nombre || ''} · Bsale: $${Math.round(p.precioBsale).toLocaleString('es-CL')} · Shopify: $${Math.round(p.precioShopify).toLocaleString('es-CL')} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
+    const filaDesincronizado = p => `<li>${p.titulo || ''} (apunta a <b>${p.skuBase}</b>) · Este listado: $${Math.round(p.precioPropio).toLocaleString('es-CL')} · Debería ser: $${Math.round(p.precioCanonico).toLocaleString('es-CL')} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
     const html = `
       <h2>Alertas de Sitio Web -- IndexStore</h2>
       ${hayStock ? `<h3>⚠ ${stockNoVisible.length} producto(s) con stock disponible pero no visibles en la tienda</h3><ul>${stockNoVisible.slice(0, 30).map(filaStock).join('')}</ul>` : ''}
       ${hayPrecios ? `<h3>💲 ${preciosDistintos.length} producto(s) con precio distinto entre Bsale y Shopify</h3><ul>${preciosDistintos.slice(0, 30).map(filaPrecio).join('')}</ul><p style="color:#666;font-size:12px;">Precio de Bsale (con IVA) según la lista "${listaPrecioBsaleNombre || '—'}".</p>` : ''}
+      ${hayDesincronizados ? `<h3>💲 ${preciosDesincronizados.length} producto(s) "de referencia" (pantalla/batería/cargador por modelo) con precio distinto al producto real que representan</h3><ul>${preciosDesincronizados.slice(0, 30).map(filaDesincronizado).join('')}</ul>` : ''}
       <p><a href="https://conciliaci-n-pagos-tuu-bsale.vercel.app/sitio-web.html">Revisar en el ERP -- página Sitio Web</a></p>
     `;
-    const asunto = `⚠ Alertas Sitio Web IndexStore -- ${stockNoVisible?.length || 0} sin stock visible, ${preciosDistintos?.length || 0} con precio distinto`;
+    const asunto = `⚠ Alertas Sitio Web IndexStore -- ${stockNoVisible?.length || 0} sin stock visible, ${(preciosDistintos?.length || 0) + (preciosDesincronizados?.length || 0)} con precio distinto`;
 
     const destinatarios = ['lcelis@indexstore.cl', 'nmolina@indexstore.cl'];
     const envios = [];
@@ -3771,7 +3839,7 @@ async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle,
         products(first: 100, after: $cursor) {
           edges { node {
             id title
-            variants(first: 5) { edges { node { sku } } }
+            variants(first: 5) { edges { node { sku price } } }
             skuMeta: metafield(namespace: $ns, key: $key) { value type }
           } }
           pageInfo { hasNextPage endCursor }
@@ -3799,8 +3867,14 @@ async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle,
       // guarda igual (sku puede quedar null) -- lo que importa acá es el
       // TÍTULO para extraer marca+modelo; el sku se completa después con
       // la búsqueda de respaldo contra el catálogo completo si hace falta.
+      const primeraVariante = (p.variants?.edges || [])[0]?.node || null;
       const primeraVarianteSku = (p.variants?.edges || []).map(e => e.node.sku).find(s => s) || null;
-      productos.push({ sku: skuMeta || primeraVarianteSku, titulo: p.title, adminUrl: `https://${domain}/admin/products/${idNumerico}` });
+      productos.push({
+        sku: skuMeta || primeraVarianteSku, titulo: p.title, adminUrl: `https://${domain}/admin/products/${idNumerico}`,
+        // Precio propio de ESTE listado (no el del producto real que
+        // representa) -- ver calcularPreciosDesincronizados.
+        precioPropio: primeraVariante?.price != null ? Number(primeraVariante.price) : null,
+      });
     }
     if (!conexion.pageInfo.hasNextPage) break;
     cursor = conexion.pageInfo.endCursor;
