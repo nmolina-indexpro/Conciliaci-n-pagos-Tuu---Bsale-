@@ -3477,9 +3477,18 @@ async function calcularAlertasSitioWeb(coleccionesModelos) {
   // SKU propio). Caso real reportado por el usuario: CARAC03 subió a
   // $32.900 pero varios "Cargador Notebook Acer ... - Original" que
   // apuntan a CARAC03 quedaron en $25.000.
+  //
+  // La comparación es contra BSALE (preciosBsale), no contra el precio que
+  // el producto real tenga hoy en Shopify -- se probó con el producto real
+  // como referencia y salió mal: el "producto real" de un SKU puede estar
+  // ARCHIVADO en Shopify (caso real: BATHP25, archivado, 0 stock, precio
+  // seguramente viejo de cuando se archivó) y su precio ahí ya no significa
+  // nada. Bsale es la única fuente que sigue siendo confiable pase lo que
+  // pase con el estado del producto en Shopify -- mismo criterio que ya
+  // usa la alerta de precio Bsale/Shopify de arriba.
   let preciosDesincronizados = null;
   try {
-    preciosDesincronizados = await calcularPreciosDesincronizados(estadoPorSku, coleccionesModelos);
+    preciosDesincronizados = await calcularPreciosDesincronizados(preciosBsale, coleccionesModelos);
   } catch (err) {
     console.warn('[calcularAlertasSitioWeb] no se pudo revisar precios desincronizados de los productos de referencia', err);
   }
@@ -3488,8 +3497,10 @@ async function calcularAlertasSitioWeb(coleccionesModelos) {
 }
 
 // Compara el precio de cada producto "de referencia" (pantalla/batería/
-// cargador por modelo) contra el precio real del SKU al que apunta (ver
-// comentario en calcularAlertasSitioWeb). TOLERANCIA de $1 -- mismo
+// cargador por modelo) contra el precio real en BSALE del SKU al que
+// apunta (ver comentario en calcularAlertasSitioWeb -- y por qué NO se usa
+// el precio del producto real en Shopify como referencia: puede estar
+// archivado y su precio ya no significa nada). TOLERANCIA de $1 -- mismo
 // criterio que el resto de las comparaciones de precio de esta página.
 //
 // A propósito NO vuelve a escanear las 3 colecciones de Shopify en vivo si
@@ -3512,7 +3523,8 @@ async function calcularAlertasSitioWeb(coleccionesModelos) {
 // primer intento de esta alerta comparaba contra un caché de "Modelos
 // detectados" de antes de que ese escaneo guardara precioPropio, y por
 // eso no encontraba nada).
-async function calcularPreciosDesincronizados(estadoPorSku, coleccionesModelos) {
+async function calcularPreciosDesincronizados(preciosBsale, coleccionesModelos) {
+  if (!preciosBsale) return null; // sin precios de Bsale (BSALE_ACCESS_TOKEN faltante, etc.) no hay con qué comparar
   try {
     let datos = coleccionesModelos;
     if (!datos) {
@@ -3528,12 +3540,12 @@ async function calcularPreciosDesincronizados(estadoPorSku, coleccionesModelos) 
     for (const categoria of ['pantalla', 'bateria', 'cargador']) {
       for (const p of (datos[categoria] || [])) {
         if (!p.sku || p.precioPropio == null) continue; // sin sku base o sin precio propio -- no hay con qué comparar
-        const canonico = estadoPorSku[p.sku];
-        if (!canonico || canonico.precio == null) continue; // el sku base no existe como producto real vendible -- no se puede validar
-        if (Math.abs(canonico.precio - p.precioPropio) > TOLERANCIA) {
+        const precioBsale = preciosBsale.precioPorSku[p.sku];
+        if (precioBsale == null) continue; // el sku base no está en la lista de precios de Bsale -- no se puede validar
+        if (Math.abs(precioBsale - p.precioPropio) > TOLERANCIA) {
           problemas.push({
             categoria, skuBase: p.sku, titulo: p.titulo, adminUrl: p.adminUrl,
-            precioPropio: p.precioPropio, precioCanonico: canonico.precio,
+            precioPropio: p.precioPropio, precioCanonico: precioBsale,
           });
         }
       }
@@ -3662,12 +3674,12 @@ async function manejarAlertasSitioWebNotificar(req, res) {
 
     const filaStock = p => `<li><b>${p.sku}</b> — ${p.nombre || ''} · Stock: ${p.stock} · ${p.estado === 'draft' ? 'Borrador' : 'Archivado'} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
     const filaPrecio = p => `<li><b>${p.sku}</b> — ${p.nombre || ''} · Bsale: $${Math.round(p.precioBsale).toLocaleString('es-CL')} · Shopify: $${Math.round(p.precioShopify).toLocaleString('es-CL')} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
-    const filaDesincronizado = p => `<li>${p.titulo || ''} (apunta a <b>${p.skuBase}</b>) · Este listado: $${Math.round(p.precioPropio).toLocaleString('es-CL')} · Debería ser: $${Math.round(p.precioCanonico).toLocaleString('es-CL')} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
+    const filaDesincronizado = p => `<li>${p.titulo || ''} (apunta a <b>${p.skuBase}</b>) · Este listado: $${Math.round(p.precioPropio).toLocaleString('es-CL')} · Bsale: $${Math.round(p.precioCanonico).toLocaleString('es-CL')} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
     const html = `
       <h2>Alertas de Sitio Web -- IndexStore</h2>
       ${hayStock ? `<h3>⚠ ${stockNoVisible.length} producto(s) con stock disponible pero no visibles en la tienda</h3><ul>${stockNoVisible.slice(0, 30).map(filaStock).join('')}</ul>` : ''}
       ${hayPrecios ? `<h3>💲 ${preciosDistintos.length} producto(s) con precio distinto entre Bsale y Shopify</h3><ul>${preciosDistintos.slice(0, 30).map(filaPrecio).join('')}</ul><p style="color:#666;font-size:12px;">Precio de Bsale (con IVA) según la lista "${listaPrecioBsaleNombre || '—'}".</p>` : ''}
-      ${hayDesincronizados ? `<h3>💲 ${preciosDesincronizados.length} producto(s) "de referencia" (pantalla/batería/cargador por modelo) con precio distinto al producto real que representan</h3><ul>${preciosDesincronizados.slice(0, 30).map(filaDesincronizado).join('')}</ul>` : ''}
+      ${hayDesincronizados ? `<h3>💲 ${preciosDesincronizados.length} producto(s) "de referencia" (pantalla/batería/cargador por modelo) con precio distinto al de Bsale para el SKU que representan</h3><ul>${preciosDesincronizados.slice(0, 30).map(filaDesincronizado).join('')}</ul><p style="color:#666;font-size:12px;">Precio de Bsale (con IVA) según la lista "${listaPrecioBsaleNombre || '—'}".</p>` : ''}
       <p><a href="https://conciliaci-n-pagos-tuu-bsale.vercel.app/sitio-web.html">Revisar en el ERP -- página Sitio Web</a></p>
     `;
     const asunto = `⚠ Alertas Sitio Web IndexStore -- ${stockNoVisible?.length || 0} sin stock visible, ${(preciosDistintos?.length || 0) + (preciosDesincronizados?.length || 0)} con precio distinto`;
