@@ -3814,7 +3814,15 @@ const COLECCIONES_MODELOS_NOTEBOOK = {
 // una, con "0 modelos detectados" sin explicación visible (caso real
 // reportado por el usuario).
 async function shopifyGraphQLConReintento(domain, accessToken, query, variables) {
-  const intentosMax = 4;
+  // 6 intentos con espera creciente (2s, 4s, 6s, 8s, 10s -- hasta 30s de
+  // espera acumulada) -- antes eran 4 intentos / 9s acumulados, que no
+  // alcanzaba a recuperarse cuando dos escaneos pesados corrían seguidos
+  // sin pausa (caso real: "Actualizar ahora" agotó el cupo con THROTTLED
+  // que ya no se recuperaba en 9s). El cupo de Shopify se restaura a
+  // ~100/seg, así que unos segundos más de paciencia alcanzan para que un
+  // cupo muy negativo se recupere, y sigue lejos del tope de 60s de la
+  // función (ver vercel.json).
+  const intentosMax = 6;
   for (let intento = 0; intento < intentosMax; intento++) {
     const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
       method: 'POST',
@@ -3825,7 +3833,7 @@ async function shopifyGraphQLConReintento(domain, accessToken, query, variables)
     const body = await r.json();
     const throttled = Array.isArray(body.errors) && body.errors.some(e => e.extensions?.code === 'THROTTLED');
     if (throttled && intento < intentosMax - 1) {
-      await new Promise(res => setTimeout(res, 1500 * (intento + 1))); // espera creciente: 1.5s, 3s, 4.5s
+      await new Promise(res => setTimeout(res, 2000 * (intento + 1))); // espera creciente: 2s, 4s, 6s, 8s, 10s
       continue;
     }
     if (body.errors) throw new Error(`Shopify GraphQL error: ${JSON.stringify(body.errors).slice(0, 300)}`);
