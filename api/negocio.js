@@ -3498,13 +3498,16 @@ async function calcularAlertasSitioWeb(coleccionesModelos) {
   // pase con el estado del producto en Shopify -- mismo criterio que ya
   // usa la alerta de precio Bsale/Shopify de arriba.
   let preciosDesincronizados = null;
+  let skusIncorrectosReferencia = null;
   try {
-    preciosDesincronizados = await calcularPreciosDesincronizados(preciosBsale, coleccionesModelos);
+    const r = await calcularPreciosDesincronizados(preciosBsale, coleccionesModelos);
+    preciosDesincronizados = r.precios;
+    skusIncorrectosReferencia = r.skusIncorrectos;
   } catch (err) {
     console.warn('[calcularAlertasSitioWeb] no se pudo revisar precios desincronizados de los productos de referencia', err);
   }
 
-  return { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre, catalogoSku, preciosDesincronizados };
+  return { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre, catalogoSku, preciosDesincronizados, skusIncorrectosReferencia };
 }
 
 // Compara el precio de cada producto "de referencia" (pantalla/batería/
@@ -3534,8 +3537,23 @@ async function calcularAlertasSitioWeb(coleccionesModelos) {
 // primer intento de esta alerta comparaba contra un caché de "Modelos
 // detectados" de antes de que ese escaneo guardara precioPropio, y por
 // eso no encontraba nada).
+// Devuelve { precios, skusIncorrectos } -- cada uno independientemente
+// null si no se pudo calcular. Caso real que separó estas dos cosas: una
+// "Batería Asus VivoBook X405UA" tenía sku_base_baterias="BATHP25" (una
+// batería HP, sin relación) mientras que su metacampo producto_real_bsale
+// SÍ apuntaba correcto a "Batería Asus B31N1632" (sku BATAS11) -- si se
+// hubiera comparado el precio contra BATHP25 como antes, se habría
+// sugerido subir el precio de una batería Asus de $54.900 a $78.900 (el
+// precio de una batería HP totalmente distinta), un error peor que el que
+// se buscaba corregir. sku_base_* es texto tipeado a mano al crear el
+// producto (copiar/pegar de una plantilla y no actualizarlo genera
+// justo este tipo de error); producto_real_bsale es un link real a otro
+// producto de Shopify, mucho más difícil de desalinear por accidente --
+// por eso se usa como fuente preferida para el precio, y cuando ambos
+// existen pero DISCREPAN, es su propio hallazgo (el metacampo sku_base_*
+// hay que corregirlo a mano, no es algo que un cambio de precio arregle).
 async function calcularPreciosDesincronizados(preciosBsale, coleccionesModelos) {
-  if (!preciosBsale) return null; // sin precios de Bsale (BSALE_ACCESS_TOKEN faltante, etc.) no hay con qué comparar
+  if (!preciosBsale) return { precios: null, skusIncorrectos: null }; // sin precios de Bsale (BSALE_ACCESS_TOKEN faltante, etc.) no hay con qué comparar
   try {
     let datos = coleccionesModelos;
     if (!datos) {
@@ -3544,27 +3562,38 @@ async function calcularPreciosDesincronizados(preciosBsale, coleccionesModelos) 
       const { rows } = await sql`SELECT datos FROM modelos_notebook_cache WHERE id = 1;`;
       datos = rows[0]?.datos;
     }
-    if (!datos) return null; // todavía no hay caché de colecciones -- se completa solo (cron diario, o abriendo "Modelos detectados")
+    if (!datos) return { precios: null, skusIncorrectos: null }; // todavía no hay caché de colecciones -- se completa solo (cron diario, o abriendo "Modelos detectados")
 
     const TOLERANCIA = 1;
-    const problemas = [];
+    const precios = [];
+    const skusIncorrectos = [];
     for (const categoria of ['pantalla', 'bateria', 'cargador']) {
       for (const p of (datos[categoria] || [])) {
-        if (!p.sku || p.precioPropio == null) continue; // sin sku base o sin precio propio -- no hay con qué comparar
-        const precioBsale = preciosBsale.precioPorSku[p.sku];
-        if (precioBsale == null) continue; // el sku base no está en la lista de precios de Bsale -- no se puede validar
+        if (p.sku && p.skuProductoReal && p.sku !== p.skuProductoReal) {
+          skusIncorrectos.push({
+            categoria, titulo: p.titulo, adminUrl: p.adminUrl,
+            skuBase: p.sku, skuProductoReal: p.skuProductoReal,
+          });
+        }
+        const skuReferencia = p.skuProductoReal || p.sku; // preferir el link real por sobre el texto tipeado a mano
+        if (!skuReferencia || p.precioPropio == null) continue; // sin sku de referencia o sin precio propio -- no hay con qué comparar
+        const precioBsale = preciosBsale.precioPorSku[skuReferencia];
+        if (precioBsale == null) continue; // el sku no está en la lista de precios de Bsale -- no se puede validar
         if (Math.abs(precioBsale - p.precioPropio) > TOLERANCIA) {
-          problemas.push({
-            categoria, skuBase: p.sku, titulo: p.titulo, adminUrl: p.adminUrl,
+          precios.push({
+            categoria, skuBase: skuReferencia, titulo: p.titulo, adminUrl: p.adminUrl,
             precioPropio: p.precioPropio, precioCanonico: precioBsale,
           });
         }
       }
     }
-    return problemas.sort((a, b) => Math.abs(b.precioCanonico - b.precioPropio) - Math.abs(a.precioCanonico - a.precioPropio));
+    return {
+      precios: precios.sort((a, b) => Math.abs(b.precioCanonico - b.precioPropio) - Math.abs(a.precioCanonico - a.precioPropio)),
+      skusIncorrectos,
+    };
   } catch (err) {
     console.warn('[calcularPreciosDesincronizados] no se pudo leer el caché de colecciones', err);
-    return null;
+    return { precios: null, skusIncorrectos: null };
   }
 }
 
@@ -3731,23 +3760,26 @@ async function manejarAlertasSitioWebNotificar(req, res) {
       await guardarCacheAlertasSitioWeb(sql, resultado);
     } catch (err) { console.warn('[manejarAlertasSitioWebNotificar] no se pudo actualizar el caché', err); }
 
-    const { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre, preciosDesincronizados } = resultado;
+    const { stockNoVisible, preciosDistintos, listaPrecioBsaleNombre, preciosDesincronizados, skusIncorrectosReferencia } = resultado;
     const hayStock = Array.isArray(stockNoVisible) && stockNoVisible.length > 0;
     const hayPrecios = Array.isArray(preciosDistintos) && preciosDistintos.length > 0;
     const hayDesincronizados = Array.isArray(preciosDesincronizados) && preciosDesincronizados.length > 0;
-    if (!hayStock && !hayPrecios && !hayDesincronizados) return res.status(200).json({ ok: true, enviado: false, motivo: 'Sin problemas detectados hoy' });
+    const haySkusIncorrectos = Array.isArray(skusIncorrectosReferencia) && skusIncorrectosReferencia.length > 0;
+    if (!hayStock && !hayPrecios && !hayDesincronizados && !haySkusIncorrectos) return res.status(200).json({ ok: true, enviado: false, motivo: 'Sin problemas detectados hoy' });
 
     const filaStock = p => `<li><b>${p.sku}</b> — ${p.nombre || ''} · Stock: ${p.stock} · ${p.estado === 'draft' ? 'Borrador' : 'Archivado'} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
     const filaPrecio = p => `<li><b>${p.sku}</b> — ${p.nombre || ''} · Bsale: $${Math.round(p.precioBsale).toLocaleString('es-CL')} · Shopify: $${Math.round(p.precioShopify).toLocaleString('es-CL')} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
     const filaDesincronizado = p => `<li>${p.titulo || ''} (apunta a <b>${p.skuBase}</b>) · Este listado: $${Math.round(p.precioPropio).toLocaleString('es-CL')} · Bsale: $${Math.round(p.precioCanonico).toLocaleString('es-CL')} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
+    const filaSkuIncorrecto = p => `<li>${p.titulo || ''} · El metacampo dice <b>${p.skuBase}</b> pero el producto real vinculado es <b>${p.skuProductoReal}</b> · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
     const html = `
       <h2>Alertas de Sitio Web -- IndexStore</h2>
+      ${haySkusIncorrectos ? `<h3>⚠ ${skusIncorrectosReferencia.length} producto(s) "de referencia" con el SKU base mal cargado</h3><ul>${skusIncorrectosReferencia.slice(0, 30).map(filaSkuIncorrecto).join('')}</ul><p style="color:#666;font-size:12px;">El metacampo (probablemente copiado de otra plantilla) apunta a un producto distinto al real -- hay que corregir el metacampo en Shopify, no el precio.</p>` : ''}
       ${hayStock ? `<h3>⚠ ${stockNoVisible.length} producto(s) con stock disponible pero no visibles en la tienda</h3><ul>${stockNoVisible.slice(0, 30).map(filaStock).join('')}</ul>` : ''}
       ${hayPrecios ? `<h3>💲 ${preciosDistintos.length} producto(s) con precio distinto entre Bsale y Shopify</h3><ul>${preciosDistintos.slice(0, 30).map(filaPrecio).join('')}</ul><p style="color:#666;font-size:12px;">Precio de Bsale (con IVA) según la lista "${listaPrecioBsaleNombre || '—'}".</p>` : ''}
       ${hayDesincronizados ? `<h3>💲 ${preciosDesincronizados.length} producto(s) "de referencia" (pantalla/batería/cargador por modelo) con precio distinto al de Bsale para el SKU que representan</h3><ul>${preciosDesincronizados.slice(0, 30).map(filaDesincronizado).join('')}</ul><p style="color:#666;font-size:12px;">Precio de Bsale (con IVA) según la lista "${listaPrecioBsaleNombre || '—'}".</p>` : ''}
       <p><a href="https://conciliaci-n-pagos-tuu-bsale.vercel.app/sitio-web.html">Revisar en el ERP -- página Sitio Web</a></p>
     `;
-    const asunto = `⚠ Alertas Sitio Web IndexStore -- ${stockNoVisible?.length || 0} sin stock visible, ${(preciosDistintos?.length || 0) + (preciosDesincronizados?.length || 0)} con precio distinto`;
+    const asunto = `⚠ Alertas Sitio Web IndexStore -- ${stockNoVisible?.length || 0} sin stock visible, ${(preciosDistintos?.length || 0) + (preciosDesincronizados?.length || 0)} con precio distinto${haySkusIncorrectos ? `, ${skusIncorrectosReferencia.length} SKU mal vinculado` : ''}`;
 
     const destinatarios = ['lcelis@indexstore.cl', 'nmolina@indexstore.cl'];
     const envios = [];
@@ -3947,6 +3979,9 @@ async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle,
             id title
             variants(first: 5) { edges { node { sku price } } }
             skuMeta: metafield(namespace: $ns, key: $key) { value type }
+            productoReal: metafield(namespace: "custom", key: "producto_real_bsale") {
+              reference { ... on Product { variants(first: 1) { edges { node { sku } } } } }
+            }
           } }
           pageInfo { hasNextPage endCursor }
         }
@@ -3975,8 +4010,16 @@ async function obtenerProductosDeColeccionPorHandle(domain, accessToken, handle,
       // la búsqueda de respaldo contra el catálogo completo si hace falta.
       const primeraVariante = (p.variants?.edges || [])[0]?.node || null;
       const primeraVarianteSku = (p.variants?.edges || []).map(e => e.node.sku).find(s => s) || null;
+      // SKU resuelto desde "producto_real_bsale" (un link real a otro
+      // producto de Shopify) -- más confiable que sku_base_* (texto
+      // tipeado a mano al crear el producto, ver calcularPreciosDesincronizados
+      // para el caso real que probó que estos dos pueden desalinearse:
+      // una batería Asus con sku_base_baterias mal cargado apuntando a
+      // una batería HP, mientras que producto_real_bsale sí apuntaba a la
+      // batería Asus correcta).
+      const skuProductoReal = p.productoReal?.reference?.variants?.edges?.[0]?.node?.sku || null;
       productos.push({
-        sku: skuMeta || primeraVarianteSku, titulo: p.title, adminUrl: `https://${domain}/admin/products/${idNumerico}`,
+        sku: skuMeta || primeraVarianteSku, skuProductoReal, titulo: p.title, adminUrl: `https://${domain}/admin/products/${idNumerico}`,
         // Precio propio de ESTE listado (no el del producto real que
         // representa) -- ver calcularPreciosDesincronizados.
         precioPropio: primeraVariante?.price != null ? Number(primeraVariante.price) : null,

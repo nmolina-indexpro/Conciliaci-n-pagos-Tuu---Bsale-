@@ -299,6 +299,34 @@ function renderAvisoPreciosDesincronizados(preciosDesincronizados, listaNombre, 
   </div>`;
 }
 
+// ---------- Aviso: SKU base incorrecto (sku_base_* no coincide con producto_real_bsale) ----------
+// Caso real que reveló esto: "Batería Asus VivoBook X405UA" tenía
+// sku_base_baterias="BATHP25" (una batería HP sin ninguna relación) pero
+// su metacampo producto_real_bsale SÍ apuntaba correcto a la batería Asus
+// real (BATAS11) -- si se hubiera confiado solo en sku_base_baterias, la
+// alerta de precio de arriba habría sugerido subir el precio de esta
+// batería Asus de $54.900 a $78.900 (el precio de la batería HP), un
+// error MÁS GRAVE que el que se intentaba corregir. Este aviso separa
+// ese problema (el metacampo sku_base_* está mal cargado -- probablemente
+// copiado de una plantilla y nunca actualizado) del de precio: acá lo que
+// hay que corregir en Shopify es el metacampo, no el precio.
+function renderAvisoSkusIncorrectos(skusIncorrectos, error, detail){
+  if(error) return '';
+  if(skusIncorrectos === null) return ''; // mismo dato que preciosDesincronizados -- ya se explicó arriba si no se pudo calcular
+  if(!skusIncorrectos.length) return ''; // no molestar con una tarjeta "✅" aparte -- este es un caso raro, no una revisión rutinaria
+  const filas = skusIncorrectos.map(p => `
+    <li>
+      <b>${CATEGORIA_LABEL_DESINCRONIZADO[p.categoria] || p.categoria}</b> — ${p.titulo || ''} ·
+      El metacampo dice <code>${p.skuBase}</code> pero el producto real vinculado es <code>${p.skuProductoReal}</code>
+      <a href="${p.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
+    </li>`).join('');
+
+  return `<div class="note-box" style="background:var(--red-bg);border-color:#F5C6C6;">
+    ⚠ <b>${skusIncorrectos.length} producto(s) "de referencia" con el SKU base mal cargado</b> — el metacampo (probablemente copiado de otra plantilla) apunta a un producto distinto al real. Esto hay que corregirlo en el metacampo de Shopify, no ajustando el precio.
+    <ul style="margin:8px 0 0 0;padding-left:18px;max-height:420px;overflow-y:auto;">${filas}</ul>
+  </div>`;
+}
+
 // Este cálculo (catálogo completo de Shopify + stock y precios de Bsale) es
 // pesado -- el backend lo cachea (ver manejarAlertasStockShopify en
 // api/negocio.js) y lo mantiene al día con un cron diario, así que una
@@ -314,7 +342,8 @@ async function cargar(forzar){
     const avisoStock = renderAvisoStockShopify(data.stockNoVisible ?? null, data.error, data.detail);
     const avisoPrecios = renderAvisoPreciosDistintos(data.preciosDistintos ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
     const avisoDesincronizados = renderAvisoPreciosDesincronizados(data.preciosDesincronizados ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
-    $('avisoWrap').innerHTML = avisoStock + avisoPrecios + avisoDesincronizados; // las 3 funciones siempre devuelven un resultado explícito, nunca vacío
+    const avisoSkusIncorrectos = renderAvisoSkusIncorrectos(data.skusIncorrectosReferencia ?? null, data.error, data.detail);
+    $('avisoWrap').innerHTML = avisoSkusIncorrectos + avisoStock + avisoPrecios + avisoDesincronizados; // las funciones siempre devuelven un resultado explícito (avisoSkusIncorrectos puede ser '' -- caso raro, no molesta con una tarjeta "✅" aparte)
     if(data.calculadoEn){
       const fecha = new Date(data.calculadoEn).toLocaleString('es-CL');
       status.textContent = data.deCache
