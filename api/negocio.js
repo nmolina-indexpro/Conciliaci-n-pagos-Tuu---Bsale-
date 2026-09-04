@@ -3590,8 +3590,62 @@ async function guardarCacheAlertasSitioWeb(sql, resultado) {
 // vivo solo -- sin depender de que el cron alcance a correr más seguido
 // (Vercel Hobby limita los cron jobs a una vez al día).
 const TOPE_ANTIGUEDAD_CACHE_ALERTAS_MS = 3 * 60 * 60 * 1000;
+// Modo diagnóstico puntual (?debugSku=BATHP25): muestra en crudo, sin
+// caché ni redondeos escondidos, qué lista de Bsale se usó y cómo se
+// eligió, y el detalle tal cual lo devuelve Bsale para ese SKU -- para
+// poder confirmar de verdad "¿esto viene de Lista de Precios Base?" en
+// vez de solo confiar en el código (ya hubo más de un bug real en esta
+// alerta). Recorre toda la lista hasta encontrar el SKU (puede tardar más
+// que la carga normal si el SKU está en una página avanzada).
+async function manejarDebugPrecioBsale(req, res, sku) {
+  const token = (process.env.BSALE_ACCESS_TOKEN || '').trim();
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurado en el servidor' });
+  const BSALE_BASE = 'https://api.bsale.io/v1';
+  const bsaleGet = async (path) => {
+    const r = await fetchConTimeout(`${BSALE_BASE}${path}`, { headers: { access_token: token } }, 15000);
+    if (!r.ok) throw new Error(`Bsale HTTP ${r.status} en ${path}`);
+    return r.json();
+  };
+  try {
+    const listas = (await bsaleGet('/price_lists.json?limit=25')).items || [];
+    const listaPorNombre = listas.find(l => (l.name || '').trim().toUpperCase() === 'LISTA DE PRECIOS BASE');
+    const lista = listaPorNombre || listas.find(l => l.isDefault) || listas[0];
+    const comoSeEligioLaLista = listaPorNombre
+      ? 'Encontrada por nombre exacto "LISTA DE PRECIOS BASE"'
+      : (lista?.isDefault ? '⚠ NO se encontró "LISTA DE PRECIOS BASE" por nombre -- se usó la marcada isDefault' : '⚠ NO se encontró "LISTA DE PRECIOS BASE" por nombre ni hay isDefault -- se usó la primera de la cuenta');
+
+    let encontrado = null;
+    let offset = 0;
+    const limit = 50;
+    let totalRevisado = 0;
+    if (lista) {
+      while (offset <= 6000) { // tope de seguridad, ~120 páginas
+        const pagina = await bsaleGet(`/price_lists/${lista.id}/details.json?expand=[variant]&limit=${limit}&offset=${offset}`);
+        const items = pagina.items || [];
+        totalRevisado += items.length;
+        encontrado = items.find(it => it.variant?.code === sku) || null;
+        if (encontrado || items.length < limit) break;
+        offset += limit;
+      }
+    }
+    return res.status(200).json({
+      sku,
+      todasLasListasDeLaCuenta: listas.map(l => ({ id: l.id, nombre: l.name, isDefault: l.isDefault })),
+      listaUsada: lista ? { id: lista.id, nombre: lista.name, isDefault: lista.isDefault } : null,
+      comoSeEligioLaLista,
+      totalItemsRevisadosEnLaLista: totalRevisado,
+      itemCrudoDevueltoPorBsale: encontrado,
+      precioCalculado: encontrado?.variantValue != null ? Math.round(Number(encontrado.variantValue) * 1.19) : null,
+      nota: encontrado ? 'precioCalculado = variantValue (neto, tal cual viene de Bsale) x 1.19 (IVA)' : 'El SKU no aparece en esta lista de precios de Bsale',
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error consultando Bsale', detail: String(err) });
+  }
+}
+
 async function manejarAlertasStockShopify(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.query.debugSku) return manejarDebugPrecioBsale(req, res, String(req.query.debugSku).trim());
   const forzar = req.query.forzar === '1' || req.query.forzar === 'true';
   try {
     const sql = await getSql();
