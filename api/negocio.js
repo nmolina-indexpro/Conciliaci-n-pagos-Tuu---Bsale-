@@ -1151,6 +1151,18 @@ async function manejarSyncCotizaciones(req, res, sesion) {
 // duplica el conteo.
 const ANALISIS_DIAS_HISTORIAL = 365;
 
+// Líneas de envío/despacho -- pedido del usuario: no son productos, son
+// cargos de flete que Bsale guarda como una línea más del documento, con
+// un "código" que en realidad es un número de seguimiento/orden sin
+// relación a un SKU real (ej. "1757707327232724"). Se detectan por texto
+// (no hay un prefijo de código consistente como con los servicios,
+// "SER") -- lista dada por el usuario más sinónimos habituales de
+// couriers chilenos. "pagado"/"recíbelo" van con ^...$ porque son
+// palabras sueltas que SÍ podrían aparecer dentro de un nombre de
+// producto real como substring en otro contexto (poco probable, pero
+// más seguro exigir que sea la línea completa).
+const LINEA_ENVIO_EXCLUIDA_REGEX = /env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|flete|courier|retiro en tienda|^pagado$|^recib[ae]lo$/i;
+
 async function manejarSyncAnalisis(req, res, sesion) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sincronizar el análisis de clientes' });
@@ -1315,8 +1327,10 @@ async function manejarSyncAnalisis(req, res, sesion) {
         const porSku = new Map();
         for (const det of detalles) {
           const codigo = (det.variant?.code || '').toUpperCase();
-          if (!codigo || codigo.startsWith('SER')) continue; // sin código, o es un servicio -- esto es solo para productos
+          if (!codigo) continue;
           const nombre = det.variant?.description || det.comment || det.note || codigo;
+          if (categoriaLinea(codigo, nombre) === 'servicios') continue; // es un servicio (por código SER o por texto) -- esto es solo para productos
+          if (LINEA_ENVIO_EXCLUIDA_REGEX.test(nombre)) continue; // envío/despacho/"pagado" -- no es un producto
           const previa = porSku.get(codigo) || { nombre, cantidad: 0, monto: 0 };
           previa.cantidad += Number(det.quantity) || 0;
           previa.monto += (Number(det.quantity) || 0) * (Number(det.netUnitValue) || 0);
@@ -1385,6 +1399,7 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
       SELECT sku, MAX(nombre) AS nombre, date_trunc('month', fecha)::date AS mes,
              SUM(cantidad)::numeric AS cantidad, SUM(monto)::numeric AS monto
       FROM bsale_ventas_sku
+      WHERE COALESCE(nombre, '') !~* 'env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|flete|courier|retiro en tienda|^pagado$|^recib[ae]lo$'
       GROUP BY sku, date_trunc('month', fecha)
       ORDER BY sku, mes;
     `;
