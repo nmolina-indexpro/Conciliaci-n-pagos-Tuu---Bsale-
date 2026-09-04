@@ -137,6 +137,10 @@ function etiquetaMes(mesKey){ // "2026-03" -> "mar 2026"
   const [anio, mes] = mesKey.split('-').map(Number);
   return `${MESES_CORTOS[mes - 1]} ${anio}`;
 }
+// Mes en curso -- se excluye del cálculo de mejor/peor mes (ver
+// renderTabla): todavía está incompleto, así que sesga hacia "peor mes"
+// sin que sea un mal mes de verdad.
+const mesActualKey = new Date().toISOString().slice(0, 7);
 
 let ultimosDatos = null; // { meses, servicios }
 let metricaActual = 'cantidad'; // 'cantidad' | 'monto'
@@ -211,19 +215,24 @@ function renderTabla(data){
 
   const filas = serviciosOrdenados.map(s => {
     // Mejor/peor mes DE ESTE SERVICIO (no comparado contra los demás) --
-    // ⭐ en el mes más alto, ⚠ rojo en el más bajo. Si todos los meses
-    // valen lo mismo (incl. todos en 0) no hay variación real que marcar.
-    const valoresFila = meses.map(m => valorCelda(s.porMes, m));
-    const maxFila = Math.max(...valoresFila);
-    const minFila = Math.min(...valoresFila);
-    const idxMejor = maxFila > minFila ? valoresFila.indexOf(maxFila) : -1;
-    const idxPeor = maxFila > minFila ? valoresFila.indexOf(minFila) : -1;
+    // ⭐ en el mes más alto, 📉 en el más bajo. El mes EN CURSO queda
+    // afuera de esta comparación (para ambos lados, no solo el peor) --
+    // todavía está incompleto, así que casi siempre sale con el valor más
+    // bajo del año sin que eso signifique de verdad un mal mes (pedido
+    // del usuario, sesgaba el peor mes hacia el actual). Igual se muestra
+    // su valor normal en la tabla, solo no compite por la marca.
+    const indicesElegibles = meses.map((m, i) => i).filter(i => meses[i] !== mesActualKey);
+    const valoresElegibles = indicesElegibles.map(i => valorCelda(s.porMes, meses[i]));
+    const maxFila = valoresElegibles.length ? Math.max(...valoresElegibles) : -Infinity;
+    const minFila = valoresElegibles.length ? Math.min(...valoresElegibles) : Infinity;
+    const idxMejor = maxFila > minFila ? indicesElegibles[valoresElegibles.indexOf(maxFila)] : -1;
+    const idxPeor = maxFila > minFila ? indicesElegibles[valoresElegibles.indexOf(minFila)] : -1;
     const celdas = meses.map((mesKey, i) => {
       const actual = valorCelda(s.porMes, mesKey);
       const anterior = i > 0 ? valorCelda(s.porMes, meses[i - 1]) : null;
       const delta = i > 0 ? celdaDelta(actual, anterior) : '';
       const marca = i === idxMejor ? ' <span class="marca-mejor" title="Mejor mes del año para este servicio">⭐</span>'
-        : i === idxPeor ? ' <span class="marca-peor" title="Peor mes del año para este servicio">⚠</span>'
+        : i === idxPeor ? ' <span class="marca-peor" title="Peor mes del año para este servicio (no cuenta el mes en curso)">📉</span>'
         : '';
       return `<td class="mes amount">${fmtValor(actual)}${marca}${delta}</td>`;
     }).join('');
