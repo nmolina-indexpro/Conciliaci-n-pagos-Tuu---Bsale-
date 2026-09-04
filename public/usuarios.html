@@ -374,6 +374,7 @@ function renderTabla(){
               <button class="btn-ghost" onclick="toggleRol(${u.id}, '${u.rol}')">${u.rol==='admin'?'Quitar admin':'Hacer admin'}</button>
               <button class="btn-ghost" onclick="toggleActivo(${u.id}, ${u.activo})">${u.activo?'Desactivar':'Activar'}</button>
               <button class="btn-ghost" onclick="resetPassword(${u.id})">Cambiar contraseña</button>
+              <button class="btn-ghost" onclick="reenviarNotificacion(${u.id}, '${u.email}')">📧 Reenviar notificación</button>
               <button class="btn-ghost" onclick="extenderExpiracion(${u.id})">${u.expira_en?'Extender expiración':'Forzar expiración ahora'}</button>
               ${(u.expira_en||u.expira_minutos)?`<button class="btn-ghost" onclick="quitarExpiracion(${u.id})">Quitar expiración</button>`:''}
               <button class="btn-danger" onclick="eliminarUsuario(${u.id})">Eliminar</button>
@@ -426,6 +427,33 @@ async function resetPassword(id){
   const nueva = prompt('Nueva contraseña (mínimo 8 caracteres):');
   if(!nueva) return;
   await actualizarUsuario(id, { password: nueva });
+}
+// Genera una contraseña nueva (la anterior deja de funcionar) y la manda
+// por correo con el mismo formato del correo de bienvenida -- para una
+// cuenta que nunca hizo su primer login y quizás perdió el correo
+// original, o cualquier usuario que necesite recuperar acceso. No usa
+// actualizarUsuario() porque acá sí importa mostrarle al admin si el
+// correo se pudo mandar -- si falla, es la única forma de que tenga la
+// contraseña nueva para avisarle al usuario por otro medio.
+async function reenviarNotificacion(id, email){
+  if(!confirm(`¿Reenviar notificación de acceso a ${email}? Se generará una contraseña nueva y la anterior dejará de funcionar.`)) return;
+  try{
+    const res = await fetch('/api/usuarios', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, reenviarNotificacion: true })
+    });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error); return; }
+    if(data.correo?.enviado){
+      alert(`Correo enviado a ${email} con los nuevos datos de acceso.`);
+    } else {
+      alert(`No se pudo enviar el correo (${data.correo?.motivo || 'error desconocido'}).\n\nLa contraseña nueva es: ${data.nuevaPassword}\nCompártela con ${email} por otro medio.`);
+    }
+    cargarUsuarios();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
 }
 async function extenderExpiracion(id){
   const minutos = prompt('¿La cuenta deja de funcionar en cuántos minutos desde AHORA? (esto activa/extiende de inmediato, sin esperar un login)', '30');

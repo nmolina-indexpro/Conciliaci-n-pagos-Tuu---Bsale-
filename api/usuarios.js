@@ -2,6 +2,7 @@
 // CRUD del mantenedor de usuarios. Solo accesible para usuarios con rol
 // 'admin' — cualquier otro caso devuelve 403.
 
+import crypto from 'crypto';
 import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles } from '../lib/db.js';
 import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo } from '../lib/mailer.js';
@@ -93,13 +94,59 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'PUT') {
-      const { id, nombre, rol, activo, password, expiraMinutos, quitarExpiracion, perfilId, quitarPerfil } = req.body || {};
+      const { id, nombre, rol, activo, password, expiraMinutos, quitarExpiracion, perfilId, quitarPerfil, reenviarNotificacion } = req.body || {};
       if (!id) return res.status(400).json({ error: 'Falta el id del usuario' });
 
       // No permitir que un admin se quite a sí mismo el rol de admin ni se
       // desactive a sí mismo -> evita quedar todos bloqueados sin querer.
       if (Number(id) === sesion.uid && (rol === 'usuario' || activo === false)) {
         return res.status(400).json({ error: 'No puedes quitarte tu propio acceso de administrador ni desactivar tu propia cuenta.' });
+      }
+
+      // Reenviar notificación de acceso -- pedido para cuentas que nunca
+      // hicieron su primer login (ver "Pendiente: Xh desde 1er login" en
+      // la tabla) y quizás perdieron el correo original, o cualquier
+      // usuario que necesite recuperar acceso. La contraseña original NO
+      // se guarda en ningún lado más que su hash (ver comentario en la
+      // creación, abajo), así que no se puede "reenviar la misma" -- se
+      // genera una nueva, reemplaza la anterior, y se manda por correo con
+      // el mismo formato del correo de bienvenida. Acción aparte, no pasa
+      // por el UPDATE genérico de más abajo.
+      if (reenviarNotificacion) {
+        const { rows: existente } = await sql`SELECT email, nombre, expira_minutos, expira_en FROM usuarios WHERE id = ${id};`;
+        if (!existente.length) return res.status(404).json({ error: 'Usuario no encontrado' });
+        const usuario = existente[0];
+        const nuevaPassword = crypto.randomBytes(9).toString('base64url');
+        await sql`UPDATE usuarios SET password_hash = ${hashPassword(nuevaPassword)} WHERE id = ${id};`;
+
+        const host = req.headers['x-forwarded-host'] || req.headers.host;
+        const loginUrl = host ? `https://${host}/login.html` : null;
+        // Pendiente (expira_minutos con valor, expira_en todavía NULL) =
+        // el reloj de la cuenta temporal no ha arrancado -- mismo aviso
+        // que en la creación. Si expira_en ya tiene valor, la cuenta ya
+        // arrancó su cuenta regresiva -- no repetir el aviso de "el reloj
+        // corre desde tu primer login" porque ya corrió.
+        const notaDuracion = (usuario.expira_minutos && !usuario.expira_en)
+          ? `<p>Esta es una cuenta <b>temporal</b>: el acceso dura <b>${usuario.expira_minutos} minutos desde el primer inicio de sesión</b>, no desde este correo.</p>`
+          : '';
+        const correoResultado = await enviarCorreo({
+          para: usuario.email,
+          asunto: 'Tus datos de acceso — Panel IndexStore',
+          html: `
+            <p>Hola ${usuario.nombre || ''},</p>
+            <p>Te reenviamos tus datos de acceso al panel interno de IndexStore (se generó una contraseña nueva; la anterior dejó de funcionar):</p>
+            <p><b>Usuario:</b> ${usuario.email}<br><b>Contraseña:</b> ${nuevaPassword}</p>
+            ${notaDuracion}
+            ${loginUrl ? `<p>Puedes ingresar acá: <a href="${loginUrl}">${loginUrl}</a></p>` : ''}
+            <p>Por seguridad, evita compartir esta contraseña con otras personas.</p>
+          `,
+          texto: `Hola ${usuario.nombre || ''}, te reenviamos tus datos de acceso al panel interno de IndexStore (se generó una contraseña nueva; la anterior dejó de funcionar).\nUsuario: ${usuario.email}\nContraseña: ${nuevaPassword}\n${(usuario.expira_minutos && !usuario.expira_en) ? `Cuenta temporal: dura ${usuario.expira_minutos} minutos desde el primer inicio de sesión.\n` : ''}${loginUrl ? `Ingresa acá: ${loginUrl}\n` : ''}`,
+        });
+        // nuevaPassword va en la respuesta como respaldo -- si el correo
+        // no se pudo mandar, es la única forma de que el admin la tenga
+        // para avisarle al usuario por otro medio (mismo criterio que la
+        // creación de cuenta).
+        return res.status(200).json({ ok: true, correo: correoResultado, nuevaPassword });
       }
 
       if (password) {
