@@ -79,6 +79,8 @@
   .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
   .btn-icono.deshabilitado{opacity:0.3;pointer-events:none;}
   select.selectEstado{font-size:11.5px;padding:5px 8px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font-family:inherit;}
+  .sku-code{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);}
+  .badge-caida{display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;font-size:11px;background:var(--red-bg);color:var(--red);}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -128,6 +130,17 @@
 
     <div id="wrapClientesRecurrentes"><p class="empty-note">Cargando...</p></div>
     <div id="syncStatus"></div>
+  </div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>📉 Productos con ventas a la baja</h2>
+        <div class="sub" style="margin-bottom:0;">SKU con caída de ventas en los últimos 12 meses (primera mitad del año vs. segunda mitad, sin contar el mes en curso -- está incompleto) -- candidatos a bajar de precio, ofrecer envío gratis o condiciones especiales para liquidar stock sin rotación y generar efectivo. Se sincroniza junto con "Clientes recurrentes" (mismo botón de arriba).</div>
+      </div>
+    </div>
+    <div id="ventasBajaResumen" class="sub" style="margin-bottom:14px;"></div>
+    <div id="wrapVentasBaja"><p class="empty-note">Cargando...</p></div>
   </div>
 
   <div class="seccion" id="seccionDetalle" style="display:none;">
@@ -180,6 +193,7 @@ async function cargarSesionUsuario(){
       $('btnSincronizar').style.display = '';
     }
     cargarAnalisis();
+    cargarVentasBaja();
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){
@@ -199,6 +213,106 @@ async function cargarAnalisis(){
   }catch(err){
     $('wrapClientesRecurrentes').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
   }
+}
+
+// ---------- Productos con ventas a la baja ----------
+// Pedido del usuario: detectar SKU sin rotación (venden menos en la
+// segunda mitad del año que en la primera) para priorizar bajas de
+// precio, envío gratis o condiciones especiales y liquidar stock. El
+// backend (ventas-sku-tendencia) solo pivota {meses, productos} por SKU
+// -- la comparación 1ª mitad vs 2ª mitad se hace acá, igual que Servicio
+// Técnico deja el cálculo de mejor/peor mes del lado del cliente.
+const MESES_CORTOS_VENTAS = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function etiquetaMesVentas(mesKey){
+  const [anio, mes] = mesKey.split('-').map(Number);
+  return `${MESES_CORTOS_VENTAS[mes - 1]} ${anio}`;
+}
+let ventasBajaActual = [];
+let ordenVentasBaja = 'variacion'; // 'variacion' | 'monto'
+let ordenVentasBajaAsc = true; // variación arranca ascendente -> el más negativo (peor caída) primero
+
+function ordenarVentasBaja(col){
+  if(ordenVentasBaja === col) ordenVentasBajaAsc = !ordenVentasBajaAsc;
+  else { ordenVentasBaja = col; ordenVentasBajaAsc = col === 'variacion'; }
+  renderVentasBaja();
+}
+
+async function cargarVentasBaja(){
+  try{
+    const res = await fetch('/api/negocio?recurso=ventas-sku-tendencia');
+    const data = await res.json();
+    if(!res.ok || data.error){
+      $('wrapVentasBaja').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`;
+      return;
+    }
+    const { meses, productos } = data;
+    if(!productos.length){
+      $('ventasBajaResumen').textContent = '';
+      $('wrapVentasBaja').innerHTML = rolActual === 'admin'
+        ? '<p class="empty-note">Todavía no hay datos sincronizados. Usa "🔄 Sincronizar con Bsale" arriba.</p>'
+        : '<p class="empty-note">Todavía no hay datos sincronizados — pídele a un administrador que sincronice esta página.</p>';
+      return;
+    }
+    // El mes en curso queda afuera de la comparación -- está incompleto,
+    // así que sesgaría hacia "caída" sin ser una baja real (mismo
+    // criterio que el mejor/peor mes de Servicio Técnico).
+    const mesesTendencia = meses.slice(0, -1); // 11 meses completos
+    const corte = Math.ceil(mesesTendencia.length / 2);
+    const primerBloque = mesesTendencia.slice(0, corte); // 6 meses más antiguos
+    const segundoBloque = mesesTendencia.slice(corte);   // 5 meses más recientes (sin el mes en curso)
+
+    const sumaCampo = (porMes, bloque, campo) => bloque.reduce((acc, m) => acc + (porMes[m]?.[campo] || 0), 0);
+    const calculados = productos.map(p => {
+      const primera = sumaCampo(p.porMes, primerBloque, 'cantidad');
+      const segunda = sumaCampo(p.porMes, segundoBloque, 'cantidad');
+      const montoAnio = meses.reduce((acc, m) => acc + (p.porMes[m]?.monto || 0), 0);
+      const variacion = primera > 0 ? ((segunda - primera) / primera) * 100 : null;
+      return { sku: p.sku, nombre: p.nombre, primera, segunda, variacion, montoAnio };
+    }).filter(p => p.variacion !== null && p.variacion < 0); // solo bajas reales -- tuvo que haber vendido antes
+
+    ventasBajaActual = calculados;
+    $('ventasBajaResumen').textContent = `${fmtNum(calculados.length)} SKU con caída de ventas (de ${fmtNum(productos.length)} con ventas en el período). `
+      + `Comparando ${etiquetaMesVentas(primerBloque[0])}–${etiquetaMesVentas(primerBloque[primerBloque.length - 1])} vs. ${etiquetaMesVentas(segundoBloque[0])}–${etiquetaMesVentas(segundoBloque[segundoBloque.length - 1])} `
+      + `(no se cuenta ${etiquetaMesVentas(meses[meses.length - 1])}, mes en curso).`
+      + (data.ultimaSincronizacion ? ` Última sincronización completa: ${new Date(data.ultimaSincronizacion).toLocaleString('es-CL')}.` : '');
+    renderVentasBaja();
+  }catch(err){
+    $('wrapVentasBaja').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+  }
+}
+
+function renderVentasBaja(){
+  if(!ventasBajaActual.length){
+    $('wrapVentasBaja').innerHTML = '<p class="empty-note">No se detectó ningún SKU con caída de ventas en el período.</p>';
+    return;
+  }
+  const ordenados = [...ventasBajaActual].sort((a, b) => {
+    const va = ordenVentasBaja === 'monto' ? a.montoAnio : a.variacion;
+    const vb = ordenVentasBaja === 'monto' ? b.montoAnio : b.variacion;
+    return ordenVentasBajaAsc ? va - vb : vb - va;
+  });
+  const marca = col => ordenVentasBaja === col ? (ordenVentasBajaAsc ? ' ▲' : ' ▼') : '';
+  $('wrapVentasBaja').innerHTML = `
+    <div class="tabla-wrap"><table>
+      <thead><tr>
+        <th>SKU</th><th>Producto</th>
+        <th class="amount">1ª mitad (unid.)</th><th class="amount">2ª mitad (unid.)</th>
+        <th class="ordenable amount" onclick="ordenarVentasBaja('variacion')">Variación%${marca('variacion')}</th>
+        <th class="ordenable amount" onclick="ordenarVentasBaja('monto')">Monto acumulado (año)${marca('monto')}</th>
+      </tr></thead>
+      <tbody>
+        ${ordenados.map(p => `
+          <tr>
+            <td><span class="sku-code">${escapeHtml(p.sku)}</span></td>
+            <td>${escapeHtml(p.nombre || p.sku)}</td>
+            <td class="amount">${fmtNum(p.primera)}</td>
+            <td class="amount">${fmtNum(p.segunda)}</td>
+            <td class="amount"><span class="badge-caida">▼${fmtNum(Math.round(Math.abs(p.variacion)))}%</span></td>
+            <td class="amount">${fmtMoneda(p.montoAnio)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table></div>
+  `;
 }
 
 let analisisActual = null;
@@ -441,7 +555,7 @@ async function iniciarSincronizacion(){
       $('syncStatus').textContent = completo
         ? 'Sincronización completa.'
         : `Sincronizando... (${fmtNum(data.offsetActual)}${data.totalDocumentos ? ' de ' + fmtNum(data.totalDocumentos) : ''} documentos revisados)`;
-      if(completo) cargarAnalisis();
+      if(completo){ cargarAnalisis(); cargarVentasBaja(); }
     }
   }catch(err){
     $('syncStatus').className = 'err';

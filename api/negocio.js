@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
@@ -88,6 +88,7 @@ export default async function handler(req, res) {
   if (recurso === 'indexpro-enviar-presentacion') return manejarIndexproEnviarPresentacion(req, res, sesion);
   if (recurso === 'analisis-clientes') return manejarAnalisisClientes(req, res, sesion);
   if (recurso === 'sync-analisis') return manejarSyncAnalisis(req, res, sesion);
+  if (recurso === 'ventas-sku-tendencia') return manejarVentasSkuTendencia(req, res, sesion);
   if (recurso === 'servicios-por-mes') return manejarServiciosPorMes(req, res, sesion);
   if (recurso === 'sync-servicios-tecnico') return manejarSyncServiciosTecnico(req, res, sesion);
   if (recurso === 'whatsapp-dashboard') return manejarWhatsappDashboard(req, res, sesion);
@@ -1161,6 +1162,7 @@ async function manejarSyncAnalisis(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaAnalisis(sql);
+    await asegurarTablaVentasSku(sql);
 
     const { rows: estadoRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
     const estado = estadoRows[0] || {};
@@ -1298,6 +1300,50 @@ async function manejarSyncAnalisis(req, res, sesion) {
         );
       }
 
+      // Ventas por SKU/mes de PRODUCTOS (excluye servicios, ver
+      // Servicio Técnico) -- para "Productos con ventas a la baja" (ver
+      // manejarVentasSkuTendencia). "ventas" de arriba exige cliente
+      // asociado (para clientes recurrentes); acá no hace falta esa
+      // condición, así que se recalcula el filtro sin ella para no perder
+      // ventas reales sin cliente vinculado.
+      const ventasParaSku = items.filter(d => d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type));
+      const filasSku = [];
+      for (const doc of ventasParaSku) {
+        const fecha = doc.emissionDate ? new Date(doc.emissionDate * 1000).toISOString().slice(0, 10) : null;
+        if (!fecha) continue;
+        const detalles = doc.details?.items || [];
+        const porSku = new Map();
+        for (const det of detalles) {
+          const codigo = (det.variant?.code || '').toUpperCase();
+          if (!codigo || codigo.startsWith('SER')) continue; // sin código, o es un servicio -- esto es solo para productos
+          const nombre = det.variant?.description || det.comment || det.note || codigo;
+          const previa = porSku.get(codigo) || { nombre, cantidad: 0, monto: 0 };
+          previa.cantidad += Number(det.quantity) || 0;
+          previa.monto += (Number(det.quantity) || 0) * (Number(det.netUnitValue) || 0);
+          porSku.set(codigo, previa);
+        }
+        for (const [sku, v] of porSku.entries()) filasSku.push({ documentoId: doc.id, sku, nombre: v.nombre, fecha, cantidad: v.cantidad, monto: v.monto });
+      }
+      if (filasSku.length > 0) {
+        await sql.query(
+          `INSERT INTO bsale_ventas_sku (documento_id, sku, nombre, fecha, cantidad, monto, sincronizado_en)
+           SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::date[], $5::numeric[], $6::numeric[], $7::timestamptz[])
+           ON CONFLICT (documento_id, sku) DO UPDATE SET
+             nombre = EXCLUDED.nombre, fecha = EXCLUDED.fecha,
+             cantidad = EXCLUDED.cantidad, monto = EXCLUDED.monto,
+             sincronizado_en = EXCLUDED.sincronizado_en;`,
+          [
+            filasSku.map(f => f.documentoId),
+            filasSku.map(f => f.sku),
+            filasSku.map(f => f.nombre),
+            filasSku.map(f => f.fecha),
+            filasSku.map(f => f.cantidad),
+            filasSku.map(f => f.monto),
+            filasSku.map(() => new Date().toISOString()),
+          ]
+        );
+      }
+
       offset += offsetsTanda.length * PUNTOS_SYNC_LIMIT;
       procesados += ventas.length;
       pasadaTerminada = ultimaPaginaIncompleta || (total != null && offset >= total);
@@ -1312,11 +1358,54 @@ async function manejarSyncAnalisis(req, res, sesion) {
     // meses (compras que "envejecieron" desde la sincronización anterior)
     // y se reinicia el offset para la próxima pasada completa.
     await sql`DELETE FROM analisis_compras WHERE fecha < ${desdeStr};`;
+    await sql`DELETE FROM bsale_ventas_sku WHERE fecha < ${desdeStr};`;
     await sql`UPDATE analisis_sync_estado SET offset_actual = 0, total_documentos = NULL, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
 
     return res.status(200).json({ completo: true, procesadosEnEstaLlamada: procesados });
   } catch (err) {
     return res.status(200).json({ error: 'Error sincronizando el análisis de clientes con Bsale', detail: String(err) });
+  }
+}
+
+// "Productos con ventas a la baja" (Análisis) -- pedido del usuario: para
+// detectar SKU sin rotación, candidatos a bajar de precio, envío gratis o
+// condiciones especiales para generar efectivo. Lee bsale_ventas_sku
+// (llenada por manejarSyncAnalisis, ver arriba) y la pivotea a
+// { meses, productos } -- mismo formato exacto que servicios-por-mes
+// (Servicio Técnico), así que la comparación primera mitad del año vs.
+// segunda mitad (para detectar la baja) y el resto del armado de tabla se
+// hacen del lado del cliente, igual que ahí.
+async function manejarVentasSkuTendencia(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaVentasSku(sql);
+
+    const { rows } = await sql`
+      SELECT sku, MAX(nombre) AS nombre, date_trunc('month', fecha)::date AS mes,
+             SUM(cantidad)::numeric AS cantidad, SUM(monto)::numeric AS monto
+      FROM bsale_ventas_sku
+      GROUP BY sku, date_trunc('month', fecha)
+      ORDER BY sku, mes;
+    `;
+    const { rows: estadoRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
+    const estado = estadoRows[0] || {};
+
+    const meses = ultimosNMeses(12);
+    const mapaPorSku = new Map();
+    for (const r of rows) {
+      if (!mapaPorSku.has(r.sku)) mapaPorSku.set(r.sku, { sku: r.sku, nombre: r.nombre, porMes: {} });
+      const mesKey = new Date(r.mes).toISOString().slice(0, 7); // YYYY-MM
+      mapaPorSku.get(r.sku).porMes[mesKey] = { cantidad: Number(r.cantidad), monto: Number(r.monto) };
+    }
+    const productos = [...mapaPorSku.values()];
+
+    return res.status(200).json({
+      meses, productos,
+      ultimaSincronizacion: estado.ultima_pasada_completa_en || null,
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error leyendo la tendencia de ventas por SKU', detail: String(err) });
   }
 }
 
