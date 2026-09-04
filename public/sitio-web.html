@@ -280,18 +280,22 @@ function renderAvisoPreciosDesincronizados(preciosDesincronizados, listaNombre, 
       ${notaLista}
     </div>`;
   }
-  const filas = preciosDesincronizados.slice(0, 20).map(p => `
+  // Lista completa (sin recortar a 20 como las otras dos alertas) --
+  // pedido del usuario para poder ir corrigiendo precio por precio en
+  // Shopify sin tener que forzar recálculos repetidos para ver el resto.
+  // Con potencialmente cientos de filas, va en un contenedor con scroll
+  // propio para no alargar la página entera.
+  const filas = preciosDesincronizados.map(p => `
     <li>
       <b>${CATEGORIA_LABEL_DESINCRONIZADO[p.categoria] || p.categoria}</b> — ${p.titulo || ''} (apunta a <code>${p.skuBase}</code>) ·
       Este listado: ${fmtMoneda(p.precioPropio)} · Bsale: ${fmtMoneda(p.precioCanonico)}
       <a href="${p.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
     </li>`).join('');
-  const nota = preciosDesincronizados.length > 20 ? `<div class="empty-note">...y ${preciosDesincronizados.length - 20} más.</div>` : '';
 
   return `<div class="note-box" style="background:var(--red-bg);border-color:#F5C6C6;">
     💲 <b>${preciosDesincronizados.length} producto(s) "de referencia" con precio distinto al de Bsale para el SKU que representan</b> — un cliente que compre por ese listado paga de más o de menos.
-    <ul style="margin:8px 0 0 0;padding-left:18px;">${filas}</ul>
-    ${nota}${notaLista}
+    <ul style="margin:8px 0 0 0;padding-left:18px;max-height:420px;overflow-y:auto;">${filas}</ul>
+    ${notaLista}
   </div>`;
 }
 
