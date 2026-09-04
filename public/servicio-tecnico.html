@@ -57,6 +57,8 @@
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
   td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap;}
   th.mes, td.mes{text-align:right;}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
   td.servicio{white-space:normal;}
   .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
   .sku-code{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11px;}
@@ -166,6 +168,31 @@ function valorCelda(porMes, mesKey){
 function fmtValor(v){
   return metricaActual === 'monto' ? fmtMoneda(v) : fmtNum(v);
 }
+function acumuladoAnio(s, meses){
+  return meses.reduce((acc, m) => acc + valorCelda(s.porMes, m), 0);
+}
+
+// Orden de las filas -- por defecto, acumulado del año de mayor a menor
+// (pedido del usuario). Clic en un encabezado (un mes puntual, o
+// "Acumulado año") ordena por esa columna en particular; un segundo clic
+// en el mismo encabezado invierte la dirección.
+let ordenPor = 'acumulado'; // 'acumulado' o un mes "YYYY-MM"
+let ordenDireccion = 'desc'; // 'desc' | 'asc'
+function ordenarPor(clave){
+  if(ordenPor === clave){
+    ordenDireccion = ordenDireccion === 'desc' ? 'asc' : 'desc';
+  } else {
+    ordenPor = clave;
+    ordenDireccion = 'desc';
+  }
+  if(ultimosDatos) renderTabla(ultimosDatos);
+}
+function valorOrden(s, meses){
+  return ordenPor === 'acumulado' ? acumuladoAnio(s, meses) : valorCelda(s.porMes, ordenPor);
+}
+function iconoOrden(clave){
+  return ordenPor === clave ? (ordenDireccion === 'desc' ? ' ▼' : ' ▲') : '';
+}
 
 function renderTabla(data){
   const { meses, servicios } = data;
@@ -173,8 +200,15 @@ function renderTabla(data){
     $('wrapTabla').innerHTML = '<p class="empty-note">Todavía no hay servicios sincronizados. Usa "🔄 Sincronizar con Bsale" para traer los del último año.</p>';
     return;
   }
-  const encabezados = meses.map(m => `<th class="mes">${etiquetaMes(m)}</th>`).join('');
-  const filas = servicios.map(s => {
+  const serviciosOrdenados = [...servicios].sort((a, b) => {
+    const va = valorOrden(a, meses), vb = valorOrden(b, meses);
+    return ordenDireccion === 'desc' ? vb - va : va - vb;
+  });
+
+  const encabezados = meses.map(m => `<th class="mes ordenable" onclick="ordenarPor('${m}')">${etiquetaMes(m)}${iconoOrden(m)}</th>`).join('');
+  const encabezadoAcumulado = `<th class="mes ordenable" onclick="ordenarPor('acumulado')">Acumulado año${iconoOrden('acumulado')}</th>`;
+
+  const filas = serviciosOrdenados.map(s => {
     const celdas = meses.map((mesKey, i) => {
       const actual = valorCelda(s.porMes, mesKey);
       const anterior = i > 0 ? valorCelda(s.porMes, meses[i - 1]) : null;
@@ -185,6 +219,7 @@ function renderTabla(data){
       <tr>
         <td class="servicio">${s.nombre || s.sku}<br><span class="sku-code">SKU: ${s.sku}</span></td>
         ${celdas}
+        <td class="mes amount"><b>${fmtValor(acumuladoAnio(s, meses))}</b></td>
       </tr>`;
   }).join('');
 
@@ -196,13 +231,14 @@ function renderTabla(data){
     const delta = i > 0 ? celdaDelta(actual, totalesPorMes[i - 1]) : '';
     return `<td class="mes amount">${fmtValor(actual)}${delta}</td>`;
   }).join('');
+  const totalAcumulado = totalesPorMes.reduce((a, b) => a + b, 0);
 
   $('wrapTabla').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Servicio</th>${encabezados}</tr></thead>
+      <thead><tr><th>Servicio</th>${encabezados}${encabezadoAcumulado}</tr></thead>
       <tbody>
         ${filas}
-        <tr class="fila-total"><td>Total</td>${celdasTotal}</tr>
+        <tr class="fila-total"><td>Total</td>${celdasTotal}<td class="mes amount"><b>${fmtValor(totalAcumulado)}</b></td></tr>
       </tbody>
     </table></div>
   `;

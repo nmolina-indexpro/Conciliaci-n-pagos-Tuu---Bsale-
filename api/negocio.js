@@ -1332,6 +1332,13 @@ async function manejarSyncAnalisis(req, res, sesion) {
 // el desglose por mes se arma al LEER (GROUP BY date_trunc('month',
 // fecha)), no al guardar, así no hay que mantener contadores mensuales
 // aparte ni preocuparse de resetearlos entre pasadas.
+// "Soporte Informático" y variaciones (Remoto, Mensual, etc.) excluidos a
+// pedido del usuario -- no es un servicio técnico puntual como el resto
+// (reparación, instalación...), así que distorsiona el análisis. Se aplica
+// tanto al sincronizar (no se guarda) como al leer (por si ya había
+// quedado guardado de una sincronización anterior a este cambio).
+const SERVICIO_EXCLUIDO_REGEX = /soporte\s*inform[aá]tico/i;
+
 function ultimosNMeses(n) {
   const out = [];
   const base = new Date();
@@ -1352,6 +1359,7 @@ async function manejarServiciosPorMes(req, res, sesion) {
       SELECT sku, MAX(nombre) AS nombre, date_trunc('month', fecha)::date AS mes,
              SUM(cantidad)::numeric AS cantidad, SUM(monto)::numeric AS monto
       FROM bsale_servicios_ventas
+      WHERE COALESCE(nombre, '') !~* 'soporte\s*inform[aá]tico'
       GROUP BY sku, date_trunc('month', fecha)
       ORDER BY sku, mes;
     `;
@@ -1455,6 +1463,7 @@ async function manejarSyncServiciosTecnico(req, res, sesion) {
           const codigo = (det.variant?.code || '').toUpperCase();
           if (!codigo.startsWith('SER')) continue;
           const nombre = det.variant?.description || det.comment || det.note || codigo;
+          if (SERVICIO_EXCLUIDO_REGEX.test(nombre)) continue; // "Soporte Informático" y variaciones -- pedido del usuario
           const previa = porSku.get(codigo) || { nombre, cantidad: 0, monto: 0 };
           previa.cantidad += Number(det.quantity) || 0;
           previa.monto += (Number(det.quantity) || 0) * (Number(det.netUnitValue) || 0);
