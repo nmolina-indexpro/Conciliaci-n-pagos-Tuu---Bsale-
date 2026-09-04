@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
@@ -88,6 +88,8 @@ export default async function handler(req, res) {
   if (recurso === 'indexpro-enviar-presentacion') return manejarIndexproEnviarPresentacion(req, res, sesion);
   if (recurso === 'analisis-clientes') return manejarAnalisisClientes(req, res, sesion);
   if (recurso === 'sync-analisis') return manejarSyncAnalisis(req, res, sesion);
+  if (recurso === 'servicios-por-mes') return manejarServiciosPorMes(req, res, sesion);
+  if (recurso === 'sync-servicios-tecnico') return manejarSyncServiciosTecnico(req, res, sesion);
   if (recurso === 'whatsapp-dashboard') return manejarWhatsappDashboard(req, res, sesion);
   if (recurso === 'whatsapp-conversaciones') return manejarWhatsappConversaciones(req, res, sesion);
   if (recurso === 'whatsapp-conversacion-detalle') return manejarWhatsappConversacionDetalle(req, res, sesion);
@@ -1315,6 +1317,195 @@ async function manejarSyncAnalisis(req, res, sesion) {
     return res.status(200).json({ completo: true, procesadosEnEstaLlamada: procesados });
   } catch (err) {
     return res.status(200).json({ error: 'Error sincronizando el análisis de clientes con Bsale', detail: String(err) });
+  }
+}
+
+// ==================== Servicio Técnico ====================
+// Servicios vendidos (SKU que empieza con "SER", ver categoriaLinea más
+// arriba) desglosados por mes, con variación % mes a mes -- pedido del
+// usuario. Mismo patrón resumible que Análisis/Cotizaciones/Indexpro (ver
+// manejarSyncAnalisis): Bsale limita a ~8 req/s y un año de documentos con
+// expand=details no cabe en una sola invocación de función (tope 60s en
+// Vercel Hobby), así que se sincroniza en tandas que retoman el offset
+// donde quedó la anterior. A diferencia de analisis_compras (que guarda
+// un total por documento), acá se guarda un total por (documento, SKU) --
+// el desglose por mes se arma al LEER (GROUP BY date_trunc('month',
+// fecha)), no al guardar, así no hay que mantener contadores mensuales
+// aparte ni preocuparse de resetearlos entre pasadas.
+function ultimosNMeses(n) {
+  const out = [];
+  const base = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return out;
+}
+
+async function manejarServiciosPorMes(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaServiciosMensual(sql);
+
+    const { rows } = await sql`
+      SELECT sku, MAX(nombre) AS nombre, date_trunc('month', fecha)::date AS mes,
+             SUM(cantidad)::numeric AS cantidad, SUM(monto)::numeric AS monto
+      FROM bsale_servicios_ventas
+      GROUP BY sku, date_trunc('month', fecha)
+      ORDER BY sku, mes;
+    `;
+    const { rows: estadoRows } = await sql`SELECT * FROM bsale_servicios_sync_estado WHERE id = 1;`;
+    const estado = estadoRows[0] || {};
+
+    const meses = ultimosNMeses(12);
+    const mapaPorSku = new Map();
+    for (const r of rows) {
+      if (!mapaPorSku.has(r.sku)) mapaPorSku.set(r.sku, { sku: r.sku, nombre: r.nombre, porMes: {} });
+      const mesKey = new Date(r.mes).toISOString().slice(0, 7); // YYYY-MM
+      mapaPorSku.get(r.sku).porMes[mesKey] = { cantidad: Number(r.cantidad), monto: Number(r.monto) };
+    }
+    const servicios = [...mapaPorSku.values()].sort((a, b) => (a.nombre || a.sku || '').localeCompare(b.nombre || b.sku || ''));
+
+    return res.status(200).json({
+      meses, servicios,
+      ultimaSincronizacion: estado.ultima_pasada_completa_en || null,
+      sincronizando: !!(estado.total_documentos != null && estado.offset_actual < estado.total_documentos),
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error leyendo Servicio Técnico', detail: String(err) });
+  }
+}
+
+async function manejarSyncServiciosTecnico(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sincronizar Servicio Técnico' });
+
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+
+  const inicio = Date.now();
+  try {
+    const sql = await getSql();
+    await asegurarTablaServiciosMensual(sql);
+
+    const { rows: estadoRows } = await sql`SELECT * FROM bsale_servicios_sync_estado WHERE id = 1;`;
+    const estado = estadoRows[0] || {};
+    let offset = estado.offset_actual || 0;
+    let total = estado.total_documentos ?? null;
+    let procesados = 0;
+    let ultimaPeticion = 0;
+    const presupuestoRestante = () => PUNTOS_SYNC_PRESUPUESTO_MS - (Date.now() - inicio);
+
+    // Mismos 12 meses (365 días) que Análisis -- ventana relevante para
+    // "servicios vendidos por mes", no vale la pena traer más historial.
+    const hastaStr = new Date().toISOString().slice(0, 10);
+    const desdeStr = new Date(Date.now() - ANALISIS_DIAS_HISTORIAL * 86400000).toISOString().slice(0, 10);
+    const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
+    const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
+
+    const TANDA_SERVICIOS = 6;
+    const esperarRitmoTanda = async (tam) => {
+      const espera = (tam * PUNTOS_SYNC_INTERVALO_MIN_MS) - (Date.now() - ultimaPeticion);
+      if (espera > 0) await new Promise(r => setTimeout(r, espera));
+      ultimaPeticion = Date.now();
+    };
+
+    let pasadaTerminada = total != null && offset >= total;
+    while (!pasadaTerminada && presupuestoRestante() > 0) {
+      const offsetsTanda = [];
+      for (let i = 0; i < TANDA_SERVICIOS; i++) {
+        const off = offset + i * PUNTOS_SYNC_LIMIT;
+        if (total != null && off >= total) break;
+        offsetsTanda.push(off);
+      }
+      if (offsetsTanda.length === 0) { pasadaTerminada = true; break; }
+
+      await esperarRitmoTanda(offsetsTanda.length);
+      const respuestas = await Promise.all(offsetsTanda.map(async off => {
+        const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[document_type,details]&limit=${PUNTOS_SYNC_LIMIT}&offset=${off}`;
+        const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
+        if (!r.ok) {
+          const texto = await r.text().catch(() => '');
+          throw new Error(`Bsale HTTP ${r.status} en documents.json: ${texto.slice(0, 300)}`);
+        }
+        return r.json();
+      }));
+
+      let items = [];
+      let ultimaPaginaIncompleta = false;
+      for (const data of respuestas) {
+        if (typeof data.count === 'number') total = data.count;
+        const its = data.items || [];
+        items.push(...its);
+        if (its.length < PUNTOS_SYNC_LIMIT) ultimaPaginaIncompleta = true;
+      }
+
+      const ventas = items.filter(d => d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type));
+
+      // Junta las líneas de servicio (SKU que empieza con "SER") de cada
+      // documento -- una venta puede traer más de una línea con el mismo
+      // SKU (ej. dos instalaciones en la misma boleta), se suman antes de
+      // guardar para respetar la clave (documento_id, sku).
+      const filas = [];
+      for (const doc of ventas) {
+        const detalles = doc.details?.items || [];
+        const porSku = new Map();
+        for (const det of detalles) {
+          const codigo = (det.variant?.code || '').toUpperCase();
+          if (!codigo.startsWith('SER')) continue;
+          const nombre = det.variant?.description || det.comment || det.note || codigo;
+          const previa = porSku.get(codigo) || { nombre, cantidad: 0, monto: 0 };
+          previa.cantidad += Number(det.quantity) || 0;
+          previa.monto += (Number(det.quantity) || 0) * (Number(det.netUnitValue) || 0);
+          porSku.set(codigo, previa);
+        }
+        const fecha = doc.emissionDate ? new Date(doc.emissionDate * 1000).toISOString().slice(0, 10) : null;
+        if (!fecha) continue;
+        for (const [sku, v] of porSku.entries()) {
+          filas.push({ documentoId: doc.id, sku, nombre: v.nombre, fecha, cantidad: v.cantidad, monto: v.monto });
+        }
+      }
+
+      if (filas.length > 0) {
+        await sql.query(
+          `INSERT INTO bsale_servicios_ventas (documento_id, sku, nombre, fecha, cantidad, monto, sincronizado_en)
+           SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::date[], $5::numeric[], $6::numeric[], $7::timestamptz[])
+           ON CONFLICT (documento_id, sku) DO UPDATE SET
+             nombre = EXCLUDED.nombre, fecha = EXCLUDED.fecha,
+             cantidad = EXCLUDED.cantidad, monto = EXCLUDED.monto,
+             sincronizado_en = EXCLUDED.sincronizado_en;`,
+          [
+            filas.map(f => f.documentoId),
+            filas.map(f => f.sku),
+            filas.map(f => f.nombre),
+            filas.map(f => f.fecha),
+            filas.map(f => f.cantidad),
+            filas.map(f => f.monto),
+            filas.map(() => new Date().toISOString()),
+          ]
+        );
+      }
+
+      offset += offsetsTanda.length * PUNTOS_SYNC_LIMIT;
+      procesados += ventas.length;
+      pasadaTerminada = ultimaPaginaIncompleta || (total != null && offset >= total);
+      await sql`UPDATE bsale_servicios_sync_estado SET offset_actual = ${offset}, total_documentos = ${total}, actualizado_en = now() WHERE id = 1;`;
+    }
+
+    if (!pasadaTerminada) {
+      return res.status(200).json({ completo: false, procesadosEnEstaLlamada: procesados, offsetActual: offset, totalDocumentos: total });
+    }
+
+    // Pasada completa: se saca lo que quedó fuera de la ventana de 12
+    // meses y se reinicia el offset para la próxima pasada completa --
+    // mismo criterio que analisis_compras.
+    await sql`DELETE FROM bsale_servicios_ventas WHERE fecha < ${desdeStr};`;
+    await sql`UPDATE bsale_servicios_sync_estado SET offset_actual = 0, total_documentos = NULL, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
+
+    return res.status(200).json({ completo: true, procesadosEnEstaLlamada: procesados });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error sincronizando Servicio Técnico con Bsale', detail: String(err) });
   }
 }
 
