@@ -59,6 +59,7 @@
   th.mes, td.mes{text-align:right;}
   th.ordenable{cursor:pointer;user-select:none;}
   th.ordenable:hover{color:var(--primary);}
+  .marca-peor{color:var(--red);font-weight:700;}
   td.servicio{white-space:normal;}
   .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
   .sku-code{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11px;}
@@ -209,11 +210,22 @@ function renderTabla(data){
   const encabezadoAcumulado = `<th class="mes ordenable" onclick="ordenarPor('acumulado')">Acumulado año${iconoOrden('acumulado')}</th>`;
 
   const filas = serviciosOrdenados.map(s => {
+    // Mejor/peor mes DE ESTE SERVICIO (no comparado contra los demás) --
+    // ⭐ en el mes más alto, ⚠ rojo en el más bajo. Si todos los meses
+    // valen lo mismo (incl. todos en 0) no hay variación real que marcar.
+    const valoresFila = meses.map(m => valorCelda(s.porMes, m));
+    const maxFila = Math.max(...valoresFila);
+    const minFila = Math.min(...valoresFila);
+    const idxMejor = maxFila > minFila ? valoresFila.indexOf(maxFila) : -1;
+    const idxPeor = maxFila > minFila ? valoresFila.indexOf(minFila) : -1;
     const celdas = meses.map((mesKey, i) => {
       const actual = valorCelda(s.porMes, mesKey);
       const anterior = i > 0 ? valorCelda(s.porMes, meses[i - 1]) : null;
       const delta = i > 0 ? celdaDelta(actual, anterior) : '';
-      return `<td class="mes amount">${fmtValor(actual)}${delta}</td>`;
+      const marca = i === idxMejor ? ' <span class="marca-mejor" title="Mejor mes del año para este servicio">⭐</span>'
+        : i === idxPeor ? ' <span class="marca-peor" title="Peor mes del año para este servicio">⚠</span>'
+        : '';
+      return `<td class="mes amount">${fmtValor(actual)}${marca}${delta}</td>`;
     }).join('');
     return `
       <tr>
