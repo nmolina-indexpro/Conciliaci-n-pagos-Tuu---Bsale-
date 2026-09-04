@@ -3809,7 +3809,13 @@ async function manejarAlertasSitioWebNotificar(req, res) {
     const hayPrecios = Array.isArray(preciosDistintos) && preciosDistintos.length > 0;
     const hayDesincronizados = Array.isArray(preciosDesincronizados) && preciosDesincronizados.length > 0;
     const haySkusIncorrectos = Array.isArray(skusIncorrectosReferencia) && skusIncorrectosReferencia.length > 0;
-    if (!hayStock && !hayPrecios && !hayDesincronizados && !haySkusIncorrectos) return res.status(200).json({ ok: true, enviado: false, motivo: 'Sin problemas detectados hoy' });
+    // A pedido del usuario: el correo solo se manda cuando hay diferencia
+    // de PRECIO (Bsale/Shopify o productos "de referencia" vs Bsale) --
+    // stock no visible y SKU base mal cargado siguen calculándose y se
+    // incluyen en el cuerpo si el correo se envía por precio, pero ya no
+    // disparan el envío por sí solos (revisar esos dos casos queda para la
+    // página, no para el correo diario).
+    if (!hayPrecios && !hayDesincronizados) return res.status(200).json({ ok: true, enviado: false, motivo: 'Sin diferencias de precio detectadas hoy' });
 
     const filaStock = p => `<li><b>${p.sku}</b> — ${p.nombre || ''} · Stock: ${p.stock} · ${p.estado === 'draft' ? 'Borrador' : 'Archivado'} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
     const filaPrecio = p => `<li><b>${p.sku}</b> — ${p.nombre || ''} · Bsale: $${Math.round(p.precioBsale).toLocaleString('es-CL')} · Shopify: $${Math.round(p.precioShopify).toLocaleString('es-CL')} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
