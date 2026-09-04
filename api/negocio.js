@@ -1338,6 +1338,13 @@ async function manejarSyncAnalisis(req, res, sesion) {
 // tanto al sincronizar (no se guarda) como al leer (por si ya había
 // quedado guardado de una sincronización anterior a este cambio).
 const SERVICIO_EXCLUIDO_REGEX = /soporte\s*inform[aá]tico/i;
+// SKU puntuales excluidos a pedido del usuario -- mismo criterio que el
+// regex de arriba (no son servicios técnicos comparables al resto), pero
+// acá van por código exacto en vez de por texto.
+const SKUS_SERVICIO_EXCLUIDOS = new Set([
+  'SERINDEX1', 'SERINDEX2', 'SERINDEX3', 'SERINDEX4', 'SERINDEX5', 'SERINDEX6',
+  'SERINDEX7', 'SERINDEX8', 'SERINDEX9', 'SERINDEX10', 'SERINDEX11', 'SERINDEX12',
+]);
 
 function ultimosNMeses(n) {
   const out = [];
@@ -1369,6 +1376,7 @@ async function manejarServiciosPorMes(req, res, sesion) {
     const meses = ultimosNMeses(12);
     const mapaPorSku = new Map();
     for (const r of rows) {
+      if (SKUS_SERVICIO_EXCLUIDOS.has(r.sku)) continue;
       if (!mapaPorSku.has(r.sku)) mapaPorSku.set(r.sku, { sku: r.sku, nombre: r.nombre, porMes: {} });
       const mesKey = new Date(r.mes).toISOString().slice(0, 7); // YYYY-MM
       mapaPorSku.get(r.sku).porMes[mesKey] = { cantidad: Number(r.cantidad), monto: Number(r.monto) };
@@ -1462,6 +1470,7 @@ async function manejarSyncServiciosTecnico(req, res, sesion) {
         for (const det of detalles) {
           const codigo = (det.variant?.code || '').toUpperCase();
           if (!codigo.startsWith('SER')) continue;
+          if (SKUS_SERVICIO_EXCLUIDOS.has(codigo)) continue; // SERINDEX1..12 -- pedido del usuario
           const nombre = det.variant?.description || det.comment || det.note || codigo;
           if (SERVICIO_EXCLUIDO_REGEX.test(nombre)) continue; // "Soporte Informático" y variaciones -- pedido del usuario
           const previa = porSku.get(codigo) || { nombre, cantidad: 0, monto: 0 };
