@@ -17,10 +17,36 @@ const PAGINAS_DISPONIBLES = [
   'eficiencia-tickets.html', 'analisis.html', 'servicio-tecnico.html', 'clientes-whatsapp.html', 'guia-uso.html',
 ];
 
+// Modo diagnóstico puntual (?debugBrevo=email@dominio.cl): consulta
+// directo la API de Brevo (con la misma BREVO_API_KEY que ya usa
+// enviarCorreo, ver lib/mailer.js) por el historial de eventos de ese
+// destinatario -- delivered, bounce, blocked, spam, etc. Existe porque
+// "el correo se envió" (enviarCorreo devolvió enviado:true, o sea Brevo
+// aceptó el envío de nuestro lado) no es lo mismo que "el correo llegó" --
+// esto deja ver el estado real sin depender de poder entrar al panel web
+// de Brevo (caso real: no se sabía con qué cuenta se había creado esa
+// API key).
+async function manejarDebugBrevo(req, res) {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) return res.status(200).json({ error: 'BREVO_API_KEY no está configurada en el servidor' });
+  const email = String(req.query.debugBrevo || '').trim();
+  if (!email) return res.status(400).json({ error: 'Falta el email a revisar' });
+  try {
+    const url = `https://api.brevo.com/v3/smtp/statistics/events?email=${encodeURIComponent(email)}&limit=20&offset=0&sort=desc`;
+    const r = await fetch(url, { headers: { 'api-key': apiKey, Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+    const body = await r.json().catch(() => ({}));
+    return res.status(200).json({ email, urlUsada: url, status: r.status, respuesta: body });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error consultando la API de Brevo', detail: String(err) });
+  }
+}
+
 export default async function handler(req, res) {
   const sesion = usuarioDesdeRequest(req);
   if (!sesion) return res.status(401).json({ error: 'No hay sesión activa' });
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede gestionar usuarios' });
+
+  if (req.method === 'GET' && req.query.debugBrevo) return manejarDebugBrevo(req, res);
 
   try {
     const sql = await getSql();
