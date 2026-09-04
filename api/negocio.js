@@ -3683,9 +3683,53 @@ async function manejarDebugPrecioBsale(req, res, sku) {
   }
 }
 
+// Refresca EN VIVO solo lo que depende de las 3 colecciones "de
+// referencia" (pantalla/batería/cargador por modelo): las tarjetas "SKU
+// base mal cargado" y "precio distinto al de Bsale". A propósito NO toca
+// obtenerEstadoShopifyPorSku (el escaneo pesado del catálogo completo,
+// ~60 páginas) -- stock y precio Bsale/Shopify quedan tal cual el último
+// cálculo guardado. Caso real que motivó esto: el usuario corrigió varios
+// metacampos en Shopify y "↻ Actualizar ahora" no reflejaba el cambio,
+// porque ese botón a propósito NO reescanea estas 3 colecciones (se sacó
+// ese acople -- ver commit ad1143f -- porque hacer las dos cosas juntas
+// agotaba el cupo de Shopify con THROTTLED). Esta ruta separada deja
+// verificar una corrección puntual sin ese riesgo, ya que
+// calcularPreciosDesincronizados no necesita el catálogo completo, solo
+// las colecciones + la lista de precios de Bsale (mucho más liviano).
+async function manejarActualizarSoloReferencia(req, res) {
+  const acceso = await obtenerAccesoShopify();
+  if (!acceso) return res.status(200).json({ error: 'Faltan credenciales de Shopify (SHOPIFY_STORE_DOMAIN/CLIENT_ID/CLIENT_SECRET)' });
+  try {
+    const resultadoModelos = await escanearColeccionesModelosNotebook(acceso.domain, acceso.accessToken);
+    const sql = await getSql();
+    await guardarCacheModelosNotebook(sql, resultadoModelos);
+
+    const preciosBsale = await obtenerPreciosBsalePorSku().catch(err => { console.warn('[manejarActualizarSoloReferencia] no se pudo traer precios de Bsale', err); return null; });
+    const r = await calcularPreciosDesincronizados(preciosBsale, resultadoModelos);
+
+    // Combina con lo último guardado en el caché de alertas -- stock y
+    // precio Bsale/Shopify quedan como estaban, solo se actualizan estos
+    // dos campos, para no perder esa parte al re-renderizar la página.
+    await asegurarTablaAlertasSitioWebCache(sql);
+    const { rows } = await sql`SELECT datos FROM alertas_sitio_web_cache WHERE id = 1;`;
+    const previo = rows[0]?.datos || {};
+    const combinado = {
+      ...previo,
+      preciosDesincronizados: r.precios,
+      skusIncorrectosReferencia: r.skusIncorrectos,
+      listaPrecioBsaleNombre: preciosBsale?.listaNombre ?? previo.listaPrecioBsaleNombre ?? null,
+    };
+    await guardarCacheAlertasSitioWeb(sql, combinado);
+    return res.status(200).json({ ...combinado, calculadoEn: new Date().toISOString(), deCache: false });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error reescaneando las colecciones de modelos', detail: String(err) });
+  }
+}
+
 async function manejarAlertasStockShopify(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   if (req.query.debugSku) return manejarDebugPrecioBsale(req, res, String(req.query.debugSku).trim());
+  if (req.query.soloReferencia === '1') return manejarActualizarSoloReferencia(req, res);
   const forzar = req.query.forzar === '1' || req.query.forzar === 'true';
   try {
     const sql = await getSql();

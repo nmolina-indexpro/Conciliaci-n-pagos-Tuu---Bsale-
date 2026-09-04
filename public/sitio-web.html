@@ -121,7 +121,10 @@
       <h1>Sitio <span>Web</span></h1>
       <div class="sub">Estado del catálogo publicado en indexstore.cl.</div>
     </div>
-    <button class="btn-ghost" onclick="cargar(true)">↻ Actualizar ahora</button>
+    <div style="display:flex;gap:8px;">
+      <button class="btn-ghost" onclick="cargar(true)">↻ Actualizar ahora</button>
+      <button class="btn-ghost btn-compact" onclick="actualizarSoloReferencia()" id="btnActualizarReferencia" title='Reescanea solo pantalla/batería/cargador por modelo -- para verificar una corrección de metacampo sin volver a escanear el catálogo completo'>🔄 Verificar productos de referencia</button>
+    </div>
   </div>
   <div id="status"></div>
   <div id="avisoWrap"></div>
@@ -356,17 +359,30 @@ function descargarSkusIncorrectos(){
 // carga normal de la página lee ese resultado guardado en vez de
 // recalcularlo entero cada vez. "forzar=true" (botón "↻ Actualizar ahora")
 // pide un recálculo en vivo puntual.
+// Compartido entre cargar() y actualizarSoloReferencia() -- pinta las 4
+// tarjetas de avisos y el autocompletado de SKU a partir de la misma
+// forma de respuesta que devuelven ambos endpoints.
+function renderAvisos(data){
+  const avisoStock = renderAvisoStockShopify(data.stockNoVisible ?? null, data.error, data.detail);
+  const avisoPrecios = renderAvisoPreciosDistintos(data.preciosDistintos ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
+  const avisoDesincronizados = renderAvisoPreciosDesincronizados(data.preciosDesincronizados ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
+  const avisoSkusIncorrectos = renderAvisoSkusIncorrectos(data.skusIncorrectosReferencia ?? null, data.error, data.detail);
+  $('avisoWrap').innerHTML = avisoSkusIncorrectos + avisoStock + avisoPrecios + avisoDesincronizados; // las funciones siempre devuelven un resultado explícito (avisoSkusIncorrectos puede ser '' -- caso raro, no molesta con una tarjeta "✅" aparte)
+  // Autocompletado del formulario de compatibilidad (SKU -> título),
+  // reutilizando el mismo catálogo de Shopify que ya se trajo arriba --
+  // sin golpear Shopify de nuevo aparte.
+  if(data.catalogoSku){
+    $('listaSkusCompat').innerHTML = Object.entries(data.catalogoSku)
+      .map(([sku, titulo]) => `<option value="${sku}">${titulo || ''}</option>`).join('');
+  }
+}
 async function cargar(forzar){
   const status = $('status');
   status.className = '';
   status.textContent = forzar ? 'Recalculando en vivo (Shopify + Bsale)...' : 'Consultando...';
   try{
     const data = await fetch('/api/negocio?recurso=alertas-stock-shopify' + (forzar ? '&forzar=1' : '')).then(r=>r.json());
-    const avisoStock = renderAvisoStockShopify(data.stockNoVisible ?? null, data.error, data.detail);
-    const avisoPrecios = renderAvisoPreciosDistintos(data.preciosDistintos ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
-    const avisoDesincronizados = renderAvisoPreciosDesincronizados(data.preciosDesincronizados ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
-    const avisoSkusIncorrectos = renderAvisoSkusIncorrectos(data.skusIncorrectosReferencia ?? null, data.error, data.detail);
-    $('avisoWrap').innerHTML = avisoSkusIncorrectos + avisoStock + avisoPrecios + avisoDesincronizados; // las funciones siempre devuelven un resultado explícito (avisoSkusIncorrectos puede ser '' -- caso raro, no molesta con una tarjeta "✅" aparte)
+    renderAvisos(data);
     if(data.calculadoEn){
       const fecha = new Date(data.calculadoEn).toLocaleString('es-CL');
       status.textContent = data.deCache
@@ -374,13 +390,6 @@ async function cargar(forzar){
         : `Recalculado ahora (${fecha}).`;
     } else {
       status.textContent = 'Actualizado.';
-    }
-    // Autocompletado del formulario de compatibilidad (SKU -> título),
-    // reutilizando el mismo catálogo de Shopify que ya se trajo arriba --
-    // sin golpear Shopify de nuevo aparte.
-    if(data.catalogoSku){
-      $('listaSkusCompat').innerHTML = Object.entries(data.catalogoSku)
-        .map(([sku, titulo]) => `<option value="${sku}">${titulo || ''}</option>`).join('');
     }
   }catch(err){
     status.className = 'err';
@@ -392,9 +401,35 @@ async function cargar(forzar){
   // seguidos sin pausa (~112 páginas entre ambos) y eso agotaba el cupo de
   // la tienda (THROTTLED, caso real reportado por el usuario). El aviso de
   // precio desincronizado puede quedar hasta un día desactualizado con
-  // esto (se refresca solo con el cron diario), mismo trade-off ya
-  // aceptado para toda la sección de "Modelos detectados".
+  // esto (se refresca solo con el cron diario) -- usa el botón "🔄
+  // Verificar productos de referencia" (actualizarSoloReferencia) para
+  // reescanear solo esas 3 colecciones sin el riesgo de sumar el catálogo
+  // completo en el mismo clic.
   cargarColeccionesYDescubrir();
+}
+// Reescanea SOLO las 3 colecciones "de referencia" (pantalla/batería/
+// cargador por modelo) + precios de Bsale -- no toca el catálogo completo
+// de Shopify, así que es mucho más liviano que "↻ Actualizar ahora" y
+// sirve para verificar una corrección de metacampo al toque, sin esperar
+// el cron diario. Ver manejarActualizarSoloReferencia en api/negocio.js.
+async function actualizarSoloReferencia(){
+  const status = $('status');
+  const btn = $('btnActualizarReferencia');
+  btn.disabled = true;
+  status.className = '';
+  status.textContent = 'Reescaneando pantalla/batería/cargador por modelo...';
+  try{
+    const data = await fetch('/api/negocio?recurso=alertas-stock-shopify&soloReferencia=1').then(r=>r.json());
+    if(data.error){ status.className = 'err'; status.textContent = 'Error: ' + data.error; return; }
+    renderAvisos(data);
+    const fecha = data.calculadoEn ? new Date(data.calculadoEn).toLocaleString('es-CL') : '';
+    status.textContent = `Productos de referencia reescaneados ahora (${fecha}) -- stock y precio Bsale/Shopify quedan con el último cálculo.`;
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }finally{
+    btn.disabled = false;
+  }
 }
 
 // Trae las 3 colecciones reales de indexstore.cl curadas por modelo de
