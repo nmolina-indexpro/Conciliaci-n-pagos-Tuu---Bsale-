@@ -176,6 +176,7 @@
 
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="restriccion-usuario.js"></script>
 <script src="menu-herramientas.js"></script>
 <script>
@@ -310,10 +311,12 @@ function renderAvisoPreciosDesincronizados(preciosDesincronizados, listaNombre, 
 // ese problema (el metacampo sku_base_* está mal cargado -- probablemente
 // copiado de una plantilla y nunca actualizado) del de precio: acá lo que
 // hay que corregir en Shopify es el metacampo, no el precio.
+let ultimosSkusIncorrectos = []; // guardado para "⬇ Descargar lista (Excel)" -- ver descargarSkusIncorrectos
 function renderAvisoSkusIncorrectos(skusIncorrectos, error, detail){
   if(error) return '';
   if(skusIncorrectos === null) return ''; // mismo dato que preciosDesincronizados -- ya se explicó arriba si no se pudo calcular
   if(!skusIncorrectos.length) return ''; // no molestar con una tarjeta "✅" aparte -- este es un caso raro, no una revisión rutinaria
+  ultimosSkusIncorrectos = skusIncorrectos;
   const filas = skusIncorrectos.map(p => `
     <li>
       <b>${CATEGORIA_LABEL_DESINCRONIZADO[p.categoria] || p.categoria}</b> — ${p.titulo || ''} ·
@@ -323,8 +326,28 @@ function renderAvisoSkusIncorrectos(skusIncorrectos, error, detail){
 
   return `<div class="note-box" style="background:var(--red-bg);border-color:#F5C6C6;">
     ⚠ <b>${skusIncorrectos.length} producto(s) "de referencia" con el SKU base mal cargado</b> — el metacampo (probablemente copiado de otra plantilla) apunta a un producto distinto al real. Esto hay que corregirlo en el metacampo de Shopify, no ajustando el precio.
+    <button class="btn-ghost btn-compact btn-exportar" style="margin:8px 0 0 0;" onclick="descargarSkusIncorrectos()">⬇ Descargar lista (Excel)</button>
     <ul style="margin:8px 0 0 0;padding-left:18px;max-height:420px;overflow-y:auto;">${filas}</ul>
   </div>`;
+}
+// Excel con la lista completa de productos con el metacampo mal cargado --
+// para trabajarla con el editor masivo de Shopify (buscar cada producto
+// por título o pegar los links) en vez de copiar la tarjeta a mano.
+function descargarSkusIncorrectos(){
+  if(!ultimosSkusIncorrectos.length) return;
+  const filas = ultimosSkusIncorrectos.map(p => ({
+    Categoria: CATEGORIA_LABEL_DESINCRONIZADO[p.categoria] || p.categoria,
+    Titulo: p.titulo || '',
+    'Metacampo dice (incorrecto)': p.skuBase,
+    'Producto real vinculado (correcto)': p.skuProductoReal,
+    'Link Shopify': p.adminUrl,
+  }));
+  const hoja = XLSX.utils.json_to_sheet(filas);
+  hoja['!cols'] = [{wch:10},{wch:55},{wch:22},{wch:26},{wch:55}];
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, 'SKU base mal cargado');
+  const fecha = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(libro, `sku-base-mal-cargado-${fecha}.xlsx`);
 }
 
 // Este cálculo (catálogo completo de Shopify + stock y precios de Bsale) es
