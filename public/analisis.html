@@ -185,6 +185,7 @@
 <script>
 const $ = id => document.getElementById(id);
 let rolActual = 'usuario';
+let nombreActual = ''; // para armar el autor de un comentario sin ida y vuelta al servidor (ver guardarComentarioModal)
 let sincronizando = false;
 
 // Nombre/empresa vienen de Bsale y "comentario" lo escribe un admin -> todo
@@ -208,6 +209,7 @@ async function cargarSesionUsuario(){
     if(!res.ok) return;
     const u = await res.json();
     rolActual = u.rol;
+    nombreActual = u.nombre || u.email || '';
     // "Costo total stock" (el orden por defecto de Productos estancados) es
     // una columna solo-admin -- si no es admin, esa columna ni se muestra,
     // así que ordenar por ahí se vería como un orden sin explicación.
@@ -406,7 +408,7 @@ async function cargarVentasBaja(){
 function editarComentarioVentaBaja(sku){
   const p = ventasBajaActual.find(x => x.sku === sku);
   if(!p) return;
-  abrirModalComentarios('ventas_sku', sku, `${sku} — ${p.nombre || sku}`, p.historial || [], cargarVentasBaja);
+  abrirModalComentarios('ventas_sku', sku, `${sku} — ${p.nombre || sku}`, p.historial || []);
 }
 
 // ---------- Modal de comentarios (historial completo, no se pisa) ----------
@@ -418,12 +420,10 @@ function editarComentarioVentaBaja(sku){
 // sobrescribía el único comentario guardado, perdiendo lo que había antes.
 let modalComentarioContexto = null;
 let modalComentarioEntidad = null;
-let modalComentarioOnGuardado = null;
 
-function abrirModalComentarios(contexto, entidadId, titulo, historial, onGuardado){
+function abrirModalComentarios(contexto, entidadId, titulo, historial){
   modalComentarioContexto = contexto;
   modalComentarioEntidad = entidadId;
-  modalComentarioOnGuardado = onGuardado;
   $('modalComentariosTitulo').textContent = `📝 ${titulo}`;
   renderListaComentariosModal(historial);
   $('modalComentarioNuevo').value = '';
@@ -440,12 +440,21 @@ function renderListaComentariosModal(historial){
     : '<p class="empty-note">Todavía no hay comentarios guardados.</p>';
 }
 
-// Busca el historial ya actualizado en los datos que acaba de recargar
-// modalComentarioOnGuardado() -- así el modal se puede repintar con lo
-// recién guardado sin tener que pedirle de nuevo el historial al servidor.
-function obtenerHistorialActualPorContexto(contexto, entidadId){
-  if(contexto === 'ventas_sku') return ventasBajaActual.find(p => p.sku === entidadId)?.historial || [];
-  return buscarClienteAnalisis(entidadId)?.historial || [];
+// Busca el objeto en memoria (ventasBajaActual o el segmento de clientes ya
+// cargado) y le agrega el comentario nuevo directo, en vez de recargar todo
+// desde el servidor -- antes se llamaba cargarVentasBaja()/cargarAnalisis()
+// después de guardar, y eso vaciaba la tabla entera mostrando "Cargando..."
+// solo por escribir una nota. buscarClienteAnalisis ya devuelve la
+// referencia real dentro de analisisActual, así que mutarla acá también
+// deja los datos consistentes para la próxima vez que se pinte esa tabla.
+function agregarComentarioLocal(contexto, entidadId, texto){
+  const entrada = { comentario: texto, autor: nombreActual, creadoEn: new Date().toISOString() };
+  const objetivo = contexto === 'ventas_sku' ? ventasBajaActual.find(p => p.sku === entidadId) : buscarClienteAnalisis(entidadId);
+  if(objetivo){
+    objetivo.historial = [entrada, ...(objetivo.historial || [])];
+    objetivo.comentario = texto;
+  }
+  return entrada;
 }
 
 async function guardarComentarioModal(){
@@ -462,8 +471,11 @@ async function guardarComentarioModal(){
     const data = await res.json();
     if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar.'); return; }
     $('modalComentarioNuevo').value = '';
-    await modalComentarioOnGuardado();
-    renderListaComentariosModal(obtenerHistorialActualPorContexto(contexto, entidadId));
+    agregarComentarioLocal(contexto, entidadId, texto);
+    if(contexto === 'ventas_sku') renderVentasBaja();
+    else if(segmentoActual) mostrarDetalle(segmentoActual.clave, segmentoActual.titulo);
+    const objetivo = contexto === 'ventas_sku' ? ventasBajaActual.find(p => p.sku === entidadId) : buscarClienteAnalisis(entidadId);
+    renderListaComentariosModal(objetivo?.historial || []);
   }catch(err){
     alert('Error: ' + err.message);
   }
@@ -769,9 +781,9 @@ function editarComentarioAnalisis(clienteId){
   if(!c) return;
   // clienteId se pasa TAL CUAL (no como texto): buscarClienteAnalisis
   // compara con === contra c.clienteId, que es numérico -> convertirlo a
-  // string acá rompería esa comparación al reabrir el historial después
-  // de guardar (ver obtenerHistorialActualPorContexto).
-  abrirModalComentarios('clientes_recurrentes', clienteId, c.clienteNombre || `Cliente #${clienteId}`, c.historial || [], cargarAnalisis);
+  // string acá rompería esa comparación al guardar un comentario nuevo
+  // (ver agregarComentarioLocal).
+  abrirModalComentarios('clientes_recurrentes', clienteId, c.clienteNombre || `Cliente #${clienteId}`, c.historial || []);
 }
 
 async function cambiarEstadoAnalisis(clienteId, estado){
