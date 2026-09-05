@@ -1152,16 +1152,18 @@ async function manejarSyncCotizaciones(req, res, sesion) {
 const ANALISIS_DIAS_HISTORIAL = 365;
 
 // Líneas de envío/despacho -- pedido del usuario: no son productos, son
-// cargos de flete que Bsale guarda como una línea más del documento, con
-// un "código" que en realidad es un número de seguimiento/orden sin
-// relación a un SKU real (ej. "1757707327232724"). Se detectan por texto
-// (no hay un prefijo de código consistente como con los servicios,
-// "SER") -- lista dada por el usuario más sinónimos habituales de
-// couriers chilenos. "pagado"/"recíbelo" van con ^...$ porque son
-// palabras sueltas que SÍ podrían aparecer dentro de un nombre de
-// producto real como substring en otro contexto (poco probable, pero
-// más seguro exigir que sea la línea completa).
-const LINEA_ENVIO_EXCLUIDA_REGEX = /env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|flete|courier|retiro en tienda|^pagado$|^recib[ae]lo$/i;
+// metadata de flete/tracking que alguna integración graba como si fuera
+// una línea más del documento. Se vio que es imposible enumerar cada
+// palabra nueva (van apareciendo "Global tracking", "Spread",
+// "99 minutos", hasta la dirección de despacho completa como si fuera el
+// "producto") -- la señal de verdad confiable es el CÓDIGO: siempre es un
+// número larguísimo (ej. "1757707327232724", en la práctica un ID de
+// seguimiento/orden), mientras que los SKU reales de este negocio
+// siempre traen letras (ej. BATHP25, SER003, CARAC03). Se filtra por eso
+// como criterio principal; la lista de palabras queda de respaldo por si
+// alguna vez aparece un código corto o alfanumérico para esto.
+const CODIGO_ENVIO_NUMERICO_REGEX = /^\d{8,}$/;
+const LINEA_ENVIO_EXCLUIDA_REGEX = /env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|99\s*minutos|global\s*tracking|^spread$|flete|courier|retiro en tienda|^pagado$|^rec[ií]belo$/i;
 
 async function manejarSyncAnalisis(req, res, sesion) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -1327,10 +1329,10 @@ async function manejarSyncAnalisis(req, res, sesion) {
         const porSku = new Map();
         for (const det of detalles) {
           const codigo = (det.variant?.code || '').toUpperCase();
-          if (!codigo) continue;
+          if (!codigo || CODIGO_ENVIO_NUMERICO_REGEX.test(codigo)) continue; // sin código, o código puramente numérico y largo -- metadata de envío/tracking, no un SKU real
           const nombre = det.variant?.description || det.comment || det.note || codigo;
           if (categoriaLinea(codigo, nombre) === 'servicios') continue; // es un servicio (por código SER o por texto) -- esto es solo para productos
-          if (LINEA_ENVIO_EXCLUIDA_REGEX.test(nombre)) continue; // envío/despacho/"pagado" -- no es un producto
+          if (LINEA_ENVIO_EXCLUIDA_REGEX.test(nombre)) continue; // envío/despacho/"pagado" -- no es un producto (respaldo por si el código no fuera numérico)
           const previa = porSku.get(codigo) || { nombre, cantidad: 0, monto: 0 };
           previa.cantidad += Number(det.quantity) || 0;
           previa.monto += (Number(det.quantity) || 0) * (Number(det.netUnitValue) || 0);
@@ -1399,7 +1401,8 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
       SELECT sku, MAX(nombre) AS nombre, date_trunc('month', fecha)::date AS mes,
              SUM(cantidad)::numeric AS cantidad, SUM(monto)::numeric AS monto
       FROM bsale_ventas_sku
-      WHERE COALESCE(nombre, '') !~* 'env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|flete|courier|retiro en tienda|^pagado$|^recib[ae]lo$'
+      WHERE sku !~ '^[0-9]{8,}$'
+        AND COALESCE(nombre, '') !~* 'env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|99\s*minutos|global\s*tracking|^spread$|flete|courier|retiro en tienda|^pagado$|^rec[ií]belo$'
       GROUP BY sku, date_trunc('month', fecha)
       ORDER BY sku, mes;
     `;
