@@ -68,7 +68,7 @@
 
   .tabla-wrap{overflow-x:auto;}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
-  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
   td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
   th.amount, td.amount{text-align:right;}
   th.ordenable{cursor:pointer;user-select:none;}
@@ -187,6 +187,10 @@ async function cargarSesionUsuario(){
     if(!res.ok) return;
     const u = await res.json();
     rolActual = u.rol;
+    // "Costo total stock" (el orden por defecto de Productos estancados) es
+    // una columna solo-admin -- si no es admin, esa columna ni se muestra,
+    // así que ordenar por ahí se vería como un orden sin explicación.
+    if(rolActual !== 'admin' && ordenVentasBaja === 'costo') ordenVentasBaja = 'dias';
     document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
@@ -266,7 +270,10 @@ function calcularProyeccion(stockActual, costoNeto, precioVentaNeto){
   return { costoTotal, oportunidadVenta, margenTotal };
 }
 let ventasBajaActual = [];
-let ordenVentasBaja = 'dias'; // 'stock' | 'dias' | 'anio' | 'monto' | 'margen'
+// Arranca ordenado por costo total del stock parado (de mayor a menor) --
+// pedido del usuario: lo primero que quiere ver son los productos donde
+// hay más plata inmovilizada, no necesariamente los más antiguos sin vender.
+let ordenVentasBaja = 'costo'; // 'stock' | 'dias' | 'anio' | 'monto' | 'costo' | 'oportunidad' | 'margen'
 let ordenVentasBajaAsc = false; // arranca de mayor a menor
 
 function ordenarVentasBaja(col){

@@ -350,6 +350,7 @@ export default async function handler(req, res) {
     const categoriaPorCode = {};
     const esServicioPorCode = {};
     const nombrePorCode = {};
+    const especPorCode = {};
     const codePorVariantId = {};
     try {
       const [tiposRes, productsRes, variantsRes] = await Promise.all([
@@ -382,6 +383,11 @@ export default async function handler(req, res) {
         // ventas del período, que si un SKU no vendió nada queda en blanco y
         // el reporte termina mostrando el código en vez del nombre).
         if (info?.nombre) nombrePorCode[v.code] = info.nombre;
+        // Ficha técnica de la VARIANTE (ej. "14-3000 SL04XL", "13.3" 299X195MM")
+        // -- viene del catálogo, no de las ventas, así que está disponible
+        // aunque el SKU no haya vendido nada en el período (ver nombreProducto
+        // más abajo, antes esto solo salía si había una venta reciente).
+        if (v.description) especPorCode[v.code] = v.description;
       }
     } catch (err) {
       catalogoDisponible = false; // seguimos sin categorías/filtro de servicio si esto falla
@@ -643,16 +649,18 @@ export default async function handler(req, res) {
           ? Math.round(diasQuiebreHist.length * ventaDiariaConStock * margenUnitario)
           : null;
 
-        // "venta.nombre" (variant.description de Bsale) es solo la ficha
-        // técnica (ej. "19.5V 2.31A 4.5X3.0MM"), NO el nombre del producto
-        // -> se combina con el nombre real del catálogo (products.json,
-        // ej. "CARGADOR ORIGINAL HP") para armar algo legible como
-        // "CARGADOR ORIGINAL HP 19.5V 2.31A 4.5X3.0MM". Si el SKU no
-        // vendió nada en el período, "venta.nombre" cae al propio código
-        // (ver arriba) -> ahí no tiene sentido pegarlo, se usa solo el
-        // nombre de catálogo (o el código, como último recurso).
+        // La ficha técnica de la variante (ej. "19.5V 2.31A 4.5X3.0MM") es
+        // NO el nombre del producto -> se combina con el nombre real del
+        // catálogo (products.json, ej. "CARGADOR ORIGINAL HP") para armar
+        // algo legible como "CARGADOR ORIGINAL HP 19.5V 2.31A 4.5X3.0MM".
+        // Se prefiere especPorCode (viene de variants.json, el catálogo)
+        // sobre venta.nombre (aprendido de ventas del período): si el SKU
+        // no vendió nada dentro del período de este reporte, venta.nombre
+        // caía al código y el resultado quedaba sin ficha técnica aunque
+        // el producto sí la tuviera en Bsale.
         const specVenta = (venta.nombre && venta.nombre !== code) ? venta.nombre : '';
-        const nombreProducto = [nombrePorCode[code], specVenta].filter(Boolean).join(' ') || venta.nombre || code;
+        const spec = especPorCode[code] || specVenta;
+        const nombreProducto = [nombrePorCode[code], spec].filter(Boolean).join(' ') || venta.nombre || code;
 
         return {
           code,
