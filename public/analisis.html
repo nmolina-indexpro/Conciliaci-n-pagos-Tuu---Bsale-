@@ -441,8 +441,16 @@ function renderVentasBaja(){
   const campoOrden = { stock: 'stockActual', dias: 'diasDesdeUltimaVenta', anio: 'cantidadAnio', monto: 'montoAnio', costo: 'costoTotal', oportunidad: 'oportunidadVenta', margen: 'margenTotal' };
   const ordenados = [...ventasBajaActual].sort((a, b) => {
     const campo = campoOrden[ordenVentasBaja] || 'diasDesdeUltimaVenta';
-    // "Nunca vendido" (null) es más estancado que cualquier número de días.
-    const va = a[campo] ?? Infinity, vb = b[campo] ?? Infinity;
+    // "Nunca vendido" (null) en días sin venta es MÁS estancado que
+    // cualquier número real -> se trata como infinito. Pero en las
+    // columnas de plata (costo/oportunidad/margen) null significa "no hay
+    // dato" (nunca se compró o nunca se vendió), no "el valor más alto de
+    // todos" -> ahí debe irse al final, no al principio (antes se usaba
+    // Infinity para las dos cosas y los SKU sin costo conocido aparecían
+    // primero al ordenar por "Costo total stock", al revés de lo pedido).
+    const nuloComoInfinito = campo === 'diasDesdeUltimaVenta';
+    const va = a[campo] ?? (nuloComoInfinito ? Infinity : -Infinity);
+    const vb = b[campo] ?? (nuloComoInfinito ? Infinity : -Infinity);
     return ordenVentasBajaAsc ? va - vb : vb - va;
   });
   const marca = col => ordenVentasBaja === col ? (ordenVentasBajaAsc ? ' ▲' : ' ▼') : '';
