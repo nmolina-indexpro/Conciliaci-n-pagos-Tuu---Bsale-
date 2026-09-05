@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
@@ -1392,27 +1392,58 @@ async function manejarSyncAnalisis(req, res, sesion) {
 // segunda mitad (para detectar la baja) y el resto del armado de tabla se
 // hacen del lado del cliente, igual que ahí.
 async function manejarVentasSkuTendencia(req, res, sesion) {
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
     const sql = await getSql();
     await asegurarTablaVentasSku(sql);
+    await asegurarTablaVentasSkuEstado(sql);
+
+    // Sacar un SKU del análisis (y de futuras sincronizaciones) -- mismo
+    // criterio que analisis_excluidos/indexpro_excluidos: exclusión
+    // permanente, acción destructiva -> solo admin, como el resto de los
+    // DELETE de este archivo.
+    if (req.method === 'DELETE') {
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sacar un SKU de este análisis' });
+      const sku = String(req.query.sku || '').trim().toUpperCase();
+      if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
+      await sql`INSERT INTO ventas_sku_excluidos (sku, excluido_por) VALUES (${sku}, ${sesion.nombre || sesion.email}) ON CONFLICT (sku) DO NOTHING;`;
+      return res.status(200).json({ ok: true });
+    }
+
+    // Comentario libre por SKU -- nota de seguimiento, no una exclusión,
+    // así que cualquier persona con sesión puede dejarlo (mismo criterio
+    // que el comentario de Clientes recurrentes).
+    if (req.method === 'PUT') {
+      const { sku, comentario } = req.body || {};
+      if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
+      await sql`
+        INSERT INTO ventas_sku_comentarios (sku, comentario, actualizado_por, actualizado_en)
+        VALUES (${sku}, ${comentario || ''}, ${sesion.nombre || sesion.email}, now())
+        ON CONFLICT (sku) DO UPDATE SET comentario = EXCLUDED.comentario, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = EXCLUDED.actualizado_en;
+      `;
+      return res.status(200).json({ ok: true });
+    }
+
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
     const { rows } = await sql`
-      SELECT sku, MAX(nombre) AS nombre, date_trunc('month', fecha)::date AS mes,
-             SUM(cantidad)::numeric AS cantidad, SUM(monto)::numeric AS monto
-      FROM bsale_ventas_sku
-      WHERE sku !~ '^[0-9]{8,}$'
-        AND COALESCE(nombre, '') !~* 'env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|99\s*minutos|global\s*tracking|^spread$|flete|courier|retiro en tienda|^pagado$|^rec[ií]belo$'
-      GROUP BY sku, date_trunc('month', fecha)
-      ORDER BY sku, mes;
+      SELECT v.sku, MAX(v.nombre) AS nombre, date_trunc('month', v.fecha)::date AS mes,
+             SUM(v.cantidad)::numeric AS cantidad, SUM(v.monto)::numeric AS monto
+      FROM bsale_ventas_sku v
+      WHERE v.sku NOT IN (SELECT sku FROM ventas_sku_excluidos)
+        AND v.sku !~ '^[0-9]{8,}$'
+        AND COALESCE(v.nombre, '') !~* 'env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|99\s*minutos|global\s*tracking|^spread$|flete|courier|retiro en tienda|^pagado$|^rec[ií]belo$'
+      GROUP BY v.sku, date_trunc('month', v.fecha)
+      ORDER BY v.sku, mes;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
     const estado = estadoRows[0] || {};
+    const { rows: comentarioRows } = await sql`SELECT sku, comentario FROM ventas_sku_comentarios;`;
+    const comentarioPorSku = Object.fromEntries(comentarioRows.map(r => [r.sku, r.comentario]));
 
     const meses = ultimosNMeses(12);
     const mapaPorSku = new Map();
     for (const r of rows) {
-      if (!mapaPorSku.has(r.sku)) mapaPorSku.set(r.sku, { sku: r.sku, nombre: r.nombre, porMes: {} });
+      if (!mapaPorSku.has(r.sku)) mapaPorSku.set(r.sku, { sku: r.sku, nombre: r.nombre, comentario: comentarioPorSku[r.sku] || null, porMes: {} });
       const mesKey = new Date(r.mes).toISOString().slice(0, 7); // YYYY-MM
       mapaPorSku.get(r.sku).porMes[mesKey] = { cantidad: Number(r.cantidad), monto: Number(r.monto) };
     }

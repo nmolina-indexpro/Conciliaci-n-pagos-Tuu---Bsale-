@@ -260,24 +260,85 @@ async function cargarVentasBaja(){
     const corte = Math.ceil(mesesTendencia.length / 2);
     const primerBloque = mesesTendencia.slice(0, corte); // 6 meses más antiguos
     const segundoBloque = mesesTendencia.slice(corte);   // 5 meses más recientes (sin el mes en curso)
+    const ultimos3Bloque = mesesTendencia.slice(-3); // los 3 meses completos más recientes
 
     const sumaCampo = (porMes, bloque, campo) => bloque.reduce((acc, m) => acc + (porMes[m]?.[campo] || 0), 0);
     const calculados = productos.map(p => {
       const primera = sumaCampo(p.porMes, primerBloque, 'cantidad');
       const segunda = sumaCampo(p.porMes, segundoBloque, 'cantidad');
+      const ultimos3 = sumaCampo(p.porMes, ultimos3Bloque, 'cantidad');
+      const cantidadAnio = meses.reduce((acc, m) => acc + (p.porMes[m]?.cantidad || 0), 0);
       const montoAnio = meses.reduce((acc, m) => acc + (p.porMes[m]?.monto || 0), 0);
       const variacion = primera > 0 ? ((segunda - primera) / primera) * 100 : null;
-      return { sku: p.sku, nombre: p.nombre, primera, segunda, variacion, montoAnio };
+      return { sku: p.sku, nombre: p.nombre, comentario: p.comentario || '', primera, segunda, ultimos3, cantidadAnio, variacion, montoAnio, margenTotal: undefined };
     }).filter(p => p.variacion !== null && p.variacion < 0); // solo bajas reales -- tuvo que haber vendido antes
 
     ventasBajaActual = calculados;
     $('ventasBajaResumen').textContent = `${fmtNum(calculados.length)} SKU con caída de ventas (de ${fmtNum(productos.length)} con ventas en el período). `
       + `Comparando ${etiquetaMesVentas(primerBloque[0])}–${etiquetaMesVentas(primerBloque[primerBloque.length - 1])} vs. ${etiquetaMesVentas(segundoBloque[0])}–${etiquetaMesVentas(segundoBloque[segundoBloque.length - 1])} `
-      + `(no se cuenta ${etiquetaMesVentas(meses[meses.length - 1])}, mes en curso).`
+      + `(no se cuenta ${etiquetaMesVentas(meses[meses.length - 1])}, mes en curso). Últimos 3 meses = ${etiquetaMesVentas(ultimos3Bloque[0])}–${etiquetaMesVentas(ultimos3Bloque[ultimos3Bloque.length - 1])}.`
       + (data.ultimaSincronizacion ? ` Última sincronización completa: ${new Date(data.ultimaSincronizacion).toLocaleString('es-CL')}.` : '');
     renderVentasBaja();
+    if(rolActual === 'admin') cargarMargenVentasBaja();
   }catch(err){
     $('wrapVentasBaja').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+  }
+}
+
+// Margen (admin) -- reutiliza el "último costo" que ya calcula
+// /api/bsale-sku-report (recepciones de Bsale) para la página Compras, en
+// vez de reconstruir esa lógica de nuevo acá. Se pide aparte y se
+// "parcha" sobre la tabla ya pintada (no bloquea el resto de las
+// columnas mientras esa consulta -- un escaneo en vivo de Bsale --
+// termina). margenTotal = monto vendido en el año - (último costo x
+// unidades vendidas en el año) -- una aproximación (asume que el costo no
+// cambió durante el año), igual criterio que ya usa esa página para su
+// propio cálculo de margen.
+async function cargarMargenVentasBaja(){
+  try{
+    const res = await fetch('/api/bsale-sku-report');
+    const data = await res.json();
+    const costoPorSku = {};
+    for(const s of (data.skus || [])) if(s.ultimoCosto != null) costoPorSku[s.code] = s.ultimoCosto;
+    for(const p of ventasBajaActual){
+      const costo = costoPorSku[p.sku];
+      p.margenTotal = costo != null ? p.montoAnio - (costo * p.cantidadAnio) : null;
+    }
+  }catch(err){
+    for(const p of ventasBajaActual) p.margenTotal = null;
+  }
+  renderVentasBaja();
+}
+
+async function editarComentarioVentaBaja(sku){
+  const actual = ventasBajaActual.find(p => p.sku === sku)?.comentario || '';
+  const nuevo = prompt(`Comentario para ${sku}:`, actual);
+  if(nuevo === null) return; // canceló
+  try{
+    const res = await fetch('/api/negocio?recurso=ventas-sku-tendencia', {
+      method: 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ sku, comentario: nuevo.trim() })
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar.'); return; }
+    const p = ventasBajaActual.find(x => x.sku === sku);
+    if(p) p.comentario = nuevo.trim();
+    renderVentasBaja();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+async function eliminarVentaBajaSku(sku){
+  if(!confirm(`¿Sacar el SKU ${sku} de este análisis? No va a volver a aparecer aunque su venta siga cayendo, salvo que se quite de la lista de exclusión directo en la base de datos.`)) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=ventas-sku-tendencia&sku=${encodeURIComponent(sku)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error); return; }
+    ventasBajaActual = ventasBajaActual.filter(p => p.sku !== sku);
+    renderVentasBaja();
+  }catch(err){
+    alert('Error: ' + err.message);
   }
 }
 
@@ -292,13 +353,24 @@ function renderVentasBaja(){
     return ordenVentasBajaAsc ? va - vb : vb - va;
   });
   const marca = col => ordenVentasBaja === col ? (ordenVentasBajaAsc ? ' ▲' : ' ▼') : '';
+  const esAdmin = rolActual === 'admin';
+  const celdaMargen = p => {
+    if(!esAdmin) return '';
+    if(p.margenTotal === undefined) return '<td class="amount empty-note">calculando…</td>';
+    if(p.margenTotal === null) return '<td class="amount empty-note">—</td>';
+    return `<td class="amount">${fmtMoneda(p.margenTotal)}</td>`;
+  };
   $('wrapVentasBaja').innerHTML = `
     <div class="tabla-wrap"><table>
       <thead><tr>
         <th>SKU</th><th>Producto</th>
         <th class="amount">1ª mitad (unid.)</th><th class="amount">2ª mitad (unid.)</th>
+        <th class="amount">Últimos 3 meses (unid.)</th>
         <th class="ordenable amount" onclick="ordenarVentasBaja('variacion')">Variación%${marca('variacion')}</th>
         <th class="ordenable amount" onclick="ordenarVentasBaja('monto')">Monto acumulado (año)${marca('monto')}</th>
+        ${esAdmin ? '<th class="amount">Margen total (año)</th>' : ''}
+        <th>Comentario</th>
+        ${esAdmin ? '<th></th>' : ''}
       </tr></thead>
       <tbody>
         ${ordenados.map(p => `
@@ -307,8 +379,15 @@ function renderVentasBaja(){
             <td>${escapeHtml(p.nombre || p.sku)}</td>
             <td class="amount">${fmtNum(p.primera)}</td>
             <td class="amount">${fmtNum(p.segunda)}</td>
+            <td class="amount">${fmtNum(p.ultimos3)}</td>
             <td class="amount"><span class="badge-caida">▼${fmtNum(Math.round(Math.abs(p.variacion)))}%</span></td>
             <td class="amount">${fmtMoneda(p.montoAnio)}</td>
+            ${celdaMargen(p)}
+            <td style="max-width:220px;">
+              <button class="btn-icono" title="${p.comentario ? 'Comentario: ' + escapeHtml(p.comentario) : 'Sin comentario — clic para agregar'}" onclick="editarComentarioVentaBaja('${p.sku}')">📝</button>
+              ${p.comentario ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.comentario)}</span>` : ''}
+            </td>
+            ${esAdmin ? `<td><button class="btn-icono" title="Sacar de este análisis" onclick="eliminarVentaBajaSku('${p.sku}')">🗑️</button></td>` : ''}
           </tr>`).join('')}
       </tbody>
     </table></div>
