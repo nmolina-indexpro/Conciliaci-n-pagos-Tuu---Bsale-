@@ -253,6 +253,18 @@ function diasDesdeVentas(fechaIso){
   if(!fechaIso) return null;
   return Math.floor((Date.now() - new Date(fechaIso + 'T00:00:00').getTime()) / 86400000);
 }
+const IVA_FACTOR = 1.19;
+// Proyección sobre el STOCK PARADO (no sobre lo ya vendido) -- el objetivo
+// de este reporte es liquidar, así que lo que importa es cuánto cuesta el
+// stock hoy y cuánto se podría hacer si se vende todo, no cuánto se ganó
+// en el pasado. costoNeto/precioVentaNeto en null cuando no hay dato real
+// (nunca se compró / nunca se vendió) -> no se inventa un número.
+function calcularProyeccion(stockActual, costoNeto, precioVentaNeto){
+  const costoTotal = costoNeto != null ? stockActual * costoNeto : null;
+  const oportunidadVenta = precioVentaNeto != null ? stockActual * precioVentaNeto * IVA_FACTOR : null;
+  const margenTotal = (costoNeto != null && precioVentaNeto != null) ? stockActual * (precioVentaNeto - costoNeto) : null;
+  return { costoTotal, oportunidadVenta, margenTotal };
+}
 let ventasBajaActual = [];
 let ordenVentasBaja = 'dias'; // 'stock' | 'dias' | 'anio' | 'monto' | 'margen'
 let ordenVentasBajaAsc = false; // arranca de mayor a menor
@@ -276,10 +288,16 @@ async function cargarVentasBaja(){
       return;
     }
     const stockData = await resStock.json().catch(() => ({ skus: [] }));
-    const stockPorSku = {}, costoPorSku = {};
+    const stockPorSku = {}, costoPorSku = {}, nombrePorSku = {};
     for(const s of (stockData.skus || [])){
       stockPorSku[s.code] = s.stockActual || 0;
       if(s.ultimoCosto != null) costoPorSku[s.code] = s.ultimoCosto;
+      // "nombre" de bsale-sku-report ya viene armado como catálogo + ficha
+      // técnica (ej. "CARGADOR ORIGINAL ASUS 20V 2.25A USB-C") -- más
+      // completo que el que guarda bsale_ventas_sku al sincronizar (que
+      // suele ser solo la ficha técnica de la variante), así que se
+      // prefiere este para mostrar en la columna Producto.
+      if(s.nombre) nombrePorSku[s.code] = s.nombre;
     }
 
     const { meses, productos, estadoSku } = data;
@@ -302,12 +320,16 @@ async function cargarVentasBaja(){
       const cantidadAnio = meses.reduce((acc, m) => acc + (p.porMes[m]?.cantidad || 0), 0);
       const montoAnio = meses.reduce((acc, m) => acc + (p.porMes[m]?.monto || 0), 0);
       const stockActual = stockPorSku[p.sku] ?? 0;
-      const costo = costoPorSku[p.sku];
-      const margenTotal = costo != null ? montoAnio - (costo * cantidadAnio) : null;
+      const costo = costoPorSku[p.sku] ?? null;
+      // Precio de venta neto promedio del año (lo que de verdad se cobró,
+      // no un precio de lista) -- base para proyectar margen/oportunidad
+      // sobre el stock parado, no sobre lo ya vendido.
+      const precioVentaNeto = cantidadAnio > 0 ? montoAnio / cantidadAnio : null;
+      const { margenTotal, costoTotal, oportunidadVenta } = calcularProyeccion(stockActual, costo, precioVentaNeto);
       return {
-        sku: p.sku, nombre: p.nombre, categoria: p.categoria,
+        sku: p.sku, nombre: nombrePorSku[p.sku] || p.nombre, categoria: p.categoria,
         comentario: p.comentario || '', mercadoLibre: !!p.mercadoLibre, envioGratis: !!p.envioGratis, variacionPrecio: !!p.variacionPrecio,
-        cantidadAnio, montoAnio, stockActual, margenTotal,
+        cantidadAnio, montoAnio, stockActual, margenTotal, costoTotal, oportunidadVenta,
         diasDesdeUltimaVenta: diasDesdeVentas(p.ultimaVenta), nuncaVendido: false,
       };
     }).filter(p => p.stockActual > 0 && p.diasDesdeUltimaVenta != null && p.diasDesdeUltimaVenta >= UMBRAL_DIAS_ESTANCADO);
@@ -330,10 +352,15 @@ async function cargarVentasBaja(){
       const stockActual = s.stockActual || 0;
       if(stockActual <= 0) continue;
       const est = (estadoSku || {})[code] || {};
+      // Nunca vendió -> no hay precio de venta propio para proyectar
+      // margen/oportunidad (costoTotal calcularProyeccion() SIN precio),
+      // pero el costo del stock parado sí se puede calcular (viene de
+      // compras, no de ventas).
+      const { costoTotal } = calcularProyeccion(stockActual, costoPorSku[code] ?? null, null);
       sinVenta.push({
         sku: code, nombre, categoria,
         comentario: est.comentario || '', mercadoLibre: !!est.mercadoLibre, envioGratis: !!est.envioGratis, variacionPrecio: !!est.variacionPrecio,
-        cantidadAnio: 0, montoAnio: 0, stockActual, margenTotal: null,
+        cantidadAnio: 0, montoAnio: 0, stockActual, margenTotal: null, costoTotal, oportunidadVenta: null,
         diasDesdeUltimaVenta: null, nuncaVendido: true,
       });
     }
@@ -404,7 +431,7 @@ function renderVentasBaja(){
     $('wrapVentasBaja').innerHTML = `<p class="empty-note">No se detectó ningún SKU estancado (con stock disponible y sin ventas hace ${UMBRAL_DIAS_ESTANCADO}+ días).</p>`;
     return;
   }
-  const campoOrden = { stock: 'stockActual', dias: 'diasDesdeUltimaVenta', anio: 'cantidadAnio', monto: 'montoAnio', margen: 'margenTotal' };
+  const campoOrden = { stock: 'stockActual', dias: 'diasDesdeUltimaVenta', anio: 'cantidadAnio', monto: 'montoAnio', costo: 'costoTotal', oportunidad: 'oportunidadVenta', margen: 'margenTotal' };
   const ordenados = [...ventasBajaActual].sort((a, b) => {
     const campo = campoOrden[ordenVentasBaja] || 'diasDesdeUltimaVenta';
     // "Nunca vendido" (null) es más estancado que cualquier número de días.
@@ -413,10 +440,13 @@ function renderVentasBaja(){
   });
   const marca = col => ordenVentasBaja === col ? (ordenVentasBajaAsc ? ' ▲' : ' ▼') : '';
   const esAdmin = rolActual === 'admin';
-  const celdaMargen = p => {
+  // Costo, oportunidad de venta y margen son datos sensibles (revelan
+  // costo de compra) -- mismo criterio "solo admin" que ya se usaba para
+  // Margen total.
+  const celdaAdminMonto = valor => {
     if(!esAdmin) return '';
-    if(p.margenTotal == null) return '<td class="amount empty-note">—</td>';
-    return `<td class="amount">${fmtMoneda(p.margenTotal)}</td>`;
+    if(valor == null) return '<td class="amount empty-note">—</td>';
+    return `<td class="amount">${fmtMoneda(valor)}</td>`;
   };
   const celdaDias = p => p.nuncaVendido
     ? '<span class="badge-caida">Nunca</span>'
@@ -430,7 +460,9 @@ function renderVentasBaja(){
         <th class="ordenable amount" onclick="ordenarVentasBaja('dias')">Días sin venta${marca('dias')}</th>
         <th class="ordenable amount" onclick="ordenarVentasBaja('anio')">Ventas último año (unid.)${marca('anio')}</th>
         <th class="ordenable amount" onclick="ordenarVentasBaja('monto')">Monto acumulado (año)${marca('monto')}</th>
-        ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('margen')">Margen total (año)${marca('margen')}</th>` : ''}
+        ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('costo')">Costo total stock${marca('costo')}</th>` : ''}
+        ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('oportunidad')">Oportunidad de venta (c/IVA)${marca('oportunidad')}</th>` : ''}
+        ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('margen')">Margen total stock${marca('margen')}</th>` : ''}
         <th>Acciones</th>
       </tr></thead>
       <tbody>
@@ -442,7 +474,9 @@ function renderVentasBaja(){
             <td class="amount">${celdaDias(p)}</td>
             <td class="amount">${fmtNum(p.cantidadAnio)}</td>
             <td class="amount">${fmtMoneda(p.montoAnio)}</td>
-            ${celdaMargen(p)}
+            ${celdaAdminMonto(p.costoTotal)}
+            ${celdaAdminMonto(p.oportunidadVenta)}
+            ${celdaAdminMonto(p.margenTotal)}
             <td style="min-width:190px;">
               <div class="chk-group">
                 ${checkFlag(p, 'mercadoLibre', '🛒 Mercado Libre')}
