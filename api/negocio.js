@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
@@ -1383,6 +1383,31 @@ async function manejarSyncAnalisis(req, res, sesion) {
   }
 }
 
+// Historial de comentarios compartido (ver asegurarTablaComentariosLog en
+// lib/db.js) -- un comentario nuevo se AGREGA al historial, nunca
+// reemplaza al anterior, y queda registrado con quién lo escribió y
+// cuándo. Usado hoy por "Productos estancados" (contexto 'ventas_sku') y
+// "Clientes recurrentes" (contexto 'clientes_recurrentes').
+async function registrarComentario(sql, contexto, entidadId, comentario, autor) {
+  const texto = String(comentario || '').trim();
+  if (!texto) return;
+  await sql`INSERT INTO comentarios_log (contexto, entidad_id, comentario, autor) VALUES (${contexto}, ${String(entidadId)}, ${texto}, ${autor || null});`;
+}
+
+// Trae TODO el historial de un contexto de una sola vez (en vez de una
+// consulta por entidad) y lo agrupa en un Map entidad_id -> [{comentario,
+// autor, creadoEn}, ...] de más nuevo a más viejo -- mismo patrón que el
+// resto de los mapas por-sku/por-cliente de este archivo.
+async function obtenerHistorialComentarios(sql, contexto) {
+  const { rows } = await sql`SELECT entidad_id, comentario, autor, creado_en FROM comentarios_log WHERE contexto = ${contexto} ORDER BY entidad_id, creado_en DESC;`;
+  const mapa = new Map();
+  for (const r of rows) {
+    if (!mapa.has(r.entidad_id)) mapa.set(r.entidad_id, []);
+    mapa.get(r.entidad_id).push({ comentario: r.comentario, autor: r.autor || null, creadoEn: r.creado_en });
+  }
+  return mapa;
+}
+
 // "Productos con ventas a la baja" (Análisis) -- pedido del usuario: para
 // detectar SKU sin rotación, candidatos a bajar de precio, envío gratis o
 // condiciones especiales para generar efectivo. Lee bsale_ventas_sku
@@ -1409,26 +1434,31 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
       return res.status(200).json({ ok: true });
     }
 
-    // Comentario libre + checkboxes de seguimiento manual por SKU -- nota
-    // de seguimiento, no una exclusión, así que cualquier persona con
-    // sesión puede dejarlo (mismo criterio que el comentario de Clientes
-    // recurrentes). Cada campo se actualiza de forma independiente (un
-    // checkbox no debe borrar el comentario ni los otros checkboxes): en
-    // UPDATE, un campo que no vino en el body (undefined) conserva el
-    // valor que ya estaba guardado en vez de pisarlo con el default.
+    // Comentario (se AGREGA al historial, ver registrarComentario más
+    // arriba) + checkboxes de seguimiento manual por SKU -- nota de
+    // seguimiento, no una exclusión, así que cualquier persona con sesión
+    // puede dejarlo (mismo criterio que el comentario de Clientes
+    // recurrentes). Los checkboxes se actualizan de forma independiente
+    // del comentario (un checkbox no debe agregar un comentario vacío ni
+    // viceversa): en UPDATE, un campo que no vino en el body (undefined)
+    // conserva el valor que ya estaba guardado en vez de pisarlo con el
+    // default.
     if (req.method === 'PUT') {
       const { sku, comentario, mercadoLibre, envioGratis, variacionPrecio } = req.body || {};
       if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
-      await sql`
-        INSERT INTO ventas_sku_comentarios (sku, comentario, mercado_libre, envio_gratis, variacion_precio, actualizado_por, actualizado_en)
-        VALUES (${sku}, ${comentario ?? ''}, ${!!mercadoLibre}, ${!!envioGratis}, ${!!variacionPrecio}, ${sesion.nombre || sesion.email}, now())
-        ON CONFLICT (sku) DO UPDATE SET
-          comentario = CASE WHEN ${comentario !== undefined} THEN EXCLUDED.comentario ELSE ventas_sku_comentarios.comentario END,
-          mercado_libre = CASE WHEN ${mercadoLibre !== undefined} THEN EXCLUDED.mercado_libre ELSE ventas_sku_comentarios.mercado_libre END,
-          envio_gratis = CASE WHEN ${envioGratis !== undefined} THEN EXCLUDED.envio_gratis ELSE ventas_sku_comentarios.envio_gratis END,
-          variacion_precio = CASE WHEN ${variacionPrecio !== undefined} THEN EXCLUDED.variacion_precio ELSE ventas_sku_comentarios.variacion_precio END,
-          actualizado_por = EXCLUDED.actualizado_por, actualizado_en = EXCLUDED.actualizado_en;
-      `;
+      await asegurarTablaComentariosLog(sql);
+      if (comentario !== undefined) await registrarComentario(sql, 'ventas_sku', sku, comentario, sesion.nombre || sesion.email);
+      if (mercadoLibre !== undefined || envioGratis !== undefined || variacionPrecio !== undefined) {
+        await sql`
+          INSERT INTO ventas_sku_comentarios (sku, mercado_libre, envio_gratis, variacion_precio, actualizado_por, actualizado_en)
+          VALUES (${sku}, ${!!mercadoLibre}, ${!!envioGratis}, ${!!variacionPrecio}, ${sesion.nombre || sesion.email}, now())
+          ON CONFLICT (sku) DO UPDATE SET
+            mercado_libre = CASE WHEN ${mercadoLibre !== undefined} THEN EXCLUDED.mercado_libre ELSE ventas_sku_comentarios.mercado_libre END,
+            envio_gratis = CASE WHEN ${envioGratis !== undefined} THEN EXCLUDED.envio_gratis ELSE ventas_sku_comentarios.envio_gratis END,
+            variacion_precio = CASE WHEN ${variacionPrecio !== undefined} THEN EXCLUDED.variacion_precio ELSE ventas_sku_comentarios.variacion_precio END,
+            actualizado_por = EXCLUDED.actualizado_por, actualizado_en = EXCLUDED.actualizado_en;
+        `;
+      }
       return res.status(200).json({ ok: true });
     }
 
@@ -1446,11 +1476,14 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
     `;
     const { rows: estadoSyncRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
     const estadoSync = estadoSyncRows[0] || {};
-    const { rows: estadoRows } = await sql`SELECT sku, comentario, mercado_libre, envio_gratis, variacion_precio FROM ventas_sku_comentarios;`;
+    const { rows: estadoRows } = await sql`SELECT sku, mercado_libre, envio_gratis, variacion_precio FROM ventas_sku_comentarios;`;
     const estadoPorSku = {};
     for (const r of estadoRows) {
-      estadoPorSku[r.sku] = { comentario: r.comentario || null, mercadoLibre: !!r.mercado_libre, envioGratis: !!r.envio_gratis, variacionPrecio: !!r.variacion_precio };
+      estadoPorSku[r.sku] = { mercadoLibre: !!r.mercado_libre, envioGratis: !!r.envio_gratis, variacionPrecio: !!r.variacion_precio };
     }
+    await asegurarTablaComentariosLog(sql);
+    await migrarComentariosVentasSkuLegacy(sql);
+    const historialPorSku = await obtenerHistorialComentarios(sql, 'ventas_sku');
     // Última fecha de venta real por SKU (día exacto, no el mes truncado
     // de arriba) -- pedido del usuario: el criterio de "estancado" pasó de
     // "sin ventas en los últimos 3 meses" a "sin ventas hace 35+ días",
@@ -1476,9 +1509,10 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
       // en vez de duplicar la lógica de clasificación.
       if (!mapaPorSku.has(r.sku)) {
         const est = estadoPorSku[r.sku] || {};
+        const historial = historialPorSku.get(r.sku) || [];
         mapaPorSku.set(r.sku, {
           sku: r.sku, nombre: r.nombre, categoria: categoriaLinea(r.sku, r.nombre),
-          comentario: est.comentario || null, mercadoLibre: !!est.mercadoLibre, envioGratis: !!est.envioGratis, variacionPrecio: !!est.variacionPrecio,
+          comentario: historial[0]?.comentario || null, historial, mercadoLibre: !!est.mercadoLibre, envioGratis: !!est.envioGratis, variacionPrecio: !!est.variacionPrecio,
           ultimaVenta: ultimaVentaPorSku[r.sku] || null, porMes: {},
         });
       }
@@ -1487,8 +1521,22 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
     }
     const productos = [...mapaPorSku.values()];
 
+    // estadoSku completo (checkboxes + historial de comentarios) para TODOS
+    // los SKU con algún dato guardado, no solo los que tienen fila en
+    // "productos" -- el frontend lo necesita también para los SKU que
+    // nunca vendieron (esos se arman del lado del cliente a partir de
+    // /api/bsale-sku-report, y ahí no hay forma de traer su comentario si
+    // no viene acá).
+    const skusConEstado = new Set([...Object.keys(estadoPorSku), ...historialPorSku.keys()]);
+    const estadoSkuCompleto = {};
+    for (const sku of skusConEstado) {
+      const est = estadoPorSku[sku] || {};
+      const historial = historialPorSku.get(sku) || [];
+      estadoSkuCompleto[sku] = { comentario: historial[0]?.comentario || null, historial, mercadoLibre: !!est.mercadoLibre, envioGratis: !!est.envioGratis, variacionPrecio: !!est.variacionPrecio };
+    }
+
     return res.status(200).json({
-      meses, productos, estadoSku: estadoPorSku, excluidos: excluidosRows.map(r => r.sku),
+      meses, productos, estadoSku: estadoSkuCompleto, excluidos: excluidosRows.map(r => r.sku),
       ultimaSincronizacion: estadoSync.ultima_pasada_completa_en || null,
     });
   } catch (err) {
@@ -1737,7 +1785,12 @@ async function manejarAnalisisClientes(req, res, sesion) {
         await sql`UPDATE analisis_clientes_estado SET estado = ${estado}, actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now() WHERE cliente_id = ${clienteId};`;
       }
       if (comentario !== undefined) {
-        await sql`UPDATE analisis_clientes_estado SET comentario = ${comentario || null}, actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now() WHERE cliente_id = ${clienteId};`;
+        // Se agrega al historial en vez de pisar el comentario anterior
+        // (ver registrarComentario) -- el comentario suelto de esta tabla
+        // ya no se toca, queda solo como respaldo de lo que había antes
+        // de tener historial (ver migrarComentariosClientesLegacy).
+        await asegurarTablaComentariosLog(sql);
+        await registrarComentario(sql, 'clientes_recurrentes', clienteId, comentario, sesion.nombre || sesion.email);
       }
       return res.status(200).json({ ok: true });
     } catch (err) {
@@ -1764,7 +1817,7 @@ async function manejarAnalisisClientes(req, res, sesion) {
         SUM(ac.monto_servicios) AS monto_servicios, SUM(ac.monto_pantallas) AS monto_pantallas,
         SUM(ac.monto_cargadores) AS monto_cargadores, SUM(ac.monto_baterias) AS monto_baterias,
         MAX(bp.rut) AS rut, MAX(bp.empresa) AS empresa, MAX(bp.telefono) AS telefono, MAX(bp.email) AS email,
-        COALESCE(MAX(ace.estado), 'sin_contactar') AS estado, MAX(ace.comentario) AS comentario
+        COALESCE(MAX(ace.estado), 'sin_contactar') AS estado
       FROM analisis_compras ac
       LEFT JOIN bsale_clientes_puntos bp ON bp.id = ac.cliente_id
       LEFT JOIN analisis_clientes_estado ace ON ace.cliente_id = ac.cliente_id
@@ -1774,24 +1827,31 @@ async function manejarAnalisisClientes(req, res, sesion) {
       ORDER BY num_compras DESC, cliente_nombre ASC;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
+    await asegurarTablaComentariosLog(sql);
+    await migrarComentariosClientesLegacy(sql);
+    const historialPorCliente = await obtenerHistorialComentarios(sql, 'clientes_recurrentes');
 
-    const mapear = r => ({
-      clienteId: r.cliente_id,
-      clienteNombre: r.cliente_nombre,
-      empresa: r.empresa || null,
-      rut: r.rut || null,
-      telefono: r.telefono || null,
-      email: r.email || null,
-      numCompras: r.num_compras,
-      montoTotal: r.monto_total != null ? Number(r.monto_total) : 0,
-      montoServicios: r.monto_servicios != null ? Number(r.monto_servicios) : 0,
-      montoPantallas: r.monto_pantallas != null ? Number(r.monto_pantallas) : 0,
-      montoCargadores: r.monto_cargadores != null ? Number(r.monto_cargadores) : 0,
-      montoBaterias: r.monto_baterias != null ? Number(r.monto_baterias) : 0,
-      ultimaCompra: r.ultima_compra ? new Date(r.ultima_compra).toISOString().slice(0, 10) : null,
-      estado: r.estado,
-      comentario: r.comentario || null,
-    });
+    const mapear = r => {
+      const historial = historialPorCliente.get(String(r.cliente_id)) || [];
+      return {
+        clienteId: r.cliente_id,
+        clienteNombre: r.cliente_nombre,
+        empresa: r.empresa || null,
+        rut: r.rut || null,
+        telefono: r.telefono || null,
+        email: r.email || null,
+        numCompras: r.num_compras,
+        montoTotal: r.monto_total != null ? Number(r.monto_total) : 0,
+        montoServicios: r.monto_servicios != null ? Number(r.monto_servicios) : 0,
+        montoPantallas: r.monto_pantallas != null ? Number(r.monto_pantallas) : 0,
+        montoCargadores: r.monto_cargadores != null ? Number(r.monto_cargadores) : 0,
+        montoBaterias: r.monto_baterias != null ? Number(r.monto_baterias) : 0,
+        ultimaCompra: r.ultima_compra ? new Date(r.ultima_compra).toISOString().slice(0, 10) : null,
+        estado: r.estado,
+        comentario: historial[0]?.comentario || null,
+        historial,
+      };
+    };
 
     const totalClientes = rows.length;
     const clientesPro = [], clientesRecurrentes = [], clientesOcasionales = [];

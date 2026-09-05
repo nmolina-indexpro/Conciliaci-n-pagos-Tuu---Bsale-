@@ -84,6 +84,14 @@
   .chk-group{display:flex;flex-direction:column;gap:3px;}
   .chk-mini{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;}
   .chk-mini input{margin:0;cursor:pointer;}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:16px;}
+  .modal-overlay.open{display:flex;}
+  .modal-box{background:var(--surface);border-radius:16px;padding:24px 26px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:min(520px,100%);max-height:86vh;overflow-y:auto;}
+  .modal-box h3{margin:0 0 4px 0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;}
+  .comentario-item{border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:12.5px;}
+  .comentario-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+  #modalComentarioNuevo{width:100%;margin-top:14px;min-height:70px;padding:10px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -157,6 +165,19 @@
     <div id="wrapDetalle"></div>
   </div>
 
+</div>
+
+<div class="modal-overlay" id="modalComentariosOverlay" onclick="cerrarModalComentariosSiFondo(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <h3 id="modalComentariosTitulo">Comentarios</h3>
+    <div class="sub" style="margin-bottom:0;">Cada comentario queda guardado con quién lo escribió y cuándo -- no se borra ni se reemplaza al agregar uno nuevo.</div>
+    <div id="modalComentariosLista" style="margin-top:14px;display:flex;flex-direction:column;gap:10px;"></div>
+    <textarea id="modalComentarioNuevo" placeholder="Escribe un comentario nuevo..."></textarea>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+      <button class="btn-ghost" onclick="cerrarModalComentarios()">Cerrar</button>
+      <button class="btn-primary" onclick="guardarComentarioModal()">Agregar comentario</button>
+    </div>
+  </div>
 </div>
 
 <script src="restriccion-usuario.js"></script>
@@ -335,7 +356,7 @@ async function cargarVentasBaja(){
       const { margenTotal, costoTotal, oportunidadVenta } = calcularProyeccion(stockActual, costo, precioVentaNeto);
       return {
         sku: p.sku, nombre: nombrePorSku[p.sku] || p.nombre, categoria: p.categoria,
-        comentario: p.comentario || '', mercadoLibre: !!p.mercadoLibre, envioGratis: !!p.envioGratis, variacionPrecio: !!p.variacionPrecio,
+        comentario: p.comentario || '', historial: p.historial || [], mercadoLibre: !!p.mercadoLibre, envioGratis: !!p.envioGratis, variacionPrecio: !!p.variacionPrecio,
         cantidadAnio, montoAnio, stockActual, margenTotal, costoTotal, oportunidadVenta,
         diasDesdeUltimaVenta: diasDesdeVentas(p.ultimaVenta), nuncaVendido: false,
       };
@@ -366,7 +387,7 @@ async function cargarVentasBaja(){
       const { costoTotal } = calcularProyeccion(stockActual, costoPorSku[code] ?? null, null);
       sinVenta.push({
         sku: code, nombre, categoria,
-        comentario: est.comentario || '', mercadoLibre: !!est.mercadoLibre, envioGratis: !!est.envioGratis, variacionPrecio: !!est.variacionPrecio,
+        comentario: est.comentario || '', historial: est.historial || [], mercadoLibre: !!est.mercadoLibre, envioGratis: !!est.envioGratis, variacionPrecio: !!est.variacionPrecio,
         cantidadAnio: 0, montoAnio: 0, stockActual, margenTotal: null, costoTotal, oportunidadVenta: null,
         diasDesdeUltimaVenta: null, nuncaVendido: true,
       });
@@ -382,23 +403,77 @@ async function cargarVentasBaja(){
   }
 }
 
-async function editarComentarioVentaBaja(sku){
-  const actual = ventasBajaActual.find(p => p.sku === sku)?.comentario || '';
-  const nuevo = prompt(`Comentario para ${sku}:`, actual);
-  if(nuevo === null) return; // canceló
+function editarComentarioVentaBaja(sku){
+  const p = ventasBajaActual.find(x => x.sku === sku);
+  if(!p) return;
+  abrirModalComentarios('ventas_sku', sku, `${sku} — ${p.nombre || sku}`, p.historial || [], cargarVentasBaja);
+}
+
+// ---------- Modal de comentarios (historial completo, no se pisa) ----------
+// Reutilizado por Productos estancados y Clientes recurrentes -- "contexto"
+// dice a qué recurso/campo de negocio.js hay que pegarle al guardar (ver
+// registrarComentario/obtenerHistorialComentarios en el backend). Un
+// comentario nuevo se AGREGA al historial, nunca reemplaza al anterior, y
+// queda registrado con quién lo escribió y cuándo -- antes un prompt()
+// sobrescribía el único comentario guardado, perdiendo lo que había antes.
+let modalComentarioContexto = null;
+let modalComentarioEntidad = null;
+let modalComentarioOnGuardado = null;
+
+function abrirModalComentarios(contexto, entidadId, titulo, historial, onGuardado){
+  modalComentarioContexto = contexto;
+  modalComentarioEntidad = entidadId;
+  modalComentarioOnGuardado = onGuardado;
+  $('modalComentariosTitulo').textContent = `📝 ${titulo}`;
+  renderListaComentariosModal(historial);
+  $('modalComentarioNuevo').value = '';
+  $('modalComentariosOverlay').classList.add('open');
+}
+
+function renderListaComentariosModal(historial){
+  $('modalComentariosLista').innerHTML = (historial && historial.length)
+    ? historial.map(h => `
+        <div class="comentario-item">
+          <div>${escapeHtml(h.comentario)}</div>
+          <div class="comentario-meta">${escapeHtml(h.autor || 'Desconocido')} — ${new Date(h.creadoEn).toLocaleString('es-CL')}</div>
+        </div>`).join('')
+    : '<p class="empty-note">Todavía no hay comentarios guardados.</p>';
+}
+
+// Busca el historial ya actualizado en los datos que acaba de recargar
+// modalComentarioOnGuardado() -- así el modal se puede repintar con lo
+// recién guardado sin tener que pedirle de nuevo el historial al servidor.
+function obtenerHistorialActualPorContexto(contexto, entidadId){
+  if(contexto === 'ventas_sku') return ventasBajaActual.find(p => p.sku === entidadId)?.historial || [];
+  return buscarClienteAnalisis(entidadId)?.historial || [];
+}
+
+async function guardarComentarioModal(){
+  const texto = $('modalComentarioNuevo').value.trim();
+  if(!texto) return;
+  const contexto = modalComentarioContexto, entidadId = modalComentarioEntidad;
+  const recurso = contexto === 'ventas_sku' ? 'ventas-sku-tendencia' : 'analisis-clientes';
+  const campoId = contexto === 'ventas_sku' ? 'sku' : 'clienteId';
   try{
-    const res = await fetch('/api/negocio?recurso=ventas-sku-tendencia', {
+    const res = await fetch(`/api/negocio?recurso=${recurso}`, {
       method: 'PUT', headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ sku, comentario: nuevo.trim() })
+      body: JSON.stringify({ [campoId]: entidadId, comentario: texto })
     });
     const data = await res.json();
     if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar.'); return; }
-    const p = ventasBajaActual.find(x => x.sku === sku);
-    if(p) p.comentario = nuevo.trim();
-    renderVentasBaja();
+    $('modalComentarioNuevo').value = '';
+    await modalComentarioOnGuardado();
+    renderListaComentariosModal(obtenerHistorialActualPorContexto(contexto, entidadId));
   }catch(err){
     alert('Error: ' + err.message);
   }
+}
+
+function cerrarModalComentarios(){
+  $('modalComentariosOverlay').classList.remove('open');
+}
+function cerrarModalComentariosSiFondo(ev){
+  if(ev.target.id === 'modalComentariosOverlay') cerrarModalComentarios();
 }
 
 async function toggleVentaBajaFlag(sku, campo, valor){
@@ -689,20 +764,14 @@ function buscarClienteAnalisis(clienteId){
   return null;
 }
 
-async function editarComentarioAnalisis(clienteId){
-  const actual = buscarClienteAnalisis(clienteId)?.comentario;
-  const nuevo = prompt('Comentario para este cliente:', actual || '');
-  if(nuevo === null) return; // canceló
-  try{
-    const res = await fetch('/api/negocio?recurso=analisis-clientes', {
-      method: 'PUT', headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ clienteId, comentario: nuevo.trim() })
-    });
-    if(!res.ok){ const data = await res.json(); alert(data.error); }
-    cargarAnalisis();
-  }catch(err){
-    alert('Error: ' + err.message);
-  }
+function editarComentarioAnalisis(clienteId){
+  const c = buscarClienteAnalisis(clienteId);
+  if(!c) return;
+  // clienteId se pasa TAL CUAL (no como texto): buscarClienteAnalisis
+  // compara con === contra c.clienteId, que es numérico -> convertirlo a
+  // string acá rompería esa comparación al reabrir el historial después
+  // de guardar (ver obtenerHistorialActualPorContexto).
+  abrirModalComentarios('clientes_recurrentes', clienteId, c.clienteNombre || `Cliente #${clienteId}`, c.historial || [], cargarAnalisis);
 }
 
 async function cambiarEstadoAnalisis(clienteId, estado){
