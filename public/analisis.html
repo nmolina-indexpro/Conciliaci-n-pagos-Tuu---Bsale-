@@ -81,6 +81,9 @@
   select.selectEstado{font-size:11.5px;padding:5px 8px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font-family:inherit;}
   .sku-code{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);}
   .badge-caida{display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;font-size:11px;background:var(--red-bg);color:var(--red);}
+  .chk-group{display:flex;flex-direction:column;gap:3px;}
+  .chk-mini{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;}
+  .chk-mini input{margin:0;cursor:pointer;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -136,7 +139,7 @@
     <div class="seccion-head">
       <div>
         <h2>📉 Productos estancados</h2>
-        <div class="sub" style="margin-bottom:0;">SKU con stock disponible hoy, sin ninguna venta en los últimos 3 meses completos, pero que sí vendieron en el último año (para distinguir "dejó de rotar" de "nunca tuvo demanda") -- candidatos a bajar de precio, ofrecer envío gratis o condiciones especiales para liquidar stock y generar efectivo. Se sincroniza junto con "Clientes recurrentes" (mismo botón de arriba).</div>
+        <div class="sub" style="margin-bottom:0;">SKU con stock disponible hoy y sin ninguna venta en los últimos 35 días o más (incluye los que no registran ninguna venta en el período analizado) -- candidatos a bajar de precio, ofrecer envío gratis o publicar en Mercado Libre para liquidar stock y generar efectivo. Se sincroniza junto con "Clientes recurrentes" (mismo botón de arriba).</div>
       </div>
     </div>
     <div id="ventasBajaResumen" class="sub" style="margin-bottom:14px;"></div>
@@ -225,14 +228,33 @@ async function cargarAnalisis(){
 // (para margen) salen de /api/bsale-sku-report (ya calculado ahí para
 // Compras) -- se pide ANTES de armar la lista, no como agregado
 // posterior, porque el stock ahora es un filtro, no solo un dato más.
-const MESES_CORTOS_VENTAS = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-function etiquetaMesVentas(mesKey){
-  const [anio, mes] = mesKey.split('-').map(Number);
-  return `${MESES_CORTOS_VENTAS[mes - 1]} ${anio}`;
-}
 const CATEGORIA_VENTA_BAJA_LABEL = { cargadores: '🔌 Cargador', baterias: '🔋 Batería', pantallas: '🖥️ Pantalla' };
+const UMBRAL_DIAS_ESTANCADO = 35;
+// Mismos filtros de ruido que usa el backend (ver negocio.js) para armar
+// los SKU "nunca vendidos" a partir de /api/bsale-sku-report, que no sabe
+// nada de este análisis y trae el catálogo completo de Bsale.
+const CODIGO_ENVIO_NUMERICO_REGEX = /^\d{8,}$/;
+const LINEA_ENVIO_EXCLUIDA_REGEX = /env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|99\s*minutos|global\s*tracking|^spread$|flete|courier|retiro en tienda|^pagado$|^rec[ií]belo$/i;
+function categoriaLineaCliente(codigo, nombre){
+  const c = (codigo || '').toUpperCase();
+  if(/^CAR/.test(c)) return 'cargadores';
+  if(/^BAT/.test(c)) return 'baterias';
+  if(/^SER/.test(c)) return 'servicios';
+  if(/^(PSLIM|PNORMAL|PTBEZEL|FDP)/.test(c)) return 'pantallas';
+  const n = nombre || '';
+  if(/\d+(\.\d+)?["″]\s*\d+p\b/i.test(n)) return 'pantallas';
+  if(/pantalla/i.test(n)) return 'pantallas';
+  if(/cargador/i.test(n)) return 'cargadores';
+  if(/bater[ií]a/i.test(n)) return 'baterias';
+  if(/servicio|instalaci[oó]n|garant[ií]a|mano de obra|diagn[oó]stico|reparaci[oó]n/i.test(n)) return 'servicios';
+  return null;
+}
+function diasDesdeVentas(fechaIso){
+  if(!fechaIso) return null;
+  return Math.floor((Date.now() - new Date(fechaIso + 'T00:00:00').getTime()) / 86400000);
+}
 let ventasBajaActual = [];
-let ordenVentasBaja = 'monto'; // 'stock' | 'anio' | 'monto' | 'margen'
+let ordenVentasBaja = 'dias'; // 'stock' | 'dias' | 'anio' | 'monto' | 'margen'
 let ordenVentasBajaAsc = false; // arranca de mayor a menor
 
 function ordenarVentasBaja(col){
@@ -260,35 +282,65 @@ async function cargarVentasBaja(){
       if(s.ultimoCosto != null) costoPorSku[s.code] = s.ultimoCosto;
     }
 
-    const { meses, productos } = data;
-    if(!productos.length){
+    const { meses, productos, estadoSku } = data;
+    if(!productos.length && !(stockData.skus || []).length){
       $('ventasBajaResumen').textContent = '';
       $('wrapVentasBaja').innerHTML = rolActual === 'admin'
         ? '<p class="empty-note">Todavía no hay datos sincronizados. Usa "🔄 Sincronizar con Bsale" arriba.</p>'
         : '<p class="empty-note">Todavía no hay datos sincronizados — pídele a un administrador que sincronice esta página.</p>';
       return;
     }
-    // El mes en curso queda afuera de "últimos 3 meses" -- está
-    // incompleto, así que casi siempre saldría en 0 sin significar que de
-    // verdad dejó de venderse (mismo criterio que el mejor/peor mes de
-    // Servicio Técnico).
-    const mesesCompletos = meses.slice(0, -1); // 11 meses completos
-    const ultimos3Bloque = mesesCompletos.slice(-3);
+    const skusExcluidos = new Set(data.excluidos || []);
 
-    const sumaCampo = (porMes, bloque, campo) => bloque.reduce((acc, m) => acc + (porMes[m]?.[campo] || 0), 0);
-    const calculados = productos.map(p => {
-      const ultimos3 = sumaCampo(p.porMes, ultimos3Bloque, 'cantidad');
+    // Estancado = tiene stock hoy Y no vende hace 35+ días (o nunca ha
+    // vendido en el período analizado). Antes exigía "sí vendió en el
+    // último año" para no confundir "dejó de rotar" con "nunca tuvo
+    // demanda", pero el usuario aclaró que el segundo caso también debe
+    // listarse -- si hay stock parado y cero ventas, es plata detenida
+    // igual, con más razón todavía.
+    const conVenta = productos.filter(p => !skusExcluidos.has(p.sku)).map(p => {
       const cantidadAnio = meses.reduce((acc, m) => acc + (p.porMes[m]?.cantidad || 0), 0);
       const montoAnio = meses.reduce((acc, m) => acc + (p.porMes[m]?.monto || 0), 0);
       const stockActual = stockPorSku[p.sku] ?? 0;
       const costo = costoPorSku[p.sku];
       const margenTotal = costo != null ? montoAnio - (costo * cantidadAnio) : null;
-      return { sku: p.sku, nombre: p.nombre, categoria: p.categoria, comentario: p.comentario || '', ultimos3, cantidadAnio, montoAnio, stockActual, margenTotal };
-    }).filter(p => p.stockActual > 0 && p.ultimos3 === 0 && p.cantidadAnio > 0); // estancado: hay stock, cero ventas recientes, sí vendió antes en el año
+      return {
+        sku: p.sku, nombre: p.nombre, categoria: p.categoria,
+        comentario: p.comentario || '', mercadoLibre: !!p.mercadoLibre, envioGratis: !!p.envioGratis, variacionPrecio: !!p.variacionPrecio,
+        cantidadAnio, montoAnio, stockActual, margenTotal,
+        diasDesdeUltimaVenta: diasDesdeVentas(p.ultimaVenta), nuncaVendido: false,
+      };
+    }).filter(p => p.stockActual > 0 && p.diasDesdeUltimaVenta != null && p.diasDesdeUltimaVenta >= UMBRAL_DIAS_ESTANCADO);
 
+    // SKU con stock pero SIN ninguna fila de venta en bsale_ventas_sku (ni
+    // siquiera hace más de un año) -- estos nunca aparecen en "productos"
+    // porque esa tabla solo tiene una fila cuando hubo una venta real.
+    // Se rescatan desde /api/bsale-sku-report, que arma su listado desde
+    // stock/compras además de ventas y por eso sí los incluye.
+    const skusConVenta = new Set(productos.map(p => p.sku));
+    const sinVenta = [];
+    for(const s of (stockData.skus || [])){
+      const code = s.code;
+      if(!code || skusConVenta.has(code) || skusExcluidos.has(code)) continue;
+      if(CODIGO_ENVIO_NUMERICO_REGEX.test(code)) continue;
+      const nombre = s.nombre || code;
+      if(LINEA_ENVIO_EXCLUIDA_REGEX.test(nombre)) continue;
+      const categoria = categoriaLineaCliente(code, nombre);
+      if(categoria !== 'cargadores' && categoria !== 'baterias' && categoria !== 'pantallas') continue;
+      const stockActual = s.stockActual || 0;
+      if(stockActual <= 0) continue;
+      const est = (estadoSku || {})[code] || {};
+      sinVenta.push({
+        sku: code, nombre, categoria,
+        comentario: est.comentario || '', mercadoLibre: !!est.mercadoLibre, envioGratis: !!est.envioGratis, variacionPrecio: !!est.variacionPrecio,
+        cantidadAnio: 0, montoAnio: 0, stockActual, margenTotal: null,
+        diasDesdeUltimaVenta: null, nuncaVendido: true,
+      });
+    }
+
+    const calculados = [...conVenta, ...sinVenta];
     ventasBajaActual = calculados;
-    $('ventasBajaResumen').textContent = `${fmtNum(calculados.length)} SKU estancado(s) con stock disponible (de ${fmtNum(productos.length)} con ventas en el período). `
-      + `"Sin ventas recientes" = ${etiquetaMesVentas(ultimos3Bloque[0])}–${etiquetaMesVentas(ultimos3Bloque[ultimos3Bloque.length - 1])} (no se cuenta ${etiquetaMesVentas(meses[meses.length - 1])}, mes en curso).`
+    $('ventasBajaResumen').textContent = `${fmtNum(calculados.length)} SKU estancado(s) con stock disponible (${fmtNum(sinVenta.length)} nunca vendido(s) en el período, ${fmtNum(conVenta.length)} sin vender hace ${UMBRAL_DIAS_ESTANCADO}+ días).`
       + (data.ultimaSincronizacion ? ` Última sincronización completa: ${new Date(data.ultimaSincronizacion).toLocaleString('es-CL')}.` : '');
     renderVentasBaja();
   }catch(err){
@@ -315,6 +367,25 @@ async function editarComentarioVentaBaja(sku){
   }
 }
 
+async function toggleVentaBajaFlag(sku, campo, valor){
+  const p = ventasBajaActual.find(x => x.sku === sku);
+  const anterior = p ? p[campo] : undefined;
+  if(p) p[campo] = valor; // optimista -- el checkbox ya cambió en pantalla
+  try{
+    const body = { sku, [campo]: valor };
+    const res = await fetch('/api/negocio?recurso=ventas-sku-tendencia', {
+      method: 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ throw new Error(data.error || 'No se pudo guardar.'); }
+  }catch(err){
+    if(p) p[campo] = anterior; // revierte si falló
+    alert('Error: ' + err.message);
+    renderVentasBaja();
+  }
+}
+
 async function eliminarVentaBajaSku(sku){
   if(!confirm(`¿Sacar el SKU ${sku} de este análisis? No va a volver a aparecer aunque siga estancado, salvo que se quite de la lista de exclusión directo en la base de datos.`)) return;
   try{
@@ -330,13 +401,14 @@ async function eliminarVentaBajaSku(sku){
 
 function renderVentasBaja(){
   if(!ventasBajaActual.length){
-    $('wrapVentasBaja').innerHTML = '<p class="empty-note">No se detectó ningún SKU estancado (con stock, sin ventas en los últimos 3 meses, pero con ventas en el último año).</p>';
+    $('wrapVentasBaja').innerHTML = `<p class="empty-note">No se detectó ningún SKU estancado (con stock disponible y sin ventas hace ${UMBRAL_DIAS_ESTANCADO}+ días).</p>`;
     return;
   }
-  const campoOrden = { stock: 'stockActual', anio: 'cantidadAnio', monto: 'montoAnio', margen: 'margenTotal' };
+  const campoOrden = { stock: 'stockActual', dias: 'diasDesdeUltimaVenta', anio: 'cantidadAnio', monto: 'montoAnio', margen: 'margenTotal' };
   const ordenados = [...ventasBajaActual].sort((a, b) => {
-    const campo = campoOrden[ordenVentasBaja] || 'montoAnio';
-    const va = a[campo] ?? -Infinity, vb = b[campo] ?? -Infinity;
+    const campo = campoOrden[ordenVentasBaja] || 'diasDesdeUltimaVenta';
+    // "Nunca vendido" (null) es más estancado que cualquier número de días.
+    const va = a[campo] ?? Infinity, vb = b[campo] ?? Infinity;
     return ordenVentasBajaAsc ? va - vb : vb - va;
   });
   const marca = col => ordenVentasBaja === col ? (ordenVentasBajaAsc ? ' ▲' : ' ▼') : '';
@@ -346,17 +418,20 @@ function renderVentasBaja(){
     if(p.margenTotal == null) return '<td class="amount empty-note">—</td>';
     return `<td class="amount">${fmtMoneda(p.margenTotal)}</td>`;
   };
+  const celdaDias = p => p.nuncaVendido
+    ? '<span class="badge-caida">Nunca</span>'
+    : `<span class="badge-caida">${fmtNum(p.diasDesdeUltimaVenta)} d</span>`;
+  const checkFlag = (p, campo, etiqueta) => `<label class="chk-mini"><input type="checkbox" ${p[campo] ? 'checked' : ''} onchange="toggleVentaBajaFlag('${p.sku}','${campo}',this.checked)"> ${etiqueta}</label>`;
   $('wrapVentasBaja').innerHTML = `
     <div class="tabla-wrap"><table>
       <thead><tr>
         <th>SKU</th><th>Producto</th>
         <th class="ordenable amount" onclick="ordenarVentasBaja('stock')">Stock actual${marca('stock')}</th>
+        <th class="ordenable amount" onclick="ordenarVentasBaja('dias')">Días sin venta${marca('dias')}</th>
         <th class="ordenable amount" onclick="ordenarVentasBaja('anio')">Ventas último año (unid.)${marca('anio')}</th>
-        <th class="amount">Últimos 3 meses (unid.)</th>
         <th class="ordenable amount" onclick="ordenarVentasBaja('monto')">Monto acumulado (año)${marca('monto')}</th>
         ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('margen')">Margen total (año)${marca('margen')}</th>` : ''}
-        <th>Comentario</th>
-        ${esAdmin ? '<th></th>' : ''}
+        <th>Acciones</th>
       </tr></thead>
       <tbody>
         ${ordenados.map(p => `
@@ -364,15 +439,22 @@ function renderVentasBaja(){
             <td><span class="sku-code">${escapeHtml(p.sku)}</span></td>
             <td>${p.categoria && CATEGORIA_VENTA_BAJA_LABEL[p.categoria] ? `<div class="empty-note" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px;">${CATEGORIA_VENTA_BAJA_LABEL[p.categoria]}</div>` : ''}${escapeHtml(p.nombre || p.sku)}</td>
             <td class="amount">${fmtNum(p.stockActual)}</td>
+            <td class="amount">${celdaDias(p)}</td>
             <td class="amount">${fmtNum(p.cantidadAnio)}</td>
-            <td class="amount">${fmtNum(p.ultimos3)}</td>
             <td class="amount">${fmtMoneda(p.montoAnio)}</td>
             ${celdaMargen(p)}
-            <td style="max-width:220px;">
-              <button class="btn-icono" title="${p.comentario ? 'Comentario: ' + escapeHtml(p.comentario) : 'Sin comentario — clic para agregar'}" onclick="editarComentarioVentaBaja('${p.sku}')">📝</button>
-              ${p.comentario ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.comentario)}</span>` : ''}
+            <td style="min-width:190px;">
+              <div class="chk-group">
+                ${checkFlag(p, 'mercadoLibre', '🛒 Mercado Libre')}
+                ${checkFlag(p, 'envioGratis', '🚚 Envío gratis')}
+                ${checkFlag(p, 'variacionPrecio', '💲 Variación de precio')}
+              </div>
+              <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
+                <button class="btn-icono" title="${p.comentario ? 'Comentario: ' + escapeHtml(p.comentario) : 'Sin comentario — clic para agregar'}" onclick="editarComentarioVentaBaja('${p.sku}')">📝</button>
+                ${esAdmin ? `<button class="btn-icono" title="Sacar de este análisis" onclick="eliminarVentaBajaSku('${p.sku}')">🗑️</button>` : ''}
+                ${p.comentario ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.comentario)}</span>` : ''}
+              </div>
             </td>
-            ${esAdmin ? `<td><button class="btn-icono" title="Sacar de este análisis" onclick="eliminarVentaBajaSku('${p.sku}')">🗑️</button></td>` : ''}
           </tr>`).join('')}
       </tbody>
     </table></div>

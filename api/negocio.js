@@ -1409,16 +1409,25 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
       return res.status(200).json({ ok: true });
     }
 
-    // Comentario libre por SKU -- nota de seguimiento, no una exclusión,
-    // así que cualquier persona con sesión puede dejarlo (mismo criterio
-    // que el comentario de Clientes recurrentes).
+    // Comentario libre + checkboxes de seguimiento manual por SKU -- nota
+    // de seguimiento, no una exclusión, así que cualquier persona con
+    // sesión puede dejarlo (mismo criterio que el comentario de Clientes
+    // recurrentes). Cada campo se actualiza de forma independiente (un
+    // checkbox no debe borrar el comentario ni los otros checkboxes): en
+    // UPDATE, un campo que no vino en el body (undefined) conserva el
+    // valor que ya estaba guardado en vez de pisarlo con el default.
     if (req.method === 'PUT') {
-      const { sku, comentario } = req.body || {};
+      const { sku, comentario, mercadoLibre, envioGratis, variacionPrecio } = req.body || {};
       if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
       await sql`
-        INSERT INTO ventas_sku_comentarios (sku, comentario, actualizado_por, actualizado_en)
-        VALUES (${sku}, ${comentario || ''}, ${sesion.nombre || sesion.email}, now())
-        ON CONFLICT (sku) DO UPDATE SET comentario = EXCLUDED.comentario, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = EXCLUDED.actualizado_en;
+        INSERT INTO ventas_sku_comentarios (sku, comentario, mercado_libre, envio_gratis, variacion_precio, actualizado_por, actualizado_en)
+        VALUES (${sku}, ${comentario ?? ''}, ${!!mercadoLibre}, ${!!envioGratis}, ${!!variacionPrecio}, ${sesion.nombre || sesion.email}, now())
+        ON CONFLICT (sku) DO UPDATE SET
+          comentario = CASE WHEN ${comentario !== undefined} THEN EXCLUDED.comentario ELSE ventas_sku_comentarios.comentario END,
+          mercado_libre = CASE WHEN ${mercadoLibre !== undefined} THEN EXCLUDED.mercado_libre ELSE ventas_sku_comentarios.mercado_libre END,
+          envio_gratis = CASE WHEN ${envioGratis !== undefined} THEN EXCLUDED.envio_gratis ELSE ventas_sku_comentarios.envio_gratis END,
+          variacion_precio = CASE WHEN ${variacionPrecio !== undefined} THEN EXCLUDED.variacion_precio ELSE ventas_sku_comentarios.variacion_precio END,
+          actualizado_por = EXCLUDED.actualizado_por, actualizado_en = EXCLUDED.actualizado_en;
       `;
       return res.status(200).json({ ok: true });
     }
@@ -1435,10 +1444,27 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
       GROUP BY v.sku, date_trunc('month', v.fecha)
       ORDER BY v.sku, mes;
     `;
-    const { rows: estadoRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
-    const estado = estadoRows[0] || {};
-    const { rows: comentarioRows } = await sql`SELECT sku, comentario FROM ventas_sku_comentarios;`;
-    const comentarioPorSku = Object.fromEntries(comentarioRows.map(r => [r.sku, r.comentario]));
+    const { rows: estadoSyncRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
+    const estadoSync = estadoSyncRows[0] || {};
+    const { rows: estadoRows } = await sql`SELECT sku, comentario, mercado_libre, envio_gratis, variacion_precio FROM ventas_sku_comentarios;`;
+    const estadoPorSku = {};
+    for (const r of estadoRows) {
+      estadoPorSku[r.sku] = { comentario: r.comentario || null, mercadoLibre: !!r.mercado_libre, envioGratis: !!r.envio_gratis, variacionPrecio: !!r.variacion_precio };
+    }
+    // Última fecha de venta real por SKU (día exacto, no el mes truncado
+    // de arriba) -- pedido del usuario: el criterio de "estancado" pasó de
+    // "sin ventas en los últimos 3 meses" a "sin ventas hace 35+ días",
+    // así que hace falta la fecha precisa, no solo el mes.
+    const { rows: ultimaVentaRows } = await sql`
+      SELECT sku, MAX(fecha) AS ultima_venta
+      FROM bsale_ventas_sku
+      WHERE sku NOT IN (SELECT sku FROM ventas_sku_excluidos)
+        AND sku !~ '^[0-9]{8,}$'
+        AND COALESCE(nombre, '') !~* 'env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|99\s*minutos|global\s*tracking|^spread$|flete|courier|retiro en tienda|^pagado$|^rec[ií]belo$'
+      GROUP BY sku;
+    `;
+    const ultimaVentaPorSku = Object.fromEntries(ultimaVentaRows.map(r => [r.sku, new Date(r.ultima_venta).toISOString().slice(0, 10)]));
+    const { rows: excluidosRows } = await sql`SELECT sku FROM ventas_sku_excluidos;`;
 
     const meses = ultimosNMeses(12);
     const mapaPorSku = new Map();
@@ -1448,15 +1474,22 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
       // sin decir a qué categoría pertenece. Reutiliza categoriaLinea
       // (mismo criterio ya usado para separar servicios de productos)
       // en vez de duplicar la lógica de clasificación.
-      if (!mapaPorSku.has(r.sku)) mapaPorSku.set(r.sku, { sku: r.sku, nombre: r.nombre, categoria: categoriaLinea(r.sku, r.nombre), comentario: comentarioPorSku[r.sku] || null, porMes: {} });
+      if (!mapaPorSku.has(r.sku)) {
+        const est = estadoPorSku[r.sku] || {};
+        mapaPorSku.set(r.sku, {
+          sku: r.sku, nombre: r.nombre, categoria: categoriaLinea(r.sku, r.nombre),
+          comentario: est.comentario || null, mercadoLibre: !!est.mercadoLibre, envioGratis: !!est.envioGratis, variacionPrecio: !!est.variacionPrecio,
+          ultimaVenta: ultimaVentaPorSku[r.sku] || null, porMes: {},
+        });
+      }
       const mesKey = new Date(r.mes).toISOString().slice(0, 7); // YYYY-MM
       mapaPorSku.get(r.sku).porMes[mesKey] = { cantidad: Number(r.cantidad), monto: Number(r.monto) };
     }
     const productos = [...mapaPorSku.values()];
 
     return res.status(200).json({
-      meses, productos,
-      ultimaSincronizacion: estado.ultima_pasada_completa_en || null,
+      meses, productos, estadoSku: estadoPorSku, excluidos: excluidosRows.map(r => r.sku),
+      ultimaSincronizacion: estadoSync.ultima_pasada_completa_en || null,
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error leyendo la tendencia de ventas por SKU', detail: String(err) });
