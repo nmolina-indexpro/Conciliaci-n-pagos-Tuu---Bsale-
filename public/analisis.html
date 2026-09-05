@@ -89,7 +89,7 @@
   .modal-overlay.open{display:flex;}
   .modal-box{background:var(--surface);border-radius:16px;padding:24px 26px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:min(520px,100%);max-height:86vh;overflow-y:auto;}
   .modal-box h3{margin:0 0 4px 0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;}
-  .comentario-item{border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:12.5px;}
+  .comentario-item{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:12.5px;}
   .comentario-meta{font-size:11px;color:var(--muted);margin-top:2px;}
   #modalComentarioNuevo{width:100%;margin-top:14px;min-height:70px;padding:10px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;}
 </style>
@@ -173,9 +173,10 @@
     <div class="sub" style="margin-bottom:0;">Cada comentario queda guardado con quién lo escribió y cuándo -- no se borra ni se reemplaza al agregar uno nuevo.</div>
     <div id="modalComentariosLista" style="margin-top:14px;display:flex;flex-direction:column;gap:10px;"></div>
     <textarea id="modalComentarioNuevo" placeholder="Escribe un comentario nuevo..."></textarea>
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+    <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:12px;">
+      <button class="btn-ghost" id="btnCancelarEdicionComentario" style="display:none;" onclick="cancelarEdicionComentario()">Cancelar edición</button>
       <button class="btn-ghost" onclick="cerrarModalComentarios()">Cerrar</button>
-      <button class="btn-primary" onclick="guardarComentarioModal()">Agregar comentario</button>
+      <button class="btn-primary" id="btnGuardarComentario" onclick="guardarComentarioModal()">Agregar comentario</button>
     </div>
   </div>
 </div>
@@ -414,19 +415,23 @@ function editarComentarioVentaBaja(sku){
 // ---------- Modal de comentarios (historial completo, no se pisa) ----------
 // Reutilizado por Productos estancados y Clientes recurrentes -- "contexto"
 // dice a qué recurso/campo de negocio.js hay que pegarle al guardar (ver
-// registrarComentario/obtenerHistorialComentarios en el backend). Un
-// comentario nuevo se AGREGA al historial, nunca reemplaza al anterior, y
-// queda registrado con quién lo escribió y cuándo -- antes un prompt()
-// sobrescribía el único comentario guardado, perdiendo lo que había antes.
+// registrarComentario/editarComentario/obtenerHistorialComentarios en el
+// backend). Un comentario nuevo se AGREGA al historial, nunca reemplaza al
+// anterior, y queda registrado con quién lo escribió y cuándo -- antes un
+// prompt() sobrescribía el único comentario guardado. Cada quien puede
+// editar SOLO sus propios comentarios (el backend es quien de verdad lo
+// exige comparando contra el autor guardado; acá solo se decide si se
+// MUESTRA el botón ✏️, no es control de acceso real).
 let modalComentarioContexto = null;
 let modalComentarioEntidad = null;
+let modalComentarioEditandoId = null; // id del comentario en edición, o null si se está agregando uno nuevo
 
 function abrirModalComentarios(contexto, entidadId, titulo, historial){
   modalComentarioContexto = contexto;
   modalComentarioEntidad = entidadId;
+  cancelarEdicionComentario();
   $('modalComentariosTitulo').textContent = `📝 ${titulo}`;
   renderListaComentariosModal(historial);
-  $('modalComentarioNuevo').value = '';
   $('modalComentariosOverlay').classList.add('open');
 }
 
@@ -434,47 +439,80 @@ function renderListaComentariosModal(historial){
   $('modalComentariosLista').innerHTML = (historial && historial.length)
     ? historial.map(h => `
         <div class="comentario-item">
-          <div>${escapeHtml(h.comentario)}</div>
-          <div class="comentario-meta">${escapeHtml(h.autor || 'Desconocido')} — ${new Date(h.creadoEn).toLocaleString('es-CL')}</div>
+          <div style="flex:1;">
+            <div>${escapeHtml(h.comentario)}</div>
+            <div class="comentario-meta">${escapeHtml(h.autor || 'Desconocido')} — ${new Date(h.creadoEn).toLocaleString('es-CL')}${h.editadoEn ? ' (editado)' : ''}</div>
+          </div>
+          ${h.id != null && h.autor === nombreActual ? `<button class="btn-icono" title="Editar este comentario" onclick="prepararEdicionComentario(${h.id})">✏️</button>` : ''}
         </div>`).join('')
     : '<p class="empty-note">Todavía no hay comentarios guardados.</p>';
 }
 
-// Busca el objeto en memoria (ventasBajaActual o el segmento de clientes ya
-// cargado) y le agrega el comentario nuevo directo, en vez de recargar todo
-// desde el servidor -- antes se llamaba cargarVentasBaja()/cargarAnalisis()
-// después de guardar, y eso vaciaba la tabla entera mostrando "Cargando..."
-// solo por escribir una nota. buscarClienteAnalisis ya devuelve la
-// referencia real dentro de analisisActual, así que mutarla acá también
-// deja los datos consistentes para la próxima vez que se pinte esa tabla.
-function agregarComentarioLocal(contexto, entidadId, texto){
-  const entrada = { comentario: texto, autor: nombreActual, creadoEn: new Date().toISOString() };
-  const objetivo = contexto === 'ventas_sku' ? ventasBajaActual.find(p => p.sku === entidadId) : buscarClienteAnalisis(entidadId);
-  if(objetivo){
-    objetivo.historial = [entrada, ...(objetivo.historial || [])];
-    objetivo.comentario = texto;
-  }
-  return entrada;
+// Devuelve el objeto en memoria del que cuelga el historial que el modal
+// está mostrando ahora mismo (ventasBajaActual o el cliente ya cargado).
+function objetivoComentarioActual(){
+  return modalComentarioContexto === 'ventas_sku'
+    ? ventasBajaActual.find(p => p.sku === modalComentarioEntidad)
+    : buscarClienteAnalisis(modalComentarioEntidad);
+}
+
+function prepararEdicionComentario(id){
+  const entrada = (objetivoComentarioActual()?.historial || []).find(h => h.id === id);
+  if(!entrada) return;
+  modalComentarioEditandoId = id;
+  $('modalComentarioNuevo').value = entrada.comentario;
+  $('modalComentarioNuevo').focus();
+  $('btnGuardarComentario').textContent = 'Guardar edición';
+  $('btnCancelarEdicionComentario').style.display = '';
+}
+
+function cancelarEdicionComentario(){
+  modalComentarioEditandoId = null;
+  $('modalComentarioNuevo').value = '';
+  $('btnGuardarComentario').textContent = 'Agregar comentario';
+  $('btnCancelarEdicionComentario').style.display = 'none';
+}
+
+// Actualiza los datos en memoria sin volver a pedirle todo al servidor --
+// antes se llamaba cargarVentasBaja()/cargarAnalisis() después de guardar,
+// y eso vaciaba la tabla entera mostrando "Cargando..." solo por escribir
+// una nota. buscarClienteAnalisis ya devuelve la referencia real dentro de
+// analisisActual, así que mutarla acá también deja los datos consistentes
+// para la próxima vez que se pinte esa tabla.
+function agregarComentarioLocal(objetivo, texto, id){
+  const entrada = { id, comentario: texto, autor: nombreActual, creadoEn: new Date().toISOString(), editadoEn: null };
+  objetivo.historial = [entrada, ...(objetivo.historial || [])];
+  objetivo.comentario = texto;
+}
+function editarComentarioLocal(objetivo, id, texto){
+  const entrada = (objetivo.historial || []).find(h => h.id === id);
+  if(!entrada) return;
+  entrada.comentario = texto;
+  entrada.editadoEn = new Date().toISOString();
+  if(objetivo.historial[0] === entrada) objetivo.comentario = texto; // es el más reciente -> también actualiza el preview de la fila
 }
 
 async function guardarComentarioModal(){
   const texto = $('modalComentarioNuevo').value.trim();
   if(!texto) return;
-  const contexto = modalComentarioContexto, entidadId = modalComentarioEntidad;
+  const contexto = modalComentarioContexto, entidadId = modalComentarioEntidad, editandoId = modalComentarioEditandoId;
   const recurso = contexto === 'ventas_sku' ? 'ventas-sku-tendencia' : 'analisis-clientes';
   const campoId = contexto === 'ventas_sku' ? 'sku' : 'clienteId';
   try{
     const res = await fetch(`/api/negocio?recurso=${recurso}`, {
       method: 'PUT', headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ [campoId]: entidadId, comentario: texto })
+      body: JSON.stringify({ [campoId]: entidadId, comentario: texto, ...(editandoId ? { comentarioId: editandoId } : {}) })
     });
     const data = await res.json();
     if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar.'); return; }
-    $('modalComentarioNuevo').value = '';
-    agregarComentarioLocal(contexto, entidadId, texto);
+    const objetivo = objetivoComentarioActual();
+    if(objetivo){
+      if(editandoId) editarComentarioLocal(objetivo, editandoId, texto);
+      else agregarComentarioLocal(objetivo, texto, data.id);
+    }
+    cancelarEdicionComentario();
     if(contexto === 'ventas_sku') renderVentasBaja();
     else if(segmentoActual) mostrarDetalle(segmentoActual.clave, segmentoActual.titulo);
-    const objetivo = contexto === 'ventas_sku' ? ventasBajaActual.find(p => p.sku === entidadId) : buscarClienteAnalisis(entidadId);
     renderListaComentariosModal(objetivo?.historial || []);
   }catch(err){
     alert('Error: ' + err.message);

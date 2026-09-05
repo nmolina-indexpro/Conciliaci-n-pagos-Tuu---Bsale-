@@ -1390,20 +1390,37 @@ async function manejarSyncAnalisis(req, res, sesion) {
 // "Clientes recurrentes" (contexto 'clientes_recurrentes').
 async function registrarComentario(sql, contexto, entidadId, comentario, autor) {
   const texto = String(comentario || '').trim();
-  if (!texto) return;
-  await sql`INSERT INTO comentarios_log (contexto, entidad_id, comentario, autor) VALUES (${contexto}, ${String(entidadId)}, ${texto}, ${autor || null});`;
+  if (!texto) return null;
+  const { rows } = await sql`INSERT INTO comentarios_log (contexto, entidad_id, comentario, autor) VALUES (${contexto}, ${String(entidadId)}, ${texto}, ${autor || null}) RETURNING id;`;
+  return rows[0]?.id ?? null;
+}
+
+// Editar un comentario YA guardado (no agrega uno nuevo) -- pedido del
+// usuario: solo la persona que lo escribió puede corregirlo. El chequeo de
+// autor se hace acá, contra el "autor" real guardado en la fila, nunca
+// confiando en lo que mande el cliente (ese solo decide si MUESTRA el
+// botón de editar).
+async function editarComentario(sql, contexto, id, entidadId, nuevoTexto, autor) {
+  const texto = String(nuevoTexto || '').trim();
+  if (!texto) return { ok: false, status: 400, error: 'El comentario no puede quedar vacío' };
+  const { rows } = await sql`SELECT autor FROM comentarios_log WHERE id = ${id} AND contexto = ${contexto} AND entidad_id = ${String(entidadId)};`;
+  if (!rows.length) return { ok: false, status: 404, error: 'Ese comentario ya no existe' };
+  if ((rows[0].autor || null) !== (autor || null)) return { ok: false, status: 403, error: 'Solo quien escribió el comentario puede editarlo' };
+  await sql`UPDATE comentarios_log SET comentario = ${texto}, editado_en = now() WHERE id = ${id};`;
+  return { ok: true };
 }
 
 // Trae TODO el historial de un contexto de una sola vez (en vez de una
-// consulta por entidad) y lo agrupa en un Map entidad_id -> [{comentario,
-// autor, creadoEn}, ...] de más nuevo a más viejo -- mismo patrón que el
-// resto de los mapas por-sku/por-cliente de este archivo.
+// consulta por entidad) y lo agrupa en un Map entidad_id -> [{id,
+// comentario, autor, creadoEn, editadoEn}, ...] de más nuevo a más viejo --
+// mismo patrón que el resto de los mapas por-sku/por-cliente de este
+// archivo.
 async function obtenerHistorialComentarios(sql, contexto) {
-  const { rows } = await sql`SELECT entidad_id, comentario, autor, creado_en FROM comentarios_log WHERE contexto = ${contexto} ORDER BY entidad_id, creado_en DESC;`;
+  const { rows } = await sql`SELECT id, entidad_id, comentario, autor, creado_en, editado_en FROM comentarios_log WHERE contexto = ${contexto} ORDER BY entidad_id, creado_en DESC;`;
   const mapa = new Map();
   for (const r of rows) {
     if (!mapa.has(r.entidad_id)) mapa.set(r.entidad_id, []);
-    mapa.get(r.entidad_id).push({ comentario: r.comentario, autor: r.autor || null, creadoEn: r.creado_en });
+    mapa.get(r.entidad_id).push({ id: r.id, comentario: r.comentario, autor: r.autor || null, creadoEn: r.creado_en, editadoEn: r.editado_en || null });
   }
   return mapa;
 }
@@ -1444,10 +1461,20 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
     // conserva el valor que ya estaba guardado en vez de pisarlo con el
     // default.
     if (req.method === 'PUT') {
-      const { sku, comentario, mercadoLibre, envioGratis, variacionPrecio } = req.body || {};
+      const { sku, comentario, comentarioId, mercadoLibre, envioGratis, variacionPrecio } = req.body || {};
       if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
       await asegurarTablaComentariosLog(sql);
-      if (comentario !== undefined) await registrarComentario(sql, 'ventas_sku', sku, comentario, sesion.nombre || sesion.email);
+      let nuevoComentarioId = null;
+      if (comentario !== undefined) {
+        // comentarioId presente -> se está EDITANDO ese comentario puntual
+        // (solo su autor puede); si no, se agrega uno nuevo al historial.
+        if (comentarioId) {
+          const resultado = await editarComentario(sql, 'ventas_sku', comentarioId, sku, comentario, sesion.nombre || sesion.email);
+          if (!resultado.ok) return res.status(resultado.status).json({ error: resultado.error });
+        } else {
+          nuevoComentarioId = await registrarComentario(sql, 'ventas_sku', sku, comentario, sesion.nombre || sesion.email);
+        }
+      }
       if (mercadoLibre !== undefined || envioGratis !== undefined || variacionPrecio !== undefined) {
         await sql`
           INSERT INTO ventas_sku_comentarios (sku, mercado_libre, envio_gratis, variacion_precio, actualizado_por, actualizado_en)
@@ -1459,7 +1486,7 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
             actualizado_por = EXCLUDED.actualizado_por, actualizado_en = EXCLUDED.actualizado_en;
         `;
       }
-      return res.status(200).json({ ok: true });
+      return res.status(200).json({ ok: true, id: nuevoComentarioId });
     }
 
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -1770,7 +1797,7 @@ async function manejarAnalisisClientes(req, res, sesion) {
 
   if (req.method === 'PUT') {
     if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede editar esto' });
-    const { clienteId, estado, comentario } = req.body || {};
+    const { clienteId, estado, comentario, comentarioId } = req.body || {};
     if (!clienteId) return res.status(400).json({ error: 'Falta clienteId' });
     if (estado !== undefined && !ESTADOS_ANALISIS.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
     if (estado === undefined && comentario === undefined) return res.status(400).json({ error: 'Falta estado o comentario' });
@@ -1784,15 +1811,23 @@ async function manejarAnalisisClientes(req, res, sesion) {
       if (estado !== undefined) {
         await sql`UPDATE analisis_clientes_estado SET estado = ${estado}, actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now() WHERE cliente_id = ${clienteId};`;
       }
+      let nuevoComentarioId = null;
       if (comentario !== undefined) {
         // Se agrega al historial en vez de pisar el comentario anterior
         // (ver registrarComentario) -- el comentario suelto de esta tabla
         // ya no se toca, queda solo como respaldo de lo que había antes
         // de tener historial (ver migrarComentariosClientesLegacy).
+        // comentarioId presente -> se está EDITANDO ese comentario puntual
+        // (solo su autor puede, aunque acá todos sean admin).
         await asegurarTablaComentariosLog(sql);
-        await registrarComentario(sql, 'clientes_recurrentes', clienteId, comentario, sesion.nombre || sesion.email);
+        if (comentarioId) {
+          const resultado = await editarComentario(sql, 'clientes_recurrentes', comentarioId, clienteId, comentario, sesion.nombre || sesion.email);
+          if (!resultado.ok) return res.status(resultado.status).json({ error: resultado.error });
+        } else {
+          nuevoComentarioId = await registrarComentario(sql, 'clientes_recurrentes', clienteId, comentario, sesion.nombre || sesion.email);
+        }
       }
-      return res.status(200).json({ ok: true });
+      return res.status(200).json({ ok: true, id: nuevoComentarioId });
     } catch (err) {
       return res.status(500).json({ error: 'Error al actualizar', detail: String(err) });
     }
