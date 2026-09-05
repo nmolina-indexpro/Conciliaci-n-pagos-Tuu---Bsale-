@@ -135,8 +135,8 @@
   <div class="seccion">
     <div class="seccion-head">
       <div>
-        <h2>📉 Productos con ventas a la baja</h2>
-        <div class="sub" style="margin-bottom:0;">SKU con caída de ventas en los últimos 12 meses (primera mitad del año vs. segunda mitad, sin contar el mes en curso -- está incompleto) -- candidatos a bajar de precio, ofrecer envío gratis o condiciones especiales para liquidar stock sin rotación y generar efectivo. Se sincroniza junto con "Clientes recurrentes" (mismo botón de arriba).</div>
+        <h2>📉 Productos estancados</h2>
+        <div class="sub" style="margin-bottom:0;">SKU con stock disponible hoy, sin ninguna venta en los últimos 3 meses completos, pero que sí vendieron en el último año (para distinguir "dejó de rotar" de "nunca tuvo demanda") -- candidatos a bajar de precio, ofrecer envío gratis o condiciones especiales para liquidar stock y generar efectivo. Se sincroniza junto con "Clientes recurrentes" (mismo botón de arriba).</div>
       </div>
     </div>
     <div id="ventasBajaResumen" class="sub" style="margin-bottom:14px;"></div>
@@ -215,36 +215,51 @@ async function cargarAnalisis(){
   }
 }
 
-// ---------- Productos con ventas a la baja ----------
-// Pedido del usuario: detectar SKU sin rotación (venden menos en la
-// segunda mitad del año que en la primera) para priorizar bajas de
-// precio, envío gratis o condiciones especiales y liquidar stock. El
-// backend (ventas-sku-tendencia) solo pivota {meses, productos} por SKU
-// -- la comparación 1ª mitad vs 2ª mitad se hace acá, igual que Servicio
-// Técnico deja el cálculo de mejor/peor mes del lado del cliente.
+// ---------- Productos con ventas a la baja (estancados) ----------
+// Redefinido a pedido del usuario -- lo que importa de verdad es: (1)
+// TIENE stock hoy (si no hay stock, no hay nada que liquidar), (2) CERO
+// ventas en los últimos 3 meses completos (sin contar el mes en curso,
+// que está incompleto), y (3) SÍ tuvo ventas en el último año (para no
+// confundir "estancado" con "nunca se vendió" -- eso no es un problema de
+// rotación, es que nunca hubo demanda real). El stock actual y el costo
+// (para margen) salen de /api/bsale-sku-report (ya calculado ahí para
+// Compras) -- se pide ANTES de armar la lista, no como agregado
+// posterior, porque el stock ahora es un filtro, no solo un dato más.
 const MESES_CORTOS_VENTAS = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 function etiquetaMesVentas(mesKey){
   const [anio, mes] = mesKey.split('-').map(Number);
   return `${MESES_CORTOS_VENTAS[mes - 1]} ${anio}`;
 }
+const CATEGORIA_VENTA_BAJA_LABEL = { cargadores: '🔌 Cargador', baterias: '🔋 Batería', pantallas: '🖥️ Pantalla' };
 let ventasBajaActual = [];
-let ordenVentasBaja = 'variacion'; // 'variacion' | 'monto'
-let ordenVentasBajaAsc = true; // variación arranca ascendente -> el más negativo (peor caída) primero
+let ordenVentasBaja = 'monto'; // 'stock' | 'anio' | 'monto' | 'margen'
+let ordenVentasBajaAsc = false; // arranca de mayor a menor
 
 function ordenarVentasBaja(col){
   if(ordenVentasBaja === col) ordenVentasBajaAsc = !ordenVentasBajaAsc;
-  else { ordenVentasBaja = col; ordenVentasBajaAsc = col === 'variacion'; }
+  else { ordenVentasBaja = col; ordenVentasBajaAsc = false; }
   renderVentasBaja();
 }
 
 async function cargarVentasBaja(){
+  $('wrapVentasBaja').innerHTML = '<p class="empty-note">Cargando...</p>';
   try{
-    const res = await fetch('/api/negocio?recurso=ventas-sku-tendencia');
-    const data = await res.json();
-    if(!res.ok || data.error){
+    const [resVentas, resStock] = await Promise.all([
+      fetch('/api/negocio?recurso=ventas-sku-tendencia'),
+      fetch('/api/bsale-sku-report'),
+    ]);
+    const data = await resVentas.json();
+    if(!resVentas.ok || data.error){
       $('wrapVentasBaja').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`;
       return;
     }
+    const stockData = await resStock.json().catch(() => ({ skus: [] }));
+    const stockPorSku = {}, costoPorSku = {};
+    for(const s of (stockData.skus || [])){
+      stockPorSku[s.code] = s.stockActual || 0;
+      if(s.ultimoCosto != null) costoPorSku[s.code] = s.ultimoCosto;
+    }
+
     const { meses, productos } = data;
     if(!productos.length){
       $('ventasBajaResumen').textContent = '';
@@ -253,61 +268,32 @@ async function cargarVentasBaja(){
         : '<p class="empty-note">Todavía no hay datos sincronizados — pídele a un administrador que sincronice esta página.</p>';
       return;
     }
-    // El mes en curso queda afuera de la comparación -- está incompleto,
-    // así que sesgaría hacia "caída" sin ser una baja real (mismo
-    // criterio que el mejor/peor mes de Servicio Técnico).
-    const mesesTendencia = meses.slice(0, -1); // 11 meses completos
-    const corte = Math.ceil(mesesTendencia.length / 2);
-    const primerBloque = mesesTendencia.slice(0, corte); // 6 meses más antiguos
-    const segundoBloque = mesesTendencia.slice(corte);   // 5 meses más recientes (sin el mes en curso)
-    const ultimos3Bloque = mesesTendencia.slice(-3); // los 3 meses completos más recientes
+    // El mes en curso queda afuera de "últimos 3 meses" -- está
+    // incompleto, así que casi siempre saldría en 0 sin significar que de
+    // verdad dejó de venderse (mismo criterio que el mejor/peor mes de
+    // Servicio Técnico).
+    const mesesCompletos = meses.slice(0, -1); // 11 meses completos
+    const ultimos3Bloque = mesesCompletos.slice(-3);
 
     const sumaCampo = (porMes, bloque, campo) => bloque.reduce((acc, m) => acc + (porMes[m]?.[campo] || 0), 0);
     const calculados = productos.map(p => {
-      const primera = sumaCampo(p.porMes, primerBloque, 'cantidad');
-      const segunda = sumaCampo(p.porMes, segundoBloque, 'cantidad');
       const ultimos3 = sumaCampo(p.porMes, ultimos3Bloque, 'cantidad');
       const cantidadAnio = meses.reduce((acc, m) => acc + (p.porMes[m]?.cantidad || 0), 0);
       const montoAnio = meses.reduce((acc, m) => acc + (p.porMes[m]?.monto || 0), 0);
-      const variacion = primera > 0 ? ((segunda - primera) / primera) * 100 : null;
-      return { sku: p.sku, nombre: p.nombre, comentario: p.comentario || '', primera, segunda, ultimos3, cantidadAnio, variacion, montoAnio, margenTotal: undefined };
-    }).filter(p => p.variacion !== null && p.variacion < 0); // solo bajas reales -- tuvo que haber vendido antes
+      const stockActual = stockPorSku[p.sku] ?? 0;
+      const costo = costoPorSku[p.sku];
+      const margenTotal = costo != null ? montoAnio - (costo * cantidadAnio) : null;
+      return { sku: p.sku, nombre: p.nombre, categoria: p.categoria, comentario: p.comentario || '', ultimos3, cantidadAnio, montoAnio, stockActual, margenTotal };
+    }).filter(p => p.stockActual > 0 && p.ultimos3 === 0 && p.cantidadAnio > 0); // estancado: hay stock, cero ventas recientes, sí vendió antes en el año
 
     ventasBajaActual = calculados;
-    $('ventasBajaResumen').textContent = `${fmtNum(calculados.length)} SKU con caída de ventas (de ${fmtNum(productos.length)} con ventas en el período). `
-      + `Comparando ${etiquetaMesVentas(primerBloque[0])}–${etiquetaMesVentas(primerBloque[primerBloque.length - 1])} vs. ${etiquetaMesVentas(segundoBloque[0])}–${etiquetaMesVentas(segundoBloque[segundoBloque.length - 1])} `
-      + `(no se cuenta ${etiquetaMesVentas(meses[meses.length - 1])}, mes en curso). Últimos 3 meses = ${etiquetaMesVentas(ultimos3Bloque[0])}–${etiquetaMesVentas(ultimos3Bloque[ultimos3Bloque.length - 1])}.`
+    $('ventasBajaResumen').textContent = `${fmtNum(calculados.length)} SKU estancado(s) con stock disponible (de ${fmtNum(productos.length)} con ventas en el período). `
+      + `"Sin ventas recientes" = ${etiquetaMesVentas(ultimos3Bloque[0])}–${etiquetaMesVentas(ultimos3Bloque[ultimos3Bloque.length - 1])} (no se cuenta ${etiquetaMesVentas(meses[meses.length - 1])}, mes en curso).`
       + (data.ultimaSincronizacion ? ` Última sincronización completa: ${new Date(data.ultimaSincronizacion).toLocaleString('es-CL')}.` : '');
     renderVentasBaja();
-    if(rolActual === 'admin') cargarMargenVentasBaja();
   }catch(err){
     $('wrapVentasBaja').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
   }
-}
-
-// Margen (admin) -- reutiliza el "último costo" que ya calcula
-// /api/bsale-sku-report (recepciones de Bsale) para la página Compras, en
-// vez de reconstruir esa lógica de nuevo acá. Se pide aparte y se
-// "parcha" sobre la tabla ya pintada (no bloquea el resto de las
-// columnas mientras esa consulta -- un escaneo en vivo de Bsale --
-// termina). margenTotal = monto vendido en el año - (último costo x
-// unidades vendidas en el año) -- una aproximación (asume que el costo no
-// cambió durante el año), igual criterio que ya usa esa página para su
-// propio cálculo de margen.
-async function cargarMargenVentasBaja(){
-  try{
-    const res = await fetch('/api/bsale-sku-report');
-    const data = await res.json();
-    const costoPorSku = {};
-    for(const s of (data.skus || [])) if(s.ultimoCosto != null) costoPorSku[s.code] = s.ultimoCosto;
-    for(const p of ventasBajaActual){
-      const costo = costoPorSku[p.sku];
-      p.margenTotal = costo != null ? p.montoAnio - (costo * p.cantidadAnio) : null;
-    }
-  }catch(err){
-    for(const p of ventasBajaActual) p.margenTotal = null;
-  }
-  renderVentasBaja();
 }
 
 async function editarComentarioVentaBaja(sku){
@@ -330,7 +316,7 @@ async function editarComentarioVentaBaja(sku){
 }
 
 async function eliminarVentaBajaSku(sku){
-  if(!confirm(`¿Sacar el SKU ${sku} de este análisis? No va a volver a aparecer aunque su venta siga cayendo, salvo que se quite de la lista de exclusión directo en la base de datos.`)) return;
+  if(!confirm(`¿Sacar el SKU ${sku} de este análisis? No va a volver a aparecer aunque siga estancado, salvo que se quite de la lista de exclusión directo en la base de datos.`)) return;
   try{
     const res = await fetch(`/api/negocio?recurso=ventas-sku-tendencia&sku=${encodeURIComponent(sku)}`, { method: 'DELETE' });
     const data = await res.json();
@@ -344,31 +330,31 @@ async function eliminarVentaBajaSku(sku){
 
 function renderVentasBaja(){
   if(!ventasBajaActual.length){
-    $('wrapVentasBaja').innerHTML = '<p class="empty-note">No se detectó ningún SKU con caída de ventas en el período.</p>';
+    $('wrapVentasBaja').innerHTML = '<p class="empty-note">No se detectó ningún SKU estancado (con stock, sin ventas en los últimos 3 meses, pero con ventas en el último año).</p>';
     return;
   }
+  const campoOrden = { stock: 'stockActual', anio: 'cantidadAnio', monto: 'montoAnio', margen: 'margenTotal' };
   const ordenados = [...ventasBajaActual].sort((a, b) => {
-    const va = ordenVentasBaja === 'monto' ? a.montoAnio : a.variacion;
-    const vb = ordenVentasBaja === 'monto' ? b.montoAnio : b.variacion;
+    const campo = campoOrden[ordenVentasBaja] || 'montoAnio';
+    const va = a[campo] ?? -Infinity, vb = b[campo] ?? -Infinity;
     return ordenVentasBajaAsc ? va - vb : vb - va;
   });
   const marca = col => ordenVentasBaja === col ? (ordenVentasBajaAsc ? ' ▲' : ' ▼') : '';
   const esAdmin = rolActual === 'admin';
   const celdaMargen = p => {
     if(!esAdmin) return '';
-    if(p.margenTotal === undefined) return '<td class="amount empty-note">calculando…</td>';
-    if(p.margenTotal === null) return '<td class="amount empty-note">—</td>';
+    if(p.margenTotal == null) return '<td class="amount empty-note">—</td>';
     return `<td class="amount">${fmtMoneda(p.margenTotal)}</td>`;
   };
   $('wrapVentasBaja').innerHTML = `
     <div class="tabla-wrap"><table>
       <thead><tr>
         <th>SKU</th><th>Producto</th>
-        <th class="amount">1ª mitad (unid.)</th><th class="amount">2ª mitad (unid.)</th>
+        <th class="ordenable amount" onclick="ordenarVentasBaja('stock')">Stock actual${marca('stock')}</th>
+        <th class="ordenable amount" onclick="ordenarVentasBaja('anio')">Ventas último año (unid.)${marca('anio')}</th>
         <th class="amount">Últimos 3 meses (unid.)</th>
-        <th class="ordenable amount" onclick="ordenarVentasBaja('variacion')">Variación%${marca('variacion')}</th>
         <th class="ordenable amount" onclick="ordenarVentasBaja('monto')">Monto acumulado (año)${marca('monto')}</th>
-        ${esAdmin ? '<th class="amount">Margen total (año)</th>' : ''}
+        ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('margen')">Margen total (año)${marca('margen')}</th>` : ''}
         <th>Comentario</th>
         ${esAdmin ? '<th></th>' : ''}
       </tr></thead>
@@ -376,11 +362,10 @@ function renderVentasBaja(){
         ${ordenados.map(p => `
           <tr>
             <td><span class="sku-code">${escapeHtml(p.sku)}</span></td>
-            <td>${escapeHtml(p.nombre || p.sku)}</td>
-            <td class="amount">${fmtNum(p.primera)}</td>
-            <td class="amount">${fmtNum(p.segunda)}</td>
+            <td>${p.categoria && CATEGORIA_VENTA_BAJA_LABEL[p.categoria] ? `<div class="empty-note" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px;">${CATEGORIA_VENTA_BAJA_LABEL[p.categoria]}</div>` : ''}${escapeHtml(p.nombre || p.sku)}</td>
+            <td class="amount">${fmtNum(p.stockActual)}</td>
+            <td class="amount">${fmtNum(p.cantidadAnio)}</td>
             <td class="amount">${fmtNum(p.ultimos3)}</td>
-            <td class="amount"><span class="badge-caida">▼${fmtNum(Math.round(Math.abs(p.variacion)))}%</span></td>
             <td class="amount">${fmtMoneda(p.montoAnio)}</td>
             ${celdaMargen(p)}
             <td style="max-width:220px;">

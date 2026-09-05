@@ -1443,7 +1443,12 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
     const meses = ultimosNMeses(12);
     const mapaPorSku = new Map();
     for (const r of rows) {
-      if (!mapaPorSku.has(r.sku)) mapaPorSku.set(r.sku, { sku: r.sku, nombre: r.nombre, comentario: comentarioPorSku[r.sku] || null, porMes: {} });
+      // Tipo de producto (cargador/batería/pantalla) -- pedido del
+      // usuario: la columna "Producto" solo mostraba el modelo/variante,
+      // sin decir a qué categoría pertenece. Reutiliza categoriaLinea
+      // (mismo criterio ya usado para separar servicios de productos)
+      // en vez de duplicar la lógica de clasificación.
+      if (!mapaPorSku.has(r.sku)) mapaPorSku.set(r.sku, { sku: r.sku, nombre: r.nombre, categoria: categoriaLinea(r.sku, r.nombre), comentario: comentarioPorSku[r.sku] || null, porMes: {} });
       const mesKey = new Date(r.mes).toISOString().slice(0, 7); // YYYY-MM
       mapaPorSku.get(r.sku).porMes[mesKey] = { cantidad: Number(r.cantidad), monto: Number(r.monto) };
     }
