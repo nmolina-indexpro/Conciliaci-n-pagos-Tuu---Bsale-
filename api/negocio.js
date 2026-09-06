@@ -113,6 +113,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-debug-categoria') return manejarWhatsappDebugCategoria(req, res, sesion);
   if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
   if (recurso === 'compra-agil-ordenes') return manejarCompraAgilOrdenes(req, res, sesion);
+  if (recurso === 'compra-agil-debug-vinculo') return manejarCompraAgilDebugVinculo(req, res, sesion);
   if (recurso === 'sync-compra-agil') return manejarSyncCompraAgil(req, res, sesion);
   return res.status(400).json({ error: 'Falta un ?recurso= válido (ver api/negocio.js)' });
 }
@@ -5815,6 +5816,51 @@ async function vincularOrdenesCompraAgil(sql) {
     if (algoNuevo) vinculadas++;
   }
   return vinculadas;
+}
+
+// Debug puntual: ?recurso=compra-agil-debug-vinculo&codigo=XXX-YYY-ZZ --
+// muestra, para UNA orden en particular, todos los candidatos que calzan
+// por monto en bsale_cotizaciones y analisis_compras (SIN el filtro de
+// fecha ni de nombre de organismo, para poder ver a ojo si el problema es
+// la ventana de fechas, el nombre, o que el dato ni siquiera está
+// sincronizado). Mismo patrón que el resto de los "?debug=" del proyecto
+// (ver CLAUDE.md) -- solo para diagnosticar, no lo usa ninguna pantalla.
+async function manejarCompraAgilDebugVinculo(req, res, sesion) {
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador' });
+  const codigo = req.query.codigo;
+  if (!codigo) return res.status(400).json({ error: 'Falta ?codigo=' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaCompraAgil(sql);
+
+    const { rows: ordenRows } = await sql`SELECT * FROM compra_agil_ordenes WHERE codigo = ${codigo};`;
+    const orden = ordenRows[0];
+    if (!orden) return res.status(404).json({ error: 'OC no encontrada en compra_agil_ordenes', codigo });
+    const fechaEnvio = orden.fecha_envio ? new Date(orden.fecha_envio).toISOString().slice(0, 10) : null;
+
+    const { rows: cotCandidatas } = await sql`
+      SELECT id, cliente_nombre, monto, fecha FROM bsale_cotizaciones
+      WHERE ABS(monto - ${orden.total}) <= 2 ORDER BY ABS(monto - ${orden.total}) ASC LIMIT 20;
+    `;
+    const { rows: facturaCandidatas } = await sql`
+      SELECT documento_id, cliente_nombre, monto, fecha, numero FROM analisis_compras
+      WHERE ABS(monto - ${orden.total}) <= 2 ORDER BY ABS(monto - ${orden.total}) ASC LIMIT 20;
+    `;
+    const { rows: totalesRows } = await sql`
+      SELECT (SELECT COUNT(*)::int FROM bsale_cotizaciones) AS total_cotizaciones,
+             (SELECT COUNT(*)::int FROM analisis_compras) AS total_compras,
+             (SELECT COUNT(*)::int FROM analisis_compras WHERE numero IS NOT NULL) AS total_compras_con_numero;
+    `;
+
+    return res.status(200).json({
+      orden: { codigo: orden.codigo, organismo: orden.organismo, total: Number(orden.total), fechaEnvio, cotizacionVinculadaId: orden.cotizacion_vinculada_id, facturaVinculadaId: orden.factura_vinculada_id },
+      cotizacionesQueCalzanPorMonto: cotCandidatas.map(c => ({ id: c.id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, organismoParece: organismoParecidoACliente(orden.organismo, c.cliente_nombre) })),
+      facturasQueCalzanPorMonto: facturaCandidatas.map(c => ({ documentoId: c.documento_id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, organismoParece: organismoParecidoACliente(orden.organismo, c.cliente_nombre) })),
+      totales: totalesRows[0],
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en debug de vínculo', detail: String(err) });
+  }
 }
 
 async function manejarSyncCompraAgil(req, res, sesion) {
