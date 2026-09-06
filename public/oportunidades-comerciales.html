@@ -121,6 +121,10 @@
   .mov-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;background:var(--surface-2);border-radius:9px;font-size:12.5px;}
   .mov-item .mov-info{display:flex;flex-direction:column;gap:2px;}
   .mov-item .mov-monto{font-family:'IBM Plex Mono',monospace;font-weight:600;}
+
+  .comentario-item{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:12.5px;}
+  .comentario-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+  .estado-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;background:var(--surface-2);border-radius:9px;font-size:12.5px;margin-bottom:6px;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -356,6 +360,27 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="modalClienteCotOverlay" onclick="cerrarModalClienteCotizacionSiFondo(event)">
+    <div class="modal-box" style="width:min(640px,100%);" onclick="event.stopPropagation()">
+      <h3 id="modalClienteCotTitulo">Cliente</h3>
+      <div class="sub" id="modalClienteCotSub"></div>
+      <div id="modalClienteCotResumen" style="margin-top:14px;"></div>
+
+      <h4 style="margin:18px 0 8px 0;font-family:'Space Grotesk',sans-serif;font-size:13px;">📈 Historial de esta cotización</h4>
+      <div id="modalClienteCotEstados"></div>
+
+      <h4 style="margin:18px 0 8px 0;font-family:'Space Grotesk',sans-serif;font-size:13px;">📝 Comentarios del cliente</h4>
+      <div id="modalClienteCotComentarios" style="display:flex;flex-direction:column;gap:10px;max-height:180px;overflow-y:auto;"></div>
+      <textarea id="modalClienteCotNuevoComentario" placeholder="Escribe un comentario nuevo..." style="width:100%;margin-top:10px;min-height:60px;padding:9px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+
+      <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:14px;">
+        <button class="btn-ghost btn-compact" id="btnCancelarEdicionComentarioCot" style="display:none;" onclick="cancelarEdicionComentarioCot()">Cancelar edición</button>
+        <button class="btn-ghost btn-compact" onclick="cerrarModalClienteCotizacion()">Cerrar</button>
+        <button class="btn-primary btn-compact" id="btnGuardarComentarioCot" onclick="guardarComentarioCotizacionCliente()">Agregar comentario</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script src="restriccion-usuario.js"></script>
@@ -364,6 +389,18 @@
 const $ = id => document.getElementById(id);
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
 function fmtMoneda(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
+// Nombres de clientes/vendedores vienen de Bsale (no los escribe alguien en
+// este sitio, pero igual pueden traer < > " sin querer) y "comentario" lo
+// escribe cualquier usuario logueado -> todo se renderiza vía innerHTML,
+// así que se escapa antes de interpolar.
+function escapeHtmlCot(texto){
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // ---------- Tabs grandes ----------
 function cambiarTab(tab){
@@ -387,6 +424,9 @@ let puntosCargados = false;
 
 let cotizaciones = [];
 let cotizacionesCargadas = false;
+let resumenClientesCotizacion = {}; // clienteId -> {numCompras, montoTotal, ultimaCompra} -- ver cargarResumenClientesCotizacion
+let filtroVendedorCotizacion = null; // {id, nombre} -- se activa al hacer clic en un vendedor en "Vendedores — rango filtrado"
+let nombreActualCot = ''; // nombre/email de la sesión actual, para el modal de comentarios del cliente
 // Orden por defecto: primero "Sin contactar" (lo pendiente de gestionar),
 // luego el resto por avance de embudo, dejando ganadas/perdidas al final.
 const ESTADO_PRIORIDAD_COTIZACION = {
@@ -483,6 +523,7 @@ async function cargarSesionUsuario(){
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     esAdmin = u.rol === 'admin';
+    nombreActualCot = u.nombre || u.email || '';
     if(esAdmin){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
@@ -701,7 +742,11 @@ async function cargarCotizaciones(){
   $('wrapCotizaciones').innerHTML = '<p class="empty-note">Cargando...</p>';
 
   try{
-    const res = await fetch('/api/negocio?recurso=cotizaciones-clientes').then(r=>r.json());
+    const [res, resResumen] = await Promise.all([
+      fetch('/api/negocio?recurso=cotizaciones-clientes').then(r=>r.json()),
+      fetch('/api/negocio?recurso=cotizacion-resumen-clientes').then(r=>r.json()).catch(()=>({resumenPorCliente:{}})),
+    ]);
+    resumenClientesCotizacion = resResumen.resumenPorCliente || {};
     if(res.error){
       status.className = 'err';
       status.textContent = 'Error: ' + (res.detail || res.error);
@@ -749,7 +794,7 @@ function notaVariacionHtml(pct){
 
 function renderKpisCotizaciones(){
   const cards = document.querySelectorAll('#kpiWrapCotizaciones .card');
-  const filtradas = cotizacionesFiltradas();
+  const filtradas = cotizacionesFiltradasBase();
   cards[0].querySelector('.big').textContent = fmtNum(filtradas.length);
   cards[1].querySelector('.big').textContent = fmtMoneda(filtradas.reduce((a,c)=>a+c.monto,0));
   cards[2].querySelector('.big').textContent = fmtNum(filtradas.filter(c=>c.estado==='sin_contactar').length);
@@ -781,29 +826,84 @@ function renderKpisCotizaciones(){
   renderVendedores(filtradas);
 }
 
+function diasEntreCot(desde, hasta){
+  return Math.round((new Date(hasta+'T00:00:00Z') - new Date(desde+'T00:00:00Z')) / 86400000);
+}
+// Mismo largo de ventana que la filtrada, pero corrida hacia atrás (si el
+// rango filtrado es "01 al 15", el período anterior es "el 16 días
+// inmediatamente antes del 01", no el mes calendario anterior) -- para que
+// la comparación de vendedores sea justa cualquiera sea el rango elegido
+// arriba, no solo para "mes actual".
+function periodoAnteriorEquivalenteCot(desde, hasta){
+  if(!desde || !hasta) return null;
+  const dias = diasEntreCot(desde, hasta) + 1;
+  const nuevaHasta = addDaysStrCot(desde, -1);
+  const nuevaDesde = addDaysStrCot(nuevaHasta, -(dias-1));
+  return { desde: nuevaDesde, hasta: nuevaHasta };
+}
+
+function filtrarPorVendedorCotizacion(id){
+  // Alterna: si ya estaba filtrado por este mismo vendedor, un segundo
+  // clic lo quita -- evita necesitar un botón "×" aparte solo para eso.
+  // El nombre se busca en "cotizaciones" en vez de pasarlo como argumento
+  // del onclick -- evita el lío de escapar comillas dentro de un atributo
+  // HTML que además contiene un string literal de JS (mismo criterio que
+  // buscarClienteAnalisis en analisis.html).
+  if(filtroVendedorCotizacion && filtroVendedorCotizacion.id === id){
+    filtroVendedorCotizacion = null;
+  } else {
+    const nombre = id == null ? 'Sin vendedor asignado' : (cotizaciones.find(c => c.vendedorId === id)?.vendedorNombre || 'Vendedor');
+    filtroVendedorCotizacion = { id, nombre };
+  }
+  renderTablaCotizaciones();
+  $('seccionCotizaciones').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 function renderVendedores(delRangoFiltrado){
+  const desde = $('cotizacionesDesde').value;
+  const hasta = $('cotizacionesHasta').value;
+  const periodoAnt = periodoAnteriorEquivalenteCot(desde, hasta);
+  const montoAnteriorPorVendedor = new Map();
+  if(periodoAnt){
+    for(const c of cotizaciones){
+      if(c.estado !== 'facturada' || !c.fecha || c.fecha < periodoAnt.desde || c.fecha > periodoAnt.hasta) continue;
+      const clave = c.vendedorId ?? 'sin_vendedor';
+      montoAnteriorPorVendedor.set(clave, (montoAnteriorPorVendedor.get(clave)||0) + c.monto);
+    }
+  }
+
   const porVendedor = new Map();
   for(const c of delRangoFiltrado){
     const clave = c.vendedorId ?? 'sin_vendedor';
-    if(!porVendedor.has(clave)) porVendedor.set(clave, { nombre: c.vendedorNombre || 'Sin vendedor asignado', creadas:0, facturadas:0, montoVendido:0 });
+    if(!porVendedor.has(clave)) porVendedor.set(clave, { id: c.vendedorId ?? null, nombre: c.vendedorNombre || 'Sin vendedor asignado', creadas:0, facturadas:0, montoVendido:0, sumaDiasAbiertas:0, countAbiertas:0 });
     const v = porVendedor.get(clave);
     v.creadas++;
     if(c.estado === 'facturada'){ v.facturadas++; v.montoVendido += c.monto; }
+    if(c.estado === 'sin_contactar' && c.fecha){ v.sumaDiasAbiertas += diasEntreCot(c.fecha, hoyStrCot); v.countAbiertas++; }
   }
-  const filas = [...porVendedor.values()].sort((a,b)=>b.montoVendido-a.montoVendido);
+  const filas = [...porVendedor.entries()].map(([clave, v]) => ({
+    clave, ...v,
+    conversion: v.creadas ? Math.round(v.facturadas/v.creadas*100) : 0,
+    ticketPromedio: v.facturadas ? v.montoVendido/v.facturadas : 0,
+    antiguedadPromedio: v.countAbiertas ? Math.round(v.sumaDiasAbiertas/v.countAbiertas) : null,
+    variacionPct: periodoAnt ? calcularVariacionPct(v.montoVendido, montoAnteriorPorVendedor.get(clave) || 0) : null,
+  })).sort((a,b)=>b.montoVendido-a.montoVendido);
 
   if(filas.length === 0){
     $('wrapVendedores').innerHTML = '<p class="empty-note">No hay cotizaciones en ese rango de fechas.</p>';
     return;
   }
 
-  const thead = `<tr><th>Vendedor</th><th class="amount">Cotizaciones creadas</th><th class="amount">Facturadas</th><th class="amount">% conversión</th><th class="amount">Monto vendido</th></tr>`;
+  const thead = `<tr><th>Vendedor</th><th class="amount">Cotizaciones creadas</th><th class="amount">Facturadas</th><th class="amount">% conversión</th><th class="amount">Ticket promedio</th><th class="amount">Antigüedad abiertas</th><th class="amount">Monto vendido</th>${periodoAnt ? '<th class="amount">vs. período anterior</th>' : ''}</tr>`;
   const tbody = filas.map(v => `<tr>
-    <td>${v.nombre}</td>
+    <td><a href="#" class="doc-link" title="Filtrar la tabla de cotizaciones por este vendedor" onclick="event.preventDefault();filtrarPorVendedorCotizacion(${v.id})">${escapeHtmlCot(v.nombre)}</a></td>
     <td class="amount">${fmtNum(v.creadas)}</td>
     <td class="amount">${fmtNum(v.facturadas)}</td>
-    <td class="amount">${v.creadas ? Math.round(v.facturadas/v.creadas*100) : 0}%</td>
+    <td class="amount">${v.conversion < 50 ? `<span class="badge no">${v.conversion}%</span>` : `${v.conversion}%`}</td>
+    <td class="amount">${fmtMoneda(v.ticketPromedio)}</td>
+    <td class="amount">${v.antiguedadPromedio == null ? '<span class="empty-note">—</span>' : `${fmtNum(v.antiguedadPromedio)} días`}</td>
     <td class="amount"><b>${fmtMoneda(v.montoVendido)}</b></td>
+    ${periodoAnt ? `<td class="amount">${notaVariacionHtml(v.variacionPct) || '<span class="empty-note">—</span>'}</td>` : ''}
   </tr>`).join('');
 
   $('wrapVendedores').innerHTML = `<div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
@@ -877,10 +977,11 @@ function docLinkHtml(numero, url){
   return `#${numero}`;
 }
 
-// Mismo filtro (búsqueda, estado, rango de fechas) que alimenta tanto la
-// tabla como las 3 primeras tarjetas de resumen -> para que los números de
-// arriba siempre calcen con lo que se ve abajo.
-function cotizacionesFiltradas(){
+// Mismo filtro (búsqueda, estado, rango de fechas) que alimenta las 3
+// primeras tarjetas de resumen Y la tabla de Vendedores -> para que esos
+// números arriba siempre calcen entre sí, sin importar si además hay un
+// vendedor puntual filtrado en la tabla de abajo (ver cotizacionesFiltradas).
+function cotizacionesFiltradasBase(){
   const q = ($('buscarCotizacionesInput').value || '').trim().toLowerCase();
   const filtroEstado = $('filtroEstadoCotizacion').value;
   const desde = $('cotizacionesDesde').value;
@@ -892,6 +993,30 @@ function cotizacionesFiltradas(){
     (!hasta || !c.fecha || c.fecha <= hasta)
   );
 }
+// Igual que la de arriba, PERO además acotada al vendedor elegido con un
+// clic en "Vendedores — rango filtrado" -- solo para la tabla de detalle
+// de abajo. Si se aplicara también a las tarjetas/tabla de vendedores, un
+// clic para "ver las cotizaciones de Luiggi" haría que la tabla de
+// vendedores colapsara a mostrar solo a Luiggi, perdiendo la comparación
+// contra el resto.
+function cotizacionesFiltradas(){
+  return cotizacionesFiltradasBase().filter(c => !filtroVendedorCotizacion || c.vendedorId === filtroVendedorCotizacion.id);
+}
+function quitarFiltroVendedorCotizacion(){
+  filtroVendedorCotizacion = null;
+  renderTablaCotizaciones();
+}
+
+// Días sin que se toque el estado de la cotización (o desde que se creó,
+// si nunca cambió de estado) -- solo tiene sentido para las que siguen
+// abiertas, una vez facturada o perdida ya no hay nada que "seguir".
+function diasSinContactoCot(c){
+  if(c.estado === 'facturada' || c.estado === 'perdida') return null;
+  const base = c.actualizadoEn ? String(c.actualizadoEn).slice(0,10) : c.fecha;
+  if(!base) return null;
+  return diasEntreCot(base, hoyStrCot);
+}
+const UMBRAL_DIAS_SIN_CONTACTO_COT = 7;
 
 function renderTablaCotizaciones(){
   renderKpisCotizaciones();
@@ -901,6 +1026,11 @@ function renderTablaCotizaciones(){
     if(sortColCot === 'prioridad'){
       const diff = ESTADO_PRIORIDAD_COTIZACION[a.estado] - ESTADO_PRIORIDAD_COTIZACION[b.estado];
       return sortAscCot ? diff : -diff;
+    }
+    if(sortColCot === 'diasSinContacto'){
+      const da = diasSinContactoCot(a), db = diasSinContactoCot(b);
+      if(da==null) return 1; if(db==null) return -1;
+      return sortAscCot ? da-db : db-da;
     }
     let va = a[sortColCot], vb = b[sortColCot];
     if(va==null) return 1; if(vb==null) return -1;
@@ -914,12 +1044,29 @@ function renderTablaCotizaciones(){
   }
 
   const cols = [
-    { key:'clienteNombre', label:'Cliente' },
-    { key:'clienteTelefono', label:'Teléfono' },
+    { key:'clienteNombre', label:'Cliente', render:c=>{
+        const resumen = resumenClientesCotizacion[c.clienteId];
+        // Mismo umbral que "Clientes recurrentes" en Análisis (2+ compras
+        // reales = recurrente) -- para no tener dos definiciones distintas
+        // de "recurrente" conviviendo en el sitio.
+        const badgeVip = resumen && resumen.numCompras >= 2
+          ? `<span class="badge si" title="${fmtNum(resumen.numCompras)} compras históricas — ${fmtMoneda(resumen.montoTotal)}">🔁 Recurrente</span>` : '';
+        return `<a href="#" class="doc-link" onclick="event.preventDefault();abrirModalClienteCotizacion(${c.id})">${escapeHtmlCot(c.clienteNombre)}</a> ${badgeVip}`;
+      } },
+    { key:'clienteTelefono', label:'Teléfono', render:c=>{
+        if(!c.clienteTelefono) return '<span class="empty-note">—</span>';
+        const wa = formatearTelefonoWhatsapp(c.clienteTelefono).replace('+','');
+        return `${escapeHtmlCot(c.clienteTelefono)} <a class="btn-icono" href="https://wa.me/${wa}" target="_blank" rel="noopener" title="WhatsApp">💬</a>`;
+      } },
     { key:'vendedorNombre', label:'Vendedor', render:c=>c.vendedorNombre || '<span class="empty-note">—</span>' },
     { key:'numero', label:'N° Cotización', render:c=>docLinkHtml(c.numero, c.urlCotizacion) },
     { key:'fecha', label:'Fecha' },
     { key:'monto', label:'Monto', align:'amount', render:c=>`<b>${fmtMoneda(c.monto)}</b>` },
+    { key:'diasSinContacto', label:'Días sin contacto', align:'amount', render:c=>{
+        const dias = diasSinContactoCot(c);
+        if(dias == null) return '<span class="empty-note">—</span>';
+        return dias >= UMBRAL_DIAS_SIN_CONTACTO_COT ? `<span class="badge no">${fmtNum(dias)} d</span>` : `${fmtNum(dias)} d`;
+      } },
     { key:'clienteHaComprado', label:'¿Ha comprado antes?', render:c=>{
         if(c.clienteHaComprado === null || c.clienteHaComprado === undefined) return '<span class="empty-note">Por revisar</span>';
         return `<span class="badge ${c.clienteHaComprado?'si':'no'}">${c.clienteHaComprado?'Sí':'No'}</span>`;
@@ -945,8 +1092,12 @@ function renderTablaCotizaciones(){
     return `<td class="${[col.align==='amount'?'amount':'', claseEstado].filter(Boolean).join(' ')}">${col.render ? col.render(c) : (c[col.key] ?? '—')}</td>`;
   }).join('')}</tr>`).join('');
 
+  const chipVendedor = filtroVendedorCotizacion
+    ? `<span class="badge si" style="cursor:pointer;" title="Quitar filtro" onclick="quitarFiltroVendedorCotizacion()">Vendedor: ${escapeHtmlCot(filtroVendedorCotizacion.nombre)} ✕</span>`
+    : '';
+
   $('wrapCotizaciones').innerHTML = `
-    <div class="controles-tabla"><span class="empty-note">${filas.length} cotización${filas.length===1?'':'es'}</span></div>
+    <div class="controles-tabla"><span class="empty-note">${filas.length} cotización${filas.length===1?'':'es'}</span>${chipVendedor}</div>
     <div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
 }
 
@@ -972,6 +1123,125 @@ async function cambiarEstadoCotizacion(id, estado){
     alert('Error: ' + err.message);
     renderTablaCotizaciones();
   }
+}
+
+// ---------- Panel de detalle de cliente (clic en el nombre de la fila) ----------
+// Reusa el mismo mecanismo de historial de comentarios ya construido para
+// Productos estancados / Clientes recurrentes en Análisis (contexto
+// 'cotizacion_cliente' del lado del backend) -- un comentario nuevo se
+// AGREGA, nunca reemplaza al anterior, y cada quien solo puede editar los
+// suyos.
+let modalClienteCotCotizacionId = null;
+let modalClienteCotClienteId = null;
+let modalClienteCotEditandoId = null;
+let modalClienteCotComentariosActuales = []; // último historial recibido del backend, para poder buscar el texto al editar
+
+async function abrirModalClienteCotizacion(cotizacionId){
+  modalClienteCotCotizacionId = cotizacionId;
+  const c = cotizaciones.find(x => x.id === cotizacionId);
+  $('modalClienteCotTitulo').textContent = `👤 ${c ? c.clienteNombre : 'Cliente'}`;
+  $('modalClienteCotSub').textContent = c ? `Cotización #${c.numero || cotizacionId} — ${fmtMoneda(c.monto)} — ${c.fecha || 'sin fecha'}` : '';
+  $('modalClienteCotResumen').innerHTML = '<p class="empty-note">Cargando...</p>';
+  $('modalClienteCotEstados').innerHTML = '';
+  $('modalClienteCotComentarios').innerHTML = '';
+  cancelarEdicionComentarioCot();
+  $('modalClienteCotOverlay').classList.add('open');
+
+  try{
+    const data = await fetch(`/api/negocio?recurso=cotizacion-detalle&cotizacionId=${cotizacionId}`).then(r=>r.json());
+    if(data.error){
+      $('modalClienteCotResumen').innerHTML = `<p class="empty-note">${data.detail || data.error}</p>`;
+      return;
+    }
+    modalClienteCotClienteId = data.clienteId;
+    renderResumenClienteCot(data.resumenCompras);
+    renderEstadosClienteCot(data.historialEstados);
+    renderComentariosClienteCot(data.comentarios);
+  }catch(err){
+    $('modalClienteCotResumen').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+  }
+}
+
+function renderResumenClienteCot(resumen){
+  if(!resumen || !resumen.numCompras){
+    $('modalClienteCotResumen').innerHTML = '<p class="empty-note">Sin compras reales (boletas/facturas) registradas para este cliente todavía.</p>';
+    return;
+  }
+  $('modalClienteCotResumen').innerHTML = `
+    <div class="grid" style="margin-bottom:0;">
+      <div class="card"><div class="lbl">Compras históricas</div><div class="big">${fmtNum(resumen.numCompras)}</div></div>
+      <div class="card"><div class="lbl">Monto histórico</div><div class="big">${fmtMoneda(resumen.montoTotal)}</div></div>
+      <div class="card"><div class="lbl">Última compra</div><div class="big" style="font-size:14px;">${resumen.ultimaCompra ? new Date(resumen.ultimaCompra+'T00:00:00').toLocaleDateString('es-CL') : '—'}</div></div>
+    </div>`;
+}
+
+function renderEstadosClienteCot(historial){
+  $('modalClienteCotEstados').innerHTML = (historial && historial.length)
+    ? historial.map(h => `
+        <div class="estado-item">
+          <span>${ESTADOS_COTIZACION_LABEL[h.estado] || h.estado}</span>
+          <span class="comentario-meta">${escapeHtmlCot(h.autor || 'Desconocido')} — ${new Date(h.creadoEn).toLocaleString('es-CL')}</span>
+        </div>`).join('')
+    : '<p class="empty-note">Sin cambios de estado registrados todavía (el actual quedó guardado la primera vez que se tocó el select).</p>';
+}
+
+function renderComentariosClienteCot(comentarios){
+  modalClienteCotComentariosActuales = comentarios || [];
+  $('modalClienteCotComentarios').innerHTML = (comentarios && comentarios.length)
+    ? comentarios.map(h => `
+        <div class="comentario-item">
+          <div style="flex:1;">
+            <div>${escapeHtmlCot(h.comentario)}</div>
+            <div class="comentario-meta">${escapeHtmlCot(h.autor || 'Desconocido')} — ${new Date(h.creadoEn).toLocaleString('es-CL')}${h.editadoEn ? ' (editado)' : ''}</div>
+          </div>
+          ${h.id != null && h.autor === nombreActualCot ? `<button class="btn-icono" title="Editar este comentario" onclick="prepararEdicionComentarioCot(${h.id})">✏️</button>` : ''}
+        </div>`).join('')
+    : '<p class="empty-note">Todavía no hay comentarios guardados.</p>';
+}
+
+function prepararEdicionComentarioCot(id){
+  const entrada = modalClienteCotComentariosActuales.find(h => h.id === id);
+  if(!entrada) return;
+  modalClienteCotEditandoId = id;
+  $('modalClienteCotNuevoComentario').value = entrada.comentario;
+  $('modalClienteCotNuevoComentario').focus();
+  $('btnGuardarComentarioCot').textContent = 'Guardar edición';
+  $('btnCancelarEdicionComentarioCot').style.display = '';
+}
+function cancelarEdicionComentarioCot(){
+  modalClienteCotEditandoId = null;
+  $('modalClienteCotNuevoComentario').value = '';
+  $('btnGuardarComentarioCot').textContent = 'Agregar comentario';
+  $('btnCancelarEdicionComentarioCot').style.display = 'none';
+}
+
+async function guardarComentarioCotizacionCliente(){
+  const texto = $('modalClienteCotNuevoComentario').value.trim();
+  if(!texto || !modalClienteCotClienteId) return;
+  const editandoId = modalClienteCotEditandoId;
+  try{
+    const res = await fetch('/api/negocio?recurso=cotizacion-detalle', {
+      method: 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ clienteId: modalClienteCotClienteId, comentario: texto, ...(editandoId ? { comentarioId: editandoId } : {}) })
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar.'); return; }
+    cancelarEdicionComentarioCot();
+    // Vuelve a pedir el detalle -- más simple y confiable que mantener el
+    // historial de comentarios duplicado en dos variables (la que ya
+    // tenía este panel y la de la tabla de cotizaciones).
+    const detalle = await fetch(`/api/negocio?recurso=cotizacion-detalle&cotizacionId=${modalClienteCotCotizacionId}`).then(r=>r.json());
+    if(!detalle.error) renderComentariosClienteCot(detalle.comentarios);
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+function cerrarModalClienteCotizacion(){
+  $('modalClienteCotOverlay').classList.remove('open');
+}
+function cerrarModalClienteCotizacionSiFondo(ev){
+  if(ev.target.id === 'modalClienteCotOverlay') cerrarModalClienteCotizacion();
 }
 
 // ==================== Indexpro (servicios a empresas: NAS, soporte TI) ====================

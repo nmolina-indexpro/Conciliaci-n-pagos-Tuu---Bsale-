@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
@@ -78,6 +78,8 @@ export default async function handler(req, res) {
   if (recurso === 'cotizaciones-clientes') return manejarCotizacionesClientes(req, res, sesion);
   if (recurso === 'sync-cotizaciones') return manejarSyncCotizaciones(req, res, sesion);
   if (recurso === 'cotizacion-estado') return manejarCotizacionEstado(req, res, sesion);
+  if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
+  if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
   if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
   if (recurso === 'calendario-pagos-importar') return manejarCalendarioPagosImportar(req, res, sesion);
   if (recurso === 'saldo-bci') return manejarSaldoBci(req, res, sesion);
@@ -890,9 +892,116 @@ async function manejarCotizacionEstado(req, res, sesion) {
       WHERE id = ${id} RETURNING id;
     `;
     if (rows.length === 0) return res.status(404).json({ error: 'Cotización no encontrada' });
+    // Registro del cambio -- antes el UPDATE de arriba simplemente pisaba
+    // el estado anterior sin dejar rastro. Ver asegurarTablaCotizacionesHistorialEstado.
+    await asegurarTablaCotizacionesHistorialEstado(sql);
+    await sql`INSERT INTO bsale_cotizaciones_historial_estado (cotizacion_id, estado, autor) VALUES (${id}, ${estado}, ${sesion.nombre || sesion.email});`;
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: 'Error actualizando el estado', detail: String(err) });
+  }
+}
+
+// Resumen de compras REALES (boletas/facturas, no cotizaciones) por
+// cliente, para mostrar en la tabla y en el panel de detalle de
+// Oportunidades Comerciales ("¿es un cliente recurrente?", "¿cuánto nos ha
+// comprado?"). Se lee de analisis_compras -- la misma tabla que ya llena
+// la sincronización de Análisis (manejarSyncAnalisis) para "Clientes
+// recurrentes" -- así se evita duplicar una sincronización con Bsale que
+// ya existe. Si Análisis nunca se ha sincronizado, la tabla existe pero
+// vacía -> el resumen simplemente sale vacío para todos, no es un error.
+async function manejarCotizacionResumenClientes(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaAnalisis(sql);
+    await asegurarTablaCotizaciones(sql);
+    const { rows } = await sql`
+      SELECT ac.cliente_id, COUNT(*)::int AS num_compras, SUM(ac.monto) AS monto_total, MAX(ac.fecha) AS ultima_compra
+      FROM analisis_compras ac
+      WHERE ac.cliente_id IN (SELECT DISTINCT cliente_id FROM bsale_cotizaciones WHERE cliente_id IS NOT NULL)
+      GROUP BY ac.cliente_id;
+    `;
+    const resumenPorCliente = {};
+    for (const r of rows) {
+      resumenPorCliente[r.cliente_id] = {
+        numCompras: r.num_compras,
+        montoTotal: Number(r.monto_total) || 0,
+        ultimaCompra: r.ultima_compra ? new Date(r.ultima_compra).toISOString().slice(0, 10) : null,
+      };
+    }
+    return res.status(200).json({ resumenPorCliente });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error leyendo el resumen de clientes', detail: String(err), resumenPorCliente: {} });
+  }
+}
+
+// Panel de detalle de una cotización puntual (clic en el nombre del
+// cliente en Oportunidades Comerciales): su propio historial de cambios de
+// estado + el historial de comentarios del CLIENTE (contexto
+// 'cotizacion_cliente', igual mecanismo que Productos estancados/Clientes
+// recurrentes -- ver registrarComentario/editarComentario/
+// obtenerHistorialComentarios más arriba) + el resumen de compras reales
+// de ese cliente. El comentario es por CLIENTE, no por cotización puntual:
+// si un cliente tiene varias cotizaciones a lo largo del tiempo, la nota
+// que deja un vendedor debe verse en todas, no perderse en una sola.
+async function manejarCotizacionDetalle(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaCotizaciones(sql);
+    await asegurarTablaCotizacionesHistorialEstado(sql);
+    await asegurarTablaComentariosLog(sql);
+    await asegurarTablaAnalisis(sql);
+
+    if (req.method === 'PUT') {
+      const { clienteId, comentario, comentarioId } = req.body || {};
+      if (!clienteId) return res.status(400).json({ error: 'Falta clienteId' });
+      if (comentario === undefined) return res.status(400).json({ error: 'Falta comentario' });
+      if (comentarioId) {
+        const resultado = await editarComentario(sql, 'cotizacion_cliente', comentarioId, clienteId, comentario, sesion.nombre || sesion.email);
+        if (!resultado.ok) return res.status(resultado.status).json({ error: resultado.error });
+      } else {
+        await registrarComentario(sql, 'cotizacion_cliente', clienteId, comentario, sesion.nombre || sesion.email);
+      }
+      return res.status(200).json({ ok: true });
+    }
+
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const cotizacionId = Number(req.query.cotizacionId);
+    if (!cotizacionId) return res.status(400).json({ error: 'Falta cotizacionId' });
+
+    const { rows: cotRows } = await sql`SELECT id, cliente_id, cliente_nombre FROM bsale_cotizaciones WHERE id = ${cotizacionId};`;
+    if (!cotRows[0]) return res.status(404).json({ error: 'Cotización no encontrada' });
+    const { cliente_id: clienteId, cliente_nombre: clienteNombre } = cotRows[0];
+
+    const { rows: historialRows } = await sql`
+      SELECT estado, autor, creado_en FROM bsale_cotizaciones_historial_estado
+      WHERE cotizacion_id = ${cotizacionId} ORDER BY creado_en ASC;
+    `;
+    const historialEstados = historialRows.map(r => ({ estado: r.estado, autor: r.autor || null, creadoEn: r.creado_en }));
+
+    const historialComentarios = clienteId ? await obtenerHistorialComentarios(sql, 'cotizacion_cliente') : new Map();
+    const comentarios = (historialComentarios.get(String(clienteId)) || []);
+
+    let resumenCompras = { numCompras: 0, montoTotal: 0, ultimaCompra: null };
+    if (clienteId) {
+      const { rows: resumenRows } = await sql`
+        SELECT COUNT(*)::int AS num_compras, SUM(monto) AS monto_total, MAX(fecha) AS ultima_compra
+        FROM analisis_compras WHERE cliente_id = ${clienteId};
+      `;
+      const r = resumenRows[0];
+      if (r && r.num_compras > 0) {
+        resumenCompras = {
+          numCompras: r.num_compras,
+          montoTotal: Number(r.monto_total) || 0,
+          ultimaCompra: r.ultima_compra ? new Date(r.ultima_compra).toISOString().slice(0, 10) : null,
+        };
+      }
+    }
+
+    return res.status(200).json({ clienteId, clienteNombre, historialEstados, comentarios, resumenCompras });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error leyendo el detalle de la cotización', detail: String(err) });
   }
 }
 
