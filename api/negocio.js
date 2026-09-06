@@ -5623,6 +5623,17 @@ const MP_SYNC_INTERVALO_MIN_MS = 1300;
 // cada día con resultados, así que cada "paso" puede tardar más de un
 // ciclo de espera.
 const MP_SYNC_PRESUPUESTO_MS = 45000;
+// Recorrer los 400 días completos toma varios minutos (400 * 1.3s solo en
+// listados, más el detalle de cada OC nueva) -- inevitable la PRIMERA vez
+// (hay que traer todo el historial), pero repetir eso mismo cada vez que
+// alguien aprieta "Sincronizar" para ponerse al día es un desperdicio: una
+// orden de Compra Ágil prácticamente siempre queda resuelta (Aceptada,
+// Cancelada, Recepción Conforme) dentro de unas semanas, no medio año
+// después. Una vez que ya hubo una pasada completa, las pasadas
+// siguientes solo repasan esta ventana de días recientes (donde de verdad
+// pueden aparecer OC nuevas o cambiar de estado) -- pedido del usuario
+// para que sincronizar no vuelva a tardar minutos cada vez.
+const MP_DIAS_RESYNC_RAPIDO = 60;
 
 function mpToDate(d) {
   return String(d.getDate()).padStart(2, '0') + String(d.getMonth() + 1).padStart(2, '0') + d.getFullYear();
@@ -5699,7 +5710,13 @@ async function manejarSyncCompraAgil(req, res, sesion) {
     const { rows: estadoRows } = await sql`SELECT * FROM compra_agil_sync_estado WHERE id = 1;`;
     const estado = estadoRows[0] || {};
     let offset = estado.offset_actual || 0;
-    const totalDias = estado.dias_totales || 400;
+    const diasTotalesHistorico = estado.dias_totales || 400;
+    // Ya hubo una pasada completa (todo el historial) al menos una vez ->
+    // de acá en adelante alcanza con repasar solo lo reciente (ver
+    // MP_DIAS_RESYNC_RAPIDO). Si todavía no hay ninguna pasada completa
+    // (offset viene de una anterior que se cortó a medio camino, o es la
+    // primera vez), se sigue recorriendo el historial completo.
+    const totalDias = estado.ultima_pasada_completa_en ? MP_DIAS_RESYNC_RAPIDO : diasTotalesHistorico;
 
     let ultimaPeticion = 0;
     const presupuestoRestante = () => MP_SYNC_PRESUPUESTO_MS - (Date.now() - inicio);
