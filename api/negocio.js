@@ -5828,9 +5828,19 @@ async function vincularOrdenesCompraAgil(sql) {
 async function manejarCompraAgilDebugVinculo(req, res, sesion) {
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador' });
   const codigo = req.query.codigo;
-  if (!codigo) return res.status(400).json({ error: 'Falta ?codigo=' });
+  const numero = req.query.numero;
   try {
     const sql = await getSql();
+    // ?numero=XXXX -- atajo para buscar un folio puntual (el número que se
+    // ve en Bsale, ej. "20344") directo en las dos tablas, sin pasar por
+    // ninguna orden de Compra Ágil. Sirve para confirmar de una vez si un
+    // documento que se ve a ojo en Bsale ya está sincronizado acá o no.
+    if (numero && !codigo) {
+      const { rows: cotPorNumero } = await sql`SELECT id, cliente_nombre, monto, fecha, numero FROM bsale_cotizaciones WHERE numero = ${numero};`;
+      const { rows: facturaPorNumero } = await sql`SELECT documento_id, cliente_nombre, monto, fecha, numero FROM analisis_compras WHERE numero = ${numero};`;
+      return res.status(200).json({ numeroBuscado: numero, enCotizaciones: cotPorNumero, enFacturas: facturaPorNumero });
+    }
+    if (!codigo) return res.status(400).json({ error: 'Falta ?codigo= o ?numero=' });
     await asegurarTablaCompraAgil(sql);
 
     const { rows: ordenRows } = await sql`SELECT * FROM compra_agil_ordenes WHERE codigo = ${codigo};`;
