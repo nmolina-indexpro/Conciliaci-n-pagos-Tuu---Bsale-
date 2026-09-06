@@ -436,6 +436,8 @@ const ESTADO_PRIORIDAD_COTIZACION = {
 let sortColCot = 'prioridad';
 let sortAscCot = true;
 let sincronizandoCotizaciones = false;
+let sortColVend = 'montoVendido';
+let sortAscVend = false;
 const ESTADOS_COTIZACION_LABEL = {
   sin_contactar: 'Sin contactar',
   contactado: 'Contactado',
@@ -881,20 +883,46 @@ function renderVendedores(delRangoFiltrado){
     if(c.estado === 'facturada'){ v.facturadas++; v.montoVendido += c.monto; }
     if(c.estado === 'sin_contactar' && c.fecha){ v.sumaDiasAbiertas += diasEntreCot(c.fecha, hoyStrCot); v.countAbiertas++; }
   }
-  const filas = [...porVendedor.entries()].map(([clave, v]) => ({
+  let filas = [...porVendedor.entries()].map(([clave, v]) => ({
     clave, ...v,
     conversion: v.creadas ? Math.round(v.facturadas/v.creadas*100) : 0,
     ticketPromedio: v.facturadas ? v.montoVendido/v.facturadas : 0,
     antiguedadPromedio: v.countAbiertas ? Math.round(v.sumaDiasAbiertas/v.countAbiertas) : null,
     variacionPct: periodoAnt ? calcularVariacionPct(v.montoVendido, montoAnteriorPorVendedor.get(clave) || 0) : null,
-  })).sort((a,b)=>b.montoVendido-a.montoVendido);
+  }));
+  // Si el período anterior no aplica (sin rango de fechas elegido) y el
+  // orden activo era justo esa columna, no queda ninguna columna con ese
+  // dato -> se cae de vuelta al orden por defecto en vez de mostrar todo
+  // en el mismo orden sin ningún criterio visible.
+  const columnaOrdenValida = sortColVend !== 'variacionPct' || periodoAnt;
+  const colOrden = columnaOrdenValida ? sortColVend : 'montoVendido';
+  filas = filas.sort((a,b)=>{
+    let va = a[colOrden], vb = b[colOrden];
+    if(va==null && vb==null) return 0;
+    if(va==null) return 1; if(vb==null) return -1;
+    if(typeof va === 'string') return sortAscVend ? va.localeCompare(vb) : vb.localeCompare(va);
+    return sortAscVend ? va-vb : vb-va;
+  });
 
   if(filas.length === 0){
     $('wrapVendedores').innerHTML = '<p class="empty-note">No hay cotizaciones en ese rango de fechas.</p>';
     return;
   }
 
-  const thead = `<tr><th>Vendedor</th><th class="amount">Cotizaciones creadas</th><th class="amount">Facturadas</th><th class="amount">% conversión</th><th class="amount">Ticket promedio</th><th class="amount">Antigüedad abiertas</th><th class="amount">Monto vendido</th>${periodoAnt ? '<th class="amount">vs. período anterior</th>' : ''}</tr>`;
+  const colsVend = [
+    { key:'nombre', label:'Vendedor' },
+    { key:'creadas', label:'Cotizaciones creadas' },
+    { key:'facturadas', label:'Facturadas' },
+    { key:'conversion', label:'% conversión' },
+    { key:'ticketPromedio', label:'Ticket promedio' },
+    { key:'antiguedadPromedio', label:'Antigüedad abiertas' },
+    { key:'montoVendido', label:'Monto vendido' },
+    ...(periodoAnt ? [{ key:'variacionPct', label:'vs. período anterior' }] : []),
+  ];
+  const thead = `<tr>${colsVend.map(c=>{
+    const marca = sortColVend===c.key ? (sortAscVend?' ▲':' ▼') : '';
+    return `<th class="${c.key==='nombre'?'':'amount'}" onclick="cambiarOrdenVendedores('${c.key}')">${c.label}${marca}</th>`;
+  }).join('')}</tr>`;
   const tbody = filas.map(v => `<tr>
     <td><a href="#" class="doc-link" title="Filtrar la tabla de cotizaciones por este vendedor" onclick="event.preventDefault();filtrarPorVendedorCotizacion(${v.id})">${escapeHtmlCot(v.nombre)}</a></td>
     <td class="amount">${fmtNum(v.creadas)}</td>
@@ -968,6 +996,12 @@ function cambiarOrdenCotizaciones(col){
   if(sortColCot === col) sortAscCot = !sortAscCot;
   else { sortColCot = col; sortAscCot = col === 'prioridad'; }
   renderTablaCotizaciones();
+}
+
+function cambiarOrdenVendedores(col){
+  if(sortColVend === col) sortAscVend = !sortAscVend;
+  else { sortColVend = col; sortAscVend = col === 'nombre'; } // primer clic en Vendedor: A-Z; en el resto: mayor a menor
+  renderKpisCotizaciones();
 }
 
 // Muestra el número de documento como link directo a Bsale cuando hay URL disponible (mismo patrón que conciliacion.html)
