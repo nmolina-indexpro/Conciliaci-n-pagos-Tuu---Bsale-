@@ -5668,9 +5668,11 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
              c.id AS cot_id, c.numero AS cot_numero, c.url_cotizacion AS cot_url, c.estado AS cot_estado,
              c.fecha AS cot_fecha, c.vendedor_nombre AS cot_vendedor_nombre,
              c.documento_asociado_tipo, c.documento_asociado_numero, c.documento_asociado_url, c.documento_asociado_fecha,
+             fc.fecha AS cot_factura_fallback_fecha,
              f.numero AS factura_directa_numero, f.tipo_documento AS factura_directa_tipo, f.url AS factura_directa_url, f.fecha AS factura_directa_fecha
       FROM compra_agil_ordenes o
       LEFT JOIN bsale_cotizaciones c ON c.id = o.cotizacion_vinculada_id
+      LEFT JOIN analisis_compras fc ON fc.documento_id = c.documento_asociado_id
       LEFT JOIN analisis_compras f ON f.documento_id = o.factura_vinculada_id
       WHERE o.fecha_envio >= '2026-01-01'
       ORDER BY o.fecha_envio DESC NULLS LAST;
@@ -5684,16 +5686,24 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
       // Si hay cotización Y esa cotización ya se facturó, esa factura
       // encadenada es más específica (confirma que sí hubo cotización de
       // por medio) -> se prefiere sobre el vínculo directo si ambos existen.
-      const facturaEncadenada = r.documento_asociado_numero
+      // Pero una Guía de Despacho Electrónica no cuenta como "factura" acá
+      // -- si el documento encadenado o el directo es una guía, se ignora
+      // y se cae al otro vínculo (o a ninguno) en vez de mostrarla como si
+      // fuera la factura real (ver esGuiaDespacho).
+      const facturaEncadenada = (r.documento_asociado_numero && !esGuiaDespacho(r.documento_asociado_tipo))
         ? { tipo: r.documento_asociado_tipo, numero: r.documento_asociado_numero, url: r.documento_asociado_url }
         : null;
-      const facturaDirecta = r.factura_directa_numero
+      const facturaDirecta = (r.factura_directa_numero && !esGuiaDespacho(r.factura_directa_tipo))
         ? { tipo: r.factura_directa_tipo, numero: r.factura_directa_numero, url: r.factura_directa_url }
         : null;
       // Fecha efectiva de facturación: si la cotización se encadenó a un
-      // documento, esa fecha; si no, la del vínculo directo con
-      // analisis_compras.
-      const fechaFactura = r.documento_asociado_numero ? r.documento_asociado_fecha : (r.factura_directa_numero ? r.factura_directa_fecha : null);
+      // documento, esa fecha (con fallback a la fecha del mismo documento
+      // en analisis_compras, para cotizaciones vinculadas antes de que
+      // documento_asociado_fecha existiera); si no, la del vínculo directo
+      // con analisis_compras.
+      const fechaFactura = facturaEncadenada
+        ? (r.documento_asociado_fecha || r.cot_factura_fallback_fecha)
+        : (facturaDirecta ? r.factura_directa_fecha : null);
       let diasCotizacionFactura = null;
       if (r.cot_fecha && fechaFactura) {
         const dias = Math.round((new Date(fechaFactura) - new Date(r.cot_fecha)) / 86400000);
@@ -5779,6 +5789,19 @@ function contactoParecidoACliente(contactoNombre, clienteNombre) {
   return a === b || a.includes(b) || b.includes(a);
 }
 
+// Una Guía de Despacho Electrónica no es una factura/boleta -- es solo el
+// comprobante de entrega, y a veces se emite el mismo día y por el mismo
+// monto que la venta real, lo que la hace calzar por error como si fuera
+// "la factura" en el cruce por monto+fecha. Se usa para excluirla como
+// candidata en el vínculo directo de Compra Ágil (ver
+// vincularOrdenesCompraAgil) y al mostrar el documento vinculado (ver
+// manejarCompraAgilOrdenes) -- no toca esVentaReal() ni el resto de las
+// pantallas que la usan para sumar ventas, es un filtro puntual solo para
+// "qué documento mostrar como la factura de esta OC".
+function esGuiaDespacho(tipoDocumento) {
+  return normalizarTexto(tipoDocumento || '').includes('guia de despacho');
+}
+
 // De una lista de candidatos (ya filtrados por monto y ventana de fecha),
 // elige el más probable: primero cualquiera cuyo nombre calce (organismo o
 // contacto), el más cercano en fecha si hay más de uno así. Si NINGUNO
@@ -5822,6 +5845,17 @@ const COMPRA_AGIL_MAX_DIAS_SIN_NOMBRE = 20;
 // corre siempre al final de cada sincronización, no necesita su propio
 // botón ni cuidar ningún rate limit.
 async function vincularOrdenesCompraAgil(sql) {
+  // Autocorrección de vínculos directos que quedaron apuntando a una Guía
+  // de Despacho Electrónica (antes de que esta función excluyera ese tipo
+  // de documento más abajo) -- se limpian para que vuelvan a entrar al
+  // loop de abajo y, si existe una factura/boleta real dentro de la
+  // ventana de fecha, se re-vinculen con esa en vez de la guía.
+  await sql`
+    UPDATE compra_agil_ordenes o SET factura_vinculada_id = NULL
+    FROM analisis_compras f
+    WHERE o.factura_vinculada_id = f.documento_id AND f.tipo_documento ILIKE '%Guía%';
+  `;
+
   const { rows: pendientes } = await sql`
     SELECT codigo, organismo, contacto_nombre, total, fecha_envio, cotizacion_vinculada_id, factura_vinculada_id
     FROM compra_agil_ordenes
@@ -5872,6 +5906,7 @@ async function vincularOrdenesCompraAgil(sql) {
           AND fecha IS NOT NULL
           AND fecha >= (${fechaEnvio}::date - INTERVAL '5 days')
           AND fecha <= (${fechaEnvio}::date + INTERVAL '120 days')
+          AND (tipo_documento IS NULL OR tipo_documento NOT ILIKE '%Guía%')
           AND documento_id NOT IN (SELECT factura_vinculada_id FROM compra_agil_ordenes WHERE factura_vinculada_id IS NOT NULL)
       `;
       const matchFactura = elegirMejorCandidatoCompraAgil(candidatasFactura, fechaEnvio, nombreParece, COMPRA_AGIL_MAX_DIAS_SIN_NOMBRE);
