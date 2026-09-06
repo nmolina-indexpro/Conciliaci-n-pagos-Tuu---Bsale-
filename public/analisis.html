@@ -867,9 +867,10 @@ async function iniciarSincronizacion(){
         break;
       }
       completo = data.completo;
+      const pctAnalisis = data.totalDocumentos ? ` — ${Math.round(data.offsetActual / data.totalDocumentos * 100)}%` : '';
       $('syncStatus').textContent = completo
         ? 'Sincronización completa.'
-        : `Sincronizando... (${fmtNum(data.offsetActual)}${data.totalDocumentos ? ' de ' + fmtNum(data.totalDocumentos) : ''} documentos revisados)`;
+        : `Sincronizando...${pctAnalisis} (${fmtNum(data.offsetActual)}${data.totalDocumentos ? ' de ' + fmtNum(data.totalDocumentos) : ''} documentos revisados)`;
       if(completo){ cargarAnalisis(); cargarVentasBaja(); }
     }
   }catch(err){

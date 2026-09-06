@@ -1084,15 +1084,18 @@ function renderChartResultados(resultados){
 async function analizarRecientesIA(){
   const btn = $('btnAnalizarRecientes');
   btn.disabled = true;
-  let totalAnalizadas = 0, totalErrores = 0;
+  let totalAnalizadas = 0, totalErrores = 0, ultimoRestantesRecientes = 0;
   try{
     let completo = false;
     while (!completo) {
-      btn.textContent = totalAnalizadas > 0 ? `🤖 Analizando… (${totalAnalizadas} listas)` : '🤖 Analizando…';
+      const totalAprox = totalAnalizadas + (ultimoRestantesRecientes || 0);
+      const pct = totalAprox ? Math.round(totalAnalizadas / totalAprox * 100) : 0;
+      btn.textContent = totalAnalizadas > 0 ? `🤖 Analizando… ${pct}% (${totalAnalizadas} listas)` : '🤖 Analizando…';
       const res = await fetch('/api/negocio?recurso=whatsapp-analizar-pendientes&horas=12', { method: 'POST' });
       const data = await res.json();
       if (!res.ok || data.error) { alert(data.error || 'No se pudo analizar las conversaciones recientes.'); break; }
       totalAnalizadas += data.analizadas; totalErrores += data.errores;
+      ultimoRestantesRecientes = data.restantes || 0;
       completo = data.completo;
       if (data.analizadas === 0 && !completo) break; // nada avanzó, evita loop infinito
     }
@@ -1113,15 +1116,18 @@ async function analizarPendientesIA(){
   if (!confirm('¿Analizar con IA todas las conversaciones que todavía no tienen análisis? Puede tardar varios minutos si hay muchas, y cada conversación tiene un costo pequeño en la API de Claude.')) return;
   const btn = $('btnAnalizarPendientes');
   btn.disabled = true;
-  let totalAnalizadas = 0, totalErrores = 0;
+  let totalAnalizadas = 0, totalErrores = 0, ultimoRestantesPendientes = 0;
   try{
     let completo = false;
     while (!completo) {
-      btn.textContent = totalAnalizadas > 0 ? `🤖 Analizando… (${totalAnalizadas} listas)` : '🤖 Analizando…';
+      const totalAprox = totalAnalizadas + (ultimoRestantesPendientes || 0);
+      const pct = totalAprox ? Math.round(totalAnalizadas / totalAprox * 100) : 0;
+      btn.textContent = totalAnalizadas > 0 ? `🤖 Analizando… ${pct}% (${totalAnalizadas} listas)` : '🤖 Analizando…';
       const res = await fetch('/api/negocio?recurso=whatsapp-analizar-pendientes', { method: 'POST' });
       const data = await res.json();
       if (!res.ok || data.error) { alert(data.error || 'No se pudo analizar las conversaciones pendientes.'); break; }
       totalAnalizadas += data.analizadas; totalErrores += data.errores;
+      ultimoRestantesPendientes = data.restantes || 0;
       completo = data.completo;
       if (data.analizadas === 0 && !completo) break; // nada avanzó, evita loop infinito
     }
@@ -1142,15 +1148,18 @@ async function reanalizarDesactualizadas(){
   if (!confirm('¿Reanalizar conversaciones donde llegaron mensajes nuevos después del último análisis con IA? Puede tardar varios minutos, y cada reanálisis tiene un costo pequeño en la API de Claude.')) return;
   const btn = $('btnReanalizarDesactualizadas');
   btn.disabled = true;
-  let totalReanalizadas = 0, totalErrores = 0;
+  let totalReanalizadas = 0, totalErrores = 0, ultimoRestantesReanalisis = 0;
   try{
     let completo = false;
     while (!completo) {
-      btn.textContent = totalReanalizadas > 0 ? `🔄 Reanalizando… (${totalReanalizadas} listas)` : '🔄 Reanalizando…';
+      const totalAprox = totalReanalizadas + (ultimoRestantesReanalisis || 0);
+      const pct = totalAprox ? Math.round(totalReanalizadas / totalAprox * 100) : 0;
+      btn.textContent = totalReanalizadas > 0 ? `🔄 Reanalizando… ${pct}% (${totalReanalizadas} listas)` : '🔄 Reanalizando…';
       const res = await fetch('/api/negocio?recurso=whatsapp-reanalizar-desactualizadas', { method: 'POST' });
       const data = await res.json();
       if (!res.ok || data.error) { alert(data.error || 'No se pudo reanalizar las conversaciones desactualizadas.'); break; }
       totalReanalizadas += data.reanalizadas; totalErrores += data.errores;
+      ultimoRestantesReanalisis = data.restantes || 0;
       completo = data.completo;
       if (data.reanalizadas === 0 && !completo) break; // nada avanzó, evita loop infinito
     }
@@ -1175,7 +1184,8 @@ async function actualizarShopifyEnLote(){
   try{
     let completo = false;
     while (!completo) {
-      btn.textContent = totalActualizadas > 0 ? `🛒 Actualizando… (${totalActualizadas}/${total || '?'})` : '🛒 Actualizando…';
+      const pctShopify = total ? Math.round(offset / total * 100) : 0;
+      btn.textContent = totalActualizadas > 0 ? `🛒 Actualizando… ${pctShopify}% (${totalActualizadas}/${total || '?'})` : '🛒 Actualizando…';
       const res = await fetch('/api/negocio?recurso=whatsapp-actualizar-shopify', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ offset }),
       });
@@ -1201,15 +1211,18 @@ async function buscarVentasBsaleEnLote(){
   if (!confirm('¿Buscar en Bsale y Shopify (por teléfono) ventas que podrían corresponder a conversaciones sin venta confirmada? Es solo una sugerencia para revisar, no confirma nada automáticamente. Puede tardar varios minutos.')) return;
   const btn = $('btnBuscarVentasBsale');
   btn.disabled = true;
-  let totalRevisadas = 0, totalEncontradas = 0;
+  let totalRevisadas = 0, totalEncontradas = 0, ultimoRestantesVentas = 0;
   try{
     let completo = false;
     while (!completo) {
-      btn.textContent = totalRevisadas > 0 ? `🧾 Buscando… (${totalEncontradas} encontradas)` : '🧾 Buscando…';
+      const totalAprox = totalRevisadas + (ultimoRestantesVentas || 0);
+      const pct = totalAprox ? Math.round(totalRevisadas / totalAprox * 100) : 0;
+      btn.textContent = totalRevisadas > 0 ? `🧾 Buscando… ${pct}% (${totalEncontradas} encontradas)` : '🧾 Buscando…';
       const res = await fetch('/api/negocio?recurso=whatsapp-actualizar-ventas-bsale', { method: 'POST' });
       const data = await res.json();
       if (!res.ok || data.error) { alert(data.error || 'No se pudo buscar ventas en Bsale.'); break; }
       totalRevisadas += data.revisadas; totalEncontradas += data.encontradas;
+      ultimoRestantesVentas = data.restantes || 0;
       completo = data.completo;
       if (data.revisadas === 0 && !completo) break; // nada avanzó, evita loop infinito
     }

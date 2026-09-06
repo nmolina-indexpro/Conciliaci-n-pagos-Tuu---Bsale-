@@ -302,9 +302,10 @@ async function iniciarSincronizacion(){
         break;
       }
       completo = data.completo;
+      const pctServicios = data.totalDocumentos ? ` — ${Math.round(data.offsetActual / data.totalDocumentos * 100)}%` : '';
       $('syncStatus').textContent = completo
         ? 'Sincronización completa.'
-        : `Sincronizando... (${fmtNum(data.offsetActual)}${data.totalDocumentos ? ' de ' + fmtNum(data.totalDocumentos) : ''} documentos revisados)`;
+        : `Sincronizando...${pctServicios} (${fmtNum(data.offsetActual)}${data.totalDocumentos ? ' de ' + fmtNum(data.totalDocumentos) : ''} documentos revisados)`;
       if(completo) cargarServicios();
     }
   }catch(err){

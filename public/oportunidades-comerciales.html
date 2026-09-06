@@ -608,14 +608,19 @@ async function iniciarSincronizacion(){
       if(res.fase === 'correos'){
         totalCorreos += res.procesadosEnEstaLlamada || 0;
         if(!completo){
-          wrap.innerHTML = `<div class="note-box">📧 Completando correos (solo clientes con puntos)... ${fmtNum(totalCorreos)} revisados, ${fmtNum(res.pendientesCorreo||0)} pendientes. Continuando automáticamente...</div>`;
+          // No hay un "total" fijo para esta fase (solo se sabe cuántos
+          // faltan) -> se aproxima con lo ya hecho + lo pendiente.
+          const totalAprox = totalCorreos + (res.pendientesCorreo || 0);
+          const pctCorreos = totalAprox ? Math.round(totalCorreos / totalAprox * 100) : 0;
+          wrap.innerHTML = `<div class="note-box">📧 Completando correos (solo clientes con puntos)... ${pctCorreos}% (${fmtNum(totalCorreos)} revisados, ${fmtNum(res.pendientesCorreo||0)} pendientes). Continuando automáticamente...</div>`;
         } else {
           wrap.innerHTML = `<div class="note-box">✓ Sincronización completa — ${fmtNum(res.totalClientes)} clientes revisados, correos completados. Actualizando la lista...</div>`;
         }
       } else {
         totalListado += res.procesadosEnEstaLlamada || 0;
         if(!completo){
-          wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(res.offsetActual)} de ${fmtNum(res.totalClientes||0)} revisados. Continuando automáticamente...</div>`;
+          const pctPuntos = res.totalClientes ? Math.round(res.offsetActual / res.totalClientes * 100) : 0;
+          wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${pctPuntos}% (${fmtNum(res.offsetActual)} de ${fmtNum(res.totalClientes||0)} revisados). Continuando automáticamente...</div>`;
         } else {
           wrap.innerHTML = `<div class="note-box">✓ Sincronización completa — ${fmtNum(res.totalClientes)} clientes revisados. Actualizando la lista...</div>`;
         }
@@ -976,11 +981,14 @@ async function iniciarSincronizacionCotizaciones(){
             : '';
           wrap.innerHTML = `<div class="note-box">✓ Sincronización completa — ${fmtNum(res.vinculosEncontrados||0)} cotizaciones vinculadas a una boleta/factura en esta corrida.${nota} Actualizando la lista...</div>`;
         } else {
-          wrap.innerHTML = `<div class="note-box">🧾 Revisando historial de compras y buscando vínculos con boletas/facturas... ${fmtNum(totalHistorial)} clientes revisados, ${fmtNum(res.pendientesHistorial||0)} pendientes. Continuando automáticamente...</div>`;
+          const totalAproxHist = totalHistorial + (res.pendientesHistorial || 0);
+          const pctHist = totalAproxHist ? Math.round(totalHistorial / totalAproxHist * 100) : 0;
+          wrap.innerHTML = `<div class="note-box">🧾 Revisando historial de compras y buscando vínculos con boletas/facturas... ${pctHist}% (${fmtNum(totalHistorial)} clientes revisados, ${fmtNum(res.pendientesHistorial||0)} pendientes). Continuando automáticamente...</div>`;
         }
       } else {
         totalListado += res.procesadosEnEstaLlamada || 0;
-        wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(res.offsetActual)} de ${fmtNum(res.totalDocumentos||0)} documentos revisados. Continuando automáticamente...</div>`;
+        const pctCot = res.totalDocumentos ? Math.round(res.offsetActual / res.totalDocumentos * 100) : 0;
+        wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${pctCot}% (${fmtNum(res.offsetActual)} de ${fmtNum(res.totalDocumentos||0)} documentos revisados). Continuando automáticamente...</div>`;
       }
     }
   }catch(err){
@@ -1365,16 +1373,27 @@ async function iniciarSincronizacionIndexpro(){
   try{
     let completo = false;
     let totalMatch = 0, totalHistorial = 0;
+    let faseActual = 'match', pctIndexpro = 0;
+    const ETIQUETA_FASE_INDEXPRO = { match: 'Buscando RUT en Bsale', historial: 'Trayendo historial de compras' };
     while(!completo){
-      wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(totalMatch)} RUT revisados, ${fmtNum(totalHistorial)} historiales traídos. No cierres la página.</div>`;
+      wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${pctIndexpro}% (${ETIQUETA_FASE_INDEXPRO[faseActual]}: ${fmtNum(totalMatch)} RUT revisados, ${fmtNum(totalHistorial)} historiales traídos). No cierres la página.</div>`;
       const res = await fetch('/api/negocio?recurso=sync-indexpro', { method: 'POST' }).then(r=>r.json());
       if(res.error){
         wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${res.detail || res.error}</div>`;
         break;
       }
       completo = !!res.completo;
+      faseActual = res.fase || faseActual;
       totalMatch += res.matcheadosEnEstaLlamada || 0;
       totalHistorial += res.procesadosEnEstaLlamada || 0;
+      // "pendientes" es lo que falta de la fase EN CURSO nada más -> la
+      // fase de historial no arranca hasta que la de match termina del
+      // todo, así que mientras se está en "match" el % solo refleja esa
+      // fase (no hay forma de saber de antemano cuánto durará la de
+      // historial después).
+      const procesadosFaseActual = faseActual === 'historial' ? totalHistorial : totalMatch;
+      const totalFaseActual = procesadosFaseActual + (res.pendientes || 0);
+      pctIndexpro = completo ? 100 : (totalFaseActual ? Math.round(procesadosFaseActual / totalFaseActual * 100) : 0);
       if(completo) wrap.innerHTML = `<div class="note-box">✓ Sincronización completa. Actualizando la lista...</div>`;
     }
   }catch(err){

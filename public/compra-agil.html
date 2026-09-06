@@ -240,9 +240,10 @@ async function iniciarSincronizacion(){
       diasHechos += res.diasProcesadosEnEstaLlamada || 0;
       ordenesNuevas += res.ordenesNuevasEnEstaLlamada || 0;
       vinculosNuevos += res.vinculosNuevosEnEstaLlamada || 0;
+      const pctCompraAgil = res.diasTotales ? Math.round((res.offsetActual||0) / res.diasTotales * 100) : 0;
       $('syncStatus').textContent = completo
         ? `Sincronización completa — ${fmtNum(ordenesNuevas)} órdenes nuevas, ${fmtNum(vinculosNuevos)} vinculadas a una cotización de Bsale.`
-        : `Sincronizando... ${fmtNum(res.offsetActual)} de ${fmtNum(res.diasTotales)} días revisados, ${fmtNum(ordenesNuevas)} órdenes nuevas. Continuando automáticamente, no cierres la página...`;
+        : `Sincronizando... ${pctCompraAgil}% (${fmtNum(res.offsetActual)} de ${fmtNum(res.diasTotales)} días revisados), ${fmtNum(ordenesNuevas)} órdenes nuevas. Continuando automáticamente, no cierres la página...`;
       if(completo) cargarOrdenes();
     }
   }catch(err){

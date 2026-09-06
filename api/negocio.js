@@ -2300,7 +2300,7 @@ async function manejarSyncIndexpro(req, res, sesion) {
     let matcheados = 0;
     for (const fila of pendientesMatch) {
       if (presupuestoRestante() <= 0) {
-        return res.status(200).json({ completo: false, fase: 'match', procesadosEnEstaLlamada: matcheados });
+        return res.status(200).json({ completo: false, fase: 'match', procesadosEnEstaLlamada: matcheados, pendientes: pendientesMatch.length - matcheados });
       }
       await esperarRitmo();
 
@@ -2338,7 +2338,7 @@ async function manejarSyncIndexpro(req, res, sesion) {
     const haceUnAnio = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
     for (const fila of pendientesHistorial) {
       if (presupuestoRestante() <= 0) {
-        return res.status(200).json({ completo: false, fase: 'historial', procesadosEnEstaLlamada: historiales, matcheadosEnEstaLlamada: matcheados });
+        return res.status(200).json({ completo: false, fase: 'historial', procesadosEnEstaLlamada: historiales, matcheadosEnEstaLlamada: matcheados, pendientes: pendientesHistorial.length - historiales });
       }
       await esperarRitmo();
 
