@@ -5744,6 +5744,22 @@ function organismoParecidoACliente(organismo, clienteNombre) {
   return a.includes(b) || b.includes(a);
 }
 
+// Compara el nombre de la persona de CONTACTO del organismo (Comprador.
+// NombreContacto de Mercado Público) contra el cliente de Bsale -- resultó
+// ser el cruce que de verdad funciona: al facturar, IndexPro registra en
+// Bsale como "cliente" al contacto que hizo el pedido (una persona, ej.
+// "Cinthia Brante Tobar"), no al organismo ("I MUNICIPALIDAD DE OLMUE").
+// Sin ruido de "municipalidad"/"ilustre" que quitar acá (son nombres de
+// persona, no de institución), pero sí normalizado igual (mayúsculas,
+// tildes) porque Bsale a veces lo guarda en mayúsculas y Mercado Público
+// no.
+function contactoParecidoACliente(contactoNombre, clienteNombre) {
+  const limpiar = s => normalizarTexto(s).replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const a = limpiar(contactoNombre), b = limpiar(clienteNombre);
+  if (!a || !b) return false;
+  return a === b || a.includes(b) || b.includes(a);
+}
+
 // Vincula cada OC de Compra Ágil sin vínculo todavía con la cotización de
 // Bsale que más probablemente corresponde a esa compra -- por monto
 // (±$2, mismo margen que ya usa el vínculo cotización->factura más abajo)
@@ -5759,7 +5775,7 @@ function organismoParecidoACliente(organismo, clienteNombre) {
 // ningún rate limit.
 async function vincularOrdenesCompraAgil(sql) {
   const { rows: pendientes } = await sql`
-    SELECT codigo, organismo, total, fecha_envio, cotizacion_vinculada_id, factura_vinculada_id
+    SELECT codigo, organismo, contacto_nombre, total, fecha_envio, cotizacion_vinculada_id, factura_vinculada_id
     FROM compra_agil_ordenes
     WHERE cotizacion_vinculada_id IS NULL OR factura_vinculada_id IS NULL;
   `;
@@ -5767,6 +5783,11 @@ async function vincularOrdenesCompraAgil(sql) {
   for (const orden of pendientes) {
     if (!orden.fecha_envio || !orden.organismo) continue;
     const fechaEnvio = new Date(orden.fecha_envio).toISOString().slice(0, 10);
+    // El contacto (persona) suele calzar mejor que el organismo -- ver
+    // contactoParecidoACliente -- pero se prueban los dos, cualquiera que
+    // calce sirve.
+    const nombreParece = clienteNombre => organismoParecidoACliente(orden.organismo, clienteNombre)
+      || (orden.contacto_nombre && contactoParecidoACliente(orden.contacto_nombre, clienteNombre));
     let algoNuevo = false;
 
     if (orden.cotizacion_vinculada_id == null) {
@@ -5779,7 +5800,7 @@ async function vincularOrdenesCompraAgil(sql) {
           AND id NOT IN (SELECT cotizacion_vinculada_id FROM compra_agil_ordenes WHERE cotizacion_vinculada_id IS NOT NULL)
         ORDER BY ABS(monto - ${orden.total}) ASC;
       `;
-      const match = candidatas.find(c => organismoParecidoACliente(orden.organismo, c.cliente_nombre));
+      const match = candidatas.find(c => nombreParece(c.cliente_nombre));
       if (match) {
         await sql`UPDATE compra_agil_ordenes SET cotizacion_vinculada_id = ${match.id} WHERE codigo = ${orden.codigo};`;
         algoNuevo = true;
@@ -5806,7 +5827,7 @@ async function vincularOrdenesCompraAgil(sql) {
           AND documento_id NOT IN (SELECT factura_vinculada_id FROM compra_agil_ordenes WHERE factura_vinculada_id IS NOT NULL)
         ORDER BY ABS(monto - ${orden.total}) ASC;
       `;
-      const matchFactura = candidatasFactura.find(c => organismoParecidoACliente(orden.organismo, c.cliente_nombre));
+      const matchFactura = candidatasFactura.find(c => nombreParece(c.cliente_nombre));
       if (matchFactura) {
         await sql`UPDATE compra_agil_ordenes SET factura_vinculada_id = ${matchFactura.documento_id} WHERE codigo = ${orden.codigo};`;
         algoNuevo = true;
@@ -5875,10 +5896,10 @@ async function manejarCompraAgilDebugVinculo(req, res, sesion) {
     `;
 
     return res.status(200).json({
-      orden: { codigo: orden.codigo, organismo: orden.organismo, total: Number(orden.total), fechaEnvio, cotizacionVinculadaId: orden.cotizacion_vinculada_id, facturaVinculadaId: orden.factura_vinculada_id },
+      orden: { codigo: orden.codigo, organismo: orden.organismo, contactoNombre: orden.contacto_nombre, total: Number(orden.total), fechaEnvio, cotizacionVinculadaId: orden.cotizacion_vinculada_id, facturaVinculadaId: orden.factura_vinculada_id },
       busquedaPorPalabra: primeraPalabraOrganismo,
-      cotizacionesQueCalzanPorMonto: cotCandidatas.map(c => ({ id: c.id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, organismoParece: organismoParecidoACliente(orden.organismo, c.cliente_nombre) })),
-      facturasQueCalzanPorMonto: facturaCandidatas.map(c => ({ documentoId: c.documento_id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, organismoParece: organismoParecidoACliente(orden.organismo, c.cliente_nombre) })),
+      cotizacionesQueCalzanPorMonto: cotCandidatas.map(c => ({ id: c.id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, organismoParece: organismoParecidoACliente(orden.organismo, c.cliente_nombre), contactoParece: orden.contacto_nombre ? contactoParecidoACliente(orden.contacto_nombre, c.cliente_nombre) : null })),
+      facturasQueCalzanPorMonto: facturaCandidatas.map(c => ({ documentoId: c.documento_id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, organismoParece: organismoParecidoACliente(orden.organismo, c.cliente_nombre), contactoParece: orden.contacto_nombre ? contactoParecidoACliente(orden.contacto_nombre, c.cliente_nombre) : null })),
       cotizacionesQueCalzanPorNombre: cotPorNombre.map(c => ({ id: c.id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, montoCalza: Math.abs(Number(c.monto) - Number(orden.total)) <= 2 })),
       facturasQueCalzanPorNombre: facturaPorNombre.map(c => ({ documentoId: c.documento_id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, montoCalza: Math.abs(Number(c.monto) - Number(orden.total)) <= 2 })),
       totales: totalesRows[0],
@@ -5935,8 +5956,13 @@ async function manejarSyncCompraAgil(req, res, sesion) {
 
         for (const oc of listado) {
           if (!oc.Codigo || yaCacheadas.has(oc.Codigo)) continue;
-          const { rows: existe } = await sql`SELECT 1 FROM compra_agil_ordenes WHERE codigo = ${oc.Codigo};`;
-          if (existe.length > 0) { yaCacheadas.add(oc.Codigo); continue; }
+          // Se sigue tratando como "ya cacheada" (no se vuelve a pedir el
+          // detalle) SALVO que le falte contacto_nombre -- eso pasa con
+          // las OC guardadas antes de que este campo existiera; se
+          // aprovecha esta misma pasada para completarlo, no hace falta
+          // una migración aparte.
+          const { rows: existe } = await sql`SELECT contacto_nombre FROM compra_agil_ordenes WHERE codigo = ${oc.Codigo};`;
+          if (existe.length > 0 && existe[0].contacto_nombre != null) { yaCacheadas.add(oc.Codigo); continue; }
 
           if (presupuestoRestante() <= 0) break; // se completa el detalle en la próxima llamada
           await esperarRitmo();
@@ -5948,13 +5974,15 @@ async function manejarSyncCompraAgil(req, res, sesion) {
           if (!detalle) continue;
 
           await sql`
-            INSERT INTO compra_agil_ordenes (codigo, codigo_estado, estado, nombre, organismo, total, fecha_envio, fecha_aceptacion, sincronizado_en)
+            INSERT INTO compra_agil_ordenes (codigo, codigo_estado, estado, nombre, organismo, total, fecha_envio, fecha_aceptacion, contacto_nombre, sincronizado_en)
             VALUES (${detalle.Codigo}, ${detalle.CodigoEstado || null}, ${detalle.Estado || null}, ${detalle.Nombre || null},
                     ${detalle.Comprador?.NombreOrganismo || null}, ${Number(detalle.Total) || 0},
-                    ${detalle.Fechas?.FechaEnvio || null}, ${detalle.Fechas?.FechaAceptacion || null}, now())
+                    ${detalle.Fechas?.FechaEnvio || null}, ${detalle.Fechas?.FechaAceptacion || null},
+                    ${detalle.Comprador?.NombreContacto || null}, now())
             ON CONFLICT (codigo) DO UPDATE SET
               codigo_estado = EXCLUDED.codigo_estado, estado = EXCLUDED.estado, total = EXCLUDED.total,
-              organismo = EXCLUDED.organismo, fecha_aceptacion = EXCLUDED.fecha_aceptacion, sincronizado_en = now();
+              organismo = EXCLUDED.organismo, fecha_aceptacion = EXCLUDED.fecha_aceptacion,
+              contacto_nombre = EXCLUDED.contacto_nombre, sincronizado_en = now();
           `;
           yaCacheadas.add(oc.Codigo);
           ordenesNuevas++;
