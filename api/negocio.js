@@ -5672,6 +5672,7 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
       FROM compra_agil_ordenes o
       LEFT JOIN bsale_cotizaciones c ON c.id = o.cotizacion_vinculada_id
       LEFT JOIN analisis_compras f ON f.documento_id = o.factura_vinculada_id
+      WHERE o.fecha_envio >= '2026-01-01'
       ORDER BY o.fecha_envio DESC NULLS LAST;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM compra_agil_sync_estado WHERE id = 1;`;
