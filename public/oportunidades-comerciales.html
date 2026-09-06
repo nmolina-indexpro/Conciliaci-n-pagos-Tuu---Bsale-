@@ -883,17 +883,22 @@ function renderVendedores(delRangoFiltrado){
   const porVendedor = new Map();
   for(const c of delRangoFiltrado){
     const clave = c.vendedorId ?? 'sin_vendedor';
-    if(!porVendedor.has(clave)) porVendedor.set(clave, { id: c.vendedorId ?? null, nombre: c.vendedorNombre || 'Sin vendedor asignado', creadas:0, facturadas:0, montoVendido:0, sumaDiasAbiertas:0, countAbiertas:0 });
+    if(!porVendedor.has(clave)) porVendedor.set(clave, { id: c.vendedorId ?? null, nombre: c.vendedorNombre || 'Sin vendedor asignado', creadas:0, facturadas:0, montoVendido:0, sumaDiasAbiertas:0, countAbiertas:0, sumaDiasCierre:0, countCierre:0 });
     const v = porVendedor.get(clave);
     v.creadas++;
     if(c.estado === 'facturada'){ v.facturadas++; v.montoVendido += c.monto; }
     if(c.estado === 'sin_contactar' && c.fecha){ v.sumaDiasAbiertas += diasEntreCot(c.fecha, hoyStrCot); v.countAbiertas++; }
+    if(c.fecha && c.documentoAsociadoFecha){
+      const dias = diasEntreCot(c.fecha, c.documentoAsociadoFecha);
+      if(dias >= 0){ v.sumaDiasCierre += dias; v.countCierre++; }
+    }
   }
   let filas = [...porVendedor.entries()].map(([clave, v]) => ({
     clave, ...v,
     conversion: v.creadas ? Math.round(v.facturadas/v.creadas*100) : 0,
     ticketPromedio: v.facturadas ? v.montoVendido/v.facturadas : 0,
     antiguedadPromedio: v.countAbiertas ? Math.round(v.sumaDiasAbiertas/v.countAbiertas) : null,
+    diasCierrePromedio: v.countCierre ? Math.round(v.sumaDiasCierre/v.countCierre) : null,
     variacionPct: periodoAnt ? calcularVariacionPct(v.montoVendido, montoAnteriorPorVendedor.get(clave) || 0) : null,
   }));
   // Si el período anterior no aplica (sin rango de fechas elegido) y el
@@ -922,6 +927,7 @@ function renderVendedores(delRangoFiltrado){
     { key:'conversion', label:'% conversión' },
     { key:'ticketPromedio', label:'Ticket promedio' },
     { key:'antiguedadPromedio', label:'Antigüedad abiertas' },
+    { key:'diasCierrePromedio', label:'Cotización → factura' },
     { key:'montoVendido', label:'Monto vendido' },
     ...(periodoAnt ? [{ key:'variacionPct', label:'vs. período anterior' }] : []),
   ];
@@ -936,6 +942,7 @@ function renderVendedores(delRangoFiltrado){
     <td class="amount">${v.conversion < 50 ? `<span class="badge no">${v.conversion}%</span>` : `${v.conversion}%`}</td>
     <td class="amount">${fmtMoneda(v.ticketPromedio)}</td>
     <td class="amount">${v.antiguedadPromedio == null ? '<span class="empty-note">—</span>' : `${fmtNum(v.antiguedadPromedio)} días`}</td>
+    <td class="amount">${v.diasCierrePromedio == null ? '<span class="empty-note">—</span>' : `${fmtNum(v.diasCierrePromedio)} días`}</td>
     <td class="amount"><b>${fmtMoneda(v.montoVendido)}</b></td>
     ${periodoAnt ? `<td class="amount">${notaVariacionHtml(v.variacionPct) || '<span class="empty-note">—</span>'}</td>` : ''}
   </tr>`).join('');
@@ -1061,6 +1068,16 @@ function diasSinContactoCot(c){
 }
 const UMBRAL_DIAS_SIN_CONTACTO_COT = 7;
 
+// Días entre que se creó la cotización y se emitió el documento asociado
+// -- null si todavía no se factura, o si el vínculo es más viejo que
+// documento_asociado_fecha (cotizaciones vinculadas antes de que ese campo
+// existiera, ver lib/db.js).
+function diasCotizacionFacturaCot(c){
+  if(!c.fecha || !c.documentoAsociadoFecha) return null;
+  const dias = diasEntreCot(c.fecha, c.documentoAsociadoFecha);
+  return dias >= 0 ? dias : null;
+}
+
 function renderTablaCotizaciones(){
   renderKpisCotizaciones();
   let filas = cotizacionesFiltradas();
@@ -1072,6 +1089,12 @@ function renderTablaCotizaciones(){
     }
     if(sortColCot === 'diasSinContacto'){
       const da = diasSinContactoCot(a), db = diasSinContactoCot(b);
+      if(da==null) return 1; if(db==null) return -1;
+      return sortAscCot ? da-db : db-da;
+    }
+    if(sortColCot === 'diasCotizacionFactura'){
+      const da = diasCotizacionFacturaCot(a), db = diasCotizacionFacturaCot(b);
+      if(da==null && db==null) return 0;
       if(da==null) return 1; if(db==null) return -1;
       return sortAscCot ? da-db : db-da;
     }
@@ -1118,6 +1141,10 @@ function renderTablaCotizaciones(){
         if(!c.documentoAsociadoNumero) return '<span class="empty-note">—</span>';
         const numeroConTipo = `${c.documentoAsociadoTipo||'Documento'} ${c.documentoAsociadoNumero}`;
         return c.documentoAsociadoUrl ? `<a href="${c.documentoAsociadoUrl}" target="_blank" rel="noopener" class="doc-link">${numeroConTipo} ↗</a>` : numeroConTipo;
+      } },
+    { key:'diasCotizacionFactura', label:'Cotización → factura', align:'amount', render:c=>{
+        const dias = diasCotizacionFacturaCot(c);
+        return dias == null ? '<span class="empty-note">—</span>' : `${fmtNum(dias)} días`;
       } },
     { key:'estado', label:'Estado', render:c=>`<select class="estado-select" onchange="cambiarEstadoCotizacion(${c.id}, this.value)">
         ${Object.entries(ESTADOS_COTIZACION_LABEL).map(([valor,label])=>`<option value="${valor}" ${c.estado===valor?'selected':''}>${label}</option>`).join('')}
