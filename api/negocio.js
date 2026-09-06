@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
@@ -112,6 +112,8 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-usuarios') return manejarWhatsappUsuarios(req, res, sesion);
   if (recurso === 'whatsapp-debug-categoria') return manejarWhatsappDebugCategoria(req, res, sesion);
   if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
+  if (recurso === 'compra-agil-ordenes') return manejarCompraAgilOrdenes(req, res, sesion);
+  if (recurso === 'sync-compra-agil') return manejarSyncCompraAgil(req, res, sesion);
   return res.status(400).json({ error: 'Falta un ?recurso= válido (ver api/negocio.js)' });
 }
 
@@ -5595,3 +5597,179 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
   }
 }
 
+
+// ══════════════════════════════════════════════════════════════════════
+// COMPRA ÁGIL (Mercado Público) — órdenes de compra recibidas por IndexPro
+// ══════════════════════════════════════════════════════════════════════
+// RUT 76.200.548-4 (Servicios Informáticos IndexPro Ltda.) ya resuelto una
+// vez contra la API oficial de Mercado Público -> CodigoEmpresa 1295270.
+// Se deja fijo (no se resuelve en cada request) porque IndexPro solo tiene
+// un RUT y ese código no cambia; si algún día se necesitara otro RUT, este
+// es el único lugar a tocar.
+const MP_RUT_INDEXPRO = '76.200.548-4';
+const MP_CODIGO_PROVEEDOR = '1295270';
+// Ticket demo público de Mercado Público (mismo que usaba el portal viejo
+// compra-agil-two) -- se puede pisar con MP_TICKET si alguna vez se
+// consigue un ticket propio (mercadopublico.cl > Desarrolladores), lo que
+// además debería tener mejor límite de solicitudes que el demo.
+const MP_TICKET = process.env.MP_TICKET || 'B0689F6E-27AD-41C2-9CC6-59FE6192F3D2';
+// El endpoint público de órdenes de compra por día responde 429 (Too Many
+// Requests) con cualquier ritmo más rápido que esto -- confirmado a mano:
+// 2 solicitudes seguidas sin espera ya gatillan el límite. 1.3s de por
+// medio no dio ningún 429 en una prueba de 365 días seguidos.
+const MP_SYNC_INTERVALO_MIN_MS = 1300;
+// Presupuesto algo más ajustado que el de Bsale (PUNTOS_SYNC_PRESUPUESTO_MS)
+// -- esta función además hace una segunda solicitud (detalle de la OC) por
+// cada día con resultados, así que cada "paso" puede tardar más de un
+// ciclo de espera.
+const MP_SYNC_PRESUPUESTO_MS = 45000;
+
+function mpToDate(d) {
+  return String(d.getDate()).padStart(2, '0') + String(d.getMonth() + 1).padStart(2, '0') + d.getFullYear();
+}
+
+// Lee la orden de compra recibida por IndexPro para service GET
+// /api/negocio?recurso=compra-agil-ordenes -- simplemente lee el cache en
+// Postgres que llena manejarSyncCompraAgil, no llama a Mercado Público.
+async function manejarCompraAgilOrdenes(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaCompraAgil(sql);
+
+    const { rows } = await sql`
+      SELECT codigo, codigo_estado, estado, nombre, organismo, total, fecha_envio, fecha_aceptacion
+      FROM compra_agil_ordenes
+      ORDER BY fecha_envio DESC NULLS LAST;
+    `;
+    const { rows: estadoRows } = await sql`SELECT * FROM compra_agil_sync_estado WHERE id = 1;`;
+    const estado = estadoRows[0] || {};
+
+    // "Cancelada" no cuenta como facturado -- el resto (Aceptada, Recepción
+    // Conforme, etc.) sí, son órdenes que el organismo efectivamente recibió.
+    const ordenes = rows.map(r => ({
+      codigo: r.codigo, codigoEstado: r.codigo_estado, estado: r.estado, nombre: r.nombre,
+      organismo: r.organismo, total: Number(r.total) || 0,
+      fechaEnvio: r.fecha_envio, fechaAceptacion: r.fecha_aceptacion,
+      cuentaComoFacturado: r.estado !== 'Cancelada',
+    }));
+    const validas = ordenes.filter(o => o.cuentaComoFacturado);
+
+    return res.status(200).json({
+      ordenes,
+      totalOrdenes: ordenes.length,
+      totalOrdenesValidas: validas.length,
+      totalFacturado: validas.reduce((s, o) => s + o.total, 0),
+      diasTotales: estado.dias_totales || 400,
+      offsetActual: estado.offset_actual || 0,
+      ultimaPasadaCompletaEn: estado.ultima_pasada_completa_en || null,
+      rut: MP_RUT_INDEXPRO,
+      codigoProveedor: MP_CODIGO_PROVEEDOR,
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error leyendo Compra Ágil', detail: String(err) });
+  }
+}
+
+// Sincronización resumible con Mercado Público -- POST
+// /api/negocio?recurso=sync-compra-agil, solo admin (mismo patrón que
+// sync-clientes-puntos/sync-servicios-tecnico: el frontend la llama en
+// cadena hasta que responde completo:true, ver compra-agil.html).
+//
+// Por qué es resumible: la API pública de órdenes de compra solo se puede
+// consultar UN DÍA a la vez (no hay filtro por rango de fechas), y tiene un
+// límite de ritmo estricto (ver MP_SYNC_INTERVALO_MIN_MS) -- recorrer
+// ~400 días a ese ritmo toma varios minutos, más de lo que dura una sola
+// invocación de función en Vercel (tope de 60s en plan Hobby).
+//
+// Cada "día" de offset_actual son DOS llamadas a Mercado Público si ese día
+// tiene órdenes nuevas para este proveedor: (1) el listado del día
+// (liviano, sin monto/organismo) y (2) el detalle de cada OC nueva del
+// listado (trae Total, Estado y Comprador -- lo que de verdad importa acá).
+// Una OC ya cacheada (por código) no se vuelve a pedir en detalle.
+async function manejarSyncCompraAgil(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sincronizar Compra Ágil' });
+
+  const inicio = Date.now();
+  try {
+    const sql = await getSql();
+    await asegurarTablaCompraAgil(sql);
+
+    const { rows: estadoRows } = await sql`SELECT * FROM compra_agil_sync_estado WHERE id = 1;`;
+    const estado = estadoRows[0] || {};
+    let offset = estado.offset_actual || 0;
+    const totalDias = estado.dias_totales || 400;
+
+    let ultimaPeticion = 0;
+    const presupuestoRestante = () => MP_SYNC_PRESUPUESTO_MS - (Date.now() - inicio);
+    const esperarRitmo = async () => {
+      const espera = MP_SYNC_INTERVALO_MIN_MS - (Date.now() - ultimaPeticion);
+      if (espera > 0) await new Promise(r => setTimeout(r, espera));
+      ultimaPeticion = Date.now();
+    };
+    const yaCacheadas = new Set();
+
+    let diasProcesados = 0;
+    let ordenesNuevas = 0;
+    let pasadaTerminada = offset >= totalDias;
+
+    while (!pasadaTerminada && presupuestoRestante() > 0) {
+      const fecha = new Date();
+      fecha.setDate(fecha.getDate() - offset);
+      const fechaMp = mpToDate(fecha);
+
+      await esperarRitmo();
+      const urlListado = `https://api.mercadopublico.cl/servicios/v1/publico/ordenesdecompra.json?fecha=${fechaMp}&CodigoProveedor=${MP_CODIGO_PROVEEDOR}&ticket=${MP_TICKET}`;
+      const rListado = await fetchConTimeout(urlListado, {}, 9000);
+      if (rListado.status !== 429 && rListado.ok) {
+        const dataListado = await rListado.json().catch(() => null);
+        const listado = dataListado?.Listado || [];
+
+        for (const oc of listado) {
+          if (!oc.Codigo || yaCacheadas.has(oc.Codigo)) continue;
+          const { rows: existe } = await sql`SELECT 1 FROM compra_agil_ordenes WHERE codigo = ${oc.Codigo};`;
+          if (existe.length > 0) { yaCacheadas.add(oc.Codigo); continue; }
+
+          if (presupuestoRestante() <= 0) break; // se completa el detalle en la próxima llamada
+          await esperarRitmo();
+          const urlDetalle = `https://api.mercadopublico.cl/servicios/v1/publico/ordenesdecompra.json?codigo=${encodeURIComponent(oc.Codigo)}&ticket=${MP_TICKET}`;
+          const rDetalle = await fetchConTimeout(urlDetalle, {}, 9000);
+          if (rDetalle.status === 429 || !rDetalle.ok) continue; // se reintenta en la próxima pasada (no queda marcada como cacheada)
+          const dataDetalle = await rDetalle.json().catch(() => null);
+          const detalle = dataDetalle?.Listado?.[0];
+          if (!detalle) continue;
+
+          await sql`
+            INSERT INTO compra_agil_ordenes (codigo, codigo_estado, estado, nombre, organismo, total, fecha_envio, fecha_aceptacion, sincronizado_en)
+            VALUES (${detalle.Codigo}, ${detalle.CodigoEstado || null}, ${detalle.Estado || null}, ${detalle.Nombre || null},
+                    ${detalle.Comprador?.NombreOrganismo || null}, ${Number(detalle.Total) || 0},
+                    ${detalle.Fechas?.FechaEnvio || null}, ${detalle.Fechas?.FechaAceptacion || null}, now())
+            ON CONFLICT (codigo) DO UPDATE SET
+              codigo_estado = EXCLUDED.codigo_estado, estado = EXCLUDED.estado, total = EXCLUDED.total,
+              organismo = EXCLUDED.organismo, fecha_aceptacion = EXCLUDED.fecha_aceptacion, sincronizado_en = now();
+          `;
+          yaCacheadas.add(oc.Codigo);
+          ordenesNuevas++;
+        }
+      }
+      // Un 429 en el listado del día no aborta la sincronización -- ese día
+      // simplemente se reintenta en la siguiente pasada completa (offset
+      // vuelve a 0 al terminar), no vale la pena bloquear el resto por uno.
+
+      offset++;
+      diasProcesados++;
+      pasadaTerminada = offset >= totalDias;
+      await sql`UPDATE compra_agil_sync_estado SET offset_actual = ${offset}, actualizado_en = now() WHERE id = 1;`;
+    }
+
+    if (!pasadaTerminada) {
+      return res.status(200).json({ completo: false, diasProcesadosEnEstaLlamada: diasProcesados, ordenesNuevasEnEstaLlamada: ordenesNuevas, offsetActual: offset, diasTotales: totalDias });
+    }
+
+    await sql`UPDATE compra_agil_sync_estado SET offset_actual = 0, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
+    return res.status(200).json({ completo: true, diasProcesadosEnEstaLlamada: diasProcesados, ordenesNuevasEnEstaLlamada: ordenesNuevas, diasTotales: totalDias });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error sincronizando con Mercado Público', detail: String(err) });
+  }
+}
