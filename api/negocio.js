@@ -837,7 +837,7 @@ async function manejarCotizacionesClientes(req, res, sesion) {
 
     const { rows } = await sql`
       SELECT id, numero, cliente_id, cliente_nombre, cliente_telefono, monto, fecha, cliente_ha_comprado, estado, actualizado_por, actualizado_en,
-             url_cotizacion, documento_asociado_id, documento_asociado_tipo, documento_asociado_numero, documento_asociado_url,
+             url_cotizacion, documento_asociado_id, documento_asociado_tipo, documento_asociado_numero, documento_asociado_url, documento_asociado_fecha,
              vendedor_id, vendedor_nombre
       FROM bsale_cotizaciones ORDER BY fecha DESC NULLS LAST, id DESC;
     `;
@@ -863,6 +863,7 @@ async function manejarCotizacionesClientes(req, res, sesion) {
       documentoAsociadoTipo: r.documento_asociado_tipo,
       documentoAsociadoNumero: r.documento_asociado_numero,
       documentoAsociadoUrl: r.documento_asociado_url,
+      documentoAsociadoFecha: r.documento_asociado_fecha ? new Date(r.documento_asociado_fecha).toISOString().slice(0, 10) : null,
       vendedorId: r.vendedor_id,
       vendedorNombre: r.vendedor_nombre,
     }));
@@ -1219,9 +1220,11 @@ async function manejarSyncCotizaciones(req, res, sesion) {
         const { d: candidata, i: idx } = candidatos[0];
         ventas = ventas.filter((_, i) => i !== idx); // no reusar el mismo documento para otra cotización del mismo cliente
         const urlDoc = candidata.urlPublicView || candidata.urlPublicViewOriginal || '';
+        const fechaDocumento = candidata.emissionDate ? new Date(candidata.emissionDate * 1000).toISOString().slice(0, 10) : null;
         await sql`UPDATE bsale_cotizaciones SET
           documento_asociado_id = ${candidata.id}, documento_asociado_tipo = ${candidata.document_type?.name || ''},
           documento_asociado_numero = ${candidata.number ? String(candidata.number) : ''}, documento_asociado_url = ${urlDoc},
+          documento_asociado_fecha = ${fechaDocumento},
           estado = 'facturada', actualizado_en = now() WHERE id = ${cot.id};`;
         vinculosEncontrados++;
       }

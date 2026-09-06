@@ -285,6 +285,8 @@
           <div class="sub">Ordenado de mayor a menor monto vendido (cotizaciones facturadas) en el rango de fechas filtrado arriba.</div>
         </div>
       </div>
+      <div id="resumenMesesVendedores" class="grid" style="margin-bottom:16px;"></div>
+      <div id="chartVendedores" style="margin-bottom:16px;"></div>
       <div id="wrapVendedores"><p class="empty-note">Cargando...</p></div>
     </div>
 
@@ -867,6 +869,59 @@ function filtrarPorVendedorCotizacion(id){
   $('seccionCotizaciones').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+// Ventas facturadas de "mes actual" y "mes anterior" -- independiente del
+// rango de fechas que esté filtrado arriba, para tener siempre a la vista
+// estos dos puntos de referencia fijos (a diferencia de las tarjetas de
+// arriba, que sí dependen del filtro). Se calcula sobre TODAS las
+// cotizaciones cargadas, no sobre "delRangoFiltrado".
+function renderResumenMesesVendedores(){
+  const inicioMes = firstDayOfMonthStr(hoyStrCot);
+  const finMes = lastDayOfMonthStr(hoyStrCot);
+  const { desde: inicioMesAnt, hasta: finMesAnt } = mesAnteriorRange(hoyStrCot);
+  const sumar = (desde, hasta) => cotizaciones.reduce((acc, c) => {
+    if(c.estado !== 'facturada' || !c.fecha || c.fecha < desde || c.fecha > hasta) return acc;
+    acc.monto += c.monto; acc.cantidad++;
+    return acc;
+  }, { monto: 0, cantidad: 0 });
+  const actual = sumar(inicioMes, finMes);
+  const anterior = sumar(inicioMesAnt, finMesAnt);
+  $('resumenMesesVendedores').innerHTML = `
+    <div class="card">
+      <div class="lbl">Ventas mes actual</div>
+      <div class="big">${fmtMoneda(actual.monto)}</div>
+      <div class="note">${fmtNum(actual.cantidad)} cotizaciones facturadas ${notaVariacionHtml(calcularVariacionPct(actual.monto, anterior.monto))}</div>
+    </div>
+    <div class="card">
+      <div class="lbl">Ventas mes anterior</div>
+      <div class="big">${fmtMoneda(anterior.monto)}</div>
+      <div class="note">${fmtNum(anterior.cantidad)} cotizaciones facturadas</div>
+    </div>
+  `;
+}
+
+// Comparativo visual (barras horizontales, sin librería) del monto vendido
+// por vendedor en el rango filtrado -- para ver a simple vista quién
+// vende más, sin tener que leer la columna de la tabla número por número.
+function renderChartVendedores(filas){
+  if(!filas.length){ $('chartVendedores').innerHTML = ''; return; }
+  const maxMonto = Math.max(...filas.map(f => f.montoVendido), 1);
+  const filasOrdenadas = [...filas].sort((a,b) => b.montoVendido - a.montoVendido);
+  $('chartVendedores').innerHTML = `
+    <div class="sub" style="margin-bottom:8px;">Comparativo de monto vendido por vendedor (rango filtrado)</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${filasOrdenadas.map(f => `
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:130px;font-size:12px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtmlCot(f.nombre)}">${escapeHtmlCot(f.nombre)}</div>
+          <div style="flex:1;background:var(--surface-2);border-radius:6px;overflow:hidden;height:22px;">
+            <div style="width:${f.montoVendido > 0 ? Math.max(f.montoVendido/maxMonto*100, 2) : 0}%;background:var(--primary);height:100%;border-radius:6px;"></div>
+          </div>
+          <div class="amount" style="width:100px;text-align:right;font-size:12px;flex-shrink:0;">${fmtMoneda(f.montoVendido)}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
 function renderVendedores(delRangoFiltrado){
   const desde = $('cotizacionesDesde').value;
   const hasta = $('cotizacionesHasta').value;
@@ -883,10 +938,21 @@ function renderVendedores(delRangoFiltrado){
   const porVendedor = new Map();
   for(const c of delRangoFiltrado){
     const clave = c.vendedorId ?? 'sin_vendedor';
-    if(!porVendedor.has(clave)) porVendedor.set(clave, { id: c.vendedorId ?? null, nombre: c.vendedorNombre || 'Sin vendedor asignado', creadas:0, facturadas:0, montoVendido:0, sumaDiasAbiertas:0, countAbiertas:0 });
+    if(!porVendedor.has(clave)) porVendedor.set(clave, { id: c.vendedorId ?? null, nombre: c.vendedorNombre || 'Sin vendedor asignado', creadas:0, facturadas:0, montoVendido:0, sumaDiasAbiertas:0, countAbiertas:0, sumaDiasCierre:0, countCierre:0 });
     const v = porVendedor.get(clave);
     v.creadas++;
-    if(c.estado === 'facturada'){ v.facturadas++; v.montoVendido += c.monto; }
+    if(c.estado === 'facturada'){
+      v.facturadas++; v.montoVendido += c.monto;
+      // Tiempo real de cotización a factura -- solo se puede calcular para
+      // las que sí tienen la fecha de la factura vinculada guardada (ver
+      // documentoAsociadoFecha, agregado después de que muchas cotizaciones
+      // ya se hubieran vinculado -- esas viejas quedan sin este dato hasta
+      // que se vuelvan a tocar, no cuentan para el promedio).
+      if(c.documentoAsociadoFecha && c.fecha){
+        const dias = diasEntreCot(c.fecha, c.documentoAsociadoFecha);
+        if(dias >= 0){ v.sumaDiasCierre += dias; v.countCierre++; }
+      }
+    }
     if(c.estado === 'sin_contactar' && c.fecha){ v.sumaDiasAbiertas += diasEntreCot(c.fecha, hoyStrCot); v.countAbiertas++; }
   }
   let filas = [...porVendedor.entries()].map(([clave, v]) => ({
@@ -894,6 +960,7 @@ function renderVendedores(delRangoFiltrado){
     conversion: v.creadas ? Math.round(v.facturadas/v.creadas*100) : 0,
     ticketPromedio: v.facturadas ? v.montoVendido/v.facturadas : 0,
     antiguedadPromedio: v.countAbiertas ? Math.round(v.sumaDiasAbiertas/v.countAbiertas) : null,
+    tiempoCierrePromedio: v.countCierre ? Math.round(v.sumaDiasCierre/v.countCierre) : null,
     variacionPct: periodoAnt ? calcularVariacionPct(v.montoVendido, montoAnteriorPorVendedor.get(clave) || 0) : null,
   }));
   // Si el período anterior no aplica (sin rango de fechas elegido) y el
@@ -910,8 +977,10 @@ function renderVendedores(delRangoFiltrado){
     return sortAscVend ? va-vb : vb-va;
   });
 
+  renderResumenMesesVendedores();
   if(filas.length === 0){
     $('wrapVendedores').innerHTML = '<p class="empty-note">No hay cotizaciones en ese rango de fechas.</p>';
+    $('chartVendedores').innerHTML = '';
     return;
   }
 
@@ -922,6 +991,7 @@ function renderVendedores(delRangoFiltrado){
     { key:'conversion', label:'% conversión' },
     { key:'ticketPromedio', label:'Ticket promedio' },
     { key:'antiguedadPromedio', label:'Antigüedad abiertas' },
+    { key:'tiempoCierrePromedio', label:'Cotización → factura' },
     { key:'montoVendido', label:'Monto vendido' },
     ...(periodoAnt ? [{ key:'variacionPct', label:'vs. período anterior' }] : []),
   ];
@@ -936,11 +1006,13 @@ function renderVendedores(delRangoFiltrado){
     <td class="amount">${v.conversion < 50 ? `<span class="badge no">${v.conversion}%</span>` : `${v.conversion}%`}</td>
     <td class="amount">${fmtMoneda(v.ticketPromedio)}</td>
     <td class="amount">${v.antiguedadPromedio == null ? '<span class="empty-note">—</span>' : `${fmtNum(v.antiguedadPromedio)} días`}</td>
+    <td class="amount">${v.tiempoCierrePromedio == null ? '<span class="empty-note">—</span>' : `${fmtNum(v.tiempoCierrePromedio)} días`}</td>
     <td class="amount"><b>${fmtMoneda(v.montoVendido)}</b></td>
     ${periodoAnt ? `<td class="amount">${notaVariacionHtml(v.variacionPct) || '<span class="empty-note">—</span>'}</td>` : ''}
   </tr>`).join('');
 
   $('wrapVendedores').innerHTML = `<div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
+  renderChartVendedores(filas);
 }
 
 function renderEstadoSyncCotizaciones(sync){
