@@ -5846,6 +5846,18 @@ async function manejarCompraAgilDebugVinculo(req, res, sesion) {
       SELECT documento_id, cliente_nombre, monto, fecha, numero FROM analisis_compras
       WHERE ABS(monto - ${orden.total}) <= 2 ORDER BY ABS(monto - ${orden.total}) ASC LIMIT 20;
     `;
+    // Búsqueda directa por nombre (sin filtro de monto) -- el monto solo
+    // puede ser un precio muy repetido (muchas ventas distintas por el
+    // mismo monto exacto) y dejar la fila real fuera del LIMIT 20 de
+    // arriba. Esto confirma si el dato existe DE VERDAD en cada tabla,
+    // más allá de si el cruce por monto la encuentra o no.
+    const primeraPalabraOrganismo = (orden.organismo || '').replace(/^(i\.?|ilustre)\s+/i, '').split(/\s+/).slice(-1)[0] || '';
+    const { rows: cotPorNombre } = primeraPalabraOrganismo
+      ? await sql`SELECT id, cliente_nombre, monto, fecha, numero FROM bsale_cotizaciones WHERE cliente_nombre ILIKE ${'%' + primeraPalabraOrganismo + '%'} LIMIT 10;`
+      : { rows: [] };
+    const { rows: facturaPorNombre } = primeraPalabraOrganismo
+      ? await sql`SELECT documento_id, cliente_nombre, monto, fecha, numero FROM analisis_compras WHERE cliente_nombre ILIKE ${'%' + primeraPalabraOrganismo + '%'} LIMIT 10;`
+      : { rows: [] };
     const { rows: totalesRows } = await sql`
       SELECT (SELECT COUNT(*)::int FROM bsale_cotizaciones) AS total_cotizaciones,
              (SELECT COUNT(*)::int FROM analisis_compras) AS total_compras,
@@ -5854,8 +5866,11 @@ async function manejarCompraAgilDebugVinculo(req, res, sesion) {
 
     return res.status(200).json({
       orden: { codigo: orden.codigo, organismo: orden.organismo, total: Number(orden.total), fechaEnvio, cotizacionVinculadaId: orden.cotizacion_vinculada_id, facturaVinculadaId: orden.factura_vinculada_id },
+      busquedaPorPalabra: primeraPalabraOrganismo,
       cotizacionesQueCalzanPorMonto: cotCandidatas.map(c => ({ id: c.id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, organismoParece: organismoParecidoACliente(orden.organismo, c.cliente_nombre) })),
       facturasQueCalzanPorMonto: facturaCandidatas.map(c => ({ documentoId: c.documento_id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, organismoParece: organismoParecidoACliente(orden.organismo, c.cliente_nombre) })),
+      cotizacionesQueCalzanPorNombre: cotPorNombre.map(c => ({ id: c.id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, montoCalza: Math.abs(Number(c.monto) - Number(orden.total)) <= 2 })),
+      facturasQueCalzanPorNombre: facturaPorNombre.map(c => ({ documentoId: c.documento_id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, montoCalza: Math.abs(Number(c.monto) - Number(orden.total)) <= 2 })),
       totales: totalesRows[0],
     });
   } catch (err) {
