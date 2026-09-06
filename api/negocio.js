@@ -5666,8 +5666,9 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
     const { rows } = await sql`
       SELECT o.codigo, o.codigo_estado, o.estado, o.nombre, o.organismo, o.total, o.fecha_envio, o.fecha_aceptacion,
              c.id AS cot_id, c.numero AS cot_numero, c.url_cotizacion AS cot_url, c.estado AS cot_estado,
-             c.documento_asociado_tipo, c.documento_asociado_numero, c.documento_asociado_url,
-             f.numero AS factura_directa_numero, f.tipo_documento AS factura_directa_tipo, f.url AS factura_directa_url
+             c.fecha AS cot_fecha, c.vendedor_nombre AS cot_vendedor_nombre,
+             c.documento_asociado_tipo, c.documento_asociado_numero, c.documento_asociado_url, c.documento_asociado_fecha,
+             f.numero AS factura_directa_numero, f.tipo_documento AS factura_directa_tipo, f.url AS factura_directa_url, f.fecha AS factura_directa_fecha
       FROM compra_agil_ordenes o
       LEFT JOIN bsale_cotizaciones c ON c.id = o.cotizacion_vinculada_id
       LEFT JOIN analisis_compras f ON f.documento_id = o.factura_vinculada_id
@@ -5688,6 +5689,15 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
       const facturaDirecta = r.factura_directa_numero
         ? { tipo: r.factura_directa_tipo, numero: r.factura_directa_numero, url: r.factura_directa_url }
         : null;
+      // Fecha efectiva de facturación: si la cotización se encadenó a un
+      // documento, esa fecha; si no, la del vínculo directo con
+      // analisis_compras.
+      const fechaFactura = r.documento_asociado_numero ? r.documento_asociado_fecha : (r.factura_directa_numero ? r.factura_directa_fecha : null);
+      let diasCotizacionFactura = null;
+      if (r.cot_fecha && fechaFactura) {
+        const dias = Math.round((new Date(fechaFactura) - new Date(r.cot_fecha)) / 86400000);
+        if (Number.isFinite(dias) && dias >= 0) diasCotizacionFactura = dias;
+      }
       return {
         codigo: r.codigo, codigoEstado: r.codigo_estado, estado: r.estado, nombre: r.nombre,
         organismo: r.organismo, total: Number(r.total) || 0,
@@ -5695,6 +5705,11 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
         cuentaComoFacturado: r.estado !== 'Cancelada',
         cotizacionVinculada: r.cot_id ? { id: r.cot_id, numero: r.cot_numero, url: r.cot_url, estado: r.cot_estado } : null,
         facturaVinculada: facturaEncadenada || facturaDirecta,
+        // Sólo hay vendedor identificado cuando la OC pasó por una
+        // cotización de Bsale -- el vínculo directo con analisis_compras no
+        // trae vendedor (esa tabla no lo registra).
+        vendedorNombre: r.cot_vendedor_nombre || null,
+        diasCotizacionFactura,
       };
     });
     const validas = ordenes.filter(o => o.cuentaComoFacturado);

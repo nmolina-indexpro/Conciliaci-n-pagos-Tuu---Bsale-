@@ -113,6 +113,21 @@
     <div class="kpi"><div class="kpi-lbl">Ticket promedio</div><div class="kpi-val" id="kpiPromedio">$0</div><div class="kpi-sub">por orden válida</div></div>
   </div>
 
+  <div class="kpis">
+    <div class="kpi"><div class="kpi-lbl">Facturado mes actual</div><div class="kpi-val" id="kpiMesActual">$0</div><div class="kpi-sub" id="kpiMesActualSub">0 órdenes</div></div>
+    <div class="kpi"><div class="kpi-lbl">Facturado mes anterior</div><div class="kpi-val" id="kpiMesAnterior">$0</div><div class="kpi-sub" id="kpiMesAnteriorSub">0 órdenes</div></div>
+  </div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>Comparativo de vendedores</h2>
+        <div class="sub" style="margin-bottom:0;">Sólo Bsale registra vendedor, y sólo en las cotizaciones -- las órdenes facturadas de forma directa (sin pasar por una cotización) quedan agrupadas en "Sin vendedor identificado".</div>
+      </div>
+    </div>
+    <div id="wrapVendedores"><p class="empty-note">Cargando...</p></div>
+  </div>
+
   <div class="seccion">
     <div class="seccion-head">
       <div>
@@ -159,6 +174,10 @@ function celdaFactura(o){
   const texto = `${f.tipo || 'Documento'} ${f.numero}`;
   return f.url ? `<a href="${f.url}" target="_blank" rel="noopener">${texto} ↗</a>` : texto;
 }
+function celdaDias(o){
+  if(o.diasCotizacionFactura === null || o.diasCotizacionFactura === undefined) return '<span class="empty-note">—</span>';
+  return `${fmtNum(o.diasCotizacionFactura)} día${o.diasCotizacionFactura === 1 ? '' : 's'}`;
+}
 
 function renderTabla(data){
   const { ordenes } = data;
@@ -175,14 +194,15 @@ function renderTabla(data){
       <td class="amount">${fmtMoneda(o.total)}</td>
       <td>${celdaCotizacion(o)}</td>
       <td>${celdaFactura(o)}</td>
+      <td>${celdaDias(o)}</td>
     </tr>`).join('');
 
   $('wrapTabla').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Fecha envío</th><th>Organismo comprador</th><th>Código OC</th><th>Estado</th><th style="text-align:right;">Total</th><th>Cotización Bsale</th><th>Factura/Boleta</th></tr></thead>
+      <thead><tr><th>Fecha envío</th><th>Organismo comprador</th><th>Código OC</th><th>Estado</th><th style="text-align:right;">Total</th><th>Cotización Bsale</th><th>Factura/Boleta</th><th>Cotización → factura</th></tr></thead>
       <tbody>${filas}</tbody>
       <tbody>
-        <tr class="fila-total"><td colspan="6">Total facturado (válidas)</td><td class="amount">${fmtMoneda(data.totalFacturado)}</td></tr>
+        <tr class="fila-total"><td colspan="6">Total facturado (válidas)</td><td class="amount">${fmtMoneda(data.totalFacturado)}</td><td></td></tr>
       </tbody>
     </table></div>
   `;
@@ -195,6 +215,57 @@ function renderKpis(data){
   $('kpiPromedio').textContent = fmtMoneda(data.totalOrdenesValidas ? data.totalFacturado / data.totalOrdenesValidas : 0);
 }
 
+function renderResumenMeses(ordenes){
+  const ahora = new Date();
+  const inicioActual = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+  const inicioAnterior = new Date(inicioActual.getFullYear(), inicioActual.getMonth() - 1, 1);
+  let totalActual = 0, countActual = 0, totalAnterior = 0, countAnterior = 0;
+  ordenes.forEach(o => {
+    if(!o.cuentaComoFacturado || !o.fechaEnvio) return;
+    const f = new Date(o.fechaEnvio);
+    if(f >= inicioActual){ totalActual += o.total; countActual++; }
+    else if(f >= inicioAnterior && f < inicioActual){ totalAnterior += o.total; countAnterior++; }
+  });
+  $('kpiMesActual').textContent = fmtMoneda(totalActual);
+  $('kpiMesActualSub').textContent = `${fmtNum(countActual)} orden${countActual === 1 ? '' : 'es'}`;
+  $('kpiMesAnterior').textContent = fmtMoneda(totalAnterior);
+  $('kpiMesAnteriorSub').textContent = `${fmtNum(countAnterior)} orden${countAnterior === 1 ? '' : 'es'}`;
+}
+
+// Sólo bsale_cotizaciones registra vendedor -- las órdenes facturadas
+// directo (sin cotización de por medio) no tienen forma de identificarlo,
+// así que caen en el bucket "Sin vendedor identificado" en vez de omitirse.
+function renderVendedores(ordenes){
+  const mapa = new Map();
+  ordenes.forEach(o => {
+    if(!o.cuentaComoFacturado) return;
+    const nombre = o.vendedorNombre || 'Sin vendedor identificado';
+    if(!mapa.has(nombre)) mapa.set(nombre, { nombre, total: 0, ordenes: 0 });
+    const e = mapa.get(nombre);
+    e.total += o.total;
+    e.ordenes++;
+  });
+  const filas = Array.from(mapa.values()).sort((a, b) => b.total - a.total);
+  if(!filas.length){
+    $('wrapVendedores').innerHTML = '<p class="empty-note">No hay datos suficientes todavía.</p>';
+    return;
+  }
+  const maxTotal = Math.max(...filas.map(f => f.total), 1);
+  const filasHtml = filas.map(f => `
+    <tr>
+      <td>${f.nombre}</td>
+      <td class="amount">${fmtMoneda(f.total)}</td>
+      <td class="amount">${fmtNum(f.ordenes)}</td>
+      <td><div style="background:var(--primary-dim);border-radius:6px;overflow:hidden;height:14px;width:160px;"><div style="background:var(--primary);height:100%;width:${Math.round(f.total / maxTotal * 100)}%;"></div></div></td>
+    </tr>`).join('');
+  $('wrapVendedores').innerHTML = `
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Vendedor</th><th style="text-align:right;">Total facturado</th><th style="text-align:right;">Órdenes</th><th>Comparativo</th></tr></thead>
+      <tbody>${filasHtml}</tbody>
+    </table></div>
+  `;
+}
+
 async function cargarOrdenes(){
   try{
     const res = await fetch('/api/negocio?recurso=compra-agil-ordenes');
@@ -204,6 +275,8 @@ async function cargarOrdenes(){
       return;
     }
     renderKpis(data);
+    renderResumenMeses(data.ordenes);
+    renderVendedores(data.ordenes);
     renderTabla(data);
     if(data.ultimaPasadaCompletaEn){
       $('syncStatus').className = '';
