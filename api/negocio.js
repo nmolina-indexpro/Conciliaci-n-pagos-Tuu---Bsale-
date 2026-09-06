@@ -835,11 +835,20 @@ async function manejarCotizacionesClientes(req, res, sesion) {
     const sql = await getSql();
     await asegurarTablaCotizaciones(sql);
 
+    // El LEFT JOIN a analisis_compras es solo un fallback para la fecha:
+    // documento_asociado_fecha quedó NULL en las cotizaciones vinculadas
+    // ANTES de que esa columna existiera (ver lib/db.js) -- si ese mismo
+    // documento (documento_asociado_id) ya está en analisis_compras (la
+    // sync de Análisis lo trae por separado), se usa su fecha en vez de
+    // dejar la columna "Cotización → factura" vacía para todo lo viejo.
     const { rows } = await sql`
-      SELECT id, numero, cliente_id, cliente_nombre, cliente_telefono, monto, fecha, cliente_ha_comprado, estado, actualizado_por, actualizado_en,
-             url_cotizacion, documento_asociado_id, documento_asociado_tipo, documento_asociado_numero, documento_asociado_url, documento_asociado_fecha,
-             vendedor_id, vendedor_nombre
-      FROM bsale_cotizaciones ORDER BY fecha DESC NULLS LAST, id DESC;
+      SELECT c.id, c.numero, c.cliente_id, c.cliente_nombre, c.cliente_telefono, c.monto, c.fecha, c.cliente_ha_comprado, c.estado, c.actualizado_por, c.actualizado_en,
+             c.url_cotizacion, c.documento_asociado_id, c.documento_asociado_tipo, c.documento_asociado_numero, c.documento_asociado_url, c.documento_asociado_fecha,
+             fc.fecha AS documento_asociado_fecha_fallback,
+             c.vendedor_id, c.vendedor_nombre
+      FROM bsale_cotizaciones c
+      LEFT JOIN analisis_compras fc ON fc.documento_id = c.documento_asociado_id
+      ORDER BY c.fecha DESC NULLS LAST, c.id DESC;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM bsale_cotizaciones_sync_estado WHERE id = 1;`;
     const estado = estadoRows[0] || {};
@@ -863,7 +872,9 @@ async function manejarCotizacionesClientes(req, res, sesion) {
       documentoAsociadoTipo: r.documento_asociado_tipo,
       documentoAsociadoNumero: r.documento_asociado_numero,
       documentoAsociadoUrl: r.documento_asociado_url,
-      documentoAsociadoFecha: r.documento_asociado_fecha ? new Date(r.documento_asociado_fecha).toISOString().slice(0, 10) : null,
+      documentoAsociadoFecha: r.documento_asociado_fecha
+        ? new Date(r.documento_asociado_fecha).toISOString().slice(0, 10)
+        : (r.documento_asociado_fecha_fallback ? new Date(r.documento_asociado_fecha_fallback).toISOString().slice(0, 10) : null),
       vendedorId: r.vendedor_id,
       vendedorNombre: r.vendedor_nombre,
     }));
