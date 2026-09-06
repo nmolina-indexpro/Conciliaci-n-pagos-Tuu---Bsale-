@@ -148,7 +148,7 @@
       <a href="conciliacion.html">Conciliación</a>
       <a href="compras.html">Compras</a>
       <a href="alertas-stock.html">Alertas de Stock</a>
-      <a href="oportunidades-comerciales.html" class="active">Oportunidades</a>
+      <a href="oportunidades-comerciales.html" class="active">Ventas</a>
       <a href="sitio-web.html">Sitio Web</a>
       <a href="eficiencia-tickets.html">Tickets</a>
       <a href="analisis.html">Análisis</a>
@@ -164,11 +164,11 @@
   </div>
 
   <div class="tabs-grandes">
-    <button class="tab-grande activo" id="tabBtnPuntos" onclick="cambiarTab('puntos')">
+    <button class="tab-grande" id="tabBtnPuntos" onclick="cambiarTab('puntos')">
       <div class="titulo">🎁 Puntos Bsale</div>
       <div class="desc">Clientes con puntos del club de fidelización disponibles para canjear.</div>
     </button>
-    <button class="tab-grande" id="tabBtnCotizaciones" onclick="cambiarTab('cotizaciones')">
+    <button class="tab-grande activo" id="tabBtnCotizaciones" onclick="cambiarTab('cotizaciones')">
       <div class="titulo">📋 Cotizaciones Clientes</div>
       <div class="desc">Seguimiento comercial a cotizaciones — contacto y si el cliente ya ha comprado antes.</div>
     </button>
@@ -178,7 +178,7 @@
     </button>
   </div>
 
-  <div id="tabPuntos">
+  <div id="tabPuntos" style="display:none;">
     <div class="toolbar">
       <div class="form-inline">
         <div class="campo">
@@ -227,7 +227,7 @@
     </div>
   </div>
 
-  <div id="tabCotizaciones" style="display:none;">
+  <div id="tabCotizaciones">
     <div class="toolbar">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <div class="filtro-rango-fechas">
@@ -377,6 +377,7 @@ function cambiarTab(tab){
   $('tabPuntos').style.display = tab==='puntos' ? '' : 'none';
   $('tabCotizaciones').style.display = tab==='cotizaciones' ? '' : 'none';
   $('tabIndexpro').style.display = tab==='indexpro' ? '' : 'none';
+  if(tab==='puntos' && !puntosCargados) cargar();
   if(tab==='cotizaciones' && !cotizacionesCargadas) cargarCotizaciones();
   if(tab==='indexpro' && !indexproCargado) cargarIndexpro();
 }
@@ -386,6 +387,7 @@ let sortCol = 'puntos';
 let sortAsc = false;
 let esAdmin = false;
 let sincronizando = false;
+let puntosCargados = false;
 
 let cotizaciones = [];
 let cotizacionesCargadas = false;
@@ -493,6 +495,7 @@ async function cerrarSesion(){
 
 // ---------- Carga principal (lee de Postgres, no llama a Bsale) ----------
 async function cargar(){
+  puntosCargados = true;
   const status = $('status');
   status.className = '';
   status.textContent = 'Cargando clientes...';
@@ -1274,7 +1277,7 @@ function cerrarModalHistorialSiFondo(ev){
 }
 
 cargarSesionUsuario();
-cargar();
+cargarCotizaciones();
 </script>
 </body>
 </html>
