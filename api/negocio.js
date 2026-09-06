@@ -1402,13 +1402,14 @@ async function manejarSyncAnalisis(req, res, sesion) {
       if (ventas.length > 0) {
         const desglosePorDoc = ventas.map(d => desglosarCategoriasDocumento(d));
         await sql.query(
-          `INSERT INTO analisis_compras (documento_id, cliente_id, cliente_nombre, fecha, monto, monto_servicios, monto_pantallas, monto_cargadores, monto_baterias, sincronizado_en)
-           SELECT * FROM UNNEST ($1::int[], $2::int[], $3::text[], $4::date[], $5::numeric[], $6::numeric[], $7::numeric[], $8::numeric[], $9::numeric[], $10::timestamptz[])
+          `INSERT INTO analisis_compras (documento_id, cliente_id, cliente_nombre, fecha, monto, monto_servicios, monto_pantallas, monto_cargadores, monto_baterias, numero, tipo_documento, url, sincronizado_en)
+           SELECT * FROM UNNEST ($1::int[], $2::int[], $3::text[], $4::date[], $5::numeric[], $6::numeric[], $7::numeric[], $8::numeric[], $9::numeric[], $10::text[], $11::text[], $12::text[], $13::timestamptz[])
            ON CONFLICT (documento_id) DO UPDATE SET
              cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre,
              fecha = EXCLUDED.fecha, monto = EXCLUDED.monto,
              monto_servicios = EXCLUDED.monto_servicios, monto_pantallas = EXCLUDED.monto_pantallas,
              monto_cargadores = EXCLUDED.monto_cargadores, monto_baterias = EXCLUDED.monto_baterias,
+             numero = EXCLUDED.numero, tipo_documento = EXCLUDED.tipo_documento, url = EXCLUDED.url,
              sincronizado_en = EXCLUDED.sincronizado_en;`,
           [
             ventas.map(d => d.id),
@@ -1420,6 +1421,9 @@ async function manejarSyncAnalisis(req, res, sesion) {
             desglosePorDoc.map(d => d.pantallas),
             desglosePorDoc.map(d => d.cargadores),
             desglosePorDoc.map(d => d.baterias),
+            ventas.map(d => d.number != null ? String(d.number) : null),
+            ventas.map(d => d.document_type?.name || null),
+            ventas.map(d => d.urlPublicView || d.urlPublicViewOriginal || null),
             ventas.map(() => new Date().toISOString()),
           ]
         );
@@ -5651,13 +5655,18 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
     // LEFT JOIN a la cotización de Bsale vinculada (ver
     // vincularOrdenesCompraAgil) -- y de ahí, encadenado, a la
     // factura/boleta que esa misma cotización ya tenía asociada
-    // (documento_asociado_*), sin necesidad de guardarla dos veces.
+    // (documento_asociado_*), sin necesidad de guardarla dos veces. Y por
+    // separado, el vínculo DIRECTO con la factura real (analisis_compras)
+    // para las OC que se facturaron sin pasar por ninguna cotización de
+    // Bsale -- el caso más común en Compra Ágil.
     const { rows } = await sql`
       SELECT o.codigo, o.codigo_estado, o.estado, o.nombre, o.organismo, o.total, o.fecha_envio, o.fecha_aceptacion,
              c.id AS cot_id, c.numero AS cot_numero, c.url_cotizacion AS cot_url, c.estado AS cot_estado,
-             c.documento_asociado_tipo, c.documento_asociado_numero, c.documento_asociado_url
+             c.documento_asociado_tipo, c.documento_asociado_numero, c.documento_asociado_url,
+             f.numero AS factura_directa_numero, f.tipo_documento AS factura_directa_tipo, f.url AS factura_directa_url
       FROM compra_agil_ordenes o
       LEFT JOIN bsale_cotizaciones c ON c.id = o.cotizacion_vinculada_id
+      LEFT JOIN analisis_compras f ON f.documento_id = o.factura_vinculada_id
       ORDER BY o.fecha_envio DESC NULLS LAST;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM compra_agil_sync_estado WHERE id = 1;`;
@@ -5665,14 +5674,25 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
 
     // "Cancelada" no cuenta como facturado -- el resto (Aceptada, Recepción
     // Conforme, etc.) sí, son órdenes que el organismo efectivamente recibió.
-    const ordenes = rows.map(r => ({
-      codigo: r.codigo, codigoEstado: r.codigo_estado, estado: r.estado, nombre: r.nombre,
-      organismo: r.organismo, total: Number(r.total) || 0,
-      fechaEnvio: r.fecha_envio, fechaAceptacion: r.fecha_aceptacion,
-      cuentaComoFacturado: r.estado !== 'Cancelada',
-      cotizacionVinculada: r.cot_id ? { id: r.cot_id, numero: r.cot_numero, url: r.cot_url, estado: r.cot_estado } : null,
-      facturaVinculada: r.documento_asociado_numero ? { tipo: r.documento_asociado_tipo, numero: r.documento_asociado_numero, url: r.documento_asociado_url } : null,
-    }));
+    const ordenes = rows.map(r => {
+      // Si hay cotización Y esa cotización ya se facturó, esa factura
+      // encadenada es más específica (confirma que sí hubo cotización de
+      // por medio) -> se prefiere sobre el vínculo directo si ambos existen.
+      const facturaEncadenada = r.documento_asociado_numero
+        ? { tipo: r.documento_asociado_tipo, numero: r.documento_asociado_numero, url: r.documento_asociado_url }
+        : null;
+      const facturaDirecta = r.factura_directa_numero
+        ? { tipo: r.factura_directa_tipo, numero: r.factura_directa_numero, url: r.factura_directa_url }
+        : null;
+      return {
+        codigo: r.codigo, codigoEstado: r.codigo_estado, estado: r.estado, nombre: r.nombre,
+        organismo: r.organismo, total: Number(r.total) || 0,
+        fechaEnvio: r.fecha_envio, fechaAceptacion: r.fecha_aceptacion,
+        cuentaComoFacturado: r.estado !== 'Cancelada',
+        cotizacionVinculada: r.cot_id ? { id: r.cot_id, numero: r.cot_numero, url: r.cot_url, estado: r.cot_estado } : null,
+        facturaVinculada: facturaEncadenada || facturaDirecta,
+      };
+    });
     const validas = ordenes.filter(o => o.cuentaComoFacturado);
 
     return res.status(200).json({
@@ -5738,25 +5758,61 @@ function organismoParecidoACliente(organismo, clienteNombre) {
 // ningún rate limit.
 async function vincularOrdenesCompraAgil(sql) {
   const { rows: pendientes } = await sql`
-    SELECT codigo, organismo, total, fecha_envio FROM compra_agil_ordenes WHERE cotizacion_vinculada_id IS NULL;
+    SELECT codigo, organismo, total, fecha_envio, cotizacion_vinculada_id, factura_vinculada_id
+    FROM compra_agil_ordenes
+    WHERE cotizacion_vinculada_id IS NULL OR factura_vinculada_id IS NULL;
   `;
   let vinculadas = 0;
   for (const orden of pendientes) {
     if (!orden.fecha_envio || !orden.organismo) continue;
     const fechaEnvio = new Date(orden.fecha_envio).toISOString().slice(0, 10);
-    const { rows: candidatas } = await sql`
-      SELECT id, cliente_nombre, monto, fecha FROM bsale_cotizaciones
-      WHERE ABS(monto - ${orden.total}) <= 2
-        AND fecha IS NOT NULL
-        AND fecha >= (${fechaEnvio}::date - INTERVAL '200 days')
-        AND fecha <= (${fechaEnvio}::date + INTERVAL '60 days')
-        AND id NOT IN (SELECT cotizacion_vinculada_id FROM compra_agil_ordenes WHERE cotizacion_vinculada_id IS NOT NULL)
-      ORDER BY ABS(monto - ${orden.total}) ASC;
-    `;
-    const match = candidatas.find(c => organismoParecidoACliente(orden.organismo, c.cliente_nombre));
-    if (!match) continue;
-    await sql`UPDATE compra_agil_ordenes SET cotizacion_vinculada_id = ${match.id} WHERE codigo = ${orden.codigo};`;
-    vinculadas++;
+    let algoNuevo = false;
+
+    if (orden.cotizacion_vinculada_id == null) {
+      const { rows: candidatas } = await sql`
+        SELECT id, cliente_nombre, monto, fecha FROM bsale_cotizaciones
+        WHERE ABS(monto - ${orden.total}) <= 2
+          AND fecha IS NOT NULL
+          AND fecha >= (${fechaEnvio}::date - INTERVAL '200 days')
+          AND fecha <= (${fechaEnvio}::date + INTERVAL '60 days')
+          AND id NOT IN (SELECT cotizacion_vinculada_id FROM compra_agil_ordenes WHERE cotizacion_vinculada_id IS NOT NULL)
+        ORDER BY ABS(monto - ${orden.total}) ASC;
+      `;
+      const match = candidatas.find(c => organismoParecidoACliente(orden.organismo, c.cliente_nombre));
+      if (match) {
+        await sql`UPDATE compra_agil_ordenes SET cotizacion_vinculada_id = ${match.id} WHERE codigo = ${orden.codigo};`;
+        algoNuevo = true;
+      }
+    }
+
+    // Vínculo DIRECTO con la factura/boleta real -- independiente del de
+    // arriba. La mayoría de las compras de Mercado Público se facturan
+    // directo, sin pasar nunca por una cotización de Bsale (la
+    // "cotización" ya ocurrió en el portal de Mercado Público) -> exigir
+    // solo el vínculo por cotización dejaba prácticamente todas las OC
+    // sin vincular. La ventana de fecha es distinta a la de arriba: una
+    // factura real se emite EN o DESPUÉS del envío de la OC (no antes,
+    // salvo un margen chico por si se facturó el mismo día con hora
+    // distinta), nunca 200 días antes como sí puede pasar con una
+    // cotización preparada con anticipación.
+    if (orden.factura_vinculada_id == null) {
+      const { rows: candidatasFactura } = await sql`
+        SELECT documento_id, cliente_nombre, monto, fecha FROM analisis_compras
+        WHERE ABS(monto - ${orden.total}) <= 2
+          AND fecha IS NOT NULL
+          AND fecha >= (${fechaEnvio}::date - INTERVAL '5 days')
+          AND fecha <= (${fechaEnvio}::date + INTERVAL '120 days')
+          AND documento_id NOT IN (SELECT factura_vinculada_id FROM compra_agil_ordenes WHERE factura_vinculada_id IS NOT NULL)
+        ORDER BY ABS(monto - ${orden.total}) ASC;
+      `;
+      const matchFactura = candidatasFactura.find(c => organismoParecidoACliente(orden.organismo, c.cliente_nombre));
+      if (matchFactura) {
+        await sql`UPDATE compra_agil_ordenes SET factura_vinculada_id = ${matchFactura.documento_id} WHERE codigo = ${orden.codigo};`;
+        algoNuevo = true;
+      }
+    }
+
+    if (algoNuevo) vinculadas++;
   }
   return vinculadas;
 }

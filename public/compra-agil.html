@@ -117,7 +117,7 @@
     <div class="seccion-head">
       <div>
         <h2>Historial de órdenes de compra</h2>
-        <div class="sub" style="margin-bottom:0;">Se sincroniza directo desde la API de Mercado Público (no depende del portal compra-agil-two). Cada OC se cruza automáticamente por monto, fecha y organismo con las cotizaciones de Bsale -- si la cotización ya se facturó, la factura/boleta aparece encadenada. Puede quedar sin vínculo si el organismo se guardó con un nombre muy distinto en Bsale.</div>
+        <div class="sub" style="margin-bottom:0;">Se sincroniza directo desde la API de Mercado Público (no depende del portal compra-agil-two). Cada OC se cruza automáticamente por monto, fecha y organismo con las cotizaciones y las facturas/boletas reales de Bsale -- la mayoría de estas compras se facturan directo, sin pasar por una cotización. Puede quedar sin vínculo si el organismo se guardó con un nombre muy distinto en Bsale, o si la venta es más antigua que lo que Análisis tiene sincronizado.</div>
       </div>
       <button class="btn-primary" id="btnSincronizar" style="display:none;" onclick="iniciarSincronizacion()">🔄 Sincronizar con Mercado Público</button>
     </div>
@@ -242,7 +242,7 @@ async function iniciarSincronizacion(){
       vinculosNuevos += res.vinculosNuevosEnEstaLlamada || 0;
       const pctCompraAgil = res.diasTotales ? Math.round((res.offsetActual||0) / res.diasTotales * 100) : 0;
       $('syncStatus').textContent = completo
-        ? `Sincronización completa — ${fmtNum(ordenesNuevas)} órdenes nuevas, ${fmtNum(vinculosNuevos)} vinculadas a una cotización de Bsale.`
+        ? `Sincronización completa — ${fmtNum(ordenesNuevas)} órdenes nuevas, ${fmtNum(vinculosNuevos)} vinculadas a una cotización o factura de Bsale.`
         : `Sincronizando... ${pctCompraAgil}% (${fmtNum(res.offsetActual)} de ${fmtNum(res.diasTotales)} días revisados), ${fmtNum(ordenesNuevas)} órdenes nuevas. Continuando automáticamente, no cierres la página...`;
       if(completo) cargarOrdenes();
     }
