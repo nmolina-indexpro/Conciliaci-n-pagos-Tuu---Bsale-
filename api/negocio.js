@@ -5648,10 +5648,17 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
     const sql = await getSql();
     await asegurarTablaCompraAgil(sql);
 
+    // LEFT JOIN a la cotización de Bsale vinculada (ver
+    // vincularOrdenesCompraAgil) -- y de ahí, encadenado, a la
+    // factura/boleta que esa misma cotización ya tenía asociada
+    // (documento_asociado_*), sin necesidad de guardarla dos veces.
     const { rows } = await sql`
-      SELECT codigo, codigo_estado, estado, nombre, organismo, total, fecha_envio, fecha_aceptacion
-      FROM compra_agil_ordenes
-      ORDER BY fecha_envio DESC NULLS LAST;
+      SELECT o.codigo, o.codigo_estado, o.estado, o.nombre, o.organismo, o.total, o.fecha_envio, o.fecha_aceptacion,
+             c.id AS cot_id, c.numero AS cot_numero, c.url_cotizacion AS cot_url, c.estado AS cot_estado,
+             c.documento_asociado_tipo, c.documento_asociado_numero, c.documento_asociado_url
+      FROM compra_agil_ordenes o
+      LEFT JOIN bsale_cotizaciones c ON c.id = o.cotizacion_vinculada_id
+      ORDER BY o.fecha_envio DESC NULLS LAST;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM compra_agil_sync_estado WHERE id = 1;`;
     const estado = estadoRows[0] || {};
@@ -5663,6 +5670,8 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
       organismo: r.organismo, total: Number(r.total) || 0,
       fechaEnvio: r.fecha_envio, fechaAceptacion: r.fecha_aceptacion,
       cuentaComoFacturado: r.estado !== 'Cancelada',
+      cotizacionVinculada: r.cot_id ? { id: r.cot_id, numero: r.cot_numero, url: r.cot_url, estado: r.cot_estado } : null,
+      facturaVinculada: r.documento_asociado_numero ? { tipo: r.documento_asociado_tipo, numero: r.documento_asociado_numero, url: r.documento_asociado_url } : null,
     }));
     const validas = ordenes.filter(o => o.cuentaComoFacturado);
 
@@ -5698,6 +5707,60 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
 // (liviano, sin monto/organismo) y (2) el detalle de cada OC nueva del
 // listado (trae Total, Estado y Comprador -- lo que de verdad importa acá).
 // Una OC ya cacheada (por código) no se vuelve a pedir en detalle.
+
+// Compara el organismo comprador (Mercado Público) contra el nombre de
+// cliente de una cotización (Bsale) para decidir si es el mismo -- no hay
+// un ID en común entre ambos sistemas para cruzar directo. Se limpia
+// ruido típico de nombres de organismos públicos ("I. MUNICIPALIDAD DE
+// X" vs "MUNICIPALIDAD DE X" vs simplemente "X" en Bsale) antes de
+// comparar, si no, casi nunca calzarían como texto aunque sean el mismo
+// organismo.
+const RUIDO_NOMBRE_ORGANISMO_MP = /\b(i|ilustre|municipalidad|gobierno|regional|provincial|servicio|nacional|direccion|de|del|la|el|los|las)\b/g;
+function organismoParecidoACliente(organismo, clienteNombre) {
+  const limpiar = s => normalizarTexto(s).replace(/[^a-z0-9\s]/g, ' ').replace(RUIDO_NOMBRE_ORGANISMO_MP, ' ').replace(/\s+/g, ' ').trim();
+  const a = limpiar(organismo), b = limpiar(clienteNombre);
+  if (!a || !b) return false;
+  return a.includes(b) || b.includes(a);
+}
+
+// Vincula cada OC de Compra Ágil sin vínculo todavía con la cotización de
+// Bsale que más probablemente corresponde a esa compra -- por monto
+// (±$2, mismo margen que ya usa el vínculo cotización->factura más abajo)
+// y fecha (la cotización puede ser hasta 200 días anterior al envío de la
+// OC, o hasta 60 días posterior), más el filtro de nombre de organismo de
+// arriba para no cruzar mal dos compras de monto parecido en fechas
+// parecidas. Si la cotización encontrada ya se facturó, la factura
+// aparece SOLA (encadenada vía documento_asociado_* de esa cotización,
+// ver manejarCompraAgilOrdenes) -- no se busca ni se guarda aparte.
+// Es una operación 100% local (compara dos tablas ya sincronizadas, sin
+// llamar a Mercado Público ni a Bsale de nuevo) -> se corre siempre al
+// final de cada sincronización, no necesita su propio botón ni cuidar
+// ningún rate limit.
+async function vincularOrdenesCompraAgil(sql) {
+  const { rows: pendientes } = await sql`
+    SELECT codigo, organismo, total, fecha_envio FROM compra_agil_ordenes WHERE cotizacion_vinculada_id IS NULL;
+  `;
+  let vinculadas = 0;
+  for (const orden of pendientes) {
+    if (!orden.fecha_envio || !orden.organismo) continue;
+    const fechaEnvio = new Date(orden.fecha_envio).toISOString().slice(0, 10);
+    const { rows: candidatas } = await sql`
+      SELECT id, cliente_nombre, monto, fecha FROM bsale_cotizaciones
+      WHERE ABS(monto - ${orden.total}) <= 2
+        AND fecha IS NOT NULL
+        AND fecha >= (${fechaEnvio}::date - INTERVAL '200 days')
+        AND fecha <= (${fechaEnvio}::date + INTERVAL '60 days')
+        AND id NOT IN (SELECT cotizacion_vinculada_id FROM compra_agil_ordenes WHERE cotizacion_vinculada_id IS NOT NULL)
+      ORDER BY ABS(monto - ${orden.total}) ASC;
+    `;
+    const match = candidatas.find(c => organismoParecidoACliente(orden.organismo, c.cliente_nombre));
+    if (!match) continue;
+    await sql`UPDATE compra_agil_ordenes SET cotizacion_vinculada_id = ${match.id} WHERE codigo = ${orden.codigo};`;
+    vinculadas++;
+  }
+  return vinculadas;
+}
+
 async function manejarSyncCompraAgil(req, res, sesion) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sincronizar Compra Ágil' });
@@ -5780,12 +5843,18 @@ async function manejarSyncCompraAgil(req, res, sesion) {
       await sql`UPDATE compra_agil_sync_estado SET offset_actual = ${offset}, actualizado_en = now() WHERE id = 1;`;
     }
 
+    // Vincular con cotizaciones de Bsale es una operación 100% local (no
+    // llama a Mercado Público ni a Bsale de nuevo) -> se corre siempre,
+    // haya terminado la pasada o no, para que las OC recién guardadas en
+    // esta misma llamada ya aparezcan vinculadas sin esperar a la próxima.
+    const vinculosNuevos = await vincularOrdenesCompraAgil(sql);
+
     if (!pasadaTerminada) {
-      return res.status(200).json({ completo: false, diasProcesadosEnEstaLlamada: diasProcesados, ordenesNuevasEnEstaLlamada: ordenesNuevas, offsetActual: offset, diasTotales: totalDias });
+      return res.status(200).json({ completo: false, diasProcesadosEnEstaLlamada: diasProcesados, ordenesNuevasEnEstaLlamada: ordenesNuevas, vinculosNuevosEnEstaLlamada: vinculosNuevos, offsetActual: offset, diasTotales: totalDias });
     }
 
     await sql`UPDATE compra_agil_sync_estado SET offset_actual = 0, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
-    return res.status(200).json({ completo: true, diasProcesadosEnEstaLlamada: diasProcesados, ordenesNuevasEnEstaLlamada: ordenesNuevas, diasTotales: totalDias });
+    return res.status(200).json({ completo: true, diasProcesadosEnEstaLlamada: diasProcesados, ordenesNuevasEnEstaLlamada: ordenesNuevas, vinculosNuevosEnEstaLlamada: vinculosNuevos, diasTotales: totalDias });
   } catch (err) {
     return res.status(200).json({ error: 'Error sincronizando con Mercado Público', detail: String(err) });
   }

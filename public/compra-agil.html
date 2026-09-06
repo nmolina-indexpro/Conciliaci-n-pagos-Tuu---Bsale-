@@ -117,7 +117,7 @@
     <div class="seccion-head">
       <div>
         <h2>Historial de órdenes de compra</h2>
-        <div class="sub" style="margin-bottom:0;">Se sincroniza directo desde la API de Mercado Público (no depende del portal compra-agil-two).</div>
+        <div class="sub" style="margin-bottom:0;">Se sincroniza directo desde la API de Mercado Público (no depende del portal compra-agil-two). Cada OC se cruza automáticamente por monto, fecha y organismo con las cotizaciones de Bsale -- si la cotización ya se facturó, la factura/boleta aparece encadenada. Puede quedar sin vínculo si el organismo se guardó con un nombre muy distinto en Bsale.</div>
       </div>
       <button class="btn-primary" id="btnSincronizar" style="display:none;" onclick="iniciarSincronizacion()">🔄 Sincronizar con Mercado Público</button>
     </div>
@@ -143,6 +143,23 @@ function badgeEstado(estado, cuentaComoFacturado){
   return `<span class="badge pend">${estado || 'Enviada'}</span>`;
 }
 
+// La cotización se busca por monto+fecha+nombre del organismo (ver
+// vincularOrdenesCompraAgil en el backend) -- no hay un ID en común entre
+// Mercado Público y Bsale para cruzar directo, así que puede quedar sin
+// vínculo aunque exista de verdad (ej. si el organismo se guardó en Bsale
+// con un nombre muy distinto al de Mercado Público).
+function celdaCotizacion(o){
+  if(!o.cotizacionVinculada) return '<span class="empty-note">—</span>';
+  const c = o.cotizacionVinculada;
+  return c.url ? `<a href="${c.url}" target="_blank" rel="noopener">#${c.numero} ↗</a>` : `#${c.numero}`;
+}
+function celdaFactura(o){
+  if(!o.facturaVinculada) return '<span class="empty-note">—</span>';
+  const f = o.facturaVinculada;
+  const texto = `${f.tipo || 'Documento'} ${f.numero}`;
+  return f.url ? `<a href="${f.url}" target="_blank" rel="noopener">${texto} ↗</a>` : texto;
+}
+
 function renderTabla(data){
   const { ordenes } = data;
   if(!ordenes.length){
@@ -156,14 +173,16 @@ function renderTabla(data){
       <td>${o.codigo}</td>
       <td>${badgeEstado(o.estado, o.cuentaComoFacturado)}</td>
       <td class="amount">${fmtMoneda(o.total)}</td>
+      <td>${celdaCotizacion(o)}</td>
+      <td>${celdaFactura(o)}</td>
     </tr>`).join('');
 
   $('wrapTabla').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Fecha envío</th><th>Organismo comprador</th><th>Código OC</th><th>Estado</th><th style="text-align:right;">Total</th></tr></thead>
+      <thead><tr><th>Fecha envío</th><th>Organismo comprador</th><th>Código OC</th><th>Estado</th><th style="text-align:right;">Total</th><th>Cotización Bsale</th><th>Factura/Boleta</th></tr></thead>
       <tbody>${filas}</tbody>
       <tbody>
-        <tr class="fila-total"><td colspan="4">Total facturado (válidas)</td><td class="amount">${fmtMoneda(data.totalFacturado)}</td></tr>
+        <tr class="fila-total"><td colspan="6">Total facturado (válidas)</td><td class="amount">${fmtMoneda(data.totalFacturado)}</td></tr>
       </tbody>
     </table></div>
   `;
@@ -209,6 +228,7 @@ async function iniciarSincronizacion(){
     let completo = false;
     let diasHechos = 0;
     let ordenesNuevas = 0;
+    let vinculosNuevos = 0;
     while(!completo){
       const res = await fetch('/api/negocio?recurso=sync-compra-agil', { method: 'POST' }).then(r=>r.json());
       if(res.error){
@@ -219,8 +239,9 @@ async function iniciarSincronizacion(){
       completo = !!res.completo;
       diasHechos += res.diasProcesadosEnEstaLlamada || 0;
       ordenesNuevas += res.ordenesNuevasEnEstaLlamada || 0;
+      vinculosNuevos += res.vinculosNuevosEnEstaLlamada || 0;
       $('syncStatus').textContent = completo
-        ? `Sincronización completa — ${fmtNum(ordenesNuevas)} órdenes nuevas encontradas.`
+        ? `Sincronización completa — ${fmtNum(ordenesNuevas)} órdenes nuevas, ${fmtNum(vinculosNuevos)} vinculadas a una cotización de Bsale.`
         : `Sincronizando... ${fmtNum(res.offsetActual)} de ${fmtNum(res.diasTotales)} días revisados, ${fmtNum(ordenesNuevas)} órdenes nuevas. Continuando automáticamente, no cierres la página...`;
       if(completo) cargarOrdenes();
     }
