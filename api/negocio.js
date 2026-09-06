@@ -5760,19 +5760,48 @@ function contactoParecidoACliente(contactoNombre, clienteNombre) {
   return a === b || a.includes(b) || b.includes(a);
 }
 
+// De una lista de candidatos (ya filtrados por monto y ventana de fecha),
+// elige el más probable: primero cualquiera cuyo nombre calce (organismo o
+// contacto), el más cercano en fecha si hay más de uno así. Si NINGUNO
+// calza por nombre -- pasa seguido: IndexPro a veces factura a nombre de
+// una persona de contacto distinta a la que aparece en esta OC puntual en
+// particular (el mismo organismo puede tener varias personas comprando a
+// lo largo del tiempo, y en Bsale queda solo la que se usó esa vez) --
+// se usa igual el candidato con la fecha MÁS CERCANA al envío de la OC,
+// pero solo si esa cercanía es lo bastante chica como para confiar en
+// ella sin el respaldo de un nombre (maxDiasSinNombre): un monto
+// coincidente Y una fecha a días de diferencia ya es una coincidencia
+// arriesgada como para ignorarla, pero uno a meses de distancia no.
+function elegirMejorCandidatoCompraAgil(candidatas, fechaEnvioStr, nombreParece, maxDiasSinNombre) {
+  if (!candidatas.length) return null;
+  const fechaEnvioMs = new Date(fechaEnvioStr + 'T00:00:00Z').getTime();
+  const conDistancia = candidatas
+    .map(c => ({ c, diasDif: Math.abs(new Date(c.fecha).getTime() - fechaEnvioMs) / 86400000, nombreOk: nombreParece(c.cliente_nombre) }))
+    .sort((a, b) => a.diasDif - b.diasDif);
+  const conNombre = conDistancia.find(x => x.nombreOk);
+  if (conNombre) return conNombre.c;
+  const masCercano = conDistancia[0];
+  return masCercano.diasDif <= maxDiasSinNombre ? masCercano.c : null;
+}
+const COMPRA_AGIL_MAX_DIAS_SIN_NOMBRE = 20;
+
 // Vincula cada OC de Compra Ágil sin vínculo todavía con la cotización de
-// Bsale que más probablemente corresponde a esa compra -- por monto
-// (±$2, mismo margen que ya usa el vínculo cotización->factura más abajo)
-// y fecha (la cotización puede ser hasta 200 días anterior al envío de la
-// OC, o hasta 60 días posterior), más el filtro de nombre de organismo de
-// arriba para no cruzar mal dos compras de monto parecido en fechas
-// parecidas. Si la cotización encontrada ya se facturó, la factura
-// aparece SOLA (encadenada vía documento_asociado_* de esa cotización,
-// ver manejarCompraAgilOrdenes) -- no se busca ni se guarda aparte.
-// Es una operación 100% local (compara dos tablas ya sincronizadas, sin
-// llamar a Mercado Público ni a Bsale de nuevo) -> se corre siempre al
-// final de cada sincronización, no necesita su propio botón ni cuidar
-// ningún rate limit.
+// Bsale que más probablemente corresponde a esa compra -- por monto y
+// fecha (la cotización puede ser hasta 200 días anterior al envío de la
+// OC, o hasta 60 días posterior), más el nombre de organismo/contacto (ver
+// elegirMejorCandidatoCompraAgil) para no cruzar mal dos compras de monto
+// parecido en fechas parecidas. La tolerancia de monto es 1% del total (o
+// $10, lo que sea mayor) en vez de un monto fijo chico -- se vio en la
+// práctica que el "Total" que informa Mercado Público a veces difiere en
+// unos pesos del monto real facturado en Bsale (ej. por cómo cada sistema
+// redondea un cargo adicional), y con solo ±$2 esas OC quedaban afuera
+// aunque el monto casi calzara perfecto. Si la cotización encontrada ya
+// se facturó, la factura aparece SOLA (encadenada vía documento_asociado_*
+// de esa cotización, ver manejarCompraAgilOrdenes) -- no se busca ni se
+// guarda aparte. Es una operación 100% local (compara dos tablas ya
+// sincronizadas, sin llamar a Mercado Público ni a Bsale de nuevo) -> se
+// corre siempre al final de cada sincronización, no necesita su propio
+// botón ni cuidar ningún rate limit.
 async function vincularOrdenesCompraAgil(sql) {
   const { rows: pendientes } = await sql`
     SELECT codigo, organismo, contacto_nombre, total, fecha_envio, cotizacion_vinculada_id, factura_vinculada_id
@@ -5781,26 +5810,26 @@ async function vincularOrdenesCompraAgil(sql) {
   `;
   let vinculadas = 0;
   for (const orden of pendientes) {
-    if (!orden.fecha_envio || !orden.organismo) continue;
+    if (!orden.fecha_envio) continue;
     const fechaEnvio = new Date(orden.fecha_envio).toISOString().slice(0, 10);
+    const tolerancia = Math.max(Number(orden.total) * 0.01, 10);
     // El contacto (persona) suele calzar mejor que el organismo -- ver
     // contactoParecidoACliente -- pero se prueban los dos, cualquiera que
     // calce sirve.
-    const nombreParece = clienteNombre => organismoParecidoACliente(orden.organismo, clienteNombre)
+    const nombreParece = clienteNombre => (orden.organismo && organismoParecidoACliente(orden.organismo, clienteNombre))
       || (orden.contacto_nombre && contactoParecidoACliente(orden.contacto_nombre, clienteNombre));
     let algoNuevo = false;
 
     if (orden.cotizacion_vinculada_id == null) {
       const { rows: candidatas } = await sql`
         SELECT id, cliente_nombre, monto, fecha FROM bsale_cotizaciones
-        WHERE ABS(monto - ${orden.total}) <= 2
+        WHERE ABS(monto - ${orden.total}) <= ${tolerancia}
           AND fecha IS NOT NULL
           AND fecha >= (${fechaEnvio}::date - INTERVAL '200 days')
           AND fecha <= (${fechaEnvio}::date + INTERVAL '60 days')
           AND id NOT IN (SELECT cotizacion_vinculada_id FROM compra_agil_ordenes WHERE cotizacion_vinculada_id IS NOT NULL)
-        ORDER BY ABS(monto - ${orden.total}) ASC;
       `;
-      const match = candidatas.find(c => nombreParece(c.cliente_nombre));
+      const match = elegirMejorCandidatoCompraAgil(candidatas, fechaEnvio, nombreParece, COMPRA_AGIL_MAX_DIAS_SIN_NOMBRE);
       if (match) {
         await sql`UPDATE compra_agil_ordenes SET cotizacion_vinculada_id = ${match.id} WHERE codigo = ${orden.codigo};`;
         algoNuevo = true;
@@ -5820,14 +5849,13 @@ async function vincularOrdenesCompraAgil(sql) {
     if (orden.factura_vinculada_id == null) {
       const { rows: candidatasFactura } = await sql`
         SELECT documento_id, cliente_nombre, monto, fecha FROM analisis_compras
-        WHERE ABS(monto - ${orden.total}) <= 2
+        WHERE ABS(monto - ${orden.total}) <= ${tolerancia}
           AND fecha IS NOT NULL
           AND fecha >= (${fechaEnvio}::date - INTERVAL '5 days')
           AND fecha <= (${fechaEnvio}::date + INTERVAL '120 days')
           AND documento_id NOT IN (SELECT factura_vinculada_id FROM compra_agil_ordenes WHERE factura_vinculada_id IS NOT NULL)
-        ORDER BY ABS(monto - ${orden.total}) ASC;
       `;
-      const matchFactura = candidatasFactura.find(c => nombreParece(c.cliente_nombre));
+      const matchFactura = elegirMejorCandidatoCompraAgil(candidatasFactura, fechaEnvio, nombreParece, COMPRA_AGIL_MAX_DIAS_SIN_NOMBRE);
       if (matchFactura) {
         await sql`UPDATE compra_agil_ordenes SET factura_vinculada_id = ${matchFactura.documento_id} WHERE codigo = ${orden.codigo};`;
         algoNuevo = true;
@@ -5869,13 +5897,14 @@ async function manejarCompraAgilDebugVinculo(req, res, sesion) {
     if (!orden) return res.status(404).json({ error: 'OC no encontrada en compra_agil_ordenes', codigo });
     const fechaEnvio = orden.fecha_envio ? new Date(orden.fecha_envio).toISOString().slice(0, 10) : null;
 
+    const tolerancia = Math.max(Number(orden.total) * 0.01, 10);
     const { rows: cotCandidatas } = await sql`
       SELECT id, cliente_nombre, monto, fecha FROM bsale_cotizaciones
-      WHERE ABS(monto - ${orden.total}) <= 2 ORDER BY ABS(monto - ${orden.total}) ASC LIMIT 20;
+      WHERE ABS(monto - ${orden.total}) <= ${tolerancia} ORDER BY ABS(monto - ${orden.total}) ASC LIMIT 20;
     `;
     const { rows: facturaCandidatas } = await sql`
       SELECT documento_id, cliente_nombre, monto, fecha, numero FROM analisis_compras
-      WHERE ABS(monto - ${orden.total}) <= 2 ORDER BY ABS(monto - ${orden.total}) ASC LIMIT 20;
+      WHERE ABS(monto - ${orden.total}) <= ${tolerancia} ORDER BY ABS(monto - ${orden.total}) ASC LIMIT 20;
     `;
     // Búsqueda directa por nombre (sin filtro de monto) -- el monto solo
     // puede ser un precio muy repetido (muchas ventas distintas por el
@@ -5895,13 +5924,14 @@ async function manejarCompraAgilDebugVinculo(req, res, sesion) {
              (SELECT COUNT(*)::int FROM analisis_compras WHERE numero IS NOT NULL) AS total_compras_con_numero;
     `;
 
+    const diasDif = fecha => fechaEnvio ? Math.abs(new Date(fecha).getTime() - new Date(fechaEnvio + 'T00:00:00Z').getTime()) / 86400000 : null;
     return res.status(200).json({
-      orden: { codigo: orden.codigo, organismo: orden.organismo, contactoNombre: orden.contacto_nombre, total: Number(orden.total), fechaEnvio, cotizacionVinculadaId: orden.cotizacion_vinculada_id, facturaVinculadaId: orden.factura_vinculada_id },
+      orden: { codigo: orden.codigo, organismo: orden.organismo, contactoNombre: orden.contacto_nombre, total: Number(orden.total), fechaEnvio, tolerancia, cotizacionVinculadaId: orden.cotizacion_vinculada_id, facturaVinculadaId: orden.factura_vinculada_id },
       busquedaPorPalabra: primeraPalabraOrganismo,
-      cotizacionesQueCalzanPorMonto: cotCandidatas.map(c => ({ id: c.id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, organismoParece: organismoParecidoACliente(orden.organismo, c.cliente_nombre), contactoParece: orden.contacto_nombre ? contactoParecidoACliente(orden.contacto_nombre, c.cliente_nombre) : null })),
-      facturasQueCalzanPorMonto: facturaCandidatas.map(c => ({ documentoId: c.documento_id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, organismoParece: organismoParecidoACliente(orden.organismo, c.cliente_nombre), contactoParece: orden.contacto_nombre ? contactoParecidoACliente(orden.contacto_nombre, c.cliente_nombre) : null })),
-      cotizacionesQueCalzanPorNombre: cotPorNombre.map(c => ({ id: c.id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, montoCalza: Math.abs(Number(c.monto) - Number(orden.total)) <= 2 })),
-      facturasQueCalzanPorNombre: facturaPorNombre.map(c => ({ documentoId: c.documento_id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, montoCalza: Math.abs(Number(c.monto) - Number(orden.total)) <= 2 })),
+      cotizacionesQueCalzanPorMonto: cotCandidatas.map(c => ({ id: c.id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, diasDif: diasDif(c.fecha), organismoParece: organismoParecidoACliente(orden.organismo, c.cliente_nombre), contactoParece: orden.contacto_nombre ? contactoParecidoACliente(orden.contacto_nombre, c.cliente_nombre) : null })),
+      facturasQueCalzanPorMonto: facturaCandidatas.map(c => ({ documentoId: c.documento_id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, diasDif: diasDif(c.fecha), organismoParece: organismoParecidoACliente(orden.organismo, c.cliente_nombre), contactoParece: orden.contacto_nombre ? contactoParecidoACliente(orden.contacto_nombre, c.cliente_nombre) : null })),
+      cotizacionesQueCalzanPorNombre: cotPorNombre.map(c => ({ id: c.id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, montoCalza: Math.abs(Number(c.monto) - Number(orden.total)) <= tolerancia })),
+      facturasQueCalzanPorNombre: facturaPorNombre.map(c => ({ documentoId: c.documento_id, clienteNombre: c.cliente_nombre, monto: Number(c.monto), fecha: c.fecha, numero: c.numero, montoCalza: Math.abs(Number(c.monto) - Number(orden.total)) <= tolerancia })),
       totales: totalesRows[0],
     });
   } catch (err) {
