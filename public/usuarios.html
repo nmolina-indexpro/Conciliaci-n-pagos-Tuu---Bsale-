@@ -115,7 +115,7 @@
       </div>
       <div class="campo">
         <label>Duración temporal (min)</label>
-        <input type="number" id="fExpira" style="width:110px;" placeholder="vacío = sin límite" min="1" value="180">
+        <input type="number" id="fExpira" style="width:110px;" placeholder="vacío = sin límite" min="1" value="">
       </div>
       <div class="campo">
         <label>Perfil de acceso</label>
@@ -412,7 +412,7 @@ async function crearUsuario(){
     if(data.correo && !data.correo.enviado){
       errorEl.innerHTML = `<div class="error-box" style="background:var(--amber-dim,#FDF0DC);color:var(--amber,#D97706);">Usuario creado, pero no se pudo enviar el correo de bienvenida (${data.correo.motivo}). Avísale la contraseña por otro medio.</div>`;
     }
-    $('fEmail').value = ''; $('fNombre').value = ''; $('fPassword').value = ''; $('fRol').value = 'usuario'; $('fExpira').value = '180'; $('fPerfil').value = '';
+    $('fEmail').value = ''; $('fNombre').value = ''; $('fPassword').value = ''; $('fRol').value = 'usuario'; $('fExpira').value = ''; $('fPerfil').value = '';
     cargarUsuarios();
   }catch(err){
     errorEl.innerHTML = `<div class="error-box">Error: ${err.message}</div>`;
