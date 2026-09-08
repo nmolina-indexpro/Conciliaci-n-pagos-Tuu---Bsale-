@@ -5958,11 +5958,17 @@ async function vincularOrdenesCompraAgil(sql) {
 async function manejarBsaleDebugDocumento(req, res, sesion) {
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador' });
   const numero = req.query.numero;
-  if (!numero) return res.status(400).json({ error: 'Falta ?numero=' });
+  const clientid = req.query.clientid;
+  if (!numero && !clientid) return res.status(400).json({ error: 'Falta ?numero= o ?clientid=' });
   const token = process.env.BSALE_ACCESS_TOKEN;
   if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
   try {
-    const url = `${BSALE_BASE}/documents.json?number=${numero}&expand=client,document_type&limit=10`;
+    // ?clientid= repite EXACTO lo que hace la Fase 2 de manejarSyncCotizaciones
+    // (mismo limit=50, sin expand=client) -- para ver si el documento
+    // buscado aparece o no en esa misma consulta tal cual la ve el matching.
+    const url = clientid
+      ? `${BSALE_BASE}/documents.json?clientid=${clientid}&expand=document_type&limit=50`
+      : `${BSALE_BASE}/documents.json?number=${numero}&expand=client,document_type&limit=10`;
     const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
     if (!r.ok) {
       const texto = await r.text().catch(() => '');
@@ -5981,7 +5987,7 @@ async function manejarBsaleDebugDocumento(req, res, sesion) {
       state: d.state,
       cancellationStatus: d.cancellationStatus || null,
     }));
-    return res.status(200).json({ numeroBuscado: numero, encontrados: items.length, items });
+    return res.status(200).json({ numeroBuscado: numero || null, clientidBuscado: clientid || null, encontrados: items.length, items });
   } catch (err) {
     return res.status(200).json({ error: 'Error consultando Bsale', detail: String(err) });
   }
