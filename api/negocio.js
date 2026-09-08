@@ -114,6 +114,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
   if (recurso === 'compra-agil-ordenes') return manejarCompraAgilOrdenes(req, res, sesion);
   if (recurso === 'compra-agil-debug-vinculo') return manejarCompraAgilDebugVinculo(req, res, sesion);
+  if (recurso === 'bsale-debug-documento') return manejarBsaleDebugDocumento(req, res, sesion);
   if (recurso === 'sync-compra-agil') return manejarSyncCompraAgil(req, res, sesion);
   return res.status(400).json({ error: 'Falta un ?recurso= válido (ver api/negocio.js)' });
 }
@@ -5930,6 +5931,46 @@ async function vincularOrdenesCompraAgil(sql) {
     if (algoNuevo) vinculadas++;
   }
   return vinculadas;
+}
+
+// Debug puntual: ?recurso=bsale-debug-documento&numero=XXXXX -- busca un
+// documento por folio DIRECTO en Bsale (no en nuestras tablas) y trae quién
+// quedó como "cliente" registrado en Bsale para ese documento. Sirve para
+// confirmar el mismo problema que ya se vio en Compra Ágil (Bsale a veces
+// guarda como cliente a la persona de contacto o a un tercero, no a la
+// empresa que aparece en el buscador de Bsale) también fuera de Compra
+// Ágil -- ej. cotizaciones del módulo de Ventas que no aparecen al buscar
+// por el nombre de la empresa porque el cliente real es otra persona/RUT.
+async function manejarBsaleDebugDocumento(req, res, sesion) {
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador' });
+  const numero = req.query.numero;
+  if (!numero) return res.status(400).json({ error: 'Falta ?numero=' });
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+  try {
+    const url = `${BSALE_BASE}/documents.json?number=${numero}&expand=client,document_type&limit=10`;
+    const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
+    if (!r.ok) {
+      const texto = await r.text().catch(() => '');
+      return res.status(200).json({ error: `Bsale HTTP ${r.status}`, detail: texto.slice(0, 500) });
+    }
+    const data = await r.json();
+    const items = (data.items || []).map(d => ({
+      id: d.id,
+      numero: d.number,
+      tipoDocumento: d.document_type?.name || null,
+      clienteId: d.client?.id ?? null,
+      clienteNombre: nombreClienteDoc(d.client),
+      clienteRazonSocial: d.client?.company || null,
+      monto: Number(d.totalAmount) || 0,
+      fecha: d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null,
+      state: d.state,
+      cancellationStatus: d.cancellationStatus || null,
+    }));
+    return res.status(200).json({ numeroBuscado: numero, encontrados: items.length, items });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error consultando Bsale', detail: String(err) });
+  }
 }
 
 // Debug puntual: ?recurso=compra-agil-debug-vinculo&codigo=XXX-YYY-ZZ --
