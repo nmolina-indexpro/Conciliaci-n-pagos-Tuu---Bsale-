@@ -686,6 +686,7 @@ function renderVentasBaja(){
 
 // ---------- Variación de precio por SKU (últimos 6 meses) ----------
 const CATEGORIA_VARIACION_LABEL = { cargadores: '🔌 Cargador', baterias: '🔋 Batería', pantallas: '🖥️ Pantalla' };
+let variacionPrecioActual = [];
 async function cargarVariacionPrecio(){
   try{
     const res = await fetch('/api/negocio?recurso=precios-sku-variacion');
@@ -694,16 +695,36 @@ async function cargarVariacionPrecio(){
       $('wrapVariacionPrecio').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`;
       return;
     }
-    renderVariacionPrecio(data.variaciones || []);
+    variacionPrecioActual = data.variaciones || [];
+    renderVariacionPrecio();
   }catch(err){
     $('wrapVariacionPrecio').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
   }
 }
-function renderVariacionPrecio(lista){
+// Misma exclusión permanente que "Sacar de este análisis" en Productos
+// estancados (ventas_sku_excluidos, ver manejarVentasSkuTendencia DELETE)
+// -- comparten la tabla, así que un SKU sacado acá tampoco vuelve a
+// aparecer ahí, y viceversa.
+async function eliminarVariacionPrecioSku(sku){
+  if(!confirm(`¿Sacar el SKU ${sku} de este análisis? No va a volver a aparecer.`)) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=ventas-sku-tendencia&sku=${encodeURIComponent(sku)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error); return; }
+    variacionPrecioActual = variacionPrecioActual.filter(v => v.sku !== sku);
+    renderVariacionPrecio();
+    cargarVentasBaja(); // comparten la exclusión con Productos estancados
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+function renderVariacionPrecio(){
+  const lista = variacionPrecioActual;
   if(!lista.length){
     $('wrapVariacionPrecio').innerHTML = '<p class="empty-note">No se detectaron variaciones de precio relevantes en los últimos 6 meses.</p>';
     return;
   }
+  const esAdmin = rolActual === 'admin';
   const filas = lista.map(v => `
     <tr>
       <td><span class="sku-code">${escapeHtml(v.sku)}</span></td>
@@ -714,6 +735,7 @@ function renderVariacionPrecio(lista){
       <td class="amount">${fmtNum(v.diferenciaPct)}%</td>
       <td class="amount">${fmtMoneda(v.precioActual)}</td>
       <td class="amount">${fmtNum(v.cantidadVentas)}</td>
+      <td>${esAdmin ? `<button class="btn-icono" title="Sacar de este análisis" onclick="eliminarVariacionPrecioSku('${v.sku}')">🗑️</button>` : ''}</td>
     </tr>`).join('');
   $('wrapVariacionPrecio').innerHTML = `
     <div class="tabla-wrap"><table>
@@ -722,6 +744,7 @@ function renderVariacionPrecio(lista){
         <th style="text-align:right;">Precio mín.</th><th style="text-align:right;">Precio máx.</th>
         <th style="text-align:right;">Diferencia</th><th style="text-align:right;">% variación</th>
         <th style="text-align:right;">Precio actual</th><th style="text-align:right;">N° ventas</th>
+        <th>Acciones</th>
       </tr></thead>
       <tbody>${filas}</tbody>
     </table></div>

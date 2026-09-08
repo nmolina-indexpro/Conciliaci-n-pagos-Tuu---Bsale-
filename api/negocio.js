@@ -1815,12 +1815,17 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
       }
       const diferencia = max.precio - min.precio;
       if (diferencia < toleranciaVariacionPrecioSku(min.precio)) continue;
+      // bsale_ventas_sku guarda el monto NETO (sin IVA, ver
+      // manejarSyncAnalisis) -- se compara y se ordena en neto (da igual,
+      // es un factor de escala uniforme), pero se muestra CON IVA (x1.19,
+      // mismo criterio que obtenerPreciosBsalePorSku/calcularAlertasSitioWeb)
+      // porque es el precio real que paga el cliente.
       variaciones.push({
         sku, nombre, categoria: categoriaLinea(sku, nombre),
-        precioMin: Math.round(min.precio), fechaPrecioMin: min.fecha,
-        precioMax: Math.round(max.precio), fechaPrecioMax: max.fecha,
-        precioActual: Math.round(ventas[ventas.length - 1].precio),
-        diferencia: Math.round(diferencia),
+        precioMin: Math.round(min.precio * 1.19), fechaPrecioMin: min.fecha,
+        precioMax: Math.round(max.precio * 1.19), fechaPrecioMax: max.fecha,
+        precioActual: Math.round(ventas[ventas.length - 1].precio * 1.19),
+        diferencia: Math.round(diferencia * 1.19),
         diferenciaPct: Math.round((diferencia / min.precio) * 100),
         cantidadVentas: ventas.length,
       });
