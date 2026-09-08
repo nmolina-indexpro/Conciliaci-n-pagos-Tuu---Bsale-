@@ -40,10 +40,26 @@
   .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;}
   .seccion-head h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:0 0 4px;}
 
-  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;transition:all .15s;}
   button:disabled{opacity:0.5;cursor:not-allowed;}
   .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
   .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:11px;padding:7px 12px;}
+
+  input[type=text],input[type=date]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:6px 10px;border-radius:9px;font-size:12.5px;}
+  input:focus,select:focus{outline:none;border-color:var(--primary);}
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:6px 10px;border-radius:9px;font-size:12px;}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:18px;}
+  .filtro-rango-fechas{display:flex;align-items:center;gap:7px;}
+  .date-field{display:flex;align-items:center;gap:5px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  .campo{display:flex;flex-direction:column;gap:3px;}
+  .campo label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;}
+  .arrow-up{color:var(--green);font-weight:700;}
+  .arrow-down{color:var(--red);font-weight:700;}
 
   .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
   #syncStatus{font-size:12px;color:var(--muted);margin-top:10px;}
@@ -118,11 +134,36 @@
     <div class="kpi"><div class="kpi-lbl">Facturado mes anterior</div><div class="kpi-val" id="kpiMesAnterior">$0</div><div class="kpi-sub" id="kpiMesAnteriorSub">0 órdenes</div></div>
   </div>
 
+  <div class="toolbar">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div class="filtro-rango-fechas">
+        <div class="date-field"><label for="ocDesde">Desde</label><input type="date" id="ocDesde" onchange="aplicarFiltrosOC()"></div>
+        <div class="date-field"><label for="ocHasta">Hasta</label><input type="date" id="ocHasta" onchange="aplicarFiltrosOC()"></div>
+      </div>
+      <button class="btn-primary" style="padding:9px 14px;" title="Buscar este rango" onclick="aplicarFiltrosOC()">🔍</button>
+      <button class="btn-ghost btn-compact" id="btnOcHoy" onclick="setRangoRapidoOC('hoy')">Hoy</button>
+      <button class="btn-ghost btn-compact" id="btnOcSemana" onclick="setRangoRapidoOC('semana')">Semana</button>
+      <button class="btn-ghost btn-compact" id="btnOcMes" onclick="setRangoRapidoOC('mes')">Mes actual</button>
+      <button class="btn-ghost btn-compact" id="btnOcMesAnterior" onclick="setRangoRapidoOC('mes_anterior')">Mes anterior</button>
+      <button class="btn-ghost btn-compact" onclick="limpiarRangoOC()">✕ Limpiar</button>
+      <div class="campo">
+        <label>Buscar</label>
+        <input type="text" id="ocBuscar" placeholder="Organismo..." oninput="aplicarFiltrosOC()" style="width:220px;">
+      </div>
+      <div class="campo">
+        <label>Estado</label>
+        <select id="ocFiltroEstado" onchange="aplicarFiltrosOC()">
+          <option value="">Todos</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
   <div class="seccion">
     <div class="seccion-head">
       <div>
         <h2>Comparativo de vendedores</h2>
-        <div class="sub" style="margin-bottom:0;">Sólo Bsale registra vendedor, y sólo en las cotizaciones -- las órdenes facturadas de forma directa (sin pasar por una cotización) quedan agrupadas en "Sin vendedor identificado".</div>
+        <div class="sub" style="margin-bottom:0;">Sólo Bsale registra vendedor, y sólo en las cotizaciones -- las órdenes facturadas de forma directa (sin pasar por una cotización) quedan agrupadas en "Sin vendedor identificado". Respeta el filtro de fecha/organismo/estado de arriba.</div>
       </div>
     </div>
     <div id="wrapVendedores"><p class="empty-note">Cargando...</p></div>
@@ -149,8 +190,113 @@ const $ = id => document.getElementById(id);
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
 function fmtMoneda(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
 function fmtFecha(iso){ return iso ? new Date(iso).toLocaleDateString('es-CL') : '—'; }
+function escapeHtml(texto){
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 let rolActual = null;
+let ordenesActuales = [];
+
+// ---------- Filtro de fecha/organismo/estado (rango filtrado) ----------
+// Mismo cálculo de fechas rápidas que usa oportunidades-comerciales.html.
+const hoyStrOC = new Date().toLocaleDateString('en-CA');
+function addDaysStrOC(dateStr, days){
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  dt.setUTCDate(dt.getUTCDate()+days);
+  return dt.toISOString().slice(0,10);
+}
+function firstDayOfMonthStrOC(dateStr){
+  const [y,m] = dateStr.split('-').map(Number);
+  return `${y}-${String(m).padStart(2,'0')}-01`;
+}
+function lastDayOfMonthStrOC(dateStr){
+  const [y,m] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m, 0));
+  return dt.toISOString().slice(0,10);
+}
+function setRangoRapidoOC(tipo){
+  if(tipo === 'hoy'){
+    $('ocDesde').value = hoyStrOC;
+    $('ocHasta').value = hoyStrOC;
+  } else if(tipo === 'semana'){
+    $('ocDesde').value = addDaysStrOC(hoyStrOC, -6);
+    $('ocHasta').value = hoyStrOC;
+  } else if(tipo === 'mes_anterior'){
+    const ultimoDiaMesAnterior = addDaysStrOC(firstDayOfMonthStrOC(hoyStrOC), -1);
+    $('ocDesde').value = firstDayOfMonthStrOC(ultimoDiaMesAnterior);
+    $('ocHasta').value = ultimoDiaMesAnterior;
+  } else {
+    $('ocDesde').value = firstDayOfMonthStrOC(hoyStrOC);
+    $('ocHasta').value = lastDayOfMonthStrOC(hoyStrOC);
+  }
+  $('btnOcHoy').classList.toggle('active', tipo==='hoy');
+  $('btnOcSemana').classList.toggle('active', tipo==='semana');
+  $('btnOcMes').classList.toggle('active', tipo==='mes');
+  $('btnOcMesAnterior').classList.toggle('active', tipo==='mes_anterior');
+  aplicarFiltrosOC();
+}
+function limpiarRangoOC(){
+  $('ocDesde').value = '';
+  $('ocHasta').value = '';
+  $('ocBuscar').value = '';
+  $('ocFiltroEstado').value = '';
+  ['btnOcHoy','btnOcSemana','btnOcMes','btnOcMesAnterior'].forEach(id => $(id).classList.remove('active'));
+  aplicarFiltrosOC();
+}
+function fechaStrOC(o){
+  return o.fechaEnvio ? new Date(o.fechaEnvio).toISOString().slice(0,10) : null;
+}
+function ordenesFiltradas(){
+  const desde = $('ocDesde').value;
+  const hasta = $('ocHasta').value;
+  const q = ($('ocBuscar').value || '').trim().toLowerCase();
+  const filtroEstado = $('ocFiltroEstado').value;
+  return ordenesActuales.filter(o => {
+    const f = fechaStrOC(o);
+    return (!desde || !f || f >= desde)
+      && (!hasta || !f || f <= hasta)
+      && (!q || (o.organismo||'').toLowerCase().includes(q))
+      && (!filtroEstado || o.estado === filtroEstado);
+  });
+}
+function poblarFiltroEstadoOC(){
+  const select = $('ocFiltroEstado');
+  const actual = select.value;
+  const estados = Array.from(new Set(ordenesActuales.map(o => o.estado).filter(Boolean))).sort();
+  select.innerHTML = '<option value="">Todos</option>' + estados.map(e => `<option value="${escapeHtml(e)}">${escapeHtml(e)}</option>`).join('');
+  if(estados.includes(actual)) select.value = actual;
+}
+function diasEntreOC(desde, hasta){
+  return Math.round((new Date(hasta+'T00:00:00Z') - new Date(desde+'T00:00:00Z')) / 86400000);
+}
+// Mismo período anterior "equivalente" (misma duración, corrido hacia
+// atrás) que usa oportunidades-comerciales.html para comparar vendedores
+// de forma justa cualquiera sea el rango elegido arriba.
+function periodoAnteriorEquivalenteOC(desde, hasta){
+  if(!desde || !hasta) return null;
+  const dias = diasEntreOC(desde, hasta) + 1;
+  const nuevaHasta = addDaysStrOC(desde, -1);
+  const nuevaDesde = addDaysStrOC(nuevaHasta, -(dias-1));
+  return { desde: nuevaDesde, hasta: nuevaHasta };
+}
+function calcularVariacionPctOC(actual, anterior){
+  if(anterior === 0) return actual === 0 ? null : Infinity;
+  return ((actual - anterior) / anterior) * 100;
+}
+function notaVariacionHtmlOC(pct){
+  if(pct === null) return '';
+  if(pct === Infinity) return '<span class="arrow-up">▲ Nuevo (sin datos el período anterior)</span>';
+  const flecha = pct >= 0 ? '▲' : '▼';
+  const clase = pct >= 0 ? 'arrow-up' : 'arrow-down';
+  return `<span class="${clase}">${flecha} ${pct>=0?'+':''}${Math.round(pct)}% vs período anterior</span>`;
+}
+function aplicarFiltrosOC(){
+  renderVendedores();
+  renderTabla();
+}
 
 function badgeEstado(estado, cuentaComoFacturado){
   if(!cuentaComoFacturado) return `<span class="badge cancel">${estado || 'Cancelada'}</span>`;
@@ -179,10 +325,14 @@ function celdaDias(o){
   return `${fmtNum(o.diasCotizacionFactura)} día${o.diasCotizacionFactura === 1 ? '' : 's'}`;
 }
 
-function renderTabla(data){
-  const { ordenes } = data;
-  if(!ordenes.length){
+function renderTabla(){
+  if(!ordenesActuales.length){
     $('wrapTabla').innerHTML = '<p class="empty-note">Todavía no hay órdenes sincronizadas. Usa "🔄 Sincronizar con Mercado Público" para traer el historial.</p>';
+    return;
+  }
+  const ordenes = ordenesFiltradas();
+  if(!ordenes.length){
+    $('wrapTabla').innerHTML = '<p class="empty-note">Sin resultados para ese filtro.</p>';
     return;
   }
   const filas = ordenes.map(o => `
@@ -196,13 +346,14 @@ function renderTabla(data){
       <td>${celdaFactura(o)}</td>
       <td>${celdaDias(o)}</td>
     </tr>`).join('');
+  const totalFacturado = ordenes.filter(o => o.cuentaComoFacturado).reduce((s, o) => s + o.total, 0);
 
   $('wrapTabla').innerHTML = `
     <div class="tabla-wrap"><table>
       <thead><tr><th>Fecha envío</th><th>Organismo comprador</th><th>Código OC</th><th>Estado</th><th style="text-align:right;">Total</th><th>Cotización Bsale</th><th>Factura/Boleta</th><th>Cotización → factura</th></tr></thead>
       <tbody>${filas}</tbody>
       <tbody>
-        <tr class="fila-total"><td colspan="6">Total facturado (válidas)</td><td class="amount">${fmtMoneda(data.totalFacturado)}</td><td></td></tr>
+        <tr class="fila-total"><td colspan="4">Total facturado (válidas, rango filtrado)</td><td class="amount">${fmtMoneda(totalFacturado)}</td><td colspan="3"></td></tr>
       </tbody>
     </table></div>
   `;
@@ -235,9 +386,32 @@ function renderResumenMeses(ordenes){
 // Sólo bsale_cotizaciones registra vendedor -- las órdenes facturadas
 // directo (sin cotización de por medio) no tienen forma de identificarlo,
 // así que caen en el bucket "Sin vendedor identificado" en vez de omitirse.
-function renderVendedores(ordenes){
+// Respeta el rango de fechas/organismo/estado del toolbar de arriba; "vs.
+// período anterior" compara contra el mismo largo de período justo antes
+// del rango elegido (ver periodoAnteriorEquivalenteOC), IGNORANDO el
+// filtro de organismo/estado (solo fecha) para que la comparación sea
+// pareja -- mismo criterio que "Vendedores — rango filtrado" en Ventas.
+function renderVendedores(){
+  if(!ordenesActuales.length){
+    $('wrapVendedores').innerHTML = '<p class="empty-note">No hay datos suficientes todavía.</p>';
+    return;
+  }
+  const desde = $('ocDesde').value;
+  const hasta = $('ocHasta').value;
+  const periodoAnt = periodoAnteriorEquivalenteOC(desde, hasta);
+  const montoAnteriorPorVendedor = new Map();
+  if(periodoAnt){
+    for(const o of ordenesActuales){
+      if(!o.cuentaComoFacturado) continue;
+      const f = fechaStrOC(o);
+      if(!f || f < periodoAnt.desde || f > periodoAnt.hasta) continue;
+      const nombre = o.vendedorNombre || 'Sin vendedor identificado';
+      montoAnteriorPorVendedor.set(nombre, (montoAnteriorPorVendedor.get(nombre) || 0) + o.total);
+    }
+  }
+
   const mapa = new Map();
-  ordenes.forEach(o => {
+  ordenesFiltradas().forEach(o => {
     if(!o.cuentaComoFacturado) return;
     const nombre = o.vendedorNombre || 'Sin vendedor identificado';
     if(!mapa.has(nombre)) mapa.set(nombre, { nombre, total: 0, ordenes: 0 });
@@ -245,22 +419,26 @@ function renderVendedores(ordenes){
     e.total += o.total;
     e.ordenes++;
   });
-  const filas = Array.from(mapa.values()).sort((a, b) => b.total - a.total);
+  const filas = Array.from(mapa.values()).map(f => ({
+    ...f,
+    variacionPct: periodoAnt ? calcularVariacionPctOC(f.total, montoAnteriorPorVendedor.get(f.nombre) || 0) : null,
+  })).sort((a, b) => b.total - a.total);
   if(!filas.length){
-    $('wrapVendedores').innerHTML = '<p class="empty-note">No hay datos suficientes todavía.</p>';
+    $('wrapVendedores').innerHTML = '<p class="empty-note">Sin resultados para ese filtro.</p>';
     return;
   }
   const maxTotal = Math.max(...filas.map(f => f.total), 1);
   const filasHtml = filas.map(f => `
     <tr>
-      <td>${f.nombre}</td>
+      <td>${escapeHtml(f.nombre)}</td>
       <td class="amount">${fmtMoneda(f.total)}</td>
       <td class="amount">${fmtNum(f.ordenes)}</td>
       <td><div style="background:var(--primary-dim);border-radius:6px;overflow:hidden;height:14px;width:160px;"><div style="background:var(--primary);height:100%;width:${Math.round(f.total / maxTotal * 100)}%;"></div></div></td>
+      ${periodoAnt ? `<td>${notaVariacionHtmlOC(f.variacionPct) || '<span class="empty-note">—</span>'}</td>` : ''}
     </tr>`).join('');
   $('wrapVendedores').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Vendedor</th><th style="text-align:right;">Total facturado</th><th style="text-align:right;">Órdenes</th><th>Comparativo</th></tr></thead>
+      <thead><tr><th>Vendedor</th><th style="text-align:right;">Total facturado</th><th style="text-align:right;">Órdenes</th><th>Comparativo</th>${periodoAnt ? '<th>vs. período anterior</th>' : ''}</tr></thead>
       <tbody>${filasHtml}</tbody>
     </table></div>
   `;
@@ -274,10 +452,11 @@ async function cargarOrdenes(){
       $('wrapTabla').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar Compra Ágil.'}</p>`;
       return;
     }
+    ordenesActuales = data.ordenes;
     renderKpis(data);
     renderResumenMeses(data.ordenes);
-    renderVendedores(data.ordenes);
-    renderTabla(data);
+    poblarFiltroEstadoOC();
+    aplicarFiltrosOC();
     if(data.ultimaPasadaCompletaEn){
       $('syncStatus').className = '';
       $('syncStatus').textContent = `Última sincronización completa: ${new Date(data.ultimaPasadaCompletaEn).toLocaleString('es-CL')} (día ${fmtNum(data.offsetActual)} de ${fmtNum(data.diasTotales)} en curso).`;
