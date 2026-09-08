@@ -764,10 +764,24 @@ const COTIZACIONES_DIAS_HISTORIAL = 180; // más allá de eso una cotización es
 // encuentra la boleta/factura vinculada (ver manejarSyncCotizaciones).
 const ESTADOS_COTIZACION = ['sin_contactar', 'contactado', 'contactado_no_responde', 'contactado_segunda_vez', 'mercado_publico', 'perdida', 'facturada'];
 
+// Un cliente de Bsale puede tener a la vez nombre de contacto (firstName/
+// lastName) Y razón social (company) -- ej. una compra facturada a nombre
+// de la empresa pero con la persona que compró como contacto registrado.
+// Antes se usaba SOLO el nombre de contacto si existía, descartando la
+// empresa por completo -> una cotización/factura de "Migratoria Servicios
+// Informáticos Limitada" quedaba guardada solo como "Paulina Merino",
+// invisible al buscar por el nombre de la empresa en Cotizaciones,
+// Análisis, o al intentar vincularla por nombre en Compra Ágil. Se
+// combinan los dos cuando ambos existen -- la empresa primero (es lo que
+// se busca más seguido acá) y el contacto entre paréntesis, para no perder
+// ninguno de los dos ni romper los matches por substring que ya dependen
+// de este campo (organismoParecidoACliente, contactoParecidoACliente).
 function nombreClienteDoc(client) {
   if (!client) return '';
-  const full = `${client.firstName || ''} ${client.lastName || ''}`.trim();
-  return full || client.company || (client.id ? `Cliente #${client.id}` : '');
+  const contacto = `${client.firstName || ''} ${client.lastName || ''}`.trim();
+  const empresa = (client.company || '').trim();
+  if (empresa && contacto) return `${empresa} (${contacto})`;
+  return empresa || contacto || (client.id ? `Cliente #${client.id}` : '');
 }
 function esCotizacionDoc(tipoDoc) {
   return /cotizaci[oó]n/i.test(tipoDoc?.name || '');
