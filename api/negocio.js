@@ -91,6 +91,7 @@ export default async function handler(req, res) {
   if (recurso === 'analisis-clientes') return manejarAnalisisClientes(req, res, sesion);
   if (recurso === 'sync-analisis') return manejarSyncAnalisis(req, res, sesion);
   if (recurso === 'ventas-sku-tendencia') return manejarVentasSkuTendencia(req, res, sesion);
+  if (recurso === 'precios-sku-variacion') return manejarPreciosSkuVariacion(req, res, sesion);
   if (recurso === 'servicios-por-mes') return manejarServiciosPorMes(req, res, sesion);
   if (recurso === 'sync-servicios-tecnico') return manejarSyncServiciosTecnico(req, res, sesion);
   if (recurso === 'whatsapp-dashboard') return manejarWhatsappDashboard(req, res, sesion);
@@ -1756,6 +1757,82 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error leyendo la tendencia de ventas por SKU', detail: String(err) });
+  }
+}
+
+// ---------- Variación de precio por SKU (últimos 6 meses) ----------
+// Bsale no expone un historial de cambios de la "Lista de Precios Base" --
+// su API solo da el precio ACTUAL, sin versiones anteriores. Se aproxima
+// con el precio de VENTA real efectivo (bsale_ventas_sku, ya sincronizado
+// por manejarSyncAnalisis para "Productos estancados") -- se compara la
+// venta más barata contra la más cara de cada SKU en la ventana y se marca
+// si la diferencia supera una tolerancia mínima. OJO: es una aproximación,
+// no el dato exacto pedido -- un descuento puntual, una venta mayorista, o
+// una promoción pueden aparecer como "variación" sin que la Lista de
+// Precios Base haya cambiado en absoluto.
+const PRECIOS_SKU_DIAS_VENTANA = 183; // ~6 meses
+function toleranciaVariacionPrecioSku(precioMin) {
+  return Math.max(precioMin * 0.02, 100); // 2% o $100, lo que sea mayor -- evita marcar ruido de redondeo
+}
+async function manejarPreciosSkuVariacion(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaVentasSku(sql);
+    await asegurarTablaVentasSkuEstado(sql);
+
+    const desdeStr = new Date(Date.now() - PRECIOS_SKU_DIAS_VENTANA * 86400000).toISOString().slice(0, 10);
+    const { rows } = await sql`
+      SELECT sku, nombre, fecha, cantidad, monto
+      FROM bsale_ventas_sku
+      WHERE fecha >= ${desdeStr} AND cantidad > 0
+        AND sku NOT IN (SELECT sku FROM ventas_sku_excluidos)
+        AND sku !~ '^[0-9]{8,}$'
+        AND COALESCE(nombre, '') !~* 'env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|99\s*minutos|global\s*tracking|^spread$|flete|courier|retiro en tienda|^pagado$|^rec[ií]belo$'
+      ORDER BY sku, fecha;
+    `;
+    const { rows: estadoSyncRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
+    const estadoSync = estadoSyncRows[0] || {};
+
+    const porSku = new Map();
+    for (const r of rows) {
+      const cantidad = Number(r.cantidad) || 0;
+      const precio = cantidad > 0 ? Number(r.monto) / cantidad : null;
+      if (!precio || !Number.isFinite(precio) || precio <= 0) continue;
+      if (!porSku.has(r.sku)) porSku.set(r.sku, { nombre: r.nombre, ventas: [] });
+      const entrada = porSku.get(r.sku);
+      if (r.nombre) entrada.nombre = r.nombre; // filas vienen ordenadas por fecha asc -> se queda con el nombre más reciente
+      entrada.ventas.push({ fecha: new Date(r.fecha).toISOString().slice(0, 10), precio });
+    }
+
+    const variaciones = [];
+    for (const [sku, { nombre, ventas }] of porSku.entries()) {
+      if (ventas.length < 2) continue;
+      let min = ventas[0], max = ventas[0];
+      for (const v of ventas) {
+        if (v.precio < min.precio) min = v;
+        if (v.precio > max.precio) max = v;
+      }
+      const diferencia = max.precio - min.precio;
+      if (diferencia < toleranciaVariacionPrecioSku(min.precio)) continue;
+      variaciones.push({
+        sku, nombre, categoria: categoriaLinea(sku, nombre),
+        precioMin: Math.round(min.precio), fechaPrecioMin: min.fecha,
+        precioMax: Math.round(max.precio), fechaPrecioMax: max.fecha,
+        precioActual: Math.round(ventas[ventas.length - 1].precio),
+        diferencia: Math.round(diferencia),
+        diferenciaPct: Math.round((diferencia / min.precio) * 100),
+        cantidadVentas: ventas.length,
+      });
+    }
+    variaciones.sort((a, b) => b.diferenciaPct - a.diferenciaPct);
+
+    return res.status(200).json({
+      variaciones, diasVentana: PRECIOS_SKU_DIAS_VENTANA,
+      ultimaSincronizacion: estadoSync.ultima_pasada_completa_en || null,
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error calculando la variación de precio por SKU', detail: String(err) });
   }
 }
 

@@ -39,6 +39,12 @@
   .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;box-shadow:var(--shadow);margin-bottom:22px;}
   .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;}
   .seccion-head h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:0 0 4px;}
+  .seccion.colapsada{padding-bottom:22px;}
+  .seccion.colapsada .seccion-head{margin-bottom:0;}
+  .seccion.colapsada > *:not(.seccion-head){display:none;}
+  .seccion-head-acciones{display:flex;align-items:center;gap:8px;}
+  .btn-toggle-seccion{background:var(--surface);border:1.5px solid var(--line);border-radius:8px;width:32px;height:32px;padding:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--muted);cursor:pointer;flex-shrink:0;}
+  .btn-toggle-seccion:hover{border-color:var(--primary);color:var(--primary);}
 
   button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
   button:disabled{opacity:0.5;cursor:not-allowed;}
@@ -131,28 +137,47 @@
   <h1>📊 Análisis</h1>
   <div class="sub">Indicadores calculados a partir de las ventas reales registradas en Bsale.</div>
 
-  <div class="seccion">
+  <div class="seccion" id="seccionClientesRecurrentes">
     <div class="seccion-head">
       <div>
         <h2>👥 Clientes recurrentes</h2>
         <div class="sub" style="margin-bottom:0;">Según sus compras reales (boletas/facturas, sin cotizaciones ni notas de crédito) en los últimos 12 meses. Recurrente = 2 compras, Pro = 3 o más.</div>
       </div>
-      <button class="btn-primary" id="btnSincronizar" style="display:none;" onclick="iniciarSincronizacion()">🔄 Sincronizar con Bsale</button>
+      <div class="seccion-head-acciones">
+        <button class="btn-primary" id="btnSincronizar" style="display:none;" onclick="iniciarSincronizacion()">🔄 Sincronizar con Bsale</button>
+        <button class="btn-toggle-seccion" id="toggle-seccionClientesRecurrentes" onclick="toggleSeccion('seccionClientesRecurrentes')" title="Minimizar">▾</button>
+      </div>
     </div>
 
     <div id="wrapClientesRecurrentes"><p class="empty-note">Cargando...</p></div>
     <div id="syncStatus"></div>
   </div>
 
-  <div class="seccion">
+  <div class="seccion" id="seccionProductosEstancados">
     <div class="seccion-head">
       <div>
         <h2>📉 Productos estancados</h2>
         <div class="sub" style="margin-bottom:0;">SKU con stock disponible hoy y sin ninguna venta en los últimos 35 días o más (incluye los que no registran ninguna venta en el período analizado) -- candidatos a bajar de precio, ofrecer envío gratis o publicar en Mercado Libre para liquidar stock y generar efectivo. Se sincroniza junto con "Clientes recurrentes" (mismo botón de arriba).</div>
       </div>
+      <div class="seccion-head-acciones">
+        <button class="btn-toggle-seccion" id="toggle-seccionProductosEstancados" onclick="toggleSeccion('seccionProductosEstancados')" title="Minimizar">▾</button>
+      </div>
     </div>
     <div id="ventasBajaResumen" class="sub" style="margin-bottom:14px;"></div>
     <div id="wrapVentasBaja"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+  <div class="seccion" id="seccionVariacionPrecio">
+    <div class="seccion-head">
+      <div>
+        <h2>💲 Variación de precio (últimos 6 meses)</h2>
+        <div class="sub" style="margin-bottom:0;">SKU cuyo precio de venta efectivo varió en los últimos 6 meses. Aproximado a partir de las ventas reales (Bsale no expone un historial de cambios de la Lista de Precios Base vía API) -- puede incluir descuentos o ventas mayoristas puntuales, no solo un cambio real en la lista de precios.</div>
+      </div>
+      <div class="seccion-head-acciones">
+        <button class="btn-toggle-seccion" id="toggle-seccionVariacionPrecio" onclick="toggleSeccion('seccionVariacionPrecio')" title="Minimizar">▾</button>
+      </div>
+    </div>
+    <div id="wrapVariacionPrecio"><p class="empty-note">Cargando...</p></div>
   </div>
 
   <div class="seccion" id="seccionDetalle" style="display:none;">
@@ -205,6 +230,28 @@ function escapeHtml(texto){
 
 function fmtNum(n){ return new Intl.NumberFormat('es-CL').format(n || 0); }
 
+// Minimizar/expandir cada ventana de información -- pedido del usuario.
+// El estado se guarda en localStorage por sección (no en el servidor):
+// es una preferencia de cómo cada persona quiere ver la pantalla en SU
+// navegador, no un dato que otros usuarios deban compartir.
+const SECCIONES_COLAPSABLES = ['seccionClientesRecurrentes', 'seccionProductosEstancados', 'seccionVariacionPrecio'];
+function toggleSeccion(id, forzarColapsada){
+  const el = $(id);
+  if(!el) return;
+  const colapsar = forzarColapsada !== undefined ? forzarColapsada : !el.classList.contains('colapsada');
+  el.classList.toggle('colapsada', colapsar);
+  const btn = $('toggle-' + id);
+  if(btn){ btn.textContent = colapsar ? '▸' : '▾'; btn.title = colapsar ? 'Expandir' : 'Minimizar'; }
+  try{ localStorage.setItem('analisisColapsada:' + id, colapsar ? '1' : '0'); }catch(err){ /* privado/bloqueado -- no rompe la función */ }
+}
+function restaurarSeccionesColapsadas(){
+  for(const id of SECCIONES_COLAPSABLES){
+    let colapsada = false;
+    try{ colapsada = localStorage.getItem('analisisColapsada:' + id) === '1'; }catch(err){ /* privado/bloqueado */ }
+    if(colapsada) toggleSeccion(id, true);
+  }
+}
+
 async function cargarSesionUsuario(){
   try{
     const res = await fetch('/api/auth-session');
@@ -226,6 +273,7 @@ async function cargarSesionUsuario(){
     }
     cargarAnalisis();
     cargarVentasBaja();
+    cargarVariacionPrecio();
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){
@@ -636,6 +684,50 @@ function renderVentasBaja(){
   `;
 }
 
+// ---------- Variación de precio por SKU (últimos 6 meses) ----------
+const CATEGORIA_VARIACION_LABEL = { cargadores: '🔌 Cargador', baterias: '🔋 Batería', pantallas: '🖥️ Pantalla' };
+async function cargarVariacionPrecio(){
+  try{
+    const res = await fetch('/api/negocio?recurso=precios-sku-variacion');
+    const data = await res.json();
+    if(!res.ok || data.error){
+      $('wrapVariacionPrecio').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`;
+      return;
+    }
+    renderVariacionPrecio(data.variaciones || []);
+  }catch(err){
+    $('wrapVariacionPrecio').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+  }
+}
+function renderVariacionPrecio(lista){
+  if(!lista.length){
+    $('wrapVariacionPrecio').innerHTML = '<p class="empty-note">No se detectaron variaciones de precio relevantes en los últimos 6 meses.</p>';
+    return;
+  }
+  const filas = lista.map(v => `
+    <tr>
+      <td><span class="sku-code">${escapeHtml(v.sku)}</span></td>
+      <td>${v.categoria && CATEGORIA_VARIACION_LABEL[v.categoria] ? `<div class="empty-note" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px;">${CATEGORIA_VARIACION_LABEL[v.categoria]}</div>` : ''}${escapeHtml(v.nombre || v.sku)}</td>
+      <td class="amount">${fmtMoneda(v.precioMin)}<div class="empty-note">${v.fechaPrecioMin}</div></td>
+      <td class="amount">${fmtMoneda(v.precioMax)}<div class="empty-note">${v.fechaPrecioMax}</div></td>
+      <td class="amount">${fmtMoneda(v.diferencia)}</td>
+      <td class="amount">${fmtNum(v.diferenciaPct)}%</td>
+      <td class="amount">${fmtMoneda(v.precioActual)}</td>
+      <td class="amount">${fmtNum(v.cantidadVentas)}</td>
+    </tr>`).join('');
+  $('wrapVariacionPrecio').innerHTML = `
+    <div class="tabla-wrap"><table>
+      <thead><tr>
+        <th>SKU</th><th>Producto</th>
+        <th style="text-align:right;">Precio mín.</th><th style="text-align:right;">Precio máx.</th>
+        <th style="text-align:right;">Diferencia</th><th style="text-align:right;">% variación</th>
+        <th style="text-align:right;">Precio actual</th><th style="text-align:right;">N° ventas</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table></div>
+  `;
+}
+
 let analisisActual = null;
 let segmentoActual = null; // 'ocasionales' | 'recurrentes' | 'pro'
 let sortColAnalisis = 'score';
@@ -871,7 +963,7 @@ async function iniciarSincronizacion(){
       $('syncStatus').textContent = completo
         ? 'Sincronización completa.'
         : `Sincronizando...${pctAnalisis} (${fmtNum(data.offsetActual)}${data.totalDocumentos ? ' de ' + fmtNum(data.totalDocumentos) : ''} documentos revisados)`;
-      if(completo){ cargarAnalisis(); cargarVentasBaja(); }
+      if(completo){ cargarAnalisis(); cargarVentasBaja(); cargarVariacionPrecio(); }
     }
   }catch(err){
     $('syncStatus').className = 'err';
@@ -882,6 +974,7 @@ async function iniciarSincronizacion(){
   }
 }
 
+restaurarSeccionesColapsadas();
 cargarSesionUsuario();
 </script>
 </body>
