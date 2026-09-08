@@ -1208,6 +1208,38 @@ async function manejarSyncCotizaciones(req, res, sesion) {
     `;
     let clientesRevisados = 0;
     let vinculosEncontrados = 0;
+    // Intenta vincular una cotización puntual contra una lista de
+    // documentos ya traídos de Bsale ("ventas") -- separado en función
+    // aparte porque se necesita correr hasta dos veces por cliente (ver
+    // más abajo, fallback por fecha).
+    const intentarVincular = async (cot, ventas) => {
+      const montoCot = Math.round(Number(cot.monto));
+      // Tolerancia de $2: confirmado con un export real de Bsale (60
+      // cotizaciones de agosto) que el monto del documento generado
+      // puede venir $1 distinto al de la cotización (redondeo), aunque
+      // en la enorme mayoría de los casos calza exacto.
+      const candidatos = ventas
+        .map((d, i) => ({ d, i, diff: Math.abs((Math.round(Number(d.totalAmount) || 0)) - montoCot) }))
+        .filter(({ d, diff }) => {
+          if (diff > 2) return false;
+          if (!cot.fecha || !d.emissionDate) return true;
+          const fechaDoc = new Date(d.emissionDate * 1000).toISOString().slice(0, 10);
+          return fechaDoc >= new Date(cot.fecha).toISOString().slice(0, 10);
+        })
+        .sort((a, b) => a.diff - b.diff);
+      if (candidatos.length === 0) return false;
+      const { d: candidata, i: idx } = candidatos[0];
+      ventas.splice(idx, 1); // no reusar el mismo documento para otra cotización del mismo cliente
+      const urlDoc = candidata.urlPublicView || candidata.urlPublicViewOriginal || '';
+      const fechaDocumento = candidata.emissionDate ? new Date(candidata.emissionDate * 1000).toISOString().slice(0, 10) : null;
+      await sql`UPDATE bsale_cotizaciones SET
+        documento_asociado_id = ${candidata.id}, documento_asociado_tipo = ${candidata.document_type?.name || ''},
+        documento_asociado_numero = ${candidata.number ? String(candidata.number) : ''}, documento_asociado_url = ${urlDoc},
+        documento_asociado_fecha = ${fechaDocumento},
+        estado = 'facturada', actualizado_en = now() WHERE id = ${cot.id};`;
+      return true;
+    };
+
     for (const { cliente_id } of clientesPendientes) {
       if (presupuestoRestante() <= 0) break;
       await esperarRitmo();
@@ -1227,33 +1259,44 @@ async function manejarSyncCotizaciones(req, res, sesion) {
       const { rows: cotizacionesCliente } = await sql`
         SELECT id, monto, fecha FROM bsale_cotizaciones WHERE cliente_id = ${cliente_id} AND documento_asociado_id IS NULL;
       `;
+      const sinVincular = [];
       for (const cot of cotizacionesCliente) {
-        const montoCot = Math.round(Number(cot.monto));
-        // Tolerancia de $2: confirmado con un export real de Bsale (60
-        // cotizaciones de agosto) que el monto del documento generado
-        // puede venir $1 distinto al de la cotización (redondeo), aunque
-        // en la enorme mayoría de los casos calza exacto.
-        const candidatos = ventas
-          .map((d, i) => ({ d, i, diff: Math.abs((Math.round(Number(d.totalAmount) || 0)) - montoCot) }))
-          .filter(({ d, diff }) => {
-            if (diff > 2) return false;
-            if (!cot.fecha || !d.emissionDate) return true;
-            const fechaDoc = new Date(d.emissionDate * 1000).toISOString().slice(0, 10);
-            return fechaDoc >= new Date(cot.fecha).toISOString().slice(0, 10);
-          })
-          .sort((a, b) => a.diff - b.diff);
-        if (candidatos.length === 0) continue;
-        const { d: candidata, i: idx } = candidatos[0];
-        ventas = ventas.filter((_, i) => i !== idx); // no reusar el mismo documento para otra cotización del mismo cliente
-        const urlDoc = candidata.urlPublicView || candidata.urlPublicViewOriginal || '';
-        const fechaDocumento = candidata.emissionDate ? new Date(candidata.emissionDate * 1000).toISOString().slice(0, 10) : null;
-        await sql`UPDATE bsale_cotizaciones SET
-          documento_asociado_id = ${candidata.id}, documento_asociado_tipo = ${candidata.document_type?.name || ''},
-          documento_asociado_numero = ${candidata.number ? String(candidata.number) : ''}, documento_asociado_url = ${urlDoc},
-          documento_asociado_fecha = ${fechaDocumento},
-          estado = 'facturada', actualizado_en = now() WHERE id = ${cot.id};`;
-        vinculosEncontrados++;
+        if (await intentarVincular(cot, ventas)) vinculosEncontrados++;
+        else sinVincular.push(cot);
       }
+
+      // Fallback: /documents.json?clientid= sin filtro de fecha NO viene
+      // ordenado cronológicamente (confirmado con un caso real -- un
+      // cliente con 50+ documentos históricos, cuya factura más reciente
+      // no aparecía en absoluto entre los primeros 50 traídos), así que un
+      // cliente frecuente puede tener su documento más nuevo fuera de esta
+      // página para siempre, sin importar cuántas veces se repita la
+      // sincronización. Si sigue quedando alguna cotización sin vincular Y
+      // la primera consulta vino llena (=probablemente hay más historial
+      // que no se vio), se repite acotando por fecha (desde la cotización
+      // pendiente más antigua) para traer específicamente lo reciente.
+      if (sinVincular.length > 0 && items.length >= 50) {
+        await esperarRitmo();
+        const fechaMasAntigua = sinVincular.reduce((min, c) => (c.fecha && (!min || c.fecha < min)) ? c.fecha : min, null);
+        if (fechaMasAntigua) {
+          const desdeStr = new Date(new Date(fechaMasAntigua).getTime() - 86400000).toISOString().slice(0, 10);
+          const hastaStr = new Date().toISOString().slice(0, 10);
+          const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
+          const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
+          const urlReciente = `${BSALE_BASE}/documents.json?clientid=${cliente_id}&emissiondaterange=[${rangeStart},${rangeEnd}]&expand=document_type&limit=50`;
+          const rReciente = await fetchConTimeout(urlReciente, { headers: { access_token: token } }, 15000);
+          if (rReciente.ok) {
+            const dataReciente = await rReciente.json();
+            const idsYaVistos = new Set(items.map(d => d.id));
+            const ventasRecientes = (dataReciente.items || [])
+              .filter(d => !idsYaVistos.has(d.id) && d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type));
+            for (const cot of sinVincular) {
+              if (await intentarVincular(cot, ventasRecientes)) vinculosEncontrados++;
+            }
+          }
+        }
+      }
+
       clientesRevisados++;
     }
 
