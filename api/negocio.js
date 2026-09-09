@@ -1851,28 +1851,32 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
 // ==================== Accesorios de vitrina: ranking y bono por vendedor ====================
 // Pedido del usuario: una viñeta en Oportunidades Comerciales donde cada
 // vendedor vea cuánto lleva vendido este mes en productos "de vitrina"
-// (mouse, funda de notebook, base notebook, soporte, filtro de privacidad,
-// pad mouse) y su avance hacia una meta de $100.000/mes que da derecho a
+// (mouse, funda de notebook, base notebook, soporte, kit limpiadores,
+// pad mouse) y su avance hacia una meta de $300.000/mes que da derecho a
 // un bono, con vista semanal ACUMULADA dentro del mes (la meta es mensual,
 // la vista por semana es solo para ver el avance sin esperar a fin de mes).
 //
 // Clasificación CONFIRMADA en vivo (endpoint temporal de diagnóstico, ya
 // retirado -- ver commits "debug de categorías de accesorios"): en esta
-// cuenta de Bsale estos 6 productos viven repartidos en categorías
-// distintas y MEZCLADOS con otros productos que no son de vitrina (ej.
-// "ACCESORIOS NOTEBOOK" también tiene "BOLSO" y "KIT TECLADO+MOUSE") ->
-// filtrar por categoría no sirve, hay que filtrar por el nombre exacto del
-// PRODUCTO (products.json -- no la ficha técnica de la variante, ver nota
-// en categoriaLinea más arriba sobre variant.description):
-//   - "MOUSE"                (categoría ACCESORIOS NOTEBOOK)
-//   - "PAD"                  (pad mouse, categoría ACCESORIOS NOTEBOOK)
-//   - "FUNDA"                (categoría propia FUNDA NOTEBOOK)
-//   - "BASE NOTEBOOK"        (categoría propia BASE NOTEBOOK)
-//   - "SOPORTE"              (categoría ACCESORIOS PC)
-//   - "FILTRO DE PRIVACIDAD" (categoría genérica "Accesorios")
+// cuenta de Bsale estos productos viven repartidos en categorías distintas
+// y MEZCLADOS con otros productos que no son de vitrina (ej. "ACCESORIOS
+// NOTEBOOK" también tiene "BOLSO" y "KIT TECLADO+MOUSE") -> filtrar por
+// categoría no sirve, hay que filtrar por el nombre exacto del PRODUCTO
+// (products.json -- no la ficha técnica de la variante, ver nota en
+// categoriaLinea más arriba sobre variant.description):
+//   - "MOUSE"           (categoría ACCESORIOS NOTEBOOK)
+//   - "PAD"             (pad mouse, categoría ACCESORIOS NOTEBOOK)
+//   - "FUNDA"           (categoría propia FUNDA NOTEBOOK)
+//   - "BASE NOTEBOOK"   (categoría propia BASE NOTEBOOK)
+//   - "SOPORTE"         (categoría ACCESORIOS PC)
+//   - "LIMPIA CONTACTO" ("kit limpiadores" -- es el único producto de
+//     limpieza que existe en el catálogo, no hay uno llamado literalmente
+//     "kit de limpieza"; revisar si Bsale agrega uno más específico)
+// "FILTRO DE PRIVACIDAD" (categoría genérica "Accesorios") se sacó a
+// pedido del usuario -- ya no cuenta para la meta.
 // Si Bsale renombra el catálogo esto queda obsoleto -- si un vendedor
 // reclama que algo no se está contando, hay que volver a mirar el catálogo.
-const ACCESORIOS_VITRINA_PRODUCTOS = new Set(['MOUSE', 'PAD', 'FUNDA', 'BASE NOTEBOOK', 'SOPORTE', 'FILTRO DE PRIVACIDAD']);
+const ACCESORIOS_VITRINA_PRODUCTOS = new Set(['MOUSE', 'PAD', 'FUNDA', 'BASE NOTEBOOK', 'SOPORTE', 'LIMPIA CONTACTO']);
 const ACCESORIOS_META_MENSUAL = 300000; // venta con IVA, por vendedor, al mes, para ganar el bono
 
 // Mapa sku -> nombre de PRODUCTO (no de variante): products.json trae el
@@ -2054,7 +2058,6 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
         skusEnCatalogo: productoPorSku.size,
         errorCatalogo: OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.detalle,
         productosVistosEsteMes: [...conteoProductosVistos.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
-        productosCatalogoConLimpia: [...new Set(productoPorSku.values())].filter(n => /limpi|\bkit\b/i.test(n)),
       } : undefined,
     });
   } catch (err) {
