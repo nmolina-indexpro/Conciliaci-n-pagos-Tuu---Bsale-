@@ -77,6 +77,9 @@
   .badge{font-family:'Space Grotesk',sans-serif;font-size:10px;padding:3px 9px;border-radius:999px;font-weight:700;white-space:nowrap;}
   .badge.si{background:var(--green-bg);color:var(--green);}
   .badge.no{background:var(--surface-2);color:var(--muted);}
+  .badge.pend{background:var(--amber-dim);color:var(--amber);}
+  .badge.cancel{background:var(--red-bg);color:var(--red);}
+  tr.fila-total td{border-top:2px solid var(--line);font-weight:700;background:var(--surface-2);}
   .empty-note{color:var(--muted);font-size:12.5px;padding:14px 0;}
   .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:10px;padding:8px 12px;font-size:12px;margin-bottom:12px;color:var(--text);}
   .form-inline{display:flex;gap:8px;align-items:end;flex-wrap:wrap;}
@@ -156,7 +159,6 @@
       <a href="analisis.html">Análisis</a>
       <a href="servicio-tecnico.html">Servicio Técnico</a>
       <a href="clientes-whatsapp.html">WhatsApp</a>
-      <a href="compra-agil.html">Compra Ágil</a>
     </nav>
     <div class="user-box" id="userBox"></div>
   </header>
@@ -175,6 +177,9 @@
     </button>
     <button class="tab-grande" id="tabBtnIndexpro" onclick="cambiarTab('indexpro')">
       <div class="titulo">🏢 Indexpro</div>
+    </button>
+    <button class="tab-grande" id="tabBtnCompraAgil" onclick="cambiarTab('compra-agil')">
+      <div class="titulo">🏛️ Compra Ágil</div>
     </button>
   </div>
 
@@ -352,6 +357,69 @@
     </div>
   </div>
 
+  <div id="tabCompraAgil" style="display:none;">
+    <div class="sub" style="margin-top:-4px;">Órdenes de compra recibidas por IndexPro a través de Mercado Público / Compra Ágil (RUT 76.200.548-4), desde el 2026.</div>
+
+    <div class="grid">
+      <div class="card"><div class="lbl">Total facturado</div><div class="big" id="kpiCaTotal">—</div><div class="note">desde el 2026</div></div>
+      <div class="card"><div class="lbl">Órdenes válidas</div><div class="big" id="kpiCaValidas">—</div><div class="note">aceptadas / recepción conforme</div></div>
+      <div class="card"><div class="lbl">Órdenes canceladas</div><div class="big" id="kpiCaCanceladas">—</div><div class="note">no cuentan como facturado</div></div>
+      <div class="card"><div class="lbl">Ticket promedio</div><div class="big" id="kpiCaPromedio">—</div><div class="note">por orden válida</div></div>
+      <div class="card"><div class="lbl">Facturado mes actual</div><div class="big" id="kpiCaMesActual">—</div><div class="note" id="kpiCaMesActualSub"></div></div>
+      <div class="card"><div class="lbl">Facturado mes anterior</div><div class="big" id="kpiCaMesAnterior">—</div><div class="note" id="kpiCaMesAnteriorSub"></div></div>
+    </div>
+
+    <div class="toolbar">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div class="filtro-rango-fechas">
+          <div class="date-field"><label for="caDesde">Desde</label><input type="date" id="caDesde" onchange="aplicarFiltrosCompraAgil()"></div>
+          <div class="date-field"><label for="caHasta">Hasta</label><input type="date" id="caHasta" onchange="aplicarFiltrosCompraAgil()"></div>
+        </div>
+        <button class="btn-primary" style="padding:9px 14px;" title="Buscar este rango" onclick="aplicarFiltrosCompraAgil()">🔍</button>
+        <button class="btn-ghost btn-compact" id="btnCaHoy" onclick="setRangoRapidoCompraAgil('hoy')">Hoy</button>
+        <button class="btn-ghost btn-compact" id="btnCaSemana" onclick="setRangoRapidoCompraAgil('semana')">Semana</button>
+        <button class="btn-ghost btn-compact" id="btnCaMes" onclick="setRangoRapidoCompraAgil('mes')">Mes actual</button>
+        <button class="btn-ghost btn-compact" id="btnCaMesAnterior" onclick="setRangoRapidoCompraAgil('mes_anterior')">Mes anterior</button>
+        <button class="btn-ghost btn-compact" onclick="limpiarRangoCompraAgil()">✕ Limpiar</button>
+        <div class="campo">
+          <label>Buscar</label>
+          <input type="text" id="caBuscar" placeholder="Organismo..." oninput="aplicarFiltrosCompraAgil()" style="width:220px;">
+        </div>
+        <div class="campo">
+          <label>Estado</label>
+          <select id="caFiltroEstado" onchange="aplicarFiltrosCompraAgil()">
+            <option value="">Todos</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-inline">
+        <button class="btn-ghost btn-compact" onclick="cargarCompraAgil()">↻ Actualizar</button>
+        <button class="btn-primary btn-compact" id="btnSincronizarCompraAgil" style="display:none;" onclick="iniciarSincronizacionCompraAgil()">🔄 Sincronizar con Mercado Público</button>
+      </div>
+    </div>
+
+    <div class="seccion">
+      <div class="seccion-head">
+        <div>
+          <h2>Comparativo de vendedores</h2>
+          <div class="sub" style="margin-bottom:0;">Sólo Bsale registra vendedor, y sólo en las cotizaciones -- las órdenes facturadas de forma directa (sin pasar por una cotización) quedan agrupadas en "Sin vendedor identificado". Respeta el filtro de fecha/organismo/estado de arriba.</div>
+        </div>
+      </div>
+      <div id="wrapVendedoresCompraAgil"><p class="empty-note">Cargando...</p></div>
+    </div>
+
+    <div class="seccion">
+      <div class="seccion-head">
+        <div>
+          <h2>Historial de órdenes de compra</h2>
+          <div class="sub" style="margin-bottom:0;">Se sincroniza directo desde la API de Mercado Público (no depende del portal compra-agil-two). Cada OC se cruza automáticamente por monto, fecha y organismo con las cotizaciones y las facturas/boletas reales de Bsale -- la mayoría de estas compras se facturan directo, sin pasar por una cotización. Puede quedar sin vínculo si el organismo se guardó con un nombre muy distinto en Bsale, o si la venta es más antigua que lo que Análisis tiene sincronizado.</div>
+        </div>
+      </div>
+      <div id="wrapTablaCompraAgil"><p class="empty-note">Cargando...</p></div>
+      <div id="syncStatusCompraAgil"></div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modalHistorialOverlay" onclick="cerrarModalHistorialSiFondo(event)">
     <div class="modal-box" onclick="event.stopPropagation()">
       <h3 id="modalHistorialTitulo">Historial de compras</h3>
@@ -408,12 +476,15 @@ function cambiarTab(tab){
   $('tabBtnPuntos').classList.toggle('activo', tab==='puntos');
   $('tabBtnCotizaciones').classList.toggle('activo', tab==='cotizaciones');
   $('tabBtnIndexpro').classList.toggle('activo', tab==='indexpro');
+  $('tabBtnCompraAgil').classList.toggle('activo', tab==='compra-agil');
   $('tabPuntos').style.display = tab==='puntos' ? '' : 'none';
   $('tabCotizaciones').style.display = tab==='cotizaciones' ? '' : 'none';
   $('tabIndexpro').style.display = tab==='indexpro' ? '' : 'none';
+  $('tabCompraAgil').style.display = tab==='compra-agil' ? '' : 'none';
   if(tab==='puntos' && !puntosCargados) cargar();
   if(tab==='cotizaciones' && !cotizacionesCargadas) cargarCotizaciones();
   if(tab==='indexpro' && !indexproCargado) cargarIndexpro();
+  if(tab==='compra-agil' && !compraAgilCargado) cargarCompraAgil();
 }
 
 let clientes = [];
@@ -458,6 +529,9 @@ const INDEXPRO_RESUMEN_TOPE = 15;
 const ESTADO_PRIORIDAD_INDEXPRO = { cotizado: 0, contactado: 1, primer_correo: 2, sin_contactar: 3, ganado: 4, perdido: 5 };
 let sortColIndexpro = 'prioridad';
 let sortAscIndexpro = true;
+
+let ordenesCompraAgil = [];
+let compraAgilCargado = false;
 let sincronizandoIndexpro = false;
 const ESTADOS_INDEXPRO_LABEL = {
   sin_contactar: 'Sin contactar',
@@ -533,6 +607,7 @@ async function cargarSesionUsuario(){
       $('btnSincronizar').style.display = '';
       $('btnSincronizarCotizaciones').style.display = '';
       $('btnSincronizarIndexpro').style.display = '';
+      $('btnSincronizarCompraAgil').style.display = '';
     }
   }catch(err){ /* silencioso */ }
 }
@@ -1631,8 +1706,295 @@ function cerrarModalHistorialSiFondo(ev){
   if(ev.target.id === 'modalHistorialOverlay') cerrarModalHistorial();
 }
 
+// ==================== Compra Ágil (antes página aparte) ====================
+function fmtFechaCompraAgil(iso){ return iso ? new Date(iso).toLocaleDateString('es-CL') : '—'; }
+
+function badgeEstadoCompraAgil(estado, cuentaComoFacturado){
+  if(!cuentaComoFacturado) return `<span class="badge cancel">${estado || 'Cancelada'}</span>`;
+  if(estado === 'Aceptada' || estado === 'Recepción Conforme') return `<span class="badge si">${estado}</span>`;
+  return `<span class="badge pend">${estado || 'Enviada'}</span>`;
+}
+// La cotización se busca por monto+fecha+nombre del organismo (ver
+// vincularOrdenesCompraAgil en el backend) -- no hay un ID en común entre
+// Mercado Público y Bsale para cruzar directo, así que puede quedar sin
+// vínculo aunque exista de verdad (ej. si el organismo se guardó en Bsale
+// con un nombre muy distinto al de Mercado Público).
+function celdaCotizacionCompraAgil(o){
+  if(!o.cotizacionVinculada) return '<span class="empty-note">—</span>';
+  const c = o.cotizacionVinculada;
+  return c.url ? `<a href="${c.url}" target="_blank" rel="noopener" class="doc-link">#${c.numero} ↗</a>` : `#${c.numero}`;
+}
+function celdaFacturaCompraAgil(o){
+  if(!o.facturaVinculada) return '<span class="empty-note">—</span>';
+  const f = o.facturaVinculada;
+  const texto = `${f.tipo || 'Documento'} ${f.numero}`;
+  return f.url ? `<a href="${f.url}" target="_blank" rel="noopener" class="doc-link">${texto} ↗</a>` : texto;
+}
+function celdaDiasCompraAgil(o){
+  if(o.diasCotizacionFactura === null || o.diasCotizacionFactura === undefined) return '<span class="empty-note">—</span>';
+  return `${fmtNum(o.diasCotizacionFactura)} día${o.diasCotizacionFactura === 1 ? '' : 's'}`;
+}
+// Vendedor y "¿Ha comprado antes?" solo se conocen cuando la OC quedó
+// vinculada a una cotización de Bsale -- el vínculo directo con
+// analisis_compras (el caso más común) no trae ninguno de los dos.
+function celdaVendedorCompraAgil(o){
+  return o.vendedorNombre ? escapeHtmlCot(o.vendedorNombre) : '<span class="empty-note">—</span>';
+}
+function celdaHaCompradoCompraAgil(o){
+  if(o.haCompradoAntes === null || o.haCompradoAntes === undefined) return '<span class="empty-note">—</span>';
+  return `<span class="badge ${o.haCompradoAntes ? 'si' : 'no'}">${o.haCompradoAntes ? 'Sí' : 'No'}</span>`;
+}
+
+// ---------- Filtro de fecha/organismo/estado (rango filtrado) ----------
+// Reutiliza los helpers de fecha ya definidos para Cotizaciones
+// (hoyStrCot, addDaysStrCot, firstDayOfMonthStr, lastDayOfMonthStr,
+// diasEntreCot, periodoAnteriorEquivalenteCot) -- son genéricos, no tienen
+// nada específico de cotizaciones adentro.
+function setRangoRapidoCompraAgil(tipo){
+  if(tipo === 'hoy'){
+    $('caDesde').value = hoyStrCot;
+    $('caHasta').value = hoyStrCot;
+  } else if(tipo === 'semana'){
+    $('caDesde').value = addDaysStrCot(hoyStrCot, -6);
+    $('caHasta').value = hoyStrCot;
+  } else if(tipo === 'mes_anterior'){
+    const ultimoDiaMesAnterior = addDaysStrCot(firstDayOfMonthStr(hoyStrCot), -1);
+    $('caDesde').value = firstDayOfMonthStr(ultimoDiaMesAnterior);
+    $('caHasta').value = ultimoDiaMesAnterior;
+  } else {
+    $('caDesde').value = firstDayOfMonthStr(hoyStrCot);
+    $('caHasta').value = lastDayOfMonthStr(hoyStrCot);
+  }
+  $('btnCaHoy').classList.toggle('active', tipo==='hoy');
+  $('btnCaSemana').classList.toggle('active', tipo==='semana');
+  $('btnCaMes').classList.toggle('active', tipo==='mes');
+  $('btnCaMesAnterior').classList.toggle('active', tipo==='mes_anterior');
+  aplicarFiltrosCompraAgil();
+}
+function limpiarRangoCompraAgil(){
+  $('caDesde').value = '';
+  $('caHasta').value = '';
+  $('caBuscar').value = '';
+  $('caFiltroEstado').value = '';
+  ['btnCaHoy','btnCaSemana','btnCaMes','btnCaMesAnterior'].forEach(id => $(id).classList.remove('active'));
+  aplicarFiltrosCompraAgil();
+}
+function fechaStrCompraAgil(o){
+  return o.fechaEnvio ? new Date(o.fechaEnvio).toISOString().slice(0,10) : null;
+}
+function ordenesFiltradasCompraAgil(){
+  const desde = $('caDesde').value;
+  const hasta = $('caHasta').value;
+  const q = ($('caBuscar').value || '').trim().toLowerCase();
+  const filtroEstado = $('caFiltroEstado').value;
+  return ordenesCompraAgil.filter(o => {
+    const f = fechaStrCompraAgil(o);
+    return (!desde || !f || f >= desde)
+      && (!hasta || !f || f <= hasta)
+      && (!q || (o.organismo||'').toLowerCase().includes(q))
+      && (!filtroEstado || o.estado === filtroEstado);
+  });
+}
+function poblarFiltroEstadoCompraAgil(){
+  const select = $('caFiltroEstado');
+  const actual = select.value;
+  const estados = Array.from(new Set(ordenesCompraAgil.map(o => o.estado).filter(Boolean))).sort();
+  select.innerHTML = '<option value="">Todos</option>' + estados.map(e => `<option value="${escapeHtmlCot(e)}">${escapeHtmlCot(e)}</option>`).join('');
+  if(estados.includes(actual)) select.value = actual;
+}
+function aplicarFiltrosCompraAgil(){
+  renderVendedoresCompraAgil();
+  renderTablaCompraAgil();
+}
+
+function renderTablaCompraAgil(){
+  if(!ordenesCompraAgil.length){
+    $('wrapTablaCompraAgil').innerHTML = '<p class="empty-note">Todavía no hay órdenes sincronizadas. Usa "🔄 Sincronizar con Mercado Público" para traer el historial.</p>';
+    return;
+  }
+  const ordenes = ordenesFiltradasCompraAgil();
+  if(!ordenes.length){
+    $('wrapTablaCompraAgil').innerHTML = '<p class="empty-note">Sin resultados para ese filtro.</p>';
+    return;
+  }
+  const filas = ordenes.map(o => `
+    <tr>
+      <td>${fmtFechaCompraAgil(o.fechaEnvio)}</td>
+      <td>${escapeHtmlCot(o.organismo || '—')}</td>
+      <td>${celdaVendedorCompraAgil(o)}</td>
+      <td>${o.codigo}</td>
+      <td>${badgeEstadoCompraAgil(o.estado, o.cuentaComoFacturado)}</td>
+      <td>${celdaHaCompradoCompraAgil(o)}</td>
+      <td class="amount">${fmtMoneda(o.total)}</td>
+      <td>${celdaCotizacionCompraAgil(o)}</td>
+      <td>${celdaFacturaCompraAgil(o)}</td>
+      <td>${celdaDiasCompraAgil(o)}</td>
+    </tr>`).join('');
+  const totalFacturado = ordenes.filter(o => o.cuentaComoFacturado).reduce((s, o) => s + o.total, 0);
+
+  $('wrapTablaCompraAgil').innerHTML = `
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Fecha envío</th><th>Organismo comprador</th><th>Vendedor</th><th>Código OC</th><th>Estado</th><th>¿Ha comprado antes?</th><th style="text-align:right;">Total</th><th>Cotización Bsale</th><th>Factura/Boleta</th><th>Cotización → factura</th></tr></thead>
+      <tbody>${filas}</tbody>
+      <tbody>
+        <tr class="fila-total"><td colspan="6">Total facturado (válidas, rango filtrado)</td><td class="amount">${fmtMoneda(totalFacturado)}</td><td colspan="3"></td></tr>
+      </tbody>
+    </table></div>
+  `;
+}
+
+function renderKpisCompraAgil(data){
+  $('kpiCaTotal').textContent = fmtMoneda(data.totalFacturado);
+  $('kpiCaValidas').textContent = fmtNum(data.totalOrdenesValidas);
+  $('kpiCaCanceladas').textContent = fmtNum(data.totalOrdenes - data.totalOrdenesValidas);
+  $('kpiCaPromedio').textContent = fmtMoneda(data.totalOrdenesValidas ? data.totalFacturado / data.totalOrdenesValidas : 0);
+}
+
+function renderResumenMesesCompraAgil(ordenes){
+  const ahora = new Date();
+  const inicioActual = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+  const inicioAnterior = new Date(inicioActual.getFullYear(), inicioActual.getMonth() - 1, 1);
+  let totalActual = 0, countActual = 0, totalAnterior = 0, countAnterior = 0;
+  ordenes.forEach(o => {
+    if(!o.cuentaComoFacturado || !o.fechaEnvio) return;
+    const f = new Date(o.fechaEnvio);
+    if(f >= inicioActual){ totalActual += o.total; countActual++; }
+    else if(f >= inicioAnterior && f < inicioActual){ totalAnterior += o.total; countAnterior++; }
+  });
+  $('kpiCaMesActual').textContent = fmtMoneda(totalActual);
+  $('kpiCaMesActualSub').textContent = `${fmtNum(countActual)} orden${countActual === 1 ? '' : 'es'}`;
+  $('kpiCaMesAnterior').textContent = fmtMoneda(totalAnterior);
+  $('kpiCaMesAnteriorSub').textContent = `${fmtNum(countAnterior)} orden${countAnterior === 1 ? '' : 'es'}`;
+}
+
+// Sólo bsale_cotizaciones registra vendedor -- las órdenes facturadas
+// directo (sin cotización de por medio) no tienen forma de identificarlo,
+// así que caen en el bucket "Sin vendedor identificado" en vez de
+// omitirse. "vs. período anterior" reutiliza periodoAnteriorEquivalenteCot
+// y calcularVariacionPct (genéricos, ya definidos para Cotizaciones) --
+// ignora el filtro de organismo/estado (solo fecha) para que la
+// comparación sea pareja, mismo criterio que "Vendedores — rango
+// filtrado" más arriba en esta misma página.
+function renderVendedoresCompraAgil(){
+  if(!ordenesCompraAgil.length){
+    $('wrapVendedoresCompraAgil').innerHTML = '<p class="empty-note">No hay datos suficientes todavía.</p>';
+    return;
+  }
+  const desde = $('caDesde').value;
+  const hasta = $('caHasta').value;
+  const periodoAnt = periodoAnteriorEquivalenteCot(desde, hasta);
+  const montoAnteriorPorVendedor = new Map();
+  if(periodoAnt){
+    for(const o of ordenesCompraAgil){
+      if(!o.cuentaComoFacturado) continue;
+      const f = fechaStrCompraAgil(o);
+      if(!f || f < periodoAnt.desde || f > periodoAnt.hasta) continue;
+      const nombre = o.vendedorNombre || 'Sin vendedor identificado';
+      montoAnteriorPorVendedor.set(nombre, (montoAnteriorPorVendedor.get(nombre) || 0) + o.total);
+    }
+  }
+
+  const mapa = new Map();
+  ordenesFiltradasCompraAgil().forEach(o => {
+    if(!o.cuentaComoFacturado) return;
+    const nombre = o.vendedorNombre || 'Sin vendedor identificado';
+    if(!mapa.has(nombre)) mapa.set(nombre, { nombre, total: 0, ordenes: 0 });
+    const e = mapa.get(nombre);
+    e.total += o.total;
+    e.ordenes++;
+  });
+  const filas = Array.from(mapa.values()).map(f => ({
+    ...f,
+    variacionPct: periodoAnt ? calcularVariacionPct(f.total, montoAnteriorPorVendedor.get(f.nombre) || 0) : null,
+  })).sort((a, b) => b.total - a.total);
+  if(!filas.length){
+    $('wrapVendedoresCompraAgil').innerHTML = '<p class="empty-note">Sin resultados para ese filtro.</p>';
+    return;
+  }
+  const maxTotal = Math.max(...filas.map(f => f.total), 1);
+  const filasHtml = filas.map(f => `
+    <tr>
+      <td>${escapeHtmlCot(f.nombre)}</td>
+      <td class="amount">${fmtMoneda(f.total)}</td>
+      <td class="amount">${fmtNum(f.ordenes)}</td>
+      <td><div style="background:var(--primary-dim);border-radius:6px;overflow:hidden;height:14px;width:160px;"><div style="background:var(--primary);height:100%;width:${Math.round(f.total / maxTotal * 100)}%;"></div></div></td>
+      ${periodoAnt ? `<td>${notaVariacionHtml(f.variacionPct) || '<span class="empty-note">—</span>'}</td>` : ''}
+    </tr>`).join('');
+  $('wrapVendedoresCompraAgil').innerHTML = `
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Vendedor</th><th style="text-align:right;">Total facturado</th><th style="text-align:right;">Órdenes</th><th>Comparativo</th>${periodoAnt ? '<th>vs. período anterior</th>' : ''}</tr></thead>
+      <tbody>${filasHtml}</tbody>
+    </table></div>
+  `;
+}
+
+async function cargarCompraAgil(){
+  compraAgilCargado = true;
+  try{
+    const res = await fetch('/api/negocio?recurso=compra-agil-ordenes');
+    const data = await res.json();
+    if(!res.ok || data.error){
+      $('wrapTablaCompraAgil').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar Compra Ágil.'}</p>`;
+      return;
+    }
+    ordenesCompraAgil = data.ordenes;
+    renderKpisCompraAgil(data);
+    renderResumenMesesCompraAgil(data.ordenes);
+    poblarFiltroEstadoCompraAgil();
+    aplicarFiltrosCompraAgil();
+    if(data.ultimaPasadaCompletaEn){
+      $('syncStatusCompraAgil').className = '';
+      $('syncStatusCompraAgil').textContent = `Última sincronización completa: ${new Date(data.ultimaPasadaCompletaEn).toLocaleString('es-CL')} (día ${fmtNum(data.offsetActual)} de ${fmtNum(data.diasTotales)} en curso).`;
+    } else if(!data.ordenes.length){
+      $('syncStatusCompraAgil').textContent = esAdmin ? 'Todavía no se ha sincronizado con Mercado Público.' : '';
+    }
+  }catch(err){
+    $('wrapTablaCompraAgil').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+  }
+}
+
+// Encadena llamadas a sync-compra-agil (cada una avanza unos días,
+// respetando el rate limit de Mercado Público) hasta que el servidor
+// informa completo:true -- una pasada completa (~400 días a ~1.3s c/u)
+// toma varios minutos, no cierres la página mientras corre.
+async function iniciarSincronizacionCompraAgil(){
+  $('btnSincronizarCompraAgil').disabled = true;
+  $('syncStatusCompraAgil').className = '';
+  $('syncStatusCompraAgil').textContent = 'Sincronizando con Mercado Público...';
+  try{
+    let completo = false;
+    let ordenesNuevas = 0;
+    let vinculosNuevos = 0;
+    while(!completo){
+      const res = await fetch('/api/negocio?recurso=sync-compra-agil', { method: 'POST' }).then(r=>r.json());
+      if(res.error){
+        $('syncStatusCompraAgil').className = 'err';
+        $('syncStatusCompraAgil').textContent = 'Error: ' + res.error;
+        break;
+      }
+      completo = !!res.completo;
+      ordenesNuevas += res.ordenesNuevasEnEstaLlamada || 0;
+      vinculosNuevos += res.vinculosNuevosEnEstaLlamada || 0;
+      const pctCompraAgil = res.diasTotales ? Math.round((res.offsetActual||0) / res.diasTotales * 100) : 0;
+      $('syncStatusCompraAgil').textContent = completo
+        ? `Sincronización completa — ${fmtNum(ordenesNuevas)} órdenes nuevas, ${fmtNum(vinculosNuevos)} vinculadas a una cotización o factura de Bsale.`
+        : `Sincronizando... ${pctCompraAgil}% (${fmtNum(res.offsetActual)} de ${fmtNum(res.diasTotales)} días revisados), ${fmtNum(ordenesNuevas)} órdenes nuevas. Continuando automáticamente, no cierres la página...`;
+      if(completo) cargarCompraAgil();
+    }
+  }catch(err){
+    $('syncStatusCompraAgil').className = 'err';
+    $('syncStatusCompraAgil').textContent = 'Error: ' + err.message;
+  }finally{
+    $('btnSincronizarCompraAgil').disabled = false;
+  }
+}
+
 cargarSesionUsuario();
-cargarCotizaciones();
+// ?tab=compra-agil (o cualquier otra pestaña) abre directo ahí -- usado
+// por el redirect de la antigua página compra-agil.html.
+const tabInicial = new URLSearchParams(location.search).get('tab');
+if(tabInicial === 'compra-agil') cambiarTab('compra-agil');
+else cargarCotizaciones();
 </script>
 </body>
 </html>
