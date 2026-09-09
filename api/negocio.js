@@ -2054,7 +2054,7 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
         skusEnCatalogo: productoPorSku.size,
         errorCatalogo: OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.detalle,
         productosVistosEsteMes: [...conteoProductosVistos.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
-        productosCatalogoConLimpia: [...new Set(productoPorSku.values())].filter(n => /limpi/i.test(n)),
+        productosCatalogoConLimpia: [...new Set(productoPorSku.values())].filter(n => /limpi|\bkit\b/i.test(n)),
       } : undefined,
     });
   } catch (err) {
