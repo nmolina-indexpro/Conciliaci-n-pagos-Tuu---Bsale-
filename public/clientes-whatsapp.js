@@ -904,21 +904,12 @@ function initAnalitica(){
     </div>
     <div class="seccion">
       <div class="seccion-head">
-        <div><h2>Fuente de ingreso</h2><div class="sub">De dónde vienen las conversaciones: anuncios de Meta, un UTM real (Google Ads si utm_source=google, u otra plataforma), el botón de WhatsApp del sitio sin dato de campaña, u origen desconocido.</div></div>
+        <div><h2>Fuente de ingreso</h2><div class="sub">De dónde vienen las conversaciones: anuncios de Meta, un UTM real (Google Ads si utm_source=google, u otra plataforma), el botón de WhatsApp del sitio sin dato de campaña, origen desconocido, o el origen REAL de la venta según el tracking propio de Shopify (cómo llegó al sitio antes de comprar -- solo para ventas vinculadas a un pedido de Shopify con tracking disponible). Solo cuenta conversaciones con al menos un mensaje real.</div></div>
       </div>
       <div id="chartFuentes" style="margin-bottom:14px;"></div>
       <div class="tabla-wrap"><table>
         <thead><tr><th>Fuente</th><th>Detalle</th><th>Conversaciones</th></tr></thead>
         <tbody id="tablaFuentesDetalle"></tbody>
-      </table></div>
-    </div>
-    <div class="seccion">
-      <div class="seccion-head">
-        <div><h2>Origen real de las ventas (según Shopify)</h2><div class="sub">Complementa "Fuente de ingreso" de arriba (que es sobre el clic en WhatsApp) con cómo llegó el cliente al sitio ANTES de comprar, según el tracking propio de Shopify (customerJourneySummary del pedido) -- solo existe para ventas vinculadas a un pedido de Shopify con tracking disponible.</div></div>
-      </div>
-      <div class="tabla-wrap"><table>
-        <thead><tr><th>Fuente</th><th>Medio</th><th>Campaña</th><th>Ventas</th></tr></thead>
-        <tbody id="tablaOrigenRealVentas"></tbody>
       </table></div>
     </div>
     <div class="seccion">
@@ -977,7 +968,6 @@ async function cargarAnalitica(){
     renderChartCategorias(data.distribucionCategoria);
     renderChartEmbudo(data.embudo);
     renderFuentes(data.fuentes, data.fuentesDetalle);
-    renderOrigenRealVentas(data.origenRealVentasShopify);
     renderTablaMotivos(data.motivosPerdida);
     renderTablaProductos(data.rankingProductos);
     renderRanking('rankMarcas', data.rankingMarcas, 'marca');
@@ -993,6 +983,7 @@ const FUENTE_TIPO_LABEL_ANALITICA = {
   boton_sitio: '📎 Botón WhatsApp del sitio (sin campaña)',
   anuncio: '📢 Anuncio (Meta Ads)',
   desconocido: '❓ Origen desconocido',
+  shopify_journey: '🛍️ Origen real de venta (Shopify)',
 };
 function renderFuentes(fuentes, detalle){
   if (!fuentes || !fuentes.length) { $('chartFuentes').innerHTML = '<p class="empty-note">Sin datos.</p>'; $('tablaFuentesDetalle').innerHTML = ''; return; }
@@ -1010,15 +1001,6 @@ function renderFuentes(fuentes, detalle){
   }
   $('tablaFuentesDetalle').innerHTML = detalle.map(d => `
     <tr><td>${FUENTE_TIPO_LABEL_ANALITICA[d.tipo] || d.tipo}</td><td>${escapeHtml(d.titulo || '—')}</td><td>${fmtNum(d.cantidad)}</td></tr>
-  `).join('');
-}
-function renderOrigenRealVentas(filas){
-  if (!filas || !filas.length) {
-    $('tablaOrigenRealVentas').innerHTML = '<tr><td colspan="4" class="empty-note">Sin ventas vinculadas a un pedido de Shopify en este período.</td></tr>';
-    return;
-  }
-  $('tablaOrigenRealVentas').innerHTML = filas.map(f => `
-    <tr><td>${escapeHtml(f.fuente)}</td><td>${escapeHtml(f.medio || '—')}</td><td>${escapeHtml(f.campana || '—')}</td><td>${fmtNum(f.cantidad)}</td></tr>
   `).join('');
 }
 function labelBucket(fecha, agrupacion){

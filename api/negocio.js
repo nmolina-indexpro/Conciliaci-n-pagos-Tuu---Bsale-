@@ -6012,35 +6012,57 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       WHEN fuente_tipo = 'utm' THEN 'utm'
       ELSE 'anuncio'
     END`;
+    // "cantidad_mensajes > 0" -- pedido del usuario: no contar en esta
+    // estadística conversaciones "vacías" (el webhook llega a crear la fila
+    // antes de que se guarde ningún mensaje, ej. un evento sin body real) --
+    // solo las que de verdad tuvieron al menos un mensaje intercambiado.
     const { rows: fuenteRows } = await sql.query(
       `SELECT ${BALDE_FUENTE} AS tipo, COUNT(*)::int AS cantidad,
               COUNT(*) FILTER (WHERE venta_detectada OR (bsale_documento_numero IS NOT NULL AND bsale_documento_numero <> ''))::int AS ventas
-       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 AND cantidad_mensajes > 0
        GROUP BY tipo ORDER BY cantidad DESC;`,
       [desde, hasta]
     );
     const { rows: fuenteDetalleRows } = await sql.query(
       `SELECT ${BALDE_FUENTE} AS tipo, fuente_titulo AS titulo, COUNT(*)::int AS cantidad
-       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 AND fuente_titulo IS NOT NULL
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 AND fuente_titulo IS NOT NULL AND cantidad_mensajes > 0
        GROUP BY tipo, titulo ORDER BY cantidad DESC LIMIT 15;`,
       [desde, hasta]
     );
 
     // Origen REAL de la conversión, según Shopify (customerJourneySummary
     // del pedido, ver buscarVentaShopifyPorTelefono/extraerJourneyShopify)
-    // -- complementa "fuentes" de arriba (que es sobre el CLIC en WhatsApp)
-    // con cómo llegó el cliente al sitio ANTES de comprar. Solo existe para
-    // ventas vinculadas a un pedido de Shopify (bsale_documento_tipo =
-    // 'Pedido Shopify') con tracking disponible -- una venta conciliada
-    // directo en Bsale (tienda física, o ya sincronizada) no lo tiene.
-    const { rows: origenVentaRows } = await sql.query(
-      `SELECT COALESCE(shopify_journey_fuente, 'Sin dato de Shopify') AS fuente,
-              shopify_journey_medio AS medio, shopify_journey_campana AS campana, COUNT(*)::int AS cantidad
+    // -- fusionado como una barra/fila más en el mismo gráfico y tabla de
+    // "Fuente de ingreso" de arriba (pedido del usuario), aunque mide algo
+    // distinto (cómo llegó el cliente al SITIO antes de comprar, no el clic
+    // en WhatsApp). Solo existe para ventas vinculadas a un pedido de
+    // Shopify (bsale_documento_tipo='Pedido Shopify') con tracking
+    // disponible -- una venta conciliada directo en Bsale (tienda física,
+    // o ya sincronizada) no lo tiene, Bsale no lo registra. "ventas" acá es
+    // siempre igual a "cantidad": este balde solo existe para filas que YA
+    // son una venta (sugerida o confirmada).
+    const { rows: origenVentaTotalRows } = await sql.query(
+      `SELECT COUNT(*)::int AS cantidad
        FROM whatsapp_conversaciones
-       WHERE iniciada_en >= $1 AND iniciada_en < $2 AND bsale_documento_tipo = 'Pedido Shopify'
+       WHERE iniciada_en >= $1 AND iniciada_en < $2 AND cantidad_mensajes > 0
+         AND bsale_documento_tipo = 'Pedido Shopify' AND shopify_journey_fuente IS NOT NULL;`,
+      [desde, hasta]
+    );
+    const { rows: origenVentaDetalleRows } = await sql.query(
+      `SELECT shopify_journey_fuente AS fuente, shopify_journey_medio AS medio, shopify_journey_campana AS campana, COUNT(*)::int AS cantidad
+       FROM whatsapp_conversaciones
+       WHERE iniciada_en >= $1 AND iniciada_en < $2 AND cantidad_mensajes > 0
+         AND bsale_documento_tipo = 'Pedido Shopify' AND shopify_journey_fuente IS NOT NULL
        GROUP BY fuente, medio, campana ORDER BY cantidad DESC LIMIT 15;`,
       [desde, hasta]
     );
+    const cantidadOrigenShopify = origenVentaTotalRows[0]?.cantidad || 0;
+    const fuentes = fuenteRows.map(r => ({ tipo: r.tipo, cantidad: r.cantidad, ventas: r.ventas }));
+    if (cantidadOrigenShopify > 0) fuentes.push({ tipo: 'shopify_journey', cantidad: cantidadOrigenShopify, ventas: cantidadOrigenShopify });
+    const fuentesDetalle = [
+      ...fuenteDetalleRows.map(r => ({ tipo: r.tipo, titulo: r.titulo, cantidad: r.cantidad })),
+      ...origenVentaDetalleRows.map(r => ({ tipo: 'shopify_journey', titulo: [r.fuente, r.medio, r.campana].filter(Boolean).join(' / '), cantidad: r.cantidad })),
+    ];
 
     return res.status(200).json({
       rango, agrupacion,
@@ -6060,9 +6082,8 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       rankingModelos: modelosRows.map(r => ({ modelo: r.modelo, consultas: r.consultas })),
       resultados: resultadosRows.map(r => ({ resultado: r.resultado, cantidad: r.n })),
       embudo: embudoRows[0] || { conversaciones: 0, intencion_compra: 0, cotizacion: 0, venta: 0 },
-      fuentes: fuenteRows.map(r => ({ tipo: r.tipo, cantidad: r.cantidad, ventas: r.ventas })),
-      fuentesDetalle: fuenteDetalleRows.map(r => ({ tipo: r.tipo, titulo: r.titulo, cantidad: r.cantidad })),
-      origenRealVentasShopify: origenVentaRows.map(r => ({ fuente: r.fuente, medio: r.medio, campana: r.campana, cantidad: r.cantidad })),
+      fuentes,
+      fuentesDetalle,
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error calculando analítica de WhatsApp', detail: String(err) });
