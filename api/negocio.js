@@ -122,6 +122,7 @@ export default async function handler(req, res) {
   if (recurso === 'compra-agil-ordenes') return manejarCompraAgilOrdenes(req, res, sesion);
   if (recurso === 'compra-agil-debug-vinculo') return manejarCompraAgilDebugVinculo(req, res, sesion);
   if (recurso === 'bsale-debug-documento') return manejarBsaleDebugDocumento(req, res, sesion);
+  if (recurso === 'accesorios-debug-categorias') return manejarAccesoriosDebugCategorias(req, res, sesion);
   if (recurso === 'sync-compra-agil') return manejarSyncCompraAgil(req, res, sesion);
   return res.status(400).json({ error: 'Falta un ?recurso= válido (ver api/negocio.js)' });
 }
@@ -1205,6 +1206,18 @@ async function manejarSyncCotizaciones(req, res, sesion) {
     // cotización no se facturó en mes y medio, en la práctica ya no se va
     // a facturar -- no vale la pena seguir gastando una consulta a Bsale
     // por ella en cada sincronización futura.
+    // Cursor por cliente_id (persistido en bsale_cotizaciones_sync_estado):
+    // sin ORDER BY + cursor, cada llamada volvía a traer la misma lista
+    // completa desde el principio y, si hay más pendientes de los que caben
+    // en un presupuesto de ~50s, los que quedaban después del corte nunca
+    // llegaban a procesarse -- Postgres devuelve el mismo orden mientras
+    // los datos de esos clientes no cambian (starvation permanente).
+    // Confirmado en vivo el 2026-09-08: dos sincronizaciones seguidas
+    // procesaron los mismos 54 clientes y encontraron 0 vínculos nuevos
+    // ambas veces. ORDER BY cliente_id + "cliente_id > cursor" + guardar el
+    // último cliente_id procesado hace que cada llamada avance sobre
+    // pendientes distintos; al llegar al final se da la vuelta (cursor a 0)
+    // para reintentar los que quedaron atrás.
     const { rows: clientesPendientes } = await sql`
       SELECT DISTINCT cliente_id FROM bsale_cotizaciones
       WHERE cliente_id IS NOT NULL AND (
@@ -1844,6 +1857,45 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error calculando la variación de precio por SKU', detail: String(err) });
+  }
+}
+
+// ==================== Accesorios de vitrina / bono vendedores (diagnóstico) ====================
+// Paso previo a armar la viñeta de accesorios/vitrina para vendedores en
+// Oportunidades Comerciales (mouse, fundas, bases, soportes, filtro de
+// privacidad, pad mouse): antes de filtrar por categoría hay que ver los
+// nombres REALES que usa esta cuenta de Bsale para esas categorías (el
+// usuario las recuerda como "Accesorios Vitrina", "Accesorios Notebook",
+// "Accesorios PC", pero el nombre exacto puede variar) -- mismo espíritu que
+// el debug de categorización de SKU de más arriba (?recurso=sync-analisis&
+// debug=skus). Admin-only, no toca la BD, se borra una vez confirmado.
+async function manejarAccesoriosDebugCategorias(req, res, sesion) {
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede ver este diagnóstico' });
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+  try {
+    const rTipos = await fetchConTimeout(`${BSALE_BASE}/product_types.json?limit=50`, { headers: { access_token: token } }, 15000);
+    const tiposRes = await rTipos.json();
+    const tipos = (tiposRes.items || []).map(t => ({ id: t.id, nombre: t.name }));
+
+    // Para cada categoría que suene a "accesorio", trae unos productos de
+    // ejemplo -- para confirmar que ahí están mouse/fundas/bases/soportes,
+    // no solo confiar en el nombre de la categoría.
+    const candidatas = tipos.filter(t => /accesorio/i.test(t.nombre));
+    const ejemplosPorCategoria = {};
+    for (const t of candidatas) {
+      const r = await fetchConTimeout(`${BSALE_BASE}/products.json?producttypeid=${t.id}&limit=20`, { headers: { access_token: token } }, 15000);
+      const data = await r.json();
+      const items = (data.items || []).filter(p => (p.product_type?.id ?? p.productTypeId) === t.id);
+      ejemplosPorCategoria[`${t.nombre} (id ${t.id})`] = {
+        totalEnCategoria: data.count ?? items.length,
+        ejemplos: items.map(p => p.name),
+      };
+    }
+
+    return res.status(200).json({ totalCategorias: tipos.length, todasLasCategorias: tipos, ejemplosPorCategoria });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error consultando categorías en Bsale', detail: String(err) });
   }
 }
 
