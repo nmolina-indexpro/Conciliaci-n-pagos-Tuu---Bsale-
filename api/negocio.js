@@ -1206,18 +1206,6 @@ async function manejarSyncCotizaciones(req, res, sesion) {
     // cotización no se facturó en mes y medio, en la práctica ya no se va
     // a facturar -- no vale la pena seguir gastando una consulta a Bsale
     // por ella en cada sincronización futura.
-    // Cursor por cliente_id (persistido en bsale_cotizaciones_sync_estado):
-    // sin ORDER BY + cursor, cada llamada volvía a traer la misma lista
-    // completa desde el principio y, si hay más pendientes de los que caben
-    // en un presupuesto de ~50s, los que quedaban después del corte nunca
-    // llegaban a procesarse -- Postgres devuelve el mismo orden mientras
-    // los datos de esos clientes no cambian (starvation permanente).
-    // Confirmado en vivo el 2026-09-08: dos sincronizaciones seguidas
-    // procesaron los mismos 54 clientes y encontraron 0 vínculos nuevos
-    // ambas veces. ORDER BY cliente_id + "cliente_id > cursor" + guardar el
-    // último cliente_id procesado hace que cada llamada avance sobre
-    // pendientes distintos; al llegar al final se da la vuelta (cursor a 0)
-    // para reintentar los que quedaron atrás.
     const { rows: clientesPendientes } = await sql`
       SELECT DISTINCT cliente_id FROM bsale_cotizaciones
       WHERE cliente_id IS NOT NULL AND (
