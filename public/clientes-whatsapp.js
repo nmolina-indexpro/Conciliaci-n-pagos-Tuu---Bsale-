@@ -543,9 +543,18 @@ function renderDetalleConversacion(data){
     </div>
   ` : `<div class="ficha-grupo"><h3 style="display:flex;justify-content:space-between;align-items:center;">🤖 Análisis IA ${botonAnalizar}</h3><p class="sub">Sin análisis todavía.</p></div>`;
 
+  // Origen REAL según Shopify (customerJourneySummary del pedido) -- cómo
+  // llegó el cliente al sitio ANTES de comprar (Google Ads, orgánico,
+  // directo, etc.), distinto de "Fuente de ingreso" (que es sobre el clic
+  // en WhatsApp). Solo existe cuando la venta se vinculó a un pedido de
+  // Shopify con tracking disponible.
+  const origenRealHtml = (c.shopifyJourneyFuente || c.shopifyJourneyMedio || c.shopifyJourneyCampana)
+    ? `<div class="ficha-fila"><span>Origen real (Shopify)</span><b>${[c.shopifyJourneyFuente, c.shopifyJourneyMedio, c.shopifyJourneyCampana].filter(Boolean).map(escapeHtml).join(' / ')}</b></div>`
+    : '';
+
   let ventaHtml;
   if (c.venta) {
-    ventaHtml = `<div class="ficha-fila"><span>Venta</span><b>${fmtMoneda(c.montoVenta)}${c.pedidoAsociado ? ' — Pedido ' + escapeHtml(c.pedidoAsociado) : ''}</b></div>`;
+    ventaHtml = `<div class="ficha-fila"><span>Venta</span><b>${fmtMoneda(c.montoVenta)}${c.pedidoAsociado ? ' — Pedido ' + escapeHtml(c.pedidoAsociado) : ''}</b></div>${origenRealHtml}`;
   } else if (c.bsaleDocumentoNumero) {
     // Sugerencia automática (por teléfono, ver buscarVentaBsalePorTelefono)
     // -- todavía no es una venta confirmada, solo una pista para revisar.
@@ -555,7 +564,7 @@ function renderDetalleConversacion(data){
       </b></div>
       <div class="ficha-fila"><span></span><b>
         <button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id}, ${c.bsaleDocumentoMonto || 0}, '${escapeHtml(c.bsaleDocumentoNumero)}')">Confirmar esta venta</button>
-      </b></div>`;
+      </b></div>${origenRealHtml}`;
   } else {
     ventaHtml = `<div class="ficha-fila"><span>Venta</span><b><button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id})">Asociar venta</button></b></div>`;
   }
@@ -904,6 +913,15 @@ function initAnalitica(){
       </table></div>
     </div>
     <div class="seccion">
+      <div class="seccion-head">
+        <div><h2>Origen real de las ventas (según Shopify)</h2><div class="sub">Complementa "Fuente de ingreso" de arriba (que es sobre el clic en WhatsApp) con cómo llegó el cliente al sitio ANTES de comprar, según el tracking propio de Shopify (customerJourneySummary del pedido) -- solo existe para ventas vinculadas a un pedido de Shopify con tracking disponible.</div></div>
+      </div>
+      <div class="tabla-wrap"><table>
+        <thead><tr><th>Fuente</th><th>Medio</th><th>Campaña</th><th>Ventas</th></tr></thead>
+        <tbody id="tablaOrigenRealVentas"></tbody>
+      </table></div>
+    </div>
+    <div class="seccion">
       <h2>Motivos de pérdida</h2>
       <div class="sub" style="margin-bottom:10px;">Haz clic en un motivo para ver esas conversaciones.</div>
       <div class="tabla-wrap"><table>
@@ -959,6 +977,7 @@ async function cargarAnalitica(){
     renderChartCategorias(data.distribucionCategoria);
     renderChartEmbudo(data.embudo);
     renderFuentes(data.fuentes, data.fuentesDetalle);
+    renderOrigenRealVentas(data.origenRealVentasShopify);
     renderTablaMotivos(data.motivosPerdida);
     renderTablaProductos(data.rankingProductos);
     renderRanking('rankMarcas', data.rankingMarcas, 'marca');
@@ -991,6 +1010,15 @@ function renderFuentes(fuentes, detalle){
   }
   $('tablaFuentesDetalle').innerHTML = detalle.map(d => `
     <tr><td>${FUENTE_TIPO_LABEL_ANALITICA[d.tipo] || d.tipo}</td><td>${escapeHtml(d.titulo || '—')}</td><td>${fmtNum(d.cantidad)}</td></tr>
+  `).join('');
+}
+function renderOrigenRealVentas(filas){
+  if (!filas || !filas.length) {
+    $('tablaOrigenRealVentas').innerHTML = '<tr><td colspan="4" class="empty-note">Sin ventas vinculadas a un pedido de Shopify en este período.</td></tr>';
+    return;
+  }
+  $('tablaOrigenRealVentas').innerHTML = filas.map(f => `
+    <tr><td>${escapeHtml(f.fuente)}</td><td>${escapeHtml(f.medio || '—')}</td><td>${escapeHtml(f.campana || '—')}</td><td>${fmtNum(f.cantidad)}</td></tr>
   `).join('');
 }
 function labelBucket(fecha, agrupacion){

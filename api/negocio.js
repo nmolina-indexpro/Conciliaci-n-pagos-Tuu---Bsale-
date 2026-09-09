@@ -111,6 +111,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
   if (recurso === 'whatsapp-reanalizar-desactualizadas') return manejarWhatsappReanalizarDesactualizadas(req, res, sesion);
   if (recurso === 'whatsapp-backfill-fuente') return manejarWhatsappBackfillFuente(req, res, sesion);
+  if (recurso === 'whatsapp-backfill-journey') return manejarWhatsappBackfillJourney(req, res, sesion);
   if (recurso === 'whatsapp-actualizar-shopify') return manejarWhatsappActualizarShopify(req, res, sesion);
   if (recurso === 'whatsapp-actualizar-ventas-bsale') return manejarWhatsappActualizarVentasBsale(req, res, sesion);
   if (recurso === 'whatsapp-recategorizar') return manejarWhatsappRecategorizar(req, res, sesion);
@@ -121,7 +122,6 @@ export default async function handler(req, res) {
   if (recurso === 'compra-agil-ordenes') return manejarCompraAgilOrdenes(req, res, sesion);
   if (recurso === 'compra-agil-debug-vinculo') return manejarCompraAgilDebugVinculo(req, res, sesion);
   if (recurso === 'bsale-debug-documento') return manejarBsaleDebugDocumento(req, res, sesion);
-  if (recurso === 'shopify-debug-journey') return manejarShopifyDebugJourney(req, res, sesion);
   if (recurso === 'sync-compra-agil') return manejarSyncCompraAgil(req, res, sesion);
   return res.status(400).json({ error: 'Falta un ?recurso= válido (ver api/negocio.js)' });
 }
@@ -3094,6 +3094,25 @@ async function buscarVentaBsalePorTelefono(sql, telefono, fechaConversacionIso) 
   }
 }
 
+// Normaliza customerJourneySummary.firstVisit (PRIMERA visita del cliente
+// antes de comprar, según el tracking propio de Shopify -- más relevante
+// que la última visita para saber qué campaña/canal originó al cliente)
+// a nuestras columnas shopify_journey_* -- confirmado con un pedido real
+// (Google Shopping, campaña "SHOPPING-CARG-NOTE-V2") que Shopify sí trae
+// este dato para esta cuenta. Puede venir null igual (visita muy vieja,
+// pedido creado a mano en el admin, etc.) -- no es un error, solo no hay
+// tracking para ese pedido puntual.
+function extraerJourneyShopify(pedido) {
+  const visita = pedido?.customerJourneySummary?.firstVisit;
+  if (!visita) return { journeyFuente: null, journeyMedio: null, journeyCampana: null, journeyLandingPage: null };
+  return {
+    journeyFuente: visita.utmParameters?.source || visita.source || null,
+    journeyMedio: visita.utmParameters?.medium || null,
+    journeyCampana: visita.utmParameters?.campaign || null,
+    journeyLandingPage: visita.landingPage || null,
+  };
+}
+
 // Igual que buscarVentaBsalePorTelefono, pero contra pedidos de Shopify --
 // útil para pedidos de la tienda online que todavía no se sincronizaron
 // como documento a Bsale (o nunca se sincronizan, ej. pagos por Webpay
@@ -3118,7 +3137,12 @@ async function buscarVentaShopifyPorTelefono(telefono, fechaConversacionIso) {
         customers(first: 3, query: $q) {
           edges { node {
             orders(first: 5, sortKey: CREATED_AT, reverse: true) {
-              edges { node { name createdAt displayFinancialStatus statusPageUrl totalPriceSet { shopMoney { amount } } } }
+              edges { node {
+                name createdAt displayFinancialStatus statusPageUrl totalPriceSet { shopMoney { amount } }
+                customerJourneySummary {
+                  firstVisit { source landingPage utmParameters { source medium campaign } }
+                }
+              } }
             }
           } }
         }
@@ -3155,6 +3179,7 @@ async function buscarVentaShopifyPorTelefono(telefono, fechaConversacionIso) {
       monto: Number(o.totalPriceSet?.shopMoney?.amount) || 0,
       fecha: o.createdAt ? o.createdAt.slice(0, 10) : null,
       url: o.statusPageUrl || null,
+      ...extraerJourneyShopify(o),
     };
   } catch (err) {
     console.warn('[buscarVentaShopifyPorTelefono] error inesperado', telefono, err);
@@ -3171,45 +3196,6 @@ async function buscarVentaPorTelefono(sql, telefono, fechaConversacionIso) {
   const deBsale = await buscarVentaBsalePorTelefono(sql, telefono, fechaConversacionIso);
   if (deBsale) return deBsale;
   return buscarVentaShopifyPorTelefono(telefono, fechaConversacionIso);
-}
-
-// Debug puntual (solo admin): confirma si el token de Shopify de esta app
-// puede leer customerJourneySummary (de dónde vino el visitante -- fuente/
-// medio/campaña/referrer -- según el tracking propio de Shopify en el
-// checkout) en pedidos reales, antes de construir cualquier UI/columna
-// nueva sobre ese dato -- ver conversación con el usuario (vincular
-// "Fuente de ingreso" de WhatsApp con la conversión real en Shopify). No lo
-// usa ninguna pantalla, se borra después de confirmar.
-async function manejarShopifyDebugJourney(req, res, sesion) {
-  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador' });
-  try {
-    const acceso = await obtenerAccesoShopify();
-    if (!acceso) return res.status(200).json({ error: 'Sin credenciales de Shopify configuradas' });
-    const { domain, accessToken } = acceso;
-
-    const query = `
-      query {
-        orders(first: 5, sortKey: CREATED_AT, reverse: true) {
-          edges { node {
-            name createdAt
-            customerJourneySummary {
-              momentsCount { count precision }
-              firstVisit { source sourceType referrerUrl landingPage utmParameters { source medium campaign } occurredAt }
-              lastVisit { source sourceType referrerUrl landingPage utmParameters { source medium campaign } occurredAt }
-            }
-          } }
-        }
-      }`;
-    const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
-      method: 'POST',
-      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
-    }, 12000);
-    const body = await r.json().catch(() => ({}));
-    return res.status(200).json({ status: r.status, body });
-  } catch (err) {
-    return res.status(200).json({ error: 'Error consultando Shopify', detail: String(err) });
-  }
 }
 
 function extraerContenidoMensajeWhatsapp(m) {
@@ -3552,6 +3538,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
            c.shopify_producto_url, c.shopify_producto_titulo, c.shopify_producto_confianza,
            c.bsale_documento_numero, c.bsale_documento_tipo, c.bsale_documento_monto, c.bsale_documento_fecha, c.bsale_documento_url,
            c.fuente_tipo, c.fuente_titulo, c.fuente_url, c.fuente_id, c.fuente_utm_source,
+           c.shopify_journey_fuente, c.shopify_journey_medio, c.shopify_journey_campana, c.shopify_journey_landing_page,
            ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono,
            a.probabilidad_compra,
            u.nombre AS responsable_nombre,
@@ -3693,6 +3680,10 @@ function mapearConversacionWhatsapp(r) {
     bsaleDocumentoMonto: r.bsale_documento_monto != null ? Number(r.bsale_documento_monto) : null,
     bsaleDocumentoFecha: r.bsale_documento_fecha,
     bsaleDocumentoUrl: r.bsale_documento_url,
+    shopifyJourneyFuente: r.shopify_journey_fuente,
+    shopifyJourneyMedio: r.shopify_journey_medio,
+    shopifyJourneyCampana: r.shopify_journey_campana,
+    shopifyJourneyLandingPage: r.shopify_journey_landing_page,
     fuenteTipo: r.fuente_tipo,
     fuenteTitulo: r.fuente_titulo,
     fuenteUrl: r.fuente_url,
@@ -5429,6 +5420,10 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
       bsale_documento_monto = ${ventaBsale?.monto ?? null},
       bsale_documento_fecha = ${ventaBsale?.fecha || null},
       bsale_documento_url = ${ventaBsale?.url || null},
+      shopify_journey_fuente = ${ventaBsale?.journeyFuente || null},
+      shopify_journey_medio = ${ventaBsale?.journeyMedio || null},
+      shopify_journey_campana = ${ventaBsale?.journeyCampana || null},
+      shopify_journey_landing_page = ${ventaBsale?.journeyLandingPage || null},
       updated_at = now()
     WHERE id = ${conversacionId};
   `;
@@ -5648,6 +5643,72 @@ async function manejarWhatsappBackfillFuente(req, res, sesion) {
   }
 }
 
+// Rellena shopify_journey_* para conversaciones que YA estaban vinculadas
+// a un pedido de Shopify (bsale_documento_tipo='Pedido Shopify') antes de
+// que este dato existiera -- ver extraerJourneyShopify. A diferencia de
+// whatsapp-backfill-fuente, esto NO es un loop resumible ("completo"):
+// una pasada de hasta 50 alcanza sobradamente para el volumen real (~16
+// filas), y reintentar automáticamente una fila sin tracking disponible
+// en Shopify (dato genuinamente ausente, no un bug) causaría el mismo
+// loop infinito que ya se vio ahí -- si hace falta reintentar, se llama
+// de nuevo a mano. Una consulta a Shopify por fila (por número de pedido,
+// no por teléfono) -- vale la pena porque son pocas filas.
+async function manejarWhatsappBackfillJourney(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede corregir esto en lote' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const acceso = await obtenerAccesoShopify();
+    if (!acceso) return res.status(200).json({ error: 'Sin credenciales de Shopify configuradas' });
+    const { domain, accessToken } = acceso;
+
+    const { rows: candidatas } = await sql`
+      SELECT id, bsale_documento_numero AS numero FROM whatsapp_conversaciones
+      WHERE bsale_documento_tipo = 'Pedido Shopify' AND bsale_documento_numero IS NOT NULL AND bsale_documento_numero <> ''
+        AND shopify_journey_fuente IS NULL AND shopify_journey_medio IS NULL
+        AND shopify_journey_campana IS NULL AND shopify_journey_landing_page IS NULL
+      LIMIT 50;
+    `;
+
+    let actualizadas = 0, sinDatos = 0, errores = 0;
+    const query = `
+      query($q: String!) {
+        orders(first: 1, query: $q) {
+          edges { node { customerJourneySummary { firstVisit { source landingPage utmParameters { source medium campaign } } } } }
+        }
+      }`;
+    for (const { id, numero } of candidatas) {
+      try {
+        const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, variables: { q: `name:'${numero}'` } }),
+        }, 12000);
+        const body = await r.json().catch(() => ({}));
+        const pedido = body.data?.orders?.edges?.[0]?.node;
+        const journey = extraerJourneyShopify(pedido);
+        if (!journey.journeyFuente && !journey.journeyMedio && !journey.journeyCampana && !journey.journeyLandingPage) { sinDatos++; continue; }
+        await sql`
+          UPDATE whatsapp_conversaciones SET
+            shopify_journey_fuente = ${journey.journeyFuente},
+            shopify_journey_medio = ${journey.journeyMedio},
+            shopify_journey_campana = ${journey.journeyCampana},
+            shopify_journey_landing_page = ${journey.journeyLandingPage}
+          WHERE id = ${id};
+        `;
+        actualizadas++;
+      } catch (err) {
+        errores++;
+        console.error('[whatsapp-backfill-journey] error en conversación', id, err);
+      }
+    }
+    return res.status(200).json({ revisadas: candidatas.length, actualizadas, sinDatos, errores });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error rellenando origen real de Shopify', detail: String(err) });
+  }
+}
+
 // Vuelve a correr el Análisis IA completo (Claude, con costo real de API)
 // sobre TODAS las conversaciones que ya tienen un análisis previo, para
 // que apliquen mejoras hechas al prompt/tool después de ese análisis --
@@ -5798,7 +5859,11 @@ async function manejarWhatsappActualizarVentasBsale(req, res, sesion) {
             bsale_documento_tipo = ${ventaBsale?.tipo || null},
             bsale_documento_monto = ${ventaBsale?.monto ?? null},
             bsale_documento_fecha = ${ventaBsale?.fecha || null},
-            bsale_documento_url = ${ventaBsale?.url || null}
+            bsale_documento_url = ${ventaBsale?.url || null},
+            shopify_journey_fuente = ${ventaBsale?.journeyFuente || null},
+            shopify_journey_medio = ${ventaBsale?.journeyMedio || null},
+            shopify_journey_campana = ${ventaBsale?.journeyCampana || null},
+            shopify_journey_landing_page = ${ventaBsale?.journeyLandingPage || null}
           WHERE id = ${fila.id};
         `;
         if (ventaBsale) encontradas++;
@@ -5961,6 +6026,22 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       [desde, hasta]
     );
 
+    // Origen REAL de la conversión, según Shopify (customerJourneySummary
+    // del pedido, ver buscarVentaShopifyPorTelefono/extraerJourneyShopify)
+    // -- complementa "fuentes" de arriba (que es sobre el CLIC en WhatsApp)
+    // con cómo llegó el cliente al sitio ANTES de comprar. Solo existe para
+    // ventas vinculadas a un pedido de Shopify (bsale_documento_tipo =
+    // 'Pedido Shopify') con tracking disponible -- una venta conciliada
+    // directo en Bsale (tienda física, o ya sincronizada) no lo tiene.
+    const { rows: origenVentaRows } = await sql.query(
+      `SELECT COALESCE(shopify_journey_fuente, 'Sin dato de Shopify') AS fuente,
+              shopify_journey_medio AS medio, shopify_journey_campana AS campana, COUNT(*)::int AS cantidad
+       FROM whatsapp_conversaciones
+       WHERE iniciada_en >= $1 AND iniciada_en < $2 AND bsale_documento_tipo = 'Pedido Shopify'
+       GROUP BY fuente, medio, campana ORDER BY cantidad DESC LIMIT 15;`,
+      [desde, hasta]
+    );
+
     return res.status(200).json({
       rango, agrupacion,
       desde: new Date(desde).toISOString().slice(0, 10),
@@ -5981,6 +6062,7 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       embudo: embudoRows[0] || { conversaciones: 0, intencion_compra: 0, cotizacion: 0, venta: 0 },
       fuentes: fuenteRows.map(r => ({ tipo: r.tipo, cantidad: r.cantidad, ventas: r.ventas })),
       fuentesDetalle: fuenteDetalleRows.map(r => ({ tipo: r.tipo, titulo: r.titulo, cantidad: r.cantidad })),
+      origenRealVentasShopify: origenVentaRows.map(r => ({ fuente: r.fuente, medio: r.medio, campana: r.campana, cantidad: r.cantidad })),
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error calculando analítica de WhatsApp', detail: String(err) });
