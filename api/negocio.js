@@ -121,6 +121,7 @@ export default async function handler(req, res) {
   if (recurso === 'compra-agil-ordenes') return manejarCompraAgilOrdenes(req, res, sesion);
   if (recurso === 'compra-agil-debug-vinculo') return manejarCompraAgilDebugVinculo(req, res, sesion);
   if (recurso === 'bsale-debug-documento') return manejarBsaleDebugDocumento(req, res, sesion);
+  if (recurso === 'shopify-debug-journey') return manejarShopifyDebugJourney(req, res, sesion);
   if (recurso === 'sync-compra-agil') return manejarSyncCompraAgil(req, res, sesion);
   return res.status(400).json({ error: 'Falta un ?recurso= válido (ver api/negocio.js)' });
 }
@@ -3170,6 +3171,45 @@ async function buscarVentaPorTelefono(sql, telefono, fechaConversacionIso) {
   const deBsale = await buscarVentaBsalePorTelefono(sql, telefono, fechaConversacionIso);
   if (deBsale) return deBsale;
   return buscarVentaShopifyPorTelefono(telefono, fechaConversacionIso);
+}
+
+// Debug puntual (solo admin): confirma si el token de Shopify de esta app
+// puede leer customerJourneySummary (de dónde vino el visitante -- fuente/
+// medio/campaña/referrer -- según el tracking propio de Shopify en el
+// checkout) en pedidos reales, antes de construir cualquier UI/columna
+// nueva sobre ese dato -- ver conversación con el usuario (vincular
+// "Fuente de ingreso" de WhatsApp con la conversión real en Shopify). No lo
+// usa ninguna pantalla, se borra después de confirmar.
+async function manejarShopifyDebugJourney(req, res, sesion) {
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador' });
+  try {
+    const acceso = await obtenerAccesoShopify();
+    if (!acceso) return res.status(200).json({ error: 'Sin credenciales de Shopify configuradas' });
+    const { domain, accessToken } = acceso;
+
+    const query = `
+      query {
+        orders(first: 5, sortKey: CREATED_AT, reverse: true) {
+          edges { node {
+            name createdAt
+            customerJourneySummary {
+              momentsCount
+              firstVisit { source sourceType referrerUrl landingPage utmParameters { source medium campaign } occurredAt }
+              lastVisit { source sourceType referrerUrl landingPage utmParameters { source medium campaign } occurredAt }
+            }
+          } }
+        }
+      }`;
+    const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    }, 12000);
+    const body = await r.json().catch(() => ({}));
+    return res.status(200).json({ status: r.status, body });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error consultando Shopify', detail: String(err) });
+  }
 }
 
 function extraerContenidoMensajeWhatsapp(m) {
