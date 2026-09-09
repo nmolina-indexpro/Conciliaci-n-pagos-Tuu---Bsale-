@@ -182,7 +182,7 @@
       <div class="titulo">🏛️ Compra Ágil</div>
     </button>
     <button class="tab-grande" id="tabBtnAccesorios" onclick="cambiarTab('accesorios')">
-      <div class="titulo">🖱️ Accesorios y Bono</div>
+      <div class="titulo">🖱️ Panel de Accesorios</div>
     </button>
   </div>
 
@@ -644,6 +644,17 @@ async function cargarAccesorios(){
   }
 }
 
+// Mismo orden y nombres que ACCESORIOS_VITRINA_PRODUCTOS en api/negocio.js
+// -- si se agrega/saca un producto allá, agregar/sacar la etiqueta acá.
+const ACCESORIOS_CATEGORIA_LABEL = {
+  MOUSE: 'Mouse',
+  PAD: 'Pad Mouse',
+  FUNDA: 'Funda',
+  'BASE NOTEBOOK': 'Base Notebook',
+  SOPORTE: 'Soporte',
+  'FILTRO DE PRIVACIDAD': 'Filtro Privacidad',
+};
+
 function barraProgresoAccesorios(acumulado, meta){
   const pct = Math.min(100, Math.round((acumulado / meta) * 100));
   const color = acumulado >= meta ? 'var(--green)' : 'var(--primary)';
@@ -674,7 +685,10 @@ function renderAccesorios(data){
           <td>Día ${s.diaHasta}</td>
           <td>${fmtMoneda(s.acumulado)}</td>
           <td>${s.cumplida ? '<span class="badge si">Meta cumplida ✓</span>' : `Faltan ${fmtMoneda(s.faltante)}`}</td>
-        </tr>`).join('')}</tbody></table>`;
+        </tr>`).join('')}</tbody></table>
+      <h4 style="margin:18px 0 8px 0;font-family:'Space Grotesk',sans-serif;font-size:13px;">Por categoría</h4>
+      <table><thead><tr>${Object.values(ACCESORIOS_CATEGORIA_LABEL).map(l => `<th>${l}</th>`).join('')}</tr></thead>
+      <tbody><tr>${Object.keys(ACCESORIOS_CATEGORIA_LABEL).map(k => `<td>${fmtMoneda(mio.porCategoria?.[k] || 0)}</td>`).join('')}</tr></tbody></table>`;
   } else {
     seccionMio.style.display = 'none';
     seccionSinDatos.style.display = '';
@@ -687,16 +701,21 @@ function renderAccesorios(data){
       $('wrapRankingAccesorios').innerHTML = '<p class="empty-note">Sin ventas de estos productos todavía este mes.</p>';
     } else {
       $('wrapRankingAccesorios').innerHTML = `
-        <table><thead><tr><th>Vendedor</th><th>Total mes</th><th>Unidades</th><th>Avance</th><th>Bono</th></tr></thead>
+        <div class="tabla-wrap"><table><thead><tr>
+          <th>Vendedor</th><th>Total mes</th><th>Unidades</th>
+          ${Object.values(ACCESORIOS_CATEGORIA_LABEL).map(l => `<th>${l}</th>`).join('')}
+          <th>Avance</th><th>Meta</th>
+        </tr></thead>
         <tbody>${data.vendedores.map(v => `
           <tr>
             <td>${escapeHtmlCot(v.nombre)}</td>
             <td>${fmtMoneda(v.totalMes)}</td>
             <td>${fmtNum(v.unidades)}</td>
+            ${Object.keys(ACCESORIOS_CATEGORIA_LABEL).map(k => `<td>${fmtMoneda(v.porCategoria?.[k] || 0)}</td>`).join('')}
             <td style="min-width:140px;">${barraProgresoAccesorios(v.totalMes, data.meta)}</td>
             <td>${v.cumplioMeta ? '<span class="badge si">✓ Cumplida</span>' : `Faltan ${fmtMoneda(v.faltante)}`}</td>
           </tr>`).join('')}
-        </tbody></table>
+        </tbody></table></div>
         ${data.ventasSinVendedorAsignado ? `<div class="sub" style="margin-top:10px;">+ ${fmtMoneda(data.ventasSinVendedorAsignado.totalMes)} en ventas sin vendedor asignado en Bsale (no entran al ranking).</div>` : ''}`;
     }
   } else {

@@ -1873,7 +1873,7 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
 // Si Bsale renombra el catálogo esto queda obsoleto -- si un vendedor
 // reclama que algo no se está contando, hay que volver a mirar el catálogo.
 const ACCESORIOS_VITRINA_PRODUCTOS = new Set(['MOUSE', 'PAD', 'FUNDA', 'BASE NOTEBOOK', 'SOPORTE', 'FILTRO DE PRIVACIDAD']);
-const ACCESORIOS_META_MENSUAL = 100000; // venta con IVA, por vendedor, al mes, para ganar el bono
+const ACCESORIOS_META_MENSUAL = 300000; // venta con IVA, por vendedor, al mes, para ganar el bono
 
 // Mapa sku -> nombre de PRODUCTO (no de variante): products.json trae el
 // nombre real del producto, variants.json es el único lugar donde aparece
@@ -1997,12 +1997,13 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
       for (const det of (doc.details?.items || [])) {
         const nombreProducto = productoPorSku.get(det.variant?.code || '');
         if (!nombreProducto || !ACCESORIOS_VITRINA_PRODUCTOS.has(nombreProducto)) continue;
-        if (!porVendedor.has(vendedorId)) porVendedor.set(vendedorId, { vendedorId, nombre: vendedorNombre, totalMes: 0, unidades: 0, porDia: new Map() });
+        if (!porVendedor.has(vendedorId)) porVendedor.set(vendedorId, { vendedorId, nombre: vendedorNombre, totalMes: 0, unidades: 0, porDia: new Map(), porCategoria: new Map() });
         const entrada = porVendedor.get(vendedorId);
         const monto = (det.quantity || 0) * (det.netUnitValue || 0) * 1.19; // con IVA, mismo criterio que el resto de "precio real" en este archivo
         entrada.totalMes += monto;
         entrada.unidades += (det.quantity || 0);
         entrada.porDia.set(fecha, (entrada.porDia.get(fecha) || 0) + monto);
+        entrada.porCategoria.set(nombreProducto, (entrada.porCategoria.get(nombreProducto) || 0) + monto);
       }
     }
 
@@ -2017,6 +2018,10 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
         faltante: Math.max(0, ACCESORIOS_META_MENSUAL - Math.round(v.totalMes)),
         cumplioMeta: v.totalMes >= ACCESORIOS_META_MENSUAL,
         semanas: construirSemanasAccesorios(v.porDia, hoyDia, ACCESORIOS_META_MENSUAL),
+        // Un valor por cada producto de ACCESORIOS_VITRINA_PRODUCTOS, en el
+        // mismo orden siempre -- así el frontend arma columnas fijas (Mouse,
+        // Funda, etc.) aunque un vendedor no haya vendido alguna de ellas.
+        porCategoria: Object.fromEntries([...ACCESORIOS_VITRINA_PRODUCTOS].map(p => [p, Math.round(v.porCategoria.get(p) || 0)])),
       }))
       .sort((a, b) => b.totalMes - a.totalMes);
 
