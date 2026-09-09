@@ -1864,19 +1864,34 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
 // categoría no sirve, hay que filtrar por el nombre exacto del PRODUCTO
 // (products.json -- no la ficha técnica de la variante, ver nota en
 // categoriaLinea más arriba sobre variant.description):
-//   - "MOUSE"           (categoría ACCESORIOS NOTEBOOK)
-//   - "PAD"             (pad mouse, categoría ACCESORIOS NOTEBOOK)
-//   - "FUNDA"           (categoría propia FUNDA NOTEBOOK)
-//   - "BASE NOTEBOOK"   (categoría propia BASE NOTEBOOK)
-//   - "SOPORTE"         (categoría ACCESORIOS PC)
-//   - "LIMPIA CONTACTO" ("kit limpiadores" -- es el único producto de
-//     limpieza que existe en el catálogo, no hay uno llamado literalmente
-//     "kit de limpieza"; revisar si Bsale agrega uno más específico)
+//   - "MOUSE"         (categoría ACCESORIOS NOTEBOOK)
+//   - "PAD"           (pad mouse, categoría ACCESORIOS NOTEBOOK)
+//   - "FUNDA"         (categoría propia FUNDA NOTEBOOK)
+//   - "BASE NOTEBOOK" (categoría propia BASE NOTEBOOK)
+//   - "SOPORTE"       (categoría ACCESORIOS PC)
 // "FILTRO DE PRIVACIDAD" (categoría genérica "Accesorios") se sacó a
 // pedido del usuario -- ya no cuenta para la meta.
-// Si Bsale renombra el catálogo esto queda obsoleto -- si un vendedor
-// reclama que algo no se está contando, hay que volver a mirar el catálogo.
-const ACCESORIOS_VITRINA_PRODUCTOS = new Set(['MOUSE', 'PAD', 'FUNDA', 'BASE NOTEBOOK', 'SOPORTE', 'LIMPIA CONTACTO']);
+//
+// El "kit limpiadores" es un caso aparte: el producto de Bsale se llama
+// literalmente "SET" (genérico) y ESE MISMO producto mezcla los sets de
+// limpieza LCD reales (SKU "KCL1005", "KCL1023", etc., descripción de
+// variante "LIMPIEZA LCD NOTEBOOK ...ML KCL-####") con "CUBRE PUERTOS DE
+// SILICONA 16 UN" (SKU "TG1010"), que NO es de limpieza -- confirmado en
+// vivo con el detalle de variantes. Filtrar por nombre de producto ("SET")
+// metería el cubre puertos también -> se distingue por la DESCRIPCIÓN de
+// la variante (contiene "limpi"), no por el producto. Por eso
+// clasificarAccesorioVitrina() necesita también la descripción, no solo
+// el nombre del producto.
+const ACCESORIOS_PRODUCTOS_SIMPLES = new Set(['MOUSE', 'PAD', 'FUNDA', 'BASE NOTEBOOK', 'SOPORTE']);
+// Etiqueta interna (no es un nombre real de producto en Bsale) para agrupar
+// los "SET" que sí son de limpieza LCD.
+const ACCESORIOS_CATEGORIA_KIT_LIMPIEZA = 'KIT LIMPIEZA LCD';
+const ACCESORIOS_VITRINA_PRODUCTOS = new Set([...ACCESORIOS_PRODUCTOS_SIMPLES, ACCESORIOS_CATEGORIA_KIT_LIMPIEZA]);
+function clasificarAccesorioVitrina(nombreProducto, descripcionVariante) {
+  if (ACCESORIOS_PRODUCTOS_SIMPLES.has(nombreProducto)) return nombreProducto;
+  if (nombreProducto === 'SET' && /limpi/i.test(descripcionVariante || '')) return ACCESORIOS_CATEGORIA_KIT_LIMPIEZA;
+  return null;
+}
 const ACCESORIOS_META_MENSUAL = 300000; // venta con IVA, por vendedor, al mes, para ganar el bono
 // Pedido del usuario: por ahora el panel solo considera a estos dos
 // vendedores (no a todo el equipo) -- comparación por nombre normalizado
@@ -1884,13 +1899,14 @@ const ACCESORIOS_META_MENSUAL = 300000; // venta con IVA, por vendedor, al mes, 
 // estos textos, así no importan espacios extra o el apellido completo.
 const ACCESORIOS_VENDEDORES_PERMITIDOS = ['stephanie', 'david'];
 
-// Mapa sku -> nombre de PRODUCTO (no de variante): products.json trae el
-// nombre real del producto, variants.json es el único lugar donde aparece
-// el código de SKU -- hay que cruzar ambos por product.id. Mismo mecanismo
-// que categoriaPorCode en bsale-sku-report.js, pero acá se guarda el
-// nombre del producto en vez de la categoría.
+// Mapa sku -> { nombre de PRODUCTO, descripción de la VARIANTE } (no
+// alcanza con el nombre del producto solo, ver clasificarAccesorioVitrina
+// arriba): products.json trae el nombre real del producto, variants.json
+// trae tanto el código de SKU como la descripción de esa variante en
+// particular -- hay que cruzar product+variant por product.id. Mismo
+// mecanismo que categoriaPorCode en bsale-sku-report.js.
 const OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR = { detalle: null };
-async function obtenerNombreProductoPorSku(token) {
+async function obtenerCatalogoPorSku(token) {
   const limit = 50;
   const topeSeguridad = 60; // ~3.000 productos/variantes como resguardo
   const traerTodasLasPaginas = async (recurso) => {
@@ -1923,14 +1939,11 @@ async function obtenerNombreProductoPorSku(token) {
   // Se normaliza todo a String() antes de cruzar.
   const nombrePorProductoId = new Map(products.map(p => [String(p.id), (p.name || '').trim().toUpperCase()]));
   const mapa = new Map();
-  const detalleSet = [];
   for (const v of variants) {
     if (!v.code) continue;
     const nombre = nombrePorProductoId.get(String(v.product?.id));
-    if (nombre) mapa.set(v.code, nombre);
-    if (nombre === 'SET' || /limpi/i.test(nombre || '')) detalleSet.push({ code: v.code, nombre, descripcionVariante: v.description || null });
+    if (nombre) mapa.set(v.code, { nombre, descripcion: v.description || null });
   }
-  OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.detalleSet = detalleSet;
   return mapa;
 }
 
@@ -1964,8 +1977,8 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
     const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
     const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
 
-    const [productoPorSku, vendedoresPorId] = await Promise.all([
-      obtenerNombreProductoPorSku(token),
+    const [catalogoPorSku, vendedoresPorId] = await Promise.all([
+      obtenerCatalogoPorSku(token),
       obtenerMapaVendedores(token),
     ]);
 
@@ -1995,7 +2008,8 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
     const conteoProductosVistos = new Map();
     for (const doc of ventas) {
       for (const det of (doc.details?.items || [])) {
-        const nombreProducto = productoPorSku.get(det.variant?.code || '') || `(sin match: ${det.variant?.code || 'sin código'})`;
+        const info = catalogoPorSku.get(det.variant?.code || '');
+        const nombreProducto = info?.nombre || `(sin match: ${det.variant?.code || 'sin código'})`;
         conteoProductosVistos.set(nombreProducto, (conteoProductosVistos.get(nombreProducto) || 0) + 1);
       }
     }
@@ -2007,15 +2021,16 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
       const vendedorId = doc.user?.id ?? -1;
       const vendedorNombre = doc.user?.id ? (vendedoresPorId.get(doc.user.id) || `Usuario #${doc.user.id}`) : 'Sin vendedor asignado';
       for (const det of (doc.details?.items || [])) {
-        const nombreProducto = productoPorSku.get(det.variant?.code || '');
-        if (!nombreProducto || !ACCESORIOS_VITRINA_PRODUCTOS.has(nombreProducto)) continue;
+        const info = catalogoPorSku.get(det.variant?.code || '');
+        const categoria = info ? clasificarAccesorioVitrina(info.nombre, info.descripcion) : null;
+        if (!categoria) continue;
         if (!porVendedor.has(vendedorId)) porVendedor.set(vendedorId, { vendedorId, nombre: vendedorNombre, totalMes: 0, unidades: 0, porDia: new Map(), porCategoria: new Map() });
         const entrada = porVendedor.get(vendedorId);
         const monto = (det.quantity || 0) * (det.netUnitValue || 0) * 1.19; // con IVA, mismo criterio que el resto de "precio real" en este archivo
         entrada.totalMes += monto;
         entrada.unidades += (det.quantity || 0);
         entrada.porDia.set(fecha, (entrada.porDia.get(fecha) || 0) + monto);
-        entrada.porCategoria.set(nombreProducto, (entrada.porCategoria.get(nombreProducto) || 0) + monto);
+        entrada.porCategoria.set(categoria, (entrada.porCategoria.get(categoria) || 0) + monto);
       }
     }
 
@@ -2064,11 +2079,9 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
       diagnostico: sesion.rol === 'admin' ? {
         totalDocumentosDelMes: documentos.length,
         totalVentasReales: ventas.length,
-        skusEnCatalogo: productoPorSku.size,
+        skusEnCatalogo: catalogoPorSku.size,
         errorCatalogo: OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.detalle,
         productosVistosEsteMes: [...conteoProductosVistos.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
-        productosCatalogoSet: [...new Set(productoPorSku.values())].filter(n => /set|limpi/i.test(n)),
-        detalleSet: OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.detalleSet,
       } : undefined,
     });
   } catch (err) {
