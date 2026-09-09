@@ -1880,6 +1880,7 @@ const ACCESORIOS_META_MENSUAL = 100000; // venta con IVA, por vendedor, al mes, 
 // el código de SKU -- hay que cruzar ambos por product.id. Mismo mecanismo
 // que categoriaPorCode en bsale-sku-report.js, pero acá se guarda el
 // nombre del producto en vez de la categoría.
+const OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR = { detalle: null };
 async function obtenerNombreProductoPorSku(token) {
   const limit = 50;
   const topeSeguridad = 60; // ~3.000 productos/variantes como resguardo
@@ -1888,7 +1889,11 @@ async function obtenerNombreProductoPorSku(token) {
     let offset = 0, total = null;
     for (let pagina = 0; pagina < topeSeguridad; pagina++) {
       const r = await fetchConTimeout(`${BSALE_BASE}/${recurso}.json?limit=${limit}&offset=${offset}`, { headers: { access_token: token } }, 15000);
-      if (!r.ok) break;
+      if (!r.ok) {
+        const texto = await r.text().catch(() => '');
+        OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.detalle = `${recurso}.json offset=${offset} -> HTTP ${r.status}: ${texto.slice(0, 300)}`;
+        break;
+      }
       const data = await r.json();
       const its = data.items || [];
       items.push(...its);
@@ -2037,6 +2042,7 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
         totalDocumentosDelMes: documentos.length,
         totalVentasReales: ventas.length,
         skusEnCatalogo: productoPorSku.size,
+        errorCatalogo: OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.detalle,
         productosVistosEsteMes: [...conteoProductosVistos.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
       } : undefined,
     });
