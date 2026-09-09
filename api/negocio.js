@@ -3205,7 +3205,7 @@ async function manejarShopifyDebugJourneySinVenta(req, res, sesion) {
 
     const query = `
       query {
-        __type(name: "AbandonedCheckout") { fields { name type { name kind ofType { name kind } } } }
+        __type(name: "Customer") { fields { name } }
       }`;
     const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
       method: 'POST',
