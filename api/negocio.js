@@ -1880,7 +1880,7 @@ const ACCESORIOS_META_MENSUAL = 100000; // venta con IVA, por vendedor, al mes, 
 // el código de SKU -- hay que cruzar ambos por product.id. Mismo mecanismo
 // que categoriaPorCode en bsale-sku-report.js, pero acá se guarda el
 // nombre del producto en vez de la categoría.
-const OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR = { detalle: null, crudoPagina0: null };
+const OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR = { detalle: null };
 async function obtenerNombreProductoPorSku(token) {
   const limit = 50;
   const topeSeguridad = 60; // ~3.000 productos/variantes como resguardo
@@ -1895,10 +1895,6 @@ async function obtenerNombreProductoPorSku(token) {
         break;
       }
       const data = await r.json();
-      if (pagina === 0) {
-        OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.crudoPagina0 = OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.crudoPagina0 || {};
-        OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.crudoPagina0[recurso] = { count: data.count, itemsRecibidos: (data.items || []).length, primerItem: (data.items || [])[0] || null, keysRespuesta: Object.keys(data) };
-      }
       const its = data.items || [];
       items.push(...its);
       if (typeof data.count === 'number') total = data.count;
@@ -1911,11 +1907,16 @@ async function obtenerNombreProductoPorSku(token) {
     traerTodasLasPaginas('products'),
     traerTodasLasPaginas('variants'),
   ]);
-  const nombrePorProductoId = new Map(products.map(p => [p.id, (p.name || '').trim().toUpperCase()]));
+  // OJO: products[].id viene como NUMBER pero variants[].product.id viene
+  // como STRING (confirmado en vivo: "id":171 vs "product":{"id":"153"})
+  // -- si se cruzan tal cual, Map.get() nunca calza (tipos distintos) y
+  // esto queda vacío en silencio (pasó en producción: skusEnCatalogo:0).
+  // Se normaliza todo a String() antes de cruzar.
+  const nombrePorProductoId = new Map(products.map(p => [String(p.id), (p.name || '').trim().toUpperCase()]));
   const mapa = new Map();
   for (const v of variants) {
     if (!v.code) continue;
-    const nombre = nombrePorProductoId.get(v.product?.id);
+    const nombre = nombrePorProductoId.get(String(v.product?.id));
     if (nombre) mapa.set(v.code, nombre);
   }
   return mapa;
@@ -2047,7 +2048,6 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
         totalVentasReales: ventas.length,
         skusEnCatalogo: productoPorSku.size,
         errorCatalogo: OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.detalle,
-        crudoPagina0Catalogo: OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.crudoPagina0,
         productosVistosEsteMes: [...conteoProductosVistos.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
       } : undefined,
     });
