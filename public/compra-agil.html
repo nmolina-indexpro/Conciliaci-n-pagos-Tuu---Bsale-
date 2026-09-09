@@ -82,6 +82,7 @@
   .badge.ok{background:var(--green-bg);color:var(--green);}
   .badge.pend{background:var(--amber-dim);color:var(--amber);}
   .badge.cancel{background:var(--red-bg);color:var(--red);}
+  .badge.no{background:var(--surface-2);color:var(--muted);}
   tr.fila-total td{border-top:2px solid var(--line);font-weight:700;background:var(--surface-2);}
 </style>
 <meta name="theme-color" content="#0F766E">
@@ -324,6 +325,16 @@ function celdaDias(o){
   if(o.diasCotizacionFactura === null || o.diasCotizacionFactura === undefined) return '<span class="empty-note">—</span>';
   return `${fmtNum(o.diasCotizacionFactura)} día${o.diasCotizacionFactura === 1 ? '' : 's'}`;
 }
+// Vendedor y "¿Ha comprado antes?" solo se conocen cuando la OC quedó
+// vinculada a una cotización de Bsale -- el vínculo directo con
+// analisis_compras (el caso más común) no trae ninguno de los dos.
+function celdaVendedor(o){
+  return o.vendedorNombre ? escapeHtml(o.vendedorNombre) : '<span class="empty-note">—</span>';
+}
+function celdaHaComprado(o){
+  if(o.haCompradoAntes === null || o.haCompradoAntes === undefined) return '<span class="empty-note">—</span>';
+  return `<span class="badge ${o.haCompradoAntes ? 'ok' : 'no'}">${o.haCompradoAntes ? 'Sí' : 'No'}</span>`;
+}
 
 function renderTabla(){
   if(!ordenesActuales.length){
@@ -339,8 +350,10 @@ function renderTabla(){
     <tr>
       <td>${fmtFecha(o.fechaEnvio)}</td>
       <td>${o.organismo || '—'}</td>
+      <td>${celdaVendedor(o)}</td>
       <td>${o.codigo}</td>
       <td>${badgeEstado(o.estado, o.cuentaComoFacturado)}</td>
+      <td>${celdaHaComprado(o)}</td>
       <td class="amount">${fmtMoneda(o.total)}</td>
       <td>${celdaCotizacion(o)}</td>
       <td>${celdaFactura(o)}</td>
@@ -350,10 +363,10 @@ function renderTabla(){
 
   $('wrapTabla').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Fecha envío</th><th>Organismo comprador</th><th>Código OC</th><th>Estado</th><th style="text-align:right;">Total</th><th>Cotización Bsale</th><th>Factura/Boleta</th><th>Cotización → factura</th></tr></thead>
+      <thead><tr><th>Fecha envío</th><th>Organismo comprador</th><th>Vendedor</th><th>Código OC</th><th>Estado</th><th>¿Ha comprado antes?</th><th style="text-align:right;">Total</th><th>Cotización Bsale</th><th>Factura/Boleta</th><th>Cotización → factura</th></tr></thead>
       <tbody>${filas}</tbody>
       <tbody>
-        <tr class="fila-total"><td colspan="4">Total facturado (válidas, rango filtrado)</td><td class="amount">${fmtMoneda(totalFacturado)}</td><td colspan="3"></td></tr>
+        <tr class="fila-total"><td colspan="6">Total facturado (válidas, rango filtrado)</td><td class="amount">${fmtMoneda(totalFacturado)}</td><td colspan="3"></td></tr>
       </tbody>
     </table></div>
   `;

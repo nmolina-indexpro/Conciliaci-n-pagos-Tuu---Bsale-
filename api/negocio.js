@@ -5817,7 +5817,7 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
     const { rows } = await sql`
       SELECT o.codigo, o.codigo_estado, o.estado, o.nombre, o.organismo, o.total, o.fecha_envio, o.fecha_aceptacion,
              c.id AS cot_id, c.numero AS cot_numero, c.url_cotizacion AS cot_url, c.estado AS cot_estado,
-             c.fecha AS cot_fecha, c.vendedor_nombre AS cot_vendedor_nombre,
+             c.fecha AS cot_fecha, c.vendedor_nombre AS cot_vendedor_nombre, c.cliente_ha_comprado AS cot_cliente_ha_comprado,
              c.documento_asociado_tipo, c.documento_asociado_numero, c.documento_asociado_url, c.documento_asociado_fecha,
              fc.fecha AS cot_factura_fallback_fecha,
              f.numero AS factura_directa_numero, f.tipo_documento AS factura_directa_tipo, f.url AS factura_directa_url, f.fecha AS factura_directa_fecha
@@ -5867,10 +5867,13 @@ async function manejarCompraAgilOrdenes(req, res, sesion) {
         cuentaComoFacturado: r.estado !== 'Cancelada',
         cotizacionVinculada: r.cot_id ? { id: r.cot_id, numero: r.cot_numero, url: r.cot_url, estado: r.cot_estado } : null,
         facturaVinculada: facturaEncadenada || facturaDirecta,
-        // Sólo hay vendedor identificado cuando la OC pasó por una
+        // Sólo hay vendedor y "ha comprado antes" cuando la OC pasó por una
         // cotización de Bsale -- el vínculo directo con analisis_compras no
-        // trae vendedor (esa tabla no lo registra).
+        // trae ninguno de los dos (esa tabla no los registra). null =
+        // "no se sabe" (sin cotización vinculada), distinto de false =
+        // "se sabe que no había comprado antes".
         vendedorNombre: r.cot_vendedor_nombre || null,
+        haCompradoAntes: r.cot_id ? (r.cot_cliente_ha_comprado === null ? null : !!r.cot_cliente_ha_comprado) : null,
         diasCotizacionFactura,
       };
     });
