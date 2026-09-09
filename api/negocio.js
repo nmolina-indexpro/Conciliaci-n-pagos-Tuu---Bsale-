@@ -1923,11 +1923,14 @@ async function obtenerNombreProductoPorSku(token) {
   // Se normaliza todo a String() antes de cruzar.
   const nombrePorProductoId = new Map(products.map(p => [String(p.id), (p.name || '').trim().toUpperCase()]));
   const mapa = new Map();
+  const detalleSet = [];
   for (const v of variants) {
     if (!v.code) continue;
     const nombre = nombrePorProductoId.get(String(v.product?.id));
     if (nombre) mapa.set(v.code, nombre);
+    if (nombre === 'SET' || /limpi/i.test(nombre || '')) detalleSet.push({ code: v.code, nombre, descripcionVariante: v.description || null });
   }
+  OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.detalleSet = detalleSet;
   return mapa;
 }
 
@@ -2065,6 +2068,7 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
         errorCatalogo: OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.detalle,
         productosVistosEsteMes: [...conteoProductosVistos.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
         productosCatalogoSet: [...new Set(productoPorSku.values())].filter(n => /set|limpi/i.test(n)),
+        detalleSet: OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.detalleSet,
       } : undefined,
     });
   } catch (err) {
