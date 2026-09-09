@@ -1866,17 +1866,20 @@ async function manejarAccesoriosDebugCategorias(req, res, sesion) {
     const tiposRes = await rTipos.json();
     const tipos = (tiposRes.items || []).map(t => ({ id: t.id, nombre: t.name }));
 
-    // Para cada categoría que suene a "accesorio", trae unos productos de
-    // ejemplo -- para confirmar que ahí están mouse/fundas/bases/soportes,
-    // no solo confiar en el nombre de la categoría.
-    const candidatas = tipos.filter(t => /accesorio/i.test(t.nombre));
+    // Candidatas: cualquier nombre relacionado a accesorios/vitrina, más
+    // "BASE NOTEBOOK" y "FUNDA NOTEBOOK" (categorías propias, no vienen
+    // agrupadas bajo "accesorio") y "CONSOLAS/PERIFERICOS" (posible hogar de
+    // mouse/pad mouse) -- para ver ejemplos reales de cada una.
+    const idsForzados = new Set([12, 28, 29, 30, 31, 41, 56, 65, 66]);
+    const candidatas = tipos.filter(t => /accesorio/i.test(t.nombre) || idsForzados.has(t.id));
     const ejemplosPorCategoria = {};
     for (const t of candidatas) {
-      const r = await fetchConTimeout(`${BSALE_BASE}/products.json?producttypeid=${t.id}&limit=20`, { headers: { access_token: token } }, 15000);
+      const r = await fetchConTimeout(`${BSALE_BASE}/products.json?producttypeid=${t.id}&expand=[product_type]&limit=25`, { headers: { access_token: token } }, 15000);
       const data = await r.json();
-      const items = (data.items || []).filter(p => (p.product_type?.id ?? p.productTypeId) === t.id);
+      const items = data.items || [];
       ejemplosPorCategoria[`${t.nombre} (id ${t.id})`] = {
-        totalEnCategoria: data.count ?? items.length,
+        totalReportadoPorBsale: data.count ?? items.length,
+        primerItemCrudo: items[0] || null,
         ejemplos: items.map(p => p.name),
       };
     }
