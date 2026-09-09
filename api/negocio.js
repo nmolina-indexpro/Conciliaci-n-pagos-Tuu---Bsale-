@@ -3205,12 +3205,7 @@ async function manejarShopifyDebugJourneySinVenta(req, res, sesion) {
 
     const query = `
       query {
-        abandonedCheckouts(first: 5, sortKey: CREATED_AT, reverse: true) {
-          edges { node {
-            id createdAt customer { id phone }
-            customerJourneySummary { firstVisit { source landingPage utmParameters { source medium campaign } } }
-          } }
-        }
+        __type(name: "AbandonedCheckout") { fields { name type { name kind ofType { name kind } } } }
       }`;
     const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
       method: 'POST',
