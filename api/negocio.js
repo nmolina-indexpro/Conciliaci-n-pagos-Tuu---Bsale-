@@ -1892,7 +1892,7 @@ function clasificarAccesorioVitrina(nombreProducto, descripcionVariante) {
   if (nombreProducto === 'SET' && /limpi/i.test(descripcionVariante || '')) return ACCESORIOS_CATEGORIA_KIT_LIMPIEZA;
   return null;
 }
-const ACCESORIOS_META_MENSUAL = 300000; // venta con IVA, por vendedor, al mes, para ganar el bono
+const ACCESORIOS_META_MENSUAL = 200000; // venta con IVA, por vendedor, al mes, para ganar el bono
 // Pedido del usuario: por ahora el panel solo considera a estos dos
 // vendedores (no a todo el equipo) -- comparación por nombre normalizado
 // (ver normalizarTexto), basta con que el nombre de Bsale CONTENGA uno de
