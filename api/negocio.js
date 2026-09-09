@@ -1965,6 +1965,19 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
 
     const ventas = documentos.filter(d => d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type));
 
+    // Diagnóstico admin (no cambia el cálculo): nombres de producto vistos
+    // en las ventas del mes, aunque no sean de vitrina -- para poder
+    // confirmar rápido, si el ranking sale vacío, si es porque de verdad no
+    // se ha vendido nada de la lista o porque algo se rompió (catálogo
+    // vacío, código de variante sin match, etc).
+    const conteoProductosVistos = new Map();
+    for (const doc of ventas) {
+      for (const det of (doc.details?.items || [])) {
+        const nombreProducto = productoPorSku.get(det.variant?.code || '') || `(sin match: ${det.variant?.code || 'sin código'})`;
+        conteoProductosVistos.set(nombreProducto, (conteoProductosVistos.get(nombreProducto) || 0) + 1);
+      }
+    }
+
     // -1 = documentos sin vendedor asignado (queda aparte, no entra al ranking)
     const porVendedor = new Map();
     for (const doc of ventas) {
@@ -2020,6 +2033,12 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
       vendedores,
       miVendedorId,
       ventasSinVendedorAsignado: sinAsignar ? { totalMes: Math.round(sinAsignar.totalMes), unidades: sinAsignar.unidades } : null,
+      diagnostico: sesion.rol === 'admin' ? {
+        totalDocumentosDelMes: documentos.length,
+        totalVentasReales: ventas.length,
+        skusEnCatalogo: productoPorSku.size,
+        productosVistosEsteMes: [...conteoProductosVistos.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
+      } : undefined,
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error calculando ventas de accesorios por vendedor', detail: String(err) });
