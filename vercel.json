@@ -17,6 +17,10 @@
     {
       "path": "/api/negocio?recurso=alertas-sitio-web-notificar",
       "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/negocio?recurso=servicio-tecnico-resumen-semanal",
+      "schedule": "0 13 * * 1"
     }
   ],
   "headers": [

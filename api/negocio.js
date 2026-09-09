@@ -59,6 +59,10 @@ export default async function handler(req, res) {
   // verificación (CRON_SECRET) adentro del handler. Ver también
   // middleware.ts (esAlertasSitioWebNotificarPublico).
   if (req.query.recurso === 'alertas-sitio-web-notificar') return manejarAlertasSitioWebNotificar(req, res);
+  // Cron semanal (lunes) del resumen de Servicio Técnico -- mismo patrón
+  // que el de arriba (CRON_SECRET, sin sesión). Ver vercel.json y
+  // middleware.ts (esServicioTecnicoResumenSemanalPublico).
+  if (req.query.recurso === 'servicio-tecnico-resumen-semanal') return manejarServicioTecnicoResumenSemanal(req, res);
 
   const sesion = usuarioDesdeRequest(req);
   if (!sesion) return res.status(401).json({ error: 'No hay sesión activa' });
@@ -2046,6 +2050,98 @@ async function manejarSyncServiciosTecnico(req, res, sesion) {
     return res.status(200).json({ completo: true, procesadosEnEstaLlamada: procesados });
   } catch (err) {
     return res.status(200).json({ error: 'Error sincronizando Servicio Técnico con Bsale', detail: String(err) });
+  }
+}
+
+// Correo semanal (todos los lunes) a nmolina@indexstore.cl y
+// nathalia@indexstore.cl con un resumen de Servicio Técnico de la semana
+// recién terminada (lunes a domingo) -- pedido del usuario. Lo dispara un
+// cron de Vercel (ver vercel.json), sin sesión de usuario -- protegido por
+// CRON_SECRET (mismo patrón que manejarAlertasSitioWebNotificar). Lee
+// bsale_servicios_ventas tal cual está sincronizado (no llama a Bsale de
+// nuevo ni fuerza una resincronización -- un resync completo de 365 días
+// no cabe en una sola invocación); si nadie ha sincronizado hace tiempo, el
+// correo lo deja explícito con la fecha de "última sincronización" en vez
+// de fallar en silencio.
+const SERVICIO_TECNICO_DESTINATARIOS = ['nmolina@indexstore.cl', 'nathalia@indexstore.cl'];
+async function manejarServicioTecnicoResumenSemanal(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  try {
+    const sql = await getSql();
+    await asegurarTablaServiciosMensual(sql);
+
+    // "fecha" ya viene truncada a día en UTC (mismo criterio que
+    // emissionDate de Bsale en todo el proyecto, ver CLAUDE.md) -> se
+    // compara con date-strings en UTC, sin conversión de zona horaria,
+    // para no desalinearse con cómo quedó guardado el dato. Semana =
+    // lunes a domingo; "ayer" es el domingo de la semana recién terminada
+    // si el cron corre un lunes (ver vercel.json).
+    const hoyStr = new Date().toISOString().slice(0, 10);
+    const finSemana = new Date(Date.parse(hoyStr + 'T00:00:00Z') - 86400000); // domingo
+    const inicioSemana = new Date(finSemana.getTime() - 6 * 86400000); // lunes
+    const finSemanaPrevia = new Date(inicioSemana.getTime() - 86400000); // domingo anterior
+    const inicioSemanaPrevia = new Date(finSemanaPrevia.getTime() - 6 * 86400000); // lunes anterior
+    const fmtFecha = d => d.toISOString().slice(0, 10);
+
+    const traerResumen = async (desde, hasta) => {
+      const { rows } = await sql`
+        SELECT sku, MAX(nombre) AS nombre, SUM(cantidad)::numeric AS cantidad, SUM(monto)::numeric AS monto
+        FROM bsale_servicios_ventas
+        WHERE fecha >= ${desde} AND fecha <= ${hasta}
+          AND COALESCE(nombre, '') !~* 'soporte\s*inform[aá]tico'
+        GROUP BY sku ORDER BY cantidad DESC;
+      `;
+      const filas = rows.filter(r => !SKUS_SERVICIO_EXCLUIDOS.has(r.sku));
+      const cantidadTotal = filas.reduce((s, r) => s + Number(r.cantidad), 0);
+      const montoTotal = filas.reduce((s, r) => s + Number(r.monto), 0);
+      return { filas, cantidadTotal, montoTotal };
+    };
+
+    const [semana, semanaPrevia] = await Promise.all([
+      traerResumen(fmtFecha(inicioSemana), fmtFecha(finSemana)),
+      traerResumen(fmtFecha(inicioSemanaPrevia), fmtFecha(finSemanaPrevia)),
+    ]);
+
+    const { rows: estadoRows } = await sql`SELECT * FROM bsale_servicios_sync_estado WHERE id = 1;`;
+    const ultimaSincronizacion = estadoRows[0]?.ultima_pasada_completa_en || null;
+
+    const variacionPct = (actual, anterior) => {
+      if (!anterior) return actual > 0 ? null : 0; // null = "nuevo" (sin base de comparación), no una variación real
+      return Math.round(((actual - anterior) / anterior) * 100);
+    };
+    const notaVariacion = pct => {
+      if (pct === null) return '<span style="color:#15803D;">▲ nuevo (sin datos la semana pasada)</span>';
+      if (pct === 0) return '<span style="color:#6B7568;">＝ igual que la semana pasada</span>';
+      const color = pct > 0 ? '#15803D' : '#DC2626';
+      const flecha = pct > 0 ? '▲' : '▼';
+      return `<span style="color:${color};">${flecha} ${pct > 0 ? '+' : ''}${pct}% vs. semana anterior</span>`;
+    };
+
+    const filaServicio = f => `<li><b>${f.nombre || f.sku}</b> — ${Number(f.cantidad)} unidad${Number(f.cantidad) === 1 ? '' : 'es'} · $${Math.round(Number(f.monto)).toLocaleString('es-CL')}</li>`;
+    const topServicios = semana.filas.slice(0, 8);
+
+    const html = `
+      <h2>🔧 Resumen semanal — Servicio Técnico</h2>
+      <p style="color:#666;">Semana del ${fmtFecha(inicioSemana)} al ${fmtFecha(finSemana)}.</p>
+      <p><b>Servicios vendidos:</b> ${semana.cantidadTotal} ${notaVariacion(variacionPct(semana.cantidadTotal, semanaPrevia.cantidadTotal))}</p>
+      <p><b>Monto total:</b> $${Math.round(semana.montoTotal).toLocaleString('es-CL')} ${notaVariacion(variacionPct(semana.montoTotal, semanaPrevia.montoTotal))}</p>
+      ${topServicios.length ? `<h3>Servicios más vendidos esta semana</h3><ul>${topServicios.map(filaServicio).join('')}</ul>` : '<p>No se registraron servicios vendidos esta semana.</p>'}
+      <p><a href="https://conciliaci-n-pagos-tuu-bsale.vercel.app/servicio-tecnico.html">Ver detalle en el ERP -- página Servicio Técnico</a></p>
+      <p style="color:#999;font-size:11px;">Datos sincronizados desde Bsale hasta: ${ultimaSincronizacion ? new Date(ultimaSincronizacion).toLocaleString('es-CL') : 'nunca -- sincronizar manualmente en la página'}.</p>
+    `;
+    const asunto = `🔧 Servicio Técnico -- resumen semanal (${fmtFecha(inicioSemana)} al ${fmtFecha(finSemana)}): ${semana.cantidadTotal} servicios, $${Math.round(semana.montoTotal).toLocaleString('es-CL')}`;
+
+    const envios = [];
+    for (const para of SERVICIO_TECNICO_DESTINATARIOS) {
+      envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
+    }
+    return res.status(200).json({ ok: true, enviado: true, envios });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Servicio Técnico', detail: String(err) });
   }
 }
 

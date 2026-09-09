@@ -44,6 +44,12 @@ function esAlertasSitioWebNotificarPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'alertas-sitio-web-notificar';
 }
 
+// Cron semanal (lunes) del resumen de Servicio Técnico -- mismo motivo y
+// mismo patrón que el de arriba.
+function esServicioTecnicoResumenSemanalPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'servicio-tecnico-resumen-semanal';
+}
+
 // Páginas que un usuario con un perfil restringido puede ver SIEMPRE, sin
 // importar qué páginas le haya marcado el administrador -- reportar-error
 // es la vía de ayuda/soporte, no tendría sentido poder bloquearla (y sirve
@@ -91,7 +97,8 @@ export default async function middleware(req) {
   if (
     RUTAS_PUBLICAS.has(pathname) ||
     esWebhookWhatsappPublico(pathname, url.searchParams) ||
-    esAlertasSitioWebNotificarPublico(pathname, url.searchParams)
+    esAlertasSitioWebNotificarPublico(pathname, url.searchParams) ||
+    esServicioTecnicoResumenSemanalPublico(pathname, url.searchParams)
   ) return; // deja pasar sin exigir sesión
 
   const cookieHeader = req.headers.get('cookie') || '';
