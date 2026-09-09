@@ -122,7 +122,6 @@ export default async function handler(req, res) {
   if (recurso === 'compra-agil-ordenes') return manejarCompraAgilOrdenes(req, res, sesion);
   if (recurso === 'compra-agil-debug-vinculo') return manejarCompraAgilDebugVinculo(req, res, sesion);
   if (recurso === 'bsale-debug-documento') return manejarBsaleDebugDocumento(req, res, sesion);
-  if (recurso === 'shopify-debug-journey-sin-venta') return manejarShopifyDebugJourneySinVenta(req, res, sesion);
   if (recurso === 'sync-compra-agil') return manejarSyncCompraAgil(req, res, sesion);
   return res.status(400).json({ error: 'Falta un ?recurso= válido (ver api/negocio.js)' });
 }
@@ -3185,37 +3184,6 @@ async function buscarVentaShopifyPorTelefono(telefono, fechaConversacionIso) {
   } catch (err) {
     console.warn('[buscarVentaShopifyPorTelefono] error inesperado', telefono, err);
     return null;
-  }
-}
-
-// Debug puntual (solo admin): confirma si Shopify expone algún dato de
-// origen/journey FUERA de un pedido pagado -- ver conversación con el
-// usuario (¿se puede detectar el origen Shopify de conversaciones que
-// todavía no terminaron en venta?). customerJourneySummary hoy solo se lee
-// de Order (requiere un pedido); esto prueba si abandonedCheckouts trae
-// algo parecido (un carrito abandonado SÍ puede pasar por checkout sin
-// pagar) antes de decir que no se puede. No lo usa ninguna pantalla, se
-// borra después de confirmar.
-async function manejarShopifyDebugJourneySinVenta(req, res, sesion) {
-  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador' });
-  try {
-    const acceso = await obtenerAccesoShopify();
-    if (!acceso) return res.status(200).json({ error: 'Sin credenciales de Shopify configuradas' });
-    const { domain, accessToken } = acceso;
-
-    const query = `
-      query {
-        __type(name: "Customer") { fields { name } }
-      }`;
-    const r = await fetchConTimeout(`https://${domain}/admin/api/2024-10/graphql.json`, {
-      method: 'POST',
-      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
-    }, 12000);
-    const body = await r.json().catch(() => ({}));
-    return res.status(200).json({ status: r.status, body });
-  } catch (err) {
-    return res.status(200).json({ error: 'Error consultando Shopify', detail: String(err) });
   }
 }
 
