@@ -122,7 +122,7 @@ export default async function handler(req, res) {
   if (recurso === 'compra-agil-ordenes') return manejarCompraAgilOrdenes(req, res, sesion);
   if (recurso === 'compra-agil-debug-vinculo') return manejarCompraAgilDebugVinculo(req, res, sesion);
   if (recurso === 'bsale-debug-documento') return manejarBsaleDebugDocumento(req, res, sesion);
-  if (recurso === 'accesorios-debug-categorias') return manejarAccesoriosDebugCategorias(req, res, sesion);
+  if (recurso === 'accesorios-vendedores') return manejarAccesoriosVendedores(req, res, sesion);
   if (recurso === 'sync-compra-agil') return manejarSyncCompraAgil(req, res, sesion);
   return res.status(400).json({ error: 'Falta un ?recurso= válido (ver api/negocio.js)' });
 }
@@ -1848,45 +1848,181 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
   }
 }
 
-// ==================== Accesorios de vitrina / bono vendedores (diagnóstico) ====================
-// Paso previo a armar la viñeta de accesorios/vitrina para vendedores en
-// Oportunidades Comerciales (mouse, fundas, bases, soportes, filtro de
-// privacidad, pad mouse): antes de filtrar por categoría hay que ver los
-// nombres REALES que usa esta cuenta de Bsale para esas categorías (el
-// usuario las recuerda como "Accesorios Vitrina", "Accesorios Notebook",
-// "Accesorios PC", pero el nombre exacto puede variar) -- mismo espíritu que
-// el debug de categorización de SKU de más arriba (?recurso=sync-analisis&
-// debug=skus). Admin-only, no toca la BD, se borra una vez confirmado.
-async function manejarAccesoriosDebugCategorias(req, res, sesion) {
-  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede ver este diagnóstico' });
+// ==================== Accesorios de vitrina: ranking y bono por vendedor ====================
+// Pedido del usuario: una viñeta en Oportunidades Comerciales donde cada
+// vendedor vea cuánto lleva vendido este mes en productos "de vitrina"
+// (mouse, funda de notebook, base notebook, soporte, filtro de privacidad,
+// pad mouse) y su avance hacia una meta de $100.000/mes que da derecho a
+// un bono, con vista semanal ACUMULADA dentro del mes (la meta es mensual,
+// la vista por semana es solo para ver el avance sin esperar a fin de mes).
+//
+// Clasificación CONFIRMADA en vivo (endpoint temporal de diagnóstico, ya
+// retirado -- ver commits "debug de categorías de accesorios"): en esta
+// cuenta de Bsale estos 6 productos viven repartidos en categorías
+// distintas y MEZCLADOS con otros productos que no son de vitrina (ej.
+// "ACCESORIOS NOTEBOOK" también tiene "BOLSO" y "KIT TECLADO+MOUSE") ->
+// filtrar por categoría no sirve, hay que filtrar por el nombre exacto del
+// PRODUCTO (products.json -- no la ficha técnica de la variante, ver nota
+// en categoriaLinea más arriba sobre variant.description):
+//   - "MOUSE"                (categoría ACCESORIOS NOTEBOOK)
+//   - "PAD"                  (pad mouse, categoría ACCESORIOS NOTEBOOK)
+//   - "FUNDA"                (categoría propia FUNDA NOTEBOOK)
+//   - "BASE NOTEBOOK"        (categoría propia BASE NOTEBOOK)
+//   - "SOPORTE"              (categoría ACCESORIOS PC)
+//   - "FILTRO DE PRIVACIDAD" (categoría genérica "Accesorios")
+// Si Bsale renombra el catálogo esto queda obsoleto -- si un vendedor
+// reclama que algo no se está contando, hay que volver a mirar el catálogo.
+const ACCESORIOS_VITRINA_PRODUCTOS = new Set(['MOUSE', 'PAD', 'FUNDA', 'BASE NOTEBOOK', 'SOPORTE', 'FILTRO DE PRIVACIDAD']);
+const ACCESORIOS_META_MENSUAL = 100000; // venta con IVA, por vendedor, al mes, para ganar el bono
+
+// Mapa sku -> nombre de PRODUCTO (no de variante): products.json trae el
+// nombre real del producto, variants.json es el único lugar donde aparece
+// el código de SKU -- hay que cruzar ambos por product.id. Mismo mecanismo
+// que categoriaPorCode en bsale-sku-report.js, pero acá se guarda el
+// nombre del producto en vez de la categoría.
+async function obtenerNombreProductoPorSku(token) {
+  const limit = 50;
+  const topeSeguridad = 60; // ~3.000 productos/variantes como resguardo
+  const traerTodasLasPaginas = async (recurso) => {
+    const items = [];
+    let offset = 0, total = null;
+    for (let pagina = 0; pagina < topeSeguridad; pagina++) {
+      const r = await fetchConTimeout(`${BSALE_BASE}/${recurso}.json?limit=${limit}&offset=${offset}`, { headers: { access_token: token } }, 15000);
+      if (!r.ok) break;
+      const data = await r.json();
+      const its = data.items || [];
+      items.push(...its);
+      if (typeof data.count === 'number') total = data.count;
+      offset += its.length;
+      if (its.length < limit || (total != null && offset >= total)) break;
+    }
+    return items;
+  };
+  const [products, variants] = await Promise.all([
+    traerTodasLasPaginas('products'),
+    traerTodasLasPaginas('variants'),
+  ]);
+  const nombrePorProductoId = new Map(products.map(p => [p.id, (p.name || '').trim().toUpperCase()]));
+  const mapa = new Map();
+  for (const v of variants) {
+    if (!v.code) continue;
+    const nombre = nombrePorProductoId.get(v.product?.id);
+    if (nombre) mapa.set(v.code, nombre);
+  }
+  return mapa;
+}
+
+// Progreso ACUMULADO semana a semana dentro del mes (semana 1 = días 1-7,
+// semana 2 = días 8-14, etc.) -- pedido del usuario: "ir viendo semanalmente
+// cuánto le falta para llegar a la meta", no una meta que se reinicia cada
+// semana.
+function construirSemanasAccesorios(porDia, hoyDia, meta) {
+  const semanasTotales = Math.ceil(hoyDia / 7);
+  const semanas = [];
+  for (let s = 1; s <= semanasTotales; s++) {
+    const diaHasta = Math.min(s * 7, hoyDia);
+    let acumulado = 0;
+    for (const [fecha, monto] of porDia.entries()) {
+      if (Number(fecha.slice(8, 10)) <= diaHasta) acumulado += monto;
+    }
+    acumulado = Math.round(acumulado);
+    semanas.push({ semana: s, diaHasta, acumulado, faltante: Math.max(0, meta - acumulado), cumplida: acumulado >= meta });
+  }
+  return semanas;
+}
+
+async function manejarAccesoriosVendedores(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   const token = process.env.BSALE_ACCESS_TOKEN;
   if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
-  try {
-    const rTipos = await fetchConTimeout(`${BSALE_BASE}/product_types.json?limit=50`, { headers: { access_token: token } }, 15000);
-    const tiposRes = await rTipos.json();
-    const tipos = (tiposRes.items || []).map(t => ({ id: t.id, nombre: t.name }));
 
-    // Candidatas: cualquier nombre relacionado a accesorios/vitrina, más
-    // "BASE NOTEBOOK" y "FUNDA NOTEBOOK" (categorías propias, no vienen
-    // agrupadas bajo "accesorio") y "CONSOLAS/PERIFERICOS" (posible hogar de
-    // mouse/pad mouse) -- para ver ejemplos reales de cada una.
-    const idsForzados = new Set([12, 28, 29, 30, 31, 41, 56, 65, 66]);
-    const candidatas = tipos.filter(t => /accesorio/i.test(t.nombre) || idsForzados.has(t.id));
-    const ejemplosPorCategoria = {};
-    for (const t of candidatas) {
-      const r = await fetchConTimeout(`${BSALE_BASE}/products.json?producttypeid=${t.id}&expand=[product_type]&limit=25`, { headers: { access_token: token } }, 15000);
+  try {
+    const hastaStr = new Date().toISOString().slice(0, 10);
+    const desdeStr = `${hastaStr.slice(0, 7)}-01`; // día 1 del mes en curso
+    const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
+    const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
+
+    const [productoPorSku, vendedoresPorId] = await Promise.all([
+      obtenerNombreProductoPorSku(token),
+      obtenerMapaVendedores(token),
+    ]);
+
+    const limit = 50;
+    const topePaginas = 40; // ~2.000 documentos del mes -- de sobra
+    let offset = 0, total = null;
+    const documentos = [];
+    for (let pagina = 0; pagina < topePaginas; pagina++) {
+      const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[document_type,details,user]&limit=${limit}&offset=${offset}`;
+      const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
+      if (!r.ok) break;
       const data = await r.json();
       const items = data.items || [];
-      ejemplosPorCategoria[`${t.nombre} (id ${t.id})`] = {
-        totalReportadoPorBsale: data.count ?? items.length,
-        primerItemCrudo: items[0] || null,
-        ejemplos: items.map(p => p.name),
-      };
+      if (typeof data.count === 'number') total = data.count;
+      documentos.push(...items);
+      offset += items.length;
+      if (items.length < limit || (total != null && offset >= total)) break;
     }
 
-    return res.status(200).json({ totalCategorias: tipos.length, todasLasCategorias: tipos, ejemplosPorCategoria });
+    const ventas = documentos.filter(d => d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type));
+
+    // -1 = documentos sin vendedor asignado (queda aparte, no entra al ranking)
+    const porVendedor = new Map();
+    for (const doc of ventas) {
+      const fecha = doc.emissionDate ? new Date(doc.emissionDate * 1000).toISOString().slice(0, 10) : hastaStr;
+      const vendedorId = doc.user?.id ?? -1;
+      const vendedorNombre = doc.user?.id ? (vendedoresPorId.get(doc.user.id) || `Usuario #${doc.user.id}`) : 'Sin vendedor asignado';
+      for (const det of (doc.details?.items || [])) {
+        const nombreProducto = productoPorSku.get(det.variant?.code || '');
+        if (!nombreProducto || !ACCESORIOS_VITRINA_PRODUCTOS.has(nombreProducto)) continue;
+        if (!porVendedor.has(vendedorId)) porVendedor.set(vendedorId, { vendedorId, nombre: vendedorNombre, totalMes: 0, unidades: 0, porDia: new Map() });
+        const entrada = porVendedor.get(vendedorId);
+        const monto = (det.quantity || 0) * (det.netUnitValue || 0) * 1.19; // con IVA, mismo criterio que el resto de "precio real" en este archivo
+        entrada.totalMes += monto;
+        entrada.unidades += (det.quantity || 0);
+        entrada.porDia.set(fecha, (entrada.porDia.get(fecha) || 0) + monto);
+      }
+    }
+
+    const hoyDia = Number(hastaStr.slice(8, 10));
+    const vendedores = [...porVendedor.values()]
+      .filter(v => v.vendedorId !== -1)
+      .map(v => ({
+        vendedorId: v.vendedorId,
+        nombre: v.nombre,
+        totalMes: Math.round(v.totalMes),
+        unidades: v.unidades,
+        faltante: Math.max(0, ACCESORIOS_META_MENSUAL - Math.round(v.totalMes)),
+        cumplioMeta: v.totalMes >= ACCESORIOS_META_MENSUAL,
+        semanas: construirSemanasAccesorios(v.porDia, hoyDia, ACCESORIOS_META_MENSUAL),
+      }))
+      .sort((a, b) => b.totalMes - a.totalMes);
+
+    // Vincula al usuario logueado con "su" fila de vendedor por nombre (la
+    // cuenta de esta app y el usuario de Bsale son sistemas separados, no
+    // hay un id compartido) -- comparación normalizada (sin tildes/mayús),
+    // exacta primero y por inclusión como respaldo (ej. "Juan Pérez" en la
+    // app vs "Juan Pérez G." en Bsale).
+    const nombreSesion = normalizarTexto(sesion.nombre || '');
+    let miVendedorId = null;
+    if (nombreSesion) {
+      const exacto = vendedores.find(v => normalizarTexto(v.nombre) === nombreSesion);
+      const parcial = exacto || vendedores.find(v => normalizarTexto(v.nombre).includes(nombreSesion) || nombreSesion.includes(normalizarTexto(v.nombre)));
+      miVendedorId = (exacto || parcial)?.vendedorId ?? null;
+    }
+
+    const sinAsignar = porVendedor.get(-1);
+
+    return res.status(200).json({
+      mes: hastaStr.slice(0, 7),
+      hoyDia,
+      meta: ACCESORIOS_META_MENSUAL,
+      productosIncluidos: [...ACCESORIOS_VITRINA_PRODUCTOS],
+      vendedores,
+      miVendedorId,
+      ventasSinVendedorAsignado: sinAsignar ? { totalMes: Math.round(sinAsignar.totalMes), unidades: sinAsignar.unidades } : null,
+    });
   } catch (err) {
-    return res.status(200).json({ error: 'Error consultando categorías en Bsale', detail: String(err) });
+    return res.status(200).json({ error: 'Error calculando ventas de accesorios por vendedor', detail: String(err) });
   }
 }
 

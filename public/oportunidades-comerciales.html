@@ -181,6 +181,9 @@
     <button class="tab-grande" id="tabBtnCompraAgil" onclick="cambiarTab('compra-agil')">
       <div class="titulo">🏛️ Compra Ágil</div>
     </button>
+    <button class="tab-grande" id="tabBtnAccesorios" onclick="cambiarTab('accesorios')">
+      <div class="titulo">🖱️ Accesorios y Bono</div>
+    </button>
   </div>
 
   <div id="tabPuntos" style="display:none;">
@@ -420,6 +423,37 @@
     </div>
   </div>
 
+  <div id="tabAccesorios" style="display:none;">
+    <div class="sub" style="margin-top:-4px;">Venta del mes en curso de productos de vitrina (mouse, funda notebook, base notebook, soporte, filtro de privacidad, pad mouse). Meta: <b id="accMetaTexto">$100.000</b> por vendedor al mes para ganar el bono — el avance de abajo es acumulado dentro del mes.</div>
+
+    <div id="statusAccesorios"></div>
+
+    <div class="seccion" id="seccionMiAvanceAccesorios" style="display:none;">
+      <div class="seccion-head">
+        <div>
+          <h2>🎯 Tu avance este mes</h2>
+          <div class="sub" id="accMiResumen"></div>
+        </div>
+      </div>
+      <div id="accMiBarra"></div>
+      <div id="wrapMisSemanasAccesorios" style="margin-top:14px;"></div>
+    </div>
+
+    <div class="seccion" id="seccionSinDatosAccesorios" style="display:none;">
+      <p class="empty-note">Todavía no tienes ventas de estos productos registradas este mes en Bsale (o tu nombre de usuario no coincide con tu nombre de vendedor en Bsale — avísale a un administrador si esto no se ve bien).</p>
+    </div>
+
+    <div class="seccion" id="seccionRankingAccesorios" style="display:none;">
+      <div class="seccion-head">
+        <div>
+          <h2>🏆 Todos los vendedores — mes actual</h2>
+          <div class="sub">Solo visible para administradores. Ordenado de mayor a menor venta acumulada de accesorios/vitrina.</div>
+        </div>
+      </div>
+      <div id="wrapRankingAccesorios"><p class="empty-note">Cargando...</p></div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modalHistorialOverlay" onclick="cerrarModalHistorialSiFondo(event)">
     <div class="modal-box" onclick="event.stopPropagation()">
       <h3 id="modalHistorialTitulo">Historial de compras</h3>
@@ -477,14 +511,17 @@ function cambiarTab(tab){
   $('tabBtnCotizaciones').classList.toggle('activo', tab==='cotizaciones');
   $('tabBtnIndexpro').classList.toggle('activo', tab==='indexpro');
   $('tabBtnCompraAgil').classList.toggle('activo', tab==='compra-agil');
+  $('tabBtnAccesorios').classList.toggle('activo', tab==='accesorios');
   $('tabPuntos').style.display = tab==='puntos' ? '' : 'none';
   $('tabCotizaciones').style.display = tab==='cotizaciones' ? '' : 'none';
   $('tabIndexpro').style.display = tab==='indexpro' ? '' : 'none';
   $('tabCompraAgil').style.display = tab==='compra-agil' ? '' : 'none';
+  $('tabAccesorios').style.display = tab==='accesorios' ? '' : 'none';
   if(tab==='puntos' && !puntosCargados) cargar();
   if(tab==='cotizaciones' && !cotizacionesCargadas) cargarCotizaciones();
   if(tab==='indexpro' && !indexproCargado) cargarIndexpro();
   if(tab==='compra-agil' && !compraAgilCargado) cargarCompraAgil();
+  if(tab==='accesorios' && !accesoriosCargado) cargarAccesorios();
 }
 
 let clientes = [];
@@ -532,6 +569,7 @@ let sortAscIndexpro = true;
 
 let ordenesCompraAgil = [];
 let compraAgilCargado = false;
+let accesoriosCargado = false;
 let sincronizandoIndexpro = false;
 const ESTADOS_INDEXPRO_LABEL = {
   sin_contactar: 'Sin contactar',
@@ -588,6 +626,82 @@ function limpiarRangoCotizaciones(){
   $('cotizacionesHasta').value = '';
   ['btnCotHoy','btnCotSemana','btnCotMes','btnCotMesAnterior'].forEach(id => $(id).classList.remove('active'));
   renderTablaCotizaciones();
+}
+
+// ---------- Accesorios de vitrina / bono vendedores ----------
+async function cargarAccesorios(){
+  accesoriosCargado = true;
+  const status = $('statusAccesorios');
+  status.innerHTML = '<p class="empty-note">Cargando...</p>';
+  try{
+    const res = await fetch('/api/negocio?recurso=accesorios-vendedores');
+    const data = await res.json();
+    if(!res.ok || data.error){ status.innerHTML = `<p class="empty-note">${escapeHtmlCot(data.error || 'No se pudo cargar.')}</p>`; return; }
+    status.innerHTML = '';
+    renderAccesorios(data);
+  }catch(err){
+    status.innerHTML = `<p class="empty-note">Error: ${escapeHtmlCot(err.message)}</p>`;
+  }
+}
+
+function barraProgresoAccesorios(acumulado, meta){
+  const pct = Math.min(100, Math.round((acumulado / meta) * 100));
+  const color = acumulado >= meta ? 'var(--green)' : 'var(--primary)';
+  return `<div style="background:var(--surface-2);border-radius:999px;height:22px;overflow:hidden;position:relative;">
+    <div style="background:${color};height:100%;width:${pct}%;"></div>
+    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;">${pct}%</div>
+  </div>`;
+}
+
+function renderAccesorios(data){
+  $('accMetaTexto').textContent = fmtMoneda(data.meta);
+
+  const mio = data.vendedores.find(v => v.vendedorId === data.miVendedorId);
+  const seccionMio = $('seccionMiAvanceAccesorios');
+  const seccionSinDatos = $('seccionSinDatosAccesorios');
+  if(mio){
+    seccionMio.style.display = '';
+    seccionSinDatos.style.display = 'none';
+    $('accMiResumen').textContent = mio.cumplioMeta
+      ? `¡Meta cumplida! Llevas ${fmtMoneda(mio.totalMes)} vendidos este mes en accesorios/vitrina (${fmtNum(mio.unidades)} unidades). 🎉`
+      : `Llevas ${fmtMoneda(mio.totalMes)} de ${fmtMoneda(data.meta)} este mes (${fmtNum(mio.unidades)} unidades) — te faltan ${fmtMoneda(mio.faltante)} para el bono.`;
+    $('accMiBarra').innerHTML = barraProgresoAccesorios(mio.totalMes, data.meta);
+    $('wrapMisSemanasAccesorios').innerHTML = `
+      <table><thead><tr><th>Semana</th><th>Hasta el día</th><th>Acumulado en el mes</th><th>Estado</th></tr></thead>
+      <tbody>${mio.semanas.map(s => `
+        <tr>
+          <td>Semana ${s.semana}</td>
+          <td>Día ${s.diaHasta}</td>
+          <td>${fmtMoneda(s.acumulado)}</td>
+          <td>${s.cumplida ? '<span class="badge si">Meta cumplida ✓</span>' : `Faltan ${fmtMoneda(s.faltante)}`}</td>
+        </tr>`).join('')}</tbody></table>`;
+  } else {
+    seccionMio.style.display = 'none';
+    seccionSinDatos.style.display = '';
+  }
+
+  const seccionRanking = $('seccionRankingAccesorios');
+  if(esAdmin){
+    seccionRanking.style.display = '';
+    if(data.vendedores.length === 0){
+      $('wrapRankingAccesorios').innerHTML = '<p class="empty-note">Sin ventas de estos productos todavía este mes.</p>';
+    } else {
+      $('wrapRankingAccesorios').innerHTML = `
+        <table><thead><tr><th>Vendedor</th><th>Total mes</th><th>Unidades</th><th>Avance</th><th>Bono</th></tr></thead>
+        <tbody>${data.vendedores.map(v => `
+          <tr>
+            <td>${escapeHtmlCot(v.nombre)}</td>
+            <td>${fmtMoneda(v.totalMes)}</td>
+            <td>${fmtNum(v.unidades)}</td>
+            <td style="min-width:140px;">${barraProgresoAccesorios(v.totalMes, data.meta)}</td>
+            <td>${v.cumplioMeta ? '<span class="badge si">✓ Cumplida</span>' : `Faltan ${fmtMoneda(v.faltante)}`}</td>
+          </tr>`).join('')}
+        </tbody></table>
+        ${data.ventasSinVendedorAsignado ? `<div class="sub" style="margin-top:10px;">+ ${fmtMoneda(data.ventasSinVendedorAsignado.totalMes)} en ventas sin vendedor asignado en Bsale (no entran al ranking).</div>` : ''}`;
+    }
+  } else {
+    seccionRanking.style.display = 'none';
+  }
 }
 
 // ---------- Sesión ----------
