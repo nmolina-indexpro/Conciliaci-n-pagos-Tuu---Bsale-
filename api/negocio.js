@@ -3193,7 +3193,7 @@ async function manejarShopifyDebugJourney(req, res, sesion) {
           edges { node {
             name createdAt
             customerJourneySummary {
-              momentsCount
+              momentsCount { count precision }
               firstVisit { source sourceType referrerUrl landingPage utmParameters { source medium campaign } occurredAt }
               lastVisit { source sourceType referrerUrl landingPage utmParameters { source medium campaign } occurredAt }
             }
