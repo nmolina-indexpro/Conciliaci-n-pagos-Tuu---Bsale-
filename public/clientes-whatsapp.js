@@ -120,7 +120,11 @@ function debounce(fn, ms){
 // fuentes distintas, mismo juego de campos (fuenteTipo/Titulo/Url/Id).
 function fuenteInfo(c){
   if (!c.fuenteTipo) return { icono: '❓', texto: 'Origen desconocido', esSub: true };
-  if (c.fuenteTipo === 'utm') return { icono: '🔗', texto: `Link de la tienda${c.fuenteTitulo ? ' — ' + c.fuenteTitulo : ''}`, esSub: false };
+  if (c.fuenteTipo === 'boton_sitio') return { icono: '📎', texto: `Botón WhatsApp del sitio (sin campaña)${c.fuenteTitulo ? ' — ' + c.fuenteTitulo : ''}`, esSub: false };
+  if (c.fuenteTipo === 'utm') {
+    const esGoogle = (c.fuenteUtmSource || '').toLowerCase().includes('google');
+    return { icono: esGoogle ? '🔍' : '🔗', texto: `${esGoogle ? 'Google Ads' : 'Link con UTM'}${c.fuenteTitulo ? ' — ' + c.fuenteTitulo : ''}`, esSub: false };
+  }
   return { icono: '📢', texto: `Anuncio${c.fuenteTitulo ? ' — ' + c.fuenteTitulo : ''}`, esSub: false };
 }
 
@@ -891,7 +895,7 @@ function initAnalitica(){
     </div>
     <div class="seccion">
       <div class="seccion-head">
-        <div><h2>Fuente de ingreso</h2><div class="sub">De dónde vienen las conversaciones: anuncios de Meta, links con UTM de la tienda, u origen desconocido.</div></div>
+        <div><h2>Fuente de ingreso</h2><div class="sub">De dónde vienen las conversaciones: anuncios de Meta, un UTM real (Google Ads si utm_source=google, u otra plataforma), el botón de WhatsApp del sitio sin dato de campaña, u origen desconocido.</div></div>
       </div>
       <div id="chartFuentes" style="margin-bottom:14px;"></div>
       <div class="tabla-wrap"><table>
@@ -964,7 +968,13 @@ async function cargarAnalitica(){
     $('chartSerie').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
   }
 }
-const FUENTE_TIPO_LABEL_ANALITICA = { utm: '🔗 Link de la tienda', anuncio: '📢 Anuncio (Meta Ads)', desconocido: '❓ Origen desconocido' };
+const FUENTE_TIPO_LABEL_ANALITICA = {
+  google_ads: '🔍 Google Ads',
+  utm: '🔗 Link con UTM (otro)',
+  boton_sitio: '📎 Botón WhatsApp del sitio (sin campaña)',
+  anuncio: '📢 Anuncio (Meta Ads)',
+  desconocido: '❓ Origen desconocido',
+};
 function renderFuentes(fuentes, detalle){
   if (!fuentes || !fuentes.length) { $('chartFuentes').innerHTML = '<p class="empty-note">Sin datos.</p>'; $('tablaFuentesDetalle').innerHTML = ''; return; }
   const max = Math.max(1, ...fuentes.map(f => f.cantidad));

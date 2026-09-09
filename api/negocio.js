@@ -106,6 +106,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-analizar') return manejarWhatsappAnalizar(req, res, sesion);
   if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
   if (recurso === 'whatsapp-reanalizar-desactualizadas') return manejarWhatsappReanalizarDesactualizadas(req, res, sesion);
+  if (recurso === 'whatsapp-backfill-fuente') return manejarWhatsappBackfillFuente(req, res, sesion);
   if (recurso === 'whatsapp-actualizar-shopify') return manejarWhatsappActualizarShopify(req, res, sesion);
   if (recurso === 'whatsapp-actualizar-ventas-bsale') return manejarWhatsappActualizarVentasBsale(req, res, sesion);
   if (recurso === 'whatsapp-recategorizar') return manejarWhatsappRecategorizar(req, res, sesion);
@@ -2761,10 +2762,13 @@ async function manejarWhatsappWebhook(req, res) {
           if (utm) {
             await sql`
               UPDATE whatsapp_conversaciones SET
-                fuente_tipo = COALESCE(fuente_tipo, 'utm'),
+                fuente_tipo = COALESCE(fuente_tipo, ${utm.tipo}),
                 fuente_titulo = COALESCE(fuente_titulo, ${utm.etiqueta}),
                 fuente_url = COALESCE(fuente_url, ${utm.urlLimpia}),
-                fuente_id = COALESCE(fuente_id, ${utm.id})
+                fuente_id = COALESCE(fuente_id, ${utm.id}),
+                fuente_utm_source = COALESCE(fuente_utm_source, ${utm.utmSource || null}),
+                fuente_utm_medium = COALESCE(fuente_utm_medium, ${utm.utmMedium || null}),
+                fuente_utm_campaign = COALESCE(fuente_utm_campaign, ${utm.utmCampaign || null})
               WHERE id = ${conversacion.id};
             `;
           }
@@ -3089,9 +3093,20 @@ function extraerContenidoMensajeWhatsapp(m) {
 // anuncios pagados de Meta (ver más arriba): muchos clientes pegan en el
 // chat el link de un producto de la tienda (compartido desde la página, o
 // por un botón de WhatsApp del sitio) que trae utm_source/utm_medium/
-// utm_campaign -- ej. "?utm_source=wsp-DT&utm_medium=wsp-DT&utm_campaign=wsp-DT"
-// (un botón de WhatsApp en la ficha del producto). Usa las mismas columnas
-// fuente_* que el referral, con tipo='utm' para distinguirlo.
+// utm_campaign -- ej. "?utm_source=google&utm_medium=cpc&utm_campaign=..."
+// (así llegaría un clic de Google Ads, si el sitio algún día empieza a
+// mandarlo -- hoy el botón de WhatsApp de las fichas de producto NO manda
+// UTM real, ver el fallback 'boton_sitio' más abajo). Usa las mismas
+// columnas fuente_* que el referral; distingue dos tipos:
+//   'utm'         -> UTM real (utm_source/medium/campaign en la URL) ->
+//                    fuente_utm_source/medium/campaign quedan pobladas,
+//                    permitiendo agrupar por plataforma real (Google Ads
+//                    si utm_source=google, etc.) en vez de un balde único.
+//   'boton_sitio' -> el botón de WhatsApp mandó el TÍTULO de la página en
+//                    vez de una URL con parámetros -- sabemos en qué
+//                    producto hizo clic, pero no cómo llegó a esa página
+//                    (podría ser Google Ads, orgánico, directo -- no hay
+//                    forma de saberlo sin que el sitio mande UTM real).
 function extraerUtmDeTexto(texto) {
   if (!texto) return null;
   const match = texto.match(/https?:\/\/[^\s]+/);
@@ -3103,9 +3118,11 @@ function extraerUtmDeTexto(texto) {
       const campaign = url.searchParams.get('utm_campaign');
       if (source || medium || campaign) {
         return {
+          tipo: 'utm',
           urlLimpia: url.origin + url.pathname, // sin los query params, más legible
           etiqueta: [source, medium, campaign].filter((v, i, arr) => v && arr.indexOf(v) === i).join(' / '),
           id: campaign || medium || source,
+          utmSource: source, utmMedium: medium, utmCampaign: campaign,
         };
       }
     } catch {
@@ -3121,11 +3138,12 @@ function extraerUtmDeTexto(texto) {
   // este patrón exacto. Se reconoce por el texto fijo del mensaje ("si
   // busca Cargador... Indícanos el Modelo del equipo"), no por cualquier
   // "Url:" suelto, para no confundir un mensaje real de un cliente que
-  // casualmente escriba esa palabra.
+  // casualmente escriba esa palabra. NO es tipo='utm' -- no hay ningún
+  // dato de campaña real acá, solo el título de la página.
   if (/si busca cargador/i.test(texto) && /ind[ií]canos el modelo/i.test(texto)) {
     const m = texto.match(/url:\s*(.+)$/is);
     const titulo = m ? m[1].trim() : null;
-    if (titulo) return { urlLimpia: null, etiqueta: titulo, id: titulo };
+    if (titulo) return { tipo: 'boton_sitio', urlLimpia: null, etiqueta: titulo, id: titulo };
   }
 
   return null;
@@ -3397,7 +3415,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
            c.requiere_seguimiento, c.cantidad_mensajes, c.ultimo_mensaje_resumen, c.responsable_id, c.vendedor_detectado,
            c.shopify_producto_url, c.shopify_producto_titulo, c.shopify_producto_confianza,
            c.bsale_documento_numero, c.bsale_documento_tipo, c.bsale_documento_monto, c.bsale_documento_fecha, c.bsale_documento_url,
-           c.fuente_tipo, c.fuente_titulo, c.fuente_url, c.fuente_id,
+           c.fuente_tipo, c.fuente_titulo, c.fuente_url, c.fuente_id, c.fuente_utm_source,
            ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono,
            a.probabilidad_compra,
            u.nombre AS responsable_nombre,
@@ -3543,6 +3561,7 @@ function mapearConversacionWhatsapp(r) {
     fuenteTitulo: r.fuente_titulo,
     fuenteUrl: r.fuente_url,
     fuenteId: r.fuente_id,
+    fuenteUtmSource: r.fuente_utm_source,
     cantidadMensajes: r.cantidad_mensajes,
     cantidadImagenes: r.cantidad_imagenes || 0,
     analisisDesactualizado: r.analisis_desactualizado === true,
@@ -5067,10 +5086,13 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
     if (!utm) continue;
     await sql`
       UPDATE whatsapp_conversaciones SET
-        fuente_tipo = COALESCE(fuente_tipo, 'utm'),
+        fuente_tipo = COALESCE(fuente_tipo, ${utm.tipo}),
         fuente_titulo = COALESCE(fuente_titulo, ${utm.etiqueta}),
         fuente_url = COALESCE(fuente_url, ${utm.urlLimpia}),
-        fuente_id = COALESCE(fuente_id, ${utm.id})
+        fuente_id = COALESCE(fuente_id, ${utm.id}),
+        fuente_utm_source = COALESCE(fuente_utm_source, ${utm.utmSource || null}),
+        fuente_utm_medium = COALESCE(fuente_utm_medium, ${utm.utmMedium || null}),
+        fuente_utm_campaign = COALESCE(fuente_utm_campaign, ${utm.utmCampaign || null})
       WHERE id = ${conversacionId};
     `;
     break; // ya se encontró uno, no hace falta seguir mirando el resto
@@ -5428,6 +5450,63 @@ async function manejarWhatsappReanalizarDesactualizadas(req, res, sesion) {
   }
 }
 
+// Corrige la clasificación histórica de "Fuente de ingreso": antes de este
+// cambio, fuente_tipo='utm' mezclaba dos cosas muy distintas (un UTM real
+// de campaña, y el botón de WhatsApp del sitio que solo manda el título de
+// la página, ver extraerUtmDeTexto) -- de ahora en más, 'utm' siempre trae
+// fuente_utm_source poblado, así que cualquier fila con tipo='utm' y
+// fuente_utm_source NULL es de ANTES del cambio. Se reexaminan sus
+// mensajes (ya guardados, no llama a Bsale/Meta/Google de nuevo) para
+// reclasificar bien -- no usa la IA, así que no tiene costo de API ni
+// necesita ANTHROPIC_API_KEY. Se corre una vez a mano (no hay botón en la
+// UI para esto), en lotes por si hay muchas filas.
+async function manejarWhatsappBackfillFuente(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede corregir esto en lote' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    const { rows: ambiguas } = await sql`
+      SELECT id FROM whatsapp_conversaciones
+      WHERE fuente_tipo = 'utm' AND fuente_utm_source IS NULL
+      ORDER BY iniciada_en ASC LIMIT 200;
+    `;
+
+    let corregidas = 0, sinCoincidencia = 0;
+    for (const { id } of ambiguas) {
+      const { rows: mensajes } = await sql`
+        SELECT contenido_texto FROM whatsapp_mensajes
+        WHERE conversacion_id = ${id} AND direccion = 'in'
+        ORDER BY marca_tiempo ASC;
+      `;
+      let match = null;
+      for (const m of mensajes) {
+        match = extraerUtmDeTexto(m.contenido_texto);
+        if (match) break;
+      }
+      if (!match) { sinCoincidencia++; continue; } // no se pudo reproducir -- se deja como estaba
+      await sql`
+        UPDATE whatsapp_conversaciones SET
+          fuente_tipo = ${match.tipo},
+          fuente_titulo = ${match.etiqueta},
+          fuente_url = ${match.urlLimpia},
+          fuente_id = ${match.id},
+          fuente_utm_source = ${match.utmSource || null},
+          fuente_utm_medium = ${match.utmMedium || null},
+          fuente_utm_campaign = ${match.utmCampaign || null}
+        WHERE id = ${id};
+      `;
+      corregidas++;
+    }
+    const { rows: restantesRows } = await sql`SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones WHERE fuente_tipo = 'utm' AND fuente_utm_source IS NULL;`;
+    const restantes = restantesRows[0]?.n || 0;
+    return res.status(200).json({ corregidasEnEstaLlamada: corregidas, sinCoincidenciaEnEstaLlamada: sinCoincidencia, restantes, completo: restantes === 0 });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error corrigiendo fuente de conversaciones', detail: String(err) });
+  }
+}
+
 // Vuelve a correr el Análisis IA completo (Claude, con costo real de API)
 // sobre TODAS las conversaciones que ya tienen un análisis previo, para
 // que apliquen mejoras hechas al prompt/tool después de ese análisis --
@@ -5707,15 +5786,26 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
     );
 
     // Fuente de ingreso (de dónde viene el cliente): referral de anuncios
-    // Click-to-WhatsApp, UTM detectado en un link que el cliente mandó, o
-    // desconocido si no se detectó ninguno de los dos (ver fuente_tipo en
-    // extraerUtmDeTexto / el campo "referral" del webhook de Meta). Se
-    // agrupa en 3 baldes (utm/anuncio/desconocido), no por el fuente_tipo
-    // crudo -- Meta manda distintos source_type según el formato del
-    // anuncio (ad/post/ig_reels/...) y aquí solo interesa distinguir
-    // "vino de un anuncio" de "vino de un link con UTM", igual que ya
-    // hace fuenteInfo() en el frontend para la ficha de cada conversación.
-    const BALDE_FUENTE = `CASE WHEN fuente_tipo IS NULL THEN 'desconocido' WHEN fuente_tipo = 'utm' THEN 'utm' ELSE 'anuncio' END`;
+    // Click-to-WhatsApp, UTM real detectado en un link que el cliente
+    // mandó, el botón de WhatsApp del sitio (sin datos de campaña, ver
+    // extraerUtmDeTexto), o desconocido si no se detectó nada. Se agrupa en
+    // 5 baldes, no por el fuente_tipo crudo -- Meta manda distintos
+    // source_type según el formato del anuncio (ad/post/ig_reels/...) y acá
+    // solo interesa distinguir "vino de un anuncio de Meta" / "vino de un
+    // UTM real de Google Ads" / "vino de un UTM real de otra plataforma" /
+    // "clic en el botón del sitio sin dato de campaña" / "no se sabe",
+    // igual que ya hace fuenteInfo() en el frontend para la ficha de cada
+    // conversación. Google Ads no tiene un formato de anuncio "click to
+    // WhatsApp" como Meta -- solo se puede identificar si el sitio manda un
+    // utm_source=google real (hoy el botón del sitio no lo manda, cae en
+    // 'boton_sitio'); el balde queda listo para cuando eso cambie.
+    const BALDE_FUENTE = `CASE
+      WHEN fuente_tipo IS NULL THEN 'desconocido'
+      WHEN fuente_tipo = 'boton_sitio' THEN 'boton_sitio'
+      WHEN fuente_tipo = 'utm' AND fuente_utm_source ILIKE '%google%' THEN 'google_ads'
+      WHEN fuente_tipo = 'utm' THEN 'utm'
+      ELSE 'anuncio'
+    END`;
     const { rows: fuenteRows } = await sql.query(
       `SELECT ${BALDE_FUENTE} AS tipo, COUNT(*)::int AS cantidad,
               COUNT(*) FILTER (WHERE venta_detectada OR (bsale_documento_numero IS NOT NULL AND bsale_documento_numero <> ''))::int AS ventas
