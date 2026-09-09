@@ -1878,6 +1878,11 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
 // reclama que algo no se está contando, hay que volver a mirar el catálogo.
 const ACCESORIOS_VITRINA_PRODUCTOS = new Set(['MOUSE', 'PAD', 'FUNDA', 'BASE NOTEBOOK', 'SOPORTE', 'LIMPIA CONTACTO']);
 const ACCESORIOS_META_MENSUAL = 300000; // venta con IVA, por vendedor, al mes, para ganar el bono
+// Pedido del usuario: por ahora el panel solo considera a estos dos
+// vendedores (no a todo el equipo) -- comparación por nombre normalizado
+// (ver normalizarTexto), basta con que el nombre de Bsale CONTENGA uno de
+// estos textos, así no importan espacios extra o el apellido completo.
+const ACCESORIOS_VENDEDORES_PERMITIDOS = ['stephanie', 'david'];
 
 // Mapa sku -> nombre de PRODUCTO (no de variante): products.json trae el
 // nombre real del producto, variants.json es el único lugar donde aparece
@@ -2014,6 +2019,7 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
     const hoyDia = Number(hastaStr.slice(8, 10));
     const vendedores = [...porVendedor.values()]
       .filter(v => v.vendedorId !== -1)
+      .filter(v => ACCESORIOS_VENDEDORES_PERMITIDOS.some(p => normalizarTexto(v.nombre).includes(p)))
       .map(v => ({
         vendedorId: v.vendedorId,
         nombre: v.nombre,
@@ -2058,6 +2064,7 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
         skusEnCatalogo: productoPorSku.size,
         errorCatalogo: OBTENER_NOMBRE_PRODUCTO_POR_SKU_ULTIMO_ERROR.detalle,
         productosVistosEsteMes: [...conteoProductosVistos.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
+        productosCatalogoSet: [...new Set(productoPorSku.values())].filter(n => /set|limpi/i.test(n)),
       } : undefined,
     });
   } catch (err) {
