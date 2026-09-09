@@ -5453,13 +5453,18 @@ async function manejarWhatsappReanalizarDesactualizadas(req, res, sesion) {
 // Corrige la clasificación histórica de "Fuente de ingreso": antes de este
 // cambio, fuente_tipo='utm' mezclaba dos cosas muy distintas (un UTM real
 // de campaña, y el botón de WhatsApp del sitio que solo manda el título de
-// la página, ver extraerUtmDeTexto) -- de ahora en más, 'utm' siempre trae
-// fuente_utm_source poblado, así que cualquier fila con tipo='utm' y
-// fuente_utm_source NULL es de ANTES del cambio. Se reexaminan sus
-// mensajes (ya guardados, no llama a Bsale/Meta/Google de nuevo) para
-// reclasificar bien -- no usa la IA, así que no tiene costo de API ni
-// necesita ANTHROPIC_API_KEY. Se corre una vez a mano (no hay botón en la
-// UI para esto), en lotes por si hay muchas filas.
+// la página, ver extraerUtmDeTexto). De ahora en más, un match real de UTM
+// siempre trae AL MENOS UNO de utm_source/medium/campaign poblado (por el
+// "if (source || medium || campaign)" de extraerUtmDeTexto) -- así que una
+// fila con tipo='utm' y LOS TRES en NULL es necesariamente de ANTES de que
+// estas columnas existieran (la migración las deja NULL en filas viejas).
+// OJO: filtrar solo por fuente_utm_source (un solo campo) causaba un loop
+// infinito acá mismo -- una fila con un UTM real pero SIN utm_source (ej.
+// solo utm_campaign) es válida y nunca iba a dejar de calzar esa condición.
+// Se reexaminan los mensajes ya guardados (no llama a Bsale/Meta/Google de
+// nuevo) para reclasificar bien -- no usa la IA, así que no tiene costo de
+// API ni necesita ANTHROPIC_API_KEY. Se corre una vez a mano (no hay botón
+// en la UI para esto), en lotes por si hay muchas filas.
 async function manejarWhatsappBackfillFuente(req, res, sesion) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede corregir esto en lote' });
@@ -5469,7 +5474,7 @@ async function manejarWhatsappBackfillFuente(req, res, sesion) {
 
     const { rows: ambiguas } = await sql`
       SELECT id FROM whatsapp_conversaciones
-      WHERE fuente_tipo = 'utm' AND fuente_utm_source IS NULL
+      WHERE fuente_tipo = 'utm' AND fuente_utm_source IS NULL AND fuente_utm_medium IS NULL AND fuente_utm_campaign IS NULL
       ORDER BY iniciada_en ASC LIMIT 200;
     `;
 
@@ -5499,7 +5504,7 @@ async function manejarWhatsappBackfillFuente(req, res, sesion) {
       `;
       corregidas++;
     }
-    const { rows: restantesRows } = await sql`SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones WHERE fuente_tipo = 'utm' AND fuente_utm_source IS NULL;`;
+    const { rows: restantesRows } = await sql`SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones WHERE fuente_tipo = 'utm' AND fuente_utm_source IS NULL AND fuente_utm_medium IS NULL AND fuente_utm_campaign IS NULL;`;
     const restantes = restantesRows[0]?.n || 0;
     return res.status(200).json({ corregidasEnEstaLlamada: corregidas, sinCoincidenciaEnEstaLlamada: sinCoincidencia, restantes, completo: restantes === 0 });
   } catch (err) {
