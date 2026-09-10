@@ -146,7 +146,7 @@
         <div class="sub" style="margin-bottom:0;">Monto total vendido en servicios, mes a mes (los últimos 12 meses retenidos).</div>
       </div>
     </div>
-    <svg id="chartTendencia" viewBox="0 0 1000 220"></svg>
+    <svg id="chartTendencia" viewBox="0 0 1000 130"></svg>
   </div>
 
   <div class="seccion" id="seccionCaida" style="display:none;">
@@ -438,7 +438,7 @@ function renderKpis(data){
 function renderChart(data){
   const { meses, servicios } = data;
   const totales = meses.map(m => servicios.reduce((a, s) => a + (s.porMes[m]?.monto || 0), 0));
-  const W = 1000, H = 220, padL = 60, padR = 10, padT = 10, padB = 26;
+  const W = 1000, H = 130, padL = 60, padR = 10, padT = 10, padB = 26;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const max = Math.max(1, ...totales);
   const anchoBarra = innerW / meses.length;
