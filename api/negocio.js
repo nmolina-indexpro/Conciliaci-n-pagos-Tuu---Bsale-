@@ -1122,23 +1122,52 @@ async function manejarSyncCotizaciones(req, res, sesion) {
       const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
       const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
 
-      while (!pasadaListadoTerminada && presupuestoRestante() > 0) {
-        await esperarRitmo();
+      // Un solo "expand" (Bsale no combina dos parámetros repetidos): sin
+      // documenttypeid hay que traer document_type igual para filtrar
+      // client-side qué es realmente una cotización.
+      const filtroTipo = tipoCotizacionId ? `&documenttypeid=${tipoCotizacionId}` : '';
+      const expandParam = tipoCotizacionId ? 'client,user' : 'client,document_type,user';
 
-        // Un solo "expand" (Bsale no combina dos parámetros repetidos):
-        // sin documenttypeid hay que traer document_type igual para filtrar
-        // client-side qué es realmente una cotización.
-        const filtroTipo = tipoCotizacionId ? `&documenttypeid=${tipoCotizacionId}` : '';
-        const expandParam = tipoCotizacionId ? 'client,user' : 'client,document_type,user';
-        const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]${filtroTipo}&expand=${expandParam}&limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}`;
-        const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
-        if (!r.ok) {
-          const texto = await r.text().catch(() => '');
-          throw new Error(`Bsale HTTP ${r.status} en documents.json: ${texto.slice(0, 300)}`);
+      // Antes: una página a la vez (130ms de espera entre cada una) -- el
+      // límite real de Bsale es de REQUESTS POR SEGUNDO, no "una a la vez",
+      // así que pedir varias páginas en paralelo (mismo ritmo agregado)
+      // aprovecha el mismo presupuesto de tiempo para traer más data.
+      // Mismo patrón ya usado en manejarSyncAnalisis (TANDA_ANALISIS).
+      const TANDA_COTIZACIONES = 6;
+      const esperarRitmoTanda = async (tam) => {
+        const espera = (tam * PUNTOS_SYNC_INTERVALO_MIN_MS) - (Date.now() - ultimaPeticion);
+        if (espera > 0) await new Promise(r => setTimeout(r, espera));
+        ultimaPeticion = Date.now();
+      };
+
+      while (!pasadaListadoTerminada && presupuestoRestante() > 0) {
+        const offsetsTanda = [];
+        for (let i = 0; i < TANDA_COTIZACIONES; i++) {
+          const off = offset + i * PUNTOS_SYNC_LIMIT;
+          if (total != null && off >= total) break;
+          offsetsTanda.push(off);
         }
-        const data = await r.json();
-        const items = data.items || [];
-        if (typeof data.count === 'number') total = data.count;
+        if (offsetsTanda.length === 0) { pasadaListadoTerminada = true; break; }
+
+        await esperarRitmoTanda(offsetsTanda.length);
+        const respuestas = await Promise.all(offsetsTanda.map(async off => {
+          const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]${filtroTipo}&expand=${expandParam}&limit=${PUNTOS_SYNC_LIMIT}&offset=${off}`;
+          const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
+          if (!r.ok) {
+            const texto = await r.text().catch(() => '');
+            throw new Error(`Bsale HTTP ${r.status} en documents.json: ${texto.slice(0, 300)}`);
+          }
+          return r.json();
+        }));
+
+        let items = [];
+        let ultimaPaginaIncompleta = false;
+        for (const data of respuestas) {
+          if (typeof data.count === 'number') total = data.count;
+          const its = data.items || [];
+          items.push(...its);
+          if (its.length < PUNTOS_SYNC_LIMIT) ultimaPaginaIncompleta = true;
+        }
 
         const cotizaciones = items.filter(d =>
           d.state === 0 && !d.cancellationStatus && (tipoCotizacionId ? true : esCotizacionDoc(d.document_type))
@@ -1171,7 +1200,7 @@ async function manejarSyncCotizaciones(req, res, sesion) {
 
         offset += items.length;
         procesados += cotizaciones.length;
-        pasadaListadoTerminada = items.length < PUNTOS_SYNC_LIMIT || (total != null && offset >= total);
+        pasadaListadoTerminada = ultimaPaginaIncompleta || (total != null && offset >= total);
         await sql`UPDATE bsale_cotizaciones_sync_estado SET offset_actual = ${offset}, total_documentos = ${total}, actualizado_en = now() WHERE id = 1;`;
       }
     }

@@ -741,6 +741,12 @@ async function cargarSesionUsuario(){
       $('btnSincronizarCotizaciones').style.display = '';
       $('btnSincronizarIndexpro').style.display = '';
       $('btnSincronizarCompraAgil').style.display = '';
+      // Pedido del usuario: no depender de que alguien se acuerde de
+      // apretar "Sincronizar" -- si vamos a aterrizar en la pestaña de
+      // Cotizaciones (mismo criterio que "tabInicial" más abajo), se
+      // dispara sola al entrar. iniciarSincronizacionCotizaciones() ya se
+      // cuida de no duplicarse si además el usuario hace clic en el botón.
+      if(typeof tabInicial === 'undefined' || tabInicial !== 'compra-agil') iniciarSincronizacionCotizaciones();
     }
   }catch(err){ /* silencioso */ }
 }
