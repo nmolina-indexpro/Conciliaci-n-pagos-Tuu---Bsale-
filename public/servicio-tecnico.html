@@ -69,6 +69,31 @@
   .delta.flat{background:var(--surface-2);color:var(--muted);}
   tr.fila-total td{border-top:2px solid var(--line);font-weight:700;background:var(--surface-2);}
   tr.fila-total{position:sticky;bottom:0;}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:18px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:5px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;color:var(--text);}
+  .card .note{color:var(--muted);font-size:11px;margin-top:3px;}
+  .arrow-up{color:var(--green);font-weight:700;}
+  .arrow-down{color:var(--red);font-weight:700;}
+
+  .toolbar-extra{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .toolbar-extra input[type="text"], .toolbar-extra select{
+    font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:8px 11px;
+    border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);
+  }
+  .toolbar-extra input[type="text"]:focus, .toolbar-extra select:focus{outline:none;border-color:var(--primary);}
+
+  .alerta-caida{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:9px;background:var(--red-bg);margin-bottom:8px;font-size:12.5px;}
+  .alerta-caida:last-child{margin-bottom:0;}
+  .alerta-caida b{color:var(--text);}
+  .alerta-caida .cifras{font-family:'IBM Plex Mono',monospace;color:var(--red);font-weight:600;white-space:nowrap;}
+
+  #chartTendencia{width:100%;height:auto;display:block;}
+  .chart-tick{font-family:'IBM Plex Mono',monospace;font-size:9.5px;fill:var(--muted);}
+  .chart-bar{fill:var(--primary);}
+  .chart-bar.actual{fill:var(--primary-dim);stroke:var(--primary);stroke-width:1;stroke-dasharray:2 2;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -107,6 +132,33 @@
   <h1>🔧 Servicio Técnico</h1>
   <div class="sub">Servicios vendidos en Bsale (reparaciones, instalaciones, diagnósticos, etc.), desglosados por mes -- ventas reales (boletas/facturas, sin cotizaciones ni notas de crédito) de los últimos 12 meses.</div>
 
+  <div class="grid" id="kpiWrap">
+    <div class="card"><div class="lbl">Servicios este mes</div><div class="big" id="kpiCantidadMes">—</div><div class="note" id="kpiCantidadMesVar"></div></div>
+    <div class="card"><div class="lbl">Monto este mes</div><div class="big" id="kpiMontoMes">—</div><div class="note" id="kpiMontoMesVar"></div></div>
+    <div class="card"><div class="lbl">Ticket promedio (mes)</div><div class="big" id="kpiTicketProm">—</div><div class="note">monto ÷ cantidad, mes actual</div></div>
+    <div class="card"><div class="lbl">Semestre actual vs. anterior</div><div class="big" id="kpiSemestre">—</div><div class="note" id="kpiSemestreNota"></div></div>
+  </div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>📈 Tendencia mensual</h2>
+        <div class="sub" style="margin-bottom:0;">Monto total vendido en servicios, mes a mes (los últimos 12 meses retenidos).</div>
+      </div>
+    </div>
+    <svg id="chartTendencia" viewBox="0 0 1000 220"></svg>
+  </div>
+
+  <div class="seccion" id="seccionCaida" style="display:none;">
+    <div class="seccion-head">
+      <div>
+        <h2>⚠️ Servicios en caída</h2>
+        <div class="sub" style="margin-bottom:0;">Bajaron 2 meses seguidos de corrido (sin contar el mes en curso, todavía incompleto).</div>
+      </div>
+    </div>
+    <div id="wrapCaida"></div>
+  </div>
+
   <div class="seccion">
     <div class="seccion-head">
       <div>
@@ -116,11 +168,38 @@
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <button class="btn-ghost activo" id="btnVerCantidad" onclick="cambiarMetrica('cantidad')">Cantidad</button>
         <button class="btn-ghost" id="btnVerMonto" onclick="cambiarMetrica('monto')">Monto ($)</button>
+        <button class="btn-primary btn-exportar" onclick="exportarCsvServicios()">⬇ CSV</button>
         <button class="btn-primary" id="btnSincronizar" style="display:none;" onclick="iniciarSincronizacion()">🔄 Sincronizar con Bsale</button>
       </div>
     </div>
+    <div class="toolbar-extra">
+      <input type="text" id="buscarServicioInput" placeholder="Buscar servicio o SKU..." oninput="renderTabla(ultimosDatos)">
+      <select id="filtroCategoriaServicio" onchange="renderTabla(ultimosDatos)">
+        <option value="">Todas las categorías</option>
+      </select>
+    </div>
     <div id="wrapTabla"><p class="empty-note">Cargando...</p></div>
     <div id="syncStatus"></div>
+  </div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>🧑‍🔧 Servicios por técnico</h2>
+        <div class="sub" style="margin-bottom:0;">Acumulado de los últimos 12 meses retenidos. Requiere haber corrido "Sincronizar con Bsale" después de esta actualización -- documentos sincronizados antes no tienen técnico guardado.</div>
+      </div>
+    </div>
+    <div id="wrapTecnico"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>🔁 Clientes recurrentes</h2>
+        <div class="sub" style="margin-bottom:0;">Clientes con más de una visita de servicio técnico en los últimos 12 meses -- posible garantía o reincidencia.</div>
+      </div>
+    </div>
+    <div id="wrapClientesRecurrentes"><p class="empty-note">Cargando...</p></div>
   </div>
 
 </div>
@@ -199,19 +278,61 @@ function iconoOrden(clave){
   return ordenPor === clave ? (ordenDireccion === 'desc' ? ' ▼' : ' ▲') : '';
 }
 
+// Monto ÷ cantidad acumulados de los 12 meses -- pedido del usuario, para
+// detectar variación de precio o descuentos inconsistentes entre boletas
+// del mismo servicio. Siempre en $ (no cambia con el toggle Cantidad/Monto,
+// no tendría sentido un "ticket promedio" en unidades).
+function ticketPromedio(s, meses){
+  let montoTotal = 0, cantidadTotal = 0;
+  for(const m of meses){
+    const v = s.porMes[m];
+    if(!v) continue;
+    montoTotal += v.monto;
+    cantidadTotal += v.cantidad;
+  }
+  return cantidadTotal > 0 ? montoTotal / cantidadTotal : 0;
+}
+
+function poblarFiltroCategoria(servicios){
+  const sel = $('filtroCategoriaServicio');
+  const actual = sel.value;
+  const categorias = [...new Set(servicios.map(s => s.categoria || 'Otro'))].sort();
+  sel.innerHTML = '<option value="">Todas las categorías</option>' + categorias.map(c => `<option value="${c}">${c}</option>`).join('');
+  sel.value = categorias.includes(actual) ? actual : '';
+}
+
 function renderTabla(data){
   const { meses, servicios } = data;
+  poblarFiltroCategoria(servicios);
   if(!servicios.length){
     $('wrapTabla').innerHTML = '<p class="empty-note">Todavía no hay servicios sincronizados. Usa "🔄 Sincronizar con Bsale" para traer los del último año.</p>';
     return;
   }
-  const serviciosOrdenados = [...servicios].sort((a, b) => {
+
+  // Buscador + filtro de categoría (pedido del usuario) -- se aplican
+  // ANTES de ordenar, la fila de totales de más abajo sigue sumando solo
+  // lo que queda visible (para que "Total" sea coherente con el filtro).
+  const busqueda = ($('buscarServicioInput').value || '').trim().toLowerCase();
+  const categoriaFiltro = $('filtroCategoriaServicio').value;
+  const serviciosFiltrados = servicios.filter(s => {
+    if(categoriaFiltro && (s.categoria || 'Otro') !== categoriaFiltro) return false;
+    if(!busqueda) return true;
+    return (s.nombre || '').toLowerCase().includes(busqueda) || (s.sku || '').toLowerCase().includes(busqueda);
+  });
+
+  if(!serviciosFiltrados.length){
+    $('wrapTabla').innerHTML = '<p class="empty-note">Ningún servicio calza con la búsqueda/filtro.</p>';
+    return;
+  }
+
+  const serviciosOrdenados = [...serviciosFiltrados].sort((a, b) => {
     const va = valorOrden(a, meses), vb = valorOrden(b, meses);
     return ordenDireccion === 'desc' ? vb - va : va - vb;
   });
 
   const encabezados = meses.map(m => `<th class="mes ordenable" onclick="ordenarPor('${m}')">${etiquetaMes(m)}${iconoOrden(m)}</th>`).join('');
   const encabezadoAcumulado = `<th class="mes ordenable" onclick="ordenarPor('acumulado')">Acumulado año${iconoOrden('acumulado')}</th>`;
+  const encabezadoTicket = `<th class="mes">Ticket prom.</th>`;
 
   const filas = serviciosOrdenados.map(s => {
     // Mejor/peor mes DE ESTE SERVICIO (no comparado contra los demás) --
@@ -238,31 +359,206 @@ function renderTabla(data){
     }).join('');
     return `
       <tr>
-        <td class="servicio">${s.nombre || s.sku}<br><span class="sku-code">SKU: ${s.sku}</span></td>
+        <td class="servicio">${s.nombre || s.sku}<br><span class="sku-code">SKU: ${s.sku} · ${s.categoria || 'Otro'}</span></td>
         ${celdas}
         <td class="mes amount"><b>${fmtValor(acumuladoAnio(s, meses))}</b></td>
+        <td class="mes amount">${fmtMoneda(ticketPromedio(s, meses))}</td>
       </tr>`;
   }).join('');
 
-  // Fila de totales -- suma de todos los servicios por mes, con su propia
-  // variación %, para ver la tendencia general de un vistazo.
-  const totalesPorMes = meses.map(mesKey => servicios.reduce((acc, s) => acc + valorCelda(s.porMes, mesKey), 0));
+  // Fila de totales -- suma de todos los servicios VISIBLES (respeta
+  // buscador/filtro) por mes, con su propia variación %, para ver la
+  // tendencia general de un vistazo.
+  const totalesPorMes = meses.map(mesKey => serviciosFiltrados.reduce((acc, s) => acc + valorCelda(s.porMes, mesKey), 0));
   const celdasTotal = meses.map((mesKey, i) => {
     const actual = totalesPorMes[i];
     const delta = i > 0 ? celdaDelta(actual, totalesPorMes[i - 1]) : '';
     return `<td class="mes amount">${fmtValor(actual)}${delta}</td>`;
   }).join('');
   const totalAcumulado = totalesPorMes.reduce((a, b) => a + b, 0);
+  const cantidadTotalFila = meses.reduce((acc, m) => acc + serviciosFiltrados.reduce((a, s) => a + (s.porMes[m]?.cantidad || 0), 0), 0);
+  const montoTotalFila = meses.reduce((acc, m) => acc + serviciosFiltrados.reduce((a, s) => a + (s.porMes[m]?.monto || 0), 0), 0);
+  const ticketPromTotal = cantidadTotalFila > 0 ? montoTotalFila / cantidadTotalFila : 0;
 
   $('wrapTabla').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Servicio</th>${encabezados}${encabezadoAcumulado}</tr></thead>
+      <thead><tr><th>Servicio</th>${encabezados}${encabezadoAcumulado}${encabezadoTicket}</tr></thead>
       <tbody>
         ${filas}
-        <tr class="fila-total"><td>Total</td>${celdasTotal}<td class="mes amount"><b>${fmtValor(totalAcumulado)}</b></td></tr>
+        <tr class="fila-total"><td>Total</td>${celdasTotal}<td class="mes amount"><b>${fmtValor(totalAcumulado)}</b></td><td class="mes amount">${fmtMoneda(ticketPromTotal)}</td></tr>
       </tbody>
     </table></div>
   `;
+}
+
+// ---------- KPIs, tendencia, semestre, caída, técnico, clientes recurrentes ----------
+function mesAnteriorKey(meses, i){ return i > 0 ? meses[i - 1] : null; }
+
+function pctVariacion(actual, anterior){
+  if(!anterior) return actual > 0 ? null : 0; // null = "nuevo", sin base de comparación
+  return Math.round(((actual - anterior) / anterior) * 100);
+}
+function notaVariacionHtml(pct, sufijo){
+  if(pct === null) return `<span class="arrow-up">▲ nuevo</span> ${sufijo}`;
+  if(pct === 0) return `＝ igual ${sufijo}`;
+  const clase = pct > 0 ? 'arrow-up' : 'arrow-down';
+  const flecha = pct > 0 ? '▲' : '▼';
+  return `<span class="${clase}">${flecha} ${pct > 0 ? '+' : ''}${pct}%</span> ${sufijo}`;
+}
+
+function renderKpis(data){
+  const { meses, servicios } = data;
+  const idxActual = meses.indexOf(mesActualKey);
+  const mesRef = idxActual >= 0 ? idxActual : meses.length - 1;
+  const mesRefKey = meses[mesRef];
+  const mesAntKey = mesAnteriorKey(meses, mesRef);
+
+  const cantidadMes = servicios.reduce((a, s) => a + (s.porMes[mesRefKey]?.cantidad || 0), 0);
+  const montoMes = servicios.reduce((a, s) => a + (s.porMes[mesRefKey]?.monto || 0), 0);
+  const cantidadAnt = mesAntKey ? servicios.reduce((a, s) => a + (s.porMes[mesAntKey]?.cantidad || 0), 0) : 0;
+  const montoAnt = mesAntKey ? servicios.reduce((a, s) => a + (s.porMes[mesAntKey]?.monto || 0), 0) : 0;
+
+  $('kpiCantidadMes').textContent = fmtNum(cantidadMes);
+  $('kpiCantidadMesVar').innerHTML = mesAntKey ? notaVariacionHtml(pctVariacion(cantidadMes, cantidadAnt), 'vs. mes anterior') : 'sin mes anterior para comparar';
+  $('kpiMontoMes').textContent = fmtMoneda(montoMes);
+  $('kpiMontoMesVar').innerHTML = mesAntKey ? notaVariacionHtml(pctVariacion(montoMes, montoAnt), 'vs. mes anterior') : 'sin mes anterior para comparar';
+  $('kpiTicketProm').textContent = fmtMoneda(cantidadMes > 0 ? montoMes / cantidadMes : 0);
+
+  // Semestre actual vs. anterior DENTRO de los 12 meses retenidos (no es un
+  // año calendario completo -- la sincronización solo guarda los últimos
+  // 365 días, lo de antes se borra -- ver DELETE en manejarSyncServiciosTecnico).
+  const primerSemestre = meses.slice(0, 6);
+  const segundoSemestre = meses.slice(6, 12);
+  const montoPrimero = primerSemestre.reduce((acc, m) => acc + servicios.reduce((a, s) => a + (s.porMes[m]?.monto || 0), 0), 0);
+  const montoSegundo = segundoSemestre.reduce((acc, m) => acc + servicios.reduce((a, s) => a + (s.porMes[m]?.monto || 0), 0), 0);
+  $('kpiSemestre').textContent = fmtMoneda(montoSegundo);
+  $('kpiSemestreNota').innerHTML = notaVariacionHtml(pctVariacion(montoSegundo, montoPrimero), `vs. ${fmtMoneda(montoPrimero)} de los 6 meses previos`);
+}
+
+function renderChart(data){
+  const { meses, servicios } = data;
+  const totales = meses.map(m => servicios.reduce((a, s) => a + (s.porMes[m]?.monto || 0), 0));
+  const W = 1000, H = 220, padL = 60, padR = 10, padT = 10, padB = 26;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const max = Math.max(1, ...totales);
+  const anchoBarra = innerW / meses.length;
+  const barras = totales.map((v, i) => {
+    const alto = (v / max) * innerH;
+    const x = padL + i * anchoBarra + anchoBarra * 0.15;
+    const y = padT + innerH - alto;
+    const clase = meses[i] === mesActualKey ? 'chart-bar actual' : 'chart-bar';
+    return `<rect class="${clase}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(anchoBarra * 0.7).toFixed(1)}" height="${Math.max(alto, 1).toFixed(1)}" rx="3"><title>${etiquetaMes(meses[i])}: ${fmtMoneda(v)}</title></rect>`;
+  }).join('');
+  const ticks = meses.map((m, i) => {
+    const x = padL + i * anchoBarra + anchoBarra / 2;
+    return `<text class="chart-tick" x="${x.toFixed(1)}" y="${H - 8}" text-anchor="middle">${etiquetaMes(m).replace(' ', "'")}</text>`;
+  }).join('');
+  $('chartTendencia').innerHTML = `
+    <line x1="${padL}" y1="${padT + innerH}" x2="${W - padR}" y2="${padT + innerH}" stroke="var(--line)"></line>
+    ${barras}
+    ${ticks}
+  `;
+}
+
+// Bajó 2 meses seguidos de corrido (sin contar el mes en curso, todavía
+// incompleto) -- pedido del usuario, mismo espíritu que "Productos con
+// ventas a la baja" de Análisis pero aplicado a servicios.
+function detectarServiciosEnCaida(data){
+  const { meses, servicios } = data;
+  const mesesCompletos = meses.filter(m => m !== mesActualKey);
+  if(mesesCompletos.length < 3) return [];
+  const ultimos3 = mesesCompletos.slice(-3);
+  const caidas = [];
+  for(const s of servicios){
+    const [m1, m2, m3] = ultimos3.map(m => s.porMes[m]?.monto || 0);
+    if(m1 > 0 && m2 < m1 && m3 < m2){
+      caidas.push({ nombre: s.nombre || s.sku, sku: s.sku, m1, m2, m3, meses: ultimos3 });
+    }
+  }
+  return caidas.sort((a, b) => (b.m1 - b.m3) - (a.m1 - a.m3));
+}
+
+function renderCaida(data){
+  const caidas = detectarServiciosEnCaida(data);
+  const seccion = $('seccionCaida');
+  if(caidas.length === 0){ seccion.style.display = 'none'; return; }
+  seccion.style.display = '';
+  $('wrapCaida').innerHTML = caidas.map(c => `
+    <div class="alerta-caida">
+      <span><b>${c.nombre}</b> <span class="sku-code">SKU: ${c.sku}</span></span>
+      <span class="cifras">${etiquetaMes(c.meses[0])}: ${fmtMoneda(c.m1)} → ${etiquetaMes(c.meses[1])}: ${fmtMoneda(c.m2)} → ${etiquetaMes(c.meses[2])}: ${fmtMoneda(c.m3)}</span>
+    </div>`).join('');
+}
+
+function renderTecnico(data){
+  const filas = data.porTecnico || [];
+  if(filas.length === 0){
+    $('wrapTecnico').innerHTML = '<p class="empty-note">Todavía no hay servicios con técnico registrado -- corre "Sincronizar con Bsale" para completar este dato.</p>';
+    return;
+  }
+  const totalMonto = filas.reduce((a, f) => a + f.monto, 0);
+  $('wrapTecnico').innerHTML = `
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Técnico</th><th class="mes">Servicios</th><th class="mes">Documentos</th><th class="mes">Monto</th><th class="mes">% del total</th></tr></thead>
+      <tbody>${filas.map(f => `
+        <tr>
+          <td>${f.nombre}</td>
+          <td class="mes amount">${fmtNum(f.cantidad)}</td>
+          <td class="mes amount">${fmtNum(f.documentos)}</td>
+          <td class="mes amount">${fmtMoneda(f.monto)}</td>
+          <td class="mes amount">${totalMonto > 0 ? Math.round(f.monto / totalMonto * 100) : 0}%</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>
+  `;
+}
+
+function renderClientesRecurrentes(data){
+  const filas = data.clientesRecurrentes || [];
+  if(filas.length === 0){
+    $('wrapClientesRecurrentes').innerHTML = '<p class="empty-note">Todavía no hay clientes con más de una visita registrada (o falta sincronizar el dato de cliente -- corre "Sincronizar con Bsale").</p>';
+    return;
+  }
+  $('wrapClientesRecurrentes').innerHTML = `
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Cliente</th><th class="mes">Visitas</th><th class="mes">Monto total</th><th class="mes">Última visita</th></tr></thead>
+      <tbody>${filas.map(f => `
+        <tr>
+          <td>${f.nombre || 'Cliente #' + f.clienteId}</td>
+          <td class="mes amount">${fmtNum(f.visitas)}</td>
+          <td class="mes amount">${fmtMoneda(f.monto)}</td>
+          <td class="mes amount">${f.ultimaVisita || '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>
+  `;
+}
+
+function descargarCsv(filas, nombreArchivo){
+  const csv = filas.map(f => f.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nombreArchivo;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportarCsvServicios(){
+  if(!ultimosDatos || !ultimosDatos.servicios.length){ alert('No hay servicios para exportar.'); return; }
+  const { meses, servicios } = ultimosDatos;
+  const filas = [['Servicio', 'SKU', 'Categoría', ...meses.map(etiquetaMes), 'Acumulado año (cantidad)', 'Acumulado año (monto)', 'Ticket promedio']];
+  for(const s of servicios){
+    filas.push([
+      s.nombre || s.sku, s.sku, s.categoria || 'Otro',
+      ...meses.map(m => s.porMes[m]?.cantidad || 0),
+      meses.reduce((a, m) => a + (s.porMes[m]?.cantidad || 0), 0),
+      meses.reduce((a, m) => a + (s.porMes[m]?.monto || 0), 0),
+      Math.round(ticketPromedio(s, meses)),
+    ]);
+  }
+  descargarCsv(filas, `servicio-tecnico-${new Date().toISOString().slice(0, 10)}.csv`);
 }
 
 async function cargarServicios(){
@@ -275,6 +571,13 @@ async function cargarServicios(){
     }
     ultimosDatos = data;
     renderTabla(data);
+    if(data.servicios.length){
+      renderKpis(data);
+      renderChart(data);
+      renderCaida(data);
+    }
+    renderTecnico(data);
+    renderClientesRecurrentes(data);
     if(data.ultimaSincronizacion){
       $('syncStatus').className = '';
       $('syncStatus').textContent = `Última sincronización completa: ${new Date(data.ultimaSincronizacion).toLocaleString('es-CL')}.`;

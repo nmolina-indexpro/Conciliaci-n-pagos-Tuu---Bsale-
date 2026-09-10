@@ -2154,6 +2154,27 @@ function ultimosNMeses(n) {
   return out;
 }
 
+// Categoría inferida por palabra clave del nombre -- pedido del usuario,
+// para poder filtrar/agrupar la tabla por tipo de servicio sin depender de
+// que Bsale tenga esa clasificación (no la tiene: el SKU "SER###" no dice
+// nada del tipo, solo la descripción/nombre). Orden de los checks importa:
+// algunos nombres califican para más de una palabra clave (ej. "Instalación
+// de batería"), se prioriza el verbo de la acción (instalación/reparación/
+// diagnóstico) por sobre la pieza (batería/pantalla).
+function categoriaServicio(nombre) {
+  const n = (nombre || '').toLowerCase();
+  if (/instalaci[oó]n/.test(n)) return 'Instalación';
+  if (/reparaci[oó]n/.test(n)) return 'Reparación';
+  if (/diagn[oó]stico/.test(n)) return 'Diagnóstico';
+  if (/mantenci[oó]n|mantenimiento/.test(n)) return 'Mantención';
+  if (/actualizaci[oó]n|upgrade/.test(n)) return 'Actualización';
+  if (/limpieza/.test(n)) return 'Limpieza';
+  if (/bater[ií]a/.test(n)) return 'Batería';
+  if (/pantalla/.test(n)) return 'Pantalla';
+  if (/soporte/.test(n)) return 'Soporte';
+  return 'Otro';
+}
+
 async function manejarServiciosPorMes(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
@@ -2175,14 +2196,55 @@ async function manejarServiciosPorMes(req, res, sesion) {
     const mapaPorSku = new Map();
     for (const r of rows) {
       if (SKUS_SERVICIO_EXCLUIDOS.has(r.sku)) continue;
-      if (!mapaPorSku.has(r.sku)) mapaPorSku.set(r.sku, { sku: r.sku, nombre: r.nombre, porMes: {} });
+      if (!mapaPorSku.has(r.sku)) mapaPorSku.set(r.sku, { sku: r.sku, nombre: r.nombre, categoria: categoriaServicio(r.nombre), porMes: {} });
       const mesKey = new Date(r.mes).toISOString().slice(0, 7); // YYYY-MM
       mapaPorSku.get(r.sku).porMes[mesKey] = { cantidad: Number(r.cantidad), monto: Number(r.monto) };
     }
     const servicios = [...mapaPorSku.values()].sort((a, b) => (a.nombre || a.sku || '').localeCompare(b.nombre || b.sku || ''));
 
+    // Ranking por técnico (pedido del usuario) -- requiere vendedor_id, que
+    // solo empieza a llenarse desde la sincronización que agregó estas
+    // columnas (ver asegurarTablaServiciosMensual); hasta que termine una
+    // pasada completa nueva, los documentos viejos aparecen como "sin
+    // asignar" y no cuentan acá (por diseño: no vale la pena adivinar un
+    // técnico que Bsale no registró en ese momento).
+    const { rows: filasTecnico } = await sql.query(
+      `SELECT vendedor_id, MAX(vendedor_nombre) AS nombre, SUM(cantidad)::numeric AS cantidad, SUM(monto)::numeric AS monto, COUNT(DISTINCT documento_id)::int AS documentos
+       FROM bsale_servicios_ventas
+       WHERE vendedor_id IS NOT NULL
+         AND COALESCE(nombre, '') !~* 'soporte\\s*inform[aá]tico'
+         AND sku != ALL($1::text[])
+       GROUP BY vendedor_id
+       ORDER BY monto DESC;`,
+      [[...SKUS_SERVICIO_EXCLUIDOS]]
+    );
+    const porTecnico = filasTecnico.map(r => ({
+      vendedorId: r.vendedor_id, nombre: r.nombre, cantidad: Number(r.cantidad), monto: Number(r.monto), documentos: r.documentos,
+    }));
+
+    // Clientes recurrentes de Servicio Técnico (pedido del usuario) -- más
+    // de una VISITA (documento) distinta, no más de una línea de servicio
+    // en la misma boleta (eso sería un solo evento, no reincidencia).
+    // Misma limitación de datos que el ranking por técnico (columna nueva).
+    const { rows: filasClientes } = await sql.query(
+      `SELECT cliente_id, MAX(cliente_nombre) AS nombre, COUNT(DISTINCT documento_id)::int AS visitas, SUM(monto)::numeric AS monto, MAX(fecha) AS ultima_visita
+       FROM bsale_servicios_ventas
+       WHERE cliente_id IS NOT NULL
+         AND COALESCE(nombre, '') !~* 'soporte\\s*inform[aá]tico'
+         AND sku != ALL($1::text[])
+       GROUP BY cliente_id
+       HAVING COUNT(DISTINCT documento_id) > 1
+       ORDER BY visitas DESC, monto DESC
+       LIMIT 30;`,
+      [[...SKUS_SERVICIO_EXCLUIDOS]]
+    );
+    const clientesRecurrentes = filasClientes.map(r => ({
+      clienteId: r.cliente_id, nombre: r.nombre, visitas: r.visitas, monto: Number(r.monto),
+      ultimaVisita: r.ultima_visita ? new Date(r.ultima_visita).toISOString().slice(0, 10) : null,
+    }));
+
     return res.status(200).json({
-      meses, servicios,
+      meses, servicios, porTecnico, clientesRecurrentes,
       ultimaSincronizacion: estado.ultima_pasada_completa_en || null,
       sincronizando: !!(estado.total_documentos != null && estado.offset_actual < estado.total_documentos),
     });
@@ -2218,6 +2280,10 @@ async function manejarSyncServiciosTecnico(req, res, sesion) {
     const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
     const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
 
+    // Ranking por técnico y clientes recurrentes (pedido del usuario) --
+    // necesitan quién vendió y quién compró, no solo el SKU.
+    const vendedoresPorId = await obtenerMapaVendedores(token);
+
     const TANDA_SERVICIOS = 6;
     const esperarRitmoTanda = async (tam) => {
       const espera = (tam * PUNTOS_SYNC_INTERVALO_MIN_MS) - (Date.now() - ultimaPeticion);
@@ -2237,7 +2303,7 @@ async function manejarSyncServiciosTecnico(req, res, sesion) {
 
       await esperarRitmoTanda(offsetsTanda.length);
       const respuestas = await Promise.all(offsetsTanda.map(async off => {
-        const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[document_type,details]&limit=${PUNTOS_SYNC_LIMIT}&offset=${off}`;
+        const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[document_type,details,user,client]&limit=${PUNTOS_SYNC_LIMIT}&offset=${off}`;
         const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
         if (!r.ok) {
           const texto = await r.text().catch(() => '');
@@ -2278,18 +2344,24 @@ async function manejarSyncServiciosTecnico(req, res, sesion) {
         }
         const fecha = doc.emissionDate ? new Date(doc.emissionDate * 1000).toISOString().slice(0, 10) : null;
         if (!fecha) continue;
+        const vendedorId = doc.user?.id || null;
+        const vendedorNombre = vendedorId ? (vendedoresPorId.get(vendedorId) || `Usuario #${vendedorId}`) : null;
+        const clienteId = doc.client?.id || null;
+        const clienteNombre = doc.client ? nombreClienteDoc(doc.client) : null;
         for (const [sku, v] of porSku.entries()) {
-          filas.push({ documentoId: doc.id, sku, nombre: v.nombre, fecha, cantidad: v.cantidad, monto: v.monto });
+          filas.push({ documentoId: doc.id, sku, nombre: v.nombre, fecha, cantidad: v.cantidad, monto: v.monto, vendedorId, vendedorNombre, clienteId, clienteNombre });
         }
       }
 
       if (filas.length > 0) {
         await sql.query(
-          `INSERT INTO bsale_servicios_ventas (documento_id, sku, nombre, fecha, cantidad, monto, sincronizado_en)
-           SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::date[], $5::numeric[], $6::numeric[], $7::timestamptz[])
+          `INSERT INTO bsale_servicios_ventas (documento_id, sku, nombre, fecha, cantidad, monto, vendedor_id, vendedor_nombre, cliente_id, cliente_nombre, sincronizado_en)
+           SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::date[], $5::numeric[], $6::numeric[], $7::int[], $8::text[], $9::int[], $10::text[], $11::timestamptz[])
            ON CONFLICT (documento_id, sku) DO UPDATE SET
              nombre = EXCLUDED.nombre, fecha = EXCLUDED.fecha,
              cantidad = EXCLUDED.cantidad, monto = EXCLUDED.monto,
+             vendedor_id = EXCLUDED.vendedor_id, vendedor_nombre = EXCLUDED.vendedor_nombre,
+             cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre,
              sincronizado_en = EXCLUDED.sincronizado_en;`,
           [
             filas.map(f => f.documentoId),
@@ -2298,6 +2370,10 @@ async function manejarSyncServiciosTecnico(req, res, sesion) {
             filas.map(f => f.fecha),
             filas.map(f => f.cantidad),
             filas.map(f => f.monto),
+            filas.map(f => f.vendedorId),
+            filas.map(f => f.vendedorNombre),
+            filas.map(f => f.clienteId),
+            filas.map(f => f.clienteNombre),
             filas.map(() => new Date().toISOString()),
           ]
         );
