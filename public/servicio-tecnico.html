@@ -70,6 +70,15 @@
   tr.fila-total td{border-top:2px solid var(--line);font-weight:700;background:var(--surface-2);}
   tr.fila-total{position:sticky;bottom:0;}
 
+  /* La tabla tiene 12 meses + Acumulado + Ticket promedio -- de sobra para
+     no entrar en el ancho de la pantalla (pedido del usuario: la columna
+     Ticket promedio quedaba cortada a la derecha). Se fija esa última
+     columna en el borde derecho del scroll horizontal, igual que el
+     encabezado ya queda fijo arriba (position:sticky;top:0 en "th"). */
+  td.pegado-derecha, th.pegado-derecha{position:sticky;right:0;background:var(--surface);box-shadow:-2px 0 4px rgba(31,42,36,.08);}
+  th.pegado-derecha{background:var(--surface-2);z-index:3;}
+  tr.fila-total td.pegado-derecha{background:var(--surface-2);}
+
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:18px;}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow);}
   .card .lbl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:5px;}
@@ -332,7 +341,7 @@ function renderTabla(data){
 
   const encabezados = meses.map(m => `<th class="mes ordenable" onclick="ordenarPor('${m}')">${etiquetaMes(m)}${iconoOrden(m)}</th>`).join('');
   const encabezadoAcumulado = `<th class="mes ordenable" onclick="ordenarPor('acumulado')">Acumulado año${iconoOrden('acumulado')}</th>`;
-  const encabezadoTicket = `<th class="mes">Ticket prom.</th>`;
+  const encabezadoTicket = `<th class="mes pegado-derecha">Ticket prom.</th>`;
 
   const filas = serviciosOrdenados.map(s => {
     // Mejor/peor mes DE ESTE SERVICIO (no comparado contra los demás) --
@@ -362,7 +371,7 @@ function renderTabla(data){
         <td class="servicio">${s.nombre || s.sku}<br><span class="sku-code">SKU: ${s.sku} · ${s.categoria || 'Otro'}</span></td>
         ${celdas}
         <td class="mes amount"><b>${fmtValor(acumuladoAnio(s, meses))}</b></td>
-        <td class="mes amount">${fmtMoneda(ticketPromedio(s, meses))}</td>
+        <td class="mes amount pegado-derecha">${fmtMoneda(ticketPromedio(s, meses))}</td>
       </tr>`;
   }).join('');
 
@@ -385,7 +394,7 @@ function renderTabla(data){
       <thead><tr><th>Servicio</th>${encabezados}${encabezadoAcumulado}${encabezadoTicket}</tr></thead>
       <tbody>
         ${filas}
-        <tr class="fila-total"><td>Total</td>${celdasTotal}<td class="mes amount"><b>${fmtValor(totalAcumulado)}</b></td><td class="mes amount">${fmtMoneda(ticketPromTotal)}</td></tr>
+        <tr class="fila-total"><td>Total</td>${celdasTotal}<td class="mes amount"><b>${fmtValor(totalAcumulado)}</b></td><td class="mes amount pegado-derecha">${fmtMoneda(ticketPromTotal)}</td></tr>
       </tbody>
     </table></div>
   `;
