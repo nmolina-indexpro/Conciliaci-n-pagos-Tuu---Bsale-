@@ -6353,11 +6353,12 @@ const MP_TICKET = process.env.MP_TICKET || 'B0689F6E-27AD-41C2-9CC6-59FE6192F3D2
 // 2 solicitudes seguidas sin espera ya gatillan el límite. 1.3s de por
 // medio no dio ningún 429 en una prueba de 365 días seguidos.
 const MP_SYNC_INTERVALO_MIN_MS = 1300;
-// Presupuesto algo más ajustado que el de Bsale (PUNTOS_SYNC_PRESUPUESTO_MS)
-// -- esta función además hace una segunda solicitud (detalle de la OC) por
-// cada día con resultados, así que cada "paso" puede tardar más de un
-// ciclo de espera.
-const MP_SYNC_PRESUPUESTO_MS = 45000;
+// Mismo margen que PUNTOS_SYNC_PRESUPUESTO_MS bajo el tope de 60s de Vercel
+// Hobby (antes 45000 -- innecesariamente conservador: dejaba 15s sin usar
+// de cada llamada, lo que se traduce en una vuelta extra del botón
+// "Sincronizar" -- ver iniciarSincronizacionCompraAgil en el frontend,
+// que reintenta en loop hasta que "completo" sea true).
+const MP_SYNC_PRESUPUESTO_MS = 50000;
 // Recorrer los 400 días completos toma varios minutos (400 * 1.3s solo en
 // listados, más el detalle de cada OC nueva) -- inevitable la PRIMERA vez
 // (hay que traer todo el historial), pero repetir eso mismo cada vez que
@@ -6814,6 +6815,23 @@ async function manejarSyncCompraAgil(req, res, sesion) {
         const dataListado = await rListado.json().catch(() => null);
         const listado = dataListado?.Listado || [];
 
+        // Antes: una consulta a la BD POR CADA orden del día para ver si ya
+        // estaba cacheada -- con un listado de 10-20 OC eso son 10-20 viajes
+        // a Postgres solo para descartar la mayoría (ya vistas en una
+        // sincronización anterior). Una sola consulta con todos los códigos
+        // del día hace lo mismo -- esto no toca el límite de ritmo de
+        // Mercado Público (ver MP_SYNC_INTERVALO_MIN_MS), es tiempo aparte
+        // que se estaba gastando de más en cada llamada.
+        const codigosDelDia = listado.map(oc => oc.Codigo).filter(Boolean);
+        const contactoPorCodigo = new Map();
+        if (codigosDelDia.length > 0) {
+          const { rows: existentes } = await sql.query(
+            `SELECT codigo, contacto_nombre FROM compra_agil_ordenes WHERE codigo = ANY($1::text[]);`,
+            [codigosDelDia]
+          );
+          for (const r of existentes) contactoPorCodigo.set(r.codigo, r.contacto_nombre);
+        }
+
         for (const oc of listado) {
           if (!oc.Codigo || yaCacheadas.has(oc.Codigo)) continue;
           // Se sigue tratando como "ya cacheada" (no se vuelve a pedir el
@@ -6821,8 +6839,7 @@ async function manejarSyncCompraAgil(req, res, sesion) {
           // las OC guardadas antes de que este campo existiera; se
           // aprovecha esta misma pasada para completarlo, no hace falta
           // una migración aparte.
-          const { rows: existe } = await sql`SELECT contacto_nombre FROM compra_agil_ordenes WHERE codigo = ${oc.Codigo};`;
-          if (existe.length > 0 && existe[0].contacto_nombre != null) { yaCacheadas.add(oc.Codigo); continue; }
+          if (contactoPorCodigo.has(oc.Codigo) && contactoPorCodigo.get(oc.Codigo) != null) { yaCacheadas.add(oc.Codigo); continue; }
 
           if (presupuestoRestante() <= 0) break; // se completa el detalle en la próxima llamada
           await esperarRitmo();
