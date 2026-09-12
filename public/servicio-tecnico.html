@@ -671,6 +671,7 @@ async function cargarSesionUsuario(){
       $('btnSincronizar').style.display = '';
     }
     cargarServicios();
+    cargarInsumos(); // pedido del usuario: precargar solo, sin esperar el clic en "Actualizar"
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){
