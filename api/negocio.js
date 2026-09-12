@@ -2632,7 +2632,13 @@ async function manejarComparadorSolicitudDetalle(req, res, sesion) {
 
     const comparativa = items.map(item => {
       const candidatos = proveedores.map(p => {
-        const cotItem = ultimaPorProveedorEItem.get(`${p.id}:${item.id}`) || null;
+        const filaCotizacion = ultimaPorProveedorEItem.get(`${p.id}:${item.id}`) || null;
+        // precio_neto es NUMERIC en Postgres -> @vercel/postgres lo entrega
+        // como STRING (evita perder precisión), no como number. Se
+        // convierte acá, en el único lugar donde se arma este objeto, para
+        // que decidirProveedor/el ordenamiento de la tabla no tengan que
+        // lidiar con "30000" vs -Infinity al comparar.
+        const cotItem = filaCotizacion ? { ...filaCotizacion, precio_neto: filaCotizacion.precio_neto != null ? Number(filaCotizacion.precio_neto) : null } : null;
         return {
           proveedorId: p.id,
           proveedorNombre: p.nombre,

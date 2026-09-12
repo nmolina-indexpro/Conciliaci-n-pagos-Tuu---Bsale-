@@ -1048,8 +1048,8 @@ function comparadorOrdenarComparativa(comparativa){
   return [...comparativa].sort((a, b) => {
     const va = comparadorValorOrden(a, campo, proveedorId);
     const vb = comparadorValorOrden(b, campo, proveedorId);
-    if(typeof va === 'string') return asc ? va.localeCompare(vb) : vb.localeCompare(va);
-    return asc ? va - vb : vb - va;
+    if(typeof va === 'string' && typeof vb === 'string') return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return asc ? Number(va) - Number(vb) : Number(vb) - Number(va);
   });
 }
 
