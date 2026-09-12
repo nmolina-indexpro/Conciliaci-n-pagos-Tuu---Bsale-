@@ -9,9 +9,10 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
+import { emparejarLineaCotizacion, decidirProveedor } from '../lib/comparadorProveedores.js';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
 const ESTADOS_VALIDOS = ['pendiente', 'en progreso', 'resuelto'];
@@ -100,6 +101,12 @@ export default async function handler(req, res) {
   if (recurso === 'sync-servicios-tecnico') return manejarSyncServiciosTecnico(req, res, sesion);
   if (recurso === 'link-compra') return manejarLinkCompra(req, res, sesion);
   if (recurso === 'compras-dm-excluidos') return manejarComprasDMExcluidos(req, res, sesion);
+  if (recurso === 'comparador-solicitudes') return manejarComparadorSolicitudes(req, res, sesion);
+  if (recurso === 'comparador-solicitud-detalle') return manejarComparadorSolicitudDetalle(req, res, sesion);
+  if (recurso === 'comparador-cotizacion-manual') return manejarComparadorCotizacionManual(req, res, sesion);
+  if (recurso === 'comparador-cotizacion-imagen') return manejarComparadorCotizacionImagen(req, res, sesion);
+  if (recurso === 'comparador-decision') return manejarComparadorDecision(req, res, sesion);
+  if (recurso === 'comparador-config') return manejarComparadorConfig(req, res, sesion);
   if (recurso === 'whatsapp-dashboard') return manejarWhatsappDashboard(req, res, sesion);
   if (recurso === 'whatsapp-conversaciones') return manejarWhatsappConversaciones(req, res, sesion);
   if (recurso === 'whatsapp-conversacion-detalle') return manejarWhatsappConversacionDetalle(req, res, sesion);
@@ -2503,6 +2510,329 @@ async function manejarComprasDMExcluidos(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error gestionando exclusiones de DM', detail: String(err) });
+  }
+}
+
+// ---------- Comparativa de proveedores (Coimco vs Laptop Center) ----------
+// Ver lib/comparadorProveedores.js para la lógica de emparejamiento/decisión
+// y lib/db.js (asegurarTablaComparadorCompras) para el esquema. Pensado
+// desde el diseño para N proveedores, aunque hoy solo se usan estos dos.
+
+async function manejarComparadorSolicitudes(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaComparadorCompras(sql);
+
+    if (req.method === 'GET') {
+      const { rows } = await sql`
+        SELECT s.*, COUNT(i.id)::int AS total_items
+        FROM comparador_solicitudes s
+        LEFT JOIN comparador_solicitud_items i ON i.solicitud_id = s.id
+        GROUP BY s.id ORDER BY s.created_at DESC LIMIT 50;
+      `;
+      return res.status(200).json({ solicitudes: rows });
+    }
+
+    if (req.method === 'POST') {
+      const { nombre, items } = req.body || {};
+      if (!Array.isArray(items) || items.filter(it => it.nombre && it.nombre.trim()).length === 0) {
+        return res.status(400).json({ error: 'Agrega al menos un producto al pedido' });
+      }
+      const { rows: solicitudRows } = await sql`
+        INSERT INTO comparador_solicitudes (nombre, creado_por) VALUES (${nombre || null}, ${sesion.nombre || sesion.email}) RETURNING *;
+      `;
+      const solicitudId = solicitudRows[0].id;
+      for (const it of items) {
+        if (!it.nombre || !it.nombre.trim()) continue;
+        await sql`
+          INSERT INTO comparador_solicitud_items (solicitud_id, sku, nombre, cantidad, especificaciones)
+          VALUES (${solicitudId}, ${it.sku || null}, ${it.nombre.trim()}, ${it.cantidad || 1}, ${JSON.stringify(it.especificaciones || {})});
+        `;
+      }
+      const { rows: itemsCreados } = await sql`SELECT * FROM comparador_solicitud_items WHERE solicitud_id = ${solicitudId} ORDER BY id;`;
+      return res.status(200).json({ ok: true, solicitud: solicitudRows[0], items: itemsCreados });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error gestionando solicitudes de compra', detail: String(err) });
+  }
+}
+
+async function manejarComparadorSolicitudDetalle(req, res, sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const solicitudId = parseInt(req.query.id, 10);
+    if (!solicitudId) return res.status(400).json({ error: 'Falta id de solicitud' });
+
+    const sql = await getSql();
+    await asegurarTablaComparadorCompras(sql);
+
+    const { rows: solicitudRows } = await sql`SELECT * FROM comparador_solicitudes WHERE id = ${solicitudId};`;
+    if (!solicitudRows[0]) return res.status(404).json({ error: 'Solicitud no encontrada' });
+
+    const { rows: items } = await sql`SELECT * FROM comparador_solicitud_items WHERE solicitud_id = ${solicitudId} ORDER BY id;`;
+    const { rows: proveedores } = await sql`SELECT * FROM comparador_proveedores WHERE activo = true ORDER BY id;`;
+    const { rows: cotizaciones } = await sql`
+      SELECT c.proveedor_id, c.fecha, ci.*
+      FROM comparador_cotizaciones c
+      JOIN comparador_cotizacion_items ci ON ci.cotizacion_id = c.id
+      WHERE c.solicitud_id = ${solicitudId}
+      ORDER BY c.fecha DESC;
+    `;
+    // Solo existe una fila en comparador_decisiones cuando hubo un ajuste
+    // manual (ver lib/db.js) -- se trae por JOIN con los ítems de ESTA
+    // solicitud en vez de con un array de ids, para no depender de cómo el
+    // driver de Postgres serializa arrays en el template con tag.
+    const { rows: decisiones } = await sql`
+      SELECT d.* FROM comparador_decisiones d
+      JOIN comparador_solicitud_items i ON i.id = d.solicitud_item_id
+      WHERE i.solicitud_id = ${solicitudId};
+    `;
+    const { rows: configRows } = await sql`SELECT umbral_ahorro_minimo FROM comparador_config WHERE id = 1;`;
+    const umbral = Number(configRows[0]?.umbral_ahorro_minimo || 1000);
+
+    // Última cotización vigente por proveedor+ítem (la más reciente gana).
+    const ultimaPorProveedorEItem = new Map();
+    for (const row of cotizaciones) {
+      if (!row.solicitud_item_id) continue;
+      const key = `${row.proveedor_id}:${row.solicitud_item_id}`;
+      const actual = ultimaPorProveedorEItem.get(key);
+      if (!actual || new Date(row.fecha) > new Date(actual.fecha)) ultimaPorProveedorEItem.set(key, row);
+    }
+    const decisionesPorItem = new Map(decisiones.map(d => [d.solicitud_item_id, d]));
+
+    const comparativa = items.map(item => {
+      const candidatos = proveedores.map(p => {
+        const cotItem = ultimaPorProveedorEItem.get(`${p.id}:${item.id}`) || null;
+        return {
+          proveedorId: p.id,
+          proveedorNombre: p.nombre,
+          diasEntrega: p.dias_entrega,
+          item: cotItem,
+          confianza: cotItem ? (cotItem.confianza_equivalencia || 'baja') : null,
+        };
+      });
+      const decisionRow = decisionesPorItem.get(item.id);
+      const decisionManual = decisionRow
+        ? { proveedorSeleccionadoId: decisionRow.proveedor_seleccionado_id, motivoAjuste: decisionRow.motivo_ajuste }
+        : null;
+      const decision = decidirProveedor(candidatos, umbral, decisionManual);
+      return { item, candidatos, decision };
+    });
+
+    // Cotizaciones sin ningún ítem del pedido emparejado (confianza más
+    // baja que "baja" en la práctica: ni siquiera se pudo sugerir un
+    // match) -- se listan aparte para vincular a mano desde la UI.
+    const sinEmparejar = cotizaciones.filter(c => !c.solicitud_item_id);
+
+    return res.status(200).json({ solicitud: solicitudRows[0], items, proveedores, comparativa, sinEmparejar, umbralAhorroMinimo: umbral });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error cargando la solicitud', detail: String(err) });
+  }
+}
+
+async function manejarComparadorCotizacionManual(req, res, sesion) {
+  try {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const { solicitudId, proveedorId, items } = req.body || {};
+    if (!solicitudId || !proveedorId) return res.status(400).json({ error: 'Falta solicitudId o proveedorId' });
+    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'Falta al menos un producto' });
+
+    const sql = await getSql();
+    await asegurarTablaComparadorCompras(sql);
+
+    const { rows: cotizacionRows } = await sql`
+      INSERT INTO comparador_cotizaciones (solicitud_id, proveedor_id, origen, creado_por)
+      VALUES (${solicitudId}, ${proveedorId}, 'manual', ${sesion.nombre || sesion.email})
+      RETURNING id;
+    `;
+    const cotizacionId = cotizacionRows[0].id;
+
+    const guardados = [];
+    for (const it of items) {
+      // En ingreso manual el usuario elige a mano a qué producto del pedido
+      // corresponde la línea (dropdown en la UI) -- no hace falta adivinar
+      // la equivalencia por texto como sí ocurre con imágenes, así que si
+      // eligió un ítem se marca confianza "alta" directo.
+      const { rows } = await sql`
+        INSERT INTO comparador_cotizacion_items (
+          cotizacion_id, solicitud_item_id, codigo_proveedor, descripcion,
+          cantidad_disponible, estado_stock, precio_neto, dias_entrega, observaciones, confianza_equivalencia
+        ) VALUES (
+          ${cotizacionId}, ${it.solicitudItemId || null}, ${it.codigoProveedor || null}, ${it.descripcion || null},
+          ${it.cantidadDisponible ?? null}, ${it.estadoStock || 'por_confirmar'}, ${it.precioNeto ?? null}, ${it.diasEntrega ?? null}, ${it.observaciones || null},
+          ${it.solicitudItemId ? 'alta' : null}
+        ) RETURNING *;
+      `;
+      guardados.push(rows[0]);
+    }
+    return res.status(200).json({ ok: true, cotizacionId, items: guardados });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error guardando la cotización', detail: String(err) });
+  }
+}
+
+// Herramienta forzada para que Claude transcriba una lista de precios/stock
+// de un proveedor -- mismo mecanismo (tool_choice forzado) que
+// WHATSAPP_ANALISIS_TOOL/ejecutarAnalisisIA más abajo en este archivo.
+const COMPARADOR_EXTRACCION_TOOL = {
+  name: 'registrar_cotizacion',
+  description: 'Registra las líneas de productos con precio y stock que aparecen en esta lista/cotización de un proveedor de repuestos de notebooks.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      items: {
+        type: 'array',
+        description: 'Una entrada por cada producto/fila visible en la imagen, sin omitir ninguna.',
+        items: {
+          type: 'object',
+          properties: {
+            codigo_proveedor: { type: 'string', description: 'Código o SKU interno del proveedor para este producto, tal como aparece. Cadena vacía si no se ve ninguno.' },
+            descripcion: { type: 'string', description: 'Descripción del producto tal como la escribió el proveedor, completa (marca, voltaje, amperaje, conector, tamaño, modelo de panel, etc. -- todo lo que diga el texto).' },
+            cantidad_disponible: { type: 'number', description: 'Cantidad disponible si se indica un número. 0 si dice explícitamente sin stock/agotado. Usa -1 si hay stock pero no se indica cantidad exacta.' },
+            estado_stock: { type: 'string', enum: ['disponible', 'sin_stock', 'parcial', 'por_confirmar'] },
+            precio_neto: { type: 'number', description: 'Precio NETO (sin IVA) unitario en pesos chilenos. Si el precio mostrado incluye IVA y se puede determinar, conviértelo a neto dividiendo por 1.19 y acláralo en observaciones. Si no hay forma de saber si es neto o con IVA, usa el valor tal cual y acláralo en observaciones.' },
+            observaciones: { type: 'string', description: 'Ambigüedades o datos relevantes no capturados en los otros campos. Cadena vacía si no hay nada que aclarar.' },
+          },
+          required: ['descripcion', 'estado_stock'],
+        },
+      },
+    },
+    required: ['items'],
+  },
+};
+
+async function manejarComparadorCotizacionImagen(req, res, sesion) {
+  try {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const { solicitudId, proveedorId, imagenBase64 } = req.body || {};
+    if (!solicitudId || !proveedorId) return res.status(400).json({ error: 'Falta solicitudId o proveedorId' });
+    const coincidenciaImagen = String(imagenBase64 || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!coincidenciaImagen) return res.status(400).json({ error: 'Falta una imagen válida' });
+    const [, mediaType, base64Data] = coincidenciaImagen;
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return res.status(200).json({ error: 'ANTHROPIC_API_KEY no está configurada en el servidor' });
+
+    const sql = await getSql();
+    await asegurarTablaComparadorCompras(sql);
+
+    const { rows: itemsPedido } = await sql`SELECT id, nombre, especificaciones FROM comparador_solicitud_items WHERE solicitud_id = ${solicitudId};`;
+    if (itemsPedido.length === 0) return res.status(400).json({ error: 'Esta solicitud no tiene productos cargados todavía' });
+
+    const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2048,
+        system: 'Eres un asistente que transcribe listas de precios/stock que proveedores de repuestos de notebooks (cargadores, baterías, pantallas) le envían a IndexStore, una tienda chilena. Lee TODAS las filas visibles en la imagen, una por una, sin omitir ninguna aunque haya muchas. Los precios en Chile se muestran normalmente en pesos (CLP) sin decimales. Responde solo con la llamada a la herramienta, sin texto adicional.',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+            { type: 'text', text: 'Transcribe todas las filas de productos con precio y stock visibles en esta imagen.' },
+          ],
+        }],
+        tools: [COMPARADOR_EXTRACCION_TOOL],
+        tool_choice: { type: 'tool', name: 'registrar_cotizacion' },
+      }),
+    }, 45000);
+
+    if (!respuestaIA.ok) {
+      const texto = await respuestaIA.text().catch(() => '');
+      throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
+    }
+    const dataIA = await respuestaIA.json();
+    const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
+    if (!bloqueHerramienta) return res.status(502).json({ error: 'La IA no devolvió datos estructurados' });
+    const itemsExtraidos = bloqueHerramienta.input.items || [];
+    if (itemsExtraidos.length === 0) return res.status(200).json({ error: 'No se detectó ningún producto en la imagen' });
+
+    const { rows: cotizacionRows } = await sql`
+      INSERT INTO comparador_cotizaciones (solicitud_id, proveedor_id, origen, imagen_origen, creado_por)
+      VALUES (${solicitudId}, ${proveedorId}, 'imagen', ${imagenBase64}, ${sesion.nombre || sesion.email})
+      RETURNING id;
+    `;
+    const cotizacionId = cotizacionRows[0].id;
+
+    const guardados = [];
+    for (const it of itemsExtraidos) {
+      const emparejamiento = emparejarLineaCotizacion(it.descripcion, itemsPedido);
+      const { rows } = await sql`
+        INSERT INTO comparador_cotizacion_items (
+          cotizacion_id, solicitud_item_id, codigo_proveedor, descripcion,
+          cantidad_disponible, estado_stock, precio_neto, observaciones, confianza_equivalencia
+        ) VALUES (
+          ${cotizacionId}, ${emparejamiento.solicitudItemId}, ${it.codigo_proveedor || null}, ${it.descripcion},
+          ${it.cantidad_disponible ?? null}, ${it.estado_stock || 'por_confirmar'}, ${it.precio_neto ?? null}, ${it.observaciones || null}, ${emparejamiento.confianza}
+        ) RETURNING *;
+      `;
+      guardados.push(rows[0]);
+    }
+
+    return res.status(200).json({ ok: true, cotizacionId, items: guardados });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error extrayendo la cotización de la imagen', detail: String(err) });
+  }
+}
+
+async function manejarComparadorDecision(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaComparadorCompras(sql);
+
+    if (req.method === 'PUT') {
+      const { solicitudItemId, proveedorSeleccionadoId, motivoAjuste } = req.body || {};
+      if (!solicitudItemId || !proveedorSeleccionadoId) return res.status(400).json({ error: 'Falta solicitudItemId o proveedorSeleccionadoId' });
+      if (!motivoAjuste || !motivoAjuste.trim()) return res.status(400).json({ error: 'Falta el motivo del cambio' });
+      await sql`
+        INSERT INTO comparador_decisiones (solicitud_item_id, proveedor_seleccionado_id, motivo_ajuste, actualizado_por)
+        VALUES (${solicitudItemId}, ${proveedorSeleccionadoId}, ${motivoAjuste.trim()}, ${sesion.nombre || sesion.email})
+        ON CONFLICT (solicitud_item_id) DO UPDATE SET
+          proveedor_seleccionado_id = EXCLUDED.proveedor_seleccionado_id,
+          motivo_ajuste = EXCLUDED.motivo_ajuste,
+          actualizado_por = EXCLUDED.actualizado_por,
+          actualizado_en = now();
+      `;
+      return res.status(200).json({ ok: true });
+    }
+
+    if (req.method === 'DELETE') {
+      const solicitudItemId = parseInt(req.query.solicitudItemId, 10);
+      if (!solicitudItemId) return res.status(400).json({ error: 'Falta solicitudItemId' });
+      await sql`DELETE FROM comparador_decisiones WHERE solicitud_item_id = ${solicitudItemId};`;
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error guardando la decisión', detail: String(err) });
+  }
+}
+
+async function manejarComparadorConfig(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaComparadorCompras(sql);
+
+    if (req.method === 'GET') {
+      const { rows } = await sql`SELECT umbral_ahorro_minimo FROM comparador_config WHERE id = 1;`;
+      return res.status(200).json({ umbralAhorroMinimo: Number(rows[0].umbral_ahorro_minimo) });
+    }
+
+    if (req.method === 'PUT') {
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede cambiar esta configuración' });
+      const { umbralAhorroMinimo } = req.body || {};
+      if (umbralAhorroMinimo == null || Number(umbralAhorroMinimo) < 0) return res.status(400).json({ error: 'Umbral inválido' });
+      await sql`UPDATE comparador_config SET umbral_ahorro_minimo = ${umbralAhorroMinimo}, actualizado_en = now() WHERE id = 1;`;
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error gestionando configuración', detail: String(err) });
   }
 }
 
