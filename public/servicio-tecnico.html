@@ -211,6 +211,23 @@
     <div id="wrapClientesRecurrentes"><p class="empty-note">Cargando...</p></div>
   </div>
 
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>🧰 Insumos de Servicio Técnico</h2>
+        <div class="sub" style="margin-bottom:0;">Productos de la categoría "Insumos" en Bsale (tornillos, pasta térmica, alcohol isopropílico, etc.) -- stock actual y último ingreso, para saber qué reponer.</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button class="btn-primary" id="btnCargarInsumos" onclick="cargarInsumos()">🔄 Actualizar</button>
+      </div>
+    </div>
+    <div class="toolbar-extra">
+      <input type="text" id="buscarInsumoInput" placeholder="Buscar insumo o SKU..." oninput="renderInsumos()">
+    </div>
+    <div id="wrapInsumos"><p class="empty-note">Presiona "Actualizar" para traer el stock desde Bsale.</p></div>
+    <div id="statusInsumos" style="font-size:12px;color:var(--muted);margin-top:10px;"></div>
+  </div>
+
 </div>
 
 <script src="restriccion-usuario.js"></script>
@@ -219,6 +236,16 @@
 const $ = id => document.getElementById(id);
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
 function fmtMoneda(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
+// Nombres de producto vienen de Bsale (dato externo) -> se escapan antes de
+// interpolar en innerHTML, mismo criterio que analisis.html.
+function escapeHtml(texto){
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 const MESES_CORTOS = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 function etiquetaMes(mesKey){ // "2026-03" -> "mar 2026"
@@ -647,6 +674,95 @@ async function cargarSesionUsuario(){
 async function cerrarSesion(){
   await fetch('/api/auth-session', { method: 'DELETE' });
   location.href = '/login.html';
+}
+
+// ---------- Insumos de Servicio Técnico ----------
+// Reutiliza /api/bsale-sku-report (ya trae stock actual, último costo y
+// fecha de última recepción por SKU -- mismo endpoint que usa compras.html
+// para "Alertas de Stock") en vez de agregar un endpoint nuevo: Vercel
+// Hobby tiene tope de 12 funciones serverless (ver CLAUDE.md), y este dato
+// ya existe ahí completo, solo hace falta filtrar por la categoría real de
+// Bsale "Insumos" (tornillos, pasta térmica, alcohol isopropílico, etc. --
+// lo que usa Servicio Técnico como material fungible, no como repuesto que
+// se vende con SKU "SER..."). No se sincroniza automático al cargar la
+// página -- golpea Bsale en vivo (puede tardar), el usuario decide cuándo.
+let insumosActuales = [];
+let sortColInsumos = 'stockActual';
+let sortAscInsumos = true; // stock más bajo primero -- lo más urgente de reponer
+const normalizarCategoriaInsumo = c => (c || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+async function cargarInsumos(){
+  $('btnCargarInsumos').disabled = true;
+  $('statusInsumos').textContent = 'Consultando Bsale (puede tardar unos segundos)...';
+  $('wrapInsumos').innerHTML = '<p class="empty-note">Cargando...</p>';
+  try{
+    const res = await fetch('/api/bsale-sku-report?days=90');
+    const data = await res.json();
+    if(data.error){
+      $('statusInsumos').textContent = 'Error: ' + (data.detail || data.error);
+      $('wrapInsumos').innerHTML = '<p class="empty-note">No se pudo cargar el stock de insumos.</p>';
+      return;
+    }
+    insumosActuales = (data.skus || []).filter(s => normalizarCategoriaInsumo(s.categoria) === 'insumos');
+    renderInsumos();
+    $('statusInsumos').textContent = `Listo — ${fmtNum(insumosActuales.length)} insumos encontrados en Bsale (categoría "Insumos").`;
+  }catch(err){
+    $('statusInsumos').textContent = 'Error: ' + err.message;
+    $('wrapInsumos').innerHTML = '<p class="empty-note">Error al cargar.</p>';
+  }finally{
+    $('btnCargarInsumos').disabled = false;
+  }
+}
+
+function cambiarOrdenInsumos(col){
+  if(sortColInsumos === col) sortAscInsumos = !sortAscInsumos;
+  else { sortColInsumos = col; sortAscInsumos = true; }
+  renderInsumos();
+}
+
+function renderInsumos(){
+  if(!insumosActuales.length){
+    $('wrapInsumos').innerHTML = '<p class="empty-note">Presiona "Actualizar" para traer el stock desde Bsale.</p>';
+    return;
+  }
+  const busqueda = ($('buscarInsumoInput').value || '').trim().toLowerCase();
+  const lista = insumosActuales.filter(s => !busqueda || (s.nombre || '').toLowerCase().includes(busqueda) || (s.code || '').toLowerCase().includes(busqueda));
+  if(!lista.length){
+    $('wrapInsumos').innerHTML = '<p class="empty-note">Ningún insumo calza con la búsqueda.</p>';
+    return;
+  }
+  const col = sortColInsumos;
+  const ordenada = [...lista].sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if(typeof va === 'string' || typeof vb === 'string'){
+      va = va ?? ''; vb = vb ?? '';
+      return sortAscInsumos ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+    }
+    va = va ?? -Infinity; vb = vb ?? -Infinity;
+    return sortAscInsumos ? va - vb : vb - va;
+  });
+  const marca = c => sortColInsumos === c ? (sortAscInsumos ? ' ▲' : ' ▼') : '';
+  const th = (campo, label) => `<th class="mes ordenable" onclick="cambiarOrdenInsumos('${campo}')">${label}${marca(campo)}</th>`;
+  const filas = ordenada.map(s => `
+    <tr>
+      <td class="servicio">${escapeHtml(s.nombre)}<br><span class="sku-code">SKU: ${escapeHtml(s.code)}</span></td>
+      <td class="mes amount">${fmtNum(s.stockActual)}</td>
+      <td class="mes amount">${s.fechaUltimaCompra || '—'}</td>
+      <td class="mes amount">${s.ultimoCosto != null ? fmtMoneda(s.ultimoCosto) : '—'}</td>
+      <td class="mes amount">${s.proveedor ? escapeHtml(s.proveedor) : '—'}</td>
+    </tr>`).join('');
+  $('wrapInsumos').innerHTML = `
+    <div class="tabla-wrap"><table>
+      <thead><tr>
+        <th>Insumo</th>
+        ${th('stockActual', 'Stock actual')}
+        ${th('fechaUltimaCompra', 'Última fecha de ingreso')}
+        ${th('ultimoCosto', 'Último costo de ingreso')}
+        ${th('proveedor', 'Proveedor')}
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table></div>
+  `;
 }
 
 cargarSesionUsuario();
