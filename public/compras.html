@@ -577,6 +577,33 @@ const REGEX_PROVEEDOR_DM = /dos\s*(mundos?|mudos)|\bdm\b/i;
 // producto, confirmado en vivo antes de agregarlo entero) -- si aparece
 // una categoría nueva que DM empieza a proveer, agregarla acá.
 const CATEGORIAS_DM = new Set(['CARGADOR ALTERNATIVO', 'BATERIA ALTERNATIVA', 'BATERIA ALTERNATIVA MACBOOK', 'BATERIA ALTERNATIVA NOTEBOOK', 'CELULAR', 'FUNDA NOTEBOOK', 'BASE NOTEBOOK', 'HERRAMIENTAS']);
+
+// Stock del equivalente Daxis (pedido del usuario): un cargador/batería
+// alternativo y su versión Daxis son el MISMO modelo físico (misma marca,
+// voltaje, amperaje y punta/conector) -- si Daxis ya tiene stock de ese
+// modelo, no hace falta comprarle a DM el alternativo. Se emparejan por
+// nombre: "CARGADOR ALTERNATIVO ACER 19V 3.42A 5.5X1.7MM" vs "CARGADOR
+// NOTEBOOK DAXIS ACER 19V 3.42A 5.5X1.7MM" -- se saca la calificación
+// (Alternativo/Alternativa/"Notebook Daxis") y lo que queda (marca +
+// especificaciones técnicas) debe calzar EXACTO -- confirmado en vivo que
+// el conector/punta puede variar entre marcas parecidas (ej. mismo Acer
+// 19V pero conector 3.0X1.1MM vs 5.5X1.7MM son productos DISTINTOS, no
+// deben calzar), así que una comparación parcial sería incorrecta.
+function limpiarNombreParaComparar(nombre){
+  return (nombre || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/\bcargador\s+notebook\s+daxis\b/g, 'cargador')
+    .replace(/\bbateria\s+notebook\s+daxis\b/g, 'bateria')
+    .replace(/\bcargador\s+alternativo\b/g, 'cargador')
+    .replace(/\bbateria\s+alternativa\b/g, 'bateria')
+    .replace(/\s+/g, ' ').trim();
+}
+function stockDaxisEquivalente(producto){
+  if(!/cargador alternativo|bateria alternativa/.test(normalizarCat(producto.categoria))) return null; // solo aplica a cargadores/baterías, no fundas/bases/etc.
+  const clave = limpiarNombreParaComparar(producto.nombre);
+  const equivalentes = datosSkus.filter(s => ['cargador daxis', 'bateria daxis'].includes(normalizarCat(s.categoria)) && limpiarNombreParaComparar(s.nombre) === clave);
+  if(equivalentes.length === 0) return null;
+  return equivalentes.reduce((a, s) => a + (s.stockActual || 0), 0);
+}
 const filtrosDMCategoria = {
   'cargador-alternativo': s => normalizarCat(s.categoria) === 'cargador alternativo',
   'bateria-alternativa': s => normalizarCat(s.categoria).startsWith('bateria alternativa'),
@@ -663,6 +690,7 @@ function renderDM(){
         <th onclick="ordenarDMPor('nombre')" style="cursor:pointer;">Producto${flechaDM('nombre')}</th>
         <th onclick="ordenarDMPor('categoria')" style="cursor:pointer;">Categoría${flechaDM('categoria')}</th>
         <th class="amount" onclick="ordenarDMPor('stockActual')" style="cursor:pointer;">Stock actual${flechaDM('stockActual')}</th>
+        <th class="amount" title="Stock del mismo modelo (misma marca/voltaje/conector) en versión Daxis -- si ya hay stock ahí, no hace falta comprar el alternativo">Stock Daxis (similar)</th>
         <th onclick="ordenarDMPor('fechaUltimaCompra')" style="cursor:pointer;">Última factura de ingreso${flechaDM('fechaUltimaCompra')}</th>
         <th class="amount" onclick="ordenarDMPor('ultimoCosto')" style="cursor:pointer;">Último costo${flechaDM('ultimoCosto')}</th>
         <th>Link de compra</th>
@@ -674,9 +702,16 @@ function renderDM(){
         const linkHtml = esLinkValido
           ? `<a href="${link}" target="_blank" rel="noopener noreferrer">🔗 Comprar</a>`
           : (link ? `<span class="empty-note" title="${link}">${link}</span>` : '<span class="empty-note">Sin link</span>');
+        const stockDaxis = stockDaxisEquivalente(s);
+        const celdaStockDaxis = stockDaxis === null
+          ? '<span class="empty-note">—</span>'
+          : stockDaxis > 0
+            ? `<b style="color:#15803D;">${fmtNum(stockDaxis)} ✓ no comprar</b>`
+            : fmtNum(stockDaxis);
         return `<tr>
           <td>${s.code}</td><td>${s.nombre}</td><td>${s.categoria}</td>
           <td class="amount">${fmtNum(s.stockActual)}</td>
+          <td class="amount">${celdaStockDaxis}</td>
           <td>${s.fechaUltimaCompra || '—'}</td>
           <td class="amount">${s.ultimoCosto != null ? fmt(s.ultimoCosto) : '—'}</td>
           <td>${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkDM('${s.code}')">✏️</button></td>
