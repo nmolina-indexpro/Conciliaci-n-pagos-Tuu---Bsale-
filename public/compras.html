@@ -236,7 +236,14 @@
       <div id="comparadorFormNuevaSolicitud" hidden style="border:1px dashed var(--line);border-radius:12px;padding:14px;margin-bottom:16px;">
         <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px;">Pedido base</div>
         <div id="comparadorFilasPedido"></div>
-        <button class="btn-ghost btn-compact" onclick="comparadorAgregarFilaPedido()" style="margin-top:6px;">➕ Agregar producto</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+          <button class="btn-ghost btn-compact" onclick="comparadorAgregarFilaPedido()">➕ Agregar producto</button>
+          <button class="btn-ghost btn-compact" onclick="comparadorTogglePegarPedido()">📝 Pegar lista (SKU, producto, cantidad)</button>
+        </div>
+        <div id="comparadorPegarPedidoWrap" hidden style="margin-top:8px;">
+          <textarea id="comparadorPegarPedidoInput" placeholder="Pega acá una lista con columnas SKU, Producto y Cantidad (tal como la copiarías de Excel o de la tabla de Recomendación de esta misma página). Los precios, si vienen, se ignoran -- acá solo se arma el pedido base." style="width:100%;min-height:80px;font-size:11.5px;"></textarea>
+          <button class="btn-primary btn-compact" onclick="comparadorProcesarPegadoPedido()" style="margin-top:4px;">Agregar filas del texto pegado</button>
+        </div>
         <div style="margin-top:12px;display:flex;gap:8px;">
           <button class="btn-primary" onclick="comparadorCrearSolicitud()">Crear solicitud</button>
           <button class="btn-ghost" onclick="comparadorOcultarFormNuevaSolicitud()">Cancelar</button>
@@ -854,6 +861,64 @@ function comparadorRenderFilasPedido(){
       <input type="number" min="1" value="${f.cantidad}" oninput="comparadorFilasPedido[${i}].cantidad=parseInt(this.value)||1" style="width:70px;">
       <button class="btn-icono" title="Quitar" onclick="comparadorQuitarFilaPedido(${i})">🗑️</button>
     </div>`).join('');
+}
+
+function comparadorTogglePegarPedido(){
+  const wrap = $('comparadorPegarPedidoWrap');
+  wrap.hidden = !wrap.hidden;
+}
+
+// Arma filas del pedido base a partir de una lista pegada (tab o columnas
+// alineadas con espacios múltiples) -- sin backend, sin IA, puramente en
+// el navegador: solo junta lo que ya se va a mandar con "Crear solicitud".
+// Descarta un posible encabezado (si la primera línea no trae ningún
+// número, es casi seguro "SKU / Producto / Cantidad", no un dato real).
+function comparadorParsearLineaPedido(lineaOriginal){
+  const linea = String(lineaOriginal || '').trim();
+  if(!linea) return null;
+  const campos = linea.split(/\t| {2,}/).map(c => c.trim()).filter(Boolean);
+  if(campos.length < 2) return { sku: '', nombre: linea, cantidad: 1 };
+
+  const patronSku = /^(?=[a-z0-9-]*\d)(?=[a-z0-9-]*[a-z])[a-z0-9-]{3,20}$/i;
+  const sku = patronSku.test(campos[0]) ? campos[0] : '';
+
+  // Cantidad: el primer campo que sea un número entero puro (sin puntos ni
+  // separadores) -- en una lista con precio, el monto casi siempre trae
+  // separador de miles y por eso no cae acá.
+  const campoCantidad = campos.find(c => /^\d{1,4}$/.test(c));
+  const cantidad = campoCantidad ? parseInt(campoCantidad, 10) : 1;
+
+  // Nombre: el campo de texto más largo que no sea el SKU ni un número
+  // puro -- normalmente es la descripción del producto.
+  const candidatosNombre = campos.filter(c => c !== sku && !/^\$?\s*[\d.,]+$/.test(c));
+  const nombre = candidatosNombre.sort((a, b) => b.length - a.length)[0] || campos.join(' ');
+
+  return { sku, nombre, cantidad };
+}
+function comparadorEsProbableEncabezadoPedido(linea){
+  if(!/\t| {2,}/.test(linea)) return false;
+  const campos = linea.split(/\t| {2,}/).map(c => c.trim()).filter(Boolean);
+  return !campos.some(c => /^\d+([.,]\d+)?$/.test(c));
+}
+function comparadorProcesarPegadoPedido(){
+  const texto = $('comparadorPegarPedidoInput').value;
+  const lineas = texto.split('\n').map(l => l.trim()).filter(Boolean);
+  if(lineas.length === 0){ alert('Pega primero una lista.'); return; }
+  const lineasDatos = comparadorEsProbableEncabezadoPedido(lineas[0]) ? lineas.slice(1) : lineas;
+  const filasNuevas = lineasDatos.map(l => comparadorParsearLineaPedido(l)).filter(Boolean);
+  if(filasNuevas.length === 0){ alert('No se pudo interpretar ninguna línea.'); return; }
+
+  // Si el pedido todavía tiene solo la fila vacía inicial, se reemplaza en
+  // vez de dejarla colgando al final.
+  if(comparadorFilasPedido.length === 1 && !comparadorFilasPedido[0].nombre.trim()){
+    comparadorFilasPedido = filasNuevas;
+  } else {
+    comparadorFilasPedido = [...comparadorFilasPedido, ...filasNuevas];
+  }
+  comparadorRenderFilasPedido();
+  $('comparadorPegarPedidoInput').value = '';
+  $('comparadorPegarPedidoWrap').hidden = true;
+  alert(`Se agregaron ${filasNuevas.length} producto(s). Revisa las filas antes de crear la solicitud -- la cantidad y el SKU no siempre se detectan bien en texto libre.`);
 }
 
 async function comparadorCrearSolicitud(){
