@@ -93,6 +93,8 @@
   .panel-colapsable.colapsado .panel-body{display:none;}
   .panel-body{margin-top:12px;}
   .filtro-label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-right:2px;align-self:center;}
+  .btn-icono{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);font-size:12px;cursor:pointer;padding:0;vertical-align:middle;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
   body.sin-margenes .solo-admin{display:none !important;}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -217,6 +219,25 @@
         <button class="btn-ghost btn-compact" id="daxisFiltroBateria" onclick="filtrarDaxisCategoria('bateria-daxis')">🔋 Baterías</button>
       </div>
       <div id="daxisWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
+    </div>
+  </div>
+
+  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #B45309;" id="dmCard">
+    <div class="panel-header" onclick="togglePanel('dmCard')">
+      <span class="lbl" style="margin-bottom:0;">🏬 Comercial Dos Mundos (DM)</span>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <p class="empty-note" style="margin-top:0;">DM no tiene integración con la tienda -- la compra se hace entrando a mano a su portal con sesión iniciada. Esta lista es de referencia: productos alternativos (cargadores, baterías, cargadores de celular, algunas fundas) identificados en las facturas de ingreso a nombre de "Comercial Dos Mundos", con su stock, último costo, y un link directo al producto para comprar más rápido.</p>
+      <div class="filtros" style="margin-bottom:0;">
+        <span class="filtro-label">Categoría:</span>
+        <button class="btn-ghost btn-compact active" id="dmFiltroTodas" onclick="filtrarDMCategoria(null)">Todas</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('cargador-alternativo')">🔌 Cargadores</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('bateria-alternativa')">🔋 Baterías</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('celular')">📱 Cargadores de celular</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('funda')">🎒 Fundas</button>
+      </div>
+      <div id="dmWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
     </div>
   </div>
 
@@ -349,7 +370,8 @@ async function cargar(){
   try{
     const [res, imgRes] = await Promise.all([
       fetch(`/api/bsale-sku-report?days=${dias}`).then(r=>r.json()),
-      fetch(`/api/shopify-images-report`).then(r=>r.json()).catch(()=>({imagenes:{}}))
+      fetch(`/api/shopify-images-report`).then(r=>r.json()).catch(()=>({imagenes:{}})),
+      cargarLinksDM(),
     ]);
     if(res.error){
       status.className = 'err';
@@ -395,6 +417,7 @@ async function cargar(){
     $('avisoWrap').innerHTML = avisos;
 
     renderDaxis();
+    renderDM();
     renderTabla();
 
     status.className = 'ok';
@@ -535,7 +558,130 @@ function renderDaxis(){
   `;
 }
 
+// ---------- Comercial Dos Mundos (DM) ----------
+// DM no tiene API/integración -- la compra se hace a mano en su portal
+// (sesión propia). Esta sección es puramente de referencia: qué SKU se
+// compran ahí (identificados por el texto de la recepción, ver "proveedor"
+// en bsale-sku-report.js) y con qué categoría, para no tener que ir a
+// revisar factura por factura. Confirmado en vivo que el texto de la nota
+// de recepción varía bastante ("COMERCIAL DOS MUNDOS", "COMPRA DM", "DM",
+// "DOS MUNDOS", hasta "comercial dos mudos" con typo) -- de ahí el regex
+// en vez de una comparación exacta.
+const REGEX_PROVEEDOR_DM = /dos\s*(mundos?|mudos)|\bdm\b/i;
+// Categorías reales de Bsale confirmadas en vivo como las que compra DM
+// (cargadores, baterías alternativas -- incluidas sus variantes MacBook/
+// Notebook, cargadores de celular, fundas) -- si aparece una categoría
+// nueva que DM empieza a proveer, agregarla acá.
+const CATEGORIAS_DM = new Set(['CARGADOR ALTERNATIVO', 'BATERIA ALTERNATIVA', 'BATERIA ALTERNATIVA MACBOOK', 'BATERIA ALTERNATIVA NOTEBOOK', 'CELULAR', 'FUNDA NOTEBOOK']);
+const filtrosDMCategoria = {
+  'cargador-alternativo': s => normalizarCat(s.categoria) === 'cargador alternativo',
+  'bateria-alternativa': s => normalizarCat(s.categoria).startsWith('bateria alternativa'),
+  celular: s => normalizarCat(s.categoria) === 'celular',
+  funda: s => normalizarCat(s.categoria) === 'funda notebook',
+};
+let filtroDMCategoria = null;
+let ordenDM = { campo: null, asc: true };
+let linkDMPorSku = {};
 
+async function cargarLinksDM(){
+  try{
+    const res = await fetch('/api/negocio?recurso=link-compra&contexto=compras_dm_sku');
+    const data = await res.json();
+    linkDMPorSku = data.linkPorSku || {};
+  }catch(err){ linkDMPorSku = {}; }
+}
+
+function filtrarDMCategoria(clave){
+  filtroDMCategoria = clave;
+  document.getElementById('dmCard').querySelectorAll('.filtros button').forEach(b => b.classList.remove('active'));
+  (clave ? event.target : $('dmFiltroTodas')).classList.add('active');
+  renderDM();
+}
+function ordenarDMPor(campo){
+  if(ordenDM.campo === campo) ordenDM.asc = !ordenDM.asc;
+  else { ordenDM.campo = campo; ordenDM.asc = true; }
+  renderDM();
+}
+function flechaDM(campo){
+  return ordenDM.campo === campo ? (ordenDM.asc ? ' ▲' : ' ▼') : '';
+}
+
+function renderDM(){
+  const wrap = $('dmWrap');
+  const productosDM = datosSkus.filter(s => CATEGORIAS_DM.has((s.categoria || '').toUpperCase()) && REGEX_PROVEEDOR_DM.test(s.proveedor || ''));
+  const productos = filtroDMCategoria ? productosDM.filter(filtrosDMCategoria[filtroDMCategoria]) : productosDM;
+  if(productos.length === 0){
+    wrap.innerHTML = '<p class="empty-note">No se encontraron productos de Comercial Dos Mundos (o todavía no se ha presionado "Analizar").</p>';
+    return;
+  }
+  let filas = [...productos];
+  if(ordenDM.campo){
+    const campo = ordenDM.campo;
+    filas.sort((a, b) => {
+      let va = a[campo], vb = b[campo];
+      const aNull = va === null || va === undefined, bNull = vb === null || vb === undefined;
+      if(aNull && bNull) return 0;
+      if(aNull) return 1;
+      if(bNull) return -1;
+      if(typeof va === 'string') return ordenDM.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+      return ordenDM.asc ? va - vb : vb - va;
+    });
+  } else {
+    filas.sort((a, b) => (a.stockActual || 0) - (b.stockActual || 0)); // stock más bajo primero -- lo más urgente de reponer
+  }
+
+  wrap.innerHTML = `
+    <table>
+      <thead><tr>
+        <th onclick="ordenarDMPor('code')" style="cursor:pointer;">SKU${flechaDM('code')}</th>
+        <th onclick="ordenarDMPor('nombre')" style="cursor:pointer;">Producto${flechaDM('nombre')}</th>
+        <th onclick="ordenarDMPor('categoria')" style="cursor:pointer;">Categoría${flechaDM('categoria')}</th>
+        <th class="amount" onclick="ordenarDMPor('stockActual')" style="cursor:pointer;">Stock actual${flechaDM('stockActual')}</th>
+        <th onclick="ordenarDMPor('fechaUltimaCompra')" style="cursor:pointer;">Última factura de ingreso${flechaDM('fechaUltimaCompra')}</th>
+        <th class="amount" onclick="ordenarDMPor('ultimoCosto')" style="cursor:pointer;">Último costo${flechaDM('ultimoCosto')}</th>
+        <th>Link de compra</th>
+      </tr></thead>
+      <tbody>${filas.map(s => {
+        const link = linkDMPorSku[s.code] || '';
+        const esLinkValido = /^https?:\/\//i.test(link);
+        const linkHtml = esLinkValido
+          ? `<a href="${link}" target="_blank" rel="noopener noreferrer">🔗 Comprar</a>`
+          : (link ? `<span class="empty-note" title="${link}">${link}</span>` : '<span class="empty-note">Sin link</span>');
+        return `<tr>
+          <td>${s.code}</td><td>${s.nombre}</td><td>${s.categoria}</td>
+          <td class="amount">${fmtNum(s.stockActual)}</td>
+          <td>${s.fechaUltimaCompra || '—'}</td>
+          <td class="amount">${s.ultimoCosto != null ? fmt(s.ultimoCosto) : '—'}</td>
+          <td>${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkDM('${s.code}')">✏️</button></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>
+  `;
+}
+
+// Cualquier persona logueada puede agregar/actualizar el link -- mismo
+// criterio que Insumos en Servicio Técnico (ver manejarLinkCompra):
+// cualquiera que necesite comprar de nuevo debe poder ir directo, no solo
+// quien lo guardó la primera vez.
+async function editarLinkDM(sku){
+  const actual = linkDMPorSku[sku] || '';
+  const nuevo = prompt('Link para comprar este producto en el portal de Comercial Dos Mundos:', actual);
+  if(nuevo === null) return; // canceló
+  const texto = nuevo.trim();
+  if(!texto){ alert('El link no puede quedar vacío.'); return; }
+  try{
+    const res = await fetch('/api/negocio?recurso=link-compra', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contexto: 'compras_dm_sku', sku, link: texto }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar el link.'); return; }
+    linkDMPorSku[sku] = texto;
+    renderDM();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
 
 async function calcularRecomendacionPresupuesto(){
   const wrap = $('recomendacionWrap');

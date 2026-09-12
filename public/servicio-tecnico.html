@@ -744,7 +744,7 @@ async function cargarInsumos(){
   try{
     const [res, resLinks] = await Promise.all([
       fetch('/api/bsale-sku-report?days=90').then(r=>r.json()),
-      fetch('/api/negocio?recurso=insumo-link').then(r=>r.json()).catch(()=>({linkPorSku:{}})),
+      fetch('/api/negocio?recurso=link-compra&contexto=insumos_sku').then(r=>r.json()).catch(()=>({linkPorSku:{}})),
     ]);
     const data = res;
     linkCompraPorSku = resLinks.linkPorSku || {};
@@ -782,9 +782,9 @@ async function editarLinkInsumo(sku){
   const texto = nuevo.trim();
   if(!texto){ alert('El link no puede quedar vacío.'); return; }
   try{
-    const res = await fetch('/api/negocio?recurso=insumo-link', {
+    const res = await fetch('/api/negocio?recurso=link-compra', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sku, link: texto }),
+      body: JSON.stringify({ contexto: 'insumos_sku', sku, link: texto }),
     });
     const data = await res.json();
     if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar el link.'); return; }

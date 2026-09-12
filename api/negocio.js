@@ -98,7 +98,7 @@ export default async function handler(req, res) {
   if (recurso === 'precios-sku-variacion') return manejarPreciosSkuVariacion(req, res, sesion);
   if (recurso === 'servicios-por-mes') return manejarServiciosPorMes(req, res, sesion);
   if (recurso === 'sync-servicios-tecnico') return manejarSyncServiciosTecnico(req, res, sesion);
-  if (recurso === 'insumo-link') return manejarInsumoLink(req, res, sesion);
+  if (recurso === 'link-compra') return manejarLinkCompra(req, res, sesion);
   if (recurso === 'whatsapp-dashboard') return manejarWhatsappDashboard(req, res, sesion);
   if (recurso === 'whatsapp-conversaciones') return manejarWhatsappConversaciones(req, res, sesion);
   if (recurso === 'whatsapp-conversacion-detalle') return manejarWhatsappConversacionDetalle(req, res, sesion);
@@ -2432,22 +2432,29 @@ async function manejarSyncServiciosTecnico(req, res, sesion) {
   }
 }
 
-// Link de compra por insumo (pedido del usuario: para poder ir directo a
-// comprar de nuevo, ej. el link exacto del producto en AliExpress) --
-// reutiliza el mismo historial de comentarios compartido (contexto
-// 'insumos_sku', entidad_id = SKU) que ya usan "Productos estancados" y
-// "Clientes recurrentes", así no hace falta una tabla nueva. A propósito
-// NO se restringe a admin ni se exige ser el autor para "actualizar": el
-// pedido es que CUALQUIER persona pueda mantener el link al día -- cada
-// actualización agrega una entrada nueva al historial (nunca reemplaza en
-// el sitio), que de todos modos qué se guarda con quién y cuándo.
-async function manejarInsumoLink(req, res, sesion) {
+// Link de compra por producto (pedido del usuario: para poder ir directo a
+// comprar de nuevo, ej. el link exacto del producto en AliExpress o en el
+// portal de un proveedor) -- reutiliza el mismo historial de comentarios
+// compartido (entidad_id = SKU) que ya usan "Productos estancados" y
+// "Clientes recurrentes", así no hace falta una tabla nueva. "contexto"
+// separa las distintas listas que usan esto (hoy: insumos de Servicio
+// Técnico, productos de Comercial Dos Mundos en Compras) -- restringido a
+// un allowlist para no dejar guardar comentarios bajo un contexto
+// cualquiera. A propósito NO se restringe a admin ni se exige ser el autor
+// para "actualizar": el pedido es que CUALQUIER persona pueda mantener el
+// link al día -- cada actualización agrega una entrada nueva al historial
+// (nunca reemplaza en el sitio), que de todos modos queda con quién y cuándo.
+const LINK_COMPRA_CONTEXTOS_VALIDOS = new Set(['insumos_sku', 'compras_dm_sku']);
+async function manejarLinkCompra(req, res, sesion) {
   try {
+    const contexto = req.method === 'GET' ? req.query.contexto : (req.body || {}).contexto;
+    if (!LINK_COMPRA_CONTEXTOS_VALIDOS.has(contexto)) return res.status(400).json({ error: 'Falta un contexto válido' });
+
     const sql = await getSql();
     await asegurarTablaComentariosLog(sql);
 
     if (req.method === 'GET') {
-      const historialPorSku = await obtenerHistorialComentarios(sql, 'insumos_sku');
+      const historialPorSku = await obtenerHistorialComentarios(sql, contexto);
       const linkPorSku = {};
       for (const [sku, historial] of historialPorSku.entries()) linkPorSku[sku] = historial[0]?.comentario || null;
       return res.status(200).json({ linkPorSku });
@@ -2456,7 +2463,7 @@ async function manejarInsumoLink(req, res, sesion) {
     if (req.method === 'PUT') {
       const { sku, link } = req.body || {};
       if (!sku) return res.status(400).json({ error: 'Falta sku' });
-      const id = await registrarComentario(sql, 'insumos_sku', sku, link, sesion.nombre || sesion.email);
+      const id = await registrarComentario(sql, contexto, sku, link, sesion.nombre || sesion.email);
       if (id == null) return res.status(400).json({ error: 'El link no puede quedar vacío' });
       return res.status(200).json({ ok: true, id });
     }
