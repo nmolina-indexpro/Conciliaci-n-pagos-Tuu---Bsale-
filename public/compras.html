@@ -903,7 +903,7 @@ function comparadorParsearLineaPedido(lineaOriginal){
   // Nombre: TODOS los campos de texto que no sean el SKU ni un número
   // puro, unidos -- se prefiere guardar de más (ej. un color o el modelo
   // de panel que haya quedado en un campo aparte) antes que perder datos.
-  const candidatosNombre = campos.filter(c => c !== sku && !/^\$?\s*[\d.,]+$/.test(c));
+  const candidatosNombre = campos.filter(c => c !== sku && !/^\$?\s*[\d.,]+$/.test(c) && !/^(disponible|sin\s*stock|agotad[oa]|parcial|con\s*stock)$/i.test(c));
   const nombre = candidatosNombre.join(' ') || campos.join(' ');
 
   return { sku, nombre, cantidad };
