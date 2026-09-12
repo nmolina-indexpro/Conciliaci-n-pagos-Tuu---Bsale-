@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 
@@ -99,6 +99,7 @@ export default async function handler(req, res) {
   if (recurso === 'servicios-por-mes') return manejarServiciosPorMes(req, res, sesion);
   if (recurso === 'sync-servicios-tecnico') return manejarSyncServiciosTecnico(req, res, sesion);
   if (recurso === 'link-compra') return manejarLinkCompra(req, res, sesion);
+  if (recurso === 'compras-dm-excluidos') return manejarComprasDMExcluidos(req, res, sesion);
   if (recurso === 'whatsapp-dashboard') return manejarWhatsappDashboard(req, res, sesion);
   if (recurso === 'whatsapp-conversaciones') return manejarWhatsappConversaciones(req, res, sesion);
   if (recurso === 'whatsapp-conversacion-detalle') return manejarWhatsappConversacionDetalle(req, res, sesion);
@@ -2471,6 +2472,37 @@ async function manejarLinkCompra(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error guardando el link de compra', detail: String(err) });
+  }
+}
+
+// Exclusión permanente de un SKU de la lista "Comercial Dos Mundos (DM)"
+// en Compras (pedido del usuario: si un producto se detecta ahí por
+// error, no debe volver a aparecer aunque se presione "Analizar" de
+// nuevo) -- mismo patrón que el DELETE de "Sacar de este análisis" en
+// manejarVentasSkuTendencia, pero con su propia tabla (compras_dm_excluidos,
+// ver lib/db.js): es un concepto distinto, no comparte exclusión con
+// Análisis.
+async function manejarComprasDMExcluidos(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaComprasDMExcluidos(sql);
+
+    if (req.method === 'GET') {
+      const { rows } = await sql`SELECT sku FROM compras_dm_excluidos;`;
+      return res.status(200).json({ excluidos: rows.map(r => r.sku) });
+    }
+
+    if (req.method === 'DELETE') {
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede eliminar un producto de esta lista' });
+      const sku = String(req.query.sku || '').trim();
+      if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
+      await sql`INSERT INTO compras_dm_excluidos (sku, excluido_por) VALUES (${sku}, ${sesion.nombre || sesion.email}) ON CONFLICT (sku) DO NOTHING;`;
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error gestionando exclusiones de DM', detail: String(err) });
   }
 }
 

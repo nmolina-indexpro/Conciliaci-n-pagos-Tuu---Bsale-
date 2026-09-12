@@ -236,6 +236,8 @@
         <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('bateria-alternativa')">🔋 Baterías</button>
         <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('celular')">📱 Cargadores de celular</button>
         <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('funda')">🎒 Fundas</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('base-notebook')">💻 Bases</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('destornilladores')">🔧 Destornilladores</button>
       </div>
       <div id="dmWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
     </div>
@@ -570,25 +572,49 @@ function renderDaxis(){
 const REGEX_PROVEEDOR_DM = /dos\s*(mundos?|mudos)|\bdm\b/i;
 // Categorías reales de Bsale confirmadas en vivo como las que compra DM
 // (cargadores, baterías alternativas -- incluidas sus variantes MacBook/
-// Notebook, cargadores de celular, fundas) -- si aparece una categoría
-// nueva que DM empieza a proveer, agregarla acá.
-const CATEGORIAS_DM = new Set(['CARGADOR ALTERNATIVO', 'BATERIA ALTERNATIVA', 'BATERIA ALTERNATIVA MACBOOK', 'BATERIA ALTERNATIVA NOTEBOOK', 'CELULAR', 'FUNDA NOTEBOOK']);
+// Notebook, cargadores de celular, fundas, bases de notebook, kit de
+// destornilladores -- "Herramientas" en esta cuenta solo tiene ESE único
+// producto, confirmado en vivo antes de agregarlo entero) -- si aparece
+// una categoría nueva que DM empieza a proveer, agregarla acá.
+const CATEGORIAS_DM = new Set(['CARGADOR ALTERNATIVO', 'BATERIA ALTERNATIVA', 'BATERIA ALTERNATIVA MACBOOK', 'BATERIA ALTERNATIVA NOTEBOOK', 'CELULAR', 'FUNDA NOTEBOOK', 'BASE NOTEBOOK', 'HERRAMIENTAS']);
 const filtrosDMCategoria = {
   'cargador-alternativo': s => normalizarCat(s.categoria) === 'cargador alternativo',
   'bateria-alternativa': s => normalizarCat(s.categoria).startsWith('bateria alternativa'),
   celular: s => normalizarCat(s.categoria) === 'celular',
   funda: s => normalizarCat(s.categoria) === 'funda notebook',
+  'base-notebook': s => normalizarCat(s.categoria) === 'base notebook',
+  destornilladores: s => normalizarCat(s.categoria) === 'herramientas',
 };
 let filtroDMCategoria = null;
 let ordenDM = { campo: null, asc: true };
 let linkDMPorSku = {};
+let excluidosDM = new Set();
 
 async function cargarLinksDM(){
   try{
-    const res = await fetch('/api/negocio?recurso=link-compra&contexto=compras_dm_sku');
+    const [resLinks, resExcluidos] = await Promise.all([
+      fetch('/api/negocio?recurso=link-compra&contexto=compras_dm_sku').then(r=>r.json()),
+      fetch('/api/negocio?recurso=compras-dm-excluidos').then(r=>r.json()),
+    ]);
+    linkDMPorSku = resLinks.linkPorSku || {};
+    excluidosDM = new Set(resExcluidos.excluidos || []);
+  }catch(err){ linkDMPorSku = {}; excluidosDM = new Set(); }
+}
+
+// Definitivo -- pedido del usuario: un producto que no corresponde de
+// verdad a DM (ej. una recepción vieja mal identificada) no debe volver a
+// aparecer aunque se presione "Analizar" de nuevo.
+async function eliminarProductoDM(sku, nombre){
+  if(!confirm(`¿Eliminar "${nombre}" de la lista de Comercial Dos Mundos? No va a volver a aparecer.`)) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=compras-dm-excluidos&sku=${encodeURIComponent(sku)}`, { method: 'DELETE' });
     const data = await res.json();
-    linkDMPorSku = data.linkPorSku || {};
-  }catch(err){ linkDMPorSku = {}; }
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo eliminar.'); return; }
+    excluidosDM.add(sku);
+    renderDM();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
 }
 
 function filtrarDMCategoria(clave){
@@ -608,7 +634,7 @@ function flechaDM(campo){
 
 function renderDM(){
   const wrap = $('dmWrap');
-  const productosDM = datosSkus.filter(s => CATEGORIAS_DM.has((s.categoria || '').toUpperCase()) && REGEX_PROVEEDOR_DM.test(s.proveedor || ''));
+  const productosDM = datosSkus.filter(s => CATEGORIAS_DM.has((s.categoria || '').toUpperCase()) && REGEX_PROVEEDOR_DM.test(s.proveedor || '') && !excluidosDM.has(s.code));
   const productos = filtroDMCategoria ? productosDM.filter(filtrosDMCategoria[filtroDMCategoria]) : productosDM;
   if(productos.length === 0){
     wrap.innerHTML = '<p class="empty-note">No se encontraron productos de Comercial Dos Mundos (o todavía no se ha presionado "Analizar").</p>';
@@ -640,6 +666,7 @@ function renderDM(){
         <th onclick="ordenarDMPor('fechaUltimaCompra')" style="cursor:pointer;">Última factura de ingreso${flechaDM('fechaUltimaCompra')}</th>
         <th class="amount" onclick="ordenarDMPor('ultimoCosto')" style="cursor:pointer;">Último costo${flechaDM('ultimoCosto')}</th>
         <th>Link de compra</th>
+        ${rolActual === 'admin' ? '<th>Eliminar</th>' : ''}
       </tr></thead>
       <tbody>${filas.map(s => {
         const link = linkDMPorSku[s.code] || '';
@@ -653,6 +680,7 @@ function renderDM(){
           <td>${s.fechaUltimaCompra || '—'}</td>
           <td class="amount">${s.ultimoCosto != null ? fmt(s.ultimoCosto) : '—'}</td>
           <td>${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkDM('${s.code}')">✏️</button></td>
+          ${rolActual === 'admin' ? `<td><button class="btn-icono" title="Eliminar de esta lista (definitivo)" onclick="eliminarProductoDM('${s.code}', '${s.nombre.replace(/'/g, "\\'")}')">🗑️</button></td>` : ''}
         </tr>`;
       }).join('')}</tbody>
     </table>
