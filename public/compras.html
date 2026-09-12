@@ -1232,6 +1232,13 @@ async function cargarSesionUsuario(){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
     }
+    // Precarga sola (pedido del usuario), en 30 días -- antes había que
+    // presionar "Analizar" a mano. calcularRecomendacionPresupuesto()
+    // necesita datosSkus ya cargado, por eso va DESPUÉS de cargar(), no en
+    // paralelo (antes se llamaba antes de que existiera cualquier dato).
+    $('diasInput').value = 30;
+    await cargar();
+    calcularRecomendacionPresupuesto();
   }catch(err){ /* silencioso: no bloquea el resto de la página */ }
 }
 async function cerrarSesion(){
@@ -1239,7 +1246,6 @@ async function cerrarSesion(){
   location.href = '/login.html';
 }
 cargarSesionUsuario();
-calcularRecomendacionPresupuesto();
 </script>
 </body>
 </html>
