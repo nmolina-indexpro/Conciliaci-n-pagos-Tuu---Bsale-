@@ -1014,7 +1014,7 @@ function comparadorRenderSolicitud(){
       <div class="card"><div class="lbl">Productos solicitados</div><div class="big">${d.items.length}</div></div>
       <div class="card"><div class="lbl">Con proveedor asignado</div><div class="big">${conProveedor}</div></div>
       <div class="card alert"><div class="lbl">Pendientes</div><div class="big">${pendientes}</div></div>
-      ${d.proveedores.map(p => `<div class="card"><div class="lbl">Total ${p.nombre}</div><div class="big">${fmt(totalesPorProveedor[p.id] || 0)}</div></div>`).join('')}
+      ${d.proveedores.map(p => `<div class="card"><div class="lbl">Total ${p.nombre}</div><div class="big">${fmt(totalesPorProveedor[p.id] || 0)} <span style="font-size:11px;font-weight:600;color:var(--muted);">Neto</span></div><div class="note" style="margin-top:6px;font-size:11.5px;">${fmt(Math.round((totalesPorProveedor[p.id] || 0) * 1.19))} <b>Con IVA</b></div></div>`).join('')}
       <div class="card"><div class="lbl">Compra optimizada</div><div class="big" style="color:var(--green);">${fmt(totalOptimizado)}</div></div>
       <div class="card"><div class="lbl">Ahorro obtenido</div><div class="big" style="color:var(--green);">${fmt(ahorroTotal)}</div></div>
     </div>
