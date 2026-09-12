@@ -47,6 +47,8 @@
   .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
   .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
   .btn-ghost.activo{background:var(--primary-dim);border-color:var(--primary);color:var(--primary);}
+  .btn-icono{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);font-size:12px;cursor:pointer;padding:0;vertical-align:middle;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
 
   .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
   #syncStatus{font-size:12px;color:var(--muted);margin-top:10px;}
@@ -691,13 +693,18 @@ let sortColInsumos = 'stockActual';
 let sortAscInsumos = true; // stock más bajo primero -- lo más urgente de reponer
 const normalizarCategoriaInsumo = c => (c || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
+let linkCompraPorSku = {};
 async function cargarInsumos(){
   $('btnCargarInsumos').disabled = true;
   $('statusInsumos').textContent = 'Consultando Bsale (puede tardar unos segundos)...';
   $('wrapInsumos').innerHTML = '<p class="empty-note">Cargando...</p>';
   try{
-    const res = await fetch('/api/bsale-sku-report?days=90');
-    const data = await res.json();
+    const [res, resLinks] = await Promise.all([
+      fetch('/api/bsale-sku-report?days=90').then(r=>r.json()),
+      fetch('/api/negocio?recurso=insumo-link').then(r=>r.json()).catch(()=>({linkPorSku:{}})),
+    ]);
+    const data = res;
+    linkCompraPorSku = resLinks.linkPorSku || {};
     if(data.error){
       $('statusInsumos').textContent = 'Error: ' + (data.detail || data.error);
       $('wrapInsumos').innerHTML = '<p class="empty-note">No se pudo cargar el stock de insumos.</p>';
@@ -718,6 +725,31 @@ function cambiarOrdenInsumos(col){
   if(sortColInsumos === col) sortAscInsumos = !sortAscInsumos;
   else { sortColInsumos = col; sortAscInsumos = true; }
   renderInsumos();
+}
+
+// Cualquier persona logueada puede agregar/actualizar el link -- pedido del
+// usuario: que cualquiera que necesite comprar de nuevo pueda ir directo,
+// no solo quien lo guardó la primera vez. Cada actualización queda
+// registrada (quién y cuándo) en el mismo historial de comentarios
+// compartido, ver manejarInsumoLink.
+async function editarLinkInsumo(sku){
+  const actual = linkCompraPorSku[sku] || '';
+  const nuevo = prompt('Link para comprar este insumo de nuevo (ej. el link del producto en AliExpress):', actual);
+  if(nuevo === null) return; // canceló
+  const texto = nuevo.trim();
+  if(!texto){ alert('El link no puede quedar vacío.'); return; }
+  try{
+    const res = await fetch('/api/negocio?recurso=insumo-link', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sku, link: texto }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar el link.'); return; }
+    linkCompraPorSku[sku] = texto;
+    renderInsumos();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
 }
 
 function renderInsumos(){
@@ -743,14 +775,22 @@ function renderInsumos(){
   });
   const marca = c => sortColInsumos === c ? (sortAscInsumos ? ' ▲' : ' ▼') : '';
   const th = (campo, label) => `<th class="mes ordenable" onclick="cambiarOrdenInsumos('${campo}')">${label}${marca(campo)}</th>`;
-  const filas = ordenada.map(s => `
+  const filas = ordenada.map(s => {
+    const link = linkCompraPorSku[s.code] || '';
+    const esLinkValido = /^https?:\/\//i.test(link);
+    const linkHtml = esLinkValido
+      ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">🔗 Comprar</a>`
+      : (link ? `<span class="empty-note" title="${escapeHtml(link)}">${escapeHtml(link)}</span>` : '<span class="empty-note">Sin link</span>');
+    return `
     <tr>
       <td class="servicio">${escapeHtml(s.nombre)}<br><span class="sku-code">SKU: ${escapeHtml(s.code)}</span></td>
       <td class="mes amount">${fmtNum(s.stockActual)}</td>
       <td class="mes amount">${s.fechaUltimaCompra || '—'}</td>
       <td class="mes amount">${s.ultimoCosto != null ? fmtMoneda(s.ultimoCosto) : '—'}</td>
       <td class="mes amount">${s.proveedor ? escapeHtml(s.proveedor) : '—'}</td>
-    </tr>`).join('');
+      <td class="mes amount">${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkInsumo('${escapeHtml(s.code)}')">✏️</button></td>
+    </tr>`;
+  }).join('');
   $('wrapInsumos').innerHTML = `
     <div class="tabla-wrap"><table>
       <thead><tr>
@@ -759,6 +799,7 @@ function renderInsumos(){
         ${th('fechaUltimaCompra', 'Última fecha de ingreso')}
         ${th('ultimoCosto', 'Último costo de ingreso')}
         ${th('proveedor', 'Proveedor')}
+        <th>Link de compra</th>
       </tr></thead>
       <tbody>${filas}</tbody>
     </table></div>
