@@ -195,6 +195,27 @@
     </div>
   </div>
 
+  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #B45309;" id="dmCard">
+    <div class="panel-header" onclick="togglePanel('dmCard')">
+      <span class="lbl" style="margin-bottom:0;">🏬 Comercial Dos Mundos (DM)</span>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <p class="empty-note" style="margin-top:0;">DM no tiene integración con la tienda -- la compra se hace entrando a mano a su portal con sesión iniciada. Esta lista es de referencia: productos alternativos (cargadores, baterías, cargadores de celular, algunas fundas) identificados en las facturas de ingreso a nombre de "Comercial Dos Mundos", con su stock, último costo, y un link directo al producto para comprar más rápido.</p>
+      <div class="filtros" style="margin-bottom:0;">
+        <span class="filtro-label">Categoría:</span>
+        <button class="btn-ghost btn-compact active" id="dmFiltroTodas" onclick="filtrarDMCategoria(null)">Todas</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('cargador-alternativo')">🔌 Cargadores</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('bateria-alternativa')">🔋 Baterías</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('celular')">📱 Cargadores de celular</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('funda')">🎒 Fundas</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('base-notebook')">💻 Bases</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('destornilladores')">🔧 Destornilladores</button>
+      </div>
+      <div id="dmWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
+    </div>
+  </div>
+
   <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #16A34A;" id="daxisCard">
     <div class="panel-header" onclick="togglePanel('daxisCard')">
       <span class="lbl" style="margin-bottom:0;">🚢 Importación Daxis — Cargadores y Baterías</span>
@@ -222,71 +243,58 @@
     </div>
   </div>
 
-  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #B45309;" id="dmCard">
-    <div class="panel-header" onclick="togglePanel('dmCard')">
-      <span class="lbl" style="margin-bottom:0;">🏬 Comercial Dos Mundos (DM)</span>
+  <div class="card panel-colapsable" style="margin-bottom:24px;" id="tablaPrincipalCard">
+    <div class="panel-header" onclick="togglePanel('tablaPrincipalCard')">
+      <span class="lbl" style="margin-bottom:0;">📋 Catálogo completo</span>
       <span class="panel-chevron">▾</span>
     </div>
     <div class="panel-body">
-      <p class="empty-note" style="margin-top:0;">DM no tiene integración con la tienda -- la compra se hace entrando a mano a su portal con sesión iniciada. Esta lista es de referencia: productos alternativos (cargadores, baterías, cargadores de celular, algunas fundas) identificados en las facturas de ingreso a nombre de "Comercial Dos Mundos", con su stock, último costo, y un link directo al producto para comprar más rápido.</p>
-      <div class="filtros" style="margin-bottom:0;">
+      <div class="filtros" style="margin-bottom:8px;">
         <span class="filtro-label">Categoría:</span>
-        <button class="btn-ghost btn-compact active" id="dmFiltroTodas" onclick="filtrarDMCategoria(null)">Todas</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('cargador-alternativo')">🔌 Cargadores</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('bateria-alternativa')">🔋 Baterías</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('celular')">📱 Cargadores de celular</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('funda')">🎒 Fundas</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('base-notebook')">💻 Bases</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('destornilladores')">🔧 Destornilladores</button>
+        <button class="btn-ghost btn-compact" id="catTodas" onclick="filtrarCategoriaRapida(null)">Todas</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('pan-car-bat')" title="Pantalla Notebook + Cargador Original + Batería Original" style="border-color:var(--primary);color:var(--primary);font-weight:800;">PAN-CAR-BAT</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('pantalla')">Pantallas</button>
+        <span style="width:1px;height:20px;background:var(--line);margin:0 2px;"></span>
+        <span class="filtro-label">Cargadores:</span>
+        <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-original')">Originales</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-daxis')">Daxis</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-alternativo')">Alternativos</button>
+        <span style="width:1px;height:20px;background:var(--line);margin:0 2px;"></span>
+        <span class="filtro-label">Baterías:</span>
+        <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-original')">Originales</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-daxis')">Daxis</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-alternativo')">Alternativas</button>
+        <select id="filtroCategoria" onchange="renderTabla()" style="min-width:170px;">
+          <option value="">Otra categoría...</option>
+        </select>
       </div>
-      <div id="dmWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
+
+      <div class="filtros" style="background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;box-shadow:var(--shadow);">
+        <span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;">⬇ Exportar pedido a Excel</span>
+        <label style="font-size:12px;color:var(--muted);">Horizonte:</label>
+        <select id="horizonteExport">
+          <option value="5">5 días</option>
+          <option value="7" selected>7 días</option>
+          <option value="14">14 días</option>
+        </select>
+        <button class="btn-primary btn-compact btn-exportar" onclick="exportarExcel()">Descargar Excel</button>
+        <span style="color:var(--muted);font-size:11.5px;">Exporta lo que esté filtrado/buscado en este momento.</span>
+      </div>
+
+      <div class="filtros">
+        <input type="text" id="buscador" placeholder="Buscar por SKU o nombre..." style="width:260px;" oninput="renderTabla()">
+        <select id="filtroUrgencia" onchange="renderTabla()">
+          <option value="">Todos</option>
+          <option value="urgente">Solo urgentes</option>
+          <option value="pronto">Urgentes + pronto a agotarse</option>
+          <option value="sinventa">Sin venta en el período</option>
+        </select>
+        <span style="color:var(--muted);font-size:12px;">Click en un encabezado para ordenar</span>
+      </div>
+
+      <div id="tablaWrap"><p class="empty-note">Presiona "Analizar" para traer los datos de Bsale.</p></div>
     </div>
   </div>
-
-  <div class="filtros" style="margin-bottom:8px;">
-    <span class="filtro-label">Categoría:</span>
-    <button class="btn-ghost btn-compact" id="catTodas" onclick="filtrarCategoriaRapida(null)">Todas</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('pan-car-bat')" title="Pantalla Notebook + Cargador Original + Batería Original" style="border-color:var(--primary);color:var(--primary);font-weight:800;">PAN-CAR-BAT</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('pantalla')">Pantallas</button>
-    <span style="width:1px;height:20px;background:var(--line);margin:0 2px;"></span>
-    <span class="filtro-label">Cargadores:</span>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-original')">Originales</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-daxis')">Daxis</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('cargador-alternativo')">Alternativos</button>
-    <span style="width:1px;height:20px;background:var(--line);margin:0 2px;"></span>
-    <span class="filtro-label">Baterías:</span>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-original')">Originales</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-daxis')">Daxis</button>
-    <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-alternativo')">Alternativas</button>
-    <select id="filtroCategoria" onchange="renderTabla()" style="min-width:170px;">
-      <option value="">Otra categoría...</option>
-    </select>
-  </div>
-
-  <div class="filtros" style="background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;box-shadow:var(--shadow);">
-    <span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;">⬇ Exportar pedido a Excel</span>
-    <label style="font-size:12px;color:var(--muted);">Horizonte:</label>
-    <select id="horizonteExport">
-      <option value="5">5 días</option>
-      <option value="7" selected>7 días</option>
-      <option value="14">14 días</option>
-    </select>
-    <button class="btn-primary btn-compact btn-exportar" onclick="exportarExcel()">Descargar Excel</button>
-    <span style="color:var(--muted);font-size:11.5px;">Exporta lo que esté filtrado/buscado en este momento.</span>
-  </div>
-
-  <div class="filtros">
-    <input type="text" id="buscador" placeholder="Buscar por SKU o nombre..." style="width:260px;" oninput="renderTabla()">
-    <select id="filtroUrgencia" onchange="renderTabla()">
-      <option value="">Todos</option>
-      <option value="urgente">Solo urgentes</option>
-      <option value="pronto">Urgentes + pronto a agotarse</option>
-      <option value="sinventa">Sin venta en el período</option>
-    </select>
-    <span style="color:var(--muted);font-size:12px;">Click en un encabezado para ordenar</span>
-  </div>
-
-  <div id="tablaWrap"><p class="empty-note">Presiona "Analizar" para traer los datos de Bsale.</p></div>
 
 </div>
 
@@ -294,6 +302,26 @@
 <script src="menu-herramientas.js"></script>
 <script>
 const $ = id => document.getElementById(id);
+
+// ---------- "Ver todos" para no volcar tablas larguísimas al cargar ----------
+// Pedido del usuario: cada sección muestra solo los primeros 4 resultados
+// al renderizar, con un botón para expandir/contraer el resto -- se guarda
+// el estado expandido/contraído por sección (no por tabla completa) para
+// que abrir una no afecte a las demás.
+let seccionesExpandidas = {}; // { daxis: false, dm: false, recomendacion: false, tablaPrincipal: false }
+function toggleVerMasSeccion(id){
+  seccionesExpandidas[id] = !seccionesExpandidas[id];
+}
+function filasLimitadas(id, lista){
+  return seccionesExpandidas[id] ? lista : lista.slice(0, 4);
+}
+function botonVerMasHtml(id, total, nombreFuncionRender){
+  if(total <= 4) return '';
+  const expandido = !!seccionesExpandidas[id];
+  return `<div style="text-align:center;margin-top:12px;">
+    <button class="btn-ghost btn-compact" onclick="toggleVerMasSeccion('${id}'); ${nombreFuncionRender}();">${expandido ? '▲ Ver menos' : `▾ Ver todos (${total})`}</button>
+  </div>`;
+}
 function fmt(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
 function addDaysStr(dateStr, days){
@@ -543,7 +571,7 @@ function renderDaxis(){
         <th onclick="ordenarDaxisPor('estadoOrden')" style="cursor:pointer;">Estado${flechaDaxis('estadoOrden')}</th>
       </tr></thead>
       <tbody>
-        ${filas.map(f => `
+        ${filasLimitadas('daxis', filas).map(f => `
           <tr class="${f.estado.clase}">
             <td>${f.code}</td><td>${f.nombre}</td><td>${f.categoria}</td>
             <td class="amount">${f.stockActual}</td>
@@ -557,6 +585,7 @@ function renderDaxis(){
           </tr>`).join('')}
       </tbody>
     </table>
+    ${botonVerMasHtml('daxis', filas.length, 'renderDaxis')}
   `;
 }
 
@@ -696,7 +725,7 @@ function renderDM(){
         <th>Link de compra</th>
         ${rolActual === 'admin' ? '<th>Eliminar</th>' : ''}
       </tr></thead>
-      <tbody>${filas.map(s => {
+      <tbody>${filasLimitadas('dm', filas).map(s => {
         const link = linkDMPorSku[s.code] || '';
         const esLinkValido = /^https?:\/\//i.test(link);
         const linkHtml = esLinkValido
@@ -719,6 +748,7 @@ function renderDM(){
         </tr>`;
       }).join('')}</tbody>
     </table>
+    ${botonVerMasHtml('dm', filas.length, 'renderDM')}
   `;
 }
 
@@ -894,10 +924,19 @@ function renderRecomendacionTabla(){
         <th onclick="ordenarRecomendacionPor('estadoOrden')" style="cursor:pointer;">Estado${flecha('estadoOrden')}</th>
       </tr></thead>
       <tbody>
-        ${dentroPresupuesto.map(s => filaRecomendacion(s, campoSugerencia, false)).join('')}
-        ${fueraPresupuesto.map(s => filaRecomendacion(s, campoSugerencia, true)).join('')}
+        ${(()=>{
+          // "Ver todos" aplica al total combinado (dentro + fuera de
+          // presupuesto), en el mismo orden en que se muestran -- primero
+          // se recortan los 4 visibles de ESE orden, y recién ahí se
+          // separan de nuevo en sus dos grupos para pintar cada fila con
+          // el estilo que le corresponde (opacado si quedó fuera).
+          const combinado = [...dentroPresupuesto.map(s=>({s, fuera:false})), ...fueraPresupuesto.map(s=>({s, fuera:true}))];
+          const visibles = filasLimitadas('recomendacion', combinado);
+          return visibles.map(({s, fuera}) => filaRecomendacion(s, campoSugerencia, fuera)).join('');
+        })()}
       </tbody>
     </table>
+    ${botonVerMasHtml('recomendacion', dentroPresupuesto.length + fueraPresupuesto.length, 'renderRecomendacionTabla')}
     ${sinCosto.length>0?`<p class="empty-note">⚠ ${sinCosto.length} SKU necesitan compra pero no tienen "último costo comprado" registrado, así que no se pudieron incluir en este cálculo (no sabemos cuánto cuestan).</p>`:''}
   `;
 }
@@ -1039,7 +1078,7 @@ function renderTabla(){
         <th>Estado</th>
       </tr></thead>
       <tbody>
-        ${filas.map(s => {
+        ${filasLimitadas('tablaPrincipal', filas).map(s => {
           const clase = clasificar(s);
           const etiqueta = { urgente:'Urgente', pronto:'Pronto', ok:'OK', sinventa:'Sin venta' }[clase];
           const miniatura = s.imagenUrl
@@ -1076,7 +1115,8 @@ function renderTabla(){
         }).join('')}
       </tbody>
     </table>
-    <p class="empty-note">Mostrando ${filas.length} de ${datosSkus.length} SKU. * Monto sugerido a comprar es una estimación usando el precio de venta promedio de cada SKU, no el costo de compra real.</p>
+    ${botonVerMasHtml('tablaPrincipal', filas.length, 'renderTabla')}
+    <p class="empty-note">Mostrando ${Math.min(filas.length, seccionesExpandidas.tablaPrincipal ? filas.length : 4)} de ${filas.length} filtrados (${datosSkus.length} SKU en total). * Monto sugerido a comprar es una estimación usando el precio de venta promedio de cada SKU, no el costo de compra real.</p>
   `;
 }
 
