@@ -135,7 +135,7 @@
 
   <div class="toolbar">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <div class="date-field"><label for="diasInput">Período (días)</label><input type="number" id="diasInput" value="120" min="7" max="365" style="width:80px;"></div>
+      <div class="date-field"><label for="diasInput">Período (días)</label><input type="number" id="diasInput" value="30" min="7" max="365" style="width:80px;"></div>
       <button class="btn-ghost btn-compact" onclick="setDias(7)">7 días</button>
       <button class="btn-ghost btn-compact" onclick="setDias(15)">15 días</button>
       <button class="btn-ghost btn-compact" onclick="setDias(30)">30 días</button>
@@ -392,7 +392,7 @@ function clasificar(sku){
 }
 
 async function cargar(){
-  const dias = parseInt($('diasInput').value, 10) || 120;
+  const dias = parseInt($('diasInput').value, 10) || 30;
   const status = $('status');
   status.className = '';
   status.textContent = `Consultando ${dias} días en Bsale (esto puede tardar un poco con catálogos grandes)...`;
@@ -724,6 +724,7 @@ function renderDM(){
         <th onclick="ordenarDMPor('categoria')" style="cursor:pointer;">Categoría${flechaDM('categoria')}</th>
         <th class="amount" onclick="ordenarDMPor('stockActual')" style="cursor:pointer;">Stock actual${flechaDM('stockActual')}</th>
         <th class="amount" title="Stock del mismo modelo (misma marca/voltaje/conector) en versión Daxis -- si ya hay stock ahí, no hace falta comprar el alternativo">Stock Daxis (similar)</th>
+        <th class="amount" onclick="ordenarDMPor('unidadesVendidas')" style="cursor:pointer;" title="Unidades vendidas en el período consultado (${$('diasInput').value} días)">Ventas (período)${flechaDM('unidadesVendidas')}</th>
         <th onclick="ordenarDMPor('fechaUltimaCompra')" style="cursor:pointer;">Última factura de ingreso${flechaDM('fechaUltimaCompra')}</th>
         <th class="amount" onclick="ordenarDMPor('ultimoCosto')" style="cursor:pointer;">Último costo${flechaDM('ultimoCosto')}</th>
         <th>Link de compra</th>
@@ -745,6 +746,7 @@ function renderDM(){
           <td>${s.code}</td><td>${s.nombre}</td><td>${s.categoria}</td>
           <td class="amount">${fmtNum(s.stockActual)}</td>
           <td class="amount">${celdaStockDaxis}</td>
+          <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
           <td>${s.fechaUltimaCompra || '—'}</td>
           <td class="amount">${s.ultimoCosto != null ? fmt(s.ultimoCosto) : '—'}</td>
           <td>${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkDM('${s.code}')">✏️</button></td>
