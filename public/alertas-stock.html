@@ -75,6 +75,7 @@
   .panel-body{margin-top:14px;}
 
   table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--surface);border-radius:14px;overflow:hidden;}
+  .tabla-wrap{overflow-x:auto;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:10px;border-bottom:2px solid var(--line);background:var(--surface-2);cursor:pointer;user-select:none;white-space:nowrap;}
   th:hover{color:var(--primary);}
   th.amount, td.amount{text-align:right;}
@@ -380,7 +381,7 @@ function renderTablaSeccion(containerId, stateKey, columnas, filasOriginales, ro
     return `<td class="${clases}">${c.render ? c.render(f) : (f[c.key] ?? '—')}</td>`;
   }).join('')}</tr>`).join('');
 
-  $(containerId).innerHTML = controles + `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+  $(containerId).innerHTML = controles + `<div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
 }
 function cambiarOrden(stateKey, col){
   const st = seccionState[stateKey];

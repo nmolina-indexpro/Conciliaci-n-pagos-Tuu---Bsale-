@@ -98,6 +98,7 @@
 
   .section-title{font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:700;margin:28px 0 12px;display:flex;align-items:center;gap:8px;color:var(--text);}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tabla-wrap{overflow-x:auto;}
   .data-table{table-layout:fixed;}
   .data-table th:nth-child(1),.data-table td:nth-child(1){width:9%;}
   .data-table th:nth-child(2),.data-table td:nth-child(2){width:14%;}
@@ -502,12 +503,12 @@ function renderOtrosPagos(otros, tuuOtras, duplicadosMl){
     }
     html += `
       <p class="empty-note" style="color:var(--amber);"><b>⚠ ${tuuOtras.length} transacción(es) TUU sin clasificar como débito/crédito (${fmt(totalTuuOtras)})</b> — prepago, sin tipo especificado, etc. No están incluidas en los totales de arriba.</p>
-      <table>
+      <div class="tabla-wrap"><table>
         <thead><tr><th>Tipo TUU</th><th class="amount">N° transacciones</th><th class="amount">Monto</th></tr></thead>
         <tbody>
           ${Object.entries(porTipoTuu).map(([tipo, d]) => `<tr><td>${tipo}</td><td class="amount">${d.cantidad}</td><td class="amount">${fmt(d.monto)}</td></tr>`).join('')}
         </tbody>
-      </table>
+      </table></div>
     `;
   }
 
@@ -524,7 +525,7 @@ function renderOtrosPagos(otros, tuuOtras, duplicadosMl){
     const totalGeneral = otros.reduce((a,o)=>a+o.monto,0);
 
     html += `
-      <table style="margin-top:${hayTuu?'18px':'0'};">
+      <div class="tabla-wrap"><table style="margin-top:${hayTuu?'18px':'0'};">
         <thead><tr><th>Forma de pago (Bsale)</th><th class="amount">N° documentos</th><th class="amount">Monto</th></tr></thead>
         <tbody>
           ${filas.map(([tipo, d]) => `
@@ -535,15 +536,15 @@ function renderOtrosPagos(otros, tuuOtras, duplicadosMl){
             </tr>`).join('')}
           <tr><td><b>Total</b></td><td class="amount"><b>${otros.length}</b></td><td class="amount"><b>${fmt(totalGeneral)}</b></td></tr>
         </tbody>
-      </table>
+      </table></div>
       <details style="margin-top:10px;">
         <summary style="cursor:pointer;font-size:12px;color:var(--primary);">Ver documentos individuales</summary>
-        <table style="margin-top:10px;">
+        <div class="tabla-wrap"><table style="margin-top:10px;">
           <thead><tr><th>Doc. Bsale</th><th>Cliente</th><th>Forma de pago</th><th class="amount">Monto</th></tr></thead>
           <tbody>
             ${otros.map(o => `<tr><td>#${o.numero}</td><td>${o.cliente||'—'}</td><td>${o.tipo}</td><td class="amount">${fmt(o.monto)}</td></tr>`).join('')}
           </tbody>
-        </table>
+        </table></div>
       </details>
     `;
   }
@@ -552,12 +553,12 @@ function renderOtrosPagos(otros, tuuOtras, duplicadosMl){
     const totalDuplicados = duplicadosMl.reduce((a,o)=>a+o.monto,0);
     html += `
       <p class="empty-note" style="color:var(--amber);margin-top:${(hayTuu||hayBsale)?'18px':'0'};"><b>⚠ ${duplicadosMl.length} documento(s) "MERCADO PAGO" excluido(s) del total (${fmt(totalDuplicados)})</b> — en esta cuenta duplican la misma venta ya registrada como "ABONO DE CLIENTE(ML)". Solo se listan para que no se pierdan de vista, no se suman en ningún total.</p>
-      <table>
+      <div class="tabla-wrap"><table>
         <thead><tr><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto</th></tr></thead>
         <tbody>
           ${duplicadosMl.map(o => `<tr><td>#${o.numero}</td><td>${o.cliente||'—'}</td><td class="amount">${fmt(o.monto)}</td></tr>`).join('')}
         </tbody>
-      </table>
+      </table></div>
     `;
   }
 
@@ -588,7 +589,7 @@ function renderEfectivo(docs){
   }
   const total = sum(docs, 'monto');
   el.innerHTML = `
-    <table class="data-table">
+    <div class="tabla-wrap"><table class="data-table">
       <thead><tr><th>Hora</th><th class="amount">Monto Efectivo</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead>
       <tbody>
         ${docs.map(d => `
@@ -602,7 +603,7 @@ function renderEfectivo(docs){
           </tr>`).join('')}
         <tr><td></td><td class="amount"><b>${fmt(total)}</b></td><td></td><td><b>Total</b></td><td class="amount"><b>${fmt(total)}</b></td><td></td></tr>
       </tbody>
-    </table>
+    </table></div>
   `;
 }
 
@@ -857,7 +858,7 @@ function renderConsolidado({ startDate, endDate, filas }){
       <div class="diff-line">${extraCount>0 ? `${extraCount} documentos Bsale sin venta POS en el período (${fmt(extraTotal)}) — no cuentan como descuadre.` : 'Sin documentos Bsale sueltos en el período.'}</div>
     </div>
 
-    <table>
+    <div class="tabla-wrap"><table>
       <thead><tr>
         <th>Fecha</th><th class="amount">TUU déb.</th><th class="amount">TUU créd.</th>
         <th class="amount">Bsale déb.</th><th class="amount">Bsale créd.</th>
@@ -879,7 +880,7 @@ function renderConsolidado({ startDate, endDate, filas }){
             <td>${f.bsaleExtraCount>0 ? `${f.bsaleExtraCount} (${fmt(f.bsaleExtraTotal)})` : '—'}</td>
           </tr>`).join('')}
       </tbody>
-    </table>
+    </table></div>
     <p class="empty-note">Click en un día para ver el detalle completo. Columnas Shopify/BCI muestran el monto ya emparejado con Bsale (⚠ si algo quedó suelto ese día).</p>
   `;
 }
@@ -960,7 +961,7 @@ function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
   if(rows.length===0) return `<p class="empty-note">Sin transacciones de ${label} para esta fecha.</p>`;
   const origenLabel = label === 'Shopify' ? 'Monto Shopify' : label === 'BCI' ? 'Monto BCI' : label === 'Fintoc' ? 'Monto Fintoc' : 'Monto TUU';
   const esShopify = scope === 'shopify';
-  let html = `<table class="data-table"><thead><tr><th>Hora</th><th class="amount">${origenLabel}</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
+  let html = `<div class="tabla-wrap"><table class="data-table"><thead><tr><th>Hora</th><th class="amount">${origenLabel}</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
   for(const r of rows){
     if(r.matched){
       const textoEstado = esShopify && r.pos.pasarela ? `${r.pos.pasarela} OK` : 'OK';
@@ -993,12 +994,12 @@ function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
       </tr>`;
     }
   }
-  return html + `</tbody></table>`;
+  return html + `</tbody></table></div>`;
 }
 
 function extraHtml(unmatchedBsale, fecha, poolTuuSueltos){
   if(unmatchedBsale.length===0) return '';
-  let html = `<table><thead><tr><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto</th><th>Estado</th></tr></thead><tbody>`;
+  let html = `<div class="tabla-wrap"><table><thead><tr><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto</th><th>Estado</th></tr></thead><tbody>`;
   for(const b of unmatchedBsale){
     const clave = claveItem(fecha, 'bsaleExtra', b.numero);
     const resuelto = estaResuelto(clave);
@@ -1020,7 +1021,7 @@ function extraHtml(unmatchedBsale, fecha, poolTuuSueltos){
       </td>
     </tr>`;
   }
-  return html + `</tbody></table>`;
+  return html + `</tbody></table></div>`;
 }
 
 function renderResults(rCrudo){
@@ -1099,7 +1100,7 @@ function renderResults(rCrudo){
 
   el.innerHTML = `
     <div class="receipt">
-      <table class="resumen-table">
+      <div class="tabla-wrap"><table class="resumen-table">
         <thead><tr><th></th><th class="amount">Origen</th><th class="amount">Bsale (match)</th><th>Estado</th></tr></thead>
         <tbody>
           ${filas.map(f => `
@@ -1110,7 +1111,7 @@ function renderResults(rCrudo){
               <td class="estado-cell">${f.sinComparar ? '<span class="check-icon info" title="Sin sistema externo para comparar">ℹ</span>' : `<span class="check-icon ${f.cuadra?'ok':'no'}">${f.cuadra?'✓':'✕'}</span>`}</td>
             </tr>`).join('')}
         </tbody>
-      </table>
+      </table></div>
       <span class="stamp ${cuadraGeneral?'ok':'bad'}">${cuadraGeneral ? '✓ CUADRA' : '⚠ FALTAN DOCUMENTOS'}</span>
       <div class="diff-line">${cuadraAdj ? 'Todas las ventas del TUU tienen su documento en Bsale (o quedaron marcadas como revisadas).' : `Diferencia débito: <b>${fmt(diffDebAdj)}</b> · Diferencia crédito: <b>${fmt(diffCredAdj)}</b> — hay ventas del TUU sin documento ni revisión.`}</div>
       ${!cuadraAdj ? `<button class="btn-ghost btn-compact" id="btnAlertaCorreo" onclick="enviarAlertaConciliacion()" style="margin-top:10px;">📧 Enviar alerta por correo</button>` : ''}

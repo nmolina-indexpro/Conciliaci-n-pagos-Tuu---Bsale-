@@ -62,6 +62,7 @@
   @media (max-width:1100px){.dos-columnas{grid-template-columns:1fr;}}
 
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tabla-wrap{overflow-x:auto;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);}
   th.amount, td.amount{text-align:right;}
   td{padding:9px;border-bottom:1px solid var(--line);}
@@ -275,10 +276,10 @@ function renderKpis(tickets){
 function renderGrupo(containerId, grupos, etiquetaCol){
   if(grupos.length===0){ $(containerId).innerHTML = `<p class="empty-note">Sin datos.</p>`; return; }
   $(containerId).innerHTML = `
-    <table>
+    <div class="tabla-wrap"><table>
       <thead><tr><th>${etiquetaCol}</th><th class="amount">Cantidad</th></tr></thead>
       <tbody>${grupos.map(g=>`<tr><td>${g.clave}</td><td class="amount">${g.cantidad}</td></tr>`).join('')}</tbody>
-    </table>`;
+    </table></div>`;
 }
 
 function renderAgentes(tickets){
@@ -292,7 +293,7 @@ function renderAgentes(tickets){
   const lista = Object.values(mapa).sort((a,b)=>b.cantidad-a.cantidad);
   if(lista.length===0){ $('wrapAgente').innerHTML = `<p class="empty-note">Sin datos.</p>`; return; }
   $('wrapAgente').innerHTML = `
-    <table>
+    <div class="tabla-wrap"><table>
       <thead><tr><th>Agente</th><th class="amount">Tickets</th><th class="amount">Prom. resolución</th></tr></thead>
       <tbody>${lista.map(a=>`
         <tr>
@@ -300,14 +301,14 @@ function renderAgentes(tickets){
           <td class="amount">${a.cantidad}</td>
           <td class="amount">${a.conTiempo ? Math.round(a.sumaHoras/a.conTiempo*10)/10 + ' h' : '—'}</td>
         </tr>`).join('')}</tbody>
-    </table>`;
+    </table></div>`;
 }
 
 function renderVencidos(tickets){
   const lista = tickets.filter(t=>t.vencido);
   if(lista.length===0){ $('wrapVencidos').innerHTML = `<p class="empty-note">Ningún ticket vencido en este período. 🎉</p>`; return; }
   $('wrapVencidos').innerHTML = `
-    <table>
+    <div class="tabla-wrap"><table>
       <thead><tr><th>N°</th><th>Asunto</th><th>Agente</th><th>Estado</th><th>Prioridad</th><th>Creado</th></tr></thead>
       <tbody>${lista.map(t=>`
         <tr class="vencido">
@@ -318,7 +319,7 @@ function renderVencidos(tickets){
           <td>${t.prioridad||'—'}</td>
           <td>${t.creado?new Date(t.creado).toLocaleDateString('es-CL'):'—'}</td>
         </tr>`).join('')}</tbody>
-    </table>`;
+    </table></div>`;
 }
 
 cargarSesionUsuario();

@@ -678,17 +678,17 @@ function renderAccesorios(data){
       : `Llevas ${fmtMoneda(mio.totalMes)} de ${fmtMoneda(data.meta)} este mes (${fmtNum(mio.unidades)} unidades) — te faltan ${fmtMoneda(mio.faltante)} para el bono.`;
     $('accMiBarra').innerHTML = barraProgresoAccesorios(mio.totalMes, data.meta);
     $('wrapMisSemanasAccesorios').innerHTML = `
-      <table><thead><tr><th>Semana</th><th>Hasta el día</th><th>Acumulado en el mes</th><th>Estado</th></tr></thead>
+      <div class="tabla-wrap"><table><thead><tr><th>Semana</th><th>Hasta el día</th><th>Acumulado en el mes</th><th>Estado</th></tr></thead>
       <tbody>${mio.semanas.map(s => `
         <tr>
           <td>Semana ${s.semana}</td>
           <td>Día ${s.diaHasta}</td>
           <td>${fmtMoneda(s.acumulado)}</td>
           <td>${s.cumplida ? '<span class="badge si">Meta cumplida ✓</span>' : `Faltan ${fmtMoneda(s.faltante)}`}</td>
-        </tr>`).join('')}</tbody></table>
+        </tr>`).join('')}</tbody></table></div>
       <h4 style="margin:18px 0 8px 0;font-family:'Space Grotesk',sans-serif;font-size:13px;">Por categoría</h4>
-      <table><thead><tr>${Object.values(ACCESORIOS_CATEGORIA_LABEL).map(l => `<th>${l}</th>`).join('')}</tr></thead>
-      <tbody><tr>${Object.keys(ACCESORIOS_CATEGORIA_LABEL).map(k => `<td>${fmtMoneda(mio.porCategoria?.[k] || 0)}</td>`).join('')}</tr></tbody></table>`;
+      <div class="tabla-wrap"><table><thead><tr>${Object.values(ACCESORIOS_CATEGORIA_LABEL).map(l => `<th>${l}</th>`).join('')}</tr></thead>
+      <tbody><tr>${Object.keys(ACCESORIOS_CATEGORIA_LABEL).map(k => `<td>${fmtMoneda(mio.porCategoria?.[k] || 0)}</td>`).join('')}</tr></tbody></table></div>`;
   } else {
     seccionMio.style.display = 'none';
     seccionSinDatos.style.display = '';

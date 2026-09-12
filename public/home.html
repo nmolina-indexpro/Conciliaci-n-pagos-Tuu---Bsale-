@@ -64,6 +64,7 @@
   @media (max-width:1100px){.dos-columnas{grid-template-columns:1fr;}}
 
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tabla-wrap{overflow-x:auto;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);}
   th.amount, td.amount{text-align:right;}
   td{padding:9px;border-bottom:1px solid var(--line);}
@@ -299,12 +300,12 @@ function renderInminente(skus){
     .slice(0,5);
   if(lista.length===0){ $('wrapInminente').innerHTML = `<p class="empty-note">Nada urgente por ahora. 🎉</p>`; return; }
   $('wrapInminente').innerHTML = `
-    <table>
+    <div class="tabla-wrap"><table>
       <thead><tr><th>SKU</th><th>Producto</th><th class="amount">Stock</th><th class="amount">Cobertura</th></tr></thead>
       <tbody>
         ${lista.map(s=>`<tr class="riesgo"><td>${s.code}</td><td>${s.nombre}</td><td class="amount">${s.stockActual}</td><td class="amount"><b>${s.diasCobertura} días</b></td></tr>`).join('')}
       </tbody>
-    </table>`;
+    </table></div>`;
 }
 
 function renderPerdidas(skus){
@@ -314,12 +315,12 @@ function renderPerdidas(skus){
     .slice(0,5);
   if(lista.length===0){ $('wrapPerdidas').innerHTML = `<p class="empty-note">Sin quiebres registrados en el período. 🎉</p>`; return; }
   $('wrapPerdidas').innerHTML = `
-    <table>
+    <div class="tabla-wrap"><table>
       <thead><tr><th>SKU</th><th>Producto</th><th class="amount">Días quiebre</th><th class="amount">Margen perdido</th></tr></thead>
       <tbody>
         ${lista.map(s=>`<tr class="${s.stockActual===0?'quiebre':''}"><td>${s.code}</td><td>${s.nombre}</td><td class="amount">${s.diasQuiebreHistorico}</td><td class="amount">${s.margenPerdidoPorQuiebre!=null?fmt(s.margenPerdidoPorQuiebre):'—'}</td></tr>`).join('')}
       </tbody>
-    </table>`;
+    </table></div>`;
 }
 
 function proximoDiaHabil(fechaStr){
@@ -361,10 +362,10 @@ function renderPagos(facturas, hoyStr){
     return `
       <div style="margin-bottom:14px;">
         <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;margin-bottom:6px;">${titulo} — <span style="color:var(--primary);">${fmt(total)}</span></div>
-        <table>
+        <div class="tabla-wrap"><table>
           <thead><tr><th>Proveedor</th><th>Documento</th><th class="amount">Monto</th></tr></thead>
           <tbody>${lista.map(filaFactura).join('')}</tbody>
-        </table>
+        </table></div>
       </div>`;
   };
 
@@ -382,7 +383,7 @@ function renderSoporte(reportes){
   if(reportes.length===0){ $('wrapSoporte').innerHTML = `<p class="empty-note">Sin tickets registrados.</p>`; return; }
   const lista = reportes.slice(0,5);
   $('wrapSoporte').innerHTML = `
-    <table>
+    <div class="tabla-wrap"><table>
       <thead><tr>${rolActual==='admin'?'<th>Usuario</th>':''}<th>Tipo</th><th>Descripción</th><th>Estado</th></tr></thead>
       <tbody>
         ${lista.map(r=>`
@@ -393,7 +394,7 @@ function renderSoporte(reportes){
             <td><span class="badge ${r.estado.replace(' ','-')}">${r.estado}</span></td>
           </tr>`).join('')}
       </tbody>
-    </table>`;
+    </table></div>`;
 }
 
 cargarSesionUsuario();

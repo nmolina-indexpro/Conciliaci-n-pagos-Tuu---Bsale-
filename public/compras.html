@@ -70,6 +70,7 @@
   select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
 
   table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--surface);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);}
+  .tabla-wrap{overflow-x:auto;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:10px;border-bottom:2px solid var(--line);cursor:pointer;user-select:none;background:var(--surface-2);position:sticky;top:0;z-index:5;}
   th:hover{color:var(--primary);}
   th.amount, td.amount{text-align:right;}
@@ -556,6 +557,7 @@ function renderDaxis(){
       <div class="card"><div class="lbl">Costo total sugerido a importar</div><div class="big">${fmt(costoTotalSugerido)}</div></div>
       <div class="card"><div class="lbl">SKU en esta categoría</div><div class="big">${filas.length}</div></div>
     </div>
+    <div class="tabla-wrap">
     <table>
       <thead><tr>
         <th onclick="ordenarDaxisPor('code')" style="cursor:pointer;">SKU${flechaDaxis('code')}</th>
@@ -585,6 +587,7 @@ function renderDaxis(){
           </tr>`).join('')}
       </tbody>
     </table>
+    </div>
     ${botonVerMasHtml('daxis', filas.length, 'renderDaxis')}
   `;
 }
@@ -713,6 +716,7 @@ function renderDM(){
   }
 
   wrap.innerHTML = `
+    <div class="tabla-wrap">
     <table>
       <thead><tr>
         <th onclick="ordenarDMPor('code')" style="cursor:pointer;">SKU${flechaDM('code')}</th>
@@ -748,6 +752,7 @@ function renderDM(){
         </tr>`;
       }).join('')}</tbody>
     </table>
+    </div>
     ${botonVerMasHtml('dm', filas.length, 'renderDM')}
   `;
 }
@@ -897,6 +902,7 @@ function renderRecomendacionTabla(){
     </div>
     ${(()=>{ const enQuiebre=[...dentroPresupuesto,...fueraPresupuesto].filter(s=>s.enQuiebre); return enQuiebre.length>0 ? `<div class="note-box" style="background:var(--red-bg);border-color:#F5B5B5;"><b>🔴 ${enQuiebre.length} SKU ya están en quiebre de stock</b> (venden pero tienen 0 unidades disponibles) — van primero en la lista sin importar el presupuesto, porque cada día sin stock es venta perdida.</div>` : ''; })()}
     <p class="empty-note" style="margin-top:0;"><b>${dentroPresupuesto.length} SKU</b> caben dentro del presupuesto. ${fueraPresupuesto.length>0?`<b>${fueraPresupuesto.length} SKU</b> quedaron afuera por falta de presupuesto — se muestran igual, para que sepas qué se está postergando.`:''}</p>
+    <div class="tabla-wrap">
     <table class="data-table">
       <thead><tr>
         <th></th>
@@ -936,6 +942,7 @@ function renderRecomendacionTabla(){
         })()}
       </tbody>
     </table>
+    </div>
     ${botonVerMasHtml('recomendacion', dentroPresupuesto.length + fueraPresupuesto.length, 'renderRecomendacionTabla')}
     ${sinCosto.length>0?`<p class="empty-note">⚠ ${sinCosto.length} SKU necesitan compra pero no tienen "último costo comprado" registrado, así que no se pudieron incluir en este cálculo (no sabemos cuánto cuestan).</p>`:''}
   `;
@@ -1048,6 +1055,7 @@ function renderTabla(){
   const flecha = campo => ordenActual.campo === campo ? (ordenActual.asc ? ' ▲' : ' ▼') : '';
 
   wrap.innerHTML = `
+    <div class="tabla-wrap">
     <table>
       <thead><tr>
         <th></th>
@@ -1115,6 +1123,7 @@ function renderTabla(){
         }).join('')}
       </tbody>
     </table>
+    </div>
     ${botonVerMasHtml('tablaPrincipal', filas.length, 'renderTabla')}
     <p class="empty-note">Mostrando ${Math.min(filas.length, seccionesExpandidas.tablaPrincipal ? filas.length : 4)} de ${filas.length} filtrados (${datosSkus.length} SKU en total). * Monto sugerido a comprar es una estimación usando el precio de venta promedio de cada SKU, no el costo de compra real.</p>
   `;

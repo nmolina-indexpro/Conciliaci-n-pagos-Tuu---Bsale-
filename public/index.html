@@ -83,6 +83,7 @@
 
   .section-title{font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:700;margin:30px 0 12px;display:flex;align-items:center;gap:8px;color:var(--text);}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tabla-wrap{overflow-x:auto;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px 10px;border-bottom:2px solid var(--line);}
   td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle;}
   .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;}
@@ -570,7 +571,7 @@ async function cargarCalendarioFijo(){
     }));
 
     wrap.innerHTML = `
-      <table>
+      <div class="tabla-wrap"><table>
         <thead><tr><th>Fecha de acreditación</th><th class="amount">Desde tarjeta (TUU)</th><th class="amount">Desde transferencia</th><th class="amount">Total esperado</th></tr></thead>
         <tbody>
           ${filas.map(f => `
@@ -581,7 +582,7 @@ async function cargarCalendarioFijo(){
               <td class="amount"><b>${fmt(f.total)}</b></td>
             </tr>`).join('')}
         </tbody>
-      </table>
+      </table></div>
     `;
   }catch(err){
     wrap.innerHTML = `<p class="empty-note">No se pudo cargar el calendario: ${err.message}</p>`;
@@ -627,7 +628,7 @@ async function cargarFacturasPorPagar(){
       $('facturasDetalleWrap').innerHTML = `<p class="empty-note">Sin facturas con vencimiento esta semana.</p>`;
     } else {
       $('facturasDetalleWrap').innerHTML = `
-        <table>
+        <div class="tabla-wrap"><table>
           <thead><tr><th>Vence</th><th>Proveedor</th><th>Documento</th><th class="amount">Monto</th></tr></thead>
           <tbody>
             ${facturasSemana.map(f => `
@@ -639,7 +640,7 @@ async function cargarFacturasPorPagar(){
               </tr>`).join('')}
             <tr><td colspan="3"><b>Total</b></td><td class="amount"><b>${fmt(totalSemana)}</b></td></tr>
           </tbody>
-        </table>
+        </table></div>
       `;
     }
   }catch(err){
@@ -903,7 +904,7 @@ function renderFacturasCompra(facturas){
   }
   const total = facturas.reduce((a,f)=>a+Number(f.monto),0);
   wrap.innerHTML = `
-    <table>
+    <div class="tabla-wrap"><table>
       <thead><tr>
         <th>Proveedor</th><th>N° factura</th><th class="amount">Monto</th>
         <th>Fecha compra</th><th>Fecha vencimiento</th><th>Forma de pago</th><th>Detalle cheque</th><th>Agregado por</th><th></th>
@@ -923,7 +924,7 @@ function renderFacturasCompra(facturas){
           </tr>`).join('')}
         <tr><td colspan="2"><b>Total</b></td><td class="amount"><b>${fmt(total)}</b></td><td colspan="6"></td></tr>
       </tbody>
-    </table>
+    </table></div>
   `;
 }
 
