@@ -946,6 +946,7 @@ function comparadorRenderSolicitud(){
         <div style="border:1px solid var(--line);border-radius:10px;padding:10px;min-width:240px;">
           <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;margin-bottom:6px;">${p.nombre}</div>
           <input type="file" accept="image/*" id="comparadorImagenInput_${p.id}" onchange="comparadorSubirImagen(${p.id}, this)" style="font-size:11px;margin-bottom:6px;display:block;">
+          <div class="empty-note" tabindex="0" onpaste="comparadorPegarImagen(${p.id}, event)" style="border:1px dashed var(--line);border-radius:8px;padding:5px 8px;margin-bottom:6px;cursor:text;outline:none;">📋 Clic acá y pega con Ctrl+V</div>
           <button class="btn-ghost btn-compact" onclick="comparadorMostrarFormManual(${p.id})">✏️ Ingreso manual</button>
         </div>`).join('')}
     </div>
@@ -1055,6 +1056,35 @@ async function comparadorSubirImagen(proveedorId, inputEl){
   if(!file) return;
   inputEl.disabled = true;
   try{
+    await comparadorProcesarImagenProveedor(proveedorId, file);
+  }finally{
+    inputEl.disabled = false;
+    inputEl.value = '';
+  }
+}
+
+// Permite pegar una captura de pantalla directo desde el portapapeles de
+// Windows (Ctrl+V) en vez de tener que guardarla como archivo primero -- la
+// zona de pegado es un <div tabindex> (no un <input>) porque los inputs de
+// tipo file no reciben el contenido de una imagen pegada, solo rutas de
+// archivo.
+async function comparadorPegarImagen(proveedorId, event){
+  event.preventDefault();
+  const items = event.clipboardData && event.clipboardData.items;
+  const item = items && [...items].find(it => it.type.startsWith('image/'));
+  if(!item){ alert('No se encontró ninguna imagen en el portapapeles. Copia una captura de pantalla primero.'); return; }
+  const zona = event.currentTarget;
+  const textoOriginal = zona.textContent;
+  zona.textContent = 'Leyendo imagen pegada...';
+  try{
+    await comparadorProcesarImagenProveedor(proveedorId, item.getAsFile());
+  }finally{
+    zona.textContent = textoOriginal;
+  }
+}
+
+async function comparadorProcesarImagenProveedor(proveedorId, file){
+  try{
     const dataUrl = await comparadorComprimirImagen(file);
     const res = await fetch('/api/negocio?recurso=comparador-cotizacion-imagen', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1066,9 +1096,6 @@ async function comparadorSubirImagen(proveedorId, inputEl){
     await comparadorCargarSolicitud(comparadorSolicitudId);
   }catch(err){
     alert('Error: ' + err.message);
-  }finally{
-    inputEl.disabled = false;
-    inputEl.value = '';
   }
 }
 
