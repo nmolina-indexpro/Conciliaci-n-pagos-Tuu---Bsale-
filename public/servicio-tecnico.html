@@ -41,7 +41,7 @@
   .seccion-head h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:0 0 4px;}
   .seccion.colapsada{padding-bottom:22px;}
   .seccion.colapsada .seccion-head{margin-bottom:0;}
-  .seccion.colapsada > *:not(.seccion-head){display:none;}
+  .seccion.colapsada > *:not(.seccion-head){display:none !important;} /* #chartTendencia trae su propio display:block por id (más específico) -- esto tiene que ganar siempre */
   .seccion-head-acciones{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap;}
   .btn-toggle-seccion{background:var(--surface);border:1.5px solid var(--line);border-radius:8px;width:32px;height:32px;padding:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--muted);cursor:pointer;flex-shrink:0;}
   .btn-toggle-seccion:hover{border-color:var(--primary);color:var(--primary);}
