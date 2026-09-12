@@ -196,27 +196,6 @@
     </div>
   </div>
 
-  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #B45309;" id="dmCard">
-    <div class="panel-header" onclick="togglePanel('dmCard')">
-      <span class="lbl" style="margin-bottom:0;">🏬 Comercial Dos Mundos (DM)</span>
-      <span class="panel-chevron">▾</span>
-    </div>
-    <div class="panel-body">
-      <p class="empty-note" style="margin-top:0;">DM no tiene integración con la tienda -- la compra se hace entrando a mano a su portal con sesión iniciada. Esta lista es de referencia: productos alternativos (cargadores, baterías, cargadores de celular, algunas fundas) identificados en las facturas de ingreso a nombre de "Comercial Dos Mundos", con su stock, último costo, y un link directo al producto para comprar más rápido.</p>
-      <div class="filtros" style="margin-bottom:0;">
-        <span class="filtro-label">Categoría:</span>
-        <button class="btn-ghost btn-compact active" id="dmFiltroTodas" onclick="filtrarDMCategoria(null)">Todas</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('cargador-alternativo')">🔌 Cargadores</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('bateria-alternativa')">🔋 Baterías</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('celular')">📱 Cargadores de celular</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('funda')">🎒 Fundas</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('base-notebook')">💻 Bases</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('destornilladores')">🔧 Destornilladores</button>
-      </div>
-      <div id="dmWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
-    </div>
-  </div>
-
   <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #7C3AED;" id="comparadorCard">
     <div class="panel-header" onclick="togglePanel('comparadorCard')">
       <span class="lbl" style="margin-bottom:0;">🔍 Comparativa Coimco vs Laptop Center</span>
@@ -251,6 +230,27 @@
       </div>
 
       <div id="comparadorSolicitudWrap"><p class="empty-note">Selecciona o crea una solicitud para empezar.</p></div>
+    </div>
+  </div>
+
+  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #B45309;" id="dmCard">
+    <div class="panel-header" onclick="togglePanel('dmCard')">
+      <span class="lbl" style="margin-bottom:0;">🏬 Comercial Dos Mundos (DM)</span>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <p class="empty-note" style="margin-top:0;">DM no tiene integración con la tienda -- la compra se hace entrando a mano a su portal con sesión iniciada. Esta lista es de referencia: productos alternativos (cargadores, baterías, cargadores de celular, algunas fundas) identificados en las facturas de ingreso a nombre de "Comercial Dos Mundos", con su stock, último costo, y un link directo al producto para comprar más rápido.</p>
+      <div class="filtros" style="margin-bottom:0;">
+        <span class="filtro-label">Categoría:</span>
+        <button class="btn-ghost btn-compact active" id="dmFiltroTodas" onclick="filtrarDMCategoria(null)">Todas</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('cargador-alternativo')">🔌 Cargadores</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('bateria-alternativa')">🔋 Baterías</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('celular')">📱 Cargadores de celular</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('funda')">🎒 Fundas</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('base-notebook')">💻 Bases</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('destornilladores')">🔧 Destornilladores</button>
+      </div>
+      <div id="dmWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
     </div>
   </div>
 
