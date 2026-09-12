@@ -685,16 +685,19 @@ let filtroDMCategoria = null;
 let ordenDM = { campo: null, asc: true };
 let linkDMPorSku = {};
 let excluidosDM = new Set();
+let excluidosRecomendacion = new Set();
 
 async function cargarLinksDM(){
   try{
-    const [resLinks, resExcluidos] = await Promise.all([
+    const [resLinks, resExcluidos, resExcluidosRecomendacion] = await Promise.all([
       fetch('/api/negocio?recurso=link-compra&contexto=compras_dm_sku').then(r=>r.json()),
       fetch('/api/negocio?recurso=compras-dm-excluidos').then(r=>r.json()),
+      fetch('/api/negocio?recurso=recomendacion-compra-excluidos').then(r=>r.json()),
     ]);
     linkDMPorSku = resLinks.linkPorSku || {};
     excluidosDM = new Set(resExcluidos.excluidos || []);
-  }catch(err){ linkDMPorSku = {}; excluidosDM = new Set(); }
+    excluidosRecomendacion = new Set(resExcluidosRecomendacion.excluidos || []);
+  }catch(err){ linkDMPorSku = {}; excluidosDM = new Set(); excluidosRecomendacion = new Set(); }
 }
 
 // Definitivo -- pedido del usuario: un producto que no corresponde de
@@ -708,6 +711,22 @@ async function eliminarProductoDM(sku, nombre){
     if(!res.ok || data.error){ alert(data.error || 'No se pudo eliminar.'); return; }
     excluidosDM.add(sku);
     renderDM();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+// Definitivo -- pedido del usuario: un producto eliminado de "Recomendación
+// de compra con presupuesto" no debe volver a aparecer aunque se recalcule
+// de nuevo, pidiendo confirmación explícita antes de sacarlo para siempre.
+async function eliminarProductoRecomendacion(sku, nombre){
+  if(!confirm(`¿Estás seguro que quieres eliminar el producto "${nombre}"?\n\nNo va a volver a aparecer en esta lista en el futuro.`)) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=recomendacion-compra-excluidos&sku=${encodeURIComponent(sku)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo eliminar.'); return; }
+    excluidosRecomendacion.add(sku);
+    calcularRecomendacionPresupuesto();
   }catch(err){
     alert('Error: ' + err.message);
   }
@@ -832,6 +851,9 @@ let comparadorDetalle = null;
 let comparadorFilasPedido = [];
 let comparadorFilasManual = [];
 let comparadorFormManualProveedorId = null;
+// Por defecto ordena de mayor a menor (asc:false) -- pedido del usuario;
+// un segundo click en la misma columna alterna a menor a mayor.
+let comparadorOrden = { campo: null, proveedorId: null, asc: false };
 
 async function comparadorInit(){
   if(rolActual !== 'admin'){
@@ -991,6 +1013,46 @@ async function comparadorGuardarUmbral(){
   }catch(err){ alert('Error: ' + err.message); }
 }
 
+function comparadorOrdenarPor(campo, proveedorId){
+  proveedorId = proveedorId || null;
+  if(comparadorOrden.campo === campo && comparadorOrden.proveedorId === proveedorId){
+    comparadorOrden.asc = !comparadorOrden.asc;
+  } else {
+    comparadorOrden = { campo, proveedorId, asc: false }; // nueva columna -> mayor a menor por defecto
+  }
+  comparadorRenderSolicitud();
+}
+function comparadorFlecha(campo, proveedorId){
+  proveedorId = proveedorId || null;
+  return (comparadorOrden.campo === campo && comparadorOrden.proveedorId === proveedorId) ? (comparadorOrden.asc ? ' ▲' : ' ▼') : '';
+}
+function comparadorValorOrden({ item, candidatos, decision }, campo, proveedorId){
+  switch(campo){
+    case 'sku': return item.sku || '';
+    case 'nombre': return item.nombre || '';
+    case 'cantidad': return item.cantidad || 0;
+    case 'proveedor': {
+      const c = candidatos.find(c => c.proveedorId === proveedorId);
+      return (c && c.item && c.item.precio_neto != null) ? c.item.precio_neto : -Infinity;
+    }
+    case 'precioElegido': return decision.precioElegido != null ? decision.precioElegido : -Infinity;
+    case 'ahorroUnitario': return decision.ahorroUnitario != null ? decision.ahorroUnitario : -Infinity;
+    case 'confianza': return decision.confianzaEquivalencia || '';
+    case 'estado': return decision.estado || '';
+    default: return '';
+  }
+}
+function comparadorOrdenarComparativa(comparativa){
+  if(!comparadorOrden.campo) return comparativa;
+  const { campo, proveedorId, asc } = comparadorOrden;
+  return [...comparativa].sort((a, b) => {
+    const va = comparadorValorOrden(a, campo, proveedorId);
+    const vb = comparadorValorOrden(b, campo, proveedorId);
+    if(typeof va === 'string') return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return asc ? va - vb : vb - va;
+  });
+}
+
 function comparadorRenderSolicitud(){
   const d = comparadorDetalle;
   const wrap = $('comparadorSolicitudWrap');
@@ -1040,11 +1102,19 @@ function comparadorRenderSolicitud(){
 
     <div class="tabla-wrap"><table>
       <thead><tr>
-        <th>SKU</th><th>Producto</th><th class="amount">Cant</th>
-        ${d.proveedores.map(p => `<th class="amount">${p.nombre}</th>`).join('')}
-        <th>Elegido</th><th class="amount">Precio</th><th class="amount">Ahorro/u</th><th>Motivo</th><th>Confianza</th><th>Estado</th><th></th>
+        <th onclick="comparadorOrdenarPor('sku')" style="cursor:pointer;">SKU${comparadorFlecha('sku')}</th>
+        <th onclick="comparadorOrdenarPor('nombre')" style="cursor:pointer;">Producto${comparadorFlecha('nombre')}</th>
+        <th class="amount" onclick="comparadorOrdenarPor('cantidad')" style="cursor:pointer;">Cant${comparadorFlecha('cantidad')}</th>
+        ${d.proveedores.map(p => `<th class="amount" onclick="comparadorOrdenarPor('proveedor', ${p.id})" style="cursor:pointer;">${p.nombre}${comparadorFlecha('proveedor', p.id)}</th>`).join('')}
+        <th>Elegido</th>
+        <th class="amount" onclick="comparadorOrdenarPor('precioElegido')" style="cursor:pointer;">Precio${comparadorFlecha('precioElegido')}</th>
+        <th class="amount" onclick="comparadorOrdenarPor('ahorroUnitario')" style="cursor:pointer;">Ahorro/u${comparadorFlecha('ahorroUnitario')}</th>
+        <th>Motivo</th>
+        <th onclick="comparadorOrdenarPor('confianza')" style="cursor:pointer;">Confianza${comparadorFlecha('confianza')}</th>
+        <th onclick="comparadorOrdenarPor('estado')" style="cursor:pointer;">Estado${comparadorFlecha('estado')}</th>
+        <th></th>
       </tr></thead>
-      <tbody>${d.comparativa.map(({ item, candidatos, decision }) => comparadorFilaComparativa(item, candidatos, decision)).join('')}</tbody>
+      <tbody>${comparadorOrdenarComparativa(d.comparativa).map(({ item, candidatos, decision }) => comparadorFilaComparativa(item, candidatos, decision)).join('')}</tbody>
     </table></div>
 
     ${d.sinEmparejar.length > 0 ? `<p class="empty-note" style="color:var(--amber);margin-top:14px;"><b>⚠ ${d.sinEmparejar.length} línea(s) de cotización no se pudieron emparejar automáticamente</b> con ningún producto de este pedido (no aparecen en la tabla de arriba). Revisa la descripción o vuelve a cargar la cotización.</p>` : ''}
@@ -1407,10 +1477,12 @@ async function calcularRecomendacionPresupuesto(){
     return;
   }
 
-  // Solo SKU que realmente necesitan compra (sugerencia > 0) y con costo
-  // conocido (si no sabemos el costo, no podemos respetar el presupuesto).
+  // Solo SKU que realmente necesitan compra (sugerencia > 0), con costo
+  // conocido (si no sabemos el costo, no podemos respetar el presupuesto), y
+  // que no se hayan eliminado a mano de esta lista (definitivo, ver botón
+  // "Eliminar" en la tabla).
   const candidatos = base
-    .filter(s => s[campoSugerencia] > 0 && s.ultimoCosto != null)
+    .filter(s => s[campoSugerencia] > 0 && s.ultimoCosto != null && !excluidosRecomendacion.has(s.code))
     .map(s => ({ ...s, costoLinea: s[campoSugerencia] * s.ultimoCosto, enQuiebre: s.stockActual === 0 && s.unidadesVendidas > 0 }));
 
   // Criterio aplicado directo: el objetivo #1 es NO quedarse sin stock y
@@ -1508,6 +1580,7 @@ function renderRecomendacionTabla(){
         <th class="amount" onclick="ordenarRecomendacionPor('sugerencia')" style="cursor:pointer;">Sugerencia (${horizonte}d)${flecha('sugerencia')}</th>
         <th class="amount" onclick="ordenarRecomendacionPor('costoLinea')" style="cursor:pointer;">Costo línea${flecha('costoLinea')}</th>
         <th onclick="ordenarRecomendacionPor('estadoOrden')" style="cursor:pointer;">Estado${flecha('estadoOrden')}</th>
+        ${rolActual === 'admin' ? '<th>Eliminar</th>' : ''}
       </tr></thead>
       <tbody>
         ${(()=>{
@@ -1559,6 +1632,7 @@ function filaRecomendacion(s, campoSugerencia, fueraDePresupuesto){
       <td class="amount">${fmtNum(s[campoSugerencia])}</td>
       <td class="amount">${fmt(s.costoLinea)}</td>
       <td>${estadoTexto}</td>
+      ${rolActual === 'admin' ? `<td><button class="btn-icono" title="Eliminar de esta lista (definitivo)" onclick="eliminarProductoRecomendacion('${s.code}', '${s.nombre.replace(/'/g, "\\'")}')">🗑️</button></td>` : ''}
     </tr>`;
 }
 

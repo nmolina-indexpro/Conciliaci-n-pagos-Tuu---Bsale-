@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
@@ -101,6 +101,7 @@ export default async function handler(req, res) {
   if (recurso === 'sync-servicios-tecnico') return manejarSyncServiciosTecnico(req, res, sesion);
   if (recurso === 'link-compra') return manejarLinkCompra(req, res, sesion);
   if (recurso === 'compras-dm-excluidos') return manejarComprasDMExcluidos(req, res, sesion);
+  if (recurso === 'recomendacion-compra-excluidos') return manejarRecomendacionCompraExcluidos(req, res, sesion);
   if (recurso === 'comparador-solicitudes') return manejarComparadorSolicitudes(req, res, sesion);
   if (recurso === 'comparador-solicitud-detalle') return manejarComparadorSolicitudDetalle(req, res, sesion);
   if (recurso === 'comparador-cotizacion-manual') return manejarComparadorCotizacionManual(req, res, sesion);
@@ -2511,6 +2512,32 @@ async function manejarComprasDMExcluidos(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error gestionando exclusiones de DM', detail: String(err) });
+  }
+}
+
+// Mismo patrón que manejarComprasDMExcluidos, pero para la tabla
+// "Recomendación de compra con presupuesto" -- pedido del usuario.
+async function manejarRecomendacionCompraExcluidos(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaRecomendacionCompraExcluidos(sql);
+
+    if (req.method === 'GET') {
+      const { rows } = await sql`SELECT sku FROM recomendacion_compra_excluidos;`;
+      return res.status(200).json({ excluidos: rows.map(r => r.sku) });
+    }
+
+    if (req.method === 'DELETE') {
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede eliminar un producto de esta lista' });
+      const sku = String(req.query.sku || '').trim();
+      if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
+      await sql`INSERT INTO recomendacion_compra_excluidos (sku, excluido_por) VALUES (${sku}, ${sesion.nombre || sesion.email}) ON CONFLICT (sku) DO NOTHING;`;
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error gestionando exclusiones de la recomendación de compra', detail: String(err) });
   }
 }
 
