@@ -12,7 +12,7 @@
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
-import { emparejarLineaCotizacion, decidirProveedor } from '../lib/comparadorProveedores.js';
+import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
 const ESTADOS_VALIDOS = ['pendiente', 'en progreso', 'resuelto'];
@@ -105,6 +105,7 @@ export default async function handler(req, res) {
   if (recurso === 'comparador-solicitud-detalle') return manejarComparadorSolicitudDetalle(req, res, sesion);
   if (recurso === 'comparador-cotizacion-manual') return manejarComparadorCotizacionManual(req, res, sesion);
   if (recurso === 'comparador-cotizacion-imagen') return manejarComparadorCotizacionImagen(req, res, sesion);
+  if (recurso === 'comparador-cotizacion-texto') return manejarComparadorCotizacionTexto(req, res, sesion);
   if (recurso === 'comparador-decision') return manejarComparadorDecision(req, res, sesion);
   if (recurso === 'comparador-config') return manejarComparadorConfig(req, res, sesion);
   if (recurso === 'whatsapp-dashboard') return manejarWhatsappDashboard(req, res, sesion);
@@ -2775,6 +2776,55 @@ async function manejarComparadorCotizacionImagen(req, res, sesion) {
     return res.status(200).json({ ok: true, cotizacionId, items: guardados });
   } catch (err) {
     return res.status(500).json({ error: 'Error extrayendo la cotización de la imagen', detail: String(err) });
+  }
+}
+
+// Misma idea que manejarComparadorCotizacionImagen pero sin IA: cuando el
+// proveedor manda la lista como texto (WhatsApp, mail, o pegado desde
+// Excel) se puede parsear con reglas fijas (ver parsearTextoCotizacion en
+// lib/comparadorProveedores.js) sin costo de API ni depender de saldo de
+// Anthropic -- pedido explícito del usuario tras quedarse sin saldo.
+async function manejarComparadorCotizacionTexto(req, res, sesion) {
+  try {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const { solicitudId, proveedorId, texto } = req.body || {};
+    if (!solicitudId || !proveedorId) return res.status(400).json({ error: 'Falta solicitudId o proveedorId' });
+    if (!texto || !texto.trim()) return res.status(400).json({ error: 'Falta el texto a procesar' });
+
+    const sql = await getSql();
+    await asegurarTablaComparadorCompras(sql);
+
+    const { rows: itemsPedido } = await sql`SELECT id, nombre, especificaciones FROM comparador_solicitud_items WHERE solicitud_id = ${solicitudId};`;
+    if (itemsPedido.length === 0) return res.status(400).json({ error: 'Esta solicitud no tiene productos cargados todavía' });
+
+    const itemsExtraidos = parsearTextoCotizacion(texto);
+    if (itemsExtraidos.length === 0) return res.status(200).json({ error: 'No se pudo interpretar ninguna línea del texto pegado' });
+
+    const { rows: cotizacionRows } = await sql`
+      INSERT INTO comparador_cotizaciones (solicitud_id, proveedor_id, origen, creado_por)
+      VALUES (${solicitudId}, ${proveedorId}, 'texto', ${sesion.nombre || sesion.email})
+      RETURNING id;
+    `;
+    const cotizacionId = cotizacionRows[0].id;
+
+    const guardados = [];
+    for (const it of itemsExtraidos) {
+      const emparejamiento = emparejarLineaCotizacion(it.descripcion, itemsPedido);
+      const { rows } = await sql`
+        INSERT INTO comparador_cotizacion_items (
+          cotizacion_id, solicitud_item_id, codigo_proveedor, descripcion,
+          cantidad_disponible, estado_stock, precio_neto, observaciones, confianza_equivalencia
+        ) VALUES (
+          ${cotizacionId}, ${emparejamiento.solicitudItemId}, ${it.codigo_proveedor || null}, ${it.descripcion},
+          ${it.cantidad_disponible ?? null}, ${it.estado_stock || 'por_confirmar'}, ${it.precio_neto ?? null}, ${it.observaciones || null}, ${emparejamiento.confianza}
+        ) RETURNING *;
+      `;
+      guardados.push(rows[0]);
+    }
+
+    return res.status(200).json({ ok: true, cotizacionId, items: guardados });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error procesando el texto de la cotización', detail: String(err) });
   }
 }
 

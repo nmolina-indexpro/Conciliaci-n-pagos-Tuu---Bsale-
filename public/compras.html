@@ -946,8 +946,15 @@ function comparadorRenderSolicitud(){
         <div style="border:1px solid var(--line);border-radius:10px;padding:10px;min-width:240px;">
           <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;margin-bottom:6px;">${p.nombre}</div>
           <input type="file" accept="image/*" id="comparadorImagenInput_${p.id}" onchange="comparadorSubirImagen(${p.id}, this)" style="font-size:11px;margin-bottom:6px;display:block;">
-          <div class="empty-note" tabindex="0" onpaste="comparadorPegarImagen(${p.id}, event)" style="border:1px dashed var(--line);border-radius:8px;padding:5px 8px;margin-bottom:6px;cursor:text;outline:none;">📋 Clic acá y pega con Ctrl+V</div>
-          <button class="btn-ghost btn-compact" onclick="comparadorMostrarFormManual(${p.id})">✏️ Ingreso manual</button>
+          <div class="empty-note" tabindex="0" onpaste="comparadorPegarImagen(${p.id}, event)" style="border:1px dashed var(--line);border-radius:8px;padding:5px 8px;margin-bottom:6px;cursor:text;outline:none;">📋 Clic acá y pega una imagen con Ctrl+V</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn-ghost btn-compact" onclick="comparadorMostrarFormManual(${p.id})">✏️ Ingreso manual</button>
+            <button class="btn-ghost btn-compact" onclick="comparadorToggleFormTexto(${p.id})" title="No usa IA -- no gasta saldo de Anthropic">📝 Pegar texto</button>
+          </div>
+          <div id="comparadorTextoWrap_${p.id}" hidden style="margin-top:6px;">
+            <textarea id="comparadorTextoInput_${p.id}" placeholder="Pega acá la lista de precios como texto (WhatsApp, mail, o copiado de Excel). No usa IA, es gratis, pero es menos flexible que la imagen." style="width:100%;min-height:70px;font-size:11.5px;"></textarea>
+            <button class="btn-primary btn-compact" onclick="comparadorProcesarTexto(${p.id})" style="margin-top:4px;">Procesar texto</button>
+          </div>
         </div>`).join('')}
     </div>
 
@@ -1093,6 +1100,35 @@ async function comparadorProcesarImagenProveedor(proveedorId, file){
     const data = await res.json();
     if(!res.ok || data.error){ alert((data.error || 'No se pudo leer la imagen.') + (data.detail ? `\n\n${data.detail}` : '')); return; }
     alert(`Se leyeron ${data.items.length} línea(s) de la imagen.`);
+    await comparadorCargarSolicitud(comparadorSolicitudId);
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+// Alternativa sin IA a la carga por imagen (pedido del usuario tras
+// quedarse sin saldo de Anthropic): parsea la cotización con reglas fijas
+// en vez de mandarla a leer con Claude Vision -- gratis, pero menos
+// flexible con texto muy desordenado (ver parsearTextoCotizacion en
+// lib/comparadorProveedores.js).
+function comparadorToggleFormTexto(proveedorId){
+  const wrap = $(`comparadorTextoWrap_${proveedorId}`);
+  wrap.hidden = !wrap.hidden;
+}
+async function comparadorProcesarTexto(proveedorId){
+  const input = $(`comparadorTextoInput_${proveedorId}`);
+  const texto = input.value.trim();
+  if(!texto){ alert('Pega primero el texto de la cotización.'); return; }
+  try{
+    const res = await fetch('/api/negocio?recurso=comparador-cotizacion-texto', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ solicitudId: comparadorSolicitudId, proveedorId, texto }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert((data.error || 'No se pudo procesar el texto.') + (data.detail ? `\n\n${data.detail}` : '')); return; }
+    alert(`Se interpretaron ${data.items.length} línea(s). Revisa la tabla -- algunas pueden necesitar ajuste manual (precio/cantidad no siempre se detectan bien en texto libre).`);
+    input.value = '';
+    $(`comparadorTextoWrap_${proveedorId}`).hidden = true;
     await comparadorCargarSolicitud(comparadorSolicitudId);
   }catch(err){
     alert('Error: ' + err.message);
