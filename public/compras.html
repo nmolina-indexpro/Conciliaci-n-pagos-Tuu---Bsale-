@@ -873,10 +873,22 @@ function comparadorTogglePegarPedido(){
 // el navegador: solo junta lo que ya se va a mandar con "Crear solicitud".
 // Descarta un posible encabezado (si la primera línea no trae ningún
 // número, es casi seguro "SKU / Producto / Cantidad", no un dato real).
+// Separa en columnas SOLO por tab cuando hay al menos un tab en la línea
+// (pegado real desde Excel) -- si además se usa "2+ espacios" como
+// separador, una celda de "Producto" que trae un doble espacio antes del
+// modelo de panel (ej. "S/BRACKET  NV140FHM-N48") se corta a la mitad y el
+// modelo queda fuera del nombre guardado, justo el dato que más importa
+// para no comprar una pantalla equivalente por error. Sin tabs (texto
+// alineado a mano) sí se usa "2+ espacios" como única señal disponible.
+function comparadorDividirCampos(linea){
+  return linea.includes('\t')
+    ? linea.split('\t').map(c => c.trim()).filter(Boolean)
+    : linea.split(/ {2,}/).map(c => c.trim()).filter(Boolean);
+}
 function comparadorParsearLineaPedido(lineaOriginal){
   const linea = String(lineaOriginal || '').trim();
   if(!linea) return null;
-  const campos = linea.split(/\t| {2,}/).map(c => c.trim()).filter(Boolean);
+  const campos = comparadorDividirCampos(linea);
   if(campos.length < 2) return { sku: '', nombre: linea, cantidad: 1 };
 
   const patronSku = /^(?=[a-z0-9-]*\d)(?=[a-z0-9-]*[a-z])[a-z0-9-]{3,20}$/i;
@@ -888,16 +900,17 @@ function comparadorParsearLineaPedido(lineaOriginal){
   const campoCantidad = campos.find(c => /^\d{1,4}$/.test(c));
   const cantidad = campoCantidad ? parseInt(campoCantidad, 10) : 1;
 
-  // Nombre: el campo de texto más largo que no sea el SKU ni un número
-  // puro -- normalmente es la descripción del producto.
+  // Nombre: TODOS los campos de texto que no sean el SKU ni un número
+  // puro, unidos -- se prefiere guardar de más (ej. un color o el modelo
+  // de panel que haya quedado en un campo aparte) antes que perder datos.
   const candidatosNombre = campos.filter(c => c !== sku && !/^\$?\s*[\d.,]+$/.test(c));
-  const nombre = candidatosNombre.sort((a, b) => b.length - a.length)[0] || campos.join(' ');
+  const nombre = candidatosNombre.join(' ') || campos.join(' ');
 
   return { sku, nombre, cantidad };
 }
 function comparadorEsProbableEncabezadoPedido(linea){
   if(!/\t| {2,}/.test(linea)) return false;
-  const campos = linea.split(/\t| {2,}/).map(c => c.trim()).filter(Boolean);
+  const campos = comparadorDividirCampos(linea);
   return !campos.some(c => /^\d+([.,]\d+)?$/.test(c));
 }
 function comparadorProcesarPegadoPedido(){
