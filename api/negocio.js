@@ -2579,7 +2579,7 @@ async function manejarComparadorSolicitudDetalle(req, res, sesion) {
       FROM comparador_cotizaciones c
       JOIN comparador_cotizacion_items ci ON ci.cotizacion_id = c.id
       WHERE c.solicitud_id = ${solicitudId}
-      ORDER BY c.fecha DESC;
+      ORDER BY c.fecha DESC, ci.id DESC;
     `;
     // Solo existe una fila en comparador_decisiones cuando hubo un ajuste
     // manual (ver lib/db.js) -- se trae por JOIN con los ítems de ESTA
