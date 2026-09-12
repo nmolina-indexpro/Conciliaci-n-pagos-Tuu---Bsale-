@@ -1091,7 +1091,7 @@ async function comparadorProcesarImagenProveedor(proveedorId, file){
       body: JSON.stringify({ solicitudId: comparadorSolicitudId, proveedorId, imagenBase64: dataUrl }),
     });
     const data = await res.json();
-    if(!res.ok || data.error){ alert(data.error || 'No se pudo leer la imagen.'); return; }
+    if(!res.ok || data.error){ alert((data.error || 'No se pudo leer la imagen.') + (data.detail ? `\n\n${data.detail}` : '')); return; }
     alert(`Se leyeron ${data.items.length} línea(s) de la imagen.`);
     await comparadorCargarSolicitud(comparadorSolicitudId);
   }catch(err){
