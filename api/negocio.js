@@ -1817,11 +1817,20 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
     await asegurarTablaVentasSku(sql);
     await asegurarTablaVentasSkuEstado(sql);
 
-    const desdeStr = new Date(Date.now() - PRECIOS_SKU_DIAS_VENTANA * 86400000).toISOString().slice(0, 10);
+    // Rango de fechas elegible por el usuario (pedido: Hoy/Ayer/Semana/Mes
+    // actual/Mes anterior/personalizado, ver filtro-rango-fechas en
+    // analisis.html) -- si no viene, se mantiene el default de siempre
+    // (~6 meses). OJO: bsale_ventas_sku solo retiene 365 días (ver el
+    // DELETE en manejarSyncAnalisis) -- un rango más antiguo que eso
+    // simplemente no va a tener datos, no es un error.
+    const hastaStr = /^\d{4}-\d{2}-\d{2}$/.test(req.query.hasta) ? req.query.hasta : new Date().toISOString().slice(0, 10);
+    const desdeStr = /^\d{4}-\d{2}-\d{2}$/.test(req.query.desde)
+      ? req.query.desde
+      : new Date(Date.now() - PRECIOS_SKU_DIAS_VENTANA * 86400000).toISOString().slice(0, 10);
     const { rows } = await sql`
       SELECT sku, nombre, fecha, cantidad, monto
       FROM bsale_ventas_sku
-      WHERE fecha >= ${desdeStr} AND cantidad > 0
+      WHERE fecha >= ${desdeStr} AND fecha <= ${hastaStr} AND cantidad > 0
         AND sku NOT IN (SELECT sku FROM ventas_sku_excluidos)
         AND sku !~ '^[0-9]{8,}$'
         AND COALESCE(nombre, '') !~* 'env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|99\s*minutos|global\s*tracking|^spread$|flete|courier|retiro en tienda|^pagado$|^rec[ií]belo$'
@@ -1829,6 +1838,18 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
     `;
     const { rows: estadoSyncRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
     const estadoSync = estadoSyncRows[0] || {};
+
+    // Categoría REAL de Bsale (pedido del usuario: mismos filtros rápidos
+    // que "Alertas de Stock/Compras" -- Originales/Daxis/Alternativos por
+    // separado, no el balde grueso de categoriaLinea) -- best-effort: si
+    // falta el token o Bsale falla, se sigue sin ella (categoriaReal queda
+    // null y el filtro de categoría real simplemente no encuentra nada,
+    // no rompe el resto de la tabla).
+    let categoriaPorSku = new Map();
+    const token = process.env.BSALE_ACCESS_TOKEN;
+    if (token) {
+      try { categoriaPorSku = await obtenerCatalogoPorSku(token); } catch { /* sigue sin categoría real */ }
+    }
 
     const porSku = new Map();
     for (const r of rows) {
@@ -1858,6 +1879,7 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
       // porque es el precio real que paga el cliente.
       variaciones.push({
         sku, nombre, categoria: categoriaLinea(sku, nombre),
+        categoriaReal: categoriaPorSku.get(sku)?.categoria || null,
         precioMin: Math.round(min.precio * 1.19), fechaPrecioMin: min.fecha,
         precioMax: Math.round(max.precio * 1.19), fechaPrecioMax: max.fecha,
         precioActual: Math.round(ventas[ventas.length - 1].precio * 1.19),
@@ -1869,7 +1891,7 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
     variaciones.sort((a, b) => b.diferenciaPct - a.diferenciaPct);
 
     return res.status(200).json({
-      variaciones, diasVentana: PRECIOS_SKU_DIAS_VENTANA,
+      variaciones, diasVentana: PRECIOS_SKU_DIAS_VENTANA, desde: desdeStr, hasta: hastaStr,
       ultimaSincronizacion: estadoSync.ultima_pasada_completa_en || null,
     });
   } catch (err) {
@@ -1957,7 +1979,8 @@ async function obtenerCatalogoPorSku(token) {
     }
     return items;
   };
-  const [products, variants] = await Promise.all([
+  const [tiposRes, products, variants] = await Promise.all([
+    fetchConTimeout(`${BSALE_BASE}/product_types.json?limit=50`, { headers: { access_token: token } }, 15000).then(r => r.json()).catch(() => ({ items: [] })),
     traerTodasLasPaginas('products'),
     traerTodasLasPaginas('variants'),
   ]);
@@ -1966,12 +1989,19 @@ async function obtenerCatalogoPorSku(token) {
   // -- si se cruzan tal cual, Map.get() nunca calza (tipos distintos) y
   // esto queda vacío en silencio (pasó en producción: skusEnCatalogo:0).
   // Se normaliza todo a String() antes de cruzar.
+  const nombreCategoriaPorTipoId = new Map((tiposRes.items || []).map(t => [String(t.id), t.name]));
   const nombrePorProductoId = new Map(products.map(p => [String(p.id), (p.name || '').trim().toUpperCase()]));
+  // Categoría REAL de Bsale (ej. "Cargador Original", "Bateria Daxis") --
+  // distinta de categoriaLinea() de más arriba, que solo agrupa en 4
+  // baldes gruesos (cargadores/baterias/pantallas/servicios). Se usa para
+  // los filtros rápidos por categoría (mismo criterio que compras.html).
+  const categoriaPorProductoId = new Map(products.map(p => [String(p.id), nombreCategoriaPorTipoId.get(String(p.product_type?.id)) || 'Sin categoría']));
   const mapa = new Map();
   for (const v of variants) {
     if (!v.code) continue;
-    const nombre = nombrePorProductoId.get(String(v.product?.id));
-    if (nombre) mapa.set(v.code, { nombre, descripcion: v.description || null });
+    const idProducto = String(v.product?.id);
+    const nombre = nombrePorProductoId.get(idProducto);
+    if (nombre) mapa.set(v.code, { nombre, descripcion: v.description || null, categoria: categoriaPorProductoId.get(idProducto) || 'Sin categoría' });
   }
   return mapa;
 }

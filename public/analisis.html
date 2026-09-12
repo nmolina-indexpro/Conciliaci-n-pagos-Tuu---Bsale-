@@ -71,6 +71,16 @@
 
   .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
   .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:12px;padding:7px 13px;}
+
+  .filtros{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+  .filtro-label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-right:2px;align-self:center;}
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+  input[type=date]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:6px 10px;border-radius:9px;font-size:12.5px;}
+  .date-field{display:flex;align-items:center;gap:5px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  .filtro-rango-fechas{display:flex;align-items:center;gap:7px;}
 
   .tabla-wrap{overflow-x:auto;}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
@@ -176,6 +186,37 @@
         <button class="btn-toggle-seccion" id="toggle-seccionVariacionPrecio" onclick="toggleSeccion('seccionVariacionPrecio')" title="Minimizar">▾</button>
       </div>
     </div>
+    <div class="filtros" style="margin-top:6px;">
+      <div class="filtro-rango-fechas">
+        <div class="date-field"><label for="vpDesde">Desde</label><input type="date" id="vpDesde" onchange="aplicarRangoPersonalizadoVarPrecio()"></div>
+        <div class="date-field"><label for="vpHasta">Hasta</label><input type="date" id="vpHasta" onchange="aplicarRangoPersonalizadoVarPrecio()"></div>
+      </div>
+      <button class="btn-ghost btn-compact" id="btnVpHoy" onclick="setRangoRapidoVarPrecio('hoy')">Hoy</button>
+      <button class="btn-ghost btn-compact" id="btnVpAyer" onclick="setRangoRapidoVarPrecio('ayer')">Ayer</button>
+      <button class="btn-ghost btn-compact" id="btnVpSemana" onclick="setRangoRapidoVarPrecio('semana')">Semana</button>
+      <button class="btn-ghost btn-compact active" id="btnVpMes" onclick="setRangoRapidoVarPrecio('mes')">Mes actual</button>
+      <button class="btn-ghost btn-compact" id="btnVpMesAnterior" onclick="setRangoRapidoVarPrecio('mes_anterior')">Mes anterior</button>
+      <button class="btn-ghost btn-compact" id="btnVp6Meses" onclick="setRangoRapidoVarPrecio('6meses')">Últimos 6 meses</button>
+    </div>
+    <div class="filtros" id="vpFilaCategoria">
+      <span class="filtro-label">Categoría:</span>
+      <button class="btn-ghost btn-compact active" id="vpCatTodas" onclick="filtrarCategoriaRapidaVarPrecio(null)">Todas</button>
+      <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapidaVarPrecio('pan-car-bat')" title="Pantalla Notebook + Cargador Original + Batería Original" style="border-color:var(--primary);color:var(--primary);font-weight:800;">PAN-CAR-BAT</button>
+      <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapidaVarPrecio('pantalla')">Pantallas</button>
+      <span style="width:1px;height:20px;background:var(--line);margin:0 2px;"></span>
+      <span class="filtro-label">Cargadores:</span>
+      <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapidaVarPrecio('cargador-original')">Originales</button>
+      <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapidaVarPrecio('cargador-daxis')">Daxis</button>
+      <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapidaVarPrecio('cargador-alternativo')">Alternativos</button>
+      <span style="width:1px;height:20px;background:var(--line);margin:0 2px;"></span>
+      <span class="filtro-label">Baterías:</span>
+      <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapidaVarPrecio('bateria-original')">Originales</button>
+      <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapidaVarPrecio('bateria-daxis')">Daxis</button>
+      <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapidaVarPrecio('bateria-alternativo')">Alternativas</button>
+      <select id="vpFiltroCategoria" onchange="renderVariacionPrecio()" style="min-width:170px;">
+        <option value="">Otra categoría...</option>
+      </select>
+    </div>
     <div id="wrapVariacionPrecio"><p class="empty-note">Cargando...</p></div>
   </div>
 
@@ -272,7 +313,7 @@ async function cargarSesionUsuario(){
     }
     cargarAnalisis();
     cargarVentasBaja();
-    cargarVariacionPrecio();
+    setRangoRapidoVarPrecio('mes'); // dispara cargarVariacionPrecio() con el rango por defecto (mes actual)
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){
@@ -683,22 +724,122 @@ function renderVentasBaja(){
   `;
 }
 
-// ---------- Variación de precio por SKU (últimos 6 meses) ----------
-const CATEGORIA_VARIACION_LABEL = { cargadores: '🔌 Cargador', baterias: '🔋 Batería', pantallas: '🖥️ Pantalla' };
+// ---------- Variación de precio por SKU ----------
+// Comparamos contra la categoría EXACTA de Bsale (sin tildes ni mayúsculas)
+// en vez de buscar palabras sueltas en el nombre -- mismo criterio (y mismo
+// helper) que ya usa compras.html para "Alertas de Stock".
+const normalizarCat = c => (c||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
+const filtrosRapidosVarPrecio = {
+  pantalla: v => normalizarCat(v.categoriaReal) === 'pantalla notebook',
+  'cargador-original': v => normalizarCat(v.categoriaReal) === 'cargador original',
+  'cargador-daxis': v => normalizarCat(v.categoriaReal) === 'cargador daxis',
+  'cargador-alternativo': v => normalizarCat(v.categoriaReal) === 'cargador alternativo',
+  'bateria-original': v => normalizarCat(v.categoriaReal) === 'bateria original',
+  'bateria-daxis': v => normalizarCat(v.categoriaReal) === 'bateria daxis',
+  'bateria-alternativo': v => normalizarCat(v.categoriaReal) === 'bateria alternativa',
+};
+// Combinado: Pantallas + Cargadores originales + Baterías originales
+filtrosRapidosVarPrecio['pan-car-bat'] = v =>
+  filtrosRapidosVarPrecio.pantalla(v) || filtrosRapidosVarPrecio['cargador-original'](v) || filtrosRapidosVarPrecio['bateria-original'](v);
+
+let categoriaRapidaActivaVarPrecio = null;
+function filtrarCategoriaRapidaVarPrecio(clave){
+  categoriaRapidaActivaVarPrecio = clave;
+  $('vpFiltroCategoria').value = ''; // el filtro rápido manda por sobre el select
+  $('vpFilaCategoria').querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  (clave ? event.target : $('vpCatTodas')).classList.add('active');
+  renderVariacionPrecio();
+}
+
+// ---------- Rango de fechas (Hoy/Ayer/Semana/Mes actual/Mes anterior/6 meses/personalizado) ----------
+const hoyStrVp = new Date().toISOString().slice(0, 10);
+function addDaysStrVp(dateStr, days){
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  dt.setUTCDate(dt.getUTCDate()+days);
+  return dt.toISOString().slice(0,10);
+}
+function firstDayOfMonthStrVp(dateStr){
+  const [y,m] = dateStr.split('-').map(Number);
+  return `${y}-${String(m).padStart(2,'0')}-01`;
+}
+function lastDayOfMonthStrVp(dateStr){
+  const [y,m] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m, 0)); // día 0 del mes siguiente = último día de este mes
+  return dt.toISOString().slice(0,10);
+}
+const BOTONES_RANGO_VP = { hoy:'btnVpHoy', ayer:'btnVpAyer', semana:'btnVpSemana', mes:'btnVpMes', mes_anterior:'btnVpMesAnterior', '6meses':'btnVp6Meses' };
+function setRangoRapidoVarPrecio(tipo){
+  let desde, hasta;
+  if(tipo === 'hoy'){ desde = hasta = hoyStrVp; }
+  else if(tipo === 'ayer'){ desde = hasta = addDaysStrVp(hoyStrVp, -1); }
+  else if(tipo === 'semana'){ desde = addDaysStrVp(hoyStrVp, -6); hasta = hoyStrVp; }
+  else if(tipo === 'mes_anterior'){
+    const ultimoDiaMesAnterior = addDaysStrVp(firstDayOfMonthStrVp(hoyStrVp), -1);
+    desde = firstDayOfMonthStrVp(ultimoDiaMesAnterior); hasta = ultimoDiaMesAnterior;
+  }
+  else if(tipo === '6meses'){ desde = addDaysStrVp(hoyStrVp, -183); hasta = hoyStrVp; }
+  else { desde = firstDayOfMonthStrVp(hoyStrVp); hasta = lastDayOfMonthStrVp(hoyStrVp); } // 'mes' (mes actual)
+  $('vpDesde').value = desde;
+  $('vpHasta').value = hasta;
+  Object.values(BOTONES_RANGO_VP).forEach(id => $(id).classList.remove('active'));
+  if(BOTONES_RANGO_VP[tipo]) $(BOTONES_RANGO_VP[tipo]).classList.add('active');
+  cargarVariacionPrecio();
+}
+function aplicarRangoPersonalizadoVarPrecio(){
+  Object.values(BOTONES_RANGO_VP).forEach(id => $(id).classList.remove('active'));
+  cargarVariacionPrecio();
+}
+
+// ---------- Orden de columnas (clic en el encabezado) ----------
+let sortColVarPrecio = 'diferenciaPct';
+let sortAscVarPrecio = false; // arranca de mayor a menor variación (lo más llamativo primero)
+function cambiarOrdenVarPrecio(col){
+  if(sortColVarPrecio === col) sortAscVarPrecio = !sortAscVarPrecio;
+  else { sortColVarPrecio = col; sortAscVarPrecio = false; }
+  renderVariacionPrecio();
+}
+function ordenarVariacionesPrecio(lista){
+  const col = sortColVarPrecio;
+  return [...lista].sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if(typeof va === 'string' || typeof vb === 'string'){
+      va = va ?? ''; vb = vb ?? '';
+      return sortAscVarPrecio ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+    }
+    va = va ?? 0; vb = vb ?? 0;
+    return sortAscVarPrecio ? va - vb : vb - va;
+  });
+}
+
 let variacionPrecioActual = [];
+let ultimoRangoVarPrecio = { desde: null, hasta: null };
 async function cargarVariacionPrecio(){
   try{
-    const res = await fetch('/api/negocio?recurso=precios-sku-variacion');
+    const desde = $('vpDesde').value, hasta = $('vpHasta').value;
+    const qs = desde && hasta ? `&desde=${desde}&hasta=${hasta}` : '';
+    const res = await fetch(`/api/negocio?recurso=precios-sku-variacion${qs}`);
     const data = await res.json();
     if(!res.ok || data.error){
       $('wrapVariacionPrecio').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`;
       return;
     }
     variacionPrecioActual = data.variaciones || [];
+    ultimoRangoVarPrecio = { desde: data.desde, hasta: data.hasta };
+    poblarFiltroCategoriaVarPrecio();
     renderVariacionPrecio();
   }catch(err){
     $('wrapVariacionPrecio').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
   }
+}
+// Poblar el selector con lo que realmente existe en la cuenta -- mismo
+// criterio que "Otra categoría..." en compras.html.
+function poblarFiltroCategoriaVarPrecio(){
+  const sel = $('vpFiltroCategoria');
+  const actual = sel.value;
+  const categorias = [...new Set(variacionPrecioActual.map(v => v.categoriaReal).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">Otra categoría...</option>' + categorias.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  sel.value = categorias.includes(actual) ? actual : '';
 }
 // Misma exclusión permanente que "Sacar de este análisis" en Productos
 // estancados (ventas_sku_excluidos, ver manejarVentasSkuTendencia DELETE)
@@ -718,16 +859,24 @@ async function eliminarVariacionPrecioSku(sku){
   }
 }
 function renderVariacionPrecio(){
-  const lista = variacionPrecioActual;
+  const filtroSelect = $('vpFiltroCategoria').value;
+  const lista = variacionPrecioActual.filter(v => {
+    if(categoriaRapidaActivaVarPrecio) return filtrosRapidosVarPrecio[categoriaRapidaActivaVarPrecio]?.(v);
+    if(filtroSelect) return v.categoriaReal === filtroSelect;
+    return true;
+  });
   if(!lista.length){
-    $('wrapVariacionPrecio').innerHTML = '<p class="empty-note">No se detectaron variaciones de precio relevantes en los últimos 6 meses.</p>';
+    $('wrapVariacionPrecio').innerHTML = '<p class="empty-note">No se detectaron variaciones de precio relevantes en el rango/categoría elegidos.</p>';
     return;
   }
   const esAdmin = rolActual === 'admin';
-  const filas = lista.map(v => `
+  const ordenada = ordenarVariacionesPrecio(lista);
+  const marca = col => sortColVarPrecio === col ? (sortAscVarPrecio ? ' ▲' : ' ▼') : '';
+  const th = (col, label, amount) => `<th class="ordenable${amount ? ' amount' : ''}" onclick="cambiarOrdenVarPrecio('${col}')">${label}${marca(col)}</th>`;
+  const filas = ordenada.map(v => `
     <tr>
       <td><span class="sku-code">${escapeHtml(v.sku)}</span></td>
-      <td>${v.categoria && CATEGORIA_VARIACION_LABEL[v.categoria] ? `<div class="empty-note" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px;">${CATEGORIA_VARIACION_LABEL[v.categoria]}</div>` : ''}${escapeHtml(v.nombre || v.sku)}</td>
+      <td>${v.categoriaReal ? `<div class="empty-note" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px;">${escapeHtml(v.categoriaReal)}</div>` : ''}${escapeHtml(v.nombre || v.sku)}</td>
       <td class="amount">${fmtMoneda(v.precioMin)}<div class="empty-note">${v.fechaPrecioMin}</div></td>
       <td class="amount">${fmtMoneda(v.precioMax)}<div class="empty-note">${v.fechaPrecioMax}</div></td>
       <td class="amount">${fmtMoneda(v.diferencia)}</td>
@@ -739,10 +888,10 @@ function renderVariacionPrecio(){
   $('wrapVariacionPrecio').innerHTML = `
     <div class="tabla-wrap"><table>
       <thead><tr>
-        <th>SKU</th><th>Producto</th>
-        <th style="text-align:right;">Precio mín.</th><th style="text-align:right;">Precio máx.</th>
-        <th style="text-align:right;">Diferencia</th><th style="text-align:right;">% variación</th>
-        <th style="text-align:right;">Precio actual</th><th style="text-align:right;">N° ventas</th>
+        ${th('sku', 'SKU')}${th('nombre', 'Producto')}
+        ${th('precioMin', 'Precio mín.', true)}${th('precioMax', 'Precio máx.', true)}
+        ${th('diferencia', 'Diferencia', true)}${th('diferenciaPct', '% variación', true)}
+        ${th('precioActual', 'Precio actual', true)}${th('cantidadVentas', 'N° ventas', true)}
         <th>Acciones</th>
       </tr></thead>
       <tbody>${filas}</tbody>
