@@ -103,16 +103,36 @@
     </div>
     <nav class="page-nav">
       <a href="home.html">Home</a>
-      <a href="index.html">Flujo de Caja</a>
-      <a href="conciliacion.html">Conciliación</a>
-      <a href="compras.html">Compras</a>
-      <a href="alertas-stock.html">Alertas de Stock</a>
-      <a href="oportunidades-comerciales.html">Ventas</a>
-      <a href="sitio-web.html" class="active">Sitio Web</a>
-      <a href="eficiencia-tickets.html">Tickets</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html">Compras</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="sitio-web.html" class="active">Sitio Web</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+        </div>
+      </div>
       <a href="analisis.html">Análisis</a>
-      <a href="servicio-tecnico.html">Servicio Técnico</a>
-      <a href="clientes-whatsapp.html">WhatsApp</a>
     </nav>
     <div class="user-box" id="userBox"></div>
   </header>
