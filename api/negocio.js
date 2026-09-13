@@ -1828,6 +1828,28 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
     await asegurarTablaVentasSku(sql);
     await asegurarTablaVentasSkuEstado(sql);
 
+    // Modo diagnóstico puntual (?recurso=precios-sku-variacion&debugSku=PTBEZEL12):
+    // muestra en crudo cada venta guardada de ese SKU (monto es NETO, ver
+    // manejarSyncAnalisis) -- para poder confirmar de dónde sale un
+    // precioMin/precioMax puntual (ej. una venta mayorista o con descuento
+    // que no refleja un cambio real en la Lista de Precios Base).
+    if (req.query.debugSku) {
+      const skuDebug = String(req.query.debugSku).trim().toUpperCase();
+      const { rows: ventasDebug } = await sql`SELECT fecha, cantidad, monto FROM bsale_ventas_sku WHERE sku = ${skuDebug} ORDER BY fecha;`;
+      return res.status(200).json({
+        sku: skuDebug,
+        ventas: ventasDebug.map(r => {
+          const cantidad = Number(r.cantidad), montoNeto = Number(r.monto);
+          const precioUnitarioNeto = cantidad > 0 ? montoNeto / cantidad : null;
+          return {
+            fecha: r.fecha, cantidad, montoNeto,
+            precioUnitarioNeto: precioUnitarioNeto != null ? Math.round(precioUnitarioNeto) : null,
+            precioUnitarioConIva: precioUnitarioNeto != null ? Math.round(precioUnitarioNeto * 1.19) : null,
+          };
+        }),
+      });
+    }
+
     // Rango de fechas elegible por el usuario (pedido: Hoy/Ayer/Semana/Mes
     // actual/Mes anterior/personalizado, ver filtro-rango-fechas en
     // analisis.html) -- si no viene, se mantiene el default de siempre
