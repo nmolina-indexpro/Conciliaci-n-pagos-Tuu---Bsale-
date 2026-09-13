@@ -33,6 +33,25 @@ const MOTIVO_PERDIDA_LABEL = {
   respuesta_lenta: 'Respuesta demasiado lenta', producto_incompatible: 'Producto incompatible',
   sin_seguimiento: 'No se realizó seguimiento', compro_en_otro_lugar: 'Compró en la competencia', otro: 'Otro',
 };
+// Recomendación fija por motivo (pedido del usuario) -- pensada para el
+// negocio real de IndexStore (venta de repuestos/accesorios de notebook por
+// WhatsApp). "venta" y "no_interesado" no son motivos reales de
+// motivo_perdida -- son valores de "resultado" que se cuelan en esta tabla
+// porque el query los usa como comodín cuando falta el motivo específico
+// (ver conversación con el usuario sobre el bug de manejarWhatsappAnalitica);
+// quedan con su propia recomendación mientras no se corrija ese filtro.
+const MOTIVO_PERDIDA_RECOMENDACION = {
+  cliente_no_responde: 'Enviar un mensaje de reenganche a las 24-48h (pregunta simple o una oferta puntual) en vez de dejar la conversación morir sola.',
+  sin_stock: 'Cruzar estos SKU con Alertas de Stock para priorizar reposición si son de alta demanda, y ofrecer una alternativa compatible en el momento en vez de solo decir "no hay".',
+  precio: 'Revisar si hay margen para un descuento puntual en los productos que más se repiten acá, o reforzar el argumento de valor (garantía, original vs. alternativo) frente a la competencia.',
+  respuesta_lenta: 'Revisar carga de vendedores en los horarios con más consultas y reforzar dotación ahí -- ver "Tiempo prom. 1ª respuesta" del dashboard para confirmar si coincide con un horario puntual.',
+  producto_incompatible: 'Reforzar el uso de "Modelos de Notebook" (compatibilidad) ANTES de cotizar, para no ofrecer un repuesto que no calza con el equipo del cliente.',
+  sin_seguimiento: 'Activar un recordatorio automático para cotizaciones sin respuesta después de X días, y asignar responsable explícito a cada conversación para que no quede sin dueño.',
+  compro_en_otro_lugar: 'Revisar precio y tiempo de respuesta de estas conversaciones puntuales para identificar si fue velocidad o precio lo que decidió la venta de la competencia.',
+  otro: 'Es la categoría más grande -- vale la pena revisar estas conversaciones a mano, probablemente esconden un motivo recurrente que todavía no está en la lista.',
+  venta: 'No es una pérdida real: la IA detectó que terminó en venta pero nadie la confirmó con el botón "Asociar venta". Revisar y asociarlas para que no sigan contando como pérdida.',
+  no_interesado: 'Falta completar el motivo específico de pérdida en estas conversaciones (quedó solo el resultado general) -- revisar y clasificar a mano.',
+};
 const SEGUIMIENTO_ESTADO_LABEL = { pendiente: 'Pendiente', contactado: 'Contactado', venta: 'Venta', cerrado: 'Cerrado', no_interesado: 'No interesado' };
 const SEGUIMIENTO_ESTADO_BADGE = { pendiente: 'b-ambar', contactado: 'b-azul', venta: 'b-verde', cerrado: 'b-gris', no_interesado: 'b-rojo' };
 
@@ -916,7 +935,7 @@ function initAnalitica(){
       <h2>Motivos de pérdida</h2>
       <div class="sub" style="margin-bottom:10px;">Haz clic en un motivo para ver esas conversaciones.</div>
       <div class="tabla-wrap"><table>
-        <thead><tr><th>Motivo</th><th>Cantidad</th><th>%</th></tr></thead>
+        <thead><tr><th>Motivo</th><th>Cantidad</th><th>%</th><th>Recomendación</th></tr></thead>
         <tbody id="tablaMotivos"></tbody>
       </table></div>
     </div>
@@ -1049,10 +1068,11 @@ function renderChartEmbudo(e){
   `).join('')}</div>`;
 }
 function renderTablaMotivos(motivos){
-  if (!motivos.length) { $('tablaMotivos').innerHTML = '<tr><td colspan="3" class="empty-note">Sin conversaciones perdidas en este período.</td></tr>'; return; }
+  if (!motivos.length) { $('tablaMotivos').innerHTML = '<tr><td colspan="4" class="empty-note">Sin conversaciones perdidas en este período.</td></tr>'; return; }
   $('tablaMotivos').innerHTML = motivos.map(m => `
     <tr class="fila-clic" onclick="irAConversacionesConMotivo('${escapeHtml(m.motivo)}')">
       <td>${escapeHtml(m.etiqueta)}</td><td>${fmtNum(m.cantidad)}</td><td>${m.porcentaje}%</td>
+      <td style="max-width:340px;font-size:12px;color:var(--muted);">${escapeHtml(MOTIVO_PERDIDA_RECOMENDACION[m.motivo] || 'Sin recomendación definida para este motivo.')}</td>
     </tr>
   `).join('');
 }
