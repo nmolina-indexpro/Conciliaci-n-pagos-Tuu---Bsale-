@@ -299,6 +299,7 @@ function initConversaciones(){
         <span class="icono-buscar">🔍</span>
         <input type="text" id="buscadorConv" placeholder="Buscar por nombre, teléfono, texto, marca, modelo, pedido o ID de conversación...">
       </div>
+      <div id="chipFiltroMotivo"></div>
       <div class="filtros-panel" id="panelFiltrosConv" style="display:none;">
         <div class="campo"><label>Fecha desde</label><input type="date" id="fDesde"></div>
         <div class="campo"><label>Fecha hasta</label><input type="date" id="fHasta"></div>
@@ -373,8 +374,23 @@ function aplicarFiltrosConv(){
 function limpiarFiltrosConv(){
   ['fDesde','fHasta','fEstado','fResultado','fIntencion','fProducto','fRespuesta','fProbabilidad','fVenta','fSeguimiento','fResponsable'].forEach(id => $(id).value = '');
   convState.filtros = {};
+  convState.filtroMotivoLabel = null;
   convState.page = 1;
   cargarConversaciones();
+}
+// Chip visible arriba de la tabla cuando se llega filtrado por un motivo de
+// pérdida (ver irAConversacionesConMotivo) -- sin esto el filtro queda
+// invisible para quien mira la tabla, no se entiende por qué aparecen menos
+// conversaciones que el total.
+function renderChipFiltroMotivo(){
+  const el = $('chipFiltroMotivo');
+  if (!el) return;
+  if (!convState.filtros.motivoPerdida) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div style="display:inline-flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:20px;padding:4px 6px 4px 12px;margin-bottom:12px;font-size:12.5px;">
+      Motivo de pérdida: <b>${escapeHtml(convState.filtroMotivoLabel || convState.filtros.motivoPerdida)}</b>
+      <button class="btn-icono" title="Quitar filtro" onclick="limpiarFiltrosConv()">✕</button>
+    </div>`;
 }
 function ordenarConv(campo){
   convState.orden = convState.orden === campo + '_desc' ? campo + '_asc' : campo + '_desc';
@@ -390,6 +406,7 @@ async function cargarConversaciones(){
     convState.total = data.total; convState.totalPaginas = data.totalPaginas; convState.ultimaData = data.conversaciones;
     renderTablaConv(data.conversaciones);
     renderPaginacionConv();
+    renderChipFiltroMotivo();
   }catch(err){
     $('tablaConv').innerHTML = `<tr><td colspan="14" class="empty-note">Error: ${escapeHtml(err.message)}</td></tr>`;
   }
@@ -935,7 +952,7 @@ function initAnalitica(){
       <h2>Motivos de pérdida</h2>
       <div class="sub" style="margin-bottom:10px;">Haz clic en un motivo para ver esas conversaciones.</div>
       <div class="tabla-wrap"><table>
-        <thead><tr><th>Motivo</th><th>Cantidad</th><th>%</th><th>Recomendación</th></tr></thead>
+        <thead><tr><th>Motivo</th><th>Cantidad</th><th>%</th><th>Recomendación</th><th></th></tr></thead>
         <tbody id="tablaMotivos"></tbody>
       </table></div>
     </div>
@@ -1068,21 +1085,33 @@ function renderChartEmbudo(e){
   `).join('')}</div>`;
 }
 function renderTablaMotivos(motivos){
-  if (!motivos.length) { $('tablaMotivos').innerHTML = '<tr><td colspan="4" class="empty-note">Sin conversaciones perdidas en este período.</td></tr>'; return; }
+  if (!motivos.length) { $('tablaMotivos').innerHTML = '<tr><td colspan="5" class="empty-note">Sin conversaciones perdidas en este período.</td></tr>'; return; }
   $('tablaMotivos').innerHTML = motivos.map(m => `
     <tr class="fila-clic" onclick="irAConversacionesConMotivo('${escapeHtml(m.motivo)}')">
       <td>${escapeHtml(m.etiqueta)}</td><td>${fmtNum(m.cantidad)}</td><td>${m.porcentaje}%</td>
       <td style="max-width:340px;font-size:12px;color:var(--muted);">${escapeHtml(MOTIVO_PERDIDA_RECOMENDACION[m.motivo] || 'Sin recomendación definida para este motivo.')}</td>
+      <td><button class="btn-ghost btn-compact" onclick="event.stopPropagation(); irAConversacionesConMotivo('${escapeHtml(m.motivo)}')">👁️ Ver conversaciones</button></td>
     </tr>
   `).join('');
 }
+// Antes solo cambiaba de pestaña sin aplicar ningún filtro (bug real,
+// detectado al probar el clic de la tabla de Motivos de pérdida) -- el
+// filtro se deja seteado ANTES de cambiarVistaModulo('conversaciones'),
+// porque si esa pestaña nunca se había abierto, initConversaciones() llama
+// a cargarConversaciones() de inmediato y necesita encontrar convState.filtros
+// ya listo. Si la pestaña ya estaba cargada, cambiarVistaModulo no hace
+// nada más -> hay que recargar a mano.
 function irAConversacionesConMotivo(motivo){
-  cambiarVistaModulo('conversaciones');
-  if (!vistasCargadas.has('conversaciones')) return;
-  $('panelFiltrosConv').style.display = 'flex';
-  $('buscadorConv').value = '';
+  const yaEstabaCargada = vistasCargadas.has('conversaciones');
+  convState.filtros = { motivoPerdida: motivo };
+  convState.filtroMotivoLabel = MOTIVO_PERDIDA_LABEL[motivo] || motivo;
   convState.q = ''; convState.page = 1;
-  cargarConversaciones();
+  cambiarVistaModulo('conversaciones');
+  if (yaEstabaCargada) {
+    $('panelFiltrosConv').style.display = 'none';
+    $('buscadorConv').value = '';
+    cargarConversaciones();
+  }
 }
 function renderTablaProductos(prods){
   if (!prods.length) { $('tablaProductos').innerHTML = '<tr><td colspan="4" class="empty-note">Sin datos.</td></tr>'; return; }

@@ -4374,6 +4374,17 @@ function armarFiltrosConversacionesWhatsapp(query) {
     if (rangos[query.probabilidad]) cond.push(rangos[query.probabilidad]);
   }
 
+  // Mismo criterio EXACTO que la agregación de "Motivos de pérdida" en
+  // manejarWhatsappAnalitica (venta_detectada=false, resultado no nulo y
+  // no cotizacion/seguimiento) + el mismo comodín COALESCE -- si no se
+  // repite acá, el número que se muestra en la tabla de motivos no
+  // coincide con las conversaciones que aparecen al hacer clic.
+  if (query.motivoPerdida) {
+    cond.push(`COALESCE(c.motivo_perdida, c.resultado, 'otro') = ${p(query.motivoPerdida)}`);
+    cond.push(`c.venta_detectada = false`);
+    cond.push(`c.resultado IS NOT NULL AND c.resultado NOT IN ('cotizacion','seguimiento')`);
+  }
+
   if (query.venta === 'con_venta') cond.push(`c.venta_detectada = true`);
   if (query.venta === 'sin_venta') cond.push(`c.venta_detectada = false`);
   if (query.seguimiento === 'requiere') cond.push(`c.requiere_seguimiento = true`);
