@@ -69,6 +69,8 @@
 
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
   th.amount, td.amount{text-align:right;}
   td{padding:9px;border-bottom:1px solid var(--line);}
   .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
@@ -175,7 +177,7 @@
     <div id="resultadoBusquedaCompat"></div>
     <div id="errorCompat"></div>
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Marca</th><th>Modelo</th><th>Batería</th><th>Pantalla</th><th>Cargador</th><th>Actualizado</th><th></th></tr></thead>
+      <thead><tr id="theadCompat"></tr></thead>
       <tbody id="tablaCompat"><tr><td colspan="7" class="empty-note">Cargando...</td></tr></tbody>
     </table></div>
   </div>
@@ -922,10 +924,33 @@ async function cargarModelosCompat(){
     tbody.innerHTML = `<tr><td colspan="7" class="empty-note">Error: ${err.message}</td></tr>`;
   }
 }
+let sortColCompat = 'marca';
+let sortAscCompat = true;
+function flechaCompat(col){ return sortColCompat === col ? (sortAscCompat ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenCompat(col){
+  if(sortColCompat === col) sortAscCompat = !sortAscCompat;
+  else { sortColCompat = col; sortAscCompat = true; }
+  renderTablaCompat(ultimosModelosCompat);
+}
+function renderTeadCompat(){
+  document.getElementById('theadCompat').innerHTML = `
+    <th class="ordenable" onclick="cambiarOrdenCompat('marca')">Marca${flechaCompat('marca')}</th>
+    <th class="ordenable" onclick="cambiarOrdenCompat('modelo')">Modelo${flechaCompat('modelo')}</th>
+    <th>Batería</th><th>Pantalla</th><th>Cargador</th>
+    <th class="ordenable" onclick="cambiarOrdenCompat('actualizadoPor')">Actualizado${flechaCompat('actualizadoPor')}</th>
+    <th></th>
+  `;
+}
 function renderTablaCompat(modelos){
+  renderTeadCompat();
   const tbody = $('tablaCompat');
   if(!modelos.length){ tbody.innerHTML = '<tr><td colspan="7" class="empty-note">Sin modelos cargados todavía.</td></tr>'; return; }
   const celdaSku = sku => sku ? `<code>${sku}</code>` : '<span class="empty-note">—</span>';
+  const valor = { marca: m => m.marca || '', modelo: m => m.modelo || '', actualizadoPor: m => m.actualizadoPor || '' }[sortColCompat];
+  modelos = [...modelos].sort((a, b) => {
+    const cmp = valor(a).localeCompare(valor(b));
+    return sortAscCompat ? cmp : -cmp;
+  });
   tbody.innerHTML = modelos.map(m => `
     <tr>
       <td>${m.marca}</td>
