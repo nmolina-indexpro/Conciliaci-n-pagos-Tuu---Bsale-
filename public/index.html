@@ -490,10 +490,10 @@ document.addEventListener('click', (ev) => {
   if(wrap && !wrap.contains(ev.target)) $('datePickerPopover').classList.remove('open');
 });
 
-// Arranque: última semana por defecto
-$('fechaDesde').value = addDaysStr(hoyStr, -6);
-$('fechaHasta').value = hoyStr;
-marcarBotonActivo('semana');
+// Arranque: mes actual por defecto (pedido del usuario -- antes era última
+// semana). setRangoRapido('mes') ya llama a cargar(), así que la carga
+// inicial de más abajo no debe repetirlo (ver "cargar();" eliminado ahí).
+setRangoRapido('mes');
 
 async function cargar(){
   const fechaDesde = $('fechaDesde').value;
@@ -893,7 +893,7 @@ async function importarPlanillaFlujoCaja(){
   }
 }
 
-cargar();
+// cargar() ya se disparó desde setRangoRapido('mes') más arriba.
 cargarCalendarioFijo();
 cargarFacturasPorPagar();
 cargarFacturasCompra();

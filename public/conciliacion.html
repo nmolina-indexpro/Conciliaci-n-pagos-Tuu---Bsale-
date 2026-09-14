@@ -289,11 +289,14 @@ const $ = id => document.getElementById(id);
 const hoyStr = new Date().toLocaleDateString('en-CA');
 $('fecha').value = hoyStr;
 $('fecha').max = hoyStr;
-$('fechaDesde').value = hoyStr;
 $('fechaDesde').max = hoyStr;
-$('fechaHasta').value = hoyStr;
 $('fechaHasta').max = hoyStr;
-$('btnDia').classList.add('active');
+// Arranque: mes actual por defecto (pedido del usuario -- antes era "hoy").
+// setRangoRapido('mes') llama a buscarRango(), que a su vez sincroniza
+// $('fecha') solo cuando desde===hasta -- como el mes actual normalmente
+// no cae en un solo día, $('fecha') se queda en "hoy" (ya seteado arriba),
+// que es lo correcto para la Cuadratura diaria de más abajo.
+setRangoRapido('mes');
 
 function toggleManual(){
   const s = $('manualSection');

@@ -276,6 +276,7 @@ const $ = id => document.getElementById(id);
 let rolActual = 'usuario';
 let nombreActual = ''; // para armar el autor de un comentario sin ida y vuelta al servidor (ver guardarComentarioModal)
 let sincronizando = false;
+let autoSincronizacionIntentada = false; // una sola vez por carga de página
 
 // Nombre/empresa vienen de Bsale y "comentario" lo escribe un admin -> todo
 // se renderiza vía innerHTML, así que se escapa antes de interpolar (texto
@@ -512,9 +513,22 @@ async function cargarVentasBaja(){
     $('ventasBajaResumen').textContent = `${fmtNum(calculados.length)} SKU estancado(s) con stock disponible (${fmtNum(sinVenta.length)} nunca vendido(s) en el período, ${fmtNum(conVenta.length)} sin vender hace ${UMBRAL_DIAS_ESTANCADO}+ días).`
       + (data.ultimaSincronizacion ? ` Última sincronización completa: ${new Date(data.ultimaSincronizacion).toLocaleString('es-CL')}.` : '');
     renderVentasBaja();
+    autoSincronizarSiCorresponde(data.ultimaSincronizacion);
   }catch(err){
     $('wrapVentasBaja').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
   }
+}
+
+// Sincroniza automáticamente al cargar la página, pero solo si ya pasaron
+// 12 horas desde la última pasada completa (pedido del usuario, mismo
+// patrón que Servicio Técnico) -- evita golpear Bsale en cada visita.
+function autoSincronizarSiCorresponde(ultimaSincronizacion){
+  if(rolActual !== 'admin' || autoSincronizacionIntentada) return;
+  autoSincronizacionIntentada = true;
+  if(sincronizando) return; // ya hay una pasada en curso, no duplicar
+  const DOCE_HORAS_MS = 12 * 60 * 60 * 1000;
+  const ultima = ultimaSincronizacion ? new Date(ultimaSincronizacion).getTime() : 0;
+  if(Date.now() - ultima >= DOCE_HORAS_MS) iniciarSincronizacion();
 }
 
 function editarComentarioVentaBaja(sku){

@@ -553,6 +553,23 @@ let esAdmin = false;
 let sincronizando = false;
 let puntosCargados = false;
 
+// Auto-sincronización al cargar la página (pedido del usuario, mismo
+// patrón que Servicio Técnico): cada una de las 4 pestañas se sincroniza
+// sola, pero solo si ya pasaron 12 horas desde su última pasada completa
+// (o nunca se ha sincronizado) -- evita golpear Bsale/Mercado Público en
+// cada visita. "clave" identifica cada pestaña por separado (un mapa
+// interno en vez de una variable let por pestaña, para no tener que pasar
+// booleans por referencia). Solo aplica a admin -- el resto ni ve el botón.
+const autoSincIntentadoPorClave = {};
+function autoSincronizarSiCorresponde(clave, ultimaSincronizacion, sincronizandoActual, funcionIniciar){
+  if(!esAdmin || autoSincIntentadoPorClave[clave]) return;
+  autoSincIntentadoPorClave[clave] = true;
+  if(sincronizandoActual) return; // ya hay una pasada en curso, no duplicar
+  const DOCE_HORAS_MS = 12 * 60 * 60 * 1000;
+  const ultima = ultimaSincronizacion ? new Date(ultimaSincronizacion).getTime() : 0;
+  if(Date.now() - ultima >= DOCE_HORAS_MS) funcionIniciar();
+}
+
 let cotizaciones = [];
 let cotizacionesCargadas = false;
 let resumenClientesCotizacion = {}; // clienteId -> {numCompras, montoTotal, ultimaCompra} -- ver cargarResumenClientesCotizacion
@@ -593,6 +610,7 @@ let ordenesCompraAgil = [];
 let compraAgilCargado = false;
 let accesoriosCargado = false;
 let sincronizandoIndexpro = false;
+let sincronizandoCompraAgil = false;
 const ESTADOS_INDEXPRO_LABEL = {
   sin_contactar: 'Sin contactar',
   primer_correo: 'Primer correo enviado',
@@ -764,11 +782,17 @@ async function cargarSesionUsuario(){
       $('btnSincronizarIndexpro').style.display = '';
       $('btnSincronizarCompraAgil').style.display = '';
       // Pedido del usuario: no depender de que alguien se acuerde de
-      // apretar "Sincronizar" -- si vamos a aterrizar en la pestaña de
-      // Cotizaciones (mismo criterio que "tabInicial" más abajo), se
-      // dispara sola al entrar. iniciarSincronizacionCotizaciones() ya se
-      // cuida de no duplicarse si además el usuario hace clic en el botón.
-      if(typeof tabInicial === 'undefined' || tabInicial !== 'compra-agil') iniciarSincronizacionCotizaciones();
+      // apretar "Sincronizar" -- se revisan las 4 pestañas al cargar la
+      // página (no solo la que está activa), y cada cargar*() decide si
+      // hace falta auto-sincronizar (ver autoSincronizarSiCorresponde,
+      // gatillado 12 horas después de la última pasada completa). Cada
+      // cargar*() ya marca su propio "Cargado" al entrar, así que si el
+      // bloque de más abajo (u otra pestaña clickeada) ya la cargó, este
+      // guard evita pedirla dos veces.
+      if(!puntosCargados) cargar();
+      if(!cotizacionesCargadas) cargarCotizaciones();
+      if(!indexproCargado) cargarIndexpro();
+      if(!compraAgilCargado) cargarCompraAgil();
     }
   }catch(err){ /* silencioso */ }
 }
@@ -801,6 +825,7 @@ async function cargar(){
     renderEstadoSync(res.sync);
     status.className = 'ok';
     status.textContent = `Listo — ${res.totalConPuntos} clientes con puntos disponibles`;
+    autoSincronizarSiCorresponde('puntos', res.sync?.ultimaPasadaCompletaEn, sincronizando, iniciarSincronizacion);
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
@@ -1003,6 +1028,7 @@ async function cargarCotizaciones(){
     renderEstadoSyncCotizaciones(res.sync);
     status.className = 'ok';
     status.textContent = `Listo — ${cotizaciones.length} cotizaciones (últimos ${180} días)`;
+    autoSincronizarSiCorresponde('cotizaciones', res.sync?.ultimaPasadaCompletaEn, sincronizandoCotizaciones, iniciarSincronizacionCotizaciones);
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
@@ -1589,6 +1615,7 @@ async function cargarIndexpro(){
     renderEstadoSyncIndexpro(res.sync);
     status.className = 'ok';
     status.textContent = `Listo — ${oportunidadesIndexpro.length} oportunidades`;
+    autoSincronizarSiCorresponde('indexpro', res.sync?.ultimaPasadaCompletaEn, sincronizandoIndexpro, iniciarSincronizacionIndexpro);
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
@@ -2118,13 +2145,19 @@ async function cargarCompraAgil(){
     renderKpisCompraAgil(data);
     renderResumenMesesCompraAgil(data.ordenes);
     poblarFiltroEstadoCompraAgil();
-    aplicarFiltrosCompraAgil();
+    // Mes actual por defecto (pedido del usuario), solo la PRIMERA vez que
+    // se carga esta pestaña -- si el filtro ya tiene algo (el usuario lo
+    // cambió, o una recarga en segundo plano por auto-sincronización), no
+    // se pisa lo que ya eligió.
+    if($('caDesde').value) aplicarFiltrosCompraAgil();
+    else setRangoRapidoCompraAgil('mes');
     if(data.ultimaPasadaCompletaEn){
       $('syncStatusCompraAgil').className = '';
       $('syncStatusCompraAgil').textContent = `Última sincronización completa: ${new Date(data.ultimaPasadaCompletaEn).toLocaleString('es-CL')} (día ${fmtNum(data.offsetActual)} de ${fmtNum(data.diasTotales)} en curso).`;
     } else if(!data.ordenes.length){
       $('syncStatusCompraAgil').textContent = esAdmin ? 'Todavía no se ha sincronizado con Mercado Público.' : '';
     }
+    autoSincronizarSiCorresponde('compraAgil', data.ultimaPasadaCompletaEn, sincronizandoCompraAgil, iniciarSincronizacionCompraAgil);
   }catch(err){
     $('wrapTablaCompraAgil').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
   }
@@ -2135,6 +2168,8 @@ async function cargarCompraAgil(){
 // informa completo:true -- una pasada completa (~400 días a ~1.3s c/u)
 // toma varios minutos, no cierres la página mientras corre.
 async function iniciarSincronizacionCompraAgil(){
+  if(sincronizandoCompraAgil) return;
+  sincronizandoCompraAgil = true;
   $('btnSincronizarCompraAgil').disabled = true;
   $('syncStatusCompraAgil').className = '';
   $('syncStatusCompraAgil').textContent = 'Sincronizando con Mercado Público...';
@@ -2162,6 +2197,7 @@ async function iniciarSincronizacionCompraAgil(){
     $('syncStatusCompraAgil').className = 'err';
     $('syncStatusCompraAgil').textContent = 'Error: ' + err.message;
   }finally{
+    sincronizandoCompraAgil = false;
     $('btnSincronizarCompraAgil').disabled = false;
   }
 }
@@ -2170,15 +2206,12 @@ cargarSesionUsuario();
 // ?tab=compra-agil (o cualquier otra pestaña) abre directo ahí -- usado
 // por el redirect de la antigua página compra-agil.html.
 const tabInicial = new URLSearchParams(location.search).get('tab');
+// Mes actual por defecto en Cotizaciones (pedido del usuario -- antes
+// eran los últimos 30 días corridos), sin importar en qué pestaña se
+// aterrice: antes solo se aplicaba si la pestaña inicial era Cotizaciones.
+setRangoRapidoCotizaciones('mes');
 if(tabInicial === 'compra-agil') cambiarTab('compra-agil');
-else {
-  // Precarga los últimos 30 días de calendario -- antes el rango quedaba
-  // vacío (o con lo último que el navegador recordó en el <input
-  // type="date">, no algo consistente), pedido del usuario.
-  $('cotizacionesDesde').value = addDaysStrCot(hoyStrCot, -29);
-  $('cotizacionesHasta').value = hoyStrCot;
-  cargarCotizaciones();
-}
+else cargarCotizaciones();
 </script>
 </body>
 </html>
