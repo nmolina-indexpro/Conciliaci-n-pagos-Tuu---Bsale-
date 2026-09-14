@@ -47,6 +47,8 @@
   table{width:100%;border-collapse:collapse;font-size:13px;}
   .tabla-wrap{overflow-x:auto;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:0.4px;padding:10px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
   td{padding:10px;border-bottom:1px solid var(--line);}
   .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;}
   .badge.admin{background:var(--primary-dim);color:var(--primary);}
@@ -369,17 +371,50 @@ function badgeExpiracion(u){
   return `<span class="empty-note">—</span>`;
 }
 
+let sortColUsuarios = 'email';
+let sortAscUsuarios = true;
+function flechaUsuarios(col){ return sortColUsuarios === col ? (sortAscUsuarios ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenUsuarios(col){
+  if(sortColUsuarios === col) sortAscUsuarios = !sortAscUsuarios;
+  else { sortColUsuarios = col; sortAscUsuarios = true; }
+  renderTabla();
+}
+const VALOR_ORDEN_USUARIOS = {
+  email: u => u.email || '',
+  nombre: u => u.nombre || '',
+  rol: u => u.rol || '',
+  activo: u => u.activo ? 1 : 0,
+  expira_en: u => u.expira_en || '',
+  ultimo_login: u => u.ultimo_login || '',
+  created_at: u => u.created_at || '',
+};
 function renderTabla(){
   if(listaUsuarios.length === 0){
     $('tablaWrap').innerHTML = `<p class="empty-note">Sin usuarios todavía.</p>`;
     return;
   }
   const esAdmin = usuarioActual?.rol === 'admin';
+  const valorU = VALOR_ORDEN_USUARIOS[sortColUsuarios];
+  const usuariosOrdenados = [...listaUsuarios].sort((a, b) => {
+    const av = valorU(a), bv = valorU(b);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortAscUsuarios ? cmp : -cmp;
+  });
   $('tablaWrap').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Email</th><th>Nombre</th><th>Rol</th><th>Perfil de acceso</th><th>Estado</th><th>Expira</th><th>Último ingreso</th><th>Creado</th>${esAdmin?'<th>Acciones</th>':''}</tr></thead>
+      <thead><tr>
+        <th class="ordenable" onclick="cambiarOrdenUsuarios('email')">Email${flechaUsuarios('email')}</th>
+        <th class="ordenable" onclick="cambiarOrdenUsuarios('nombre')">Nombre${flechaUsuarios('nombre')}</th>
+        <th class="ordenable" onclick="cambiarOrdenUsuarios('rol')">Rol${flechaUsuarios('rol')}</th>
+        <th>Perfil de acceso</th>
+        <th class="ordenable" onclick="cambiarOrdenUsuarios('activo')">Estado${flechaUsuarios('activo')}</th>
+        <th class="ordenable" onclick="cambiarOrdenUsuarios('expira_en')">Expira${flechaUsuarios('expira_en')}</th>
+        <th class="ordenable" onclick="cambiarOrdenUsuarios('ultimo_login')">Último ingreso${flechaUsuarios('ultimo_login')}</th>
+        <th class="ordenable" onclick="cambiarOrdenUsuarios('created_at')">Creado${flechaUsuarios('created_at')}</th>
+        ${esAdmin?'<th>Acciones</th>':''}
+      </tr></thead>
       <tbody>
-        ${listaUsuarios.map(u => `
+        ${usuariosOrdenados.map(u => `
           <tr>
             <td>${u.email}</td>
             <td>${u.nombre||'—'}</td>

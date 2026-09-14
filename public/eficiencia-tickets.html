@@ -64,6 +64,8 @@
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
   .tabla-wrap{overflow-x:auto;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
   th.amount, td.amount{text-align:right;}
   td{padding:9px;border-bottom:1px solid var(--line);}
   .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
@@ -295,28 +297,63 @@ function renderKpis(tickets){
   cards[4].classList.toggle('warn', respuestaVencida.length>0);
 }
 
+// datosGrupo/sortStateGrupo: renderGrupo() se reutiliza para 3 tablas
+// distintas (Estado/Canal/Prioridad) -- cada una guarda sus propios datos
+// y su propio orden por containerId, así un clic en una no reordena otra.
+const datosGrupo = {};
+const sortStateGrupo = {};
+function flechaGrupo(containerId, col){
+  const s = sortStateGrupo[containerId];
+  return s && s.col === col ? (s.asc ? ' ▲' : ' ▼') : '';
+}
+function cambiarOrdenGrupo(containerId, col){
+  const s = sortStateGrupo[containerId] || (sortStateGrupo[containerId] = { col: 'cantidad', asc: false });
+  if(s.col === col) s.asc = !s.asc; else { s.col = col; s.asc = false; }
+  const d = datosGrupo[containerId];
+  renderGrupo(containerId, d.grupos, d.etiquetaCol);
+}
 function renderGrupo(containerId, grupos, etiquetaCol){
+  datosGrupo[containerId] = { grupos, etiquetaCol };
   if(grupos.length===0){ $(containerId).innerHTML = `<p class="empty-note">Sin datos.</p>`; return; }
+  const s = sortStateGrupo[containerId] || { col: 'cantidad', asc: false };
+  const ordenados = [...grupos].sort((a,b) => {
+    const av = s.col === 'clave' ? a.clave : a.cantidad, bv = s.col === 'clave' ? b.clave : b.cantidad;
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return s.asc ? cmp : -cmp;
+  });
   $(containerId).innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>${etiquetaCol}</th><th class="amount">Cantidad</th></tr></thead>
-      <tbody>${grupos.map(g=>`<tr><td>${g.clave}</td><td class="amount">${g.cantidad}</td></tr>`).join('')}</tbody>
+      <thead><tr>
+        <th class="ordenable" onclick="cambiarOrdenGrupo('${containerId}','clave')">${etiquetaCol}${flechaGrupo(containerId,'clave')}</th>
+        <th class="amount ordenable" onclick="cambiarOrdenGrupo('${containerId}','cantidad')">Cantidad${flechaGrupo(containerId,'cantidad')}</th>
+      </tr></thead>
+      <tbody>${ordenados.map(g=>`<tr><td>${g.clave}</td><td class="amount">${g.cantidad}</td></tr>`).join('')}</tbody>
     </table></div>`;
 }
 
-function renderAgentes(tickets){
-  const mapa = {};
-  for(const t of tickets){
-    const nombre = t.agente || 'Sin asignar';
-    if(!mapa[nombre]) mapa[nombre] = { nombre, cantidad: 0, sumaHoras: 0, conTiempo: 0 };
-    mapa[nombre].cantidad++;
-    if(t.horasResolucion != null){ mapa[nombre].sumaHoras += t.horasResolucion; mapa[nombre].conTiempo++; }
-  }
-  const lista = Object.values(mapa).sort((a,b)=>b.cantidad-a.cantidad);
-  if(lista.length===0){ $('wrapAgente').innerHTML = `<p class="empty-note">Sin datos.</p>`; return; }
+let sortColAgentes = 'cantidad';
+let sortAscAgentes = false;
+let agentesActuales = [];
+function flechaAgentes(col){ return sortColAgentes === col ? (sortAscAgentes ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenAgentes(col){
+  if(sortColAgentes === col) sortAscAgentes = !sortAscAgentes;
+  else { sortColAgentes = col; sortAscAgentes = false; }
+  renderTablaAgentes();
+}
+function renderTablaAgentes(){
+  const valor = { nombre: a => a.nombre, cantidad: a => a.cantidad, prom: a => a.conTiempo ? a.sumaHoras/a.conTiempo : -1 }[sortColAgentes];
+  const lista = [...agentesActuales].sort((a, b) => {
+    const av = valor(a), bv = valor(b);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortAscAgentes ? cmp : -cmp;
+  });
   $('wrapAgente').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Agente</th><th class="amount">Tickets</th><th class="amount">Prom. resolución</th></tr></thead>
+      <thead><tr>
+        <th class="ordenable" onclick="cambiarOrdenAgentes('nombre')">Agente${flechaAgentes('nombre')}</th>
+        <th class="amount ordenable" onclick="cambiarOrdenAgentes('cantidad')">Tickets${flechaAgentes('cantidad')}</th>
+        <th class="amount ordenable" onclick="cambiarOrdenAgentes('prom')">Prom. resolución${flechaAgentes('prom')}</th>
+      </tr></thead>
       <tbody>${lista.map(a=>`
         <tr>
           <td>${a.nombre}</td>
@@ -325,13 +362,48 @@ function renderAgentes(tickets){
         </tr>`).join('')}</tbody>
     </table></div>`;
 }
+function renderAgentes(tickets){
+  const mapa = {};
+  for(const t of tickets){
+    const nombre = t.agente || 'Sin asignar';
+    if(!mapa[nombre]) mapa[nombre] = { nombre, cantidad: 0, sumaHoras: 0, conTiempo: 0 };
+    mapa[nombre].cantidad++;
+    if(t.horasResolucion != null){ mapa[nombre].sumaHoras += t.horasResolucion; mapa[nombre].conTiempo++; }
+  }
+  agentesActuales = Object.values(mapa);
+  if(agentesActuales.length===0){ $('wrapAgente').innerHTML = `<p class="empty-note">Sin datos.</p>`; return; }
+  renderTablaAgentes();
+}
 
-function renderVencidos(tickets){
-  const lista = tickets.filter(t=>t.vencido);
-  if(lista.length===0){ $('wrapVencidos').innerHTML = `<p class="empty-note">Ningún ticket vencido en este período. 🎉</p>`; return; }
+let sortColVencidos = 'creado';
+let sortAscVencidos = false;
+let vencidosActuales = [];
+function flechaVencidos(col){ return sortColVencidos === col ? (sortAscVencidos ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenVencidos(col){
+  if(sortColVencidos === col) sortAscVencidos = !sortAscVencidos;
+  else { sortColVencidos = col; sortAscVencidos = false; }
+  renderTablaVencidos();
+}
+function renderTablaVencidos(){
+  const valor = {
+    numero: t => t.numero || t.id || '', asunto: t => t.asunto || '', agente: t => t.agente || '',
+    estado: t => t.estado || '', prioridad: t => t.prioridad || '', creado: t => t.creado ? new Date(t.creado).getTime() : 0,
+  }[sortColVencidos];
+  const lista = [...vencidosActuales].sort((a, b) => {
+    const av = valor(a), bv = valor(b);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortAscVencidos ? cmp : -cmp;
+  });
   $('wrapVencidos').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>N°</th><th>Asunto</th><th>Agente</th><th>Estado</th><th>Prioridad</th><th>Creado</th></tr></thead>
+      <thead><tr>
+        <th class="ordenable" onclick="cambiarOrdenVencidos('numero')">N°${flechaVencidos('numero')}</th>
+        <th class="ordenable" onclick="cambiarOrdenVencidos('asunto')">Asunto${flechaVencidos('asunto')}</th>
+        <th class="ordenable" onclick="cambiarOrdenVencidos('agente')">Agente${flechaVencidos('agente')}</th>
+        <th class="ordenable" onclick="cambiarOrdenVencidos('estado')">Estado${flechaVencidos('estado')}</th>
+        <th class="ordenable" onclick="cambiarOrdenVencidos('prioridad')">Prioridad${flechaVencidos('prioridad')}</th>
+        <th class="ordenable" onclick="cambiarOrdenVencidos('creado')">Creado${flechaVencidos('creado')}</th>
+      </tr></thead>
       <tbody>${lista.map(t=>`
         <tr class="vencido">
           <td>${t.numero||t.id}</td>
@@ -342,6 +414,11 @@ function renderVencidos(tickets){
           <td>${t.creado?new Date(t.creado).toLocaleDateString('es-CL'):'—'}</td>
         </tr>`).join('')}</tbody>
     </table></div>`;
+}
+function renderVencidos(tickets){
+  vencidosActuales = tickets.filter(t=>t.vencido);
+  if(vencidosActuales.length===0){ $('wrapVencidos').innerHTML = `<p class="empty-note">Ningún ticket vencido en este período. 🎉</p>`; return; }
+  renderTablaVencidos();
 }
 
 cargarSesionUsuario();
