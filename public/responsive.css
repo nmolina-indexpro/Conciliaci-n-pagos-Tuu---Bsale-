@@ -46,8 +46,14 @@
    quedan con el prefijo .page-nav porque esos SÍ se quedan adentro. */
 .page-nav .nav-dropdown{ position:relative; flex-shrink:0; }
 .page-nav .nav-dropdown-btn{
-  font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12.5px; letter-spacing:0.1px;
-  color:var(--muted); background:none; border:none; cursor:pointer; font:inherit;
+  /* font:inherit primero (limpia el font UA raro de <button>), y RECIÉN
+     después la tipografía real -- al revés (como estaba antes) el
+     shorthand "font" pisa font-family/weight/size ya declarados, porque
+     resetea todas las sub-propiedades aunque no las repita. Por eso los
+     botones del desplegable se veían con una tipografía distinta a los
+     <a> del mismo nav (bug real, reportado por el usuario). */
+  font:inherit; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12.5px; letter-spacing:0.1px;
+  color:var(--muted); background:none; border:none; cursor:pointer;
   padding:7px 13px; border-radius:7px; transition:all .15s; white-space:nowrap;
 }
 .page-nav .nav-dropdown-btn:hover{ color:var(--text); background:rgba(0,0,0,.04); }
