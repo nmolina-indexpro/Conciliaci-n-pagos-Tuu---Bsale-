@@ -2171,7 +2171,14 @@ cargarSesionUsuario();
 // por el redirect de la antigua página compra-agil.html.
 const tabInicial = new URLSearchParams(location.search).get('tab');
 if(tabInicial === 'compra-agil') cambiarTab('compra-agil');
-else cargarCotizaciones();
+else {
+  // Precarga los últimos 30 días de calendario -- antes el rango quedaba
+  // vacío (o con lo último que el navegador recordó en el <input
+  // type="date">, no algo consistente), pedido del usuario.
+  $('cotizacionesDesde').value = addDaysStrCot(hoyStrCot, -29);
+  $('cotizacionesHasta').value = hoyStrCot;
+  cargarCotizaciones();
+}
 </script>
 </body>
 </html>
