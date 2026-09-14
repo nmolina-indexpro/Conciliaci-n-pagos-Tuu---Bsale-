@@ -6104,6 +6104,104 @@ const WHATSAPP_ANALISIS_TOOL = {
   },
 };
 
+// ---- Gemini como proveedor principal del Análisis IA (Claude queda de
+// respaldo) -- pedido del usuario: mismo trabajo (lee fotos, clasifica la
+// conversación) a una fracción del costo de Claude Haiku 4.5. Mismo prompt
+// del sistema y misma herramienta que ya usa Claude -- se REUTILIZAN, no
+// se duplican: WHATSAPP_ANALISIS_TOOL sigue siendo la única fuente de
+// verdad de los campos/descripciones, solo se traduce su forma al formato
+// que exige la API de Gemini (OpenAPI en mayúsculas, no JSON Schema).
+function convertirSchemaAGemini(schema) {
+  if (!schema || typeof schema !== 'object') return schema;
+  const resultado = { ...schema };
+  if (typeof resultado.type === 'string') resultado.type = resultado.type.toUpperCase();
+  if (resultado.properties) {
+    resultado.properties = Object.fromEntries(
+      Object.entries(resultado.properties).map(([clave, sub]) => [clave, convertirSchemaAGemini(sub)])
+    );
+  }
+  if (resultado.items) resultado.items = convertirSchemaAGemini(resultado.items);
+  return resultado;
+}
+const WHATSAPP_ANALISIS_TOOL_GEMINI = {
+  name: WHATSAPP_ANALISIS_TOOL.name,
+  description: WHATSAPP_ANALISIS_TOOL.description,
+  parameters: convertirSchemaAGemini(WHATSAPP_ANALISIS_TOOL.input_schema),
+};
+
+// El array "contenido" que arma ejecutarAnalisisIA ya está en formato
+// Anthropic (bloques {type:'text'|'image', ...}) -- se traduce a "parts"
+// de Gemini en vez de armarlo dos veces por separado.
+function mapearContenidoAGemini(contenido) {
+  return contenido.map(bloque => {
+    if (bloque.type === 'text') return { text: bloque.text };
+    if (bloque.type === 'image') return { inline_data: { mime_type: bloque.source.media_type, data: bloque.source.data } };
+    return null;
+  }).filter(Boolean);
+}
+
+const GEMINI_MODEL_ANALISIS = 'gemini-3.1-flash-lite';
+// tool_config.mode:"ANY" obliga a Gemini a devolver la función (no texto
+// libre) -- equivalente a tool_choice:{type:'tool',...} de Anthropic, que
+// es justo la garantía de la que depende todo lo que lee "a" río abajo.
+async function llamarGeminiAnalisis(systemPrompt, contenido) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('sin_gemini_api_key');
+  const respuesta = await fetchConTimeout(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ANALISIS}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: mapearContenidoAGemini(contenido) }],
+        tools: [{ function_declarations: [WHATSAPP_ANALISIS_TOOL_GEMINI] }],
+        tool_config: { function_calling_config: { mode: 'ANY', allowed_function_names: [WHATSAPP_ANALISIS_TOOL_GEMINI.name] } },
+        generationConfig: { maxOutputTokens: 1024 },
+      }),
+    },
+    30000
+  );
+  if (!respuesta.ok) {
+    const texto = await respuesta.text().catch(() => '');
+    throw new Error(`Gemini HTTP ${respuesta.status}: ${texto.slice(0, 300)}`);
+  }
+  const dataIA = await respuesta.json();
+  const partes = dataIA.candidates?.[0]?.content?.parts || [];
+  const llamada = partes.find(p => p.functionCall);
+  if (!llamada) throw new Error('Gemini no devolvió un análisis estructurado');
+  return llamada.functionCall.args || {};
+}
+
+// Mismo llamado que antes a la API de Anthropic, solo que ahora vive en su
+// propia función para poder usarse como respaldo de Gemini (ver
+// ejecutarAnalisisIA) en vez de ser el único camino.
+async function llamarClaudeAnalisis(systemPrompt, contenido) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('sin_anthropic_api_key');
+  const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: contenido }],
+      tools: [WHATSAPP_ANALISIS_TOOL],
+      tool_choice: { type: 'tool', name: 'registrar_analisis' },
+    }),
+  }, 30000);
+
+  if (!respuestaIA.ok) {
+    const texto = await respuestaIA.text().catch(() => '');
+    throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
+  }
+  const dataIA = await respuestaIA.json();
+  const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
+  if (!bloqueHerramienta) throw new Error('La IA no devolvió un análisis estructurado');
+  return bloqueHerramienta.input || {};
+}
+
 // Lógica central del Análisis IA, sin nada de HTTP -- la usa tanto el
 // botón manual (manejarWhatsappAnalizar, con usuario real para la
 // auditoría) como el disparo automático desde el webhook (con "quien" =
@@ -6112,8 +6210,10 @@ const WHATSAPP_ANALISIS_TOOL = {
 // conversación inexistente) -- errores de verdad (Anthropic caído, etc.)
 // sí se propagan, que el llamador decida cómo mostrarlos.
 async function ejecutarAnalisisIA(sql, conversacionId, quien) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return { ok: false, motivo: 'sin_api_key' };
+  // Gemini primero, Claude de respaldo (ver llamarGeminiAnalisis/
+  // llamarClaudeAnalisis más arriba) -- basta con que exista UNA de las dos
+  // keys para intentar el análisis.
+  if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) return { ok: false, motivo: 'sin_api_key' };
 
   const { rows: mensajes } = await sql`
     SELECT direccion, tipo, contenido_texto, media_url, marca_tiempo FROM whatsapp_mensajes
@@ -6224,27 +6324,25 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
     }
   });
 
-  const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
-      system: `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Prioridad para los campos marca/modelo: (1) si el cliente ESCRIBE el modelo en el texto de algún mensaje de la conversación, usa eso -- es la fuente más confiable, por encima de cualquier foto. (2) Si el cliente no escribe el modelo pero manda una foto de la etiqueta/sticker pegada en la carcasa o la base del equipo, léela para identificarlo. (3) Si manda las dos cosas (un modelo escrito Y una foto), el modelo que el cliente escribió manda -- usa la foto solo para completar marca/modelo si el texto no los menciona, no para contradecir lo que el cliente ya escribió. Estas etiquetas suelen traer VARIOS códigos distintos -- usa el que sea el modelo comercial del producto (el que identifica al equipo específico que compraría alguien, ej. "24-dd0092la" en un HP All-in-One, o "15-ef2xxx" en un notebook), y NO el "Regulatory model number"/"Model reglamentario" (un código interno de certificación FCC/IC que no corresponde al modelo real, ej. "TPC-0089-24"), ni el número de serie ("Serial No."/"S/N"), ni el PPID. Series/líneas reales de notebooks por marca (el modelo real casi siempre empieza con una de estas seguida de un número de generación, ej. "IdeaPad Gaming 3 15IMH05"): ${Object.entries(WHATSAPP_SERIES_NOTEBOOK).map(([marca, series]) => `${marca}: ${series.join(', ')}`).join(' | ')}. Esta lista es SOLO para que reconozcas si un texto que sí leíste en la imagen es una serie real -- NUNCA la uses para adivinar o suponer una serie "típica" o "probable" según el contexto (ej. NO asumas "Legion" solo porque el cliente pidió un notebook gamer; eso sería inventar, aunque sea una suposición razonable). El modelo/marca solo se registran si están literalmente escritos y legibles en la foto o en el texto del cliente -- transcribe exactamente lo que dice la etiqueta, letra por letra, no lo que te parezca más probable. Si el único código visible en la etiqueta NO corresponde a ninguna serie conocida (puede ser la capacidad de la batería en Wh, un part number, un código regulatorio, etc.) Y no hay otro texto de serie legible en la misma foto, deja el campo modelo vacío en vez de adivinar. A veces el mensaje del usuario incluye primero un bloque de "Contexto" con datos de una conversación anterior del mismo cliente (las conversaciones se cortan automáticamente tras 24h sin actividad, así que un seguimiento corto como "gracias por la info" puede quedar en una conversación separada sin mencionar el producto de nuevo) -- úsalo solo si la conversación actual es claramente ese seguimiento, nunca si trata de algo distinto. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`,
-      messages: [{ role: 'user', content: contenido }],
-      tools: [WHATSAPP_ANALISIS_TOOL],
-      tool_choice: { type: 'tool', name: 'registrar_analisis' },
-    }),
-  }, 30000);
+  const systemPrompt = `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Prioridad para los campos marca/modelo: (1) si el cliente ESCRIBE el modelo en el texto de algún mensaje de la conversación, usa eso -- es la fuente más confiable, por encima de cualquier foto. (2) Si el cliente no escribe el modelo pero manda una foto de la etiqueta/sticker pegada en la carcasa o la base del equipo, léela para identificarlo. (3) Si manda las dos cosas (un modelo escrito Y una foto), el modelo que el cliente escribió manda -- usa la foto solo para completar marca/modelo si el texto no los menciona, no para contradecir lo que el cliente ya escribió. Estas etiquetas suelen traer VARIOS códigos distintos -- usa el que sea el modelo comercial del producto (el que identifica al equipo específico que compraría alguien, ej. "24-dd0092la" en un HP All-in-One, o "15-ef2xxx" en un notebook), y NO el "Regulatory model number"/"Model reglamentario" (un código interno de certificación FCC/IC que no corresponde al modelo real, ej. "TPC-0089-24"), ni el número de serie ("Serial No."/"S/N"), ni el PPID. Series/líneas reales de notebooks por marca (el modelo real casi siempre empieza con una de estas seguida de un número de generación, ej. "IdeaPad Gaming 3 15IMH05"): ${Object.entries(WHATSAPP_SERIES_NOTEBOOK).map(([marca, series]) => `${marca}: ${series.join(', ')}`).join(' | ')}. Esta lista es SOLO para que reconozcas si un texto que sí leíste en la imagen es una serie real -- NUNCA la uses para adivinar o suponer una serie "típica" o "probable" según el contexto (ej. NO asumas "Legion" solo porque el cliente pidió un notebook gamer; eso sería inventar, aunque sea una suposición razonable). El modelo/marca solo se registran si están literalmente escritos y legibles en la foto o en el texto del cliente -- transcribe exactamente lo que dice la etiqueta, letra por letra, no lo que te parezca más probable. Si el único código visible en la etiqueta NO corresponde a ninguna serie conocida (puede ser la capacidad de la batería en Wh, un part number, un código regulatorio, etc.) Y no hay otro texto de serie legible en la misma foto, deja el campo modelo vacío en vez de adivinar. A veces el mensaje del usuario incluye primero un bloque de "Contexto" con datos de una conversación anterior del mismo cliente (las conversaciones se cortan automáticamente tras 24h sin actividad, así que un seguimiento corto como "gracias por la info" puede quedar en una conversación separada sin mencionar el producto de nuevo) -- úsalo solo si la conversación actual es claramente ese seguimiento, nunca si trata de algo distinto. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`;
 
-  if (!respuestaIA.ok) {
-    const texto = await respuestaIA.text().catch(() => '');
-    throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
+  // Gemini primero (mismo trabajo a una fracción del costo de Claude, ver
+  // conversación con el usuario), Claude de respaldo si Gemini falla por
+  // lo que sea (todavía sin GEMINI_API_KEY configurada, error de red, no
+  // devolvió la función esperada) -- así no se cae el análisis completo
+  // mientras se termina de migrar. Se loguea cuál de los dos respondió,
+  // para poder confirmar en producción que Gemini está funcionando antes
+  // de sacar a Claude del todo.
+  let a, proveedorUsado;
+  try {
+    a = await llamarGeminiAnalisis(systemPrompt, contenido);
+    proveedorUsado = 'gemini';
+  } catch (errGemini) {
+    console.warn('[ejecutarAnalisisIA] Gemini falló, reintentando con Claude:', errGemini.message);
+    a = await llamarClaudeAnalisis(systemPrompt, contenido);
+    proveedorUsado = 'claude (respaldo)';
   }
-  const dataIA = await respuestaIA.json();
-  const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
-  if (!bloqueHerramienta) throw new Error('La IA no devolvió un análisis estructurado');
-  const a = bloqueHerramienta.input || {};
+  console.log(`[ejecutarAnalisisIA] conversación ${conversacionId} analizada con ${proveedorUsado}`);
 
   const limpiar = (v) => (v && String(v).trim()) ? String(v).trim() : null;
   const intencion = WHATSAPP_INTENCIONES.includes(a.intencion) ? a.intencion : null;
