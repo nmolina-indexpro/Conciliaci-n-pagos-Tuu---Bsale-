@@ -36,7 +36,14 @@
 /* ---------- Desplegables agrupados del nav principal (Finanzas, Compras,
    Comercial, Soporte) -- pedido del usuario para bajar de 11 a 6 ítems
    visibles en el menú. Mismo mecanismo que .menu-herramientas de arriba
-   (ver menu-herramientas.js), reutilizando la apariencia de .page-nav a. */
+   (ver menu-herramientas.js), reutilizando la apariencia de .page-nav a.
+   IMPORTANTE: .nav-dropdown-menu se mueve a <body> en cuanto se abre una
+   vez (ver toggleNavDropdown en menu-herramientas.js -- el overflow-x:auto
+   de .page-nav lo recortaba y quedaba invisible si se dejaba adentro), así
+   que su estilo NO puede depender de estar dentro de .page-nav -- si no,
+   pierde todo el CSS (fondo, borde, columna) y se ve como texto plano
+   amontonado apenas se abre una vez. Solo .nav-dropdown y .nav-dropdown-btn
+   quedan con el prefijo .page-nav porque esos SÍ se quedan adentro. */
 .page-nav .nav-dropdown{ position:relative; flex-shrink:0; }
 .page-nav .nav-dropdown-btn{
   font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12.5px; letter-spacing:0.1px;
@@ -45,19 +52,19 @@
 }
 .page-nav .nav-dropdown-btn:hover{ color:var(--text); background:rgba(0,0,0,.04); }
 .page-nav .nav-dropdown-btn.active{ background:var(--primary); color:#fff; box-shadow:var(--shadow); }
-.page-nav .nav-dropdown-menu{
-  display:none; position:absolute; top:calc(100% + 6px); left:0; z-index:50;
+.nav-dropdown-menu{
+  display:none; position:fixed; z-index:999;
   background:var(--surface); border:1px solid var(--line); border-radius:10px;
   box-shadow:0 4px 16px rgba(0,0,0,.12); padding:6px; min-width:170px;
   flex-direction:column; gap:2px;
 }
-.page-nav .nav-dropdown-menu.abierto{ display:flex; }
-.page-nav .nav-dropdown-menu a{
+.nav-dropdown-menu.abierto{ display:flex; }
+.nav-dropdown-menu a{
   display:block; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12.5px;
   color:var(--text); text-decoration:none; padding:8px 12px; border-radius:7px; white-space:nowrap;
 }
-.page-nav .nav-dropdown-menu a:hover{ background:var(--surface-2); }
-.page-nav .nav-dropdown-menu a.active{ background:var(--primary-dim); color:var(--primary); }
+.nav-dropdown-menu a:hover{ background:var(--surface-2); }
+.nav-dropdown-menu a.active{ background:var(--primary-dim); color:var(--primary); }
 
 /* ---------- Tarjetas KPI (label + número grande + nota), TODOS los
    tamaños de pantalla -- venían bastante grandes también en escritorio
