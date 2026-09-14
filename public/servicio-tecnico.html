@@ -593,8 +593,16 @@ function renderCaida(data){
     </div>`).join('');
 }
 
+let sortColTecnico = 'monto';
+let sortAscTecnico = false;
+function flechaTecnico(col){ return sortColTecnico === col ? (sortAscTecnico ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenTecnico(col){
+  if(sortColTecnico === col) sortAscTecnico = !sortAscTecnico;
+  else { sortColTecnico = col; sortAscTecnico = false; }
+  renderTecnico(ultimosDatos);
+}
 function renderTecnico(data){
-  const filas = data.porTecnico || [];
+  const filas = [...(data.porTecnico || [])].sort((a, b) => sortAscTecnico ? a[sortColTecnico] - b[sortColTecnico] : b[sortColTecnico] - a[sortColTecnico]);
   if(filas.length === 0){
     $('wrapTecnico').innerHTML = '<p class="empty-note">Todavía no hay servicios con técnico registrado -- corre "Sincronizar con Bsale" para completar este dato.</p>';
     return;
@@ -602,7 +610,13 @@ function renderTecnico(data){
   const totalMonto = filas.reduce((a, f) => a + f.monto, 0);
   $('wrapTecnico').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Técnico</th><th class="mes">Servicios</th><th class="mes">Documentos</th><th class="mes">Monto</th><th class="mes">% del total</th></tr></thead>
+      <thead><tr>
+        <th>Técnico</th>
+        <th class="mes ordenable" onclick="cambiarOrdenTecnico('cantidad')">Servicios${flechaTecnico('cantidad')}</th>
+        <th class="mes ordenable" onclick="cambiarOrdenTecnico('documentos')">Documentos${flechaTecnico('documentos')}</th>
+        <th class="mes ordenable" onclick="cambiarOrdenTecnico('monto')">Monto${flechaTecnico('monto')}</th>
+        <th class="mes">% del total</th>
+      </tr></thead>
       <tbody>${filas.map(f => `
         <tr>
           <td>${f.nombre}</td>
@@ -616,15 +630,33 @@ function renderTecnico(data){
   `;
 }
 
+let sortColClientesRecTec = 'visitas';
+let sortAscClientesRecTec = false;
+function flechaClientesRecTec(col){ return sortColClientesRecTec === col ? (sortAscClientesRecTec ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenClientesRecTec(col){
+  if(sortColClientesRecTec === col) sortAscClientesRecTec = !sortAscClientesRecTec;
+  else { sortColClientesRecTec = col; sortAscClientesRecTec = false; }
+  renderClientesRecurrentes(ultimosDatos);
+}
 function renderClientesRecurrentes(data){
-  const filas = data.clientesRecurrentes || [];
+  const valor = f => sortColClientesRecTec === 'ultimaVisita' ? (f.ultimaVisita || '') : f[sortColClientesRecTec];
+  const filas = [...(data.clientesRecurrentes || [])].sort((a, b) => {
+    const av = valor(a), bv = valor(b);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortAscClientesRecTec ? cmp : -cmp;
+  });
   if(filas.length === 0){
     $('wrapClientesRecurrentes').innerHTML = '<p class="empty-note">Todavía no hay clientes con más de una visita registrada (o falta sincronizar el dato de cliente -- corre "Sincronizar con Bsale").</p>';
     return;
   }
   $('wrapClientesRecurrentes').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Cliente</th><th class="mes">Visitas</th><th class="mes">Monto total</th><th class="mes">Última visita</th></tr></thead>
+      <thead><tr>
+        <th>Cliente</th>
+        <th class="mes ordenable" onclick="cambiarOrdenClientesRecTec('visitas')">Visitas${flechaClientesRecTec('visitas')}</th>
+        <th class="mes ordenable" onclick="cambiarOrdenClientesRecTec('monto')">Monto total${flechaClientesRecTec('monto')}</th>
+        <th class="mes ordenable" onclick="cambiarOrdenClientesRecTec('ultimaVisita')">Última visita${flechaClientesRecTec('ultimaVisita')}</th>
+      </tr></thead>
       <tbody>${filas.map(f => `
         <tr>
           <td>${f.nombre || 'Cliente #' + f.clienteId}</td>

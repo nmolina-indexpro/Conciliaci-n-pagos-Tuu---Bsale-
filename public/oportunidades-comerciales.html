@@ -704,7 +704,17 @@ function barraProgresoAccesorios(acumulado, meta){
   </div>`;
 }
 
+let ultimosDatosAccesorios = null;
+let sortColRankAccesorios = 'totalMes';
+let sortAscRankAccesorios = false;
+function flechaRankAccesorios(col){ return sortColRankAccesorios === col ? (sortAscRankAccesorios ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenRankAccesorios(col){
+  if(sortColRankAccesorios === col) sortAscRankAccesorios = !sortAscRankAccesorios;
+  else { sortColRankAccesorios = col; sortAscRankAccesorios = false; }
+  renderAccesorios(ultimosDatosAccesorios);
+}
 function renderAccesorios(data){
+  ultimosDatosAccesorios = data;
   $('accMetaTexto').textContent = fmtMoneda(data.meta);
 
   const mio = data.vendedores.find(v => v.vendedorId === data.miVendedorId);
@@ -740,13 +750,21 @@ function renderAccesorios(data){
     if(data.vendedores.length === 0){
       $('wrapRankingAccesorios').innerHTML = '<p class="empty-note">Sin ventas de estos productos todavía este mes.</p>';
     } else {
+      const valorRankAcc = { nombre: v => v.nombre, totalMes: v => v.totalMes, unidades: v => v.unidades }[sortColRankAccesorios];
+      const vendedoresOrdenados = [...data.vendedores].sort((a, b) => {
+        const av = valorRankAcc(a), bv = valorRankAcc(b);
+        const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+        return sortAscRankAccesorios ? cmp : -cmp;
+      });
       $('wrapRankingAccesorios').innerHTML = `
         <div class="tabla-wrap"><table><thead><tr>
-          <th>Vendedor</th><th>Total mes</th><th>Unidades</th>
+          <th class="ordenable" onclick="cambiarOrdenRankAccesorios('nombre')">Vendedor${flechaRankAccesorios('nombre')}</th>
+          <th class="ordenable" onclick="cambiarOrdenRankAccesorios('totalMes')">Total mes${flechaRankAccesorios('totalMes')}</th>
+          <th class="ordenable" onclick="cambiarOrdenRankAccesorios('unidades')">Unidades${flechaRankAccesorios('unidades')}</th>
           ${Object.values(ACCESORIOS_CATEGORIA_LABEL).map(l => `<th>${l}</th>`).join('')}
           <th>Avance</th><th>Meta</th>
         </tr></thead>
-        <tbody>${data.vendedores.map(v => `
+        <tbody>${vendedoresOrdenados.map(v => `
           <tr>
             <td>${escapeHtmlCot(v.nombre)}</td>
             <td>${fmtMoneda(v.totalMes)}</td>
@@ -2010,16 +2028,38 @@ function aplicarFiltrosCompraAgil(){
   renderTablaCompraAgil();
 }
 
+let sortColCompraAgil = 'fechaEnvio';
+let sortAscCompraAgil = false;
+function flechaCompraAgil(col){ return sortColCompraAgil === col ? (sortAscCompraAgil ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenCompraAgil(col){
+  if(sortColCompraAgil === col) sortAscCompraAgil = !sortAscCompraAgil;
+  else { sortColCompraAgil = col; sortAscCompraAgil = false; }
+  renderTablaCompraAgil();
+}
+const VALOR_ORDEN_COMPRA_AGIL = {
+  fechaEnvio: o => o.fechaEnvio ? new Date(o.fechaEnvio).getTime() : 0,
+  organismo: o => o.organismo || '',
+  vendedorNombre: o => o.vendedorNombre || '',
+  estado: o => o.estado || '',
+  total: o => o.total || 0,
+  diasCotizacionFactura: o => o.diasCotizacionFactura ?? -1,
+};
 function renderTablaCompraAgil(){
   if(!ordenesCompraAgil.length){
     $('wrapTablaCompraAgil').innerHTML = '<p class="empty-note">Todavía no hay órdenes sincronizadas. Usa "🔄 Sincronizar con Mercado Público" para traer el historial.</p>';
     return;
   }
-  const ordenes = ordenesFiltradasCompraAgil();
+  let ordenes = ordenesFiltradasCompraAgil();
   if(!ordenes.length){
     $('wrapTablaCompraAgil').innerHTML = '<p class="empty-note">Sin resultados para ese filtro.</p>';
     return;
   }
+  const valor = VALOR_ORDEN_COMPRA_AGIL[sortColCompraAgil];
+  ordenes = [...ordenes].sort((a, b) => {
+    const av = valor(a), bv = valor(b);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortAscCompraAgil ? cmp : -cmp;
+  });
   const filas = ordenes.map(o => `
     <tr>
       <td>${fmtFechaCompraAgil(o.fechaEnvio)}</td>
@@ -2037,7 +2077,17 @@ function renderTablaCompraAgil(){
 
   $('wrapTablaCompraAgil').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Fecha envío</th><th>Organismo comprador</th><th>Vendedor</th><th>Código OC</th><th>Estado</th><th>¿Ha comprado antes?</th><th style="text-align:right;">Total</th><th>Cotización Bsale</th><th>Factura/Boleta</th><th>Cotización → factura</th></tr></thead>
+      <thead><tr>
+        <th class="ordenable" onclick="cambiarOrdenCompraAgil('fechaEnvio')">Fecha envío${flechaCompraAgil('fechaEnvio')}</th>
+        <th class="ordenable" onclick="cambiarOrdenCompraAgil('organismo')">Organismo comprador${flechaCompraAgil('organismo')}</th>
+        <th class="ordenable" onclick="cambiarOrdenCompraAgil('vendedorNombre')">Vendedor${flechaCompraAgil('vendedorNombre')}</th>
+        <th>Código OC</th>
+        <th class="ordenable" onclick="cambiarOrdenCompraAgil('estado')">Estado${flechaCompraAgil('estado')}</th>
+        <th>¿Ha comprado antes?</th>
+        <th class="ordenable" style="text-align:right;" onclick="cambiarOrdenCompraAgil('total')">Total${flechaCompraAgil('total')}</th>
+        <th>Cotización Bsale</th><th>Factura/Boleta</th>
+        <th class="ordenable" onclick="cambiarOrdenCompraAgil('diasCotizacionFactura')">Cotización → factura${flechaCompraAgil('diasCotizacionFactura')}</th>
+      </tr></thead>
       <tbody>${filas}</tbody>
       <tbody>
         <tr class="fila-total"><td colspan="6">Total facturado (válidas, rango filtrado)</td><td class="amount">${fmtMoneda(totalFacturado)}</td><td colspan="3"></td></tr>
@@ -2078,6 +2128,14 @@ function renderResumenMesesCompraAgil(ordenes){
 // ignora el filtro de organismo/estado (solo fecha) para que la
 // comparación sea pareja, mismo criterio que "Vendedores — rango
 // filtrado" más arriba en esta misma página.
+let sortColVendCompraAgil = 'total';
+let sortAscVendCompraAgil = false;
+function flechaVendCompraAgil(col){ return sortColVendCompraAgil === col ? (sortAscVendCompraAgil ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenVendCompraAgil(col){
+  if(sortColVendCompraAgil === col) sortAscVendCompraAgil = !sortAscVendCompraAgil;
+  else { sortColVendCompraAgil = col; sortAscVendCompraAgil = false; }
+  renderVendedoresCompraAgil();
+}
 function renderVendedoresCompraAgil(){
   if(!ordenesCompraAgil.length){
     $('wrapVendedoresCompraAgil').innerHTML = '<p class="empty-note">No hay datos suficientes todavía.</p>';
@@ -2107,10 +2165,15 @@ function renderVendedoresCompraAgil(){
     e.total += o.total;
     e.ordenes++;
   });
+  const valorVendCa = { nombre: f => f.nombre, total: f => f.total, ordenes: f => f.ordenes }[sortColVendCompraAgil];
   const filas = Array.from(mapa.values()).map(f => ({
     ...f,
     variacionPct: periodoAnt ? calcularVariacionPct(f.total, montoAnteriorPorVendedor.get(f.nombre) || 0) : null,
-  })).sort((a, b) => b.total - a.total);
+  })).sort((a, b) => {
+    const av = valorVendCa(a), bv = valorVendCa(b);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortAscVendCompraAgil ? cmp : -cmp;
+  });
   if(!filas.length){
     $('wrapVendedoresCompraAgil').innerHTML = '<p class="empty-note">Sin resultados para ese filtro.</p>';
     return;
@@ -2126,7 +2189,12 @@ function renderVendedoresCompraAgil(){
     </tr>`).join('');
   $('wrapVendedoresCompraAgil').innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Vendedor</th><th style="text-align:right;">Total facturado</th><th style="text-align:right;">Órdenes</th><th>Comparativo</th>${periodoAnt ? '<th>vs. período anterior</th>' : ''}</tr></thead>
+      <thead><tr>
+        <th class="ordenable" onclick="cambiarOrdenVendCompraAgil('nombre')">Vendedor${flechaVendCompraAgil('nombre')}</th>
+        <th class="ordenable" style="text-align:right;" onclick="cambiarOrdenVendCompraAgil('total')">Total facturado${flechaVendCompraAgil('total')}</th>
+        <th class="ordenable" style="text-align:right;" onclick="cambiarOrdenVendCompraAgil('ordenes')">Órdenes${flechaVendCompraAgil('ordenes')}</th>
+        <th>Comparativo</th>${periodoAnt ? '<th>vs. período anterior</th>' : ''}
+      </tr></thead>
       <tbody>${filasHtml}</tbody>
     </table></div>
   `;
