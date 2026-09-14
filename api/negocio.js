@@ -6957,8 +6957,13 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       hasta = new Date().toISOString();
     }
 
+    // date_trunc de 2 argumentos trunca en la timezone de la SESIÓN (UTC
+    // acá), no en la de Chile -- eso corría cada bucket un día hacia atrás
+    // al mostrarlo (medianoche UTC = la noche anterior en Chile). Se pasa
+    // 'America/Santiago' explícito (date_trunc de 3 argumentos) para que
+    // coincida con el rango desde/hasta, que ya se calcula en hora de Chile.
     const { rows: serie } = await sql.query(
-      `SELECT date_trunc($1, c.iniciada_en) AS bucket,
+      `SELECT date_trunc($1, c.iniciada_en, 'America/Santiago') AS bucket,
               COUNT(*)::int AS conversaciones,
               COUNT(DISTINCT c.contacto_id)::int AS clientes_unicos,
               COUNT(*) FILTER (WHERE c.venta_detectada)::int AS ventas
