@@ -16,19 +16,38 @@ function toggleMenuHerramientas(ev){
   cerrarTodosLosDesplegables();
   if(!yaAbierto) menu.classList.add('abierto');
 }
+// .page-nav tiene overflow-x:auto (scroll horizontal en mobile) -- por la
+// regla de CSS que hace que "overflow-x no-visible + overflow-y visible"
+// se recalcule como "auto" en ambos ejes, el desplegable quedaba recortado
+// verticalmente y era invisible aunque la clase "abierto" sí se aplicaba
+// bien (bug real: el estado cambiaba pero no se veía nada en pantalla).
+// Se saca el menú del flujo de .page-nav la primera vez que se abre --
+// pasa a colgar directo de <body> como position:fixed, posicionado a mano
+// bajo el botón que lo abrió, así ningún overflow de un ancestro lo recorta.
 function toggleNavDropdown(ev, id){
   if(ev) ev.stopPropagation();
   const menu = document.getElementById(id);
   if(!menu) return;
   const yaAbierto = menu.classList.contains('abierto');
   cerrarTodosLosDesplegables();
-  if(!yaAbierto) menu.classList.add('abierto');
+  if(yaAbierto) return;
+
+  const boton = ev ? ev.currentTarget : menu.previousElementSibling;
+  if(menu.parentElement !== document.body) document.body.appendChild(menu);
+  const rect = (boton || menu).getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.top = `${rect.bottom + 6}px`;
+  menu.style.left = `${rect.left}px`;
+  menu.classList.add('abierto');
 }
 document.addEventListener('click', (e) => {
-  if(e.target.closest('#menuHerramientas') || e.target.closest('.btn-settings') || e.target.closest('.nav-dropdown')) return;
+  if(e.target.closest('#menuHerramientas') || e.target.closest('.btn-settings') || e.target.closest('.nav-dropdown') || e.target.closest('.nav-dropdown-menu')) return;
   cerrarTodosLosDesplegables();
 });
 document.addEventListener('keydown', (e) => {
   if(e.key !== 'Escape') return;
   cerrarTodosLosDesplegables();
 });
+// Un desplegable position:fixed no sigue al botón si la página se
+// scrollea -- se cierra en vez de quedar flotando desconectado.
+window.addEventListener('scroll', () => cerrarTodosLosDesplegables(), true);
