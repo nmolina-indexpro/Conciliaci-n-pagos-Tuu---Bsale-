@@ -6115,6 +6115,13 @@ function convertirSchemaAGemini(schema) {
   if (!schema || typeof schema !== 'object') return schema;
   const resultado = { ...schema };
   if (typeof resultado.type === 'string') resultado.type = resultado.type.toUpperCase();
+  // Gemini rechaza valores vacíos dentro de "enum" (a diferencia de
+  // Claude, que sí los acepta) -- se filtran acá en vez de tocar
+  // WHATSAPP_ANALISIS_TOOL. El campo sigue sin ser obligatorio (no está en
+  // "required"), así que Gemini simplemente omite la propiedad cuando no
+  // aplica ningún valor del enum, y el código que lee el resultado ya
+  // trata "omitido" igual que "" (ver vendedorDetectado en ejecutarAnalisisIA).
+  if (Array.isArray(resultado.enum)) resultado.enum = resultado.enum.filter(v => v !== '');
   if (resultado.properties) {
     resultado.properties = Object.fromEntries(
       Object.entries(resultado.properties).map(([clave, sub]) => [clave, convertirSchemaAGemini(sub)])
