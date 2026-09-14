@@ -85,6 +85,8 @@
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
   .tabla-wrap{overflow-x:auto;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px 10px;border-bottom:2px solid var(--line);}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
   td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle;}
   .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;}
   .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
@@ -558,6 +560,43 @@ async function cargar(){
 // que esté seleccionado en la barra superior. Trae su propia data (con
 // margen extra hacia atrás para capturar ventas de viernes que acreditan el
 // lunes siguiente).
+let sortColCalendarioFijo = 'fecha';
+let sortAscCalendarioFijo = true;
+let filasCalendarioFijo = [];
+function flechaCalendarioFijo(col){ return sortColCalendarioFijo === col ? (sortAscCalendarioFijo ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenCalendarioFijo(col){
+  if(sortColCalendarioFijo === col) sortAscCalendarioFijo = !sortAscCalendarioFijo;
+  else { sortColCalendarioFijo = col; sortAscCalendarioFijo = col === 'fecha'; }
+  renderTablaCalendarioFijo();
+}
+function renderTablaCalendarioFijo(){
+  const wrap = $('calendarioWrap');
+  const valor = { fecha: f => f.fecha, tarjeta: f => f.tarjeta, transferencia: f => f.transferencia, total: f => f.total }[sortColCalendarioFijo];
+  const filas = [...filasCalendarioFijo].sort((a, b) => {
+    const av = valor(a), bv = valor(b);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortAscCalendarioFijo ? cmp : -cmp;
+  });
+  wrap.innerHTML = `
+      <div class="tabla-wrap"><table>
+        <thead><tr>
+          <th class="ordenable" onclick="cambiarOrdenCalendarioFijo('fecha')">Fecha de acreditación${flechaCalendarioFijo('fecha')}</th>
+          <th class="amount ordenable" onclick="cambiarOrdenCalendarioFijo('tarjeta')">Desde tarjeta (TUU)${flechaCalendarioFijo('tarjeta')}</th>
+          <th class="amount ordenable" onclick="cambiarOrdenCalendarioFijo('transferencia')">Desde transferencia${flechaCalendarioFijo('transferencia')}</th>
+          <th class="amount ordenable" onclick="cambiarOrdenCalendarioFijo('total')">Total esperado${flechaCalendarioFijo('total')}</th>
+        </tr></thead>
+        <tbody>
+          ${filas.map(f => `
+            <tr class="${f.fecha===hoyStr?'today':''}">
+              <td>${f.fecha} ${f.fecha>hoyStr?'<span class="badge">proyectado</span>':''}</td>
+              <td class="amount">${fmt(f.tarjeta)}</td>
+              <td class="amount">${fmt(f.transferencia)}</td>
+              <td class="amount"><b>${fmt(f.total)}</b></td>
+            </tr>`).join('')}
+        </tbody>
+      </table></div>
+    `;
+}
 async function cargarCalendarioFijo(){
   const wrap = $('calendarioWrap');
   const ventanaFin = addDaysStr(hoyStr, 4);
@@ -585,27 +624,13 @@ async function cargarCalendarioFijo(){
 
     const dias = [];
     for(let d = addDaysStr(hoyStr,-4); d <= ventanaFin; d = addDaysStr(d,1)) dias.push(d);
-    const filas = dias.map(fAcreditacion => ({
+    filasCalendarioFijo = dias.map(fAcreditacion => ({
       fecha: fAcreditacion,
       tarjeta: tarjetaPorAcreditacion[fAcreditacion] || 0,
       transferencia: (porDia[fAcreditacion]||{transferencia:0}).transferencia,
       total: (tarjetaPorAcreditacion[fAcreditacion]||0) + (porDia[fAcreditacion]||{transferencia:0}).transferencia
     }));
-
-    wrap.innerHTML = `
-      <div class="tabla-wrap"><table>
-        <thead><tr><th>Fecha de acreditación</th><th class="amount">Desde tarjeta (TUU)</th><th class="amount">Desde transferencia</th><th class="amount">Total esperado</th></tr></thead>
-        <tbody>
-          ${filas.map(f => `
-            <tr class="${f.fecha===hoyStr?'today':''}">
-              <td>${f.fecha} ${f.fecha>hoyStr?'<span class="badge">proyectado</span>':''}</td>
-              <td class="amount">${fmt(f.tarjeta)}</td>
-              <td class="amount">${fmt(f.transferencia)}</td>
-              <td class="amount"><b>${fmt(f.total)}</b></td>
-            </tr>`).join('')}
-        </tbody>
-      </table></div>
-    `;
+    renderTablaCalendarioFijo();
   }catch(err){
     wrap.innerHTML = `<p class="empty-note">No se pudo cargar el calendario: ${err.message}</p>`;
   }
@@ -618,6 +643,48 @@ function nombreDiaSemana(fechaStr){
   return NOMBRES_DIA[new Date(Date.UTC(y,m-1,d)).getUTCDay()];
 }
 
+let sortColFacturasPorPagar = 'fechaEstimadaPago';
+let sortAscFacturasPorPagar = true;
+let facturasSemanaActuales = [];
+let totalSemanaFacturas = 0;
+function flechaFacturasPorPagar(col){ return sortColFacturasPorPagar === col ? (sortAscFacturasPorPagar ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenFacturasPorPagar(col){
+  if(sortColFacturasPorPagar === col) sortAscFacturasPorPagar = !sortAscFacturasPorPagar;
+  else { sortColFacturasPorPagar = col; sortAscFacturasPorPagar = col === 'fechaEstimadaPago'; }
+  renderTablaFacturasPorPagar();
+}
+function renderTablaFacturasPorPagar(){
+  if(facturasSemanaActuales.length === 0){
+    $('facturasDetalleWrap').innerHTML = `<p class="empty-note">Sin facturas con vencimiento esta semana.</p>`;
+    return;
+  }
+  const valor = { fechaEstimadaPago: f => f.fechaEstimadaPago, proveedor: f => f.proveedor || '', documento: f => f.documento || '', monto: f => f.monto }[sortColFacturasPorPagar];
+  const facturasSemana = [...facturasSemanaActuales].sort((a, b) => {
+    const av = valor(a), bv = valor(b);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortAscFacturasPorPagar ? cmp : -cmp;
+  });
+  $('facturasDetalleWrap').innerHTML = `
+        <div class="tabla-wrap"><table>
+          <thead><tr>
+            <th class="ordenable" onclick="cambiarOrdenFacturasPorPagar('fechaEstimadaPago')">Vence${flechaFacturasPorPagar('fechaEstimadaPago')}</th>
+            <th class="ordenable" onclick="cambiarOrdenFacturasPorPagar('proveedor')">Proveedor${flechaFacturasPorPagar('proveedor')}</th>
+            <th class="ordenable" onclick="cambiarOrdenFacturasPorPagar('documento')">Documento${flechaFacturasPorPagar('documento')}</th>
+            <th class="amount ordenable" onclick="cambiarOrdenFacturasPorPagar('monto')">Monto${flechaFacturasPorPagar('monto')}</th>
+          </tr></thead>
+          <tbody>
+            ${facturasSemana.map(f => `
+              <tr class="${f.fechaEstimadaPago===hoyStr?'today':''}">
+                <td>${f.fechaEstimadaPago} (${nombreDiaSemana(f.fechaEstimadaPago)})</td>
+                <td>${f.proveedor}</td>
+                <td><b>${f.documento}${f.numeroDocumento?' N° '+f.numeroDocumento:''}</b></td>
+                <td class="amount">${fmt(f.monto)}</td>
+              </tr>`).join('')}
+            <tr><td colspan="3"><b>Total</b></td><td class="amount"><b>${fmt(totalSemanaFacturas)}</b></td></tr>
+          </tbody>
+        </table></div>
+      `;
+}
 async function cargarFacturasPorPagar(){
   try{
     const res = await fetch('/api/bsale-facturas-por-pagar').then(r=>r.json());
@@ -643,28 +710,9 @@ async function cargarFacturasPorPagar(){
     $('facturasDesglose').innerHTML = desgloseHtml;
 
     // Detalle completo de la semana: documento, proveedor, monto, vencimiento
-    const facturasSemana = facturas.filter(f=>f.fechaEstimadaPago>=hoyStr && f.fechaEstimadaPago<=finSemana)
-      .sort((a,b)=>a.fechaEstimadaPago.localeCompare(b.fechaEstimadaPago));
-
-    if(facturasSemana.length === 0){
-      $('facturasDetalleWrap').innerHTML = `<p class="empty-note">Sin facturas con vencimiento esta semana.</p>`;
-    } else {
-      $('facturasDetalleWrap').innerHTML = `
-        <div class="tabla-wrap"><table>
-          <thead><tr><th>Vence</th><th>Proveedor</th><th>Documento</th><th class="amount">Monto</th></tr></thead>
-          <tbody>
-            ${facturasSemana.map(f => `
-              <tr class="${f.fechaEstimadaPago===hoyStr?'today':''}">
-                <td>${f.fechaEstimadaPago} (${nombreDiaSemana(f.fechaEstimadaPago)})</td>
-                <td>${f.proveedor}</td>
-                <td><b>${f.documento}${f.numeroDocumento?' N° '+f.numeroDocumento:''}</b></td>
-                <td class="amount">${fmt(f.monto)}</td>
-              </tr>`).join('')}
-            <tr><td colspan="3"><b>Total</b></td><td class="amount"><b>${fmt(totalSemana)}</b></td></tr>
-          </tbody>
-        </table></div>
-      `;
-    }
+    facturasSemanaActuales = facturas.filter(f=>f.fechaEstimadaPago>=hoyStr && f.fechaEstimadaPago<=finSemana);
+    totalSemanaFacturas = totalSemana;
+    renderTablaFacturasPorPagar();
   }catch(err){
     $('facturasNote').textContent = 'No se pudo cargar: ' + err.message;
     $('facturasDetalleWrap').innerHTML = `<p class="empty-note">No se pudo cargar el detalle: ${err.message}</p>`;
@@ -918,21 +966,44 @@ async function cargarFacturasCompra(){
   }
 }
 
+let sortColFacturasCompra = 'fecha_compra';
+let sortAscFacturasCompra = false;
+let facturasCompraActuales = [];
+function flechaFacturasCompra(col){ return sortColFacturasCompra === col ? (sortAscFacturasCompra ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenFacturasCompra(col){
+  if(sortColFacturasCompra === col) sortAscFacturasCompra = !sortAscFacturasCompra;
+  else { sortColFacturasCompra = col; sortAscFacturasCompra = false; }
+  renderFacturasCompra(facturasCompraActuales);
+}
 function renderFacturasCompra(facturas){
+  facturasCompraActuales = facturas;
   const wrap = $('facturasCompraWrap');
   if(facturas.length === 0){
     wrap.innerHTML = `<p class="empty-note">Sin facturas registradas en el último mes.</p>`;
     return;
   }
   const total = facturas.reduce((a,f)=>a+Number(f.monto),0);
+  const valor = {
+    proveedor: f => f.proveedor || '', numero_factura: f => f.numero_factura || '', monto: f => Number(f.monto),
+    fecha_compra: f => f.fecha_compra || '', fecha_vencimiento: f => f.fecha_vencimiento || '',
+  }[sortColFacturasCompra];
+  const facturasOrdenadas = [...facturas].sort((a, b) => {
+    const av = valor(a), bv = valor(b);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortAscFacturasCompra ? cmp : -cmp;
+  });
   wrap.innerHTML = `
     <div class="tabla-wrap"><table>
       <thead><tr>
-        <th>Proveedor</th><th>N° factura</th><th class="amount">Monto</th>
-        <th>Fecha compra</th><th>Fecha vencimiento</th><th>Forma de pago</th><th>Detalle cheque</th><th>Agregado por</th><th></th>
+        <th class="ordenable" onclick="cambiarOrdenFacturasCompra('proveedor')">Proveedor${flechaFacturasCompra('proveedor')}</th>
+        <th class="ordenable" onclick="cambiarOrdenFacturasCompra('numero_factura')">N° factura${flechaFacturasCompra('numero_factura')}</th>
+        <th class="amount ordenable" onclick="cambiarOrdenFacturasCompra('monto')">Monto${flechaFacturasCompra('monto')}</th>
+        <th class="ordenable" onclick="cambiarOrdenFacturasCompra('fecha_compra')">Fecha compra${flechaFacturasCompra('fecha_compra')}</th>
+        <th class="ordenable" onclick="cambiarOrdenFacturasCompra('fecha_vencimiento')">Fecha vencimiento${flechaFacturasCompra('fecha_vencimiento')}</th>
+        <th>Forma de pago</th><th>Detalle cheque</th><th>Agregado por</th><th></th>
       </tr></thead>
       <tbody>
-        ${facturas.map(f => `
+        ${facturasOrdenadas.map(f => `
           <tr>
             <td>${f.proveedor}</td>
             <td>${f.numero_factura || '—'}</td>
