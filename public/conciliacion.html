@@ -108,6 +108,8 @@
   .data-table th:nth-child(6),.data-table td:nth-child(6){width:26%;}
   .data-table td:nth-child(4){overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px 10px;border-bottom:2px solid var(--line);}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
   td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle;}
   tr.unmatched td{color:#B91C1C;}
   tr.unmatched{background:var(--red-bg);}
@@ -843,27 +845,49 @@ async function fetchConsolidado(){
   }
 }
 
-function renderConsolidado({ startDate, endDate, filas }){
+let sortColConsolidado = 'fecha';
+let sortAscConsolidado = true;
+let ultimoConsolidado = null;
+function flechaConsolidado(col){ return sortColConsolidado === col ? (sortAscConsolidado ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenConsolidado(col){
+  if(sortColConsolidado === col) sortAscConsolidado = !sortAscConsolidado;
+  else { sortColConsolidado = col; sortAscConsolidado = col === 'fecha'; }
+  renderConsolidado(ultimoConsolidado);
+}
+function renderConsolidado(datos){
+  ultimoConsolidado = datos;
+  const { startDate, endDate, filas: filasOriginales } = datos;
   $('results').innerHTML = '';
   const el = $('resultsConsolidado');
 
-  if(filas.length === 0){
+  if(filasOriginales.length === 0){
     el.innerHTML = `<p class="empty-note">No hay movimiento entre ${startDate} y ${endDate}.</p>`;
     return;
   }
 
-  const totPosDeb = filas.reduce((a,f)=>a+f.totPosDeb,0);
-  const totPosCred = filas.reduce((a,f)=>a+f.totPosCred,0);
-  const totBsaleDeb = filas.reduce((a,f)=>a+f.totBsaleDeb,0);
-  const totBsaleCred = filas.reduce((a,f)=>a+f.totBsaleCred,0);
-  const totShopifyPos = filas.reduce((a,f)=>a+f.totShopifyPos,0);
-  const totShopifyMatch = filas.reduce((a,f)=>a+f.totShopifyMatch,0);
-  const totBciPos = filas.reduce((a,f)=>a+f.totBciPos,0);
-  const totBciMatch = filas.reduce((a,f)=>a+f.totBciMatch,0);
-  const totEfectivo = filas.reduce((a,f)=>a+f.totEfectivo,0);
-  const extraCount = filas.reduce((a,f)=>a+f.bsaleExtraCount,0);
-  const extraTotal = filas.reduce((a,f)=>a+f.bsaleExtraTotal,0);
-  const diasCuadrados = filas.filter(f=>f.cuadra && f.shopifyCuadra && f.bciCuadra).length;
+  const totPosDeb = filasOriginales.reduce((a,f)=>a+f.totPosDeb,0);
+  const totPosCred = filasOriginales.reduce((a,f)=>a+f.totPosCred,0);
+  const totBsaleDeb = filasOriginales.reduce((a,f)=>a+f.totBsaleDeb,0);
+  const totBsaleCred = filasOriginales.reduce((a,f)=>a+f.totBsaleCred,0);
+  const totShopifyPos = filasOriginales.reduce((a,f)=>a+f.totShopifyPos,0);
+  const totShopifyMatch = filasOriginales.reduce((a,f)=>a+f.totShopifyMatch,0);
+  const totBciPos = filasOriginales.reduce((a,f)=>a+f.totBciPos,0);
+  const totBciMatch = filasOriginales.reduce((a,f)=>a+f.totBciMatch,0);
+  const totEfectivo = filasOriginales.reduce((a,f)=>a+f.totEfectivo,0);
+  const extraCount = filasOriginales.reduce((a,f)=>a+f.bsaleExtraCount,0);
+  const extraTotal = filasOriginales.reduce((a,f)=>a+f.bsaleExtraTotal,0);
+  const diasCuadrados = filasOriginales.filter(f=>f.cuadra && f.shopifyCuadra && f.bciCuadra).length;
+  const VALOR_ORDEN_CONSOLIDADO = {
+    fecha: f => f.fecha, totPosDeb: f => f.totPosDeb, totPosCred: f => f.totPosCred,
+    totBsaleDeb: f => f.totBsaleDeb, totBsaleCred: f => f.totBsaleCred,
+    totShopifyMatch: f => f.totShopifyMatch, totBciMatch: f => f.totBciMatch, totEfectivo: f => f.totEfectivo,
+  };
+  const valorConsolidado = VALOR_ORDEN_CONSOLIDADO[sortColConsolidado];
+  const filas = [...filasOriginales].sort((a, b) => {
+    const av = valorConsolidado(a), bv = valorConsolidado(b);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortAscConsolidado ? cmp : -cmp;
+  });
 
   el.innerHTML = `
     <div class="receipt">
@@ -885,9 +909,14 @@ function renderConsolidado({ startDate, endDate, filas }){
 
     <div class="tabla-wrap"><table>
       <thead><tr>
-        <th>Fecha</th><th class="amount">TUU déb.</th><th class="amount">TUU créd.</th>
-        <th class="amount">Bsale déb.</th><th class="amount">Bsale créd.</th>
-        <th class="amount">Shopify</th><th class="amount">BCI</th><th class="amount">Efectivo</th>
+        <th class="ordenable" onclick="cambiarOrdenConsolidado('fecha')">Fecha${flechaConsolidado('fecha')}</th>
+        <th class="amount ordenable" onclick="cambiarOrdenConsolidado('totPosDeb')">TUU déb.${flechaConsolidado('totPosDeb')}</th>
+        <th class="amount ordenable" onclick="cambiarOrdenConsolidado('totPosCred')">TUU créd.${flechaConsolidado('totPosCred')}</th>
+        <th class="amount ordenable" onclick="cambiarOrdenConsolidado('totBsaleDeb')">Bsale déb.${flechaConsolidado('totBsaleDeb')}</th>
+        <th class="amount ordenable" onclick="cambiarOrdenConsolidado('totBsaleCred')">Bsale créd.${flechaConsolidado('totBsaleCred')}</th>
+        <th class="amount ordenable" onclick="cambiarOrdenConsolidado('totShopifyMatch')">Shopify${flechaConsolidado('totShopifyMatch')}</th>
+        <th class="amount ordenable" onclick="cambiarOrdenConsolidado('totBciMatch')">BCI${flechaConsolidado('totBciMatch')}</th>
+        <th class="amount ordenable" onclick="cambiarOrdenConsolidado('totEfectivo')">Efectivo${flechaConsolidado('totEfectivo')}</th>
         <th>Estado</th><th>Extra</th>
       </tr></thead>
       <tbody>
