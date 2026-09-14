@@ -4678,6 +4678,19 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
 }
 
 // ---- Clientes (punto 16/17 del pedido: no conversaciones, clientes únicos) ----
+// Ordenamiento de la tabla (pedido del usuario: agregar mayor/menor a
+// todas las tablas del ERP) -- campo whitelisteado a propósito, nunca se
+// interpola un nombre de columna que venga directo de la query string
+// (mismo criterio que manejarWhatsappDebugCategoria). Los alias del SELECT
+// (num_ventas, total_comprado, ultimo_estado) son válidos en ORDER BY.
+const ORDEN_CLIENTES_WHATSAPP = {
+  primeraConversacion: 'ct.primera_conversacion_en',
+  ultimaConversacion: 'ct.ultima_conversacion_en',
+  numConversaciones: 'ct.total_conversaciones',
+  numVentas: 'num_ventas',
+  totalComprado: 'total_comprado',
+  estado: 'ultimo_estado',
+};
 async function manejarWhatsappClientes(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
@@ -4689,6 +4702,8 @@ async function manejarWhatsappClientes(req, res, sesion) {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const pageSize = Math.min(100, Math.max(10, parseInt(req.query.pageSize, 10) || 25));
     const offset = (page - 1) * pageSize;
+    const ordenCampo = ORDEN_CLIENTES_WHATSAPP[req.query.orden] || 'ct.ultima_conversacion_en';
+    const ordenDir = req.query.ordenAsc === '1' ? 'ASC' : 'DESC';
 
     const cond = q ? `WHERE ct.nombre ILIKE $1 OR ct.telefono ILIKE $1` : '';
     const params = q ? [`%${q}%`] : [];
@@ -4712,7 +4727,7 @@ async function manejarWhatsappClientes(req, res, sesion) {
          LIMIT 1
        ) bcli ON true
        ${cond}
-       ORDER BY ct.ultima_conversacion_en DESC NULLS LAST
+       ORDER BY ${ordenCampo} ${ordenDir} NULLS LAST
        LIMIT $${params.length + 1} OFFSET $${params.length + 2};`,
       [...params, pageSize, offset]
     );

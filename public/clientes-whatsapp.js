@@ -328,22 +328,41 @@ function initConversaciones(){
       </div>
       <div class="tabla-wrap">
         <table>
-          <thead><tr>
-            <th class="ordenable" onclick="ordenarConv('fecha')">Fecha</th>
-            <th>Cliente</th><th>Teléfono</th><th>Estado</th><th>Último mensaje</th>
-            <th>Intención</th><th>Producto</th><th>Shopify</th>
-            <th class="ordenable" onclick="ordenarConv('respuesta')">1ª respuesta</th>
-            <th>Prob. compra</th><th>Resultado</th>
-            <th class="amount">Venta</th><th>Responsable</th><th>Alertas</th><th>IA</th>
-          </tr></thead>
+          <thead><tr id="theadConv"></tr></thead>
           <tbody id="tablaConv"><tr><td colspan="15" class="empty-note">Cargando…</td></tr></tbody>
         </table>
       </div>
       <div id="paginacionConv" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12.5px;color:var(--muted);"></div>
     </div>
   `;
+  renderTheadConv();
   $('buscadorConv').addEventListener('input', debounce(() => { convState.q = $('buscadorConv').value.trim(); convState.page = 1; cargarConversaciones(); }, 350));
   cargarConversaciones();
+}
+// Ordena solo las filas de la página actual (esta tabla pagina server-side
+// y ordenar el dataset completo implicaría un cambio de API más grande) --
+// mismo criterio que ya usaban fecha/respuesta, extendido al resto de las
+// columnas con un valor natural para ordenar.
+function flechaConv(campo){
+  if (convState.orden === campo + '_asc') return ' ▲';
+  if (convState.orden === campo + '_desc') return ' ▼';
+  return '';
+}
+function renderTheadConv(){
+  $('theadConv').innerHTML = `
+    <th class="ordenable" onclick="ordenarConv('fecha')">Fecha${flechaConv('fecha')}</th>
+    <th>Cliente</th><th>Teléfono</th>
+    <th class="ordenable" onclick="ordenarConv('estado')">Estado${flechaConv('estado')}</th>
+    <th>Último mensaje</th>
+    <th class="ordenable" onclick="ordenarConv('intencion')">Intención${flechaConv('intencion')}</th>
+    <th>Producto</th><th>Shopify</th>
+    <th class="ordenable" onclick="ordenarConv('respuesta')">1ª respuesta${flechaConv('respuesta')}</th>
+    <th class="ordenable" onclick="ordenarConv('probabilidad')">Prob. compra${flechaConv('probabilidad')}</th>
+    <th class="ordenable" onclick="ordenarConv('resultado')">Resultado${flechaConv('resultado')}</th>
+    <th class="amount ordenable" onclick="ordenarConv('venta')">Venta${flechaConv('venta')}</th>
+    <th class="ordenable" onclick="ordenarConv('responsable')">Responsable${flechaConv('responsable')}</th>
+    <th>Alertas</th><th>IA</th>
+  `;
 }
 function WHATSAPP_ESTADOS_OPT(){ return WHATSAPP_ESTADOS.map(e => `<option value="${e}">${ESTADO_LABEL[e]}</option>`).join(''); }
 function WHATSAPP_RESULTADOS_OPT(){ return WHATSAPP_RESULTADOS.map(r => `<option value="${r}">${RESULTADO_LABEL[r]}</option>`).join(''); }
@@ -394,6 +413,7 @@ function renderChipFiltroMotivo(){
 }
 function ordenarConv(campo){
   convState.orden = convState.orden === campo + '_desc' ? campo + '_asc' : campo + '_desc';
+  renderTheadConv();
   renderTablaConv(convState.ultimaData || []);
 }
 async function cargarConversaciones(){
@@ -414,10 +434,25 @@ async function cargarConversaciones(){
 function renderTablaConv(lista){
   if (!lista.length) { $('tablaConv').innerHTML = '<tr><td colspan="15" class="empty-note">No hay conversaciones que calcen con los filtros.</td></tr>'; return; }
   let ordenada = [...lista];
-  if (convState.orden === 'fecha_asc') ordenada.sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
-  else if (convState.orden === 'fecha_desc') ordenada.sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
-  else if (convState.orden === 'respuesta_asc') ordenada.sort((a,b) => (a.primeraRespuestaSegundos ?? Infinity) - (b.primeraRespuestaSegundos ?? Infinity));
-  else if (convState.orden === 'respuesta_desc') ordenada.sort((a,b) => (b.primeraRespuestaSegundos ?? -1) - (a.primeraRespuestaSegundos ?? -1));
+  const VALOR_ORDEN_CONV = {
+    fecha: c => new Date(c.fecha).getTime(),
+    respuesta: c => c.primeraRespuestaSegundos ?? Infinity,
+    estado: c => ESTADO_LABEL[c.estado] || c.estado || '',
+    intencion: c => (c.intencion ? (INTENCION_LABEL[c.intencion] || c.intencion) : ''),
+    probabilidad: c => c.probabilidadCompra ?? -1,
+    resultado: c => RESULTADO_LABEL[c.resultado] || c.resultado || '',
+    venta: c => c.montoVenta || c.bsaleDocumentoMonto || 0,
+    responsable: c => c.responsableNombre || c.vendedorDetectado || '',
+  };
+  const [, campo, dir] = convState.orden.match(/^(.+)_(asc|desc)$/) || [];
+  if (campo && VALOR_ORDEN_CONV[campo]) {
+    const valor = VALOR_ORDEN_CONV[campo];
+    ordenada.sort((a, b) => {
+      const av = valor(a), bv = valor(b);
+      const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }
   convState.ultimaDataOrdenada = ordenada; // orden realmente mostrado -- lo usa la navegación "Anterior/Siguiente" del detalle
 
   $('tablaConv').innerHTML = ordenada.map(c => `
@@ -746,6 +781,33 @@ async function analizarConversacionIA(conversacionId){
 }
 
 // ================= SEGUIMIENTOS =================
+let seguimientosActuales = [];
+let sortColSeg = 'fecha';
+let sortAscSeg = false;
+function flechaSeg(col){ return sortColSeg === col ? (sortAscSeg ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenSeguimientos(col){
+  if(sortColSeg === col) sortAscSeg = !sortAscSeg;
+  else { sortColSeg = col; sortAscSeg = false; }
+  renderTheadSeguimientos();
+  renderTablaSeguimientos();
+}
+const CAMPO_ORDEN_SEGUIMIENTOS = {
+  fecha: s => s.fecha ? new Date(s.fecha).getTime() : 0,
+  probabilidadCompra: s => s.probabilidadCompra || 0,
+  seguimientoEn: s => s.seguimientoEn ? new Date(s.seguimientoEn).getTime() : 0,
+  seguimientoEstado: s => s.seguimientoEstado || '',
+};
+function renderTheadSeguimientos(){
+  $('theadSeguimientos').innerHTML = `
+    <th>Cliente</th><th>Teléfono</th><th>Producto</th>
+    <th class="ordenable" onclick="cambiarOrdenSeguimientos('fecha')">Última conversación${flechaSeg('fecha')}</th>
+    <th>Motivo</th>
+    <th class="ordenable" onclick="cambiarOrdenSeguimientos('probabilidadCompra')">Prob. compra${flechaSeg('probabilidadCompra')}</th>
+    <th class="ordenable" onclick="cambiarOrdenSeguimientos('seguimientoEn')">Fecha sugerida${flechaSeg('seguimientoEn')}</th>
+    <th>Responsable</th>
+    <th class="ordenable" onclick="cambiarOrdenSeguimientos('seguimientoEstado')">Estado${flechaSeg('seguimientoEstado')}</th>
+  `;
+}
 function initSeguimientos(){
   $('vistaSeguimientos').innerHTML = `
     <div class="seccion">
@@ -759,16 +821,37 @@ function initSeguimientos(){
       </div>
       <div class="tabla-wrap">
         <table>
-          <thead><tr>
-            <th>Cliente</th><th>Teléfono</th><th>Producto</th><th>Última conversación</th>
-            <th>Motivo</th><th>Prob. compra</th><th>Fecha sugerida</th><th>Responsable</th><th>Estado</th>
-          </tr></thead>
+          <thead><tr id="theadSeguimientos"></tr></thead>
           <tbody id="tablaSeguimientos"><tr><td colspan="9" class="empty-note">Cargando…</td></tr></tbody>
         </table>
       </div>
     </div>
   `;
+  renderTheadSeguimientos();
   cargarSeguimientos();
+}
+function renderTablaSeguimientos(){
+  if (!seguimientosActuales.length) { $('tablaSeguimientos').innerHTML = '<tr><td colspan="9" class="empty-note">No hay seguimientos pendientes.</td></tr>'; return; }
+  const campo = CAMPO_ORDEN_SEGUIMIENTOS[sortColSeg];
+  const lista = [...seguimientosActuales].sort((a, b) => {
+    const av = campo(a), bv = campo(b);
+    if (av < bv) return sortAscSeg ? -1 : 1;
+    if (av > bv) return sortAscSeg ? 1 : -1;
+    return 0;
+  });
+  $('tablaSeguimientos').innerHTML = lista.map(s => `
+    <tr class="fila-clic" onclick="abrirConversacion(${s.id})">
+      <td>${escapeHtml(s.clienteNombre || 'Sin nombre')}</td>
+      <td>${escapeHtml(s.clienteTelefono || '—')}</td>
+      <td>${escapeHtml(s.marca ? s.marca + (s.modelo ? ' ' + s.modelo : '') : (s.producto ? CATEGORIA_LABEL[s.producto]||s.producto : '—'))}</td>
+      <td>${fmtFechaHora(s.fecha)}</td>
+      <td>${s.motivoPerdida ? (MOTIVO_PERDIDA_LABEL[s.motivoPerdida]||s.motivoPerdida) : (s.resultado ? RESULTADO_LABEL[s.resultado]||s.resultado : '—')}</td>
+      <td>${semaforoHtml(s.probabilidadCompra)}</td>
+      <td>${s.seguimientoEn ? fmtFecha(s.seguimientoEn) : '—'}</td>
+      <td>${responsableCellHtml(s)}</td>
+      <td><span class="badge ${SEGUIMIENTO_ESTADO_BADGE[s.seguimientoEstado] || 'b-gris'}">${SEGUIMIENTO_ESTADO_LABEL[s.seguimientoEstado] || s.seguimientoEstado}</span></td>
+    </tr>
+  `).join('');
 }
 async function cargarSeguimientos(){
   const estado = $('fSeguimientoEstado').value;
@@ -776,27 +859,39 @@ async function cargarSeguimientos(){
     const res = await fetch('/api/negocio?recurso=whatsapp-seguimientos' + (estado ? '&estado=' + estado : ''));
     const data = await res.json();
     if (!res.ok || data.error) { $('tablaSeguimientos').innerHTML = `<tr><td colspan="9" class="empty-note">${data.error || 'Error al cargar.'}</td></tr>`; return; }
-    if (!data.seguimientos.length) { $('tablaSeguimientos').innerHTML = '<tr><td colspan="9" class="empty-note">No hay seguimientos pendientes.</td></tr>'; return; }
-    $('tablaSeguimientos').innerHTML = data.seguimientos.map(s => `
-      <tr class="fila-clic" onclick="abrirConversacion(${s.id})">
-        <td>${escapeHtml(s.clienteNombre || 'Sin nombre')}</td>
-        <td>${escapeHtml(s.clienteTelefono || '—')}</td>
-        <td>${escapeHtml(s.marca ? s.marca + (s.modelo ? ' ' + s.modelo : '') : (s.producto ? CATEGORIA_LABEL[s.producto]||s.producto : '—'))}</td>
-        <td>${fmtFechaHora(s.fecha)}</td>
-        <td>${s.motivoPerdida ? (MOTIVO_PERDIDA_LABEL[s.motivoPerdida]||s.motivoPerdida) : (s.resultado ? RESULTADO_LABEL[s.resultado]||s.resultado : '—')}</td>
-        <td>${semaforoHtml(s.probabilidadCompra)}</td>
-        <td>${s.seguimientoEn ? fmtFecha(s.seguimientoEn) : '—'}</td>
-        <td>${responsableCellHtml(s)}</td>
-        <td><span class="badge ${SEGUIMIENTO_ESTADO_BADGE[s.seguimientoEstado] || 'b-gris'}">${SEGUIMIENTO_ESTADO_LABEL[s.seguimientoEstado] || s.seguimientoEstado}</span></td>
-      </tr>
-    `).join('');
+    seguimientosActuales = data.seguimientos;
+    renderTablaSeguimientos();
   }catch(err){
     $('tablaSeguimientos').innerHTML = `<tr><td colspan="9" class="empty-note">Error: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
 // ================= CLIENTES =================
-let clientesState = { page: 1, pageSize: 25, q: '' };
+// orden/ordenAsc viajan al backend (la tabla pagina server-side, así que
+// no alcanza con reordenar solo las filas ya traídas) -- ver
+// ORDEN_CLIENTES_WHATSAPP en negocio.js para la whitelist de columnas.
+let clientesState = { page: 1, pageSize: 25, q: '', orden: 'ultimaConversacion', ordenAsc: false };
+function flechaClientes(col){ return clientesState.orden === col ? (clientesState.ordenAsc ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenClientes(col){
+  if(clientesState.orden === col) clientesState.ordenAsc = !clientesState.ordenAsc;
+  else { clientesState.orden = col; clientesState.ordenAsc = false; }
+  clientesState.page = 1;
+  renderTheadClientes(); // solo las flechas -- cargarClientes() no toca el thead, para no perder el foco del buscador
+  cargarClientes();
+}
+function renderTheadClientes(){
+  $('theadClientes').innerHTML = `
+    <th>Cliente</th><th>Teléfono</th>
+    <th class="ordenable" onclick="cambiarOrdenClientes('primeraConversacion')">1ª conversación${flechaClientes('primeraConversacion')}</th>
+    <th class="ordenable" onclick="cambiarOrdenClientes('ultimaConversacion')">Última conversación${flechaClientes('ultimaConversacion')}</th>
+    <th class="ordenable" onclick="cambiarOrdenClientes('numConversaciones')">Nº conversaciones${flechaClientes('numConversaciones')}</th>
+    <th>Productos consultados</th>
+    <th class="ordenable" onclick="cambiarOrdenClientes('numVentas')">Nº ventas${flechaClientes('numVentas')}</th>
+    <th class="amount ordenable" onclick="cambiarOrdenClientes('totalComprado')">Total comprado${flechaClientes('totalComprado')}</th>
+    <th>Última intención</th>
+    <th class="ordenable" onclick="cambiarOrdenClientes('estado')">Estado${flechaClientes('estado')}</th>
+  `;
+}
 function initClientes(){
   $('vistaClientes').innerHTML = `
     <div class="seccion">
@@ -804,22 +899,19 @@ function initClientes(){
       <div class="buscador-wrap" style="margin-bottom:12px;"><span class="icono-buscar">🔍</span><input type="text" id="buscadorClientes" placeholder="Buscar por nombre o teléfono..."></div>
       <div class="tabla-wrap">
         <table>
-          <thead><tr>
-            <th>Cliente</th><th>Teléfono</th><th>1ª conversación</th><th>Última conversación</th>
-            <th>Nº conversaciones</th><th>Productos consultados</th><th>Nº ventas</th>
-            <th class="amount">Total comprado</th><th>Última intención</th><th>Estado</th>
-          </tr></thead>
+          <thead><tr id="theadClientes"></tr></thead>
           <tbody id="tablaClientes"><tr><td colspan="10" class="empty-note">Cargando…</td></tr></tbody>
         </table>
       </div>
       <div id="paginacionClientes" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12.5px;color:var(--muted);"></div>
     </div>
   `;
+  renderTheadClientes();
   $('buscadorClientes').addEventListener('input', debounce(() => { clientesState.q = $('buscadorClientes').value.trim(); clientesState.page = 1; cargarClientes(); }, 350));
   cargarClientes();
 }
 async function cargarClientes(){
-  const params = new URLSearchParams({ page: clientesState.page, pageSize: clientesState.pageSize, q: clientesState.q });
+  const params = new URLSearchParams({ page: clientesState.page, pageSize: clientesState.pageSize, q: clientesState.q, orden: clientesState.orden, ordenAsc: clientesState.ordenAsc ? '1' : '0' });
   try{
     const res = await fetch('/api/negocio?recurso=whatsapp-clientes&' + params.toString());
     const data = await res.json();
@@ -944,7 +1036,7 @@ function initAnalitica(){
       </div>
       <div id="chartFuentes" style="margin-bottom:14px;"></div>
       <div class="tabla-wrap"><table>
-        <thead><tr><th>Fuente</th><th>Detalle</th><th>Conversaciones</th></tr></thead>
+        <thead><tr id="theadFuentesDetalle"></tr></thead>
         <tbody id="tablaFuentesDetalle"></tbody>
       </table></div>
     </div>
@@ -952,13 +1044,13 @@ function initAnalitica(){
       <h2>Motivos de pérdida</h2>
       <div class="sub" style="margin-bottom:10px;">Haz clic en un motivo para ver esas conversaciones.</div>
       <div class="tabla-wrap"><table>
-        <thead><tr><th>Motivo</th><th>Cantidad</th><th>%</th><th>Recomendación</th><th></th></tr></thead>
+        <thead><tr id="theadMotivos"></tr></thead>
         <tbody id="tablaMotivos"></tbody>
       </table></div>
     </div>
     <div class="grid" style="grid-template-columns:1fr 1fr 1fr;">
       <div class="seccion"><h2>Ranking de productos</h2><div class="tabla-wrap"><table>
-        <thead><tr><th>Producto</th><th>Consultas</th><th>Ventas</th><th>Conv.</th></tr></thead>
+        <thead><tr id="theadProductos"></tr></thead>
         <tbody id="tablaProductos"></tbody>
       </table></div></div>
       <div class="seccion"><h2>Marcas más consultadas</h2><div id="rankMarcas"></div></div>
@@ -1021,6 +1113,29 @@ const FUENTE_TIPO_LABEL_ANALITICA = {
   desconocido: '❓ Origen desconocido',
   shopify_journey: '🛍️ Origen real de venta (Shopify)',
 };
+let fuentesDetalleActual = [];
+let sortColFuentesDetalle = 'cantidad';
+let sortAscFuentesDetalle = false;
+function flechaFuentesDetalle(col){ return sortColFuentesDetalle === col ? (sortAscFuentesDetalle ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenFuentesDetalle(col){
+  if(sortColFuentesDetalle === col) sortAscFuentesDetalle = !sortAscFuentesDetalle;
+  else { sortColFuentesDetalle = col; sortAscFuentesDetalle = false; }
+  renderTablaFuentesDetalle();
+}
+function renderTablaFuentesDetalle(){
+  $('theadFuentesDetalle').innerHTML = `
+    <th>Fuente</th><th>Detalle</th>
+    <th class="ordenable" onclick="cambiarOrdenFuentesDetalle('cantidad')">Conversaciones${flechaFuentesDetalle('cantidad')}</th>
+  `;
+  if (!fuentesDetalleActual.length) {
+    $('tablaFuentesDetalle').innerHTML = '<tr><td colspan="3" class="empty-note">Sin detalle todavía (nadie llegó por un link con UTM o un anuncio identificado con nombre en este período).</td></tr>';
+    return;
+  }
+  const lista = [...fuentesDetalleActual].sort((a, b) => sortAscFuentesDetalle ? a.cantidad - b.cantidad : b.cantidad - a.cantidad);
+  $('tablaFuentesDetalle').innerHTML = lista.map(d => `
+    <tr><td>${FUENTE_TIPO_LABEL_ANALITICA[d.tipo] || d.tipo}</td><td>${escapeHtml(d.titulo || '—')}</td><td>${fmtNum(d.cantidad)}</td></tr>
+  `).join('');
+}
 function renderFuentes(fuentes, detalle){
   if (!fuentes || !fuentes.length) { $('chartFuentes').innerHTML = '<p class="empty-note">Sin datos.</p>'; $('tablaFuentesDetalle').innerHTML = ''; return; }
   const max = Math.max(1, ...fuentes.map(f => f.cantidad));
@@ -1031,13 +1146,8 @@ function renderFuentes(fuentes, detalle){
       <div class="valor">${fmtNum(f.cantidad)} · ${fmtNum(f.ventas)} venta(s)</div>
     </div>
   `).join('');
-  if (!detalle || !detalle.length) {
-    $('tablaFuentesDetalle').innerHTML = '<tr><td colspan="3" class="empty-note">Sin detalle todavía (nadie llegó por un link con UTM o un anuncio identificado con nombre en este período).</td></tr>';
-    return;
-  }
-  $('tablaFuentesDetalle').innerHTML = detalle.map(d => `
-    <tr><td>${FUENTE_TIPO_LABEL_ANALITICA[d.tipo] || d.tipo}</td><td>${escapeHtml(d.titulo || '—')}</td><td>${fmtNum(d.cantidad)}</td></tr>
-  `).join('');
+  fuentesDetalleActual = detalle || [];
+  renderTablaFuentesDetalle();
 }
 function labelBucket(fecha, agrupacion){
   const d = new Date(fecha);
@@ -1084,15 +1194,35 @@ function renderChartEmbudo(e){
     ${i < pasos.length - 1 ? `<div class="flecha">↓ ${pasos[i].v > 0 ? Math.round((pasos[i+1].v/pasos[i].v)*100) : 0}%</div>` : ''}
   `).join('')}</div>`;
 }
-function renderTablaMotivos(motivos){
-  if (!motivos.length) { $('tablaMotivos').innerHTML = '<tr><td colspan="5" class="empty-note">Sin conversaciones perdidas en este período.</td></tr>'; return; }
-  $('tablaMotivos').innerHTML = motivos.map(m => `
+let motivosActuales = [];
+let sortColMotivos = 'cantidad';
+let sortAscMotivos = false;
+function flechaMotivos(col){ return sortColMotivos === col ? (sortAscMotivos ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenMotivos(col){
+  if(sortColMotivos === col) sortAscMotivos = !sortAscMotivos;
+  else { sortColMotivos = col; sortAscMotivos = false; }
+  renderTbodyMotivos();
+}
+function renderTbodyMotivos(){
+  $('theadMotivos').innerHTML = `
+    <th>Motivo</th>
+    <th class="ordenable" onclick="cambiarOrdenMotivos('cantidad')">Cantidad${flechaMotivos('cantidad')}</th>
+    <th class="ordenable" onclick="cambiarOrdenMotivos('porcentaje')">%${flechaMotivos('porcentaje')}</th>
+    <th>Recomendación</th><th></th>
+  `;
+  if (!motivosActuales.length) { $('tablaMotivos').innerHTML = '<tr><td colspan="5" class="empty-note">Sin conversaciones perdidas en este período.</td></tr>'; return; }
+  const lista = [...motivosActuales].sort((a, b) => sortAscMotivos ? a[sortColMotivos] - b[sortColMotivos] : b[sortColMotivos] - a[sortColMotivos]);
+  $('tablaMotivos').innerHTML = lista.map(m => `
     <tr class="fila-clic" onclick="irAConversacionesConMotivo('${escapeHtml(m.motivo)}')">
       <td>${escapeHtml(m.etiqueta)}</td><td>${fmtNum(m.cantidad)}</td><td>${m.porcentaje}%</td>
       <td style="max-width:340px;font-size:12px;color:var(--muted);">${escapeHtml(MOTIVO_PERDIDA_RECOMENDACION[m.motivo] || 'Sin recomendación definida para este motivo.')}</td>
       <td><button class="btn-ghost btn-compact" onclick="event.stopPropagation(); irAConversacionesConMotivo('${escapeHtml(m.motivo)}')">👁️ Ver conversaciones</button></td>
     </tr>
   `).join('');
+}
+function renderTablaMotivos(motivos){
+  motivosActuales = motivos || [];
+  renderTbodyMotivos();
 }
 // Antes solo cambiaba de pestaña sin aplicar ningún filtro (bug real,
 // detectado al probar el clic de la tabla de Motivos de pérdida) -- el
@@ -1113,11 +1243,31 @@ function irAConversacionesConMotivo(motivo){
     cargarConversaciones();
   }
 }
-function renderTablaProductos(prods){
-  if (!prods.length) { $('tablaProductos').innerHTML = '<tr><td colspan="4" class="empty-note">Sin datos.</td></tr>'; return; }
-  $('tablaProductos').innerHTML = prods.map(p => `
+let productosActuales = [];
+let sortColProductos = 'consultas';
+let sortAscProductos = false;
+function flechaProductos(col){ return sortColProductos === col ? (sortAscProductos ? ' ▲' : ' ▼') : ''; }
+function cambiarOrdenProductos(col){
+  if(sortColProductos === col) sortAscProductos = !sortAscProductos;
+  else { sortColProductos = col; sortAscProductos = false; }
+  renderTbodyProductos();
+}
+function renderTbodyProductos(){
+  $('theadProductos').innerHTML = `
+    <th>Producto</th>
+    <th class="ordenable" onclick="cambiarOrdenProductos('consultas')">Consultas${flechaProductos('consultas')}</th>
+    <th class="ordenable" onclick="cambiarOrdenProductos('ventas')">Ventas${flechaProductos('ventas')}</th>
+    <th class="ordenable" onclick="cambiarOrdenProductos('conversion')">Conv.${flechaProductos('conversion')}</th>
+  `;
+  if (!productosActuales.length) { $('tablaProductos').innerHTML = '<tr><td colspan="4" class="empty-note">Sin datos.</td></tr>'; return; }
+  const lista = [...productosActuales].sort((a, b) => sortAscProductos ? a[sortColProductos] - b[sortColProductos] : b[sortColProductos] - a[sortColProductos]);
+  $('tablaProductos').innerHTML = lista.map(p => `
     <tr><td>${escapeHtml(p.producto)}</td><td>${fmtNum(p.consultas)}</td><td>${fmtNum(p.ventas)}</td><td>${p.conversion}%</td></tr>
   `).join('');
+}
+function renderTablaProductos(prods){
+  productosActuales = prods || [];
+  renderTbodyProductos();
 }
 function renderRanking(elId, lista, campo){
   if (!lista.length) { $(elId).innerHTML = '<p class="empty-note">Sin datos.</p>'; return; }
