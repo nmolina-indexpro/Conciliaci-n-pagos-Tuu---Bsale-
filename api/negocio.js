@@ -6339,8 +6339,15 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
     proveedorUsado = 'gemini';
   } catch (errGemini) {
     console.warn('[ejecutarAnalisisIA] Gemini falló, reintentando con Claude:', errGemini.message);
-    a = await llamarClaudeAnalisis(systemPrompt, contenido);
-    proveedorUsado = 'claude (respaldo)';
+    try {
+      a = await llamarClaudeAnalisis(systemPrompt, contenido);
+      proveedorUsado = 'claude (respaldo)';
+    } catch (errClaude) {
+      // Se incluye el motivo de Gemini en el error final -- si no, un
+      // fallo de Claude (ej. sin saldo) tapa por qué Gemini no respondió
+      // primero, que es el dato que hace falta para diagnosticar.
+      throw new Error(`Gemini: ${errGemini.message} | Claude (respaldo): ${errClaude.message}`);
+    }
   }
   console.log(`[ejecutarAnalisisIA] conversación ${conversacionId} analizada con ${proveedorUsado}`);
 
