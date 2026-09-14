@@ -114,6 +114,7 @@
         <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
         <a href="reportar-error.html">🆘 Ayuda</a>
         <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
       </div>
       <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
     </div>
@@ -145,9 +146,10 @@
         <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
         <div class="nav-dropdown-menu" id="navSoporte">
           <a href="eficiencia-tickets.html">Tickets</a>
-          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="reportar-error.html">Reportar error</a>
         </div>
       </div>
+      <a href="servicio-tecnico.html">Servicio Técnico</a>
       <a href="analisis.html">Análisis</a>
     </nav>
     <div class="user-box" id="userBox"></div>
@@ -1907,7 +1909,7 @@ async function cargarSesionUsuario(){
     if(!res.ok) return; // el middleware ya se encarga de redirigir si hace falta
     const u = await res.json();
     rolActual = u.rol;
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     aplicarRestriccionMargenes(u.rol);

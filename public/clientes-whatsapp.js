@@ -188,7 +188,7 @@ async function cargarSesionUsuario(){
     if(!res.ok) return;
     const u = await res.json();
     rolActual = u.rol;
-    $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span><a href="reportar-error.html" class="btn-logout">🐞 Reportar error</a><button class="btn-logout" onclick="cerrarSesion()">Cerrar sesión</button>`;
+    $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
     if (typeof aplicarRestriccionesUsuario === 'function') aplicarRestriccionesUsuario(u.rol);
     if (typeof aplicarRestriccionPaginas === 'function') aplicarRestriccionPaginas(u.paginas);
     if(u.rol === 'admin'){

@@ -56,6 +56,7 @@ function aplicarRestriccionPaginas(paginas) {
   if (!Array.isArray(paginas)) return; // null/undefined = sin restricción
   document.querySelectorAll('.page-nav a[href], .menu-herramientas a[href]').forEach(a => {
     const href = a.getAttribute('href').replace(/^\//, '');
+    if (href === '#') return; // "Cerrar sesión" del menú de la tuerca, no es una página
     if (href === 'reportar-error.html') return; // siempre disponible
     if (href === 'usuarios.html') return; // se rige por rol, no por perfil
     if (!paginas.includes(href)) a.style.display = 'none';

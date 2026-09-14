@@ -1,6 +1,9 @@
 // /public/menu-herramientas.js
 // Menú desplegable de la tuerca (⚙) en la esquina izquierda del header:
-// Usuarios, Ayuda, Guía de uso. Compartido por todas las páginas del panel.
+// Usuarios, Ayuda, Guía de uso, Cerrar sesión. Compartido por todas las
+// páginas del panel -- "Cerrar sesión" y "Reportar error" (este último
+// ahora vive en el desplegable Soporte del nav) se sacaron del header
+// derecho para no repetir dos zonas de "acciones de cuenta" distintas.
 // También maneja los desplegables agrupados del nav principal (Finanzas,
 // Compras, Comercial, Soporte, ver .nav-dropdown-menu en responsive.css) --
 // mismo mecanismo (clase "abierto", cierre al clickear afuera o con
