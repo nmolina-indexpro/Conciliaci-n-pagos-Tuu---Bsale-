@@ -1035,6 +1035,20 @@ function notaVariacionHtml(pct){
   const clase = pct >= 0 ? 'arrow-up' : 'arrow-down';
   return `<span class="${clase}">${flecha} ${pct>=0?'+':''}${Math.round(pct)}% vs mes pasado</span>`;
 }
+// Misma idea que notaVariacionHtml, pero para las tablas que comparan
+// contra periodoAnteriorEquivalenteCot (mismo largo que el rango filtrado,
+// corrido hacia atrás -- NO el mes calendario anterior). "vs mes pasado"
+// ahí era engañoso para cualquier rango que no fuera un mes completo (ej.
+// "01 al 15" se comparaba contra "17 al 31 del mes anterior", no contra
+// "01 al 15" del mes anterior) -- pedido del usuario: mostrar la cantidad
+// real de días en vez de un texto que sugiere un mes calendario.
+function notaVariacionHtmlDias(pct, dias){
+  if(pct === null) return '';
+  if(pct === Infinity) return `<span class="arrow-up">▲ Nuevo (sin datos en los ${dias} días previos)</span>`;
+  const flecha = pct >= 0 ? '▲' : '▼';
+  const clase = pct >= 0 ? 'arrow-up' : 'arrow-down';
+  return `<span class="${clase}">${flecha} ${pct>=0?'+':''}${Math.round(pct)}% vs ${dias} días previos</span>`;
+}
 
 function renderKpisCotizaciones(){
   const cards = document.querySelectorAll('#kpiWrapCotizaciones .card');
@@ -1107,6 +1121,7 @@ function renderVendedores(delRangoFiltrado){
   const desde = $('cotizacionesDesde').value;
   const hasta = $('cotizacionesHasta').value;
   const periodoAnt = periodoAnteriorEquivalenteCot(desde, hasta);
+  const diasPeriodo = periodoAnt ? diasEntreCot(periodoAnt.desde, periodoAnt.hasta) + 1 : null;
   const montoAnteriorPorVendedor = new Map();
   if(periodoAnt){
     for(const c of cotizaciones){
@@ -1180,7 +1195,7 @@ function renderVendedores(delRangoFiltrado){
     <td class="amount">${v.antiguedadPromedio == null ? '<span class="empty-note">—</span>' : `${fmtNum(v.antiguedadPromedio)} días`}</td>
     <td class="amount">${v.diasCierrePromedio == null ? '<span class="empty-note">—</span>' : `${fmtNum(v.diasCierrePromedio)} días`}</td>
     <td class="amount"><b>${fmtMoneda(v.montoVendido)}</b></td>
-    ${periodoAnt ? `<td class="amount">${notaVariacionHtml(v.variacionPct) || '<span class="empty-note">—</span>'}</td>` : ''}
+    ${periodoAnt ? `<td class="amount">${notaVariacionHtmlDias(v.variacionPct, diasPeriodo) || '<span class="empty-note">—</span>'}</td>` : ''}
   </tr>`).join('');
 
   $('wrapVendedores').innerHTML = `<div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
@@ -2044,6 +2059,7 @@ function renderVendedoresCompraAgil(){
   const desde = $('caDesde').value;
   const hasta = $('caHasta').value;
   const periodoAnt = periodoAnteriorEquivalenteCot(desde, hasta);
+  const diasPeriodo = periodoAnt ? diasEntreCot(periodoAnt.desde, periodoAnt.hasta) + 1 : null;
   const montoAnteriorPorVendedor = new Map();
   if(periodoAnt){
     for(const o of ordenesCompraAgil){
@@ -2079,7 +2095,7 @@ function renderVendedoresCompraAgil(){
       <td class="amount">${fmtMoneda(f.total)}</td>
       <td class="amount">${fmtNum(f.ordenes)}</td>
       <td><div style="background:var(--primary-dim);border-radius:6px;overflow:hidden;height:14px;width:160px;"><div style="background:var(--primary);height:100%;width:${Math.round(f.total / maxTotal * 100)}%;"></div></div></td>
-      ${periodoAnt ? `<td>${notaVariacionHtml(f.variacionPct) || '<span class="empty-note">—</span>'}</td>` : ''}
+      ${periodoAnt ? `<td>${notaVariacionHtmlDias(f.variacionPct, diasPeriodo) || '<span class="empty-note">—</span>'}</td>` : ''}
     </tr>`).join('');
   $('wrapVendedoresCompraAgil').innerHTML = `
     <div class="tabla-wrap"><table>
