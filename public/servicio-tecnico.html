@@ -326,6 +326,7 @@ restaurarSeccionesColapsadas();
 let ultimosDatos = null; // { meses, servicios }
 let metricaActual = 'cantidad'; // 'cantidad' | 'monto'
 let rolActual = null;
+let autoSincronizacionIntentada = false; // una sola vez por carga de página
 
 function cambiarMetrica(m){
   metricaActual = m;
@@ -686,9 +687,25 @@ async function cargarServicios(){
     } else if(!data.servicios.length){
       $('syncStatus').textContent = rolActual === 'admin' ? 'Todavía no se ha sincronizado con Bsale.' : '';
     }
+    autoSincronizarSiCorresponde(data);
   }catch(err){
     $('wrapTabla').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
   }
+}
+
+// Sincroniza automáticamente al cargar la página, pero solo si ya pasaron 12
+// horas desde la última pasada completa (pedido del usuario: "sincroniza
+// solo lo necesario") -- evita golpear Bsale en cada visita a la página.
+// Solo admin puede sincronizar (mismo permiso que exige el backend), y solo
+// se intenta una vez por carga de página aunque cargarServicios() se llame
+// de nuevo (ej. al volver de otra pestaña).
+function autoSincronizarSiCorresponde(data){
+  if(rolActual !== 'admin' || autoSincronizacionIntentada) return;
+  autoSincronizacionIntentada = true;
+  if(data.sincronizando) return; // ya hay una pasada en curso (de otro admin/pestaña), no duplicar
+  const DOCE_HORAS_MS = 12 * 60 * 60 * 1000;
+  const ultima = data.ultimaSincronizacion ? new Date(data.ultimaSincronizacion).getTime() : 0;
+  if(Date.now() - ultima >= DOCE_HORAS_MS) iniciarSincronizacion();
 }
 
 async function iniciarSincronizacion(){
