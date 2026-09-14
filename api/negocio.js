@@ -6032,8 +6032,29 @@ async function obtenerImagenWhatsapp(mediaRef) {
     if (buffer.length > 5 * 1024 * 1024) { console.warn('[obtenerImagenWhatsapp] imagen muy grande, se omite', mediaId, buffer.length); return null; }
 
     const TIPOS_SOPORTADOS = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    const mediaType = TIPOS_SOPORTADOS.includes(info.mime_type) ? info.mime_type : 'image/jpeg';
-    return { mediaType, base64: buffer.toString('base64') };
+    const mediaTypeOriginal = TIPOS_SOPORTADOS.includes(info.mime_type) ? info.mime_type : 'image/jpeg';
+
+    // Redimensiona a máx. 1280px de lado más largo antes de mandarla a
+    // Claude Vision -- pedido del usuario (bajar costo del análisis IA sin
+    // perder características): Claude cobra tokens de imagen según
+    // resolución, no información, y una foto de celular sin comprimir
+    // (fácil 1600x1200 o más) sale más cara sin ganar nada en legibilidad
+    // de la etiqueta del equipo. Mismo criterio que ya usa
+    // reportar-error.html en el navegador (canvas a 1280px, JPEG) -- acá
+    // hay que hacerlo en el servidor porque no hay <canvas>. Si sharp
+    // falla por lo que sea, se manda la imagen original en vez de perder
+    // la foto completa (mismo "mejor esfuerzo" del resto de esta función).
+    try {
+      const sharp = (await import('sharp')).default;
+      const redimensionada = await sharp(buffer)
+        .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 82 })
+        .toBuffer();
+      return { mediaType: 'image/jpeg', base64: redimensionada.toString('base64') };
+    } catch (errResize) {
+      console.warn('[obtenerImagenWhatsapp] no se pudo redimensionar, se manda la original', mediaId, errResize);
+      return { mediaType: mediaTypeOriginal, base64: buffer.toString('base64') };
+    }
   } catch (err) {
     console.warn('[obtenerImagenWhatsapp] error inesperado', mediaId, err);
     return null;
