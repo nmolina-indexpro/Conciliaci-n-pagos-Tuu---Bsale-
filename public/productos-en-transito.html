@@ -569,16 +569,30 @@ function dividirCamposTransito(linea){
     ? linea.split('\t').map(c => c.trim()).filter(Boolean)
     : linea.split(/ {2,}/).map(c => c.trim()).filter(Boolean);
 }
+// Igual que dividirCamposTransito pero SIN descartar celdas vacías --
+// hace falta para leer por índice de columna (ver mapaColumnasProductoTransito),
+// donde una columna vacía en el medio (ej. "Product Picture" sin dato)
+// tiene que seguir contando para no correr el resto de las columnas.
+function dividirCamposTransitoConservandoVacios(linea){
+  return linea.includes('\t') ? linea.split('\t').map(c => c.trim()) : linea.split(/ {2,}/).map(c => c.trim());
+}
 function parsearLineaProductoTransito(lineaOriginal){
   const linea = String(lineaOriginal || '').trim();
   if(!linea) return null;
   const campos = dividirCamposTransito(linea);
   if(campos.length < 2) return { sku: '', nombre: linea, cantidad: 1 };
   const patronSku = /^(?=[a-z0-9-]*\d)(?=[a-z0-9-]*[a-z])[a-z0-9-]{3,20}$/i;
-  const sku = patronSku.test(campos[0]) ? campos[0] : '';
-  const campoCantidad = campos.find(c => /^\d{1,4}$/.test(c));
+  // El SKU no siempre es el primer campo (ej. listas con una columna "N°"
+  // antes del SKU) -- se busca en TODOS los campos, no solo en el primero.
+  const sku = campos.find(c => patronSku.test(c)) || '';
+  // La cantidad se busca de atrás para adelante: en listas con una columna
+  // de numeración ("N°" / "NO.") antes del SKU, esa columna también es un
+  // número corto y quedaba tomada por error como si fuera la cantidad --
+  // la cantidad real casi siempre está más cerca del final de la fila.
+  const camposInvertidos = [...campos].reverse();
+  const campoCantidad = camposInvertidos.find(c => /^\d{1,4}$/.test(c) && c !== sku);
   const cantidad = campoCantidad ? parseInt(campoCantidad, 10) : 1;
-  const candidatosNombre = campos.filter(c => c !== sku && !/^\$?\s*[\d.,]+$/.test(c));
+  const candidatosNombre = campos.filter(c => c !== sku && c !== campoCantidad && !/^\$?\s*[\d.,]+$/.test(c) && !/^\d+([.,]\d+)?\s*w$/i.test(c));
   const nombre = candidatosNombre.join(' ') || campos.join(' ');
   return { sku, nombre, cantidad };
 }
@@ -587,12 +601,55 @@ function esProbableEncabezadoTransito(linea){
   const campos = dividirCamposTransito(linea);
   return !campos.some(c => /^\d+([.,]\d+)?$/.test(c));
 }
+// Si la primera línea es un encabezado con columnas reconocibles (SKU/
+// Producto/Cantidad, en cualquier orden, con cualquier columna extra en
+// el medio -- "N°", "Foto", "Power", etc.), se lee CADA FILA por el
+// índice exacto de esas columnas en vez de adivinar por posición/patrón.
+// Pedido del usuario: una lista real traía "N°, SKU, Foto (vacía),
+// Producto, Power, Cantidad" y la heurística por posición confundía la
+// columna "N°" con el SKU/la cantidad. Los paréntesis del encabezado (ej.
+// "PRODUCTO(si no lo encuentras...)", "CANTIDAD (QTY)") se descartan
+// antes de reconocer la columna.
+const TRANSITO_PRODUCTO_ALIAS_COLUMNA = {
+  'sku': 'sku', 'codigo': 'sku', 'code': 'sku',
+  'producto': 'nombre', 'descripcion': 'nombre', 'description': 'nombre', 'nombre': 'nombre', 'detalle': 'nombre',
+  'cantidad': 'cantidad', 'qty': 'cantidad', 'cant': 'cantidad', 'quantity': 'cantidad',
+};
+function normalizarEncabezadoColumnaTransito(s){
+  return String(s || '')
+    .replace(/\(.*?\)/g, '') // "PRODUCTO(si no lo encuentras...)" -> "PRODUCTO"
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function parsearFilasProductoTransitoPorEncabezado(lineaEncabezado, lineasDatos){
+  const camposEncabezado = dividirCamposTransitoConservandoVacios(lineaEncabezado);
+  const indice = {};
+  camposEncabezado.forEach((c, i) => {
+    const campo = TRANSITO_PRODUCTO_ALIAS_COLUMNA[normalizarEncabezadoColumnaTransito(c)];
+    if(campo && indice[campo] == null) indice[campo] = i;
+  });
+  if(indice.nombre == null) return null; // sin columna de producto reconocible, no vale la pena leer por índice
+  return lineasDatos.map(l => {
+    const campos = dividirCamposTransitoConservandoVacios(l);
+    const nombre = (campos[indice.nombre] || '').trim();
+    if(!nombre) return null;
+    const sku = indice.sku != null ? (campos[indice.sku] || '').trim() : '';
+    const cantidadTxt = indice.cantidad != null ? (campos[indice.cantidad] || '').trim() : '';
+    const cantidad = /^\d+$/.test(cantidadTxt) ? parseInt(cantidadTxt, 10) : 1;
+    return { sku, nombre, cantidad };
+  }).filter(Boolean);
+}
 function procesarPegadoProductosEnvio(){
   const texto = $('pegarProductosEnvioInput').value;
   const lineas = texto.split('\n').map(l => l.trim()).filter(Boolean);
   if(lineas.length === 0){ alert('Pega primero una lista.'); return; }
-  const lineasDatos = esProbableEncabezadoTransito(lineas[0]) ? lineas.slice(1) : lineas;
-  const filasNuevas = lineasDatos.map(parsearLineaProductoTransito).filter(Boolean);
+  const hayEncabezado = esProbableEncabezadoTransito(lineas[0]);
+  const lineasDatos = hayEncabezado ? lineas.slice(1) : lineas;
+  const filasPorEncabezado = hayEncabezado ? parsearFilasProductoTransitoPorEncabezado(lineas[0], lineasDatos) : null;
+  const filasNuevas = filasPorEncabezado || lineasDatos.map(parsearLineaProductoTransito).filter(Boolean);
   if(filasNuevas.length === 0){ alert('No se pudo interpretar ninguna línea.'); return; }
   if(filasProductosEnvio.length === 1 && !filasProductosEnvio[0].nombre.trim()){
     filasProductosEnvio = filasNuevas;
