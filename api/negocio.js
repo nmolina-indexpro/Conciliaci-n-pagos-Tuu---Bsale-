@@ -104,6 +104,7 @@ export default async function handler(req, res) {
   if (recurso === 'recomendacion-compra-excluidos') return manejarRecomendacionCompraExcluidos(req, res, sesion);
   if (recurso === 'comparador-solicitudes') return manejarComparadorSolicitudes(req, res, sesion);
   if (recurso === 'comparador-solicitud-detalle') return manejarComparadorSolicitudDetalle(req, res, sesion);
+  if (recurso === 'comparador-solicitud-items') return manejarComparadorSolicitudItems(req, res, sesion);
   if (recurso === 'comparador-cotizacion-manual') return manejarComparadorCotizacionManual(req, res, sesion);
   if (recurso === 'comparador-cotizacion-imagen') return manejarComparadorCotizacionImagen(req, res, sesion);
   if (recurso === 'comparador-cotizacion-texto') return manejarComparadorCotizacionTexto(req, res, sesion);
@@ -2585,15 +2586,17 @@ async function manejarComparadorSolicitudes(req, res, sesion) {
 
     if (req.method === 'POST') {
       const { nombre, items } = req.body || {};
-      if (!Array.isArray(items) || items.filter(it => it.nombre && it.nombre.trim()).length === 0) {
-        return res.status(400).json({ error: 'Agrega al menos un producto al pedido' });
-      }
+      // Antes exigía al menos un producto en el pedido base. Pedido del
+      // usuario: permitir crear la solicitud vacía y armar el pedido base
+      // pegando directo la lista de precios del primer proveedor (ver
+      // manejarComparadorCotizacionTexto, que crea los ítems desde ahí
+      // cuando la solicitud todavía no tiene ninguno).
+      const itemsValidos = Array.isArray(items) ? items.filter(it => it.nombre && it.nombre.trim()) : [];
       const { rows: solicitudRows } = await sql`
         INSERT INTO comparador_solicitudes (nombre, creado_por) VALUES (${nombre || null}, ${sesion.nombre || sesion.email}) RETURNING *;
       `;
       const solicitudId = solicitudRows[0].id;
-      for (const it of items) {
-        if (!it.nombre || !it.nombre.trim()) continue;
+      for (const it of itemsValidos) {
         await sql`
           INSERT INTO comparador_solicitud_items (solicitud_id, sku, nombre, cantidad, especificaciones)
           VALUES (${solicitudId}, ${it.sku || null}, ${it.nombre.trim()}, ${it.cantidad || 1}, ${JSON.stringify(it.especificaciones || {})});
@@ -2601,6 +2604,27 @@ async function manejarComparadorSolicitudes(req, res, sesion) {
       }
       const { rows: itemsCreados } = await sql`SELECT * FROM comparador_solicitud_items WHERE solicitud_id = ${solicitudId} ORDER BY id;`;
       return res.status(200).json({ ok: true, solicitud: solicitudRows[0], items: itemsCreados });
+    }
+
+    // Renombrar (pedido del usuario: poder "editar" la solicitud) -- solo el
+    // nombre acá; los ítems del pedido base se editan en
+    // manejarComparadorSolicitudItems.
+    if (req.method === 'PUT') {
+      const { id, nombre } = req.body || {};
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      const { rows } = await sql`UPDATE comparador_solicitudes SET nombre = ${nombre || null} WHERE id = ${id} RETURNING *;`;
+      if (!rows[0]) return res.status(404).json({ error: 'Solicitud no encontrada' });
+      return res.status(200).json({ ok: true, solicitud: rows[0] });
+    }
+
+    // Eliminar (pedido del usuario) -- CASCADE ya borra items/cotizaciones/
+    // decisiones asociadas (ver asegurarTablaComparadorCompras en lib/db.js).
+    if (req.method === 'DELETE') {
+      const id = parseInt(req.query.id, 10);
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      const { rows } = await sql`DELETE FROM comparador_solicitudes WHERE id = ${id} RETURNING id;`;
+      if (!rows[0]) return res.status(404).json({ error: 'Solicitud no encontrada' });
+      return res.status(200).json({ ok: true });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
@@ -2685,6 +2709,99 @@ async function manejarComparadorSolicitudDetalle(req, res, sesion) {
     return res.status(200).json({ solicitud: solicitudRows[0], items, proveedores, comparativa, sinEmparejar, umbralAhorroMinimo: umbral });
   } catch (err) {
     return res.status(500).json({ error: 'Error cargando la solicitud', detail: String(err) });
+  }
+}
+
+// Compartida entre texto e imagen (manual no la necesita -- el usuario ya
+// elige el ítem a mano desde un dropdown, no hay equivalencia que adivinar).
+// Si la solicitud todavía no tiene pedido base, la PRIMERA cotización
+// pegada -- por texto o imagen, en la práctica Coimco antes que Laptop
+// Center -- lo arma directo: una línea = un producto nuevo del pedido,
+// cantidad a comprar en 1 por defecto (la cantidad de la cotización es el
+// STOCK del proveedor, no cuánto se quiere comprar). Confianza "alta"
+// porque es la misma línea, no una equivalencia adivinada. Si el pedido
+// base ya existía (segundo proveedor en adelante), se empareja como
+// siempre contra esos ítems.
+async function comparadorGuardarLineasCotizacion(sql, { cotizacionId, solicitudId, itemsPedido, itemsExtraidos }) {
+  const pedidoBaseCreadoAhora = itemsPedido.length === 0;
+  const guardados = [];
+  for (const it of itemsExtraidos) {
+    let solicitudItemId, confianza;
+    if (pedidoBaseCreadoAhora) {
+      const { rows: itemRows } = await sql`
+        INSERT INTO comparador_solicitud_items (solicitud_id, sku, nombre, cantidad)
+        VALUES (${solicitudId}, ${it.codigo_proveedor || null}, ${it.descripcion}, 1)
+        RETURNING id;
+      `;
+      solicitudItemId = itemRows[0].id;
+      confianza = 'alta';
+    } else {
+      const emparejamiento = emparejarLineaCotizacion(it.descripcion, itemsPedido);
+      solicitudItemId = emparejamiento.solicitudItemId;
+      confianza = emparejamiento.confianza;
+    }
+    const { rows } = await sql`
+      INSERT INTO comparador_cotizacion_items (
+        cotizacion_id, solicitud_item_id, codigo_proveedor, descripcion,
+        cantidad_disponible, estado_stock, precio_neto, observaciones, confianza_equivalencia
+      ) VALUES (
+        ${cotizacionId}, ${solicitudItemId}, ${it.codigo_proveedor || null}, ${it.descripcion},
+        ${it.cantidad_disponible ?? null}, ${it.estado_stock || 'por_confirmar'}, ${it.precio_neto ?? null}, ${it.observaciones || null}, ${confianza}
+      ) RETURNING *;
+    `;
+    guardados.push(rows[0]);
+  }
+  return { guardados, pedidoBaseCreadoAhora };
+}
+
+// Editar el pedido base de una solicitud YA CREADA (pedido del usuario:
+// poder "editar" una solicitud, no solo crearla) -- agregar un producto,
+// corregir nombre/SKU/cantidad, o sacar uno. comparador_cotizacion_items.
+// solicitud_item_id NO tiene ON DELETE CASCADE (ver lib/db.js) a propósito
+// -- al sacar un ítem, sus líneas de cotización ya cargadas no se borran,
+// solo quedan "sin emparejar" (mismo bucket que usa la UI para vincular a
+// mano), en vez de perder silenciosamente un precio ya cotizado.
+async function manejarComparadorSolicitudItems(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaComparadorCompras(sql);
+
+    if (req.method === 'POST') {
+      const { solicitudId, sku, nombre, cantidad } = req.body || {};
+      if (!solicitudId) return res.status(400).json({ error: 'Falta solicitudId' });
+      if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Falta el nombre del producto' });
+      const { rows } = await sql`
+        INSERT INTO comparador_solicitud_items (solicitud_id, sku, nombre, cantidad)
+        VALUES (${solicitudId}, ${sku || null}, ${nombre.trim()}, ${cantidad || 1})
+        RETURNING *;
+      `;
+      return res.status(200).json({ ok: true, item: rows[0] });
+    }
+
+    if (req.method === 'PUT') {
+      const { id, sku, nombre, cantidad } = req.body || {};
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Falta el nombre del producto' });
+      const { rows } = await sql`
+        UPDATE comparador_solicitud_items SET sku = ${sku || null}, nombre = ${nombre.trim()}, cantidad = ${cantidad || 1}
+        WHERE id = ${id} RETURNING *;
+      `;
+      if (!rows[0]) return res.status(404).json({ error: 'Producto no encontrado' });
+      return res.status(200).json({ ok: true, item: rows[0] });
+    }
+
+    if (req.method === 'DELETE') {
+      const id = parseInt(req.query.id, 10);
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      await sql`UPDATE comparador_cotizacion_items SET solicitud_item_id = NULL WHERE solicitud_item_id = ${id};`;
+      const { rows } = await sql`DELETE FROM comparador_solicitud_items WHERE id = ${id} RETURNING id;`;
+      if (!rows[0]) return res.status(404).json({ error: 'Producto no encontrado' });
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error editando el pedido base', detail: String(err) });
   }
 }
 
@@ -2775,7 +2892,6 @@ async function manejarComparadorCotizacionImagen(req, res, sesion) {
     await asegurarTablaComparadorCompras(sql);
 
     const { rows: itemsPedido } = await sql`SELECT id, nombre, especificaciones FROM comparador_solicitud_items WHERE solicitud_id = ${solicitudId};`;
-    if (itemsPedido.length === 0) return res.status(400).json({ error: 'Esta solicitud no tiene productos cargados todavía' });
 
     const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -2813,22 +2929,11 @@ async function manejarComparadorCotizacionImagen(req, res, sesion) {
     `;
     const cotizacionId = cotizacionRows[0].id;
 
-    const guardados = [];
-    for (const it of itemsExtraidos) {
-      const emparejamiento = emparejarLineaCotizacion(it.descripcion, itemsPedido);
-      const { rows } = await sql`
-        INSERT INTO comparador_cotizacion_items (
-          cotizacion_id, solicitud_item_id, codigo_proveedor, descripcion,
-          cantidad_disponible, estado_stock, precio_neto, observaciones, confianza_equivalencia
-        ) VALUES (
-          ${cotizacionId}, ${emparejamiento.solicitudItemId}, ${it.codigo_proveedor || null}, ${it.descripcion},
-          ${it.cantidad_disponible ?? null}, ${it.estado_stock || 'por_confirmar'}, ${it.precio_neto ?? null}, ${it.observaciones || null}, ${emparejamiento.confianza}
-        ) RETURNING *;
-      `;
-      guardados.push(rows[0]);
-    }
+    const { guardados, pedidoBaseCreadoAhora } = await comparadorGuardarLineasCotizacion(sql, {
+      cotizacionId, solicitudId, itemsPedido, itemsExtraidos,
+    });
 
-    return res.status(200).json({ ok: true, cotizacionId, items: guardados });
+    return res.status(200).json({ ok: true, cotizacionId, items: guardados, pedidoBaseCreadoAhora });
   } catch (err) {
     return res.status(500).json({ error: 'Error extrayendo la cotización de la imagen', detail: String(err) });
   }
@@ -2850,7 +2955,6 @@ async function manejarComparadorCotizacionTexto(req, res, sesion) {
     await asegurarTablaComparadorCompras(sql);
 
     const { rows: itemsPedido } = await sql`SELECT id, nombre, especificaciones FROM comparador_solicitud_items WHERE solicitud_id = ${solicitudId};`;
-    if (itemsPedido.length === 0) return res.status(400).json({ error: 'Esta solicitud no tiene productos cargados todavía' });
 
     const itemsExtraidos = parsearTextoCotizacion(texto);
     if (itemsExtraidos.length === 0) return res.status(200).json({ error: 'No se pudo interpretar ninguna línea del texto pegado' });
@@ -2862,22 +2966,11 @@ async function manejarComparadorCotizacionTexto(req, res, sesion) {
     `;
     const cotizacionId = cotizacionRows[0].id;
 
-    const guardados = [];
-    for (const it of itemsExtraidos) {
-      const emparejamiento = emparejarLineaCotizacion(it.descripcion, itemsPedido);
-      const { rows } = await sql`
-        INSERT INTO comparador_cotizacion_items (
-          cotizacion_id, solicitud_item_id, codigo_proveedor, descripcion,
-          cantidad_disponible, estado_stock, precio_neto, observaciones, confianza_equivalencia
-        ) VALUES (
-          ${cotizacionId}, ${emparejamiento.solicitudItemId}, ${it.codigo_proveedor || null}, ${it.descripcion},
-          ${it.cantidad_disponible ?? null}, ${it.estado_stock || 'por_confirmar'}, ${it.precio_neto ?? null}, ${it.observaciones || null}, ${emparejamiento.confianza}
-        ) RETURNING *;
-      `;
-      guardados.push(rows[0]);
-    }
+    const { guardados, pedidoBaseCreadoAhora } = await comparadorGuardarLineasCotizacion(sql, {
+      cotizacionId, solicitudId, itemsPedido, itemsExtraidos,
+    });
 
-    return res.status(200).json({ ok: true, cotizacionId, items: guardados });
+    return res.status(200).json({ ok: true, cotizacionId, items: guardados, pedidoBaseCreadoAhora });
   } catch (err) {
     return res.status(500).json({ error: 'Error procesando el texto de la cotización', detail: String(err) });
   }

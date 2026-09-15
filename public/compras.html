@@ -230,12 +230,15 @@
         <label style="font-size:12px;color:var(--muted);">Solicitud:</label>
         <select id="comparadorSelectSolicitud" onchange="comparadorCargarSolicitud(this.value)" style="min-width:220px;"></select>
         <button class="btn-ghost btn-compact" onclick="comparadorMostrarFormNuevaSolicitud()">➕ Nueva solicitud</button>
+        <button class="btn-ghost btn-compact" onclick="comparadorRenombrarSolicitud()">✏️ Renombrar</button>
+        <button class="btn-ghost btn-compact" style="color:var(--red);border-color:var(--red);" onclick="comparadorEliminarSolicitud()">🗑️ Eliminar solicitud</button>
         <label style="font-size:12px;color:var(--muted);margin-left:auto;">Umbral de ahorro mínimo:</label>
         <input type="number" id="comparadorUmbralInput" value="1000" min="0" step="100" style="width:100px;" onchange="comparadorGuardarUmbral()">
       </div>
 
       <div id="comparadorFormNuevaSolicitud" hidden style="border:1px dashed var(--line);border-radius:12px;padding:14px;margin-bottom:16px;">
-        <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px;">Pedido base</div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px;">Pedido base (opcional)</div>
+        <p class="empty-note" style="margin-top:0;margin-bottom:8px;">Puedes dejar esto vacío y crear la solicitud directamente -- el pedido base se arma solo con la primera lista de precios que pegues o subas abajo (normalmente Coimco). Solo completa esto a mano si quieres definir tú mismo qué productos pedir antes de cotizar.</p>
         <div id="comparadorFilasPedido"></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
           <button class="btn-ghost btn-compact" onclick="comparadorAgregarFilaPedido()">➕ Agregar producto</button>
@@ -979,8 +982,11 @@ function comparadorProcesarPegadoPedido(){
 }
 
 async function comparadorCrearSolicitud(){
+  // Pedido base ahora es opcional (pedido del usuario): si se deja vacío,
+  // la solicitud se crea igual y el pedido base se arma solo con la
+  // primera cotización que se pegue/suba abajo (ver comparadorProcesarTexto/
+  // comparadorProcesarImagenProveedor y el backend en negocio.js).
   const items = comparadorFilasPedido.filter(f => f.nombre.trim());
-  if(items.length === 0){ alert('Agrega al menos un producto.'); return; }
   try{
     const res = await fetch('/api/negocio?recurso=comparador-solicitudes', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1018,6 +1024,36 @@ async function comparadorCargarSolicitud(id){
     comparadorProveedores = data.proveedores;
     $('comparadorUmbralInput').value = data.umbralAhorroMinimo;
     comparadorRenderSolicitud();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+
+async function comparadorRenombrarSolicitud(){
+  if(!comparadorSolicitudId){ alert('Selecciona una solicitud primero.'); return; }
+  const nombreActual = comparadorDetalle?.solicitud?.nombre || '';
+  const nuevoNombre = prompt('Nombre de la solicitud:', nombreActual);
+  if(nuevoNombre === null) return; // canceló
+  try{
+    const res = await fetch('/api/negocio?recurso=comparador-solicitudes', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: comparadorSolicitudId, nombre: nuevoNombre.trim() || null }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo renombrar la solicitud.'); return; }
+    await comparadorCargarListaSolicitudes(comparadorSolicitudId);
+  }catch(err){ alert('Error: ' + err.message); }
+}
+
+async function comparadorEliminarSolicitud(){
+  if(!comparadorSolicitudId){ alert('Selecciona una solicitud primero.'); return; }
+  const nombreSolicitud = comparadorDetalle?.solicitud?.nombre || `Solicitud #${comparadorSolicitudId}`;
+  if(!confirm(`¿Eliminar "${nombreSolicitud}"? Se borran también su pedido base y todas las cotizaciones cargadas. Esta acción no se puede deshacer.`)) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=comparador-solicitudes&id=${comparadorSolicitudId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo eliminar la solicitud.'); return; }
+    comparadorSolicitudId = null;
+    comparadorDetalle = null;
+    await comparadorCargarListaSolicitudes();
   }catch(err){ alert('Error: ' + err.message); }
 }
 
@@ -1103,6 +1139,13 @@ function comparadorRenderSolicitud(){
       <div class="card"><div class="lbl">Ahorro obtenido</div><div class="big" style="color:var(--green);">${fmt(ahorroTotal)}</div></div>
     </div>
 
+    ${d.items.length === 0 ? `<div class="note-box" style="margin-bottom:16px;">🔽 Esta solicitud todavía no tiene pedido base. Pega o sube abajo la lista de precios del <b>primer proveedor</b> (normalmente Coimco) -- se usará automáticamente como pedido base. Después haz lo mismo con el segundo proveedor (Laptop Center) para que se arme la comparativa.</div>` : ''}
+
+    <div style="margin-bottom:16px;">
+      <button class="btn-ghost btn-compact" onclick="comparadorToggleEditarPedido()">✏️ Editar pedido base</button>
+      <div id="comparadorEditarPedidoWrap" hidden style="border:1px dashed var(--line);border-radius:12px;padding:14px;margin-top:8px;"></div>
+    </div>
+
     <div class="filtros" style="margin-bottom:16px;flex-wrap:wrap;align-items:flex-start;">
       ${d.proveedores.map(p => `
         <div style="border:1px solid var(--line);border-radius:10px;padding:10px;min-width:240px;">
@@ -1146,6 +1189,83 @@ function comparadorRenderSolicitud(){
       <button class="btn-ghost" onclick="comparadorCopiarPedido()">📋 Copiar pedido para WhatsApp/Email</button>
     </div>
   `;
+}
+
+// Editar el pedido base de una solicitud ya creada (pedido del usuario) --
+// agregar/corregir/quitar productos. Guarda cada fila por separado (sin un
+// botón "Guardar todo") para no arriesgar perder ediciones si una falla.
+let comparadorEditandoPedido = false;
+function comparadorToggleEditarPedido(){
+  comparadorEditandoPedido = !comparadorEditandoPedido;
+  $('comparadorEditarPedidoWrap').hidden = !comparadorEditandoPedido;
+  if(comparadorEditandoPedido) comparadorRenderEditarPedido();
+}
+function comparadorRenderEditarPedido(){
+  const d = comparadorDetalle;
+  $('comparadorEditarPedidoWrap').innerHTML = `
+    ${d.items.map(it => `
+      <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+        <input type="text" value="${it.nombre}" placeholder="Producto" style="flex:1;" id="comparadorEditNombre_${it.id}">
+        <input type="text" value="${it.sku || ''}" placeholder="SKU" style="width:110px;" id="comparadorEditSku_${it.id}">
+        <input type="number" min="1" value="${it.cantidad}" style="width:70px;" id="comparadorEditCantidad_${it.id}">
+        <button class="btn-icono" title="Guardar cambios" onclick="comparadorGuardarItemEditado(${it.id})">💾</button>
+        <button class="btn-icono" title="Quitar del pedido" onclick="comparadorEliminarItem(${it.id})">🗑️</button>
+      </div>`).join('') || '<p class="empty-note" style="margin:0 0 8px;">Sin productos todavía -- agrega uno abajo.</p>'}
+    <div style="display:flex;gap:6px;margin-top:8px;">
+      <input type="text" placeholder="Producto nuevo" id="comparadorNuevoItemNombre" style="flex:1;">
+      <input type="text" placeholder="SKU (opcional)" id="comparadorNuevoItemSku" style="width:110px;">
+      <input type="number" min="1" value="1" id="comparadorNuevoItemCantidad" style="width:70px;">
+      <button class="btn-primary btn-compact" onclick="comparadorAgregarItemNuevo()">➕ Agregar</button>
+    </div>
+  `;
+}
+// Tras cualquier cambio se recarga toda la solicitud (comparadorRenderSolicitud
+// reconstruye #comparadorEditarPedidoWrap oculto por defecto) -- se vuelve a
+// abrir y renderizar acá para no perder el panel de edición a mitad de uso.
+async function comparadorReabrirEditarPedido(){
+  await comparadorCargarSolicitud(comparadorSolicitudId);
+  comparadorEditandoPedido = true;
+  $('comparadorEditarPedidoWrap').hidden = false;
+  comparadorRenderEditarPedido();
+}
+async function comparadorGuardarItemEditado(id){
+  const nombre = $(`comparadorEditNombre_${id}`).value.trim();
+  const sku = $(`comparadorEditSku_${id}`).value.trim();
+  const cantidad = parseInt($(`comparadorEditCantidad_${id}`).value, 10) || 1;
+  if(!nombre){ alert('El nombre no puede quedar vacío.'); return; }
+  try{
+    const res = await fetch('/api/negocio?recurso=comparador-solicitud-items', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, nombre, sku: sku || null, cantidad }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar.'); return; }
+    await comparadorReabrirEditarPedido();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+async function comparadorEliminarItem(id){
+  if(!confirm('¿Quitar este producto del pedido base? Si ya tiene cotizaciones cargadas, quedarán "sin emparejar" en vez de perderse.')) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=comparador-solicitud-items&id=${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo quitar el producto.'); return; }
+    await comparadorReabrirEditarPedido();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+async function comparadorAgregarItemNuevo(){
+  const nombre = $('comparadorNuevoItemNombre').value.trim();
+  const sku = $('comparadorNuevoItemSku').value.trim();
+  const cantidad = parseInt($('comparadorNuevoItemCantidad').value, 10) || 1;
+  if(!nombre){ alert('Escribe el nombre del producto.'); return; }
+  try{
+    const res = await fetch('/api/negocio?recurso=comparador-solicitud-items', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ solicitudId: comparadorSolicitudId, nombre, sku: sku || null, cantidad }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo agregar el producto.'); return; }
+    await comparadorReabrirEditarPedido();
+  }catch(err){ alert('Error: ' + err.message); }
 }
 
 const COMPARADOR_BADGE_ESTADO = {
@@ -1269,7 +1389,9 @@ async function comparadorProcesarImagenProveedor(proveedorId, file){
     });
     const data = await res.json();
     if(!res.ok || data.error){ alert((data.error || 'No se pudo leer la imagen.') + (data.detail ? `\n\n${data.detail}` : '')); return; }
-    alert(`Se leyeron ${data.items.length} línea(s) de la imagen.`);
+    alert(data.pedidoBaseCreadoAhora
+      ? `Se creó el pedido base con ${data.items.length} producto(s) a partir de esta imagen. Ahora pega/sube la lista del otro proveedor para completar la comparativa.`
+      : `Se leyeron ${data.items.length} línea(s) de la imagen.`);
     await comparadorCargarSolicitud(comparadorSolicitudId);
   }catch(err){
     alert('Error: ' + err.message);
@@ -1296,7 +1418,9 @@ async function comparadorProcesarTexto(proveedorId){
     });
     const data = await res.json();
     if(!res.ok || data.error){ alert((data.error || 'No se pudo procesar el texto.') + (data.detail ? `\n\n${data.detail}` : '')); return; }
-    alert(`Se interpretaron ${data.items.length} línea(s). Revisa la tabla -- algunas pueden necesitar ajuste manual (precio/cantidad no siempre se detectan bien en texto libre).`);
+    alert(data.pedidoBaseCreadoAhora
+      ? `Se creó el pedido base con ${data.items.length} producto(s) a partir de esta lista. Ahora pega/sube la lista del otro proveedor para completar la comparativa.`
+      : `Se interpretaron ${data.items.length} línea(s). Revisa la tabla -- algunas pueden necesitar ajuste manual (precio/cantidad no siempre se detectan bien en texto libre).`);
     input.value = '';
     $(`comparadorTextoWrap_${proveedorId}`).hidden = true;
     await comparadorCargarSolicitud(comparadorSolicitudId);
