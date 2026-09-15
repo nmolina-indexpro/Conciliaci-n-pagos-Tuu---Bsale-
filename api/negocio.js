@@ -2617,11 +2617,27 @@ async function manejarComparadorSolicitudes(req, res, sesion) {
       return res.status(200).json({ ok: true, solicitud: rows[0] });
     }
 
-    // Eliminar (pedido del usuario) -- CASCADE ya borra items/cotizaciones/
-    // decisiones asociadas (ver asegurarTablaComparadorCompras en lib/db.js).
+    // Eliminar (pedido del usuario). comparador_solicitud_items/
+    // comparador_cotizaciones/comparador_decisiones SÍ tienen ON DELETE
+    // CASCADE hacia comparador_solicitudes (ver lib/db.js), pero
+    // comparador_cotizacion_items.solicitud_item_id NO tiene cascade hacia
+    // comparador_solicitud_items (a propósito, ver
+    // manejarComparadorSolicitudItems) -- se borra a mano en el orden
+    // correcto en vez de confiar en que Postgres resuelva las dos cascadas
+    // cruzadas en el orden que hace falta.
     if (req.method === 'DELETE') {
       const id = parseInt(req.query.id, 10);
       if (!id) return res.status(400).json({ error: 'Falta id' });
+      await sql`
+        DELETE FROM comparador_cotizacion_items
+        WHERE cotizacion_id IN (SELECT id FROM comparador_cotizaciones WHERE solicitud_id = ${id});
+      `;
+      await sql`DELETE FROM comparador_cotizaciones WHERE solicitud_id = ${id};`;
+      await sql`
+        DELETE FROM comparador_decisiones
+        WHERE solicitud_item_id IN (SELECT id FROM comparador_solicitud_items WHERE solicitud_id = ${id});
+      `;
+      await sql`DELETE FROM comparador_solicitud_items WHERE solicitud_id = ${id};`;
       const { rows } = await sql`DELETE FROM comparador_solicitudes WHERE id = ${id} RETURNING id;`;
       if (!rows[0]) return res.status(404).json({ error: 'Solicitud no encontrada' });
       return res.status(200).json({ ok: true });
