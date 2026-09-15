@@ -58,6 +58,7 @@
 
   .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:18px;}
   .empty-note{color:var(--muted);font-size:12.5px;padding:14px 0;}
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:16px;color:var(--text);}
   .grid-form{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
   @media (max-width:900px){.grid-form{grid-template-columns:repeat(2,1fr);}}
 
@@ -192,6 +193,7 @@
       <button class="modal-cerrar" onclick="cerrarModalEnvio()">✕</button>
     </div>
     <div class="modal-body">
+      <div class="note-box">ℹ Esta página no está conectada en vivo con CargoWise ni ninguna naviera -- no existe esa integración. Escribir solo la referencia <b>no trae el resto de los datos solo</b>: copia cada campo a mano desde el sistema de tracking (CargoWise, la naviera o el forwarder) mientras revisas el envío.</div>
       <div id="errorModalEnvio"></div>
       <div class="grid-form">
         <div class="campo"><label>Referencia / tracking *</label><input type="text" id="fReferencia" placeholder="Ej: SSCL010035"></div>
