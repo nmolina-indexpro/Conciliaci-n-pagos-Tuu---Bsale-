@@ -2744,9 +2744,19 @@ async function comparadorGuardarLineasCotizacion(sql, { cotizacionId, solicitudI
   for (const it of itemsExtraidos) {
     let solicitudItemId, confianza;
     if (pedidoBaseCreadoAhora) {
+      // La cantidad de la línea pegada se usa tal cual como cantidad a
+      // comprar (pedido del usuario) -- antes se forzaba a 1 siempre,
+      // razonando que "cantidad_disponible" es el STOCK del proveedor, no
+      // cuánto comprar. Eso rompía el caso real más común: pegar acá la
+      // propia lista de "sugerencia a comprar" de IndexStore (no una
+      // cotización de un proveedor) como pedido base, donde esa columna
+      // SÍ es la cantidad deseada. Si no se detectó cantidad, 1 por
+      // defecto. Cualquiera de los dos casos se puede corregir después con
+      // "Editar pedido base".
+      const cantidadBase = it.cantidad_disponible != null && it.cantidad_disponible > 0 ? it.cantidad_disponible : 1;
       const { rows: itemRows } = await sql`
         INSERT INTO comparador_solicitud_items (solicitud_id, sku, nombre, cantidad)
-        VALUES (${solicitudId}, ${it.codigo_proveedor || null}, ${it.descripcion}, 1)
+        VALUES (${solicitudId}, ${it.codigo_proveedor || null}, ${it.descripcion}, ${cantidadBase})
         RETURNING id;
       `;
       solicitudItemId = itemRows[0].id;
