@@ -1185,7 +1185,7 @@ function comparadorRenderSolicitud(){
     ${d.sinEmparejar.length > 0 ? `<p class="empty-note" style="color:var(--amber);margin-top:14px;"><b>⚠ ${d.sinEmparejar.length} línea(s) de cotización no se pudieron emparejar automáticamente</b> con ningún producto de este pedido (no aparecen en la tabla de arriba). Revisa la descripción o vuelve a cargar la cotización.</p>` : ''}
 
     <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
-      <button class="btn-primary btn-exportar" onclick="comparadorExportarExcels()">📊 Generar Excel (pedidos + comparativa)</button>
+      <button class="btn-primary btn-exportar" onclick="comparadorExportarExcels()">📊 Generar Excel (pedido Coimco + pedido Laptop Center)</button>
       <button class="btn-ghost" onclick="comparadorCopiarPedido()">📋 Copiar pedido para WhatsApp/Email</button>
     </div>
   `;
@@ -1553,29 +1553,6 @@ function comparadorExportarExcels(){
     XLSX.utils.book_append_sheet(libro, hoja, 'Pedido');
     XLSX.writeFile(libro, `Pedido_${proveedor.nombre.replace(/\s+/g, '')}_${fecha}.xlsx`);
   });
-
-  const filasComparativa = d.comparativa.map(({ item, candidatos, decision }) => {
-    const fila = { 'SKU': item.sku || '', 'Producto solicitado': item.nombre, 'Cantidad': item.cantidad };
-    candidatos.forEach(c => {
-      fila[`${c.proveedorNombre} neto`] = c.item ? c.item.precio_neto : '';
-      fila[`Total ${c.proveedorNombre}`] = (c.item && c.item.precio_neto != null) ? c.item.precio_neto * item.cantidad : '';
-    });
-    const proveedorElegido = comparadorProveedores.find(p => p.id === decision.proveedorElegidoId);
-    fila['Proveedor elegido'] = proveedorElegido ? proveedorElegido.nombre : '';
-    fila['Precio elegido'] = decision.precioElegido || '';
-    fila['Total elegido'] = decision.precioElegido ? decision.precioElegido * item.cantidad : '';
-    fila['Ahorro unitario'] = decision.ahorroUnitario || '';
-    fila['Ahorro total'] = decision.ahorroUnitario ? decision.ahorroUnitario * item.cantidad : '';
-    fila['Por qué se eligió'] = decision.motivo || '';
-    fila['Confianza equivalencia'] = decision.confianzaEquivalencia || '';
-    fila['Estado'] = decision.estado;
-    return fila;
-  });
-  const hojaComp = XLSX.utils.json_to_sheet(filasComparativa);
-  const libroComp = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(libroComp, hojaComp, 'Comparativa');
-  const nombresProveedores = d.proveedores.map(p => p.nombre.replace(/\s+/g, '')).join('_vs_');
-  XLSX.writeFile(libroComp, `Comparativa_${nombresProveedores}_${fecha}.xlsx`);
 }
 
 async function comparadorCopiarPedido(){
