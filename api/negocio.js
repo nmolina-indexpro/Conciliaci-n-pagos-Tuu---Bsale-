@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
@@ -110,6 +110,8 @@ export default async function handler(req, res) {
   if (recurso === 'comparador-cotizacion-texto') return manejarComparadorCotizacionTexto(req, res, sesion);
   if (recurso === 'comparador-decision') return manejarComparadorDecision(req, res, sesion);
   if (recurso === 'comparador-config') return manejarComparadorConfig(req, res, sesion);
+  if (recurso === 'transito-envios') return manejarTransitoEnvios(req, res, sesion);
+  if (recurso === 'transito-envio-eventos') return manejarTransitoEnvioEventos(req, res, sesion);
   if (recurso === 'whatsapp-dashboard') return manejarWhatsappDashboard(req, res, sesion);
   if (recurso === 'whatsapp-conversaciones') return manejarWhatsappConversaciones(req, res, sesion);
   if (recurso === 'whatsapp-conversacion-detalle') return manejarWhatsappConversacionDetalle(req, res, sesion);
@@ -3119,6 +3121,113 @@ async function manejarComparadorConfig(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error gestionando configuración', detail: String(err) });
+  }
+}
+
+// ---------- Productos en tránsito ----------
+// Carga 100% manual (pedido del usuario, sin integración con CargoWise ni
+// ningún otro sistema de tracking -- ver el comentario largo junto a
+// asegurarTablaProductosTransito en lib/db.js): alguien revisa el estado
+// del envío en la naviera/forwarder y lo transcribe acá. "estado" es solo
+// para filtrar la lista (en tránsito vs ya llegó) -- el detalle real del
+// avance vive en el historial de eventos (productos_transito_eventos),
+// mismo criterio que un historial de tracking de naviera.
+async function manejarTransitoEnvios(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaProductosTransito(sql);
+
+    if (req.method === 'GET') {
+      const { rows: envios } = await sql`SELECT * FROM productos_transito_envios ORDER BY (estado = 'entregado'), fecha_eta ASC NULLS LAST, created_at DESC;`;
+      const { rows: eventos } = await sql`SELECT * FROM productos_transito_eventos ORDER BY fecha DESC, id DESC;`;
+      const eventosPorEnvio = new Map();
+      for (const ev of eventos) {
+        if (!eventosPorEnvio.has(ev.envio_id)) eventosPorEnvio.set(ev.envio_id, []);
+        eventosPorEnvio.get(ev.envio_id).push(ev);
+      }
+      const enviosConEventos = envios.map(e => ({ ...e, eventos: eventosPorEnvio.get(e.id) || [] }));
+      return res.status(200).json({ envios: enviosConEventos });
+    }
+
+    if (req.method === 'POST') {
+      const b = req.body || {};
+      if (!b.referencia || !b.referencia.trim()) return res.status(400).json({ error: 'Falta la referencia del envío' });
+      const productos = Array.isArray(b.productos) ? b.productos.filter(p => p.nombre && p.nombre.trim()) : [];
+      const { rows } = await sql`
+        INSERT INTO productos_transito_envios (
+          referencia, contenedor, house_bill, total_bultos, peso_kg, service_level,
+          puerto_origen, puerto_destino, modo_contenedor, buque, voyage, estado,
+          fecha_salida, fecha_eta, productos, creado_por
+        ) VALUES (
+          ${b.referencia.trim()}, ${b.contenedor || null}, ${b.houseBill || null}, ${b.totalBultos || null}, ${b.pesoKg || null}, ${b.serviceLevel || null},
+          ${b.puertoOrigen || null}, ${b.puertoDestino || null}, ${b.modoContenedor || null}, ${b.buque || null}, ${b.voyage || null}, ${b.estado || 'en_transito'},
+          ${b.fechaSalida || null}, ${b.fechaEta || null}, ${JSON.stringify(productos)}, ${sesion.nombre || sesion.email}
+        ) RETURNING *;
+      `;
+      return res.status(200).json({ ok: true, envio: { ...rows[0], eventos: [] } });
+    }
+
+    if (req.method === 'PUT') {
+      const b = req.body || {};
+      if (!b.id) return res.status(400).json({ error: 'Falta id' });
+      if (!b.referencia || !b.referencia.trim()) return res.status(400).json({ error: 'Falta la referencia del envío' });
+      const productos = Array.isArray(b.productos) ? b.productos.filter(p => p.nombre && p.nombre.trim()) : [];
+      const { rows } = await sql`
+        UPDATE productos_transito_envios SET
+          referencia = ${b.referencia.trim()}, contenedor = ${b.contenedor || null}, house_bill = ${b.houseBill || null},
+          total_bultos = ${b.totalBultos || null}, peso_kg = ${b.pesoKg || null}, service_level = ${b.serviceLevel || null},
+          puerto_origen = ${b.puertoOrigen || null}, puerto_destino = ${b.puertoDestino || null}, modo_contenedor = ${b.modoContenedor || null},
+          buque = ${b.buque || null}, voyage = ${b.voyage || null}, estado = ${b.estado || 'en_transito'},
+          fecha_salida = ${b.fechaSalida || null}, fecha_eta = ${b.fechaEta || null}, productos = ${JSON.stringify(productos)},
+          actualizado_en = now()
+        WHERE id = ${b.id} RETURNING *;
+      `;
+      if (!rows[0]) return res.status(404).json({ error: 'Envío no encontrado' });
+      return res.status(200).json({ ok: true, envio: rows[0] });
+    }
+
+    if (req.method === 'DELETE') {
+      const id = parseInt(req.query.id, 10);
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      const { rows } = await sql`DELETE FROM productos_transito_envios WHERE id = ${id} RETURNING id;`;
+      if (!rows[0]) return res.status(404).json({ error: 'Envío no encontrado' });
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error gestionando productos en tránsito', detail: String(err) });
+  }
+}
+
+async function manejarTransitoEnvioEventos(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaProductosTransito(sql);
+
+    if (req.method === 'POST') {
+      const { envioId, titulo, fecha } = req.body || {};
+      if (!envioId) return res.status(400).json({ error: 'Falta envioId' });
+      if (!titulo || !titulo.trim()) return res.status(400).json({ error: 'Falta el título del evento' });
+      const { rows } = await sql`
+        INSERT INTO productos_transito_eventos (envio_id, titulo, fecha, creado_por)
+        VALUES (${envioId}, ${titulo.trim()}, ${fecha || new Date().toISOString()}, ${sesion.nombre || sesion.email})
+        RETURNING *;
+      `;
+      return res.status(200).json({ ok: true, evento: rows[0] });
+    }
+
+    if (req.method === 'DELETE') {
+      const id = parseInt(req.query.id, 10);
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      const { rows } = await sql`DELETE FROM productos_transito_eventos WHERE id = ${id} RETURNING id;`;
+      if (!rows[0]) return res.status(404).json({ error: 'Evento no encontrado' });
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error gestionando el historial del envío', detail: String(err) });
   }
 }
 

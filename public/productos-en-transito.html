@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Productos en tránsito — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  h1 span{color:var(--primary);}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+  .filtros{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .filtro-label{font-size:12px;color:var(--muted);}
+
+  label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;display:block;margin-bottom:6px;}
+  select,textarea,input[type=text],input[type=number],input[type=date]{width:100%;background:var(--bg);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:9px 11px;border-radius:9px;font-size:13px;}
+  select:focus,textarea:focus,input:focus{outline:none;border-color:var(--primary);}
+  .campo{margin-bottom:12px;}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;transition:all .15s;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover{background:var(--primary-dark);}
+  .btn-primary:disabled{opacity:0.6;cursor:not-allowed;}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-compact{padding:6px 12px;font-size:11.5px;}
+  .btn-danger{background:none;border:1.5px solid var(--red);color:var(--red);}
+  .btn-danger:hover{background:var(--red-bg);}
+  .btn-icono{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);font-size:12px;cursor:pointer;padding:0;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:18px;}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:14px 0;}
+  .grid-form{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  @media (max-width:900px){.grid-form{grid-template-columns:repeat(2,1fr);}}
+
+  .envio-head{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:18px;margin-bottom:16px;}
+  @media (max-width:900px){.envio-head{grid-template-columns:1fr;}}
+  .envio-titulo{display:flex;align-items:center;gap:10px;}
+  .envio-titulo .icono{font-size:22px;}
+  .envio-titulo h2{font-family:'Space Grotesk',sans-serif;font-size:18px;margin:0;}
+  .envio-titulo .peso{font-size:11.5px;color:var(--muted);}
+  .ruta-progreso{text-align:center;min-width:220px;}
+  .ruta-progreso .fechas{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-bottom:5px;}
+  .barra-progreso{height:6px;background:var(--surface-2);border-radius:99px;overflow:hidden;}
+  .barra-progreso .relleno{height:100%;background:var(--primary);border-radius:99px;}
+  .estado-actual{text-align:right;}
+  @media (max-width:900px){.estado-actual{text-align:left;}}
+  .estado-actual .titulo-evento{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;}
+  .estado-actual .cuando{font-size:11px;color:var(--muted);}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;display:inline-block;}
+  .badge.en-transito{background:var(--blue-bg);color:var(--blue);}
+  .badge.arribado{background:var(--amber-dim);color:var(--amber);}
+  .badge.entregado{background:var(--green-bg);color:var(--green);}
+
+  .detalle-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:16px;}
+  .detalle-item .lbl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;}
+  .detalle-item .val{font-size:13px;font-weight:600;}
+
+  .seccion-titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;margin:0 0 10px;}
+  .dos-columnas{display:grid;grid-template-columns:1fr 1fr;gap:24px;}
+  @media (max-width:900px){.dos-columnas{grid-template-columns:1fr;}}
+
+  .timeline{list-style:none;margin:0;padding:0;}
+  .timeline li{position:relative;padding:0 0 16px 20px;border-left:2px solid var(--line);}
+  .timeline li:last-child{border-color:transparent;padding-bottom:0;}
+  .timeline li::before{content:'';position:absolute;left:-6px;top:2px;width:10px;height:10px;border-radius:50%;background:var(--primary);}
+  .timeline .titulo-evento{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;}
+  .timeline .fecha-evento{font-size:11px;color:var(--muted);}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tabla-wrap{overflow-x:auto;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:8px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  td{padding:8px;border-bottom:1px solid var(--line);}
+  .amount{text-align:right;font-family:'IBM Plex Mono',monospace;}
+
+  .productos-form-row{display:flex;gap:6px;margin-bottom:6px;align-items:center;}
+  .footer-envio{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
+
+  .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:20px;}
+  .modal-backdrop.abierto{display:flex;}
+  .modal-box{background:var(--surface);border-radius:14px;max-width:720px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 8px 30px rgba(31,42,36,.25);}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line);}
+  .modal-head h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0;}
+  .modal-cerrar{background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer;line-height:1;}
+  .modal-body{padding:18px 22px;}
+  .modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:16px 22px;border-top:1px solid var(--line);}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html">Compras</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html" class="active">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="sitio-web.html">Sitio Web</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <a href="servicio-tecnico.html">Servicio Técnico</a>
+      <a href="analisis.html">Análisis</a>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>📦 Productos en <span>tránsito</span></h1>
+  <div class="sub">Envíos en camino desde los proveedores (ej. China) hasta Chile -- carga manual: revisa el estado en el sistema de tracking de la naviera/forwarder y regístralo acá. No se muestra el proveedor, solo la carga: contenedor, ruta, fechas y los productos que vienen dentro.</div>
+
+  <div class="toolbar">
+    <div class="filtros">
+      <span class="filtro-label">Ver:</span>
+      <button class="btn-ghost btn-compact active" id="btnFiltroActivos" onclick="cambiarFiltroEstado('activos')">En camino</button>
+      <button class="btn-ghost btn-compact" id="btnFiltroTodos" onclick="cambiarFiltroEstado('todos')">Todos</button>
+    </div>
+    <button class="btn-primary" id="btnNuevoEnvio" style="display:none;" onclick="abrirModalEnvio()">➕ Nuevo envío</button>
+  </div>
+
+  <div id="wrapEnvios"><p class="empty-note">Cargando...</p></div>
+</div>
+
+<div class="modal-backdrop" id="modalEnvio" onclick="if(event.target===this) cerrarModalEnvio()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2 id="modalEnvioTitulo">Nuevo envío</h2>
+      <button class="modal-cerrar" onclick="cerrarModalEnvio()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="errorModalEnvio"></div>
+      <div class="grid-form">
+        <div class="campo"><label>Referencia / tracking *</label><input type="text" id="fReferencia" placeholder="Ej: SSCL010035"></div>
+        <div class="campo"><label>N° de contenedor</label><input type="text" id="fContenedor" placeholder="Ej: UETU8843786"></div>
+        <div class="campo"><label>House bill</label><input type="text" id="fHouseBill"></div>
+        <div class="campo"><label>Estado</label>
+          <select id="fEstado">
+            <option value="en_transito">En tránsito</option>
+            <option value="arribado">Arribado</option>
+            <option value="entregado">Entregado</option>
+          </select>
+        </div>
+        <div class="campo"><label>Total de bultos</label><input type="number" id="fTotalBultos" min="0"></div>
+        <div class="campo"><label>Peso (KG)</label><input type="number" id="fPesoKg" min="0" step="0.1"></div>
+        <div class="campo"><label>Service level</label><input type="text" id="fServiceLevel" placeholder="Ej: Standard"></div>
+        <div class="campo"><label>Modo de contenedor</label><input type="text" id="fModoContenedor" placeholder="Ej: LCL / FCL"></div>
+        <div class="campo"><label>Puerto de origen</label><input type="text" id="fPuertoOrigen" placeholder="Ej: CNYTN"></div>
+        <div class="campo"><label>Puerto de destino</label><input type="text" id="fPuertoDestino" placeholder="Ej: CLVAP"></div>
+        <div class="campo"><label>Buque</label><input type="text" id="fBuque"></div>
+        <div class="campo"><label>Voyage / flight # / truck ref</label><input type="text" id="fVoyage"></div>
+        <div class="campo"><label>Fecha de salida (ATD)</label><input type="date" id="fFechaSalida"></div>
+        <div class="campo"><label>ETA</label><input type="date" id="fFechaEta"></div>
+      </div>
+
+      <div class="seccion-titulo" style="margin-top:8px;">Productos en este envío</div>
+      <div id="filasProductosEnvio"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+        <button class="btn-ghost btn-compact" onclick="agregarFilaProductoEnvio()">➕ Agregar producto</button>
+        <button class="btn-ghost btn-compact" onclick="togglePegarProductosEnvio()">📝 Pegar lista (SKU, producto, cantidad)</button>
+      </div>
+      <div id="pegarProductosEnvioWrap" hidden style="margin-top:8px;">
+        <textarea id="pegarProductosEnvioInput" placeholder="Pega una lista con columnas SKU, Producto y Cantidad (tal como la copiarías de Excel)." style="min-height:80px;font-size:11.5px;"></textarea>
+        <button class="btn-primary btn-compact" onclick="procesarPegadoProductosEnvio()" style="margin-top:4px;">Agregar filas del texto pegado</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" onclick="cerrarModalEnvio()">Cancelar</button>
+      <button class="btn-primary" id="btnGuardarEnvio" onclick="guardarEnvio()">Guardar envío</button>
+    </div>
+  </div>
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function escapeHtml(texto){
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+let rolActual = 'usuario';
+let enviosActuales = [];
+let filtroEstadoActual = 'activos';
+let editandoEnvioId = null;
+let filasProductosEnvio = [];
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    rolActual = u.rol;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+      $('btnNuevoEnvio').style.display = '';
+    }
+    cargarEnvios();
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Utilidades ----------
+// Código de puerto (UN/LOCODE, ej. "CNYTN") -> bandera del país a partir de
+// sus primeras 2 letras (ISO 3166-1 alfa-2), igual que muestra CargoWise.
+function banderaDesdePuerto(codigo){
+  const iso = String(codigo || '').trim().slice(0, 2).toUpperCase();
+  if(!/^[A-Z]{2}$/.test(iso)) return '🚩';
+  const base = 0x1F1E6; // regional indicator "A"
+  return String.fromCodePoint(base + (iso.charCodeAt(0) - 65)) + String.fromCodePoint(base + (iso.charCodeAt(1) - 65));
+}
+function tiempoRelativo(fechaIso){
+  if(!fechaIso) return '';
+  const ms = Date.now() - new Date(fechaIso).getTime();
+  const min = Math.floor(ms / 60000);
+  if(min < 1) return 'recién';
+  if(min < 60) return `hace ${min} minuto${min===1?'':'s'}`;
+  const horas = Math.floor(min / 60);
+  if(horas < 24) return `hace ${horas} hora${horas===1?'':'s'}`;
+  const dias = Math.floor(horas / 24);
+  return `hace ${dias} día${dias===1?'':'s'}`;
+}
+function fmtFecha(fechaStr){
+  if(!fechaStr) return '—';
+  const [y,m,d] = fechaStr.slice(0,10).split('-');
+  return `${d}-${m}-${y}`;
+}
+function fmtFechaHora(fechaIso){
+  if(!fechaIso) return '—';
+  return new Date(fechaIso).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+}
+function fmtNum(n){ return n == null ? '—' : Math.round(n).toLocaleString('es-CL'); }
+// Progreso 0-100 según hoy entre fecha de salida y ETA -- si falta alguna
+// de las dos fechas, se muestra la barra vacía (no se puede estimar).
+function porcentajeProgreso(fechaSalida, fechaEta){
+  if(!fechaSalida || !fechaEta) return 0;
+  const inicio = new Date(fechaSalida).getTime();
+  const fin = new Date(fechaEta).getTime();
+  if(fin <= inicio) return 100;
+  const ahora = Date.now();
+  return Math.max(0, Math.min(100, Math.round((ahora - inicio) / (fin - inicio) * 100)));
+}
+const ESTADO_LABEL = { en_transito: 'En tránsito', arribado: 'Arribado', entregado: 'Entregado' };
+const ESTADO_CLASE = { en_transito: 'en-transito', arribado: 'arribado', entregado: 'entregado' };
+
+// ---------- Carga y render ----------
+function cambiarFiltroEstado(valor){
+  filtroEstadoActual = valor;
+  $('btnFiltroActivos').classList.toggle('active', valor==='activos');
+  $('btnFiltroTodos').classList.toggle('active', valor==='todos');
+  renderEnvios();
+}
+async function cargarEnvios(){
+  try{
+    const res = await fetch('/api/negocio?recurso=transito-envios');
+    const data = await res.json();
+    if(!res.ok || data.error){ $('wrapEnvios').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`; return; }
+    enviosActuales = data.envios || [];
+    renderEnvios();
+  }catch(err){
+    $('wrapEnvios').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+function renderEnvios(){
+  const lista = filtroEstadoActual === 'activos' ? enviosActuales.filter(e => e.estado !== 'entregado') : enviosActuales;
+  if(lista.length === 0){
+    $('wrapEnvios').innerHTML = `<p class="empty-note">${filtroEstadoActual==='activos' ? 'No hay envíos en camino ahora mismo.' : 'Todavía no se ha registrado ningún envío.'}</p>`;
+    return;
+  }
+  $('wrapEnvios').innerHTML = lista.map(envioHtml).join('');
+}
+function envioHtml(e){
+  const ultimoEvento = e.eventos && e.eventos[0];
+  const progreso = porcentajeProgreso(e.fecha_salida, e.fecha_eta);
+  const productos = e.productos || [];
+  return `
+    <div class="card">
+      <div class="envio-head">
+        <div class="envio-titulo">
+          <span class="icono">🚢</span>
+          <div>
+            <h2>${escapeHtml(e.referencia)}</h2>
+            <div class="peso">${e.peso_kg != null ? fmtNum(e.peso_kg) + ' KG' : ''}</div>
+          </div>
+        </div>
+        <div class="ruta-progreso">
+          <div class="fechas">
+            <span>${banderaDesdePuerto(e.puerto_origen)} ${escapeHtml(e.puerto_origen || '—')} · Salió ${fmtFecha(e.fecha_salida)}</span>
+            <span>ETA ${fmtFecha(e.fecha_eta)} · ${escapeHtml(e.puerto_destino || '—')} ${banderaDesdePuerto(e.puerto_destino)}</span>
+          </div>
+          <div class="barra-progreso"><div class="relleno" style="width:${progreso}%;"></div></div>
+        </div>
+        <div class="estado-actual">
+          <span class="badge ${ESTADO_CLASE[e.estado] || 'en-transito'}">${ESTADO_LABEL[e.estado] || e.estado}</span>
+          ${ultimoEvento ? `<div class="titulo-evento">${escapeHtml(ultimoEvento.titulo)}</div><div class="cuando">${tiempoRelativo(ultimoEvento.fecha)}</div>` : ''}
+        </div>
+      </div>
+
+      <div class="detalle-grid">
+        <div class="detalle-item"><div class="lbl">N° de contenedor</div><div class="val">${escapeHtml(e.contenedor || '—')}</div></div>
+        <div class="detalle-item"><div class="lbl">House bill</div><div class="val">${escapeHtml(e.house_bill || '—')}</div></div>
+        <div class="detalle-item"><div class="lbl">Total de bultos</div><div class="val">${e.total_bultos ?? '—'}</div></div>
+        <div class="detalle-item"><div class="lbl">Service level</div><div class="val">${escapeHtml(e.service_level || '—')}</div></div>
+        <div class="detalle-item"><div class="lbl">Modo de contenedor</div><div class="val">${escapeHtml(e.modo_contenedor || '—')}</div></div>
+        <div class="detalle-item"><div class="lbl">Buque</div><div class="val">${escapeHtml(e.buque || '—')}</div></div>
+        <div class="detalle-item"><div class="lbl">Voyage / flight / truck</div><div class="val">${escapeHtml(e.voyage || '—')}</div></div>
+      </div>
+
+      <div class="dos-columnas">
+        <div>
+          <div class="seccion-titulo">Historial de seguimiento</div>
+          ${(e.eventos && e.eventos.length) ? `<ul class="timeline">${e.eventos.map(ev => `
+            <li>
+              <div class="titulo-evento">${escapeHtml(ev.titulo)}</div>
+              <div class="fecha-evento">${fmtFechaHora(ev.fecha)}</div>
+            </li>`).join('')}</ul>` : '<p class="empty-note">Sin eventos registrados todavía.</p>'}
+          ${rolActual==='admin' ? `<div style="display:flex;gap:6px;margin-top:8px;">
+            <input type="text" id="fNuevoEvento_${e.id}" placeholder="Ej: Arribo a puerto de destino" style="flex:1;">
+            <button class="btn-ghost btn-compact" onclick="agregarEvento(${e.id})">➕ Agregar</button>
+          </div>` : ''}
+        </div>
+        <div>
+          <div class="seccion-titulo">Productos en este envío</div>
+          ${productos.length ? `<div class="tabla-wrap"><table>
+            <thead><tr><th>SKU</th><th>Producto</th><th class="amount">Cantidad</th></tr></thead>
+            <tbody>${productos.map(p => `<tr><td>${escapeHtml(p.sku || '—')}</td><td>${escapeHtml(p.nombre)}</td><td class="amount">${fmtNum(p.cantidad)}</td></tr>`).join('')}</tbody>
+          </table></div>` : '<p class="empty-note">Sin productos cargados en este envío.</p>'}
+        </div>
+      </div>
+
+      ${rolActual==='admin' ? `<div class="footer-envio">
+        <button class="btn-ghost btn-compact" onclick="abrirModalEnvio(${e.id})">✏️ Editar</button>
+        <button class="btn-danger btn-compact" onclick="eliminarEnvio(${e.id})">🗑️ Eliminar</button>
+      </div>` : ''}
+    </div>`;
+}
+
+// ---------- Historial de seguimiento ----------
+async function agregarEvento(envioId){
+  const input = $(`fNuevoEvento_${envioId}`);
+  const titulo = input.value.trim();
+  if(!titulo){ alert('Escribe una descripción para el evento.'); return; }
+  try{
+    const res = await fetch('/api/negocio?recurso=transito-envio-eventos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ envioId, titulo }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo agregar el evento.'); return; }
+    await cargarEnvios();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+
+// ---------- Modal crear/editar envío ----------
+function agregarFilaProductoEnvio(){
+  filasProductosEnvio.push({ sku: '', nombre: '', cantidad: 1 });
+  renderFilasProductosEnvio();
+}
+function quitarFilaProductoEnvio(i){
+  filasProductosEnvio.splice(i, 1);
+  renderFilasProductosEnvio();
+}
+function renderFilasProductosEnvio(){
+  $('filasProductosEnvio').innerHTML = filasProductosEnvio.map((f, i) => `
+    <div class="productos-form-row">
+      <input type="text" placeholder="Producto" value="${escapeHtml(f.nombre)}" oninput="filasProductosEnvio[${i}].nombre=this.value" style="flex:1;">
+      <input type="text" placeholder="SKU (opcional)" value="${escapeHtml(f.sku)}" oninput="filasProductosEnvio[${i}].sku=this.value" style="width:120px;">
+      <input type="number" min="1" value="${f.cantidad}" oninput="filasProductosEnvio[${i}].cantidad=parseInt(this.value)||1" style="width:80px;">
+      <button class="btn-icono" title="Quitar" onclick="quitarFilaProductoEnvio(${i})">🗑️</button>
+    </div>`).join('');
+}
+function togglePegarProductosEnvio(){
+  const wrap = $('pegarProductosEnvioWrap');
+  wrap.hidden = !wrap.hidden;
+}
+function dividirCamposTransito(linea){
+  return linea.includes('\t')
+    ? linea.split('\t').map(c => c.trim()).filter(Boolean)
+    : linea.split(/ {2,}/).map(c => c.trim()).filter(Boolean);
+}
+function parsearLineaProductoTransito(lineaOriginal){
+  const linea = String(lineaOriginal || '').trim();
+  if(!linea) return null;
+  const campos = dividirCamposTransito(linea);
+  if(campos.length < 2) return { sku: '', nombre: linea, cantidad: 1 };
+  const patronSku = /^(?=[a-z0-9-]*\d)(?=[a-z0-9-]*[a-z])[a-z0-9-]{3,20}$/i;
+  const sku = patronSku.test(campos[0]) ? campos[0] : '';
+  const campoCantidad = campos.find(c => /^\d{1,4}$/.test(c));
+  const cantidad = campoCantidad ? parseInt(campoCantidad, 10) : 1;
+  const candidatosNombre = campos.filter(c => c !== sku && !/^\$?\s*[\d.,]+$/.test(c));
+  const nombre = candidatosNombre.join(' ') || campos.join(' ');
+  return { sku, nombre, cantidad };
+}
+function esProbableEncabezadoTransito(linea){
+  if(!/\t| {2,}/.test(linea)) return false;
+  const campos = dividirCamposTransito(linea);
+  return !campos.some(c => /^\d+([.,]\d+)?$/.test(c));
+}
+function procesarPegadoProductosEnvio(){
+  const texto = $('pegarProductosEnvioInput').value;
+  const lineas = texto.split('\n').map(l => l.trim()).filter(Boolean);
+  if(lineas.length === 0){ alert('Pega primero una lista.'); return; }
+  const lineasDatos = esProbableEncabezadoTransito(lineas[0]) ? lineas.slice(1) : lineas;
+  const filasNuevas = lineasDatos.map(parsearLineaProductoTransito).filter(Boolean);
+  if(filasNuevas.length === 0){ alert('No se pudo interpretar ninguna línea.'); return; }
+  if(filasProductosEnvio.length === 1 && !filasProductosEnvio[0].nombre.trim()){
+    filasProductosEnvio = filasNuevas;
+  } else {
+    filasProductosEnvio = [...filasProductosEnvio, ...filasNuevas];
+  }
+  renderFilasProductosEnvio();
+  $('pegarProductosEnvioInput').value = '';
+  $('pegarProductosEnvioWrap').hidden = true;
+}
+
+function abrirModalEnvio(id){
+  editandoEnvioId = id || null;
+  $('errorModalEnvio').innerHTML = '';
+  const envio = id ? enviosActuales.find(e => e.id === id) : null;
+  $('modalEnvioTitulo').textContent = envio ? `Editar envío — ${envio.referencia}` : 'Nuevo envío';
+  $('fReferencia').value = envio?.referencia || '';
+  $('fContenedor').value = envio?.contenedor || '';
+  $('fHouseBill').value = envio?.house_bill || '';
+  $('fEstado').value = envio?.estado || 'en_transito';
+  $('fTotalBultos').value = envio?.total_bultos ?? '';
+  $('fPesoKg').value = envio?.peso_kg ?? '';
+  $('fServiceLevel').value = envio?.service_level || '';
+  $('fModoContenedor').value = envio?.modo_contenedor || '';
+  $('fPuertoOrigen').value = envio?.puerto_origen || '';
+  $('fPuertoDestino').value = envio?.puerto_destino || '';
+  $('fBuque').value = envio?.buque || '';
+  $('fVoyage').value = envio?.voyage || '';
+  $('fFechaSalida').value = envio?.fecha_salida ? envio.fecha_salida.slice(0,10) : '';
+  $('fFechaEta').value = envio?.fecha_eta ? envio.fecha_eta.slice(0,10) : '';
+  filasProductosEnvio = envio && envio.productos && envio.productos.length
+    ? envio.productos.map(p => ({ sku: p.sku || '', nombre: p.nombre, cantidad: p.cantidad || 1 }))
+    : [{ sku: '', nombre: '', cantidad: 1 }];
+  renderFilasProductosEnvio();
+  $('modalEnvio').classList.add('abierto');
+}
+function cerrarModalEnvio(){
+  $('modalEnvio').classList.remove('abierto');
+}
+async function guardarEnvio(){
+  const referencia = $('fReferencia').value.trim();
+  if(!referencia){ $('errorModalEnvio').innerHTML = '<p class="empty-note" style="color:var(--red);">Escribe una referencia para el envío.</p>'; return; }
+  const productos = filasProductosEnvio.filter(f => f.nombre.trim()).map(f => ({ sku: f.sku.trim(), nombre: f.nombre.trim(), cantidad: f.cantidad || 1 }));
+  const body = {
+    id: editandoEnvioId || undefined,
+    referencia,
+    contenedor: $('fContenedor').value.trim(),
+    houseBill: $('fHouseBill').value.trim(),
+    estado: $('fEstado').value,
+    totalBultos: $('fTotalBultos').value ? parseInt($('fTotalBultos').value, 10) : null,
+    pesoKg: $('fPesoKg').value ? parseFloat($('fPesoKg').value) : null,
+    serviceLevel: $('fServiceLevel').value.trim(),
+    modoContenedor: $('fModoContenedor').value.trim(),
+    puertoOrigen: $('fPuertoOrigen').value.trim(),
+    puertoDestino: $('fPuertoDestino').value.trim(),
+    buque: $('fBuque').value.trim(),
+    voyage: $('fVoyage').value.trim(),
+    fechaSalida: $('fFechaSalida').value || null,
+    fechaEta: $('fFechaEta').value || null,
+    productos,
+  };
+  const btn = $('btnGuardarEnvio');
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/negocio?recurso=transito-envios', {
+      method: editandoEnvioId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ $('errorModalEnvio').innerHTML = `<p class="empty-note" style="color:var(--red);">${escapeHtml(data.error || 'No se pudo guardar.')}</p>`; return; }
+    cerrarModalEnvio();
+    await cargarEnvios();
+  }catch(err){
+    $('errorModalEnvio').innerHTML = `<p class="empty-note" style="color:var(--red);">Error: ${escapeHtml(err.message)}</p>`;
+  }finally{
+    btn.disabled = false;
+  }
+}
+async function eliminarEnvio(id){
+  const envio = enviosActuales.find(e => e.id === id);
+  if(!confirm(`¿Eliminar el envío "${envio?.referencia || id}"? Se borra también su historial de seguimiento. Esta acción no se puede deshacer.`)) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=transito-envios&id=${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo eliminar.'); return; }
+    await cargarEnvios();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+
+cargarSesionUsuario();
+</script>
+</body>
+</html>
