@@ -1158,7 +1158,7 @@ function comparadorRenderSolicitud(){
           </div>
           <div id="comparadorTextoWrap_${p.id}" hidden style="margin-top:6px;">
             <textarea id="comparadorTextoInput_${p.id}" placeholder="Pega acá la lista de precios como texto (WhatsApp, mail, o copiado de Excel). No usa IA, es gratis, pero es menos flexible que la imagen." style="width:100%;min-height:70px;font-size:11.5px;"></textarea>
-            <button class="btn-primary btn-compact" onclick="comparadorProcesarTexto(${p.id})" style="margin-top:4px;">Procesar texto</button>
+            <button class="btn-primary btn-compact" id="comparadorBtnProcesarTexto_${p.id}" onclick="comparadorProcesarTexto(${p.id})" style="margin-top:4px;">Procesar texto</button>
           </div>
         </div>`).join('')}
     </div>
@@ -1381,6 +1381,8 @@ async function comparadorPegarImagen(proveedorId, event){
 }
 
 async function comparadorProcesarImagenProveedor(proveedorId, file){
+  if(comparadorProcesandoCotizacion){ alert('Todavía se está procesando la cotización anterior -- espera a que termine antes de subir la siguiente.'); return; }
+  comparadorProcesandoCotizacion = true;
   try{
     const dataUrl = await comparadorComprimirImagen(file);
     const res = await fetch('/api/negocio?recurso=comparador-cotizacion-imagen', {
@@ -1395,6 +1397,8 @@ async function comparadorProcesarImagenProveedor(proveedorId, file){
     await comparadorCargarSolicitud(comparadorSolicitudId);
   }catch(err){
     alert('Error: ' + err.message);
+  }finally{
+    comparadorProcesandoCotizacion = false;
   }
 }
 
@@ -1407,10 +1411,24 @@ function comparadorToggleFormTexto(proveedorId){
   const wrap = $(`comparadorTextoWrap_${proveedorId}`);
   wrap.hidden = !wrap.hidden;
 }
+// Evita mandar dos cotizaciones al mismo tiempo para la misma solicitud --
+// pedido del usuario tras un bug real: si la solicitud todavía no tenía
+// pedido base y se alcanzaban a disparar dos pegados casi juntos (doble
+// clic, o pegar texto e imagen casi a la vez), la segunda petición podía
+// leer el pedido base a medio crear por la primera (algunos productos ya
+// insertados, otros no) y terminaba EMPAREJANDO en vez de CREAR, dejando
+// la mayoría de sus líneas "sin emparejar" por error. Un solo flag
+// compartido (no por proveedor) porque la condición de carrera es a nivel
+// de la SOLICITUD, no del proveedor que la dispara.
+let comparadorProcesandoCotizacion = false;
 async function comparadorProcesarTexto(proveedorId){
+  if(comparadorProcesandoCotizacion){ alert('Todavía se está procesando la cotización anterior -- espera a que termine antes de pegar la siguiente.'); return; }
   const input = $(`comparadorTextoInput_${proveedorId}`);
   const texto = input.value.trim();
   if(!texto){ alert('Pega primero el texto de la cotización.'); return; }
+  const btn = $(`comparadorBtnProcesarTexto_${proveedorId}`);
+  comparadorProcesandoCotizacion = true;
+  if(btn){ btn.disabled = true; btn.textContent = 'Procesando...'; }
   try{
     const res = await fetch('/api/negocio?recurso=comparador-cotizacion-texto', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1426,6 +1444,13 @@ async function comparadorProcesarTexto(proveedorId){
     await comparadorCargarSolicitud(comparadorSolicitudId);
   }catch(err){
     alert('Error: ' + err.message);
+  }finally{
+    comparadorProcesandoCotizacion = false;
+    // btn puede ya no existir si comparadorCargarSolicitud() volvió a
+    // dibujar todo (caso éxito) -- re-buscarlo en vez de reusar la
+    // referencia vieja.
+    const btnFinal = $(`comparadorBtnProcesarTexto_${proveedorId}`);
+    if(btnFinal){ btnFinal.disabled = false; btnFinal.textContent = 'Procesar texto'; }
   }
 }
 
