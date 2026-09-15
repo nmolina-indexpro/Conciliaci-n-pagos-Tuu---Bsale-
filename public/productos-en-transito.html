@@ -246,6 +246,7 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="restriccion-usuario.js"></script>
 <script src="menu-herramientas.js"></script>
 <script>
@@ -284,14 +285,6 @@ async function cerrarSesion(){
 }
 
 // ---------- Utilidades ----------
-// Código de puerto (UN/LOCODE, ej. "CNYTN") -> bandera del país a partir de
-// sus primeras 2 letras (ISO 3166-1 alfa-2), igual que muestra CargoWise.
-function banderaDesdePuerto(codigo){
-  const iso = String(codigo || '').trim().slice(0, 2).toUpperCase();
-  if(!/^[A-Z]{2}$/.test(iso)) return '🚩';
-  const base = 0x1F1E6; // regional indicator "A"
-  return String.fromCodePoint(base + (iso.charCodeAt(0) - 65)) + String.fromCodePoint(base + (iso.charCodeAt(1) - 65));
-}
 function tiempoRelativo(fechaIso){
   if(!fechaIso) return '';
   const ms = Date.now() - new Date(fechaIso).getTime();
@@ -368,8 +361,8 @@ function envioHtml(e){
         </div>
         <div class="ruta-progreso">
           <div class="fechas">
-            <span>${banderaDesdePuerto(e.puerto_origen)} ${escapeHtml(e.puerto_origen || '—')} · Salió ${fmtFecha(e.fecha_salida)}</span>
-            <span>ETA ${fmtFecha(e.fecha_eta)} · ${escapeHtml(e.puerto_destino || '—')} ${banderaDesdePuerto(e.puerto_destino)}</span>
+            <span>🇨🇳 ${escapeHtml(e.puerto_origen || '—')} · Salió ${fmtFecha(e.fecha_salida)}</span>
+            <span>🇨🇱 ETA ${fmtFecha(e.fecha_eta)} · ${escapeHtml(e.puerto_destino || '—')}</span>
           </div>
           <div class="barra-progreso"><div class="relleno" style="width:${progreso}%;"></div></div>
         </div>
@@ -403,7 +396,10 @@ function envioHtml(e){
           </div>` : ''}
         </div>
         <div>
-          <div class="seccion-titulo">Productos en este envío</div>
+          <div class="seccion-titulo" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span>Productos en este envío</span>
+            ${productos.length ? `<button class="btn-ghost btn-compact btn-exportar" onclick="exportarProductosEnvio(${e.id})">📊 Exportar</button>` : ''}
+          </div>
           ${productos.length ? `<div class="tabla-wrap"><table>
             <thead><tr><th>SKU</th><th>Producto</th><th class="amount">Cantidad</th></tr></thead>
             <tbody>${productos.map(p => `<tr><td>${escapeHtml(p.sku || '—')}</td><td>${escapeHtml(p.nombre)}</td><td class="amount">${fmtNum(p.cantidad)}</td></tr>`).join('')}</tbody>
@@ -416,6 +412,22 @@ function envioHtml(e){
         <button class="btn-danger btn-compact" onclick="eliminarEnvio(${e.id})">🗑️ Eliminar</button>
       </div>` : ''}
     </div>`;
+}
+
+function exportarProductosEnvio(id){
+  const envio = enviosActuales.find(e => e.id === id);
+  if(!envio || !(envio.productos && envio.productos.length)){ alert('Este envío no tiene productos cargados.'); return; }
+  const filas = envio.productos.map(p => ({
+    'SKU': p.sku || '',
+    'Producto': p.nombre,
+    'Cantidad': p.cantidad,
+  }));
+  const hoja = XLSX.utils.json_to_sheet(filas);
+  hoja['!cols'] = [{ wch: 16 }, { wch: 45 }, { wch: 12 }];
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, 'Productos');
+  const fecha = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(libro, `Productos_${envio.referencia.replace(/\s+/g, '')}_${fecha}.xlsx`);
 }
 
 // ---------- Historial de seguimiento ----------
