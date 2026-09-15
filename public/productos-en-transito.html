@@ -104,6 +104,7 @@
 
   .productos-form-row{display:flex;gap:6px;margin-bottom:6px;align-items:center;}
   .footer-envio{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
+  .btn-ver-mas{display:block;width:100%;text-align:center;margin-top:2px;}
 
   .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:20px;}
   .modal-backdrop.abierto{display:flex;}
@@ -261,6 +262,15 @@ let enviosActuales = [];
 let filtroEstadoActual = 'activos';
 let editandoEnvioId = null;
 let filasProductosEnvio = [];
+// Envíos con el detalle (historial + productos) expandido -- colapsado por
+// defecto para poder ver varios envíos en pantalla sin tener que scrollear
+// la lista completa de productos/eventos de cada uno.
+let enviosExpandidos = new Set();
+function toggleDetalleEnvio(id){
+  if(enviosExpandidos.has(id)) enviosExpandidos.delete(id);
+  else enviosExpandidos.add(id);
+  renderEnvios();
+}
 
 async function cargarSesionUsuario(){
   try{
@@ -370,6 +380,7 @@ function envioHtml(e){
   const ultimoEvento = e.eventos && e.eventos[0];
   const progreso = porcentajeProgreso(e.fecha_salida, e.fecha_eta);
   const productos = e.productos || [];
+  const expandido = enviosExpandidos.has(e.id);
   return `
     <div class="card">
       <div class="envio-head">
@@ -403,6 +414,9 @@ function envioHtml(e){
         <div class="detalle-item"><div class="lbl">Voyage / flight / truck</div><div class="val">${escapeHtml(e.voyage || '—')}</div></div>
       </div>
 
+      <button class="btn-ghost btn-compact btn-ver-mas" onclick="toggleDetalleEnvio(${e.id})">${expandido ? '▴ Ver menos' : '▾ Ver historial y productos'}</button>
+
+      ${expandido ? `
       <div class="dos-columnas">
         <div>
           <div class="seccion-titulo">Historial de seguimiento</div>
@@ -431,7 +445,7 @@ function envioHtml(e){
       ${rolActual==='admin' ? `<div class="footer-envio">
         <button class="btn-ghost btn-compact" onclick="abrirModalEnvio(${e.id})">✏️ Editar</button>
         <button class="btn-danger btn-compact" onclick="eliminarEnvio(${e.id})">🗑️ Eliminar</button>
-      </div>` : ''}
+      </div>` : ''}` : ''}
     </div>`;
 }
 
