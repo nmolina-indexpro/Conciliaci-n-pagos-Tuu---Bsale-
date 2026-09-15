@@ -285,6 +285,27 @@ async function cerrarSesion(){
 }
 
 // ---------- Utilidades ----------
+// Íconos de bandera como SVG inline (no emoji): Windows 10 no dibuja el
+// emoji de bandera regional-indicator, solo el código de país en texto
+// plano ("CN"/"CL") -- un SVG se ve igual en cualquier sistema operativo.
+function banderaSvg(pais){
+  if(pais === 'CN'){
+    return `<svg viewBox="0 0 30 20" width="18" height="12" style="vertical-align:-2px;border-radius:2px;flex-shrink:0;" xmlns="http://www.w3.org/2000/svg">
+      <rect width="30" height="20" fill="#DE2910"/>
+      <text x="7" y="9.5" font-size="9" text-anchor="middle" fill="#FFDE00">★</text>
+      <text x="13.5" y="4.5" font-size="3.6" text-anchor="middle" fill="#FFDE00">★</text>
+      <text x="15.5" y="7.5" font-size="3.6" text-anchor="middle" fill="#FFDE00">★</text>
+      <text x="15.5" y="11.5" font-size="3.6" text-anchor="middle" fill="#FFDE00">★</text>
+      <text x="13.5" y="14.5" font-size="3.6" text-anchor="middle" fill="#FFDE00">★</text>
+    </svg>`;
+  }
+  return `<svg viewBox="0 0 30 20" width="18" height="12" style="vertical-align:-2px;border-radius:2px;flex-shrink:0;" xmlns="http://www.w3.org/2000/svg">
+    <rect width="30" height="20" fill="#FFFFFF"/>
+    <rect y="10" width="30" height="10" fill="#D52B1E"/>
+    <rect width="10" height="10" fill="#0039A6"/>
+    <text x="5" y="7.7" font-size="7" text-anchor="middle" fill="#FFFFFF">★</text>
+  </svg>`;
+}
 function tiempoRelativo(fechaIso){
   if(!fechaIso) return '';
   const ms = Date.now() - new Date(fechaIso).getTime();
@@ -361,8 +382,8 @@ function envioHtml(e){
         </div>
         <div class="ruta-progreso">
           <div class="fechas">
-            <span>🇨🇳 ${escapeHtml(e.puerto_origen || '—')} · Salió ${fmtFecha(e.fecha_salida)}</span>
-            <span>🇨🇱 ETA ${fmtFecha(e.fecha_eta)} · ${escapeHtml(e.puerto_destino || '—')}</span>
+            <span>${banderaSvg('CN')} ${escapeHtml(e.puerto_origen || '—')} · Salió ${fmtFecha(e.fecha_salida)}</span>
+            <span>${banderaSvg('CL')} ETA ${fmtFecha(e.fecha_eta)} · ${escapeHtml(e.puerto_destino || '—')}</span>
           </div>
           <div class="barra-progreso"><div class="relleno" style="width:${progreso}%;"></div></div>
         </div>
