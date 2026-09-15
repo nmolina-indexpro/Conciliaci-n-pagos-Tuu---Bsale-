@@ -2902,6 +2902,75 @@ const COMPARADOR_EXTRACCION_TOOL = {
   },
 };
 
+// Gemini primero, Claude de respaldo -- mismo criterio y mismos helpers
+// genéricos (convertirSchemaAGemini/mapearContenidoAGemini/fetchConTimeout)
+// que ya usa el Análisis IA de WhatsApp (ver ejecutarAnalisisIA más abajo
+// en este archivo): pedido del usuario tras quedarse sin saldo de
+// Anthropic. COMPARADOR_EXTRACCION_TOOL sigue siendo la única fuente de
+// verdad del schema -- convertirSchemaAGemini solo lo traduce al formato
+// que exige Gemini (OpenAPI en mayúsculas).
+const COMPARADOR_EXTRACCION_TOOL_GEMINI = {
+  name: COMPARADOR_EXTRACCION_TOOL.name,
+  description: COMPARADOR_EXTRACCION_TOOL.description,
+  parameters: convertirSchemaAGemini(COMPARADOR_EXTRACCION_TOOL.input_schema),
+};
+const COMPARADOR_SYSTEM_PROMPT = 'Eres un asistente que transcribe listas de precios/stock que proveedores de repuestos de notebooks (cargadores, baterías, pantallas) le envían a IndexStore, una tienda chilena. Lee TODAS las filas visibles en la imagen, una por una, sin omitir ninguna aunque haya muchas. Los precios en Chile se muestran normalmente en pesos (CLP) sin decimales. Responde solo con la llamada a la herramienta, sin texto adicional.';
+
+async function llamarGeminiExtraccionCotizacion(contenido) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('sin_gemini_api_key');
+  const respuesta = await fetchConTimeout(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ANALISIS}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: COMPARADOR_SYSTEM_PROMPT }] },
+        contents: [{ role: 'user', parts: mapearContenidoAGemini(contenido) }],
+        tools: [{ function_declarations: [COMPARADOR_EXTRACCION_TOOL_GEMINI] }],
+        tool_config: { function_calling_config: { mode: 'ANY', allowed_function_names: [COMPARADOR_EXTRACCION_TOOL_GEMINI.name] } },
+        generationConfig: { maxOutputTokens: 4096 },
+      }),
+    },
+    40000
+  );
+  if (!respuesta.ok) {
+    const texto = await respuesta.text().catch(() => '');
+    throw new Error(`Gemini HTTP ${respuesta.status}: ${texto.slice(0, 300)}`);
+  }
+  const dataIA = await respuesta.json();
+  const partes = dataIA.candidates?.[0]?.content?.parts || [];
+  const llamada = partes.find(p => p.functionCall);
+  if (!llamada) throw new Error('Gemini no devolvió datos estructurados');
+  return llamada.functionCall.args?.items || [];
+}
+
+async function llamarClaudeExtraccionCotizacion(contenido) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('sin_anthropic_api_key');
+  const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2048,
+      system: COMPARADOR_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: contenido }],
+      tools: [COMPARADOR_EXTRACCION_TOOL],
+      tool_choice: { type: 'tool', name: 'registrar_cotizacion' },
+    }),
+  }, 45000);
+
+  if (!respuestaIA.ok) {
+    const texto = await respuestaIA.text().catch(() => '');
+    throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
+  }
+  const dataIA = await respuestaIA.json();
+  const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
+  if (!bloqueHerramienta) throw new Error('La IA no devolvió datos estructurados');
+  return bloqueHerramienta.input.items || [];
+}
+
 async function manejarComparadorCotizacionImagen(req, res, sesion) {
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -2911,41 +2980,34 @@ async function manejarComparadorCotizacionImagen(req, res, sesion) {
     if (!coincidenciaImagen) return res.status(400).json({ error: 'Falta una imagen válida' });
     const [, mediaType, base64Data] = coincidenciaImagen;
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return res.status(200).json({ error: 'ANTHROPIC_API_KEY no está configurada en el servidor' });
+    if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+      return res.status(200).json({ error: 'Ni GEMINI_API_KEY ni ANTHROPIC_API_KEY están configuradas en el servidor' });
+    }
 
     const sql = await getSql();
     await asegurarTablaComparadorCompras(sql);
 
     const { rows: itemsPedido } = await sql`SELECT id, nombre, especificaciones FROM comparador_solicitud_items WHERE solicitud_id = ${solicitudId};`;
 
-    const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2048,
-        system: 'Eres un asistente que transcribe listas de precios/stock que proveedores de repuestos de notebooks (cargadores, baterías, pantallas) le envían a IndexStore, una tienda chilena. Lee TODAS las filas visibles en la imagen, una por una, sin omitir ninguna aunque haya muchas. Los precios en Chile se muestran normalmente en pesos (CLP) sin decimales. Responde solo con la llamada a la herramienta, sin texto adicional.',
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
-            { type: 'text', text: 'Transcribe todas las filas de productos con precio y stock visibles en esta imagen.' },
-          ],
-        }],
-        tools: [COMPARADOR_EXTRACCION_TOOL],
-        tool_choice: { type: 'tool', name: 'registrar_cotizacion' },
-      }),
-    }, 45000);
+    const contenido = [
+      { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+      { type: 'text', text: 'Transcribe todas las filas de productos con precio y stock visibles en esta imagen.' },
+    ];
 
-    if (!respuestaIA.ok) {
-      const texto = await respuestaIA.text().catch(() => '');
-      throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
+    let itemsExtraidos, proveedorUsado;
+    try {
+      itemsExtraidos = await llamarGeminiExtraccionCotizacion(contenido);
+      proveedorUsado = 'gemini';
+    } catch (errGemini) {
+      console.warn('[comparadorCotizacionImagen] Gemini falló, reintentando con Claude:', errGemini.message);
+      try {
+        itemsExtraidos = await llamarClaudeExtraccionCotizacion(contenido);
+        proveedorUsado = 'claude (respaldo)';
+      } catch (errClaude) {
+        throw new Error(`Gemini: ${errGemini.message} | Claude (respaldo): ${errClaude.message}`);
+      }
     }
-    const dataIA = await respuestaIA.json();
-    const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
-    if (!bloqueHerramienta) return res.status(502).json({ error: 'La IA no devolvió datos estructurados' });
-    const itemsExtraidos = bloqueHerramienta.input.items || [];
+    console.log(`[comparadorCotizacionImagen] solicitud ${solicitudId} extraída con ${proveedorUsado}`);
     if (itemsExtraidos.length === 0) return res.status(200).json({ error: 'No se detectó ningún producto en la imagen' });
 
     const { rows: cotizacionRows } = await sql`
