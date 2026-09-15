@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
@@ -112,6 +112,7 @@ export default async function handler(req, res) {
   if (recurso === 'comparador-config') return manejarComparadorConfig(req, res, sesion);
   if (recurso === 'transito-envios') return manejarTransitoEnvios(req, res, sesion);
   if (recurso === 'transito-envio-eventos') return manejarTransitoEnvioEventos(req, res, sesion);
+  if (recurso === 'preferencias') return manejarPreferenciasUsuario(req, res, sesion);
   if (recurso === 'whatsapp-dashboard') return manejarWhatsappDashboard(req, res, sesion);
   if (recurso === 'whatsapp-conversaciones') return manejarWhatsappConversaciones(req, res, sesion);
   if (recurso === 'whatsapp-conversacion-detalle') return manejarWhatsappConversacionDetalle(req, res, sesion);
@@ -3228,6 +3229,56 @@ async function manejarTransitoEnvioEventos(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error gestionando el historial del envío', detail: String(err) });
+  }
+}
+
+// Preferencias de vista por usuario+página (filtros por defecto, columnas
+// visibles, búsquedas guardadas, etc. -- ver comentario en
+// asegurarTablaPreferenciasUsuario en lib/db.js). "clave" separa distintas
+// preferencias dentro de una misma página; "valor" es JSONB de forma libre,
+// cada página decide qué guarda ahí.
+async function manejarPreferenciasUsuario(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaPreferenciasUsuario(sql);
+    const usuarioEmail = sesion.email;
+
+    if (req.method === 'GET') {
+      const pagina = req.query.pagina;
+      if (!pagina) return res.status(400).json({ error: 'Falta el parámetro pagina' });
+      const { rows } = await sql`
+        SELECT clave, valor FROM preferencias_usuario
+        WHERE usuario_email = ${usuarioEmail} AND pagina = ${pagina};
+      `;
+      const preferencias = Object.fromEntries(rows.map(r => [r.clave, r.valor]));
+      return res.status(200).json({ preferencias });
+    }
+
+    if (req.method === 'PUT') {
+      const { pagina, clave, valor } = req.body || {};
+      if (!pagina || !clave) return res.status(400).json({ error: 'Falta pagina o clave' });
+      await sql`
+        INSERT INTO preferencias_usuario (usuario_email, pagina, clave, valor)
+        VALUES (${usuarioEmail}, ${pagina}, ${clave}, ${JSON.stringify(valor ?? null)})
+        ON CONFLICT (usuario_email, pagina, clave)
+        DO UPDATE SET valor = EXCLUDED.valor, actualizado_en = now();
+      `;
+      return res.status(200).json({ ok: true });
+    }
+
+    if (req.method === 'DELETE') {
+      const { pagina, clave } = req.query;
+      if (!pagina || !clave) return res.status(400).json({ error: 'Falta pagina o clave' });
+      await sql`
+        DELETE FROM preferencias_usuario
+        WHERE usuario_email = ${usuarioEmail} AND pagina = ${pagina} AND clave = ${clave};
+      `;
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error gestionando preferencias', detail: String(err) });
   }
 }
 

@@ -328,7 +328,7 @@
         <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-original')">Originales</button>
         <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-daxis')">Daxis</button>
         <button class="btn-ghost btn-compact" onclick="filtrarCategoriaRapida('bateria-alternativo')">Alternativas</button>
-        <select id="filtroCategoria" onchange="renderTabla()" style="min-width:170px;">
+        <select id="filtroCategoria" onchange="renderTabla(); guardarPreferenciasCatalogo();" style="min-width:170px;">
           <option value="">Otra categoría...</option>
         </select>
       </div>
@@ -336,7 +336,7 @@
       <div class="filtros" style="background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;box-shadow:var(--shadow);">
         <span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;">⬇ Exportar pedido a Excel</span>
         <label style="font-size:12px;color:var(--muted);">Horizonte:</label>
-        <select id="horizonteExport">
+        <select id="horizonteExport" onchange="guardarPreferenciasCatalogo();">
           <option value="5">5 días</option>
           <option value="7" selected>7 días</option>
           <option value="14">14 días</option>
@@ -346,8 +346,8 @@
       </div>
 
       <div class="filtros">
-        <input type="text" id="buscador" placeholder="Buscar por SKU o nombre..." style="width:260px;" oninput="renderTabla()">
-        <select id="filtroUrgencia" onchange="renderTabla()">
+        <input type="text" id="buscador" placeholder="Buscar por SKU o nombre..." style="width:260px;" oninput="renderTabla(); guardarPreferenciasCatalogo();">
+        <select id="filtroUrgencia" onchange="renderTabla(); guardarPreferenciasCatalogo();">
           <option value="">Todos</option>
           <option value="urgente">Solo urgentes</option>
           <option value="pronto">Urgentes + pronto a agotarse</option>
@@ -364,6 +364,7 @@
 
 <script src="restriccion-usuario.js"></script>
 <script src="menu-herramientas.js"></script>
+<script src="preferencias-vista.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 
@@ -501,6 +502,7 @@ async function cargar(){
     const select = $('filtroCategoria');
     select.innerHTML = '<option value="">Otra categoría...</option>' +
       (res.categorias || []).map(c => `<option value="${c}">${c}</option>`).join('');
+    aplicarPreferenciasCatalogo();
 
     let avisos = '';
     if(res.ventasTruncadas) avisos += `<div class="note-box">⚠ El catálogo/movimiento es grande y se truncó la consulta de documentos — los números pueden estar incompletos. Prueba con un período más corto.</div>`;
@@ -520,6 +522,26 @@ async function cargar(){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
   }
+}
+
+// Piloto de preferencias de vista (ver preferencias-vista.js): recuerda los
+// filtros del "Catálogo completo" por usuario, para que no haya que
+// reconfigurarlos cada vez que se abre la página.
+function aplicarPreferenciasCatalogo(){
+  const pref = obtenerPreferencia('compras', 'catalogo-completo', {});
+  const selectCategoria = $('filtroCategoria');
+  if(pref.categoria && [...selectCategoria.options].some(o => o.value === pref.categoria)) selectCategoria.value = pref.categoria;
+  if(pref.busqueda) $('buscador').value = pref.busqueda;
+  if(pref.urgencia) $('filtroUrgencia').value = pref.urgencia;
+  if(pref.horizonteExport) $('horizonteExport').value = pref.horizonteExport;
+}
+function guardarPreferenciasCatalogo(){
+  guardarPreferencia('compras', 'catalogo-completo', {
+    categoria: $('filtroCategoria').value,
+    busqueda: $('buscador').value,
+    urgencia: $('filtroUrgencia').value,
+    horizonteExport: $('horizonteExport').value,
+  });
 }
 
 function ordenarPor(campo){
@@ -2050,6 +2072,7 @@ async function cargarSesionUsuario(){
     // paralelo (antes se llamaba antes de que existiera cualquier dato).
     $('diasInput').value = 30;
     comparadorInit();
+    await cargarPreferencias('compras');
     await cargar();
     calcularRecomendacionPresupuesto();
   }catch(err){ /* silencioso: no bloquea el resto de la página */ }
