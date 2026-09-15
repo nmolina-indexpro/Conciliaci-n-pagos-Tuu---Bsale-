@@ -195,6 +195,16 @@
     <div class="modal-body">
       <div class="note-box">ℹ Esta página no está conectada en vivo con CargoWise ni ninguna naviera -- no existe esa integración. Escribir solo la referencia <b>no trae el resto de los datos solo</b>: copia cada campo a mano desde el sistema de tracking (CargoWise, la naviera o el forwarder) mientras revisas el envío.</div>
       <div id="errorModalEnvio"></div>
+
+      <div style="margin-bottom:14px;">
+        <button class="btn-ghost btn-compact" type="button" onclick="togglePegarDatosEnvio()">📝 Pegar texto (llenar formulario)</button>
+        <div id="pegarDatosEnvioWrap" hidden style="margin-top:8px;">
+          <div class="empty-note" style="margin:0 0 6px;">Una línea por dato, en formato <b>Campo: Valor</b> (el orden no importa, y no hace falta poner todos). Ejemplo:</div>
+          <textarea id="pegarDatosEnvioInput" placeholder="Referencia: SSCL010035&#10;N.° de contenedor: UETU8843786&#10;House bill: SSCL0010035&#10;Total de bultos: 15&#10;Peso: 201.5 KG&#10;Service level: Standard&#10;Puerto de origen: CNYTN&#10;Destination port: CLVAP&#10;Modo de contenedor: LCL&#10;Buque: EVER LISSOME&#10;Voyage / flight # / truck ref: 0075E&#10;Salió: 08-Sep-26&#10;ETA: 19-Oct-26&#10;Estado: En tránsito" style="min-height:180px;font-size:11.5px;font-family:'IBM Plex Mono',monospace;"></textarea>
+          <button class="btn-primary btn-compact" onclick="procesarPegadoDatosEnvio()" style="margin-top:4px;">Completar formulario con el texto pegado</button>
+        </div>
+      </div>
+
       <div class="grid-form">
         <div class="campo"><label>Referencia / tracking *</label><input type="text" id="fReferencia" placeholder="Ej: SSCL010035"></div>
         <div class="campo"><label>N° de contenedor</label><input type="text" id="fContenedor" placeholder="Ej: UETU8843786"></div>
@@ -442,6 +452,114 @@ function renderFilasProductosEnvio(){
       <button class="btn-icono" title="Quitar" onclick="quitarFilaProductoEnvio(${i})">🗑️</button>
     </div>`).join('');
 }
+// ---------- Pegar texto "Campo: Valor" para llenar el formulario ----------
+// Formato definido a partir del recorte de CargoWise que pasó el usuario:
+// una línea por dato, "Campo: Valor" -- cubre tanto las etiquetas en
+// español del bloque de detalle (Puerto de origen, N.° de contenedor...)
+// como las que CargoWise deja en inglés ahí mismo (Destination port), más
+// alias razonables (container/vessel/weight/etc.) para que sirva copiando
+// de otro forwarder/naviera que no use exactamente el mismo texto.
+function normalizarEtiquetaTransito(s){
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[°º.]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ') // "/" y "#" también se vuelven espacio (ej. "Voyage / Flight #" -> "voyage flight")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+const TRANSITO_CAMPO_ALIAS = {
+  'referencia': 'referencia', 'referencia tracking': 'referencia', 'tracking': 'referencia', 'reference': 'referencia',
+  'n de contenedor': 'contenedor', 'no de contenedor': 'contenedor', 'numero de contenedor': 'contenedor',
+  'container no': 'contenedor', 'container number': 'contenedor', 'container': 'contenedor', 'contenedor': 'contenedor',
+  'house bill': 'houseBill', 'house bill of lading': 'houseBill', 'hbl': 'houseBill',
+  'total de bultos': 'totalBultos', 'total bultos': 'totalBultos', 'bultos': 'totalBultos',
+  'packages': 'totalBultos', 'total packages': 'totalBultos', 'pieces': 'totalBultos',
+  'peso': 'pesoKg', 'weight': 'pesoKg', 'peso bruto': 'pesoKg', 'gross weight': 'pesoKg',
+  'service level': 'serviceLevel', 'nivel de servicio': 'serviceLevel',
+  'puerto de origen': 'puertoOrigen', 'origin port': 'puertoOrigen', 'port of loading': 'puertoOrigen', 'pol': 'puertoOrigen',
+  'destination port': 'puertoDestino', 'puerto de destino': 'puertoDestino', 'port of discharge': 'puertoDestino', 'pod': 'puertoDestino',
+  'modo de contenedor': 'modoContenedor', 'container mode': 'modoContenedor', 'modo': 'modoContenedor',
+  'buque': 'buque', 'vessel': 'buque', 'vessel name': 'buque', 'nave': 'buque',
+  'voyage flight truck ref': 'voyage', 'voyage': 'voyage', 'flight': 'voyage', 'voyage flight': 'voyage', 'truck ref': 'voyage',
+  'salio': 'fechaSalida', 'salida': 'fechaSalida', 'departure': 'fechaSalida', 'atd': 'fechaSalida', 'fecha de salida': 'fechaSalida',
+  'eta': 'fechaEta', 'llegada estimada': 'fechaEta', 'fecha eta': 'fechaEta',
+  'estado': 'estado', 'status': 'estado',
+};
+const MESES_ABREV_TRANSITO = {
+  ene:1, feb:2, mar:3, abr:4, may:5, jun:6, jul:7, ago:8, sep:9, set:9, oct:10, nov:11, dic:12,
+  jan:1, apr:4, aug:8, dec:12,
+};
+function parsearFechaTransito(str){
+  const s = String(str || '').trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  let m = s.match(/^(\d{1,2})[\/\-\s]([a-zA-Z]{3,})[\/\-\s](\d{2,4})$/); // 08-Sep-26
+  if(m){
+    const dia = parseInt(m[1], 10);
+    const mes = MESES_ABREV_TRANSITO[m[2].slice(0,3).toLowerCase()];
+    let anio = parseInt(m[3], 10);
+    if(anio < 100) anio += 2000;
+    if(mes) return `${anio}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+  }
+  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/); // dd-mm-yyyy
+  if(m) return `${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+  return null;
+}
+function parsearNumeroTransito(str){
+  const limpio = String(str || '').replace(/[^\d.,]/g, '').replace(',', '.');
+  const n = parseFloat(limpio);
+  return isNaN(n) ? null : n;
+}
+function parsearEstadoTransito(str){
+  const norm = normalizarEtiquetaTransito(str);
+  if(/entregad|delivered/.test(norm)) return 'entregado';
+  if(/arribad|arrived/.test(norm)) return 'arribado';
+  return 'en_transito';
+}
+function togglePegarDatosEnvio(){
+  const wrap = $('pegarDatosEnvioWrap');
+  wrap.hidden = !wrap.hidden;
+}
+function procesarPegadoDatosEnvio(){
+  const texto = $('pegarDatosEnvioInput').value;
+  const lineas = texto.split('\n').map(l => l.trim()).filter(Boolean);
+  if(lineas.length === 0){ alert('Pega primero el texto con los datos del envío.'); return; }
+
+  const campos = {};
+  for(const linea of lineas){
+    const idx = linea.indexOf(':');
+    if(idx === -1) continue; // sin "Campo: Valor" -- se ignora en vez de adivinar
+    const etiqueta = normalizarEtiquetaTransito(linea.slice(0, idx));
+    const valor = linea.slice(idx + 1).trim();
+    if(!valor) continue;
+    const campo = TRANSITO_CAMPO_ALIAS[etiqueta];
+    if(campo) campos[campo] = valor;
+  }
+  if(Object.keys(campos).length === 0){
+    alert('No se reconoció ningún campo -- revisa que el formato sea "Campo: Valor", una línea por dato.');
+    return;
+  }
+
+  if(campos.referencia) $('fReferencia').value = campos.referencia;
+  if(campos.contenedor) $('fContenedor').value = campos.contenedor;
+  if(campos.houseBill) $('fHouseBill').value = campos.houseBill;
+  if(campos.totalBultos != null){ const n = parsearNumeroTransito(campos.totalBultos); if(n != null) $('fTotalBultos').value = n; }
+  if(campos.pesoKg != null){ const n = parsearNumeroTransito(campos.pesoKg); if(n != null) $('fPesoKg').value = n; }
+  if(campos.serviceLevel) $('fServiceLevel').value = campos.serviceLevel;
+  if(campos.puertoOrigen) $('fPuertoOrigen').value = campos.puertoOrigen;
+  if(campos.puertoDestino) $('fPuertoDestino').value = campos.puertoDestino;
+  if(campos.modoContenedor) $('fModoContenedor').value = campos.modoContenedor;
+  if(campos.buque) $('fBuque').value = campos.buque;
+  if(campos.voyage) $('fVoyage').value = campos.voyage;
+  if(campos.fechaSalida){ const f = parsearFechaTransito(campos.fechaSalida); if(f) $('fFechaSalida').value = f; }
+  if(campos.fechaEta){ const f = parsearFechaTransito(campos.fechaEta); if(f) $('fFechaEta').value = f; }
+  if(campos.estado) $('fEstado').value = parsearEstadoTransito(campos.estado);
+
+  $('pegarDatosEnvioInput').value = '';
+  $('pegarDatosEnvioWrap').hidden = true;
+  alert(`Se completaron ${Object.keys(campos).length} campo(s) del formulario a partir del texto pegado. Revísalos antes de guardar.`);
+}
+
 function togglePegarProductosEnvio(){
   const wrap = $('pegarProductosEnvioWrap');
   wrap.hidden = !wrap.hidden;
