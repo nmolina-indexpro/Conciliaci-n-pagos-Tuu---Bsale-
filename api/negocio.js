@@ -2721,8 +2721,11 @@ async function gaSeccionTrafico(propertyId, accessToken, rangoFechas) {
 }
 
 // Sección 2: rebote/salida rápida -- KPI general (bounceRate/engagementRate
-// de todo el sitio) + desglose por página de entrada, para ver DÓNDE se
-// concentra la salida rápida, no solo el número global.
+// de todo el sitio) + desglose por página de entrada Y dispositivo (pedido
+// del usuario), para ver DÓNDE se concentra la salida rápida y si difiere
+// entre desktop/móvil, no solo el número global. Cada página puede
+// aparecer hasta 2 veces (una fila por dispositivo) -- tablet se excluye
+// server-side (dimensionFilter) porque el usuario pidió solo desktop/móvil.
 async function gaSeccionRebote(propertyId, accessToken, rangoFechas) {
   const [resumenData, paginaData] = await Promise.all([
     runReportGA4(propertyId, accessToken, {
@@ -2731,16 +2734,18 @@ async function gaSeccionRebote(propertyId, accessToken, rangoFechas) {
     }),
     runReportGA4(propertyId, accessToken, {
       dateRanges: rangoFechas,
-      dimensions: [{ name: 'landingPagePlusQueryString' }],
-      metrics: ['sessions', 'bounceRate', 'engagementRate'].map(name => ({ name })),
+      dimensions: [{ name: 'landingPagePlusQueryString' }, { name: 'deviceCategory' }],
+      dimensionFilter: { filter: { fieldName: 'deviceCategory', inListFilter: { values: ['desktop', 'mobile'] } } },
+      metrics: ['sessions', 'bounceRate', 'engagementRate', 'averageSessionDuration'].map(name => ({ name })),
       orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
-      limit: 15,
+      limit: 30, // el doble que antes -- cada página puede traer 2 filas (desktop + móvil)
     }),
   ]);
   const filaResumen = resumenData.rows?.[0];
   const porPagina = (paginaData.rows || []).map(fila => ({
     pagina: fila.dimensionValues?.[0]?.value || '(sin definir)',
-    sesiones: numGA4(fila, 0), rebote: numGA4(fila, 1), engagement: numGA4(fila, 2),
+    dispositivo: fila.dimensionValues?.[1]?.value || '',
+    sesiones: numGA4(fila, 0), rebote: numGA4(fila, 1), engagement: numGA4(fila, 2), duracionSeg: numGA4(fila, 3),
   }));
   return { bounceRate: numGA4(filaResumen, 0), engagementRate: numGA4(filaResumen, 1), sesionesTotales: numGA4(filaResumen, 2), porPagina };
 }

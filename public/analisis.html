@@ -1186,6 +1186,11 @@ function renderGaTrafico(d){
   `;
 }
 
+// mm:ss -- averageSessionDuration de GA4 viene en segundos (con decimales).
+function fmtDuracionGA(segundos){
+  const s = Math.round(segundos || 0);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
 function renderGaRebote(d){
   $('wrapGaContenido').innerHTML = `
     <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px;">
@@ -1202,14 +1207,17 @@ function renderGaRebote(d){
         <div class="big">${fmtNum(d.sesionesTotales)}</div>
       </div>
     </div>
+    <div class="note-box">ℹ En GA4 una sesión "rebota" solo si NO fue interactiva -- y cuenta como interactiva si pasa <b>cualquiera</b> de estas 3 cosas: dura 10+ segundos, tiene una conversión, o tiene 2+ vistas de página. Por eso el rebote sale bajo en casi todas las páginas normales (distinto al "rebote" de Universal Analytics, donde cualquier sesión de una sola página contaba). Una fila con rebote muy alto (ej. "(not set)") normalmente es tráfico sin URL de entrada detectada -- bots, sesiones rotas -- vale la pena revisarla aparte de las páginas reales.</div>
     <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Rebote por página de entrada</h3>
     ${d.porPagina.length ? `<div class="tabla-wrap"><table>
-      <thead><tr><th>Página de entrada</th><th class="amount">Sesiones</th><th class="amount">Rebote</th><th class="amount">Interacción</th></tr></thead>
+      <thead><tr><th>Página de entrada</th><th>Dispositivo</th><th class="amount">Sesiones</th><th class="amount">Rebote</th><th class="amount">Interacción</th><th class="amount">Tiempo promedio</th></tr></thead>
       <tbody>${d.porPagina.map(p => `<tr>
-        <td style="max-width:360px;overflow-wrap:anywhere;">${escapeHtml(p.pagina)}</td>
+        <td style="max-width:320px;overflow-wrap:anywhere;">${escapeHtml(p.pagina)}</td>
+        <td>${escapeHtml(traducirEtiquetaGA(p.dispositivo))}</td>
         <td class="amount">${fmtNum(p.sesiones)}</td>
         <td class="amount">${fmtPctGA(p.rebote)}</td>
         <td class="amount">${fmtPctGA(p.engagement)}</td>
+        <td class="amount">${fmtDuracionGA(p.duracionSeg)}</td>
       </tr>`).join('')}</tbody>
     </table></div>` : '<p class="empty-note">Sin datos en este período.</p>'}
   `;
