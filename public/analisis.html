@@ -64,6 +64,15 @@
   .card.clicable:hover{box-shadow:var(--shadow);transform:translateY(-1px);}
   .card .ver-detalle{font-size:11px;color:var(--muted);margin-top:6px;}
 
+  .ga-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0;}
+  @media (max-width:900px){.ga-tabs{grid-template-columns:repeat(2,1fr);}}
+  .ga-tab{background:var(--surface-2);border:1.5px solid var(--line);border-radius:12px;padding:16px 14px;text-align:left;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:box-shadow .15s,transform .15s,border-color .15s,background .15s;}
+  .ga-tab:hover{box-shadow:var(--shadow);transform:translateY(-1px);}
+  .ga-tab.active{background:var(--primary-dim);border-color:var(--primary);}
+  .ga-tab-icono{font-size:20px;margin-bottom:6px;display:block;}
+  .ga-tab-titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;color:var(--text);}
+  .ga-tab-sub{font-size:11px;color:var(--muted);margin-top:2px;}
+
   .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-top:16px;color:var(--text);}
   .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
   #syncStatus{font-size:12px;color:var(--muted);margin-top:10px;}
@@ -263,7 +272,31 @@
       <button class="btn-ghost btn-compact" id="btnGa90dias" onclick="setRangoRapidoGA('90dias')">Últimos 90 días</button>
       <button class="btn-ghost btn-compact" id="btnGaMes" onclick="setRangoRapidoGA('mes')">Mes actual</button>
     </div>
-    <div id="wrapGoogleAnalytics" style="margin-top:14px;"><p class="empty-note">Cargando...</p></div>
+    <div id="wrapGaResumen" style="margin-top:14px;"><p class="empty-note">Cargando...</p></div>
+
+    <div class="ga-tabs">
+      <button class="ga-tab active" id="gaTab-trafico" onclick="cambiarTabGA('trafico')">
+        <span class="ga-tab-icono">🚦</span>
+        <div class="ga-tab-titulo">Tráfico</div>
+        <div class="ga-tab-sub">Por canal y tendencia diaria</div>
+      </button>
+      <button class="ga-tab" id="gaTab-rebote" onclick="cambiarTabGA('rebote')">
+        <span class="ga-tab-icono">⚡</span>
+        <div class="ga-tab-titulo">Rebote</div>
+        <div class="ga-tab-sub">Salida rápida del sitio</div>
+      </button>
+      <button class="ga-tab" id="gaTab-paginas" onclick="cambiarTabGA('paginas')">
+        <span class="ga-tab-icono">🔗</span>
+        <div class="ga-tab-titulo">Páginas</div>
+        <div class="ga-tab-sub">Más conversiones/eventos</div>
+      </button>
+      <button class="ga-tab" id="gaTab-audiencia" onclick="cambiarTabGA('audiencia')">
+        <span class="ga-tab-icono">👥</span>
+        <div class="ga-tab-titulo">Audiencia</div>
+        <div class="ga-tab-sub">Ciudad, edad y sexo</div>
+      </button>
+    </div>
+    <div id="wrapGaContenido"><p class="empty-note">Cargando...</p></div>
   </div>
 
   <div class="seccion" id="seccionDetalle" style="display:none;">
@@ -361,7 +394,7 @@ async function cargarSesionUsuario(){
     cargarAnalisis();
     cargarVentasBaja();
     setRangoRapidoVarPrecio('mes'); // dispara cargarVariacionPrecio() con el rango por defecto (mes actual)
-    setRangoRapidoGA('30dias'); // dispara cargarGoogleAnalytics() con el rango por defecto (últimos 30 días)
+    setRangoRapidoGA('30dias'); // dispara recargarTodoGA() con el rango por defecto (últimos 30 días)
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){
@@ -961,10 +994,16 @@ function renderVariacionPrecio(){
 }
 
 // ---------- Google Analytics (GA4) ----------
-// Proxy simple hacia manejarGoogleAnalytics (api/negocio.js) -- sin tabla
-// propia, los datos se piden en vivo cada vez. Reutiliza los helpers de
-// fecha de Variación de precio (hoyStrVp/addDaysStrVp/etc.) porque son
-// utilidades de fecha genéricas, no algo específico de esa sección.
+// Proxy hacia manejarGoogleAnalytics (api/negocio.js) -- sin tabla propia,
+// los datos se piden en vivo. Reutiliza los helpers de fecha de Variación
+// de precio (hoyStrVp/addDaysStrVp/etc.) porque son utilidades genéricas.
+//
+// El módulo tiene un resumen de KPI siempre visible (incluye la tasa de
+// rebote -- pedido del usuario, quiere que sea algo visible de entrada) y
+// 4 pestañas ("botones grandes", pedido del usuario) que se piden a la API
+// recién cuando se abren, no todas de una vez: Tráfico (lo que ya había:
+// canal + tendencia diaria), Rebote (detalle por página de entrada),
+// Páginas (URL con más conversiones/eventos) y Audiencia (ciudad/edad/sexo).
 const BOTONES_RANGO_GA = { '7dias': 'btnGa7dias', '30dias': 'btnGa30dias', '90dias': 'btnGa90dias', mes: 'btnGaMes' };
 function setRangoRapidoGA(tipo){
   let desde, hasta;
@@ -976,30 +1015,18 @@ function setRangoRapidoGA(tipo){
   $('gaHasta').value = hasta;
   Object.values(BOTONES_RANGO_GA).forEach(id => $(id).classList.remove('active'));
   if(BOTONES_RANGO_GA[tipo]) $(BOTONES_RANGO_GA[tipo]).classList.add('active');
-  cargarGoogleAnalytics();
+  recargarTodoGA();
 }
 function aplicarRangoPersonalizadoGA(){
   Object.values(BOTONES_RANGO_GA).forEach(id => $(id).classList.remove('active'));
-  cargarGoogleAnalytics();
+  recargarTodoGA();
+}
+function recargarTodoGA(){
+  gaDatosPorTab = {}; // el rango de fechas cambió -- lo que estaba en caché ya no sirve
+  cargarGaResumen();
+  cargarSeccionGA(gaTabActiva, true);
 }
 
-let googleAnalyticsActual = null;
-async function cargarGoogleAnalytics(){
-  try{
-    const desde = $('gaDesde').value, hasta = $('gaHasta').value;
-    const qs = desde && hasta ? `&desde=${desde}&hasta=${hasta}` : '';
-    const res = await fetch(`/api/negocio?recurso=google-analytics${qs}`);
-    const data = await res.json();
-    if(!res.ok || data.error){
-      $('wrapGoogleAnalytics').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar.')}${data.detail ? `<br><span style="font-size:11px;">${escapeHtml(data.detail)}</span>` : ''}</p>`;
-      return;
-    }
-    googleAnalyticsActual = data;
-    renderGoogleAnalytics();
-  }catch(err){
-    $('wrapGoogleAnalytics').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
-  }
-}
 function fmtFechaGA(fechaStr){
   if(!fechaStr) return '—';
   const [y, m, d] = fechaStr.split('-');
@@ -1024,17 +1051,39 @@ function fmtMonedaGA(n, moneda){
   const num = fmtNum(Math.round(n || 0));
   return (!moneda || moneda === 'CLP') ? '$' + num : `${moneda} ${num}`;
 }
-function renderGoogleAnalytics(){
-  const d = googleAnalyticsActual;
+// La Analytics Data API (GA4) devuelve bounceRate/engagementRate como
+// fracción 0-1, no como porcentaje ya multiplicado -- si al ver datos
+// reales se nota que en realidad ya viene en base 100, sacar este *100.
+function fmtPctGA(n){ return ((n || 0) * 100).toFixed(1) + '%'; }
+const GENERO_LABEL_GA = { male: 'Hombre', female: 'Mujer', unknown: 'Desconocido' };
+
+let gaTabActiva = 'trafico';
+let gaResumenActual = null;
+let gaDatosPorTab = {};
+
+async function cargarGaResumen(){
+  try{
+    const desde = $('gaDesde').value, hasta = $('gaHasta').value;
+    const res = await fetch(`/api/negocio?recurso=google-analytics&seccion=resumen&desde=${desde}&hasta=${hasta}`);
+    const data = await res.json();
+    if(!res.ok || data.error){
+      $('wrapGaResumen').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar.')}${data.detail ? `<br><span style="font-size:11px;">${escapeHtml(data.detail)}</span>` : ''}</p>`;
+      return;
+    }
+    gaResumenActual = data;
+    renderGaResumen();
+  }catch(err){
+    $('wrapGaResumen').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+function renderGaResumen(){
+  const d = gaResumenActual;
   if(!d) return;
   const r = d.resumen;
-  // USD se convierte a CLP (ver fmtMonedaGA) -- así que esos montos YA
-  // están en pesos, y no corresponde marcarlos como "en otra moneda". Solo
-  // se avisa como pendiente/sin convertir una moneda distinta de CLP/USD.
   const esUsdConvertido = d.moneda === 'USD';
   const monedaSinConvertir = d.moneda && d.moneda !== 'CLP' && !esUsdConvertido;
   const tasaConversion = r.sessions > 0 ? (r.conversions / r.sessions * 100) : 0;
-  $('wrapGoogleAnalytics').innerHTML = `
+  $('wrapGaResumen').innerHTML = `
     ${esUsdConvertido ? `<div class="note-box">ℹ Esta propiedad de GA4 informa los montos en <b>USD</b> -- se muestran convertidos a CLP con un tipo de cambio fijo de <b>$${TIPO_CAMBIO_USD_CLP}</b> por dólar (no es el tipo de cambio real de cada transacción). Para que GA4 informe en pesos directamente: Analytics → Admin → Property Settings → Currency.</div>` : ''}
     ${monedaSinConvertir ? `<div class="note-box">⚠ Esta propiedad de GA4 informa los montos en <b>${escapeHtml(d.moneda)}</b>, no en pesos chilenos (se configura en Google Analytics: Admin → Property Settings → Currency). Los ingresos de abajo están en ${escapeHtml(d.moneda)}, sin convertir.</div>` : ''}
     <div class="grid">
@@ -1055,8 +1104,51 @@ function renderGoogleAnalytics(){
         <div class="lbl">Ingresos (GA)${esUsdConvertido ? ' — convertido de USD' : monedaSinConvertir ? ` — ${escapeHtml(d.moneda)}` : ''}</div>
         <div class="big">${fmtMonedaGA(r.purchaseRevenue, d.moneda)}</div>
       </div>
+      <div class="card" style="background:var(--amber-dim);border-color:var(--amber);">
+        <div class="lbl">Tasa de rebote</div>
+        <div class="big" style="color:var(--amber);">${fmtPctGA(r.bounceRate)}</div>
+        <div class="ver-detalle">Ver detalle por página →</div>
+      </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
+  `;
+}
+
+function cambiarTabGA(tab){
+  gaTabActiva = tab;
+  document.querySelectorAll('.ga-tab').forEach(b => b.classList.remove('active'));
+  $('gaTab-' + tab).classList.add('active');
+  cargarSeccionGA(tab);
+}
+async function cargarSeccionGA(tab, forzar){
+  if(!forzar && gaDatosPorTab[tab]){ renderSeccionGA(tab); return; } // ya está en caché para este rango de fechas
+  $('wrapGaContenido').innerHTML = '<p class="empty-note">Cargando...</p>';
+  try{
+    const desde = $('gaDesde').value, hasta = $('gaHasta').value;
+    const res = await fetch(`/api/negocio?recurso=google-analytics&seccion=${tab}&desde=${desde}&hasta=${hasta}`);
+    const data = await res.json();
+    if(!res.ok || data.error){
+      $('wrapGaContenido').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar.')}${data.detail ? `<br><span style="font-size:11px;">${escapeHtml(data.detail)}</span>` : ''}</p>`;
+      return;
+    }
+    gaDatosPorTab[tab] = data;
+    renderSeccionGA(tab);
+  }catch(err){
+    $('wrapGaContenido').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+function renderSeccionGA(tab){
+  const d = gaDatosPorTab[tab];
+  if(!d) return;
+  if(tab === 'trafico') renderGaTrafico(d);
+  else if(tab === 'rebote') renderGaRebote(d);
+  else if(tab === 'paginas') renderGaPaginas(d);
+  else if(tab === 'audiencia') renderGaAudiencia(d);
+}
+
+function renderGaTrafico(d){
+  const monedaSinConvertir = d.moneda && d.moneda !== 'CLP' && d.moneda !== 'USD';
+  $('wrapGaContenido').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
       <div>
         <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Tráfico por canal</h3>
         ${d.porCanal.length ? `<div class="tabla-wrap"><table>
@@ -1083,6 +1175,82 @@ function renderGoogleAnalytics(){
         </table></div>` : '<p class="empty-note">Sin datos en este período.</p>'}
       </div>
     </div>
+  `;
+}
+
+function renderGaRebote(d){
+  $('wrapGaContenido').innerHTML = `
+    <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px;">
+      <div class="card" style="background:var(--amber-dim);border-color:var(--amber);">
+        <div class="lbl">Tasa de rebote (sitio completo)</div>
+        <div class="big" style="color:var(--amber);">${fmtPctGA(d.bounceRate)}</div>
+      </div>
+      <div class="card">
+        <div class="lbl">Tasa de interacción</div>
+        <div class="big">${fmtPctGA(d.engagementRate)}</div>
+      </div>
+      <div class="card">
+        <div class="lbl">Sesiones totales</div>
+        <div class="big">${fmtNum(d.sesionesTotales)}</div>
+      </div>
+    </div>
+    <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Rebote por página de entrada</h3>
+    ${d.porPagina.length ? `<div class="tabla-wrap"><table>
+      <thead><tr><th>Página de entrada</th><th class="amount">Sesiones</th><th class="amount">Rebote</th><th class="amount">Interacción</th></tr></thead>
+      <tbody>${d.porPagina.map(p => `<tr>
+        <td style="max-width:360px;overflow-wrap:anywhere;">${escapeHtml(p.pagina)}</td>
+        <td class="amount">${fmtNum(p.sesiones)}</td>
+        <td class="amount">${fmtPctGA(p.rebote)}</td>
+        <td class="amount">${fmtPctGA(p.engagement)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<p class="empty-note">Sin datos en este período.</p>'}
+  `;
+}
+
+function renderGaPaginas(d){
+  $('wrapGaContenido').innerHTML = d.paginas.length ? `<div class="tabla-wrap"><table>
+    <thead><tr><th>URL</th><th class="amount">Vistas</th><th class="amount">Eventos</th><th class="amount">Conversiones</th><th class="amount">Sesiones</th></tr></thead>
+    <tbody>${d.paginas.map(p => `<tr>
+      <td style="max-width:400px;overflow-wrap:anywhere;">${escapeHtml(p.url)}</td>
+      <td class="amount">${fmtNum(p.vistas)}</td>
+      <td class="amount">${fmtNum(p.eventos)}</td>
+      <td class="amount">${fmtNum(p.conversiones)}</td>
+      <td class="amount">${fmtNum(p.sesiones)}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>` : '<p class="empty-note">Sin datos en este período.</p>';
+}
+
+function renderGaAudiencia(d){
+  const tabla = (filas, columnas) => filas.length ? `<div class="tabla-wrap"><table>
+    <thead><tr>${columnas.map(c => `<th${c.amount ? ' class="amount"' : ''}>${c.label}</th>`).join('')}</tr></thead>
+    <tbody>${filas.map(f => `<tr>${columnas.map(c => `<td${c.amount ? ' class="amount"' : ''}>${c.render(f)}</td>`).join('')}</tr>`).join('')}</tbody>
+  </table></div>` : '<p class="empty-note">Sin datos en este período.</p>';
+  $('wrapGaContenido').innerHTML = `
+    <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:20px;">
+      <div>
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Ciudad</h3>
+        ${tabla(d.porCiudad, [
+          { label: 'Ciudad', render: f => escapeHtml(f.ciudad) },
+          { label: 'Usuarios', amount: true, render: f => fmtNum(f.usuarios) },
+          { label: 'Sesiones', amount: true, render: f => fmtNum(f.sesiones) },
+        ])}
+      </div>
+      <div>
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Edad</h3>
+        ${tabla(d.porEdad, [
+          { label: 'Rango', render: f => escapeHtml(f.rango) },
+          { label: 'Usuarios', amount: true, render: f => fmtNum(f.usuarios) },
+        ])}
+      </div>
+      <div>
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Sexo</h3>
+        ${tabla(d.porGenero, [
+          { label: 'Sexo', render: f => escapeHtml(GENERO_LABEL_GA[f.genero] || f.genero) },
+          { label: 'Usuarios', amount: true, render: f => fmtNum(f.usuarios) },
+        ])}
+      </div>
+    </div>
+    <div class="note-box">ℹ Edad y sexo dependen de que la propiedad tenga habilitada la recopilación de datos demográficos en Google Analytics -- si ves todo agrupado en "unknown"/"(not set)", revisa esa configuración en Analytics (no es un error de esta página).</div>
   `;
 }
 

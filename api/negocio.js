@@ -2671,6 +2671,134 @@ async function runReportGA4(propertyId, accessToken, body) {
   if (!res.ok) throw new Error(data.error?.message || 'Error consultando Google Analytics');
   return data;
 }
+// GA4 devuelve la fecha como "20260916" (sin separadores) -> se reformatea
+// a YYYY-MM-DD para que calce con fmtFecha del resto del sitio.
+function fechaGA4(raw) {
+  return raw && raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}` : (raw || '');
+}
+function numGA4(fila, i) {
+  return Number(fila?.metricValues?.[i]?.value ?? 0);
+}
+
+// KPIs generales, siempre visibles arriba del submenú (ver
+// SECCIONES_GA_VALIDAS más abajo) -- incluye bounceRate acá también, no
+// solo en la sección "Rebote", porque el usuario pidió específicamente
+// darle relevancia a ese dato.
+async function gaSeccionResumen(propertyId, accessToken, rangoFechas) {
+  const metricas = ['sessions', 'totalUsers', 'engagedSessions', 'transactions', 'purchaseRevenue', 'conversions', 'bounceRate'];
+  const data = await runReportGA4(propertyId, accessToken, { dateRanges: rangoFechas, metrics: metricas.map(name => ({ name })) });
+  const fila = data.rows?.[0];
+  const resumen = Object.fromEntries(metricas.map((nombre, i) => [nombre, numGA4(fila, i)]));
+  return { resumen, moneda: data.metadata?.currencyCode || null };
+}
+
+// Sección 1: "lo que ya había" -- tráfico por canal + tendencia diaria.
+async function gaSeccionTrafico(propertyId, accessToken, rangoFechas) {
+  const [canalData, diaData] = await Promise.all([
+    runReportGA4(propertyId, accessToken, {
+      dateRanges: rangoFechas,
+      dimensions: [{ name: 'sessionDefaultChannelGroup' }],
+      metrics: ['sessions', 'totalUsers', 'conversions', 'purchaseRevenue'].map(name => ({ name })),
+      orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+      limit: 15,
+    }),
+    runReportGA4(propertyId, accessToken, {
+      dateRanges: rangoFechas,
+      dimensions: [{ name: 'date' }],
+      metrics: ['sessions', 'totalUsers', 'transactions', 'purchaseRevenue'].map(name => ({ name })),
+      orderBys: [{ dimension: { dimensionName: 'date' } }],
+    }),
+  ]);
+  const porCanal = (canalData.rows || []).map(fila => ({
+    canal: fila.dimensionValues?.[0]?.value || '(sin definir)',
+    sesiones: numGA4(fila, 0), usuarios: numGA4(fila, 1), conversiones: numGA4(fila, 2), ingresos: numGA4(fila, 3),
+  }));
+  const porDia = (diaData.rows || []).map(fila => ({
+    fecha: fechaGA4(fila.dimensionValues?.[0]?.value),
+    sesiones: numGA4(fila, 0), usuarios: numGA4(fila, 1), transacciones: numGA4(fila, 2), ingresos: numGA4(fila, 3),
+  }));
+  return { porCanal, porDia, moneda: canalData.metadata?.currencyCode || null };
+}
+
+// Sección 2: rebote/salida rápida -- KPI general (bounceRate/engagementRate
+// de todo el sitio) + desglose por página de entrada, para ver DÓNDE se
+// concentra la salida rápida, no solo el número global.
+async function gaSeccionRebote(propertyId, accessToken, rangoFechas) {
+  const [resumenData, paginaData] = await Promise.all([
+    runReportGA4(propertyId, accessToken, {
+      dateRanges: rangoFechas,
+      metrics: ['bounceRate', 'engagementRate', 'sessions'].map(name => ({ name })),
+    }),
+    runReportGA4(propertyId, accessToken, {
+      dateRanges: rangoFechas,
+      dimensions: [{ name: 'landingPagePlusQueryString' }],
+      metrics: ['sessions', 'bounceRate', 'engagementRate'].map(name => ({ name })),
+      orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+      limit: 15,
+    }),
+  ]);
+  const filaResumen = resumenData.rows?.[0];
+  const porPagina = (paginaData.rows || []).map(fila => ({
+    pagina: fila.dimensionValues?.[0]?.value || '(sin definir)',
+    sesiones: numGA4(fila, 0), rebote: numGA4(fila, 1), engagement: numGA4(fila, 2),
+  }));
+  return { bounceRate: numGA4(filaResumen, 0), engagementRate: numGA4(filaResumen, 1), sesionesTotales: numGA4(filaResumen, 2), porPagina };
+}
+
+// Sección 3: páginas/URL más relevantes en conversiones y eventos.
+async function gaSeccionPaginas(propertyId, accessToken, rangoFechas) {
+  const data = await runReportGA4(propertyId, accessToken, {
+    dateRanges: rangoFechas,
+    dimensions: [{ name: 'pagePath' }],
+    metrics: ['screenPageViews', 'eventCount', 'conversions', 'sessions'].map(name => ({ name })),
+    orderBys: [{ metric: { metricName: 'conversions' }, desc: true }],
+    limit: 20,
+  });
+  const paginas = (data.rows || []).map(fila => ({
+    url: fila.dimensionValues?.[0]?.value || '(sin definir)',
+    vistas: numGA4(fila, 0), eventos: numGA4(fila, 1), conversiones: numGA4(fila, 2), sesiones: numGA4(fila, 3),
+  }));
+  return { paginas };
+}
+
+// Sección 4: audiencia -- ciudad, edad, sexo. Edad/sexo dependen de que la
+// propiedad tenga habilitada la recopilación de datos demográficos (Google
+// Signals) -- si no, GA4 devuelve todo agrupado en "(not set)"/"unknown",
+// no es un error del código.
+async function gaSeccionAudiencia(propertyId, accessToken, rangoFechas) {
+  const [ciudadData, edadData, generoData] = await Promise.all([
+    runReportGA4(propertyId, accessToken, {
+      dateRanges: rangoFechas,
+      dimensions: [{ name: 'city' }],
+      metrics: ['totalUsers', 'sessions'].map(name => ({ name })),
+      orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
+      limit: 15,
+    }),
+    runReportGA4(propertyId, accessToken, {
+      dateRanges: rangoFechas,
+      dimensions: [{ name: 'userAgeBracket' }],
+      metrics: [{ name: 'totalUsers' }],
+      orderBys: [{ dimension: { dimensionName: 'userAgeBracket' } }],
+    }),
+    runReportGA4(propertyId, accessToken, {
+      dateRanges: rangoFechas,
+      dimensions: [{ name: 'userGender' }],
+      metrics: [{ name: 'totalUsers' }],
+      orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
+    }),
+  ]);
+  const porCiudad = (ciudadData.rows || []).map(fila => ({ ciudad: fila.dimensionValues?.[0]?.value || '(sin definir)', usuarios: numGA4(fila, 0), sesiones: numGA4(fila, 1) }));
+  const porEdad = (edadData.rows || []).map(fila => ({ rango: fila.dimensionValues?.[0]?.value || '(sin definir)', usuarios: numGA4(fila, 0) }));
+  const porGenero = (generoData.rows || []).map(fila => ({ genero: fila.dimensionValues?.[0]?.value || '(sin definir)', usuarios: numGA4(fila, 0) }));
+  return { porCiudad, porEdad, porGenero };
+}
+
+// "seccion" separa el módulo en 4 pestañas (ver el submenú en
+// analisis.html) para no traer todo de una vez -- cada una se pide recién
+// cuando el usuario la abre. "resumen" (default) son los KPI que quedan
+// siempre visibles arriba del submenú, incluido en el conteo pero no es
+// una pestaña en sí.
+const SECCIONES_GA_VALIDAS = { resumen: gaSeccionResumen, trafico: gaSeccionTrafico, rebote: gaSeccionRebote, paginas: gaSeccionPaginas, audiencia: gaSeccionAudiencia };
 async function manejarGoogleAnalytics(req, res, sesion) {
   try {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -2683,6 +2811,8 @@ async function manejarGoogleAnalytics(req, res, sesion) {
     const hace30 = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
     const desde = req.query.desde || hace30;
     const hasta = req.query.hasta || hoy;
+
+    const seccion = SECCIONES_GA_VALIDAS[req.query.seccion] ? req.query.seccion : 'resumen';
 
     let accessToken;
     try {
@@ -2698,29 +2828,9 @@ async function manejarGoogleAnalytics(req, res, sesion) {
     }
 
     const rangoFechas = [{ startDate: desde, endDate: hasta }];
-    const metricasResumen = ['sessions', 'totalUsers', 'engagedSessions', 'transactions', 'purchaseRevenue', 'conversions'];
-
-    let resumenData, canalData, diaData;
     try {
-      [resumenData, canalData, diaData] = await Promise.all([
-        runReportGA4(propertyId, accessToken, {
-          dateRanges: rangoFechas,
-          metrics: metricasResumen.map(name => ({ name })),
-        }),
-        runReportGA4(propertyId, accessToken, {
-          dateRanges: rangoFechas,
-          dimensions: [{ name: 'sessionDefaultChannelGroup' }],
-          metrics: ['sessions', 'totalUsers', 'conversions', 'purchaseRevenue'].map(name => ({ name })),
-          orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
-          limit: 15,
-        }),
-        runReportGA4(propertyId, accessToken, {
-          dateRanges: rangoFechas,
-          dimensions: [{ name: 'date' }],
-          metrics: ['sessions', 'totalUsers', 'transactions', 'purchaseRevenue'].map(name => ({ name })),
-          orderBys: [{ dimension: { dimensionName: 'date' } }],
-        }),
-      ]);
+      const datosSeccion = await SECCIONES_GA_VALIDAS[seccion](propertyId, accessToken, rangoFechas);
+      return res.status(200).json({ desde, hasta, seccion, ...datosSeccion });
     } catch (err) {
       // Igual que en la autenticación: ni el propertyId ni el client_email
       // son secretos, se incluyen en el detalle para poder comparar a ojo
@@ -2729,42 +2839,6 @@ async function manejarGoogleAnalytics(req, res, sesion) {
       const emailUsado = (process.env.GOOGLE_ANALYTICS_CLIENT_EMAIL || '').trim();
       return res.status(200).json({ error: 'Error consultando Google Analytics', detail: `${String(err.message || err)} (propertyId: "${propertyId}", client_email: "${emailUsado}")` });
     }
-
-    const filaResumen = resumenData.rows?.[0];
-    const resumen = Object.fromEntries(metricasResumen.map((nombre, i) => [nombre, Number(filaResumen?.metricValues?.[i]?.value ?? 0)]));
-
-    const porCanal = (canalData.rows || []).map(fila => ({
-      canal: fila.dimensionValues?.[0]?.value || '(sin definir)',
-      sesiones: Number(fila.metricValues?.[0]?.value ?? 0),
-      usuarios: Number(fila.metricValues?.[1]?.value ?? 0),
-      conversiones: Number(fila.metricValues?.[2]?.value ?? 0),
-      ingresos: Number(fila.metricValues?.[3]?.value ?? 0),
-    }));
-
-    // GA4 devuelve la fecha como "20260916" (sin separadores) -> se
-    // reformatea a YYYY-MM-DD para que calce con fmtFecha del resto del sitio.
-    const porDia = (diaData.rows || []).map(fila => {
-      const raw = fila.dimensionValues?.[0]?.value || '';
-      const fecha = raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}` : raw;
-      return {
-        fecha,
-        sesiones: Number(fila.metricValues?.[0]?.value ?? 0),
-        usuarios: Number(fila.metricValues?.[1]?.value ?? 0),
-        transacciones: Number(fila.metricValues?.[2]?.value ?? 0),
-        ingresos: Number(fila.metricValues?.[3]?.value ?? 0),
-      };
-    });
-
-    // GA4 no informa los montos en la moneda real de cada venta -- los
-    // convierte a la "moneda de referencia" configurada en la propiedad
-    // (Admin -> Property Settings -> Currency, GA4 Data API v1beta
-    // RunReportResponse.metadata.currencyCode). Si esa propiedad quedó en
-    // USD (el default más común) en vez de CLP, hay que mostrarlo explícito
-    // -- de lo contrario un "$5.041" se lee como pesos chilenos cuando en
-    // realidad son dólares.
-    const moneda = resumenData.metadata?.currencyCode || null;
-
-    return res.status(200).json({ desde, hasta, resumen, porCanal, porDia, moneda });
   } catch (err) {
     return res.status(500).json({ error: 'Error gestionando Google Analytics', detail: String(err) });
   }
