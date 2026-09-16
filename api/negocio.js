@@ -2755,7 +2755,16 @@ async function manejarGoogleAnalytics(req, res, sesion) {
       };
     });
 
-    return res.status(200).json({ desde, hasta, resumen, porCanal, porDia });
+    // GA4 no informa los montos en la moneda real de cada venta -- los
+    // convierte a la "moneda de referencia" configurada en la propiedad
+    // (Admin -> Property Settings -> Currency, GA4 Data API v1beta
+    // RunReportResponse.metadata.currencyCode). Si esa propiedad quedó en
+    // USD (el default más común) en vez de CLP, hay que mostrarlo explícito
+    // -- de lo contrario un "$5.041" se lee como pesos chilenos cuando en
+    // realidad son dólares.
+    const moneda = resumenData.metadata?.currencyCode || null;
+
+    return res.status(200).json({ desde, hasta, resumen, porCanal, porDia, moneda });
   } catch (err) {
     return res.status(500).json({ error: 'Error gestionando Google Analytics', detail: String(err) });
   }

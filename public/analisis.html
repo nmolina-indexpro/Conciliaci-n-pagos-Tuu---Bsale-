@@ -1005,12 +1005,24 @@ function fmtFechaGA(fechaStr){
   const [y, m, d] = fechaStr.split('-');
   return `${d}-${m}-${y}`;
 }
+// GA4 informa los montos en la "moneda de referencia" configurada en la
+// propiedad (Admin -> Property Settings -> Currency), NO en la moneda real
+// de cada venta -- si la propiedad quedó en USD (el default más común) en
+// vez de CLP, mostrarlo con un simple "$" se leería como pesos cuando en
+// realidad son dólares. Si moneda viene null/CLP se asume pesos (fmtMoneda,
+// igual al resto del sitio); si es otra, se antepone el código explícito.
+function fmtMonedaGA(n, moneda){
+  const num = fmtNum(Math.round(n || 0));
+  return (!moneda || moneda === 'CLP') ? '$' + num : `${moneda} ${num}`;
+}
 function renderGoogleAnalytics(){
   const d = googleAnalyticsActual;
   if(!d) return;
   const r = d.resumen;
+  const monedaDistinta = d.moneda && d.moneda !== 'CLP';
   const tasaConversion = r.sessions > 0 ? (r.conversions / r.sessions * 100) : 0;
   $('wrapGoogleAnalytics').innerHTML = `
+    ${monedaDistinta ? `<div class="note-box">⚠ Esta propiedad de GA4 informa los montos en <b>${escapeHtml(d.moneda)}</b>, no en pesos chilenos (se configura en Google Analytics: Admin → Property Settings → Currency). Los ingresos de abajo están en ${escapeHtml(d.moneda)}, no en CLP.</div>` : ''}
     <div class="grid">
       <div class="card">
         <div class="lbl">Sesiones</div>
@@ -1026,33 +1038,33 @@ function renderGoogleAnalytics(){
         <div class="pct">${tasaConversion.toFixed(1)}% conversión</div>
       </div>
       <div class="card">
-        <div class="lbl">Ingresos (GA)</div>
-        <div class="big">${fmtMoneda(r.purchaseRevenue)}</div>
+        <div class="lbl">Ingresos (GA)${monedaDistinta ? ` — ${escapeHtml(d.moneda)}` : ''}</div>
+        <div class="big">${fmtMonedaGA(r.purchaseRevenue, d.moneda)}</div>
       </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
       <div>
         <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Tráfico por canal</h3>
         ${d.porCanal.length ? `<div class="tabla-wrap"><table>
-          <thead><tr><th>Canal</th><th class="amount">Sesiones</th><th class="amount">Usuarios</th><th class="amount">Conversiones</th><th class="amount">Ingresos</th></tr></thead>
+          <thead><tr><th>Canal</th><th class="amount">Sesiones</th><th class="amount">Usuarios</th><th class="amount">Conversiones</th><th class="amount">Ingresos${monedaDistinta ? ` (${escapeHtml(d.moneda)})` : ''}</th></tr></thead>
           <tbody>${d.porCanal.map(c => `<tr>
             <td>${escapeHtml(c.canal)}</td>
             <td class="amount">${fmtNum(c.sesiones)}</td>
             <td class="amount">${fmtNum(c.usuarios)}</td>
             <td class="amount">${fmtNum(c.conversiones)}</td>
-            <td class="amount">${fmtMoneda(c.ingresos)}</td>
+            <td class="amount">${fmtMonedaGA(c.ingresos, d.moneda)}</td>
           </tr>`).join('')}</tbody>
         </table></div>` : '<p class="empty-note">Sin datos en este período.</p>'}
       </div>
       <div>
         <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Tendencia diaria</h3>
         ${d.porDia.length ? `<div class="tabla-wrap" style="max-height:320px;overflow-y:auto;"><table>
-          <thead><tr><th>Fecha</th><th class="amount">Sesiones</th><th class="amount">Transacciones</th><th class="amount">Ingresos</th></tr></thead>
+          <thead><tr><th>Fecha</th><th class="amount">Sesiones</th><th class="amount">Transacciones</th><th class="amount">Ingresos${monedaDistinta ? ` (${escapeHtml(d.moneda)})` : ''}</th></tr></thead>
           <tbody>${d.porDia.map(f => `<tr>
             <td>${fmtFechaGA(f.fecha)}</td>
             <td class="amount">${fmtNum(f.sesiones)}</td>
             <td class="amount">${fmtNum(f.transacciones)}</td>
-            <td class="amount">${fmtMoneda(f.ingresos)}</td>
+            <td class="amount">${fmtMonedaGA(f.ingresos, d.moneda)}</td>
           </tr>`).join('')}</tbody>
         </table></div>` : '<p class="empty-note">Sin datos en este período.</p>'}
       </div>
