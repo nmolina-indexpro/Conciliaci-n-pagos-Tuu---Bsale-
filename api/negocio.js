@@ -13,6 +13,7 @@ import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, ase
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
+import { sign as firmarRsaSha256 } from 'node:crypto';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
 const ESTADOS_VALIDOS = ['pendiente', 'en progreso', 'resuelto'];
@@ -104,6 +105,7 @@ export default async function handler(req, res) {
   if (recurso === 'recomendacion-compra-excluidos') return manejarRecomendacionCompraExcluidos(req, res, sesion);
   if (recurso === 'compras-intcomex-excluidos') return manejarComprasIntcomexExcluidos(req, res, sesion);
   if (recurso === 'compras-intcomex-comentarios') return manejarComprasIntcomexComentarios(req, res, sesion);
+  if (recurso === 'google-analytics') return manejarGoogleAnalytics(req, res, sesion);
   if (recurso === 'comparador-solicitudes') return manejarComparadorSolicitudes(req, res, sesion);
   if (recurso === 'comparador-solicitud-detalle') return manejarComparadorSolicitudDetalle(req, res, sesion);
   if (recurso === 'comparador-solicitud-items') return manejarComparadorSolicitudItems(req, res, sesion);
@@ -2603,6 +2605,143 @@ async function manejarComprasIntcomexComentarios(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error gestionando comentarios de Intcomex', detail: String(err) });
+  }
+}
+
+// ---------- Google Analytics (GA4) ----------
+// Módulo "📊 Google Analytics" en Análisis -- pedido del usuario. Sin tabla
+// propia: es un simple proxy hacia la Analytics Data API (GA4), los datos
+// no se guardan acá. Se llama con REST directo + una cuenta de servicio de
+// Google Cloud, en vez del SDK oficial (@google-analytics/data) -- mismo
+// criterio que el resto de este archivo (ver Shopify: OAuth Client
+// Credentials Grant a mano con fetch, sin SDK).
+//
+// Variables de entorno requeridas (Vercel -> Settings -> Environment
+// Variables, cuenta de servicio con rol "Viewer" en la propiedad GA4):
+//   GOOGLE_ANALYTICS_CLIENT_EMAIL  -- el "client_email" del JSON de la cuenta de servicio
+//   GOOGLE_ANALYTICS_PRIVATE_KEY   -- el "private_key" del mismo JSON (con los \n literales, se normalizan abajo)
+//   GOOGLE_ANALYTICS_PROPERTY_ID   -- el ID numérico de la propiedad GA4 (Admin -> Property details), SIN el prefijo "properties/"
+function base64Url(buffer) {
+  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+// JWT firmado (RS256) con la cuenta de servicio, intercambiado por un
+// access token OAuth2 de corta duración (1 hora) -- no se cachea entre
+// invocaciones (cada función serverless puede ser una instancia nueva),
+// mismo criterio que el token de Shopify ("fetches a fresh token per request").
+async function obtenerAccessTokenGoogleAnalytics() {
+  const clientEmail = process.env.GOOGLE_ANALYTICS_CLIENT_EMAIL;
+  const privateKey = (process.env.GOOGLE_ANALYTICS_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+  if (!clientEmail || !privateKey) {
+    throw new Error('Faltan las variables de entorno GOOGLE_ANALYTICS_CLIENT_EMAIL / GOOGLE_ANALYTICS_PRIVATE_KEY');
+  }
+  const ahora = Math.floor(Date.now() / 1000);
+  const encabezado = base64Url(Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
+  const cuerpo = base64Url(Buffer.from(JSON.stringify({
+    iss: clientEmail,
+    scope: 'https://www.googleapis.com/auth/analytics.readonly',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: ahora,
+    exp: ahora + 3600,
+  })));
+  const sinFirmar = `${encabezado}.${cuerpo}`;
+  const firma = base64Url(firmarRsaSha256('RSA-SHA256', Buffer.from(sinFirmar), privateKey));
+  const jwt = `${sinFirmar}.${firma}`;
+
+  const res = await fetchConTimeout('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=${encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}&assertion=${encodeURIComponent(jwt)}`,
+  }, 15000);
+  const data = await res.json();
+  if (!res.ok || !data.access_token) throw new Error(data.error_description || data.error || 'No se pudo autenticar con Google (revisa las credenciales de la cuenta de servicio)');
+  return data.access_token;
+}
+async function runReportGA4(propertyId, accessToken, body) {
+  const res = await fetchConTimeout(`https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify(body),
+  }, 15000);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || 'Error consultando Google Analytics');
+  return data;
+}
+async function manejarGoogleAnalytics(req, res, sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const propertyId = process.env.GOOGLE_ANALYTICS_PROPERTY_ID;
+    if (!propertyId) return res.status(200).json({ error: 'Google Analytics no está configurado (falta GOOGLE_ANALYTICS_PROPERTY_ID en las variables de entorno)' });
+
+    // desde/hasta en YYYY-MM-DD, mismo formato que el resto de la página --
+    // por defecto los últimos 30 días si no vienen.
+    const hoy = new Date().toISOString().slice(0, 10);
+    const hace30 = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+    const desde = req.query.desde || hace30;
+    const hasta = req.query.hasta || hoy;
+
+    let accessToken;
+    try {
+      accessToken = await obtenerAccessTokenGoogleAnalytics();
+    } catch (err) {
+      return res.status(200).json({ error: 'No se pudo autenticar con Google Analytics', detail: String(err.message || err) });
+    }
+
+    const rangoFechas = [{ startDate: desde, endDate: hasta }];
+    const metricasResumen = ['sessions', 'totalUsers', 'engagedSessions', 'transactions', 'purchaseRevenue', 'conversions'];
+
+    let resumenData, canalData, diaData;
+    try {
+      [resumenData, canalData, diaData] = await Promise.all([
+        runReportGA4(propertyId, accessToken, {
+          dateRanges: rangoFechas,
+          metrics: metricasResumen.map(name => ({ name })),
+        }),
+        runReportGA4(propertyId, accessToken, {
+          dateRanges: rangoFechas,
+          dimensions: [{ name: 'sessionDefaultChannelGroup' }],
+          metrics: ['sessions', 'totalUsers', 'conversions', 'purchaseRevenue'].map(name => ({ name })),
+          orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+          limit: 15,
+        }),
+        runReportGA4(propertyId, accessToken, {
+          dateRanges: rangoFechas,
+          dimensions: [{ name: 'date' }],
+          metrics: ['sessions', 'totalUsers', 'transactions', 'purchaseRevenue'].map(name => ({ name })),
+          orderBys: [{ dimension: { dimensionName: 'date' } }],
+        }),
+      ]);
+    } catch (err) {
+      return res.status(200).json({ error: 'Error consultando Google Analytics', detail: String(err.message || err) });
+    }
+
+    const filaResumen = resumenData.rows?.[0];
+    const resumen = Object.fromEntries(metricasResumen.map((nombre, i) => [nombre, Number(filaResumen?.metricValues?.[i]?.value ?? 0)]));
+
+    const porCanal = (canalData.rows || []).map(fila => ({
+      canal: fila.dimensionValues?.[0]?.value || '(sin definir)',
+      sesiones: Number(fila.metricValues?.[0]?.value ?? 0),
+      usuarios: Number(fila.metricValues?.[1]?.value ?? 0),
+      conversiones: Number(fila.metricValues?.[2]?.value ?? 0),
+      ingresos: Number(fila.metricValues?.[3]?.value ?? 0),
+    }));
+
+    // GA4 devuelve la fecha como "20260916" (sin separadores) -> se
+    // reformatea a YYYY-MM-DD para que calce con fmtFecha del resto del sitio.
+    const porDia = (diaData.rows || []).map(fila => {
+      const raw = fila.dimensionValues?.[0]?.value || '';
+      const fecha = raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}` : raw;
+      return {
+        fecha,
+        sesiones: Number(fila.metricValues?.[0]?.value ?? 0),
+        usuarios: Number(fila.metricValues?.[1]?.value ?? 0),
+        transacciones: Number(fila.metricValues?.[2]?.value ?? 0),
+        ingresos: Number(fila.metricValues?.[3]?.value ?? 0),
+      };
+    });
+
+    return res.status(200).json({ desde, hasta, resumen, porCanal, porDia });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error gestionando Google Analytics', detail: String(err) });
   }
 }
 

@@ -243,6 +243,29 @@
     <div id="wrapVariacionPrecio"><p class="empty-note">Cargando...</p></div>
   </div>
 
+  <div class="seccion" id="seccionGoogleAnalytics">
+    <div class="seccion-head">
+      <div>
+        <h2>📊 Google Analytics</h2>
+        <div class="sub" style="margin-bottom:0;">Tráfico y conversiones del sitio según Google Analytics 4 (propiedad configurada en Vercel). Si no ves datos, puede que falte configurar la cuenta de servicio.</div>
+      </div>
+      <div class="seccion-head-acciones">
+        <button class="btn-toggle-seccion" id="toggle-seccionGoogleAnalytics" onclick="toggleSeccion('seccionGoogleAnalytics')" title="Minimizar">▾</button>
+      </div>
+    </div>
+    <div class="filtros" style="margin-top:6px;">
+      <div class="filtro-rango-fechas">
+        <div class="date-field"><label for="gaDesde">Desde</label><input type="date" id="gaDesde" onchange="aplicarRangoPersonalizadoGA()"></div>
+        <div class="date-field"><label for="gaHasta">Hasta</label><input type="date" id="gaHasta" onchange="aplicarRangoPersonalizadoGA()"></div>
+      </div>
+      <button class="btn-ghost btn-compact" id="btnGa7dias" onclick="setRangoRapidoGA('7dias')">Últimos 7 días</button>
+      <button class="btn-ghost btn-compact active" id="btnGa30dias" onclick="setRangoRapidoGA('30dias')">Últimos 30 días</button>
+      <button class="btn-ghost btn-compact" id="btnGa90dias" onclick="setRangoRapidoGA('90dias')">Últimos 90 días</button>
+      <button class="btn-ghost btn-compact" id="btnGaMes" onclick="setRangoRapidoGA('mes')">Mes actual</button>
+    </div>
+    <div id="wrapGoogleAnalytics" style="margin-top:14px;"><p class="empty-note">Cargando...</p></div>
+  </div>
+
   <div class="seccion" id="seccionDetalle" style="display:none;">
     <div class="seccion-head">
       <div>
@@ -298,7 +321,7 @@ function fmtNum(n){ return new Intl.NumberFormat('es-CL').format(n || 0); }
 // El estado se guarda en localStorage por sección (no en el servidor):
 // es una preferencia de cómo cada persona quiere ver la pantalla en SU
 // navegador, no un dato que otros usuarios deban compartir.
-const SECCIONES_COLAPSABLES = ['seccionClientesRecurrentes', 'seccionProductosEstancados', 'seccionVariacionPrecio'];
+const SECCIONES_COLAPSABLES = ['seccionClientesRecurrentes', 'seccionProductosEstancados', 'seccionVariacionPrecio', 'seccionGoogleAnalytics'];
 function toggleSeccion(id, forzarColapsada){
   const el = $(id);
   if(!el) return;
@@ -338,6 +361,7 @@ async function cargarSesionUsuario(){
     cargarAnalisis();
     cargarVentasBaja();
     setRangoRapidoVarPrecio('mes'); // dispara cargarVariacionPrecio() con el rango por defecto (mes actual)
+    setRangoRapidoGA('30dias'); // dispara cargarGoogleAnalytics() con el rango por defecto (últimos 30 días)
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){
@@ -933,6 +957,106 @@ function renderVariacionPrecio(){
       </tr></thead>
       <tbody>${filas}</tbody>
     </table></div>
+  `;
+}
+
+// ---------- Google Analytics (GA4) ----------
+// Proxy simple hacia manejarGoogleAnalytics (api/negocio.js) -- sin tabla
+// propia, los datos se piden en vivo cada vez. Reutiliza los helpers de
+// fecha de Variación de precio (hoyStrVp/addDaysStrVp/etc.) porque son
+// utilidades de fecha genéricas, no algo específico de esa sección.
+const BOTONES_RANGO_GA = { '7dias': 'btnGa7dias', '30dias': 'btnGa30dias', '90dias': 'btnGa90dias', mes: 'btnGaMes' };
+function setRangoRapidoGA(tipo){
+  let desde, hasta;
+  if(tipo === '7dias'){ desde = addDaysStrVp(hoyStrVp, -6); hasta = hoyStrVp; }
+  else if(tipo === '90dias'){ desde = addDaysStrVp(hoyStrVp, -89); hasta = hoyStrVp; }
+  else if(tipo === 'mes'){ desde = firstDayOfMonthStrVp(hoyStrVp); hasta = lastDayOfMonthStrVp(hoyStrVp); }
+  else { desde = addDaysStrVp(hoyStrVp, -29); hasta = hoyStrVp; } // '30dias' (default)
+  $('gaDesde').value = desde;
+  $('gaHasta').value = hasta;
+  Object.values(BOTONES_RANGO_GA).forEach(id => $(id).classList.remove('active'));
+  if(BOTONES_RANGO_GA[tipo]) $(BOTONES_RANGO_GA[tipo]).classList.add('active');
+  cargarGoogleAnalytics();
+}
+function aplicarRangoPersonalizadoGA(){
+  Object.values(BOTONES_RANGO_GA).forEach(id => $(id).classList.remove('active'));
+  cargarGoogleAnalytics();
+}
+
+let googleAnalyticsActual = null;
+async function cargarGoogleAnalytics(){
+  try{
+    const desde = $('gaDesde').value, hasta = $('gaHasta').value;
+    const qs = desde && hasta ? `&desde=${desde}&hasta=${hasta}` : '';
+    const res = await fetch(`/api/negocio?recurso=google-analytics${qs}`);
+    const data = await res.json();
+    if(!res.ok || data.error){
+      $('wrapGoogleAnalytics').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar.')}${data.detail ? `<br><span style="font-size:11px;">${escapeHtml(data.detail)}</span>` : ''}</p>`;
+      return;
+    }
+    googleAnalyticsActual = data;
+    renderGoogleAnalytics();
+  }catch(err){
+    $('wrapGoogleAnalytics').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+function fmtFechaGA(fechaStr){
+  if(!fechaStr) return '—';
+  const [y, m, d] = fechaStr.split('-');
+  return `${d}-${m}-${y}`;
+}
+function renderGoogleAnalytics(){
+  const d = googleAnalyticsActual;
+  if(!d) return;
+  const r = d.resumen;
+  const tasaConversion = r.sessions > 0 ? (r.conversions / r.sessions * 100) : 0;
+  $('wrapGoogleAnalytics').innerHTML = `
+    <div class="grid">
+      <div class="card">
+        <div class="lbl">Sesiones</div>
+        <div class="big">${fmtNum(r.sessions)}</div>
+      </div>
+      <div class="card">
+        <div class="lbl">Usuarios</div>
+        <div class="big">${fmtNum(r.totalUsers)}</div>
+      </div>
+      <div class="card destacada">
+        <div class="lbl">Transacciones</div>
+        <div class="big">${fmtNum(r.transactions)}</div>
+        <div class="pct">${tasaConversion.toFixed(1)}% conversión</div>
+      </div>
+      <div class="card">
+        <div class="lbl">Ingresos (GA)</div>
+        <div class="big">${fmtMoneda(r.purchaseRevenue)}</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
+      <div>
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Tráfico por canal</h3>
+        ${d.porCanal.length ? `<div class="tabla-wrap"><table>
+          <thead><tr><th>Canal</th><th class="amount">Sesiones</th><th class="amount">Usuarios</th><th class="amount">Conversiones</th><th class="amount">Ingresos</th></tr></thead>
+          <tbody>${d.porCanal.map(c => `<tr>
+            <td>${escapeHtml(c.canal)}</td>
+            <td class="amount">${fmtNum(c.sesiones)}</td>
+            <td class="amount">${fmtNum(c.usuarios)}</td>
+            <td class="amount">${fmtNum(c.conversiones)}</td>
+            <td class="amount">${fmtMoneda(c.ingresos)}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>` : '<p class="empty-note">Sin datos en este período.</p>'}
+      </div>
+      <div>
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Tendencia diaria</h3>
+        ${d.porDia.length ? `<div class="tabla-wrap" style="max-height:320px;overflow-y:auto;"><table>
+          <thead><tr><th>Fecha</th><th class="amount">Sesiones</th><th class="amount">Transacciones</th><th class="amount">Ingresos</th></tr></thead>
+          <tbody>${d.porDia.map(f => `<tr>
+            <td>${fmtFechaGA(f.fecha)}</td>
+            <td class="amount">${fmtNum(f.sesiones)}</td>
+            <td class="amount">${fmtNum(f.transacciones)}</td>
+            <td class="amount">${fmtMoneda(f.ingresos)}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>` : '<p class="empty-note">Sin datos en este período.</p>'}
+      </div>
+    </div>
   `;
 }
 
