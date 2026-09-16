@@ -2761,36 +2761,36 @@ async function gaSeccionPaginas(propertyId, accessToken, rangoFechas) {
   return { paginas };
 }
 
-// Sección 4: audiencia -- ciudad, edad, sexo. Edad/sexo dependen de que la
-// propiedad tenga habilitada la recopilación de datos demográficos (Google
-// Signals) -- si no, GA4 devuelve todo agrupado en "(not set)"/"unknown",
-// no es un error del código.
+// Sección 4: audiencia. Pedido del usuario: "userAgeBracket"/"userGender"
+// venían mayormente como "unknown" -- eso depende de que la propiedad
+// tenga habilitada la recopilación de datos demográficos (Google Signals)
+// Y del consentimiento de cada visitante, GA4 no lo puede inferir solo, así
+// que no hay forma de "sacarle" ese dato si no está. En vez de mostrar solo
+// eso, se agregan dimensiones que GA4 SIEMPRE puede determinar (vienen del
+// request, no de señales de terceros): país, región, dispositivo y
+// navegador -- así la pestaña sigue siendo útil aunque edad/sexo/ciudad no
+// tengan buena cobertura en esta cuenta.
+async function gaReporteDimensionUnica(propertyId, accessToken, rangoFechas, dimension, ordenarPorDimension) {
+  const data = await runReportGA4(propertyId, accessToken, {
+    dateRanges: rangoFechas,
+    dimensions: [{ name: dimension }],
+    metrics: [{ name: 'totalUsers' }],
+    orderBys: ordenarPorDimension ? [{ dimension: { dimensionName: dimension } }] : [{ metric: { metricName: 'totalUsers' }, desc: true }],
+    limit: 15,
+  });
+  return (data.rows || []).map(fila => ({ etiqueta: fila.dimensionValues?.[0]?.value || '(not set)', usuarios: numGA4(fila, 0) }));
+}
 async function gaSeccionAudiencia(propertyId, accessToken, rangoFechas) {
-  const [ciudadData, edadData, generoData] = await Promise.all([
-    runReportGA4(propertyId, accessToken, {
-      dateRanges: rangoFechas,
-      dimensions: [{ name: 'city' }],
-      metrics: ['totalUsers', 'sessions'].map(name => ({ name })),
-      orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
-      limit: 15,
-    }),
-    runReportGA4(propertyId, accessToken, {
-      dateRanges: rangoFechas,
-      dimensions: [{ name: 'userAgeBracket' }],
-      metrics: [{ name: 'totalUsers' }],
-      orderBys: [{ dimension: { dimensionName: 'userAgeBracket' } }],
-    }),
-    runReportGA4(propertyId, accessToken, {
-      dateRanges: rangoFechas,
-      dimensions: [{ name: 'userGender' }],
-      metrics: [{ name: 'totalUsers' }],
-      orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }],
-    }),
+  const [porPais, porRegion, porCiudad, porDispositivo, porNavegador, porEdad, porGenero] = await Promise.all([
+    gaReporteDimensionUnica(propertyId, accessToken, rangoFechas, 'country'),
+    gaReporteDimensionUnica(propertyId, accessToken, rangoFechas, 'region'),
+    gaReporteDimensionUnica(propertyId, accessToken, rangoFechas, 'city'),
+    gaReporteDimensionUnica(propertyId, accessToken, rangoFechas, 'deviceCategory'),
+    gaReporteDimensionUnica(propertyId, accessToken, rangoFechas, 'browser'),
+    gaReporteDimensionUnica(propertyId, accessToken, rangoFechas, 'userAgeBracket', true),
+    gaReporteDimensionUnica(propertyId, accessToken, rangoFechas, 'userGender'),
   ]);
-  const porCiudad = (ciudadData.rows || []).map(fila => ({ ciudad: fila.dimensionValues?.[0]?.value || '(sin definir)', usuarios: numGA4(fila, 0), sesiones: numGA4(fila, 1) }));
-  const porEdad = (edadData.rows || []).map(fila => ({ rango: fila.dimensionValues?.[0]?.value || '(sin definir)', usuarios: numGA4(fila, 0) }));
-  const porGenero = (generoData.rows || []).map(fila => ({ genero: fila.dimensionValues?.[0]?.value || '(sin definir)', usuarios: numGA4(fila, 0) }));
-  return { porCiudad, porEdad, porGenero };
+  return { porPais, porRegion, porCiudad, porDispositivo, porNavegador, porEdad, porGenero };
 }
 
 // "seccion" separa el módulo en 4 pestañas (ver el submenú en
