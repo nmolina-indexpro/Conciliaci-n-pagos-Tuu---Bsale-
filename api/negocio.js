@@ -2750,19 +2750,49 @@ async function gaSeccionRebote(propertyId, accessToken, rangoFechas) {
   return { bounceRate: numGA4(filaResumen, 0), engagementRate: numGA4(filaResumen, 1), sesionesTotales: numGA4(filaResumen, 2), porPagina };
 }
 
-// Sección 3: páginas/URL más relevantes en conversiones y eventos.
+// Reemplaza segmentos de ruta que parecen tokens/IDs generados (ej. un
+// checkout de Shopify: "/checkouts/cn/hWNFobOxBzrNpeDVDLkuUKPK/es-cl/
+// thank-you", uno distinto por cada pedido) por "{id}" -- pedido del
+// usuario: esas páginas casi-únicas tapaban cualquier otra página
+// realmente distinta en el top de conversiones. Un segmento cuenta como
+// token si tiene 15+ caracteres, NO tiene guiones/guion bajo, y mezcla
+// mayúsculas y minúsculas -- un slug real (kebab-case: "pantallas-aio",
+// "thank-you") siempre usa guiones como separador, así que esto agrupa
+// cualquier ruta dinámica (no solo checkout) sin depender de que el token
+// tenga o no algún dígito (probado: hay tokens de Shopify sin ningún
+// dígito, exigirlo dejaba grupos sueltos por pura casualidad).
+function normalizarUrlGA4(url) {
+  const pareceToken = seg => seg.length >= 15 && !/[-_]/.test(seg) && /[a-z]/.test(seg) && /[A-Z]/.test(seg);
+  return url.split('/').map(seg => pareceToken(seg) ? '{id}' : seg).join('/');
+}
+// Sección 3: páginas/URL más relevantes en conversiones y eventos,
+// agrupadas por patrón de URL (ver normalizarUrlGA4). Se traen bastantes
+// más filas de las que se van a mostrar (limit 200) porque agrupar DESPUÉS
+// de traer solo el top 20 sin agrupar no sirve de nada -- si el top 20 ya
+// viene copado de checkouts, otras páginas relevantes ni siquiera llegan a
+// pedirse. El límite de cuántas mostrar lo decide el selector del
+// frontend, no el backend.
 async function gaSeccionPaginas(propertyId, accessToken, rangoFechas) {
   const data = await runReportGA4(propertyId, accessToken, {
     dateRanges: rangoFechas,
     dimensions: [{ name: 'pagePath' }],
     metrics: ['screenPageViews', 'eventCount', 'conversions', 'sessions'].map(name => ({ name })),
     orderBys: [{ metric: { metricName: 'conversions' }, desc: true }],
-    limit: 20,
+    limit: 200,
   });
-  const paginas = (data.rows || []).map(fila => ({
-    url: fila.dimensionValues?.[0]?.value || '(sin definir)',
-    vistas: numGA4(fila, 0), eventos: numGA4(fila, 1), conversiones: numGA4(fila, 2), sesiones: numGA4(fila, 3),
-  }));
+  const agrupadoPorUrl = new Map();
+  for (const fila of (data.rows || [])) {
+    const urlOriginal = fila.dimensionValues?.[0]?.value || '(sin definir)';
+    const urlAgrupada = normalizarUrlGA4(urlOriginal);
+    const actual = agrupadoPorUrl.get(urlAgrupada) || { url: urlAgrupada, vistas: 0, eventos: 0, conversiones: 0, sesiones: 0, paginasAgrupadas: 0 };
+    actual.vistas += numGA4(fila, 0);
+    actual.eventos += numGA4(fila, 1);
+    actual.conversiones += numGA4(fila, 2);
+    actual.sesiones += numGA4(fila, 3);
+    actual.paginasAgrupadas += 1;
+    agrupadoPorUrl.set(urlAgrupada, actual);
+  }
+  const paginas = [...agrupadoPorUrl.values()].sort((a, b) => b.conversiones - a.conversiones);
   return { paginas };
 }
 

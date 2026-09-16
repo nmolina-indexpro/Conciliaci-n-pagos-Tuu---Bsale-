@@ -1230,17 +1230,40 @@ function renderGaRebote(d){
   `;
 }
 
+// Cuántas filas de la pestaña "Páginas" mostrar -- pedido del usuario
+// ("selector de vistas por página"). Todas las filas ya vienen agrupadas y
+// ordenadas desde el backend (ver gaSeccionPaginas/normalizarUrlGA4); esto
+// es puro recorte del lado del cliente, no vuelve a pedir nada a GA4.
+let gaPaginasCantidad = 20;
+function cambiarCantidadPaginasGA(){
+  const valor = $('gaPaginasSelectorCantidad').value;
+  gaPaginasCantidad = valor === 'todas' ? Infinity : parseInt(valor, 10);
+  renderGaPaginas(gaDatosPorTab.paginas); // gaDatosPorTab['paginas'] -- la respuesta cacheada de esta pestaña
+}
 function renderGaPaginas(d){
-  $('wrapGaContenido').innerHTML = d.paginas.length ? `<div class="tabla-wrap"><table>
-    <thead><tr><th>URL</th><th class="amount">Vistas</th><th class="amount">Eventos</th><th class="amount">Conversiones</th><th class="amount">Sesiones</th></tr></thead>
-    <tbody>${d.paginas.map(p => `<tr>
-      <td style="max-width:400px;overflow-wrap:anywhere;">${escapeHtml(p.url)}</td>
-      <td class="amount">${fmtNum(p.vistas)}</td>
-      <td class="amount">${fmtNum(p.eventos)}</td>
-      <td class="amount">${fmtNum(p.conversiones)}</td>
-      <td class="amount">${fmtNum(p.sesiones)}</td>
-    </tr>`).join('')}</tbody>
-  </table></div>` : '<p class="empty-note">Sin datos en este período.</p>';
+  const total = d.paginas.length;
+  const filas = d.paginas.slice(0, gaPaginasCantidad);
+  const opcion = (valor, label) => `<option value="${valor}" ${String(gaPaginasCantidad) === String(valor) || (valor === 'todas' && gaPaginasCantidad === Infinity) ? 'selected' : ''}>${label}</option>`;
+  $('wrapGaContenido').innerHTML = `
+    <div class="filtros" style="margin-bottom:12px;">
+      <label style="font-size:12px;color:var(--muted);">Mostrar:</label>
+      <select id="gaPaginasSelectorCantidad" onchange="cambiarCantidadPaginasGA()">
+        ${opcion(10, '10 páginas')}${opcion(20, '20 páginas')}${opcion(50, '50 páginas')}${opcion(100, '100 páginas')}${opcion('todas', `Todas (${fmtNum(total)})`)}
+      </select>
+      <span class="empty-note">Mostrando ${fmtNum(filas.length)} de ${fmtNum(total)} -- las páginas con una URL distinta por visita (ej. checkout) se agrupan en una sola fila.</span>
+    </div>
+    ${filas.length ? `<div class="tabla-wrap"><table>
+      <thead><tr><th>URL</th><th class="amount">Páginas agrupadas</th><th class="amount">Vistas</th><th class="amount">Eventos</th><th class="amount">Conversiones</th><th class="amount">Sesiones</th></tr></thead>
+      <tbody>${filas.map(p => `<tr>
+        <td style="max-width:400px;overflow-wrap:anywhere;">${escapeHtml(p.url)}</td>
+        <td class="amount">${p.paginasAgrupadas > 1 ? fmtNum(p.paginasAgrupadas) : '—'}</td>
+        <td class="amount">${fmtNum(p.vistas)}</td>
+        <td class="amount">${fmtNum(p.eventos)}</td>
+        <td class="amount">${fmtNum(p.conversiones)}</td>
+        <td class="amount">${fmtNum(p.sesiones)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<p class="empty-note">Sin datos en este período.</p>'}
+  `;
 }
 
 // Tabla genérica {etiqueta, usuarios} + columna de % sobre el total de esa
