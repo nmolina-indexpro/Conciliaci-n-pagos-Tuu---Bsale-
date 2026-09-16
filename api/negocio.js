@@ -2842,9 +2842,13 @@ async function gaSeccionAudiencia(propertyId, accessToken, rangoFechas) {
 // SÍ se puede hacer es un heurístico: agrupar por fuente/medio y marcar
 // como sospechoso lo que tiene el rebote casi al 100% Y una duración de
 // sesión casi nula (no llegó ni a cargar/interactuar la página) -- o que no
-// trae fuente identificada ("(not set)") -- son las señales más asociadas
-// a tráfico automatizado que se cuela igual del filtro de Google. Es una
-// ESTIMACIÓN, no un conteo certero de bots (así se explica en la UI).
+// trae NI fuente NI medio identificados. Antes se marcaba con solo la
+// fuente en "(not set)", pero eso etiquetaba como sospechoso tráfico real
+// de WhatsApp (fuente "(not set)" + medio "wsp"/"wsp-DT"/"wsp-SNA", que la
+// empresa sí etiqueta a mano): si el MEDIO trae algo, hay una campaña/canal
+// real detrás, no es tráfico sin rastro -- confirmado por el usuario viendo
+// datos reales. Es una ESTIMACIÓN, no un conteo certero de bots (así se
+// explica en la UI).
 const BOT_UMBRAL_REBOTE = 0.9; // 90%+ de rebote
 const BOT_UMBRAL_DURACION_SEG = 3; // 3 segundos o menos de duración promedio
 async function gaSeccionBots(propertyId, accessToken, rangoFechas) {
@@ -2859,7 +2863,9 @@ async function gaSeccionBots(propertyId, accessToken, rangoFechas) {
     const fuente = fila.dimensionValues?.[0]?.value || '(not set)';
     const medio = fila.dimensionValues?.[1]?.value || '(not set)';
     const sesiones = numGA4(fila, 0), rebote = numGA4(fila, 1), duracionSeg = numGA4(fila, 2), ingresos = numGA4(fila, 3);
-    const sospechoso = fuente === '(not set)' || (rebote >= BOT_UMBRAL_REBOTE && duracionSeg <= BOT_UMBRAL_DURACION_SEG);
+    const sinNingunRastro = fuente === '(not set)' && (medio === '(not set)' || medio === '(none)');
+    const comportamientoDeBot = rebote >= BOT_UMBRAL_REBOTE && duracionSeg <= BOT_UMBRAL_DURACION_SEG;
+    const sospechoso = sinNingunRastro || comportamientoDeBot;
     return { fuente, medio, sesiones, rebote, duracionSeg, ingresos, sospechoso };
   });
   const totalSesiones = filas.reduce((a, f) => a + f.sesiones, 0);
