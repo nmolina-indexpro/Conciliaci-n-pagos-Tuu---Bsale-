@@ -2834,59 +2834,12 @@ async function gaSeccionAudiencia(propertyId, accessToken, rangoFechas) {
   return { porPais, porRegion, porCiudad, porDispositivo, porNavegador, porEdad, porGenero };
 }
 
-// Sección 5: estimación de tráfico "sospechoso"/posible bot -- pedido del
-// usuario. GA4 filtra AUTOMÁTICAMENTE los bots conocidos (lista IAB/ABC de
-// spiders y bots) ANTES de que los datos lleguen a cualquier reporte -> no
-// existe un campo "isBot" ni un %bot oficial en la Data API pública, porque
-// esos bots ya fueron excluidos en el origen y nunca aparecen acá. Lo que
-// SÍ se puede hacer es un heurístico: agrupar por fuente/medio y marcar
-// como sospechoso lo que tiene el rebote casi al 100% Y una duración de
-// sesión casi nula (no llegó ni a cargar/interactuar la página) -- o que no
-// trae NI fuente NI medio identificados. Antes se marcaba con solo la
-// fuente en "(not set)", pero eso etiquetaba como sospechoso tráfico real
-// de WhatsApp (fuente "(not set)" + medio "wsp"/"wsp-DT"/"wsp-SNA", que la
-// empresa sí etiqueta a mano): si el MEDIO trae algo, hay una campaña/canal
-// real detrás, no es tráfico sin rastro -- confirmado por el usuario viendo
-// datos reales. Es una ESTIMACIÓN, no un conteo certero de bots (así se
-// explica en la UI).
-const BOT_UMBRAL_REBOTE = 0.9; // 90%+ de rebote
-const BOT_UMBRAL_DURACION_SEG = 3; // 3 segundos o menos de duración promedio
-async function gaSeccionBots(propertyId, accessToken, rangoFechas) {
-  const data = await runReportGA4(propertyId, accessToken, {
-    dateRanges: rangoFechas,
-    dimensions: [{ name: 'sessionSource' }, { name: 'sessionMedium' }],
-    metrics: ['sessions', 'bounceRate', 'averageSessionDuration', 'purchaseRevenue'].map(name => ({ name })),
-    orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
-    limit: 30,
-  });
-  const filas = (data.rows || []).map(fila => {
-    const fuente = fila.dimensionValues?.[0]?.value || '(not set)';
-    const medio = fila.dimensionValues?.[1]?.value || '(not set)';
-    const sesiones = numGA4(fila, 0), rebote = numGA4(fila, 1), duracionSeg = numGA4(fila, 2), ingresos = numGA4(fila, 3);
-    const sinNingunRastro = fuente === '(not set)' && (medio === '(not set)' || medio === '(none)');
-    const comportamientoDeBot = rebote >= BOT_UMBRAL_REBOTE && duracionSeg <= BOT_UMBRAL_DURACION_SEG;
-    const sospechoso = sinNingunRastro || comportamientoDeBot;
-    return { fuente, medio, sesiones, rebote, duracionSeg, ingresos, sospechoso };
-  });
-  const totalSesiones = filas.reduce((a, f) => a + f.sesiones, 0);
-  const totalIngresos = filas.reduce((a, f) => a + f.ingresos, 0);
-  const sesionesSospechosas = filas.filter(f => f.sospechoso).reduce((a, f) => a + f.sesiones, 0);
-  const ingresosSospechosos = filas.filter(f => f.sospechoso).reduce((a, f) => a + f.ingresos, 0);
-  return {
-    filas,
-    pctSesionesSospechosas: totalSesiones > 0 ? sesionesSospechosas / totalSesiones : 0,
-    pctIngresosSospechosos: totalIngresos > 0 ? ingresosSospechosos / totalIngresos : 0,
-    totalSesiones, sesionesSospechosas,
-    moneda: data.metadata?.currencyCode || null,
-  };
-}
-
-// "seccion" separa el módulo en 5 pestañas (ver el submenú en
+// "seccion" separa el módulo en 4 pestañas (ver el submenú en
 // analisis.html) para no traer todo de una vez -- cada una se pide recién
 // cuando el usuario la abre. "resumen" (default) son los KPI que quedan
 // siempre visibles arriba del submenú, incluido en el conteo pero no es
 // una pestaña en sí.
-const SECCIONES_GA_VALIDAS = { resumen: gaSeccionResumen, trafico: gaSeccionTrafico, rebote: gaSeccionRebote, paginas: gaSeccionPaginas, audiencia: gaSeccionAudiencia, bots: gaSeccionBots };
+const SECCIONES_GA_VALIDAS = { resumen: gaSeccionResumen, trafico: gaSeccionTrafico, rebote: gaSeccionRebote, paginas: gaSeccionPaginas, audiencia: gaSeccionAudiencia };
 async function manejarGoogleAnalytics(req, res, sesion) {
   try {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });

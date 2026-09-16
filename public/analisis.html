@@ -64,9 +64,8 @@
   .card.clicable:hover{box-shadow:var(--shadow);transform:translateY(-1px);}
   .card .ver-detalle{font-size:11px;color:var(--muted);margin-top:6px;}
 
-  .ga-tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:18px 0;}
-  @media (max-width:1100px){.ga-tabs{grid-template-columns:repeat(3,1fr);}}
-  @media (max-width:700px){.ga-tabs{grid-template-columns:repeat(2,1fr);}}
+  .ga-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0;}
+  @media (max-width:900px){.ga-tabs{grid-template-columns:repeat(2,1fr);}}
   .ga-tab{background:var(--surface-2);border:1.5px solid var(--line);border-radius:12px;padding:16px 14px;text-align:left;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:box-shadow .15s,transform .15s,border-color .15s,background .15s;}
   .ga-tab:hover{box-shadow:var(--shadow);transform:translateY(-1px);}
   .ga-tab.active{background:var(--primary-dim);border-color:var(--primary);}
@@ -295,11 +294,6 @@
         <span class="ga-tab-icono">👥</span>
         <div class="ga-tab-titulo">Audiencia</div>
         <div class="ga-tab-sub">Ciudad, edad y sexo</div>
-      </button>
-      <button class="ga-tab" id="gaTab-bots" onclick="cambiarTabGA('bots')">
-        <span class="ga-tab-icono">🤖</span>
-        <div class="ga-tab-titulo">Bots</div>
-        <div class="ga-tab-sub">Tráfico posiblemente automatizado</div>
       </button>
     </div>
     <div id="wrapGaContenido"><p class="empty-note">Cargando...</p></div>
@@ -1157,7 +1151,6 @@ function renderSeccionGA(tab){
   else if(tab === 'rebote') renderGaRebote(d);
   else if(tab === 'paginas') renderGaPaginas(d);
   else if(tab === 'audiencia') renderGaAudiencia(d);
-  else if(tab === 'bots') renderGaBots(d);
 }
 
 function renderGaTrafico(d){
@@ -1308,49 +1301,6 @@ function renderGaAudiencia(d){
       ${tablaAudienciaGA('Edad', d.porEdad, 'Rango')}
       ${tablaAudienciaGA('Sexo', d.porGenero, 'Sexo')}
     </div>
-  `;
-}
-
-// GA4 filtra automáticamente los bots CONOCIDOS antes de que estos datos
-// existan -- lo que se marca acá es una ESTIMACIÓN por señales (fuente sin
-// identificar, o rebote altísimo + duración casi nula), no un conteo
-// certero. Ver comentario completo en gaSeccionBots (api/negocio.js).
-// Deben calzar con BOT_UMBRAL_REBOTE / BOT_UMBRAL_DURACION_SEG allá -- acá
-// son solo para mostrar el criterio en el texto, el cálculo ya viene hecho.
-const BOT_UMBRAL_REBOTE_GA = 0.9;
-const BOT_UMBRAL_DURACION_GA = 3;
-function renderGaBots(d){
-  const filasOrdenadas = [...d.filas].sort((a, b) => (b.sospechoso - a.sospechoso) || (b.sesiones - a.sesiones));
-  $('wrapGaContenido').innerHTML = `
-    <div class="note-box">⚠ <b>Esto es una estimación, no un conteo certero de bots.</b> Google Analytics ya filtra automáticamente los bots conocidos (lista IAB/ABC) antes de que estos datos existan -- esos nunca aparecen ni acá ni en ningún reporte. Lo que se marca como "sospechoso" abajo es tráfico agrupado por fuente/medio con rebote ≥ ${(BOT_UMBRAL_REBOTE_GA*100).toFixed(0)}% y duración promedio ≤ ${BOT_UMBRAL_DURACION_GA}s (no llegó ni a cargar/interactuar la página), o que no trae <b>ni fuente ni medio</b> identificados (ej. tráfico de WhatsApp con medio "wsp" etiquetado a mano NO cuenta como sospechoso solo porque la fuente venga vacía -- el medio sí muestra una campaña real detrás). Señales típicas de tráfico automatizado, pero también pueden darse por tráfico humano roto (ej. un link mal armado). Revisa la tabla antes de sacar conclusiones.</div>
-    <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px;">
-      <div class="card" style="background:var(--red-bg);border-color:var(--red);">
-        <div class="lbl">Sesiones sospechosas</div>
-        <div class="big" style="color:var(--red);">${(d.pctSesionesSospechosas*100).toFixed(1)}%</div>
-        <div class="pct" style="color:var(--red);">${fmtNum(d.sesionesSospechosas)} de ${fmtNum(d.totalSesiones)}</div>
-      </div>
-      <div class="card">
-        <div class="lbl">Ingresos en sesiones sospechosas</div>
-        <div class="big">${(d.pctIngresosSospechosos*100).toFixed(1)}%</div>
-      </div>
-      <div class="card">
-        <div class="lbl">Total de sesiones analizadas</div>
-        <div class="big">${fmtNum(d.totalSesiones)}</div>
-      </div>
-    </div>
-    <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Detalle por fuente/medio</h3>
-    ${filasOrdenadas.length ? `<div class="tabla-wrap"><table>
-      <thead><tr><th>Fuente</th><th>Medio</th><th class="amount">Sesiones</th><th class="amount">Rebote</th><th class="amount">Duración prom.</th><th class="amount">Ingresos</th><th>¿Sospechoso?</th></tr></thead>
-      <tbody>${filasOrdenadas.map(f => `<tr${f.sospechoso ? ' style="background:var(--red-bg);"' : ''}>
-        <td>${escapeHtml(f.fuente)}</td>
-        <td>${escapeHtml(f.medio)}</td>
-        <td class="amount">${fmtNum(f.sesiones)}</td>
-        <td class="amount">${fmtPctGA(f.rebote)}</td>
-        <td class="amount">${fmtDuracionGA(f.duracionSeg)}</td>
-        <td class="amount">${fmtMonedaGA(f.ingresos, d.moneda)}</td>
-        <td>${f.sospechoso ? '<b style="color:var(--red);">⚠ Sí</b>' : '—'}</td>
-      </tr>`).join('')}</tbody>
-    </table></div>` : '<p class="empty-note">Sin datos en este período.</p>'}
   `;
 }
 
