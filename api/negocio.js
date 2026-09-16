@@ -2674,7 +2674,7 @@ async function runReportGA4(propertyId, accessToken, body) {
 async function manejarGoogleAnalytics(req, res, sesion) {
   try {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-    const propertyId = process.env.GOOGLE_ANALYTICS_PROPERTY_ID;
+    const propertyId = (process.env.GOOGLE_ANALYTICS_PROPERTY_ID || '').trim();
     if (!propertyId) return res.status(200).json({ error: 'Google Analytics no está configurado (falta GOOGLE_ANALYTICS_PROPERTY_ID en las variables de entorno)' });
 
     // desde/hasta en YYYY-MM-DD, mismo formato que el resto de la página --
@@ -2722,7 +2722,12 @@ async function manejarGoogleAnalytics(req, res, sesion) {
         }),
       ]);
     } catch (err) {
-      return res.status(200).json({ error: 'Error consultando Google Analytics', detail: String(err.message || err) });
+      // Igual que en la autenticación: ni el propertyId ni el client_email
+      // son secretos, se incluyen en el detalle para poder comparar a ojo
+      // contra "Admin -> Property details" y "Property Access Management"
+      // en Google Analytics sin tener que mirar las variables en Vercel.
+      const emailUsado = (process.env.GOOGLE_ANALYTICS_CLIENT_EMAIL || '').trim();
+      return res.status(200).json({ error: 'Error consultando Google Analytics', detail: `${String(err.message || err)} (propertyId: "${propertyId}", client_email: "${emailUsado}")` });
     }
 
     const filaResumen = resumenData.rows?.[0];
