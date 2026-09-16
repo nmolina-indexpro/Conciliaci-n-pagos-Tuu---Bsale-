@@ -1005,13 +1005,22 @@ function fmtFechaGA(fechaStr){
   const [y, m, d] = fechaStr.split('-');
   return `${d}-${m}-${y}`;
 }
+// Tipo de cambio fijo pedido por el usuario para convertir a CLP los montos
+// que GA4 informa en USD (ver comentario de fmtMonedaGA) -- es una
+// conversión aproximada con UN solo valor para todo el período, no el tipo
+// de cambio real de cada transacción/día (eso GA4 no lo expone). Actualizar
+// a mano cuando el dólar se mueva significativamente.
+const TIPO_CAMBIO_USD_CLP = 950;
 // GA4 informa los montos en la "moneda de referencia" configurada en la
 // propiedad (Admin -> Property Settings -> Currency), NO en la moneda real
 // de cada venta -- si la propiedad quedó en USD (el default más común) en
 // vez de CLP, mostrarlo con un simple "$" se leería como pesos cuando en
 // realidad son dólares. Si moneda viene null/CLP se asume pesos (fmtMoneda,
-// igual al resto del sitio); si es otra, se antepone el código explícito.
+// igual al resto del sitio); si es USD, se convierte a CLP con el tipo de
+// cambio fijo de arriba; cualquier otra moneda se muestra con su código
+// explícito, sin inventar una conversión que nadie pidió.
 function fmtMonedaGA(n, moneda){
+  if(moneda === 'USD') return '$' + fmtNum(Math.round((n || 0) * TIPO_CAMBIO_USD_CLP));
   const num = fmtNum(Math.round(n || 0));
   return (!moneda || moneda === 'CLP') ? '$' + num : `${moneda} ${num}`;
 }
@@ -1019,10 +1028,15 @@ function renderGoogleAnalytics(){
   const d = googleAnalyticsActual;
   if(!d) return;
   const r = d.resumen;
-  const monedaDistinta = d.moneda && d.moneda !== 'CLP';
+  // USD se convierte a CLP (ver fmtMonedaGA) -- así que esos montos YA
+  // están en pesos, y no corresponde marcarlos como "en otra moneda". Solo
+  // se avisa como pendiente/sin convertir una moneda distinta de CLP/USD.
+  const esUsdConvertido = d.moneda === 'USD';
+  const monedaSinConvertir = d.moneda && d.moneda !== 'CLP' && !esUsdConvertido;
   const tasaConversion = r.sessions > 0 ? (r.conversions / r.sessions * 100) : 0;
   $('wrapGoogleAnalytics').innerHTML = `
-    ${monedaDistinta ? `<div class="note-box">⚠ Esta propiedad de GA4 informa los montos en <b>${escapeHtml(d.moneda)}</b>, no en pesos chilenos (se configura en Google Analytics: Admin → Property Settings → Currency). Los ingresos de abajo están en ${escapeHtml(d.moneda)}, no en CLP.</div>` : ''}
+    ${esUsdConvertido ? `<div class="note-box">ℹ Esta propiedad de GA4 informa los montos en <b>USD</b> -- se muestran convertidos a CLP con un tipo de cambio fijo de <b>$${TIPO_CAMBIO_USD_CLP}</b> por dólar (no es el tipo de cambio real de cada transacción). Para que GA4 informe en pesos directamente: Analytics → Admin → Property Settings → Currency.</div>` : ''}
+    ${monedaSinConvertir ? `<div class="note-box">⚠ Esta propiedad de GA4 informa los montos en <b>${escapeHtml(d.moneda)}</b>, no en pesos chilenos (se configura en Google Analytics: Admin → Property Settings → Currency). Los ingresos de abajo están en ${escapeHtml(d.moneda)}, sin convertir.</div>` : ''}
     <div class="grid">
       <div class="card">
         <div class="lbl">Sesiones</div>
@@ -1038,7 +1052,7 @@ function renderGoogleAnalytics(){
         <div class="pct">${tasaConversion.toFixed(1)}% conversión</div>
       </div>
       <div class="card">
-        <div class="lbl">Ingresos (GA)${monedaDistinta ? ` — ${escapeHtml(d.moneda)}` : ''}</div>
+        <div class="lbl">Ingresos (GA)${esUsdConvertido ? ' — convertido de USD' : monedaSinConvertir ? ` — ${escapeHtml(d.moneda)}` : ''}</div>
         <div class="big">${fmtMonedaGA(r.purchaseRevenue, d.moneda)}</div>
       </div>
     </div>
@@ -1046,7 +1060,7 @@ function renderGoogleAnalytics(){
       <div>
         <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Tráfico por canal</h3>
         ${d.porCanal.length ? `<div class="tabla-wrap"><table>
-          <thead><tr><th>Canal</th><th class="amount">Sesiones</th><th class="amount">Usuarios</th><th class="amount">Conversiones</th><th class="amount">Ingresos${monedaDistinta ? ` (${escapeHtml(d.moneda)})` : ''}</th></tr></thead>
+          <thead><tr><th>Canal</th><th class="amount">Sesiones</th><th class="amount">Usuarios</th><th class="amount">Conversiones</th><th class="amount">Ingresos${monedaSinConvertir ? ` (${escapeHtml(d.moneda)})` : ''}</th></tr></thead>
           <tbody>${d.porCanal.map(c => `<tr>
             <td>${escapeHtml(c.canal)}</td>
             <td class="amount">${fmtNum(c.sesiones)}</td>
@@ -1059,7 +1073,7 @@ function renderGoogleAnalytics(){
       <div>
         <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Tendencia diaria</h3>
         ${d.porDia.length ? `<div class="tabla-wrap" style="max-height:320px;overflow-y:auto;"><table>
-          <thead><tr><th>Fecha</th><th class="amount">Sesiones</th><th class="amount">Transacciones</th><th class="amount">Ingresos${monedaDistinta ? ` (${escapeHtml(d.moneda)})` : ''}</th></tr></thead>
+          <thead><tr><th>Fecha</th><th class="amount">Sesiones</th><th class="amount">Transacciones</th><th class="amount">Ingresos${monedaSinConvertir ? ` (${escapeHtml(d.moneda)})` : ''}</th></tr></thead>
           <tbody>${d.porDia.map(f => `<tr>
             <td>${fmtFechaGA(f.fecha)}</td>
             <td class="amount">${fmtNum(f.sesiones)}</td>
