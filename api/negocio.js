@@ -2662,11 +2662,17 @@ async function obtenerAccessTokenGoogleAnalytics() {
   return data.access_token;
 }
 async function runReportGA4(propertyId, accessToken, body) {
+  // 30s (no 15s como el resto de las llamadas de este archivo) -- un
+  // reporte con harto volumen de datos o un límite alto (ver
+  // gaSeccionPaginas, limit:200 para poder agrupar) puede tardar más que
+  // una consulta REST típica de Bsale/Shopify. api/negocio.js tiene
+  // maxDuration:60 en vercel.json, así que hay margen de sobra incluso
+  // cuando varias de estas llamadas corren en paralelo (Promise.all).
   const res = await fetchConTimeout(`https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
     body: JSON.stringify(body),
-  }, 15000);
+  }, 30000);
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || 'Error consultando Google Analytics');
   return data;
