@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
@@ -102,6 +102,7 @@ export default async function handler(req, res) {
   if (recurso === 'link-compra') return manejarLinkCompra(req, res, sesion);
   if (recurso === 'compras-dm-excluidos') return manejarComprasDMExcluidos(req, res, sesion);
   if (recurso === 'recomendacion-compra-excluidos') return manejarRecomendacionCompraExcluidos(req, res, sesion);
+  if (recurso === 'compras-intcomex-excluidos') return manejarComprasIntcomexExcluidos(req, res, sesion);
   if (recurso === 'comparador-solicitudes') return manejarComparadorSolicitudes(req, res, sesion);
   if (recurso === 'comparador-solicitud-detalle') return manejarComparadorSolicitudDetalle(req, res, sesion);
   if (recurso === 'comparador-solicitud-items') return manejarComparadorSolicitudItems(req, res, sesion);
@@ -2480,7 +2481,7 @@ async function manejarSyncServiciosTecnico(req, res, sesion) {
 // para "actualizar": el pedido es que CUALQUIER persona pueda mantener el
 // link al día -- cada actualización agrega una entrada nueva al historial
 // (nunca reemplaza en el sitio), que de todos modos queda con quién y cuándo.
-const LINK_COMPRA_CONTEXTOS_VALIDOS = new Set(['insumos_sku', 'compras_dm_sku']);
+const LINK_COMPRA_CONTEXTOS_VALIDOS = new Set(['insumos_sku', 'compras_dm_sku', 'compras_intcomex_sku']);
 async function manejarLinkCompra(req, res, sesion) {
   try {
     const contexto = req.method === 'GET' ? req.query.contexto : (req.body || {}).contexto;
@@ -2538,6 +2539,32 @@ async function manejarComprasDMExcluidos(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error gestionando exclusiones de DM', detail: String(err) });
+  }
+}
+
+// Mismo patrón que manejarComprasDMExcluidos, pero para el módulo "Compras
+// Intcomex" -- pedido del usuario.
+async function manejarComprasIntcomexExcluidos(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaComprasIntcomexExcluidos(sql);
+
+    if (req.method === 'GET') {
+      const { rows } = await sql`SELECT sku FROM compras_intcomex_excluidos;`;
+      return res.status(200).json({ excluidos: rows.map(r => r.sku) });
+    }
+
+    if (req.method === 'DELETE') {
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede eliminar un producto de esta lista' });
+      const sku = String(req.query.sku || '').trim();
+      if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
+      await sql`INSERT INTO compras_intcomex_excluidos (sku, excluido_por) VALUES (${sku}, ${sesion.nombre || sesion.email}) ON CONFLICT (sku) DO NOTHING;`;
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error gestionando exclusiones de Intcomex', detail: String(err) });
   }
 }
 

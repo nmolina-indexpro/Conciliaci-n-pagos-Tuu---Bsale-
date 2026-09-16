@@ -280,6 +280,23 @@
     </div>
   </div>
 
+  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #2563EB;" id="intcomexCard">
+    <div class="panel-header" onclick="togglePanel('intcomexCard')">
+      <span class="lbl" style="margin-bottom:0;">🖥️ Compras Intcomex</span>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <p class="empty-note" style="margin-top:0;">Productos identificados en las facturas de ingreso a nombre de "Intcomex" (según el texto de la recepción en Bsale), con su stock, último costo, y un link directo al producto para comprar más rápido.</p>
+      <div class="filtros" style="margin-bottom:0;">
+        <input type="text" id="intcomexBuscador" placeholder="Buscar por SKU o nombre..." style="width:260px;" oninput="renderIntcomex()">
+        <select id="intcomexFiltroCategoria" onchange="renderIntcomex()" style="min-width:200px;">
+          <option value="">Todas las categorías</option>
+        </select>
+      </div>
+      <div id="intcomexWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
+    </div>
+  </div>
+
   <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #16A34A;" id="daxisCard">
     <div class="panel-header" onclick="togglePanel('daxisCard')">
       <span class="lbl" style="margin-bottom:0;">🚢 Importación Daxis — Cargadores y Baterías</span>
@@ -467,6 +484,7 @@ async function cargar(){
       fetch(`/api/bsale-sku-report?days=${dias}`).then(r=>r.json()),
       fetch(`/api/shopify-images-report`).then(r=>r.json()).catch(()=>({imagenes:{}})),
       cargarLinksDM(),
+      cargarLinksIntcomex(),
     ]);
     if(res.error){
       status.className = 'err';
@@ -504,6 +522,13 @@ async function cargar(){
       (res.categorias || []).map(c => `<option value="${c}">${c}</option>`).join('');
     aplicarPreferenciasCatalogo();
 
+    // Ídem para Intcomex, pero solo con las categorías que existan entre SUS
+    // productos (no todo el catálogo) -- se calcula recién acá porque recién
+    // acá está poblado datosSkus.
+    const categoriasIntcomex = [...new Set(productosIntcomexBase().map(s => s.categoria).filter(Boolean))].sort();
+    $('intcomexFiltroCategoria').innerHTML = '<option value="">Todas las categorías</option>' +
+      categoriasIntcomex.map(c => `<option value="${c}">${c}</option>`).join('');
+
     let avisos = '';
     if(res.ventasTruncadas) avisos += `<div class="note-box">⚠ El catálogo/movimiento es grande y se truncó la consulta de documentos — los números pueden estar incompletos. Prueba con un período más corto.</div>`;
     if(res.recepcionesDisponibles === false) avisos += `<div class="note-box">ℹ No se pudo leer el historial de recepciones de stock (compras a proveedores) de tu cuenta — la columna "Compradas" y "Último costo" pueden quedar vacías. El resto del análisis sigue siendo válido.</div>`;
@@ -514,6 +539,7 @@ async function cargar(){
 
     renderDaxis();
     renderDM();
+    renderIntcomex();
     renderTabla();
 
     status.className = 'ok';
@@ -882,6 +908,141 @@ async function editarLinkDM(sku){
     if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar el link.'); return; }
     linkDMPorSku[sku] = texto;
     renderDM();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+// ---------- Compras Intcomex ----------
+// A diferencia de DM, Intcomex SÍ se identifica de forma confiable en
+// bsale-sku-report.js (identificarProveedor busca "intcomex" en el texto
+// de la recepción y normaliza el nombre a "Intcomex" exacto) -- por eso acá
+// no hace falta un regex propio ni una whitelist de categorías: basta con
+// filtrar s.proveedor === 'Intcomex'. Las categorías del selector se arman
+// dinámicamente (ver cargar()) porque Intcomex trae un catálogo amplio, a
+// diferencia del puñado fijo de categorías que compra DM.
+let ordenIntcomex = { campo: null, asc: true };
+let linkIntcomexPorSku = {};
+let excluidosIntcomex = new Set();
+
+async function cargarLinksIntcomex(){
+  try{
+    const [resLinks, resExcluidos] = await Promise.all([
+      fetch('/api/negocio?recurso=link-compra&contexto=compras_intcomex_sku').then(r=>r.json()),
+      fetch('/api/negocio?recurso=compras-intcomex-excluidos').then(r=>r.json()),
+    ]);
+    linkIntcomexPorSku = resLinks.linkPorSku || {};
+    excluidosIntcomex = new Set(resExcluidos.excluidos || []);
+  }catch(err){ linkIntcomexPorSku = {}; excluidosIntcomex = new Set(); }
+}
+function productosIntcomexBase(){
+  return datosSkus.filter(s => s.proveedor === 'Intcomex' && !excluidosIntcomex.has(s.code));
+}
+function ordenarIntcomexPor(campo){
+  if(ordenIntcomex.campo === campo) ordenIntcomex.asc = !ordenIntcomex.asc;
+  else { ordenIntcomex.campo = campo; ordenIntcomex.asc = true; }
+  renderIntcomex();
+}
+function flechaIntcomex(campo){
+  return ordenIntcomex.campo === campo ? (ordenIntcomex.asc ? ' ▲' : ' ▼') : '';
+}
+
+// Definitivo -- mismo criterio que eliminarProductoDM: un producto que no
+// corresponde de verdad a Intcomex (ej. una recepción vieja mal
+// identificada) no debe volver a aparecer aunque se presione "Analizar".
+async function eliminarProductoIntcomex(sku, nombre){
+  if(!confirm(`¿Eliminar "${nombre}" de la lista de Intcomex? No va a volver a aparecer.`)) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=compras-intcomex-excluidos&sku=${encodeURIComponent(sku)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo eliminar.'); return; }
+    excluidosIntcomex.add(sku);
+    renderIntcomex();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+function renderIntcomex(){
+  const wrap = $('intcomexWrap');
+  const base = productosIntcomexBase();
+  const categoria = $('intcomexFiltroCategoria').value;
+  const busqueda = $('intcomexBuscador').value.trim().toLowerCase();
+  let productos = categoria ? base.filter(s => s.categoria === categoria) : base;
+  if(busqueda) productos = productos.filter(s => s.code.toLowerCase().includes(busqueda) || (s.nombre||'').toLowerCase().includes(busqueda));
+  if(productos.length === 0){
+    wrap.innerHTML = '<p class="empty-note">No se encontraron productos de Intcomex (o todavía no se ha presionado "Analizar").</p>';
+    return;
+  }
+  let filas = [...productos];
+  if(ordenIntcomex.campo){
+    const campo = ordenIntcomex.campo;
+    filas.sort((a, b) => {
+      let va = a[campo], vb = b[campo];
+      const aNull = va === null || va === undefined, bNull = vb === null || vb === undefined;
+      if(aNull && bNull) return 0;
+      if(aNull) return 1;
+      if(bNull) return -1;
+      if(typeof va === 'string') return ordenIntcomex.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+      return ordenIntcomex.asc ? va - vb : vb - va;
+    });
+  } else {
+    filas.sort((a, b) => (a.stockActual || 0) - (b.stockActual || 0)); // stock más bajo primero -- lo más urgente de reponer
+  }
+
+  wrap.innerHTML = `
+    <div class="tabla-wrap">
+    <table>
+      <thead><tr>
+        <th onclick="ordenarIntcomexPor('code')" style="cursor:pointer;">SKU${flechaIntcomex('code')}</th>
+        <th onclick="ordenarIntcomexPor('nombre')" style="cursor:pointer;">Producto${flechaIntcomex('nombre')}</th>
+        <th onclick="ordenarIntcomexPor('categoria')" style="cursor:pointer;">Categoría${flechaIntcomex('categoria')}</th>
+        <th class="amount" onclick="ordenarIntcomexPor('stockActual')" style="cursor:pointer;">Stock actual${flechaIntcomex('stockActual')}</th>
+        <th class="amount" onclick="ordenarIntcomexPor('unidadesVendidas')" style="cursor:pointer;" title="Unidades vendidas en el período consultado (${$('diasInput').value} días)">Ventas (período)${flechaIntcomex('unidadesVendidas')}</th>
+        <th onclick="ordenarIntcomexPor('fechaUltimaCompra')" style="cursor:pointer;">Última factura de ingreso${flechaIntcomex('fechaUltimaCompra')}</th>
+        <th class="amount" onclick="ordenarIntcomexPor('ultimoCosto')" style="cursor:pointer;">Último costo${flechaIntcomex('ultimoCosto')}</th>
+        <th>Link de compra</th>
+        ${rolActual === 'admin' ? '<th>Eliminar</th>' : ''}
+      </tr></thead>
+      <tbody>${filasLimitadas('intcomex', filas).map(s => {
+        const link = linkIntcomexPorSku[s.code] || '';
+        const esLinkValido = /^https?:\/\//i.test(link);
+        const linkHtml = esLinkValido
+          ? `<a href="${link}" target="_blank" rel="noopener noreferrer">🔗 Comprar</a>`
+          : (link ? `<span class="empty-note" title="${link}">${link}</span>` : '<span class="empty-note">Sin link</span>');
+        return `<tr>
+          <td>${s.code}</td><td>${s.nombre}</td><td>${s.categoria}</td>
+          <td class="amount">${fmtNum(s.stockActual)}</td>
+          <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
+          <td>${s.fechaUltimaCompra || '—'}</td>
+          <td class="amount">${s.ultimoCosto != null ? fmt(s.ultimoCosto) : '—'}</td>
+          <td>${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkIntcomex('${s.code}')">✏️</button></td>
+          ${rolActual === 'admin' ? `<td><button class="btn-icono" title="Eliminar de esta lista (definitivo)" onclick="eliminarProductoIntcomex('${s.code}', '${s.nombre.replace(/'/g, "\\'")}')">🗑️</button></td>` : ''}
+        </tr>`;
+      }).join('')}</tbody>
+    </table>
+    </div>
+    ${botonVerMasHtml('intcomex', filas.length, 'renderIntcomex')}
+  `;
+}
+
+// Cualquier persona logueada puede agregar/actualizar el link -- mismo
+// criterio que editarLinkDM.
+async function editarLinkIntcomex(sku){
+  const actual = linkIntcomexPorSku[sku] || '';
+  const nuevo = prompt('Link para comprar este producto en el portal/tienda de Intcomex:', actual);
+  if(nuevo === null) return; // canceló
+  const texto = nuevo.trim();
+  if(!texto){ alert('El link no puede quedar vacío.'); return; }
+  try{
+    const res = await fetch('/api/negocio?recurso=link-compra', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contexto: 'compras_intcomex_sku', sku, link: texto }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar el link.'); return; }
+    linkIntcomexPorSku[sku] = texto;
+    renderIntcomex();
   }catch(err){
     alert('Error: ' + err.message);
   }
