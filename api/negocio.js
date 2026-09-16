@@ -103,6 +103,7 @@ export default async function handler(req, res) {
   if (recurso === 'compras-dm-excluidos') return manejarComprasDMExcluidos(req, res, sesion);
   if (recurso === 'recomendacion-compra-excluidos') return manejarRecomendacionCompraExcluidos(req, res, sesion);
   if (recurso === 'compras-intcomex-excluidos') return manejarComprasIntcomexExcluidos(req, res, sesion);
+  if (recurso === 'compras-intcomex-comentarios') return manejarComprasIntcomexComentarios(req, res, sesion);
   if (recurso === 'comparador-solicitudes') return manejarComparadorSolicitudes(req, res, sesion);
   if (recurso === 'comparador-solicitud-detalle') return manejarComparadorSolicitudDetalle(req, res, sesion);
   if (recurso === 'comparador-solicitud-items') return manejarComparadorSolicitudItems(req, res, sesion);
@@ -2565,6 +2566,43 @@ async function manejarComprasIntcomexExcluidos(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error gestionando exclusiones de Intcomex', detail: String(err) });
+  }
+}
+
+// Comentarios del módulo "Compras Intcomex" -- mismo historial compartido
+// que "Productos con ventas a la baja"/"Clientes recurrentes" (ver
+// asegurarTablaComentariosLog/registrarComentario/editarComentario/
+// obtenerHistorialComentarios más abajo en este archivo), con su propio
+// contexto ('compras_intcomex') para no mezclarse con esos otros módulos.
+async function manejarComprasIntcomexComentarios(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaComentariosLog(sql);
+
+    if (req.method === 'GET') {
+      const historialPorSku = await obtenerHistorialComentarios(sql, 'compras_intcomex');
+      return res.status(200).json({ historialPorSku: Object.fromEntries(historialPorSku) });
+    }
+
+    if (req.method === 'PUT') {
+      const { sku, comentario, comentarioId } = req.body || {};
+      if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
+      // comentarioId presente -> se está EDITANDO ese comentario puntual
+      // (editarComentario exige que el autor guardado calce con quien pide
+      // la edición); si no, se agrega uno nuevo al historial.
+      if (comentarioId) {
+        const resultado = await editarComentario(sql, 'compras_intcomex', comentarioId, sku, comentario, sesion.nombre || sesion.email);
+        if (!resultado.ok) return res.status(resultado.status).json({ error: resultado.error });
+        return res.status(200).json({ ok: true });
+      }
+      const id = await registrarComentario(sql, 'compras_intcomex', sku, comentario, sesion.nombre || sesion.email);
+      if (id == null) return res.status(400).json({ error: 'El comentario no puede quedar vacío' });
+      return res.status(200).json({ ok: true, id });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error gestionando comentarios de Intcomex', detail: String(err) });
   }
 }
 

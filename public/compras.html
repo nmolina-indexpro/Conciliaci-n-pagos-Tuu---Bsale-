@@ -97,6 +97,13 @@
   .btn-icono{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);font-size:12px;cursor:pointer;padding:0;vertical-align:middle;}
   .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
   body.sin-margenes .solo-admin{display:none !important;}
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:16px;}
+  .modal-overlay.open{display:flex;}
+  .modal-box{background:var(--surface);border-radius:16px;padding:24px 26px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:min(520px,100%);max-height:86vh;overflow-y:auto;}
+  .modal-box h3{margin:0 0 4px 0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;}
+  .comentario-item{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:12.5px;}
+  .comentario-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+  #modalComentarioIntcomexNuevo{width:100%;margin-top:14px;min-height:70px;padding:10px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <meta name="theme-color" content="#0F766E">
@@ -379,6 +386,20 @@
 
 </div>
 
+<div class="modal-overlay" id="modalComentariosIntcomexOverlay" onclick="cerrarModalComentariosIntcomexSiFondo(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <h3 id="modalComentariosIntcomexTitulo">Comentarios</h3>
+    <div class="sub" style="margin-bottom:0;">Cada comentario queda guardado con quién lo escribió y cuándo -- no se borra ni se reemplaza al agregar uno nuevo.</div>
+    <div id="modalComentariosIntcomexLista" style="margin-top:14px;display:flex;flex-direction:column;gap:10px;"></div>
+    <textarea id="modalComentarioIntcomexNuevo" placeholder="Escribe un comentario nuevo..."></textarea>
+    <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:12px;">
+      <button class="btn-ghost" id="btnCancelarEdicionComentarioIntcomex" style="display:none;" onclick="cancelarEdicionComentarioIntcomex()">Cancelar edición</button>
+      <button class="btn-ghost" onclick="cerrarModalComentariosIntcomex()">Cerrar</button>
+      <button class="btn-primary" id="btnGuardarComentarioIntcomex" onclick="guardarComentarioIntcomexModal()">Agregar comentario</button>
+    </div>
+  </div>
+</div>
+
 <script src="restriccion-usuario.js"></script>
 <script src="menu-herramientas.js"></script>
 <script src="preferencias-vista.js"></script>
@@ -403,6 +424,17 @@ function botonVerMasHtml(id, total, nombreFuncionRender){
   return `<div style="text-align:center;margin-top:12px;">
     <button class="btn-ghost btn-compact" onclick="toggleVerMasSeccion('${id}'); ${nombreFuncionRender}();">${expandido ? '▲ Ver menos' : `▾ Ver todos (${total})`}</button>
   </div>`;
+}
+// Solo se usa para texto libre escrito por un usuario (comentarios de
+// Intcomex) -- el resto de esta página interpola nombres/SKU que vienen
+// del catálogo de Bsale, no de un campo de texto libre.
+function escapeHtml(texto){
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 function fmt(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
@@ -924,16 +956,21 @@ async function editarLinkDM(sku){
 let ordenIntcomex = { campo: null, asc: true };
 let linkIntcomexPorSku = {};
 let excluidosIntcomex = new Set();
+// { [sku]: [{id, comentario, autor, creadoEn, editadoEn}, ...] } de más
+// nuevo a más viejo -- ver manejarComprasIntcomexComentarios en negocio.js.
+let comentariosIntcomexPorSku = {};
 
 async function cargarLinksIntcomex(){
   try{
-    const [resLinks, resExcluidos] = await Promise.all([
+    const [resLinks, resExcluidos, resComentarios] = await Promise.all([
       fetch('/api/negocio?recurso=link-compra&contexto=compras_intcomex_sku').then(r=>r.json()),
       fetch('/api/negocio?recurso=compras-intcomex-excluidos').then(r=>r.json()),
+      fetch('/api/negocio?recurso=compras-intcomex-comentarios').then(r=>r.json()),
     ]);
     linkIntcomexPorSku = resLinks.linkPorSku || {};
     excluidosIntcomex = new Set(resExcluidos.excluidos || []);
-  }catch(err){ linkIntcomexPorSku = {}; excluidosIntcomex = new Set(); }
+    comentariosIntcomexPorSku = resComentarios.historialPorSku || {};
+  }catch(err){ linkIntcomexPorSku = {}; excluidosIntcomex = new Set(); comentariosIntcomexPorSku = {}; }
 }
 function productosIntcomexBase(){
   return datosSkus.filter(s => s.proveedor === 'Intcomex' && !excluidosIntcomex.has(s.code));
@@ -1002,6 +1039,7 @@ function renderIntcomex(){
         <th onclick="ordenarIntcomexPor('fechaUltimaCompra')" style="cursor:pointer;">Última factura de ingreso${flechaIntcomex('fechaUltimaCompra')}</th>
         <th class="amount" onclick="ordenarIntcomexPor('ultimoCosto')" style="cursor:pointer;">Último costo${flechaIntcomex('ultimoCosto')}</th>
         <th>Link de compra</th>
+        <th>Comentarios</th>
         ${rolActual === 'admin' ? '<th>Eliminar</th>' : ''}
       </tr></thead>
       <tbody>${filasLimitadas('intcomex', filas).map(s => {
@@ -1010,6 +1048,7 @@ function renderIntcomex(){
         const linkHtml = esLinkValido
           ? `<a href="${link}" target="_blank" rel="noopener noreferrer">🔗 Comprar</a>`
           : (link ? `<span class="empty-note" title="${link}">${link}</span>` : '<span class="empty-note">Sin link</span>');
+        const totalComentarios = (comentariosIntcomexPorSku[s.code] || []).length;
         return `<tr>
           <td>${s.code}</td><td>${s.nombre}</td><td>${s.categoria}</td>
           <td class="amount">${fmtNum(s.stockActual)}</td>
@@ -1017,6 +1056,7 @@ function renderIntcomex(){
           <td>${s.fechaUltimaCompra || '—'}</td>
           <td class="amount">${s.ultimoCosto != null ? fmt(s.ultimoCosto) : '—'}</td>
           <td>${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkIntcomex('${s.code}')">✏️</button></td>
+          <td><button class="btn-ghost btn-compact" onclick="abrirComentariosIntcomex('${s.code}', '${s.nombre.replace(/'/g, "\\'")}')">💬 ${totalComentarios || 'Agregar'}</button></td>
           ${rolActual === 'admin' ? `<td><button class="btn-icono" title="Eliminar de esta lista (definitivo)" onclick="eliminarProductoIntcomex('${s.code}', '${s.nombre.replace(/'/g, "\\'")}')">🗑️</button></td>` : ''}
         </tr>`;
       }).join('')}</tbody>
@@ -1046,6 +1086,92 @@ async function editarLinkIntcomex(sku){
   }catch(err){
     alert('Error: ' + err.message);
   }
+}
+
+// ---------- Modal de comentarios de Intcomex ----------
+// Un comentario nuevo se AGREGA al historial, nunca reemplaza al anterior,
+// y queda con quién lo escribió y cuándo (mismo patrón que "Productos
+// estancados"/"Clientes recurrentes" en Análisis, ver
+// registrarComentario/editarComentario/obtenerHistorialComentarios en
+// negocio.js, contexto propio 'compras_intcomex'). Cada quien puede editar
+// SOLO sus propios comentarios -- el backend es quien de verdad lo exige
+// comparando contra el autor guardado; acá solo se decide si se MUESTRA el
+// botón ✏️, no es control de acceso real.
+let modalComentarioIntcomexSku = null;
+let modalComentarioIntcomexEditandoId = null; // id del comentario en edición, o null si se está agregando uno nuevo
+
+function abrirComentariosIntcomex(sku, nombre){
+  modalComentarioIntcomexSku = sku;
+  cancelarEdicionComentarioIntcomex();
+  $('modalComentariosIntcomexTitulo').textContent = `📝 ${nombre}`;
+  renderListaComentariosIntcomexModal();
+  $('modalComentariosIntcomexOverlay').classList.add('open');
+}
+
+function renderListaComentariosIntcomexModal(){
+  const historial = comentariosIntcomexPorSku[modalComentarioIntcomexSku] || [];
+  $('modalComentariosIntcomexLista').innerHTML = historial.length
+    ? historial.map(h => `
+        <div class="comentario-item">
+          <div style="flex:1;">
+            <div>${escapeHtml(h.comentario)}</div>
+            <div class="comentario-meta">${escapeHtml(h.autor || 'Desconocido')} — ${new Date(h.creadoEn).toLocaleString('es-CL')}${h.editadoEn ? ' (editado)' : ''}</div>
+          </div>
+          ${h.id != null && h.autor === nombreActual ? `<button class="btn-icono" title="Editar este comentario" onclick="prepararEdicionComentarioIntcomex(${h.id})">✏️</button>` : ''}
+        </div>`).join('')
+    : '<p class="empty-note">Todavía no hay comentarios guardados.</p>';
+}
+
+function prepararEdicionComentarioIntcomex(id){
+  const entrada = (comentariosIntcomexPorSku[modalComentarioIntcomexSku] || []).find(h => h.id === id);
+  if(!entrada) return;
+  modalComentarioIntcomexEditandoId = id;
+  $('modalComentarioIntcomexNuevo').value = entrada.comentario;
+  $('modalComentarioIntcomexNuevo').focus();
+  $('btnGuardarComentarioIntcomex').textContent = 'Guardar edición';
+  $('btnCancelarEdicionComentarioIntcomex').style.display = '';
+}
+
+function cancelarEdicionComentarioIntcomex(){
+  modalComentarioIntcomexEditandoId = null;
+  $('modalComentarioIntcomexNuevo').value = '';
+  $('btnGuardarComentarioIntcomex').textContent = 'Agregar comentario';
+  $('btnCancelarEdicionComentarioIntcomex').style.display = 'none';
+}
+
+async function guardarComentarioIntcomexModal(){
+  const texto = $('modalComentarioIntcomexNuevo').value.trim();
+  if(!texto) return;
+  const sku = modalComentarioIntcomexSku, editandoId = modalComentarioIntcomexEditandoId;
+  try{
+    const res = await fetch('/api/negocio?recurso=compras-intcomex-comentarios', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sku, comentario: texto, ...(editandoId ? { comentarioId: editandoId } : {}) })
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar el comentario.'); return; }
+    // Optimista: actualiza la caché en memoria en vez de recargar todo
+    // "Analizar" solo por escribir un comentario.
+    if(!comentariosIntcomexPorSku[sku]) comentariosIntcomexPorSku[sku] = [];
+    if(editandoId){
+      const entrada = comentariosIntcomexPorSku[sku].find(h => h.id === editandoId);
+      if(entrada){ entrada.comentario = texto; entrada.editadoEn = new Date().toISOString(); }
+    } else {
+      comentariosIntcomexPorSku[sku] = [{ id: data.id, comentario: texto, autor: nombreActual, creadoEn: new Date().toISOString(), editadoEn: null }, ...comentariosIntcomexPorSku[sku]];
+    }
+    cancelarEdicionComentarioIntcomex();
+    renderListaComentariosIntcomexModal();
+    renderIntcomex();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+function cerrarModalComentariosIntcomex(){
+  $('modalComentariosIntcomexOverlay').classList.remove('open');
+}
+function cerrarModalComentariosIntcomexSiFondo(ev){
+  if(ev.target.id === 'modalComentariosIntcomexOverlay') cerrarModalComentariosIntcomex();
 }
 
 // ---------- Comparativa de proveedores (Coimco vs Laptop Center) ----------
@@ -2212,6 +2338,7 @@ function exportarExcel(){
 // protección REAL de acceso la hace el middleware (redirige a /login.html
 // si no hay sesión válida) — esto es solo la parte visual.
 let rolActual = 'usuario';
+let nombreActual = ''; // para saber cuáles comentarios de Intcomex son "míos" y mostrarles el botón editar
 
 async function cargarSesionUsuario(){
   try{
@@ -2219,6 +2346,7 @@ async function cargarSesionUsuario(){
     if(!res.ok) return; // el middleware ya se encarga de redirigir si hace falta
     const u = await res.json();
     rolActual = u.rol;
+    nombreActual = u.nombre || u.email || '';
     document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
