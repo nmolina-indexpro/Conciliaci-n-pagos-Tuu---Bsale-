@@ -1048,7 +1048,19 @@ function renderIntcomex(){
         const linkHtml = esLinkValido
           ? `<a href="${link}" target="_blank" rel="noopener noreferrer">🔗 Comprar</a>`
           : (link ? `<span class="empty-note" title="${link}">${link}</span>` : '<span class="empty-note">Sin link</span>');
-        const totalComentarios = (comentariosIntcomexPorSku[s.code] || []).length;
+        const historialComentarios = comentariosIntcomexPorSku[s.code] || [];
+        const ultimoComentario = historialComentarios[0];
+        // Vista previa del comentario más reciente (ej. "Sin stock hasta
+        // fin de mes") en vez de solo el número -- pedido del usuario: así
+        // se ve de un vistazo qué dice sin tener que abrir el modal. El
+        // texto completo + autor + fecha quedan en el title (tooltip).
+        let etiquetaComentario = 'Agregar';
+        let tituloComentario = 'Agregar un comentario';
+        if(ultimoComentario){
+          const textoCorto = ultimoComentario.comentario.length > 28 ? ultimoComentario.comentario.slice(0, 28) + '…' : ultimoComentario.comentario;
+          etiquetaComentario = textoCorto + (historialComentarios.length > 1 ? ` (+${historialComentarios.length - 1})` : '');
+          tituloComentario = `${ultimoComentario.comentario} — ${ultimoComentario.autor || 'Desconocido'}, ${new Date(ultimoComentario.creadoEn).toLocaleString('es-CL')}`;
+        }
         return `<tr>
           <td>${s.code}</td><td>${s.nombre}</td><td>${s.categoria}</td>
           <td class="amount">${fmtNum(s.stockActual)}</td>
@@ -1056,7 +1068,7 @@ function renderIntcomex(){
           <td>${s.fechaUltimaCompra || '—'}</td>
           <td class="amount">${s.ultimoCosto != null ? fmt(s.ultimoCosto) : '—'}</td>
           <td>${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkIntcomex('${s.code}')">✏️</button></td>
-          <td><button class="btn-ghost btn-compact" onclick="abrirComentariosIntcomex('${s.code}', '${s.nombre.replace(/'/g, "\\'")}')">💬 ${totalComentarios || 'Agregar'}</button></td>
+          <td><button class="btn-ghost btn-compact" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(tituloComentario)}" onclick="abrirComentariosIntcomex('${s.code}', '${s.nombre.replace(/'/g, "\\'")}')">💬 ${escapeHtml(etiquetaComentario)}</button></td>
           ${rolActual === 'admin' ? `<td><button class="btn-icono" title="Eliminar de esta lista (definitivo)" onclick="eliminarProductoIntcomex('${s.code}', '${s.nombre.replace(/'/g, "\\'")}')">🗑️</button></td>` : ''}
         </tr>`;
       }).join('')}</tbody>
