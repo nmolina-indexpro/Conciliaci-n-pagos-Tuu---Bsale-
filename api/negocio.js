@@ -2629,8 +2629,13 @@ function base64Url(buffer) {
 // invocaciones (cada función serverless puede ser una instancia nueva),
 // mismo criterio que el token de Shopify ("fetches a fresh token per request").
 async function obtenerAccessTokenGoogleAnalytics() {
-  const clientEmail = process.env.GOOGLE_ANALYTICS_CLIENT_EMAIL;
-  const privateKey = (process.env.GOOGLE_ANALYTICS_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+  // .trim() en ambas -- pegar el valor en el campo de Vercel deja fácilmente
+  // un espacio o salto de línea de sobra al final, y Google responde
+  // "invalid_grant: account not found" cuando el client_email (el "iss" del
+  // JWT) no calza EXACTO con ninguna cuenta de servicio real, incluido un
+  // simple "\n" pegado al final.
+  const clientEmail = (process.env.GOOGLE_ANALYTICS_CLIENT_EMAIL || '').trim();
+  const privateKey = (process.env.GOOGLE_ANALYTICS_PRIVATE_KEY || '').trim().replace(/\\n/g, '\n');
   if (!clientEmail || !privateKey) {
     throw new Error('Faltan las variables de entorno GOOGLE_ANALYTICS_CLIENT_EMAIL / GOOGLE_ANALYTICS_PRIVATE_KEY');
   }
@@ -2683,7 +2688,13 @@ async function manejarGoogleAnalytics(req, res, sesion) {
     try {
       accessToken = await obtenerAccessTokenGoogleAnalytics();
     } catch (err) {
-      return res.status(200).json({ error: 'No se pudo autenticar con Google Analytics', detail: String(err.message || err) });
+      // El client_email no es secreto (es básicamente un nombre de usuario
+      // público) -- se devuelve tal cual quedó guardado para poder comparar
+      // a simple vista contra el JSON de la cuenta de servicio y detectar un
+      // typo/campo equivocado sin que nadie tenga que mirar el valor real
+      // en Vercel.
+      const emailUsado = (process.env.GOOGLE_ANALYTICS_CLIENT_EMAIL || '').trim();
+      return res.status(200).json({ error: 'No se pudo autenticar con Google Analytics', detail: `${String(err.message || err)} (client_email usado: "${emailUsado}")` });
     }
 
     const rangoFechas = [{ startDate: desde, endDate: hasta }];
