@@ -50,6 +50,12 @@ function esServicioTecnicoResumenSemanalPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'servicio-tecnico-resumen-semanal';
 }
 
+// Cron diario (lunes a viernes) de seguimiento de cotizaciones -- mismo
+// motivo y mismo patrón que los de arriba.
+function esCotizacionesSeguimientoDiarioPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'cotizaciones-seguimiento-diario';
+}
+
 // Páginas que un usuario con un perfil restringido puede ver SIEMPRE, sin
 // importar qué páginas le haya marcado el administrador -- reportar-error
 // es la vía de ayuda/soporte, no tendría sentido poder bloquearla (y sirve
@@ -98,7 +104,8 @@ export default async function middleware(req) {
     RUTAS_PUBLICAS.has(pathname) ||
     esWebhookWhatsappPublico(pathname, url.searchParams) ||
     esAlertasSitioWebNotificarPublico(pathname, url.searchParams) ||
-    esServicioTecnicoResumenSemanalPublico(pathname, url.searchParams)
+    esServicioTecnicoResumenSemanalPublico(pathname, url.searchParams) ||
+    esCotizacionesSeguimientoDiarioPublico(pathname, url.searchParams)
   ) return; // deja pasar sin exigir sesión
 
   const cookieHeader = req.headers.get('cookie') || '';

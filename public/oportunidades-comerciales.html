@@ -61,6 +61,9 @@
   .card .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px;}
   .card .big{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:var(--text);}
   .card .note{color:var(--muted);font-size:10.5px;margin-top:2px;}
+  .card.clicable{cursor:pointer;transition:box-shadow .15s,transform .15s,border-color .15s,background .15s;}
+  .card.clicable:hover{box-shadow:0 4px 14px rgba(31,42,36,.1);transform:translateY(-1px);}
+  .card.clicable.active-filter{border-color:var(--amber);background:var(--amber-dim);}
   .arrow-up{color:var(--green);font-weight:700;}
   .arrow-down{color:var(--red);font-weight:700;}
 
@@ -307,6 +310,7 @@
       <div class="card"><div class="lbl">Cotizaciones facturadas — mes actual</div><div class="big">—</div><div class="note" id="notaVarFacturadas"></div></div>
       <div class="card"><div class="lbl">Acumulado cotizado — mes actual</div><div class="big">—</div><div class="note" id="notaVarCotizado"></div></div>
       <div class="card"><div class="lbl">Acumulado facturado — mes actual</div><div class="big">—</div><div class="note" id="notaVarFacturado"></div></div>
+      <div class="card clicable" id="kpiRequierenSeguimiento" onclick="filtrarSoloRequierenSeguimiento()" title="Cotizaciones abiertas sin cambios de estado hace 7+ días — clic para filtrar la tabla"><div class="lbl">⏰ Requieren seguimiento</div><div class="big">—</div><div class="note">Clic para filtrar la tabla</div></div>
     </div>
 
     <div class="seccion" id="seccionVendedores">
@@ -575,6 +579,7 @@ let cotizaciones = [];
 let cotizacionesCargadas = false;
 let resumenClientesCotizacion = {}; // clienteId -> {numCompras, montoTotal, ultimaCompra} -- ver cargarResumenClientesCotizacion
 let filtroVendedorCotizacion = null; // {id, nombre} -- se activa al hacer clic en un vendedor en "Vendedores — rango filtrado"
+let filtroSoloSeguimientoCot = false; // se activa con la tarjeta "⏰ Requieren seguimiento"
 let nombreActualCot = ''; // nombre/email de la sesión actual, para el modal de comentarios del cliente
 // Orden por defecto: primero "Sin contactar" (lo pendiente de gestionar),
 // luego el resto por avance de embudo, dejando ganadas/perdidas al final.
@@ -1126,6 +1131,17 @@ function renderKpisCotizaciones(){
   cards[6].querySelector('.big').textContent = fmtMoneda(facturadoActual);
   $('notaVarFacturado').innerHTML = notaVariacionHtml(calcularVariacionPct(facturadoActual, facturadoAnterior));
 
+  // "Requieren seguimiento": mismo criterio que diasSinContactoCot/
+  // UMBRAL_DIAS_SIN_CONTACTO_COT (definidas más abajo, pero disponibles acá
+  // por hoisting) -- respeta el rango/búsqueda/estado ya filtrados arriba,
+  // igual que el resto de estas tarjetas, para que el número calce con lo
+  // que se ve si se activa el filtro.
+  const requierenSeguimiento = filtradas.filter(c => {
+    const dias = diasSinContactoCot(c);
+    return dias !== null && dias >= UMBRAL_DIAS_SIN_CONTACTO_COT;
+  }).length;
+  cards[7].querySelector('.big').textContent = fmtNum(requierenSeguimiento);
+
   renderVendedores(filtradas);
 }
 
@@ -1346,11 +1362,25 @@ function cotizacionesFiltradasBase(){
 // vendedores colapsara a mostrar solo a Luiggi, perdiendo la comparación
 // contra el resto.
 function cotizacionesFiltradas(){
-  return cotizacionesFiltradasBase().filter(c => !filtroVendedorCotizacion || c.vendedorId === filtroVendedorCotizacion.id);
+  return cotizacionesFiltradasBase()
+    .filter(c => !filtroVendedorCotizacion || c.vendedorId === filtroVendedorCotizacion.id)
+    .filter(c => {
+      if(!filtroSoloSeguimientoCot) return true;
+      const dias = diasSinContactoCot(c);
+      return dias !== null && dias >= UMBRAL_DIAS_SIN_CONTACTO_COT;
+    });
 }
 function quitarFiltroVendedorCotizacion(){
   filtroVendedorCotizacion = null;
   renderTablaCotizaciones();
+}
+// Activado por la tarjeta "⏰ Requieren seguimiento" -- alterna igual que
+// filtrarPorVendedorCotizacion (un segundo clic lo quita).
+function filtrarSoloRequierenSeguimiento(){
+  filtroSoloSeguimientoCot = !filtroSoloSeguimientoCot;
+  $('kpiRequierenSeguimiento').classList.toggle('active-filter', filtroSoloSeguimientoCot);
+  renderTablaCotizaciones();
+  $('seccionCotizaciones').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 // Días sin que se toque el estado de la cotización (o desde que se creó,

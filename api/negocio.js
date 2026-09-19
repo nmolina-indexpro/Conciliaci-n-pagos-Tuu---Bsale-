@@ -65,6 +65,10 @@ export default async function handler(req, res) {
   // que el de arriba (CRON_SECRET, sin sesión). Ver vercel.json y
   // middleware.ts (esServicioTecnicoResumenSemanalPublico).
   if (req.query.recurso === 'servicio-tecnico-resumen-semanal') return manejarServicioTecnicoResumenSemanal(req, res);
+  // Cron diario (lunes a viernes) de seguimiento de cotizaciones -- mismo
+  // patrón que los dos de arriba. Ver vercel.json y middleware.ts
+  // (esCotizacionesSeguimientoDiarioPublico).
+  if (req.query.recurso === 'cotizaciones-seguimiento-diario') return manejarCotizacionesSeguimientoDiario(req, res);
 
   const sesion = usuarioDesdeRequest(req);
   if (!sesion) return res.status(401).json({ error: 'No hay sesión activa' });
@@ -3715,6 +3719,107 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
     return res.status(200).json({ ok: true, enviado: true, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Servicio Técnico', detail: String(err) });
+  }
+}
+
+// Seguimiento automático de cotizaciones -- pedido del usuario ("el
+// siguiente paso natural a 'días sin contacto' es crear un recordatorio
+// solo"). Dos correos, mismo cron, mismo mecanismo probado que el resumen
+// semanal de Servicio Técnico de arriba (enviarCorreo + CRON_SECRET, sin
+// sesión):
+//   1) Resumen diario -- TODAS las cotizaciones abiertas sin cambios de
+//      estado hace 7+ días, agrupadas por vendedor. Solo se manda si hay
+//      algo que reportar.
+//   2) Alerta urgente -- el subconjunto con 10+ días Y monto alto (se
+//      están por perder y valen la pena una intervención). Solo se manda
+//      si hay al menos una.
+// OJO: se descartó mandar esto por WhatsApp al no tener un vendedor/admin
+// que haya escrito primero -- Meta rechaza texto libre fuera de la ventana
+// de 24h de una conversación iniciada por el cliente, y no hay una
+// plantilla pre-aprobada para esto. Correo es lo que sí funciona hoy.
+//
+// UMBRAL_DIAS_SIN_CONTACTO acá DEBE calzar con UMBRAL_DIAS_SIN_CONTACTO_COT
+// en oportunidades-comerciales.html -- es el mismo concepto ("días sin
+// contacto"), solo que acá se recalcula server-side porque un cron no
+// tiene el array `cotizaciones` ya cargado en el navegador de nadie.
+const COTIZACIONES_SEGUIMIENTO_DESTINATARIOS = ['nmolina@indexstore.cl'];
+const COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS = 7;
+const COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS = 10;
+const COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO = 500000;
+async function manejarCotizacionesSeguimientoDiario(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  try {
+    const sql = await getSql();
+    await asegurarTablaCotizaciones(sql);
+
+    const { rows } = await sql`
+      SELECT id, cliente_nombre, monto, fecha, actualizado_en, vendedor_nombre
+      FROM bsale_cotizaciones
+      WHERE estado NOT IN ('facturada', 'perdida');
+    `;
+
+    const hoy = new Date().toISOString().slice(0, 10);
+    const diasEntre = (desde, hasta) => Math.round((new Date(hasta + 'T00:00:00Z') - new Date(desde + 'T00:00:00Z')) / 86400000);
+
+    const pendientes = rows.map(r => {
+      const base = r.actualizado_en ? new Date(r.actualizado_en).toISOString().slice(0, 10) : (r.fecha ? new Date(r.fecha).toISOString().slice(0, 10) : null);
+      const dias = base ? diasEntre(base, hoy) : null;
+      return {
+        cliente: r.cliente_nombre || 'Sin nombre', monto: Number(r.monto) || 0,
+        vendedor: r.vendedor_nombre || 'Sin vendedor asignado', dias,
+      };
+    }).filter(c => c.dias !== null && c.dias >= COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS)
+      .sort((a, b) => b.dias - a.dias);
+
+    const envios = [];
+    const urlPagina = 'https://conciliaci-n-pagos-tuu-bsale.vercel.app/oportunidades-comerciales.html';
+    const filaCot = c => `<li><b>${c.cliente}</b> — $${Math.round(c.monto).toLocaleString('es-CL')} — ${c.dias} días sin contacto</li>`;
+
+    // ---------- 1) Resumen diario, agrupado por vendedor ----------
+    if (pendientes.length > 0) {
+      const porVendedor = new Map();
+      for (const c of pendientes) {
+        if (!porVendedor.has(c.vendedor)) porVendedor.set(c.vendedor, []);
+        porVendedor.get(c.vendedor).push(c);
+      }
+      const bloquesVendedor = [...porVendedor.entries()]
+        .sort((a, b) => b[1].length - a[1].length)
+        .map(([vendedor, items]) => `<h3>${vendedor} (${items.length})</h3><ul>${items.map(filaCot).join('')}</ul>`)
+        .join('');
+      const html = `
+        <h2>📋 Seguimiento de cotizaciones</h2>
+        <p style="color:#666;">${pendientes.length} cotización${pendientes.length === 1 ? '' : 'es'} sin cambios de estado hace ${COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS}+ días.</p>
+        ${bloquesVendedor}
+        <p><a href="${urlPagina}">Ver en el ERP -- página Ventas</a></p>
+      `;
+      const asunto = `📋 Seguimiento -- ${pendientes.length} cotización${pendientes.length === 1 ? '' : 'es'} sin contacto hace ${COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS}+ días`;
+      for (const para of COTIZACIONES_SEGUIMIENTO_DESTINATARIOS) {
+        envios.push({ tipo: 'resumen', para, ...(await enviarCorreo({ para, asunto, html })) });
+      }
+    }
+
+    // ---------- 2) Alerta urgente, solo las críticas ----------
+    const urgentes = pendientes.filter(c => c.dias >= COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS && c.monto >= COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO);
+    if (urgentes.length > 0) {
+      const html = `
+        <h2 style="color:#DC2626;">🚨 Cotizaciones en riesgo</h2>
+        <p style="color:#666;">${urgentes.length} cotización${urgentes.length === 1 ? '' : 'es'} con ${COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS}+ días sin contacto y sobre $${COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO.toLocaleString('es-CL')} -- se están por perder.</p>
+        <ul>${urgentes.map(c => `<li><b>${c.cliente}</b> — $${Math.round(c.monto).toLocaleString('es-CL')} — ${c.dias} días sin contacto — vendedor: ${c.vendedor}</li>`).join('')}</ul>
+        <p><a href="${urlPagina}">Ver en el ERP -- página Ventas</a></p>
+      `;
+      const asunto = `🚨 ${urgentes.length} cotización${urgentes.length === 1 ? '' : 'es'} en riesgo de perderse`;
+      for (const para of COTIZACIONES_SEGUIMIENTO_DESTINATARIOS) {
+        envios.push({ tipo: 'urgente', para, ...(await enviarCorreo({ para, asunto, html })) });
+      }
+    }
+
+    return res.status(200).json({ ok: true, pendientes: pendientes.length, urgentes: urgentes.length, envios });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error generando o enviando el seguimiento de cotizaciones', detail: String(err) });
   }
 }
 
