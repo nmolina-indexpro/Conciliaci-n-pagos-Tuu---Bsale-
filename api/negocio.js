@@ -3744,8 +3744,8 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
 // tiene el array `cotizaciones` ya cargado en el navegador de nadie.
 const COTIZACIONES_SEGUIMIENTO_DESTINATARIOS = ['nmolina@indexstore.cl'];
 const COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS = 7;
-const COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS = 10;
-const COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO = 500000;
+const COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS = 3;
+const COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO = 300000;
 async function manejarCotizacionesSeguimientoDiario(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
   const auth = req.headers.authorization || '';
@@ -3765,14 +3765,23 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
     const hoy = new Date().toISOString().slice(0, 10);
     const diasEntre = (desde, hasta) => Math.round((new Date(hasta + 'T00:00:00Z') - new Date(desde + 'T00:00:00Z')) / 86400000);
 
-    const pendientes = rows.map(r => {
+    // Base SIN filtrar por ningún umbral todavía -- el umbral urgente
+    // (3+ días) es más bajo que el del resumen (7+ días), así que "urgentes"
+    // NO puede salir de filtrar "pendientes" (eso dejaría afuera para
+    // siempre a las cotizaciones de 3-6 días, que nunca llegarían a
+    // "pendientes"). Ambas listas se derivan de esta misma base, cada una
+    // con su propio corte.
+    const abiertasConDias = rows.map(r => {
       const base = r.actualizado_en ? new Date(r.actualizado_en).toISOString().slice(0, 10) : (r.fecha ? new Date(r.fecha).toISOString().slice(0, 10) : null);
       const dias = base ? diasEntre(base, hoy) : null;
       return {
         cliente: r.cliente_nombre || 'Sin nombre', monto: Number(r.monto) || 0,
         vendedor: r.vendedor_nombre || 'Sin vendedor asignado', dias,
       };
-    }).filter(c => c.dias !== null && c.dias >= COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS)
+    }).filter(c => c.dias !== null);
+
+    const pendientes = abiertasConDias
+      .filter(c => c.dias >= COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS)
       .sort((a, b) => b.dias - a.dias);
 
     const envios = [];
@@ -3803,7 +3812,11 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
     }
 
     // ---------- 2) Alerta urgente, solo las críticas ----------
-    const urgentes = pendientes.filter(c => c.dias >= COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS && c.monto >= COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO);
+    // Se deriva de abiertasConDias (no de "pendientes") -- ver comentario
+    // de arriba, su umbral de días es menor que el del resumen.
+    const urgentes = abiertasConDias
+      .filter(c => c.dias >= COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS && c.monto >= COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO)
+      .sort((a, b) => b.dias - a.dias);
     if (urgentes.length > 0) {
       const html = `
         <h2 style="color:#DC2626;">🚨 Cotizaciones en riesgo</h2>
