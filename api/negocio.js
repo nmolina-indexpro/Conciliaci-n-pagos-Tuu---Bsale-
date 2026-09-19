@@ -3730,9 +3730,9 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
 //   1) Resumen diario -- TODAS las cotizaciones abiertas sin cambios de
 //      estado hace 7+ días, agrupadas por vendedor. Solo se manda si hay
 //      algo que reportar.
-//   2) Alerta urgente -- el subconjunto con 10+ días Y monto alto (se
-//      están por perder y valen la pena una intervención). Solo se manda
-//      si hay al menos una.
+//   2) Alerta urgente -- el subconjunto con 3+ días Y monto sobre $300.000
+//      (se están por perder y valen la pena una intervención). Solo se
+//      manda si hay al menos una.
 // OJO: se descartó mandar esto por WhatsApp al no tener un vendedor/admin
 // que haya escrito primero -- Meta rechaza texto libre fuera de la ventana
 // de 24h de una conversación iniciada por el cliente, y no hay una
@@ -3801,11 +3801,11 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
         .join('');
       const html = `
         <h2>📋 Seguimiento de cotizaciones</h2>
-        <p style="color:#666;">${pendientes.length} cotización${pendientes.length === 1 ? '' : 'es'} sin cambios de estado hace ${COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS}+ días.</p>
+        <p style="color:#666;">${pendientes.length} ${pendientes.length === 1 ? 'cotización' : 'cotizaciones'} sin cambios de estado hace ${COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS}+ días.</p>
         ${bloquesVendedor}
         <p><a href="${urlPagina}">Ver en el ERP -- página Ventas</a></p>
       `;
-      const asunto = `📋 Seguimiento -- ${pendientes.length} cotización${pendientes.length === 1 ? '' : 'es'} sin contacto hace ${COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS}+ días`;
+      const asunto = `📋 Seguimiento -- ${pendientes.length} ${pendientes.length === 1 ? 'cotización' : 'cotizaciones'} sin contacto hace ${COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS}+ días`;
       for (const para of COTIZACIONES_SEGUIMIENTO_DESTINATARIOS) {
         envios.push({ tipo: 'resumen', para, ...(await enviarCorreo({ para, asunto, html })) });
       }
@@ -3820,11 +3820,11 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
     if (urgentes.length > 0) {
       const html = `
         <h2 style="color:#DC2626;">🚨 Cotizaciones en riesgo</h2>
-        <p style="color:#666;">${urgentes.length} cotización${urgentes.length === 1 ? '' : 'es'} con ${COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS}+ días sin contacto y sobre $${COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO.toLocaleString('es-CL')} -- se están por perder.</p>
+        <p style="color:#666;">${urgentes.length} ${urgentes.length === 1 ? 'cotización' : 'cotizaciones'} con ${COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS}+ días sin contacto y sobre $${COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO.toLocaleString('es-CL')} -- se están por perder.</p>
         <ul>${urgentes.map(c => `<li><b>${c.cliente}</b> — $${Math.round(c.monto).toLocaleString('es-CL')} — ${c.dias} días sin contacto — vendedor: ${c.vendedor}</li>`).join('')}</ul>
         <p><a href="${urlPagina}">Ver en el ERP -- página Ventas</a></p>
       `;
-      const asunto = `🚨 ${urgentes.length} cotización${urgentes.length === 1 ? '' : 'es'} en riesgo de perderse`;
+      const asunto = `🚨 ${urgentes.length} ${urgentes.length === 1 ? 'cotización' : 'cotizaciones'} en riesgo de perderse`;
       for (const para of COTIZACIONES_SEGUIMIENTO_DESTINATARIOS) {
         envios.push({ tipo: 'urgente', para, ...(await enviarCorreo({ para, asunto, html })) });
       }
