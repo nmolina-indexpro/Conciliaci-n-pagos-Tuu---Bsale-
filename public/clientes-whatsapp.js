@@ -1057,6 +1057,22 @@ function initAnalitica(){
       <div class="seccion"><h2>Modelos más consultados</h2><div id="rankModelos"></div></div>
     </div>
     <div class="seccion">
+      <div class="seccion-head">
+        <div><h2>Clientes de este período</h2><div class="sub">Clientes con al menos una conversación en el rango de fechas elegido arriba. El correo no es un dato de WhatsApp -- sale del cliente vinculado en Bsale por teléfono, así que no todos van a tener uno.</div></div>
+        <button class="btn-ghost btn-compact btn-exportar" onclick="descargarClientesAnalitica()">⬇ Descargar CSV (nombre, teléfono, correo)</button>
+      </div>
+      <div class="grid" style="grid-template-columns:1fr 1fr;">
+        <div>
+          <h3 style="margin:0 0 8px;font-size:13px;">👤 Nombres (<span id="totalClientesAnalitica">0</span>)</h3>
+          <div id="listaClientesAnalitica" class="lista-clientes-analitica"></div>
+        </div>
+        <div>
+          <h3 style="margin:0 0 8px;font-size:13px;">📧 Con correo (<span id="totalClientesCorreoAnalitica">0</span>)</h3>
+          <div id="listaClientesCorreoAnalitica" class="lista-clientes-analitica"></div>
+        </div>
+      </div>
+    </div>
+    <div class="seccion">
       <h2>Resultados de conversaciones</h2>
       <div id="chartResultados" style="margin-top:12px;"></div>
     </div>
@@ -1101,6 +1117,7 @@ async function cargarAnalitica(){
     renderRanking('rankMarcas', data.rankingMarcas, 'marca');
     renderRanking('rankModelos', data.rankingModelos, 'modelo');
     renderChartResultados(data.resultados);
+    renderClientesAnalitica(data.clientes);
   }catch(err){
     $('chartSerie').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
   }
@@ -1290,6 +1307,50 @@ function renderChartResultados(resultados){
       <div class="valor">${fmtNum(r.cantidad)}</div>
     </div>
   `).join('');
+}
+
+// Clientes con al menos una conversación en el rango de Analítica --
+// pedido del usuario: dos "ventanas" (nombres / con correo) + poder
+// descargar la lista completa. Se guarda en una variable de módulo para
+// que descargarClientesAnalitica() no tenga que volver a pedirle nada al
+// servidor -- ya llegó todo junto con el resto de la analítica.
+let clientesAnaliticaActuales = [];
+function renderClientesAnalitica(clientes){
+  clientesAnaliticaActuales = clientes || [];
+  $('totalClientesAnalitica').textContent = fmtNum(clientesAnaliticaActuales.length);
+  $('listaClientesAnalitica').innerHTML = clientesAnaliticaActuales.length
+    ? clientesAnaliticaActuales.map(c => `
+        <div class="fila-cliente-analitica">
+          <span class="nombre-cliente-analitica">${escapeHtml(c.nombre || '(sin nombre)')}</span>
+          <span class="dato-cliente-analitica">${escapeHtml(c.telefono || '—')}</span>
+        </div>`).join('')
+    : '<p class="empty-note" style="padding:12px;">Sin clientes en este período.</p>';
+
+  const conCorreo = clientesAnaliticaActuales.filter(c => c.correo);
+  $('totalClientesCorreoAnalitica').textContent = fmtNum(conCorreo.length);
+  $('listaClientesCorreoAnalitica').innerHTML = conCorreo.length
+    ? conCorreo.map(c => `
+        <div class="fila-cliente-analitica">
+          <span class="nombre-cliente-analitica">${escapeHtml(c.nombre || '(sin nombre)')}</span>
+          <span class="dato-cliente-analitica">${escapeHtml(c.correo)}</span>
+        </div>`).join('')
+    : '<p class="empty-note" style="padding:12px;">Ningún cliente de este período tiene correo vinculado en Bsale.</p>';
+}
+// Mismo patrón de exportarCsv() en alertas-stock.html (BOM + comillas
+// escapadas + descarga vía blob) -- lista COMPLETA del período filtrado
+// (no solo lo que se ve en las dos ventanas), pedido explícito del usuario.
+function descargarClientesAnalitica(){
+  if(!clientesAnaliticaActuales.length){ alert('No hay clientes en este período para descargar.'); return; }
+  const filas = [['Nombre','Teléfono','Correo']];
+  for(const c of clientesAnaliticaActuales) filas.push([c.nombre || '', c.telefono || '', c.correo || '']);
+  const csv = filas.map(f => f.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `clientes-whatsapp-${$('analiticaDesde').value}-a-${$('analiticaHasta').value}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ================= Análisis IA en lote (admin) =================

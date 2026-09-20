@@ -7910,6 +7910,27 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
        GROUP BY fuente, medio, campana ORDER BY cantidad DESC LIMIT 15;`,
       [desde, hasta]
     );
+    // Clientes (nombre, teléfono, correo) con al menos una conversación en
+    // el rango -- pedido del usuario: dos "ventanas" en Analítica (nombres /
+    // con correo) más poder descargar la lista completa. El correo NO es
+    // un dato de WhatsApp (no existe ese campo en whatsapp_contactos) --
+    // sale del cliente de Bsale vinculado por teléfono, mismo cruce que ya
+    // usa manejarWhatsappClientes (telefono_normalizado, ver lib/db.js).
+    await asegurarTablaBsalePuntos(sql);
+    const { rows: clientesRows } = await sql.query(
+      `SELECT DISTINCT ON (ct.id) ct.id, ct.nombre, ct.telefono, bcli.email AS correo
+       FROM whatsapp_conversaciones c
+       JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+       LEFT JOIN LATERAL (
+         SELECT bp.email FROM bsale_clientes_puntos bp
+         WHERE bp.telefono_normalizado <> '' AND bp.telefono_normalizado = right(regexp_replace(coalesce(ct.telefono, ''), '[^0-9]', '', 'g'), 9)
+         LIMIT 1
+       ) bcli ON true
+       WHERE c.iniciada_en >= $1 AND c.iniciada_en < $2
+       ORDER BY ct.id, ct.nombre;`,
+      [desde, hasta]
+    );
+
     const cantidadOrigenShopify = origenVentaTotalRows[0]?.cantidad || 0;
     const fuentes = fuenteRows.map(r => ({ tipo: r.tipo, cantidad: r.cantidad, ventas: r.ventas }));
     if (cantidadOrigenShopify > 0) fuentes.push({ tipo: 'shopify_journey', cantidad: cantidadOrigenShopify, ventas: cantidadOrigenShopify });
@@ -7938,6 +7959,7 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       embudo: embudoRows[0] || { conversaciones: 0, intencion_compra: 0, cotizacion: 0, venta: 0 },
       fuentes,
       fuentesDetalle,
+      clientes: clientesRows.map(r => ({ id: r.id, nombre: r.nombre || null, telefono: r.telefono, correo: r.correo || null })),
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error calculando analítica de WhatsApp', detail: String(err) });
