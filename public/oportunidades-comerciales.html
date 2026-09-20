@@ -259,6 +259,17 @@
       </div>
       <div id="wrapClientes"><p class="empty-note">Cargando...</p></div>
     </div>
+
+    <div class="seccion" id="seccionEmpresaCorreoPersonal">
+      <div class="seccion-head">
+        <div>
+          <h2>🏢 Empresas con correo personal</h2>
+          <div class="sub">Clientes registrados en Bsale como empresa (tienen razón social) pero cuyo correo es de un proveedor gratuito (Gmail, Hotmail, etc.) en vez de uno del dominio propio — probablemente el correo de una sola persona, no una casilla institucional. No detecta todos los casos (solo compara contra proveedores gratuitos conocidos), pero lo que marca es confiable.</div>
+        </div>
+        <button class="btn-ghost btn-compact btn-exportar" onclick="exportarEmpresaCorreoPersonal()">⬇ Descargar CSV (<span id="conteoEmpresaCorreoPersonal">0</span>)</button>
+      </div>
+      <div id="wrapEmpresaCorreoPersonal"><p class="empty-note">Cargando...</p></div>
+    </div>
   </div>
 
   <div id="tabCotizaciones">
@@ -552,6 +563,7 @@ function cambiarTab(tab){
 }
 
 let clientes = [];
+let clientesEmpresaCorreoPersonal = [];
 let sortCol = 'puntos';
 let sortAsc = false;
 let esAdmin = false;
@@ -854,6 +866,47 @@ async function cargar(){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
   }
+  cargarEmpresaCorreoPersonal();
+}
+
+// Pedido del usuario: entre los clientes empresa de Bsale, cuáles dejaron
+// un correo de proveedor gratuito (Gmail, Hotmail, etc.) en vez de uno del
+// dominio propio -- ver manejarClientesEmpresaCorreoPersonal en negocio.js
+// para el criterio exacto. Independiente de "cargar()" en el sentido de
+// que no depende de tener puntos, pero se dispara junto porque viven en la
+// misma pestaña.
+async function cargarEmpresaCorreoPersonal(){
+  try{
+    const res = await fetch('/api/negocio?recurso=clientes-empresa-correo-personal').then(r=>r.json());
+    if(res.error){
+      $('wrapEmpresaCorreoPersonal').innerHTML = `<p class="empty-note">Error: ${res.detail || res.error}</p>`;
+      return;
+    }
+    clientesEmpresaCorreoPersonal = res.clientes || [];
+    $('conteoEmpresaCorreoPersonal').textContent = clientesEmpresaCorreoPersonal.length;
+    if(clientesEmpresaCorreoPersonal.length === 0){
+      $('wrapEmpresaCorreoPersonal').innerHTML = '<p class="empty-note">No se encontró ninguna empresa con correo de proveedor gratuito.</p>';
+      return;
+    }
+    $('wrapEmpresaCorreoPersonal').innerHTML = `
+      <div class="tabla-wrap"><table>
+        <thead><tr><th>Empresa</th><th>Contacto</th><th>RUT</th><th>Correo</th><th>Teléfono</th><th>Ciudad</th></tr></thead>
+        <tbody>${clientesEmpresaCorreoPersonal.map(c => `
+          <tr>
+            <td>${c.empresa}</td><td>${c.nombre||''}</td><td>${c.rut||''}</td>
+            <td>${c.email}</td><td>${c.telefono||''}</td><td>${c.ciudad||''}</td>
+          </tr>`).join('')}</tbody>
+      </table></div>
+    `;
+  }catch(err){
+    $('wrapEmpresaCorreoPersonal').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+  }
+}
+function exportarEmpresaCorreoPersonal(){
+  if(clientesEmpresaCorreoPersonal.length===0){ alert('No hay empresas con correo personal para exportar.'); return; }
+  const filas = [['Empresa','Contacto','RUT','Correo','Teléfono','Ciudad']];
+  for(const c of clientesEmpresaCorreoPersonal) filas.push([c.empresa, c.nombre||'', c.rut||'', c.email, c.telefono||'', c.ciudad||'']);
+  descargarCsv(filas, `empresas-correo-personal-${new Date().toISOString().slice(0,10)}.csv`);
 }
 
 // ---------- Estado de sincronización con Bsale ----------

@@ -85,6 +85,7 @@ export default async function handler(req, res) {
   if (recurso === 'facturas-compra') return manejarFacturasCompra(req, res, sesion);
   if (recurso === 'clientes-puntos') return manejarClientesPuntos(req, res, sesion);
   if (recurso === 'sync-clientes-puntos') return manejarSyncClientesPuntos(req, res, sesion);
+  if (recurso === 'clientes-empresa-correo-personal') return manejarClientesEmpresaCorreoPersonal(req, res, sesion);
   if (recurso === 'cotizaciones-clientes') return manejarCotizacionesClientes(req, res, sesion);
   if (recurso === 'sync-cotizaciones') return manejarSyncCotizaciones(req, res, sesion);
   if (recurso === 'cotizacion-estado') return manejarCotizacionEstado(req, res, sesion);
@@ -641,6 +642,45 @@ async function manejarClientesPuntos(req, res, sesion) {
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error leyendo clientes con puntos', detail: String(err), clientes: [] });
+  }
+}
+
+// Pedido del usuario: entre los clientes empresa de Bsale (campo "company"
+// del cliente -> columna "empresa" acá, ver manejarSyncClientesPuntos),
+// detectar los que dejaron un correo de proveedor gratuito/personal
+// (Gmail, Hotmail, etc.) en vez de uno del dominio propio de la empresa --
+// típicamente el correo de una sola persona, no una casilla institucional
+// que sobreviva si esa persona se va. No hay forma de verificar el
+// "dominio real" de cada empresa (Bsale no lo guarda), así que se compara
+// contra una lista de proveedores gratuitos conocidos -- lo demás se
+// asume institucional (puede haber falsos negativos con un proveedor
+// gratuito raro que no esté en la lista, pero no falsos positivos: nunca
+// marca como "personal" un dominio que no esté en esta lista).
+const DOMINIOS_EMAIL_PERSONAL = [
+  'gmail.com', 'hotmail.com', 'hotmail.es', 'outlook.com', 'outlook.es', 'outlook.cl',
+  'live.com', 'live.cl', 'yahoo.com', 'yahoo.es', 'yahoo.cl', 'ymail.com', 'msn.com',
+  'icloud.com', 'me.com', 'mac.com', 'aol.com', 'protonmail.com', 'gmx.com', 'vtr.net', 'terra.cl',
+];
+async function manejarClientesEmpresaCorreoPersonal(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaBsalePuntos(sql);
+    const { rows } = await sql.query(
+      `SELECT id, nombre, rut, telefono, email, empresa, ciudad
+       FROM bsale_clientes_puntos
+       WHERE empresa IS NOT NULL AND empresa <> ''
+         AND email IS NOT NULL AND email <> ''
+         AND lower(split_part(email, '@', 2)) = ANY($1::text[])
+       ORDER BY empresa ASC;`,
+      [DOMINIOS_EMAIL_PERSONAL]
+    );
+    return res.status(200).json({
+      clientes: rows.map(r => ({ id: r.id, nombre: r.nombre, rut: r.rut, telefono: r.telefono, email: r.email, empresa: r.empresa, ciudad: r.ciudad })),
+      total: rows.length,
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error identificando empresas con correo personal', detail: String(err), clientes: [] });
   }
 }
 
