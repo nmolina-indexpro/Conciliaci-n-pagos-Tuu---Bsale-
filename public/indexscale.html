@@ -342,6 +342,10 @@ function renderTablaIndexscale(segmento){
 
   const col = sortColIndexscale[segmento], asc = sortAscIndexscale[segmento];
   filas = [...filas].sort((a,b)=>{
+    // La fila de prueba (empresa "Daxis") siempre va primera, sin importar
+    // el orden activo -- pedido del usuario para poder ubicarla rápido y
+    // testear el sistema sin tener que buscarla entre miles de filas.
+    if(!!a.esPrueba !== !!b.esPrueba) return a.esPrueba ? -1 : 1;
     if(col === 'prioridad'){
       const diff = ESTADO_PRIORIDAD_INDEXSCALE[a.estado] - ESTADO_PRIORIDAD_INDEXSCALE[b.estado];
       const ordenado = asc ? diff : -diff;
@@ -375,9 +379,11 @@ function renderTablaIndexscale(segmento){
     // principio (correo personal) o si venía de Potenciar y se movió
     // porque "Verificar sitios" no le encontró contenido real -- se deriva
     // de sitioVerificadoEn (solo se setea cuando pasa por esa verificación).
-    ...(segmento === 'sin_sitio' ? [{ key:'sitioVerificadoEn', label:'Origen', render:o=>o.sitioVerificadoEn
-      ? `<span title="Tenía correo con dominio propio, pero la verificación de sitios no le encontró contenido real">🔀 Migrado</span>`
-      : `<span title="Correo de un proveedor gratuito (Gmail, Hotmail, etc.) desde el primer sembrado">🆕 Identificado</span>` }] : []),
+    ...(segmento === 'sin_sitio' ? [{ key:'sitioVerificadoEn', label:'Origen', render:o=>o.esPrueba
+      ? `<span title="Fila fija para testear el sistema, no es un cliente real">🧪 Prueba</span>`
+      : (o.sitioVerificadoEn
+        ? `<span title="Tenía correo con dominio propio, pero la verificación de sitios no le encontró contenido real">🔀 Migrado</span>`
+        : `<span title="Correo de un proveedor gratuito (Gmail, Hotmail, etc.) desde el primer sembrado">🆕 Identificado</span>`) }] : []),
     { key:'clienteNombre', label:'', render:o=>{
         const dominio = segmento === 'potenciar' ? dominioSitioWeb(o.email) : null;
         const web = segmento !== 'potenciar' ? '' : (dominio

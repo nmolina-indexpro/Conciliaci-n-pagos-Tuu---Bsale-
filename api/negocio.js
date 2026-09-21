@@ -4521,10 +4521,26 @@ async function manejarIndexscaleOportunidades(req, res, sesion) {
     await sql.query(
       `UPDATE indexscale_oportunidades
        SET segmento = CASE WHEN lower(split_part(email, '@', 2)) = ANY($1::text[]) THEN 'sin_sitio' ELSE 'potenciar' END
-       WHERE email IS NOT NULL AND email <> ''
+       WHERE NOT es_prueba
+         AND email IS NOT NULL AND email <> ''
          AND segmento <> CASE WHEN lower(split_part(email, '@', 2)) = ANY($1::text[]) THEN 'sin_sitio' ELSE 'potenciar' END;`,
       [DOMINIOS_EMAIL_PERSONAL]
     );
+
+    // Fila fija de prueba (empresa "Daxis") para poder testear el flujo
+    // completo -- enviar presentación, cambiar estado, etc. -- sin usar un
+    // cliente real de Bsale. bsale_cliente_id=-999 es un valor centinela
+    // que nunca puede coincidir con un id real de Bsale (siempre positivo),
+    // así ON CONFLICT DO NOTHING la deja tranquila una vez creada. Excluida
+    // arriba de la reclasificación por dominio de correo (para que no se
+    // mueva sola a "potenciar" por tener un correo institucional) y no le
+    // aplican los filtros de RUT/municipalidad de abajo porque su RUT y
+    // nombre no calzan con esos criterios de exclusión de todos modos.
+    await sql`
+      INSERT INTO indexscale_oportunidades (bsale_cliente_id, segmento, empresa, cliente_nombre, rut, telefono, email, ciudad, puntos, es_prueba)
+      VALUES (-999, 'sin_sitio', 'Daxis', 'Nicolás Molina', '76.200.548-4', NULL, 'nmolina@indexpro.cl', 'Santiago', 0, true)
+      ON CONFLICT (bsale_cliente_id) DO NOTHING;
+    `;
 
     // Limpieza de leads que no son un objetivo comercial válido para
     // IndexScale, sin importar el segmento (aplica a filas ya sembradas
@@ -4543,11 +4559,14 @@ async function manejarIndexscaleOportunidades(req, res, sesion) {
     //    un lead de venta directa válido para este flujo.
     await sql`
       DELETE FROM indexscale_oportunidades
-      WHERE empresa ~* 'municipal'
-         OR (
-           NULLIF(regexp_replace(split_part(rut, '-', 1), '[^0-9]', '', 'g'), '') IS NOT NULL
-           AND NULLIF(regexp_replace(split_part(rut, '-', 1), '[^0-9]', '', 'g'), '')::bigint < 50000000
-         );
+      WHERE NOT es_prueba
+        AND (
+          empresa ~* 'municipal'
+          OR (
+            NULLIF(regexp_replace(split_part(rut, '-', 1), '[^0-9]', '', 'g'), '') IS NOT NULL
+            AND NULLIF(regexp_replace(split_part(rut, '-', 1), '[^0-9]', '', 'g'), '')::bigint < 50000000
+          )
+        );
     `;
 
     // Re-siembra en cada request, igual criterio que indexpro_oportunidades,
@@ -4595,6 +4614,7 @@ async function manejarIndexscaleOportunidades(req, res, sesion) {
       actualizadoPor: r.actualizado_por,
       presentacionEnviadaEn: r.presentacion_enviada_en,
       sitioVerificadoEn: r.sitio_verificado_en,
+      esPrueba: r.es_prueba,
     }));
 
     return res.status(200).json({ oportunidades, estadosDisponibles: ESTADOS_INDEXSCALE, total: oportunidades.length });
