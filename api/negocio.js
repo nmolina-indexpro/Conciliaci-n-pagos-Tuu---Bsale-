@@ -4508,6 +4508,23 @@ async function manejarIndexscaleOportunidades(req, res, sesion) {
     await asegurarTablaIndexscale(sql);
     await asegurarTablaBsalePuntos(sql);
 
+    // Corrige clasificaciones erróneas heredadas: la primera versión de esta
+    // tabla (antes de existir "segmento") sembró ~1000 empresas con
+    // cualquier correo, personal o institucional; al agregar la columna
+    // "segmento" con DEFAULT 'sin_sitio' (ALTER TABLE), todas esas filas
+    // viejas quedaron marcadas como 'sin_sitio' sin importar su dominio real
+    // (ej. detectado en producción: empresa con correo institucional
+    // clasificada como 'sin_sitio'). Se recalcula por el correo YA GUARDADO
+    // en cada fila (no vuelve a golpear Bsale) cada vez que se pide
+    // cualquiera de las dos listas, así se autocorrige con el tiempo.
+    await sql.query(
+      `UPDATE indexscale_oportunidades
+       SET segmento = CASE WHEN lower(split_part(email, '@', 2)) = ANY($1::text[]) THEN 'sin_sitio' ELSE 'potenciar' END
+       WHERE email IS NOT NULL AND email <> ''
+         AND segmento <> CASE WHEN lower(split_part(email, '@', 2)) = ANY($1::text[]) THEN 'sin_sitio' ELSE 'potenciar' END;`,
+      [DOMINIOS_EMAIL_PERSONAL]
+    );
+
     // Re-siembra en cada request, igual criterio que indexpro_oportunidades,
     // pero separado por segmento según el dominio del correo (ver comentario
     // arriba). ON CONFLICT DO NOTHING no pisa una fila ya existente (no
