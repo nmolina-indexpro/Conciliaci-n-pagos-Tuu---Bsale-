@@ -4652,6 +4652,21 @@ async function manejarIndexscaleEstado(req, res, sesion) {
   }
 }
 
+// Saca la razón social (SpA, Ltda., S.A., EIRL...) del nombre de la empresa
+// para usar en el saludo/asunto de los correos de IndexScale -- pedido
+// explícito del usuario: un asunto o saludo con "SpA"/"Ltda." al final se
+// nota mucho más como envío automatizado/masivo que uno con solo el nombre
+// de fantasía. Limitación aceptada: es una limpieza por patrón de texto, no
+// un parser de razones sociales -- un nombre real que termine
+// legítimamente en esas siglas (raro) también se recorta.
+function limpiarRazonSocial(nombre) {
+  if (!nombre) return nombre;
+  return nombre
+    .replace(/\s*,?\s*(S\.?\s?P\.?\s?A\.?|E\.?\s?I\.?\s?R\.?\s?L\.?|LTDA\.?|LIMITADA|S\.?\s?A\.?)\s*$/i, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 // Correo de primer contacto -- oferta de diseño web / optimización de
 // e-commerce de IndexScale (indexscale.cl), copy basado en el sitio real
 // (revisado en vivo). El gancho es que el destinatario YA es cliente de
@@ -4662,38 +4677,40 @@ async function manejarIndexscaleEstado(req, res, sesion) {
 // a 'sin_sitio' se le ofrece crear una tienda desde cero, a 'potenciar' se
 // le ofrece optimizar la que se asume que ya tiene.
 function construirCorreoPresentacionIndexscale(nombreEmpresa, segmento) {
-  const empresa = nombreEmpresa || 'estimado/a';
+  const empresa = limpiarRazonSocial(nombreEmpresa) || 'estimado/a';
   const esPotenciar = segmento === 'potenciar';
 
   const texto = esPotenciar ? `Hola ${empresa},
 
-Somos IndexScale, el equipo de e-commerce y desarrollo web del mismo grupo de IndexStore.
+Soy Nicolás, de IndexScale, el equipo de e-commerce y desarrollo web del mismo grupo de indexstore.cl.
 
-Te escribimos porque ya te conocemos como cliente, y notamos que probablemente ya cuentas con tu propio sitio o tienda online. Ayudamos a empresas como la tuya a sacarle más provecho a lo que ya tienen: optimización de conversión (UX/CRO), Google Ads, mejoras a la tienda Shopify/WooCommerce existente, y automatización conectando tu operación (ERP, WhatsApp, inventario).
+Ya te conocemos como cliente, y notamos que probablemente ya tienes tu propio sitio o tienda online. Ayudamos a empresas como la tuya a sacarle más provecho a lo que ya tienen: conversión (UX/CRO), Google Ads, mejoras a tu tienda Shopify/WooCommerce y automatización de tu operación.
 
-Nuestro propio caso: llevamos indexstore.cl de una tienda online a una operación que factura sobre $40MM al mes, con más de 12 años de experiencia operacional propia -- no vendemos algo que no hayamos probado primero con nuestro propio negocio.
+Nuestro propio caso: llevamos indexstore.cl a facturar sobre $40MM al mes -- no ofrecemos algo que no hayamos probado primero con nuestro negocio.
 
-Si quieres, podemos revisar gratis y sin compromiso tu e-commerce actual y decirte cuál sería el siguiente paso más rentable.
-
-Más detalles acá: https://indexscale.cl/
-
-Quedamos atentos -- basta con responder este correo.
-
-Equipo IndexScale` : `Hola ${empresa},
-
-Somos IndexScale, el equipo de e-commerce y desarrollo web del mismo grupo de IndexStore.
-
-Te escribimos porque ya te conocemos como cliente, y quisimos contarte que además ayudamos a empresas como la tuya a dar el salto a la venta online: creación de tiendas Shopify/WooCommerce, sitios corporativos, optimización de conversión (UX/CRO), Google Ads, y automatización conectando tu operación (ERP, WhatsApp, inventario).
-
-Nuestro propio caso: llevamos indexstore.cl de una tienda online a una operación que factura sobre $40MM al mes, con más de 12 años de experiencia operacional propia -- no vendemos algo que no hayamos probado primero con nuestro propio negocio.
-
-Si quieres, podemos mostrarte gratis y sin compromiso cómo se vería tu negocio con una tienda online propia.
+Si quieres, revisamos gratis y sin compromiso tu e-commerce actual.
 
 Más detalles acá: https://indexscale.cl/
 
-Quedamos atentos -- basta con responder este correo.
+Quedo atento -- basta con responder este correo.
 
-Equipo IndexScale`;
+Nicolás
+IndexScale` : `Hola ${empresa},
+
+Soy Nicolás, de IndexScale, el equipo de e-commerce y desarrollo web del mismo grupo de indexstore.cl.
+
+Ya te conocemos como cliente, y quisimos contarte que también ayudamos a empresas como la tuya a dar el salto a la venta online: tiendas Shopify/WooCommerce, sitios corporativos, conversión (UX/CRO), Google Ads y automatización de tu operación.
+
+Nuestro propio caso: llevamos indexstore.cl a facturar sobre $40MM al mes -- no ofrecemos algo que no hayamos probado primero con nuestro negocio.
+
+Si quieres, te mostramos gratis y sin compromiso cómo se vería tu negocio con tienda online propia.
+
+Más detalles acá: https://indexscale.cl/
+
+Quedo atento -- basta con responder este correo.
+
+Nicolás
+IndexScale`;
 
   const html = texto
     .split('\n\n')
@@ -4783,18 +4800,22 @@ async function manejarIndexscaleEnviarPresentacion(req, res, sesion) {
 // directo que el primero: ya sabemos que lo vieron, así que el objetivo es
 // conseguir una respuesta o una reunión, no repetir el pitch completo.
 function construirCorreoRecontactoIndexscale(nombreEmpresa, segmento) {
-  const empresa = nombreEmpresa || 'estimado/a';
+  const empresa = limpiarRazonSocial(nombreEmpresa) || 'estimado/a';
   const esPotenciar = segmento === 'potenciar';
 
   const texto = `Hola ${empresa},
 
-Te escribo de nuevo porque vi que alcanzaste a revisar mi correo anterior sobre ${esPotenciar ? 'potenciar tu e-commerce' : 'tener tu propia tienda online'}.
+Soy Nicolás, de IndexScale. Te escribo de nuevo porque vi que alcanzaste a revisar mi correo anterior sobre ${esPotenciar ? 'potenciar tu e-commerce' : 'tener tu propia tienda online'}.
 
-¿Tienes 15 minutos esta semana para que te muestre 2-3 ideas concretas, sin compromiso? Puedes responder aquí mismo o coordinamos por WhatsApp, lo que te acomode más.
+Para no perder más tiempo, cuéntame qué prefieres:
+- Conversar directo por WhatsApp
+- Que te haga una visita en terreno
+- Coordinar una llamada telefónica
 
 Quedo atento.
 
-Equipo IndexScale`;
+Nicolás
+IndexScale`;
 
   const html = texto
     .split('\n\n')
