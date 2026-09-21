@@ -1031,6 +1031,11 @@ function initAnalitica(){
       </div>
     </div>
     <div class="seccion">
+      <h2>Embudo de ventas vinculadas a Bsale</h2>
+      <div class="sub">A diferencia del embudo de arriba (que también cuenta ventas confirmadas a mano), este solo cuenta conversaciones con un documento real de Bsale encontrado por teléfono (no Shopify) cuya fecha de emisión cae dentro del período elegido -- el correo no sirve para este cruce porque WhatsApp no lo entrega, ver "Clientes de este período" más abajo.</div>
+      <div id="chartEmbudoBsale" style="margin-top:12px;"></div>
+    </div>
+    <div class="seccion">
       <div class="seccion-head">
         <div><h2>Fuente de ingreso</h2><div class="sub">De dónde vienen las conversaciones: anuncios de Meta, un UTM real (Google Ads si utm_source=google, u otra plataforma), el botón de WhatsApp del sitio sin dato de campaña, origen desconocido, o el origen REAL de la venta según el tracking propio de Shopify (cómo llegó al sitio antes de comprar -- solo para ventas vinculadas a un pedido de Shopify con tracking disponible). Solo cuenta conversaciones con al menos un mensaje real.</div></div>
       </div>
@@ -1111,6 +1116,7 @@ async function cargarAnalitica(){
     renderChartSerie(data.serie, data.agrupacion);
     renderChartCategorias(data.distribucionCategoria);
     renderChartEmbudo(data.embudo);
+    renderChartEmbudoBsale(data.embudoBsale);
     renderFuentes(data.fuentes, data.fuentesDetalle);
     renderTablaMotivos(data.motivosPerdida);
     renderTablaProductos(data.rankingProductos);
@@ -1199,25 +1205,40 @@ function renderChartCategorias(dist){
     </div>
   `).join('');
 }
-function renderChartEmbudo(e){
-  const pasos = [
-    { l: 'Conversaciones', v: e.conversaciones },
-    { l: 'Intención de compra', v: e.intencion_compra },
-    { l: 'Cotización', v: e.cotizacion },
-    { l: 'Venta', v: e.venta },
-  ];
-  const total = pasos[0].v; // "Conversaciones" -- base contra la que se mide el % de cada etapa
-  $('chartEmbudo').innerHTML = `<div class="embudo">${pasos.map((p,i) => {
-    // % del total: qué fracción de las conversaciones iniciales llegó a esta
-    // etapa (distinto del "↓X%" de abajo, que es el paso a paso entre dos
-    // etapas consecutivas) -- pedido del usuario para saber, por ejemplo,
-    // qué porcentaje de las conversaciones terminó en venta.
+// Compartido por los dos embudos (conversión general y ventas vinculadas a
+// Bsale) -- misma mecánica de "↓X%" paso a paso y "% del total" acumulado,
+// solo cambian las etapas.
+function renderEmbudoGenerico(elId, pasos){
+  const total = pasos[0].v; // primera etapa -- base contra la que se mide el % de cada una
+  $(elId).innerHTML = `<div class="embudo">${pasos.map((p,i) => {
+    // % del total: qué fracción de la primera etapa llegó a esta (distinto
+    // del "↓X%" de abajo, que es el paso a paso entre dos etapas
+    // consecutivas) -- pedido del usuario para saber, por ejemplo, qué
+    // porcentaje de las conversaciones terminó en venta.
     const pctTotal = i > 0 && total > 0 ? `<span class="pct-total">(${(p.v/total*100).toFixed(1)}% del total)</span>` : '';
     return `
     <div class="paso"><span>${p.l}</span><span class="paso-valor"><b>${fmtNum(p.v)}</b>${pctTotal}</span></div>
     ${i < pasos.length - 1 ? `<div class="flecha">↓ ${pasos[i].v > 0 ? Math.round((pasos[i+1].v/pasos[i].v)*100) : 0}%</div>` : ''}
   `;
   }).join('')}</div>`;
+}
+function renderChartEmbudo(e){
+  renderEmbudoGenerico('chartEmbudo', [
+    { l: 'Conversaciones', v: e.conversaciones },
+    { l: 'Intención de compra', v: e.intencion_compra },
+    { l: 'Cotización', v: e.cotizacion },
+    { l: 'Venta', v: e.venta },
+  ]);
+}
+// Segundo embudo: solo ventas con un documento real de Bsale encontrado por
+// teléfono (no Shopify, no confirmadas a mano) cuya fecha de emisión cae
+// dentro del período -- ver comentario en manejarWhatsappAnalitica.
+function renderChartEmbudoBsale(eb){
+  renderEmbudoGenerico('chartEmbudoBsale', [
+    { l: 'Conversaciones', v: eb.conversaciones },
+    { l: 'Vinculadas a Bsale', v: eb.vinculadas },
+    { l: 'Venta en el período', v: eb.ventaEnPeriodo },
+  ]);
 }
 let motivosActuales = [];
 let sortColMotivos = 'cantidad';

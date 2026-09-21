@@ -8452,6 +8452,34 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       [desde, hasta]
     );
 
+    // Segundo embudo -- pedido del usuario: solo ventas VINCULADAS a un
+    // documento real de Bsale (no las confirmadas a mano vía "Asociar
+    // venta", ni las de Shopify que comparten las mismas columnas
+    // bsale_documento_* -- ver comentario de buscarVentaPorTelefono más
+    // arriba). El cliente se identifica por teléfono contra
+    // bsale_clientes_puntos (WhatsApp no entrega correo, ver "clientes"
+    // más abajo) y desde ahí se busca la compra en Bsale -- no hay una vía
+    // de matching por correo aparte, porque no hay correo del lado de
+    // WhatsApp del que partir. Además de estar vinculada, la fecha de
+    // EMISIÓN del documento en Bsale también debe caer dentro del período
+    // seleccionado (no solo que la conversación haya empezado ahí) -- "ventas
+    // que se realizaron en el periodo dentro de Bsale", tal como se pidió.
+    const { rows: embudoBsaleRows } = await sql.query(
+      `SELECT
+        COUNT(*)::int AS conversaciones,
+        COUNT(*) FILTER (
+          WHERE bsale_documento_numero IS NOT NULL AND bsale_documento_numero <> ''
+            AND bsale_documento_tipo IS DISTINCT FROM 'Pedido Shopify'
+        )::int AS vinculadas,
+        COUNT(*) FILTER (
+          WHERE bsale_documento_numero IS NOT NULL AND bsale_documento_numero <> ''
+            AND bsale_documento_tipo IS DISTINCT FROM 'Pedido Shopify'
+            AND bsale_documento_fecha >= $1::date AND bsale_documento_fecha < $2::date
+        )::int AS venta_en_periodo
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $3 AND iniciada_en < $4;`,
+      [desde, hasta, desde, hasta]
+    );
+
     // Fuente de ingreso (de dónde viene el cliente): referral de anuncios
     // Click-to-WhatsApp, UTM real detectado en un link que el cliente
     // mandó, el botón de WhatsApp del sitio (sin datos de campaña, ver
@@ -8564,6 +8592,9 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       rankingModelos: modelosRows.map(r => ({ modelo: r.modelo, consultas: r.consultas })),
       resultados: resultadosRows.map(r => ({ resultado: r.resultado, cantidad: r.n })),
       embudo: embudoRows[0] || { conversaciones: 0, intencion_compra: 0, cotizacion: 0, venta: 0 },
+      embudoBsale: embudoBsaleRows[0]
+        ? { conversaciones: embudoBsaleRows[0].conversaciones, vinculadas: embudoBsaleRows[0].vinculadas, ventaEnPeriodo: embudoBsaleRows[0].venta_en_periodo }
+        : { conversaciones: 0, vinculadas: 0, ventaEnPeriodo: 0 },
       fuentes,
       fuentesDetalle,
       clientes: clientesRows.map(r => ({ id: r.id, nombre: r.nombre || null, telefono: r.telefono, correo: r.correo || null })),
