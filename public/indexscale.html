@@ -498,8 +498,29 @@ async function verificarSitiosIndexscale(){
     let movidos = 0;
     let errores = 0;
     let totalInicial = null;
+    let fallosConsecutivos = 0;
+    const MAX_FALLOS_CONSECUTIVOS = 5;
     while(!completo){
-      const res = await fetch('/api/negocio?recurso=indexscale-verificar-sitios', { method: 'POST' }).then(r=>r.json());
+      let res;
+      try{
+        const r = await fetch('/api/negocio?recurso=indexscale-verificar-sitios', { method: 'POST' });
+        res = await r.json();
+      }catch(errRed){
+        // El servidor puede cortar la invocación a medio camino si una tanda
+        // se demora demasiado (Vercel corta a los 60s y devuelve su propia
+        // página de error, no JSON) -- el progreso ya hecho queda guardado
+        // en la base de datos, así que basta con reintentar en vez de
+        // abortar toda la verificación por una sola llamada fallida.
+        fallosConsecutivos++;
+        if(fallosConsecutivos >= MAX_FALLOS_CONSECUTIVOS){
+          status.className = 'err';
+          status.textContent = `Error: el servidor no respondió correctamente tras ${fallosConsecutivos} intentos seguidos (${errRed.message}). Puedes volver a apretar "Verificar sitios" para seguir donde quedó -- lo ya revisado no se pierde.`;
+          break;
+        }
+        status.textContent = `Una tanda tardó demasiado y el servidor la cortó -- reintentando automáticamente (${fallosConsecutivos}/${MAX_FALLOS_CONSECUTIVOS})...`;
+        continue;
+      }
+      fallosConsecutivos = 0;
       if(res.error){
         status.className = 'err';
         status.textContent = 'Error: ' + res.error + (res.detail ? ' — ' + res.detail : '');

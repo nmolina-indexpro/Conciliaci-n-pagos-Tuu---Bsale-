@@ -4686,10 +4686,24 @@ async function manejarIndexscaleEnviarPresentacion(req, res, sesion) {
 // aunque funcione en un navegador real (limitación conocida y aceptada,
 // no hay forma barata de renderizar miles de sitios). El que falla el
 // chequeo se reclasifica a 'sin_sitio'; el que lo pasa se deja tal cual.
-const INDEXSCALE_VERIFICAR_TIMEOUT_MS = 5000;
+const INDEXSCALE_VERIFICAR_TIMEOUT_MS = 4000; // por esquema (https/http) -> hasta ~8s el peor caso de un solo dominio
 const INDEXSCALE_VERIFICAR_UMBRAL_TEXTO = 300; // caracteres de texto visible mínimos para considerar que hay un sitio real
 const INDEXSCALE_VERIFICAR_CONCURRENCIA = 15; // fetches en paralelo por tanda
 const INDEXSCALE_VERIFICAR_LOTE_DB = 60; // filas leídas de la BD por vuelta del while
+// Presupuesto propio (más chico que PUNTOS_SYNC_PRESUPUESTO_MS): acá una
+// sola tanda puede tardar hasta ~8s (el más lento de la tanda, con
+// Promise.all), no unos pocos ms como en los syncs con Bsale -- si se
+// revisara el presupuesto solo ANTES de cada tanda con el mismo margen que
+// esos syncs, una tanda que arranca justo antes del límite podía terminar
+// después del tope de 60s de Vercel y la función se cortaba a medio
+// camino, devolviendo la página de error de Vercel (no JSON) en vez de la
+// respuesta -- bug real reportado ("Unexpected token 'A', "An error o"...
+// is not valid JSON"). Con este presupuesto y estos márgenes, el peor caso
+// (tanda arrancada justo en el límite + su UPDATE) queda bien por debajo
+// del tope real de la función.
+const INDEXSCALE_VERIFICAR_PRESUPUESTO_MS = 35000;
+const INDEXSCALE_VERIFICAR_MARGEN_LOTE_MS = 10000; // no se pide un nuevo lote de la BD si queda menos que esto
+const INDEXSCALE_VERIFICAR_MARGEN_TANDA_MS = 9000; // no se arranca una nueva tanda si queda menos que esto
 
 function textoVisibleDeHtml(html) {
   return String(html || '')
@@ -4721,7 +4735,7 @@ async function manejarIndexscaleVerificarSitios(req, res, sesion) {
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede verificar sitios' });
 
   const inicio = Date.now();
-  const presupuestoRestante = () => PUNTOS_SYNC_PRESUPUESTO_MS - (Date.now() - inicio);
+  const presupuestoRestante = () => INDEXSCALE_VERIFICAR_PRESUPUESTO_MS - (Date.now() - inicio);
 
   try {
     const sql = await getSql();
@@ -4736,7 +4750,7 @@ async function manejarIndexscaleVerificarSitios(req, res, sesion) {
     let movidos = 0;
     let errores = 0;
 
-    while (presupuestoRestante() > 5000) {
+    while (presupuestoRestante() > INDEXSCALE_VERIFICAR_MARGEN_LOTE_MS) {
       const { rows: candidatos } = await sql`
         SELECT id, email FROM indexscale_oportunidades
         WHERE segmento = 'potenciar' AND sitio_verificado_en IS NULL
@@ -4745,7 +4759,7 @@ async function manejarIndexscaleVerificarSitios(req, res, sesion) {
       if (candidatos.length === 0) break;
 
       for (let i = 0; i < candidatos.length; i += INDEXSCALE_VERIFICAR_CONCURRENCIA) {
-        if (presupuestoRestante() <= 3000) break;
+        if (presupuestoRestante() <= INDEXSCALE_VERIFICAR_MARGEN_TANDA_MS) break;
         const tanda = candidatos.slice(i, i + INDEXSCALE_VERIFICAR_CONCURRENCIA);
         // Cada fila se procesa aislada de las demás -- una excepción puntual
         // (correo nulo/malformado, error de red no contemplado, falla de la
