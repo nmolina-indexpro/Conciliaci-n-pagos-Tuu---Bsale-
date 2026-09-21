@@ -75,6 +75,7 @@
   select.estado-select{font-size:11.5px;padding:6px 8px;}
   td.estado-sin_contactar select{color:var(--muted);}
   td.estado-primer_correo select{color:var(--amber);border-color:var(--amber);}
+  td.estado-segundo_correo select{color:var(--purple);border-color:var(--purple);}
   td.estado-contactado select{color:var(--green);border-color:var(--green);}
   td.estado-cotizado select{color:var(--blue);border-color:var(--blue);}
   td.estado-ganado select{color:var(--green);border-color:var(--green);font-weight:600;}
@@ -161,6 +162,7 @@
           <option value="">Todos</option>
           <option value="sin_contactar">Sin contactar</option>
           <option value="primer_correo">Primer correo enviado</option>
+          <option value="segundo_correo">Segundo correo enviado</option>
           <option value="contactado">Contactado</option>
           <option value="cotizado">Cotizado</option>
           <option value="ganado">Ganado</option>
@@ -206,6 +208,7 @@
           <option value="">Todos</option>
           <option value="sin_contactar">Sin contactar</option>
           <option value="primer_correo">Primer correo enviado</option>
+          <option value="segundo_correo">Segundo correo enviado</option>
           <option value="contactado">Contactado</option>
           <option value="cotizado">Cotizado</option>
           <option value="ganado">Ganado</option>
@@ -277,10 +280,13 @@ function descargarCsv(filas, nombreArchivo){
 let esAdmin = false;
 
 const ESTADOS_INDEXSCALE_LABEL = {
-  sin_contactar: 'Sin contactar', primer_correo: 'Primer correo enviado', contactado: 'Contactado',
+  sin_contactar: 'Sin contactar', primer_correo: 'Primer correo enviado', segundo_correo: 'Segundo correo enviado', contactado: 'Contactado',
   cotizado: 'Cotizado', ganado: 'Ganado', perdido: 'Perdido',
 };
-const ESTADO_PRIORIDAD_INDEXSCALE = { cotizado: 0, contactado: 1, primer_correo: 2, sin_contactar: 3, ganado: 4, perdido: 5 };
+// "segundo_correo" queda entre "contactado" y "primer_correo": un lead que
+// abrió el primer correo y ya recibió el segundo es más prometedor que uno
+// que solo recibió el primero sin señales de haberlo visto.
+const ESTADO_PRIORIDAD_INDEXSCALE = { cotizado: 0, contactado: 1, segundo_correo: 2, primer_correo: 3, sin_contactar: 4, ganado: 5, perdido: 6 };
 const RESUMEN_TOPE_INDEXSCALE = 15;
 
 let datosIndexscale = { sin_sitio: [], potenciar: [] };
@@ -391,10 +397,23 @@ function renderTablaIndexscale(segmento){
           : `<span class="btn-icono deshabilitado" title="Sin dominio propio detectado">🌐</span>`);
         const mailto = o.email ? `<a class="btn-icono" href="mailto:${o.email}" title="Correo: ${o.email}" target="_blank" rel="noopener">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`;
         const wa = o.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(o.telefono).replace('+','')}" title="WhatsApp: ${o.telefono}" target="_blank" rel="noopener">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`;
-        const tituloPresentacion = o.presentacionEnviadaEn ? `Ya se envió el ${new Date(o.presentacionEnviadaEn).toLocaleDateString('es-CL')} — enviar de nuevo` : 'Enviar presentación comercial (primer contacto)';
+        // El "abierto" viene del píxel de seguimiento embebido en el primer
+        // correo -- subestima aperturas (clientes de correo que bloquean
+        // imágenes no las delatan), nunca las sobrestima.
+        const tituloAbierto = o.presentacionAbiertaEn ? ` — 👀 abierto el ${new Date(o.presentacionAbiertaEn).toLocaleDateString('es-CL')}` : (o.presentacionEnviadaEn ? ' — todavía sin abrir detectado' : '');
+        const tituloPresentacion = (o.presentacionEnviadaEn ? `Ya se envió el ${new Date(o.presentacionEnviadaEn).toLocaleDateString('es-CL')} — enviar de nuevo` : 'Enviar presentación comercial (primer contacto)') + tituloAbierto;
         const presentacion = o.email ? `<button class="btn-icono" title="${tituloPresentacion}" onclick="enviarPresentacionIndexscale('${segmento}', ${o.id})">${o.presentacionEnviadaEn ? '📨' : '✉️'}</button>` : `<span class="btn-icono deshabilitado" title="Sin correo">✉️</span>`;
+        // El segundo correo (recontacto) SOLO se habilita si se detectó que
+        // el primero fue abierto -- pedido explícito del usuario.
+        let tituloRecontacto, recontactoHabilitado;
+        if (!o.presentacionEnviadaEn) { tituloRecontacto = 'Primero hay que enviar la presentación'; recontactoHabilitado = false; }
+        else if (!o.presentacionAbiertaEn) { tituloRecontacto = 'Se habilita cuando se detecte que abrieron el primer correo'; recontactoHabilitado = false; }
+        else { tituloRecontacto = (o.segundoCorreoEnviadoEn ? `Ya se envió el ${new Date(o.segundoCorreoEnviadoEn).toLocaleDateString('es-CL')} — enviar de nuevo` : 'Enviar segundo correo (recontacto)') + ' — 👀 primer correo abierto'; recontactoHabilitado = true; }
+        const recontacto = !o.email ? `<span class="btn-icono deshabilitado" title="Sin correo">🔁</span>`
+          : recontactoHabilitado ? `<button class="btn-icono" title="${tituloRecontacto}" onclick="enviarRecontactoIndexscale('${segmento}', ${o.id})">${o.segundoCorreoEnviadoEn ? '🔁✅' : '🔁'}</button>`
+          : `<span class="btn-icono deshabilitado" title="${tituloRecontacto}">🔁</span>`;
         const eliminar = esAdmin ? `<button class="btn-icono" title="Eliminar de la lista" onclick="eliminarOportunidadIndexscale('${segmento}', ${o.id})">🗑️</button>` : '';
-        return `<div class="acciones-icono">${web}${mailto}${wa}${presentacion}${eliminar}</div>`;
+        return `<div class="acciones-icono">${web}${mailto}${wa}${presentacion}${recontacto}${eliminar}</div>`;
       } },
     { key:'estado', label:'Estado', render:o=>`<select class="estado-select" onchange="cambiarEstadoIndexscale('${segmento}', ${o.id}, this.value)">
         ${Object.entries(ESTADOS_INDEXSCALE_LABEL).map(([valor,label])=>`<option value="${valor}" ${o.estado===valor?'selected':''}>${label}</option>`).join('')}
@@ -459,6 +478,29 @@ async function enviarPresentacionIndexscale(segmento, id){
   if(!confirm(`¿Enviar el correo de presentación IndexScale a ${op.email}?${yaEnviado}`)) return;
   try{
     const res = await fetch('/api/negocio?recurso=indexscale-enviar-presentacion', {
+      method: 'POST', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ id })
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.detail || data.error || 'No se pudo enviar el correo.'); return; }
+    await cargarIndexscale(segmento);
+    alert('Correo enviado.');
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+// Solo se puede llamar si el primer correo fue enviado Y se detectó que lo
+// abrieron (el backend igual lo vuelve a validar -- este botón no es la
+// única barrera). Ver el píxel de seguimiento en
+// manejarIndexscaleEnviarPresentacion / manejarIndexscalePixel.
+async function enviarRecontactoIndexscale(segmento, id){
+  const op = datosIndexscale[segmento].find(o => o.id === id);
+  if(!op || !op.email) return;
+  const yaEnviado = op.segundoCorreoEnviadoEn ? `\n\nOjo: ya se le envió este mismo correo el ${new Date(op.segundoCorreoEnviadoEn).toLocaleDateString('es-CL')}.` : '';
+  if(!confirm(`¿Enviar el segundo correo (recontacto) IndexScale a ${op.email}?${yaEnviado}`)) return;
+  try{
+    const res = await fetch('/api/negocio?recurso=indexscale-enviar-recontacto', {
       method: 'POST', headers: { 'Content-Type':'application/json' },
       body: JSON.stringify({ id })
     });

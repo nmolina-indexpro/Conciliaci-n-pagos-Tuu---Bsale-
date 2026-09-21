@@ -56,6 +56,16 @@ function esCotizacionesSeguimientoDiarioPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'cotizaciones-seguimiento-diario';
 }
 
+// El píxel de seguimiento de apertura de los correos de IndexScale (ver
+// manejarIndexscalePixel en api/negocio.js) lo carga el cliente de correo
+// del destinatario directo, sin ninguna cookie de sesión -> mismo motivo y
+// mismo patrón que los de arriba. La seguridad real la hace el token
+// aleatorio por fila (?t=) que se valida dentro del propio handler, no
+// algo que dependa de la sesión.
+function esIndexscalePixelPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'indexscale-pixel';
+}
+
 // Páginas que un usuario con un perfil restringido puede ver SIEMPRE, sin
 // importar qué páginas le haya marcado el administrador -- reportar-error
 // es la vía de ayuda/soporte, no tendría sentido poder bloquearla (y sirve
@@ -105,7 +115,8 @@ export default async function middleware(req) {
     esWebhookWhatsappPublico(pathname, url.searchParams) ||
     esAlertasSitioWebNotificarPublico(pathname, url.searchParams) ||
     esServicioTecnicoResumenSemanalPublico(pathname, url.searchParams) ||
-    esCotizacionesSeguimientoDiarioPublico(pathname, url.searchParams)
+    esCotizacionesSeguimientoDiarioPublico(pathname, url.searchParams) ||
+    esIndexscalePixelPublico(pathname, url.searchParams)
   ) return; // deja pasar sin exigir sesión
 
   const cookieHeader = req.headers.get('cookie') || '';

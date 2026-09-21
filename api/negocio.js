@@ -13,12 +13,13 @@ import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, ase
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
-import { sign as firmarRsaSha256 } from 'node:crypto';
+import { sign as firmarRsaSha256, randomBytes } from 'node:crypto';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
 const ESTADOS_VALIDOS = ['pendiente', 'en progreso', 'resuelto'];
 const RESPONSABLE_REPORTES = 'Nicolás Molina'; // fijo por ahora, ver reportar-error.html
 const URL_REPORTES = 'https://conciliaci-n-pagos-tuu-bsale.vercel.app/reportar-error.html';
+const URL_BASE_APP = 'https://conciliaci-n-pagos-tuu-bsale.vercel.app';
 const ZOHO_TIMEOUT_MS = 20000;
 
 // Vercel parsea el body a JSON automáticamente por defecto -- pero el
@@ -69,6 +70,12 @@ export default async function handler(req, res) {
   // patrón que los dos de arriba. Ver vercel.json y middleware.ts
   // (esCotizacionesSeguimientoDiarioPublico).
   if (req.query.recurso === 'cotizaciones-seguimiento-diario') return manejarCotizacionesSeguimientoDiario(req, res);
+  // Píxel de seguimiento de apertura de los correos de IndexScale -- lo
+  // carga el cliente de correo del destinatario, sin sesión. Mismo patrón
+  // que los de arriba, pero la seguridad real la hace el token aleatorio
+  // por fila (?t=), no algo ligado a sesión. Ver middleware.ts
+  // (esIndexscalePixelPublico).
+  if (req.query.recurso === 'indexscale-pixel') return manejarIndexscalePixel(req, res);
 
   const sesion = usuarioDesdeRequest(req);
   if (!sesion) return res.status(401).json({ error: 'No hay sesión activa' });
@@ -103,6 +110,7 @@ export default async function handler(req, res) {
   if (recurso === 'indexscale-estado') return manejarIndexscaleEstado(req, res, sesion);
   if (recurso === 'indexscale-enviar-presentacion') return manejarIndexscaleEnviarPresentacion(req, res, sesion);
   if (recurso === 'indexscale-verificar-sitios') return manejarIndexscaleVerificarSitios(req, res, sesion);
+  if (recurso === 'indexscale-enviar-recontacto') return manejarIndexscaleEnviarRecontacto(req, res, sesion);
   if (recurso === 'analisis-clientes') return manejarAnalisisClientes(req, res, sesion);
   if (recurso === 'sync-analisis') return manejarSyncAnalisis(req, res, sesion);
   if (recurso === 'ventas-sku-tendencia') return manejarVentasSkuTendencia(req, res, sesion);
@@ -4468,7 +4476,7 @@ async function manejarIndexproEnviarPresentacion(req, res, sesion) {
 // preguntarle de dónde sacar los 1000 candidatos. Por eso no hace falta
 // ninguna fase de matching ni de historial de compras: el vínculo con
 // Bsale ya existe desde el día uno (bsale_cliente_id).
-const ESTADOS_INDEXSCALE = ['sin_contactar', 'primer_correo', 'contactado', 'cotizado', 'ganado', 'perdido'];
+const ESTADOS_INDEXSCALE = ['sin_contactar', 'primer_correo', 'segundo_correo', 'contactado', 'cotizado', 'ganado', 'perdido'];
 // Dos listas de leads mutuamente excluyentes según el dominio del correo del
 // cliente en Bsale (mismo criterio/lista que manejarClientesEmpresaCorreoPersonal,
 // ver DOMINIOS_EMAIL_PERSONAL más arriba): 'sin_sitio' (correo de un proveedor
@@ -4613,6 +4621,8 @@ async function manejarIndexscaleOportunidades(req, res, sesion) {
       estado: r.estado,
       actualizadoPor: r.actualizado_por,
       presentacionEnviadaEn: r.presentacion_enviada_en,
+      presentacionAbiertaEn: r.presentacion_abierta_en,
+      segundoCorreoEnviadoEn: r.segundo_correo_enviado_en,
       sitioVerificadoEn: r.sitio_verificado_en,
       esPrueba: r.es_prueba,
     }));
@@ -4697,6 +4707,44 @@ Equipo IndexScale`;
   };
 }
 
+// Píxel de 1x1 embebido en el HTML del primer correo (ver más abajo) --
+// mide "abierto" solo si el cliente de correo del destinatario carga
+// imágenes automáticamente (muchos lo hacen por defecto, pero no todos:
+// Outlook/Gmail a veces las bloquean hasta que el usuario las habilita a
+// mano). Es la única forma práctica de detectar apertura enviando por SMTP
+// crudo (no hay tracking nativo como el que ofrecería una API tipo Brevo)
+// -- subestima aperturas, nunca las sobrestima (un falso positivo aquí
+// solo puede venir de un proxy de imágenes, nunca de que alguien "no
+// abrió" el correo).
+const INDEXSCALE_PIXEL_GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64');
+
+function urlPixelIndexscale(id, token) {
+  return `${URL_BASE_APP}/api/negocio?recurso=indexscale-pixel&id=${id}&t=${token}`;
+}
+
+async function manejarIndexscalePixel(req, res) {
+  // Nunca debe fallar de forma visible: pase lo que pase, siempre se
+  // devuelve una imagen válida, para no romper el renderizado del correo
+  // ni delatarle nada al destinatario sobre si el tracking funcionó.
+  try {
+    const { id, t } = req.query;
+    if (id && t) {
+      const sql = await getSql();
+      await asegurarTablaIndexscale(sql);
+      await sql`
+        UPDATE indexscale_oportunidades
+        SET presentacion_abierta_en = now()
+        WHERE id = ${id} AND pixel_token = ${t} AND presentacion_abierta_en IS NULL;
+      `;
+    }
+  } catch (err) {
+    // silencioso a propósito -- ver comentario de arriba
+  }
+  res.setHeader('Content-Type', 'image/gif');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  return res.status(200).send(INDEXSCALE_PIXEL_GIF);
+}
+
 async function manejarIndexscaleEnviarPresentacion(req, res, sesion) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const { id } = req.body || {};
@@ -4710,13 +4758,78 @@ async function manejarIndexscaleEnviarPresentacion(req, res, sesion) {
     if (!fila.email) return res.status(400).json({ error: 'Este cliente no tiene correo registrado' });
 
     const correo = construirCorreoPresentacionIndexscale(fila.empresa || fila.cliente_nombre, fila.segmento);
-    const resultado = await enviarCorreoIndexscale({ para: fila.email, ...correo });
+    // Token nuevo en cada envío (incluso si es un reenvío) -- así el píxel
+    // de esta copia del correo queda ligado a este envío puntual.
+    const token = randomBytes(16).toString('hex');
+    const htmlConPixel = correo.html + `<img src="${urlPixelIndexscale(id, token)}" width="1" height="1" alt="" style="display:block;border:0;">`;
+    const resultado = await enviarCorreoIndexscale({ para: fila.email, ...correo, html: htmlConPixel });
     if (!resultado.enviado) return res.status(200).json({ error: 'No se pudo enviar el correo', detail: resultado.motivo });
 
     const nuevoEstado = fila.estado === 'sin_contactar' ? 'primer_correo' : fila.estado;
     await sql`
       UPDATE indexscale_oportunidades SET
-        presentacion_enviada_en = now(), estado = ${nuevoEstado},
+        presentacion_enviada_en = now(), presentacion_abierta_en = NULL, pixel_token = ${token}, estado = ${nuevoEstado},
+        actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now()
+      WHERE id = ${id};`;
+
+    return res.status(200).json({ ok: true, estado: nuevoEstado });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error enviando el correo', detail: String(err) });
+  }
+}
+
+// Segundo correo (recontactación) -- SOLO se puede enviar si se detectó
+// que el primero fue abierto (presentacion_abierta_en). Copy más corto y
+// directo que el primero: ya sabemos que lo vieron, así que el objetivo es
+// conseguir una respuesta o una reunión, no repetir el pitch completo.
+function construirCorreoRecontactoIndexscale(nombreEmpresa, segmento) {
+  const empresa = nombreEmpresa || 'estimado/a';
+  const esPotenciar = segmento === 'potenciar';
+
+  const texto = `Hola ${empresa},
+
+Te escribo de nuevo porque vi que alcanzaste a revisar mi correo anterior sobre ${esPotenciar ? 'potenciar tu e-commerce' : 'tener tu propia tienda online'}.
+
+¿Tienes 15 minutos esta semana para que te muestre 2-3 ideas concretas, sin compromiso? Puedes responder aquí mismo o coordinamos por WhatsApp, lo que te acomode más.
+
+Quedo atento.
+
+Equipo IndexScale`;
+
+  const html = texto
+    .split('\n\n')
+    .map(p => `<p style="margin:0 0 14px;">${p.replace(/\n/g, '<br>')}</p>`)
+    .join('');
+
+  return {
+    asunto: `${empresa}: ¿seguimos la conversación?`,
+    texto,
+    html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1F2A24;">${html}</div>`,
+  };
+}
+
+async function manejarIndexscaleEnviarRecontacto(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { id } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'Falta el id' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexscale(sql);
+    const { rows } = await sql`SELECT email, empresa, cliente_nombre, estado, segmento, presentacion_enviada_en, presentacion_abierta_en FROM indexscale_oportunidades WHERE id = ${id};`;
+    const fila = rows[0];
+    if (!fila) return res.status(404).json({ error: 'No encontrado' });
+    if (!fila.email) return res.status(400).json({ error: 'Este cliente no tiene correo registrado' });
+    if (!fila.presentacion_enviada_en) return res.status(400).json({ error: 'Todavía no se le ha enviado el primer correo' });
+    if (!fila.presentacion_abierta_en) return res.status(400).json({ error: 'Todavía no se detectó que abriera el primer correo' });
+
+    const correo = construirCorreoRecontactoIndexscale(fila.empresa || fila.cliente_nombre, fila.segmento);
+    const resultado = await enviarCorreoIndexscale({ para: fila.email, ...correo });
+    if (!resultado.enviado) return res.status(200).json({ error: 'No se pudo enviar el correo', detail: resultado.motivo });
+
+    const nuevoEstado = fila.estado === 'primer_correo' ? 'segundo_correo' : fila.estado;
+    await sql`
+      UPDATE indexscale_oportunidades SET
+        segundo_correo_enviado_en = now(), estado = ${nuevoEstado},
         actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now()
       WHERE id = ${id};`;
 
