@@ -232,9 +232,11 @@
     <div class="seccion-head">
       <div>
         <h2>📈 Potenciar e-commerce existente</h2>
-        <div class="sub">Empresas clientes de Bsale cuyo correo NO es de un proveedor gratuito — probablemente ya tienen dominio/sitio propio, candidatas a optimizar/potenciar su e-commerce actual. Hasta 10.000, priorizando las más recientemente activas. El ícono 🌐 abre directo su sitio.</div>
+        <div class="sub">Empresas clientes de Bsale cuyo correo NO es de un proveedor gratuito — probablemente ya tienen dominio/sitio propio, candidatas a optimizar/potenciar su e-commerce actual. Hasta 10.000, priorizando las más recientemente activas. El ícono 🌐 abre directo su sitio. Tener un correo con dominio propio no garantiza que haya un sitio real detrás (puede estar caído, parkeado o ser solo un logo) — usa "Verificar sitios" para revisarlo y mover automáticamente a "Sin sitio propio" los que no tengan contenido de verdad.</div>
       </div>
+      <button class="btn-ghost btn-compact" id="btnVerificarSitiosIndexscale" onclick="verificarSitiosIndexscale()" style="display:none;">🔍 Verificar sitios</button>
     </div>
+    <div id="syncStatusIndexscale" style="margin-bottom:10px;"></div>
     <div id="wrapIndexscale_potenciar"><p class="empty-note">Cargando...</p></div>
   </div>
 
@@ -476,6 +478,51 @@ function exportarIndexscale(segmento){
   descargarCsv(filas, `indexscale-${segmento}-${new Date().toISOString().slice(0,10)}.csv`);
 }
 
+// Revisa dominio por dominio si "potenciar" realmente tiene un sitio con
+// contenido (no solo un correo con dominio propio) -- son miles de
+// clientes, así que el backend procesa en tandas y esto llama de nuevo
+// automáticamente hasta terminar, mismo patrón que la sincronización de
+// Compra Ágil. Puede tardar bastante con varios miles de clientes.
+let verificandoSitiosIndexscale = false;
+async function verificarSitiosIndexscale(){
+  if(verificandoSitiosIndexscale) return;
+  if(!confirm('Esto va a revisar el dominio de cada cliente en "Potenciar e-commerce existente" (puede tardar varios minutos con miles de clientes) y mover a "Sin sitio propio" los que no tengan un sitio con contenido real. ¿Continuar?')) return;
+  verificandoSitiosIndexscale = true;
+  $('btnVerificarSitiosIndexscale').disabled = true;
+  const status = $('syncStatusIndexscale');
+  status.className = '';
+  status.textContent = 'Verificando sitios...';
+  try{
+    let completo = false;
+    let procesados = 0;
+    let movidos = 0;
+    let totalInicial = null;
+    while(!completo){
+      const res = await fetch('/api/negocio?recurso=indexscale-verificar-sitios', { method: 'POST' }).then(r=>r.json());
+      if(res.error){
+        status.className = 'err';
+        status.textContent = 'Error: ' + res.error;
+        break;
+      }
+      completo = !!res.completo;
+      procesados += res.procesadosEnEstaLlamada || 0;
+      movidos += res.movidosEnEstaLlamada || 0;
+      if(totalInicial === null) totalInicial = res.pendientesAntes || 0;
+      const pct = totalInicial ? Math.round((totalInicial - res.pendientesDespues) / totalInicial * 100) : 100;
+      status.textContent = completo
+        ? `Verificación completa — ${fmtNum(procesados)} sitios revisados, ${fmtNum(movidos)} movidos a "Sin sitio propio" por no tener contenido real.`
+        : `Verificando... ${pct}% (${fmtNum(procesados)} revisados, ${fmtNum(movidos)} movidos hasta ahora). Continuando automáticamente, no cierres la página...`;
+    }
+    await Promise.all([cargarIndexscale('potenciar'), cargarIndexscale('sin_sitio')]);
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }finally{
+    verificandoSitiosIndexscale = false;
+    $('btnVerificarSitiosIndexscale').disabled = false;
+  }
+}
+
 // ---------- Sesión ----------
 async function cargarSesionUsuario(){
   try{
@@ -489,6 +536,7 @@ async function cargarSesionUsuario(){
     if(esAdmin){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
+      $('btnVerificarSitiosIndexscale').style.display = '';
     }
     renderTablaIndexscale('sin_sitio');
     renderTablaIndexscale('potenciar');

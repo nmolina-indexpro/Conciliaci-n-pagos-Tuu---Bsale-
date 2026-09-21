@@ -102,6 +102,7 @@ export default async function handler(req, res) {
   if (recurso === 'indexscale-oportunidades') return manejarIndexscaleOportunidades(req, res, sesion);
   if (recurso === 'indexscale-estado') return manejarIndexscaleEstado(req, res, sesion);
   if (recurso === 'indexscale-enviar-presentacion') return manejarIndexscaleEnviarPresentacion(req, res, sesion);
+  if (recurso === 'indexscale-verificar-sitios') return manejarIndexscaleVerificarSitios(req, res, sesion);
   if (recurso === 'analisis-clientes') return manejarAnalisisClientes(req, res, sesion);
   if (recurso === 'sync-analisis') return manejarSyncAnalisis(req, res, sesion);
   if (recurso === 'ventas-sku-tendencia') return manejarVentasSkuTendencia(req, res, sesion);
@@ -4672,6 +4673,110 @@ async function manejarIndexscaleEnviarPresentacion(req, res, sesion) {
     return res.status(200).json({ ok: true, estado: nuevoEstado });
   } catch (err) {
     return res.status(500).json({ error: 'Error enviando el correo', detail: String(err) });
+  }
+}
+
+// Verificación real del segmento 'potenciar': tener un correo con dominio
+// propio NO garantiza que ese dominio tenga hoy un sitio/e-commerce de
+// verdad -- puede estar caído, parkeado, o ser solo una landing con un logo
+// (caso reportado: clientes con 🌐 cuya página no tiene contenido real).
+// Se le pega a cada dominio (https primero, http como respaldo) y se mide
+// el texto visible del HTML devuelto -- no ejecuta JavaScript, así que un
+// sitio armado 100% en JS del lado del cliente puede verse "vacío" acá
+// aunque funcione en un navegador real (limitación conocida y aceptada,
+// no hay forma barata de renderizar miles de sitios). El que falla el
+// chequeo se reclasifica a 'sin_sitio'; el que lo pasa se deja tal cual.
+const INDEXSCALE_VERIFICAR_TIMEOUT_MS = 5000;
+const INDEXSCALE_VERIFICAR_UMBRAL_TEXTO = 300; // caracteres de texto visible mínimos para considerar que hay un sitio real
+const INDEXSCALE_VERIFICAR_CONCURRENCIA = 15; // fetches en paralelo por tanda
+const INDEXSCALE_VERIFICAR_LOTE_DB = 60; // filas leídas de la BD por vuelta del while
+
+function textoVisibleDeHtml(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;|&#39;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function sitioTieneContenidoReal(dominio) {
+  for (const esquema of ['https://', 'http://']) {
+    try {
+      const r = await fetchConTimeout(esquema + dominio, {}, INDEXSCALE_VERIFICAR_TIMEOUT_MS);
+      if (!r.ok) continue; // prueba el otro esquema antes de darlo por caído
+      const html = await r.text();
+      if (textoVisibleDeHtml(html).length >= INDEXSCALE_VERIFICAR_UMBRAL_TEXTO) return true;
+      // respondió pero con muy poco contenido (posible placeholder/solo logo) -> prueba el otro esquema igual
+    } catch (err) {
+      // dominio caído / sin certificado / timeout con este esquema -> sigue con el otro
+    }
+  }
+  return false;
+}
+
+async function manejarIndexscaleVerificarSitios(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede verificar sitios' });
+
+  const inicio = Date.now();
+  const presupuestoRestante = () => PUNTOS_SYNC_PRESUPUESTO_MS - (Date.now() - inicio);
+
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexscale(sql);
+
+    const { rows: pendientesAntesRows } = await sql`
+      SELECT COUNT(*)::int AS n FROM indexscale_oportunidades WHERE segmento = 'potenciar' AND sitio_verificado_en IS NULL;
+    `;
+    const pendientesAntes = pendientesAntesRows[0]?.n || 0;
+
+    let procesados = 0;
+    let movidos = 0;
+
+    while (presupuestoRestante() > 5000) {
+      const { rows: candidatos } = await sql`
+        SELECT id, email FROM indexscale_oportunidades
+        WHERE segmento = 'potenciar' AND sitio_verificado_en IS NULL
+        ORDER BY id LIMIT ${INDEXSCALE_VERIFICAR_LOTE_DB};
+      `;
+      if (candidatos.length === 0) break;
+
+      for (let i = 0; i < candidatos.length; i += INDEXSCALE_VERIFICAR_CONCURRENCIA) {
+        if (presupuestoRestante() <= 3000) break;
+        const tanda = candidatos.slice(i, i + INDEXSCALE_VERIFICAR_CONCURRENCIA);
+        const resultados = await Promise.all(tanda.map(async (fila) => {
+          const dominio = (fila.email.split('@')[1] || '').toLowerCase().trim();
+          const tieneContenido = dominio ? await sitioTieneContenidoReal(dominio) : false;
+          return { id: fila.id, tieneContenido };
+        }));
+        for (const { id, tieneContenido } of resultados) {
+          await sql`
+            UPDATE indexscale_oportunidades
+            SET sitio_verificado_en = now(), segmento = ${tieneContenido ? 'potenciar' : 'sin_sitio'}, actualizado_en = now()
+            WHERE id = ${id};
+          `;
+          procesados++;
+          if (!tieneContenido) movidos++;
+        }
+      }
+    }
+
+    const { rows: pendientesDespuesRows } = await sql`
+      SELECT COUNT(*)::int AS n FROM indexscale_oportunidades WHERE segmento = 'potenciar' AND sitio_verificado_en IS NULL;
+    `;
+    const pendientesDespues = pendientesDespuesRows[0]?.n || 0;
+
+    return res.status(200).json({
+      completo: pendientesDespues === 0,
+      procesadosEnEstaLlamada: procesados,
+      movidosEnEstaLlamada: movidos,
+      pendientesAntes,
+      pendientesDespues,
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error verificando sitios de IndexScale', detail: String(err) });
   }
 }
 
