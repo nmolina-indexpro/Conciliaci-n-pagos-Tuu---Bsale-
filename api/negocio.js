@@ -9,9 +9,9 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale } from '../lib/db.js';
 import { usuarioDesdeRequest } from '../lib/auth-node.js';
-import { enviarCorreo, enviarCorreoIndexpro } from '../lib/mailer.js';
+import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { sign as firmarRsaSha256 } from 'node:crypto';
 
@@ -99,6 +99,9 @@ export default async function handler(req, res) {
   if (recurso === 'indexpro-estado') return manejarIndexproEstado(req, res, sesion);
   if (recurso === 'indexpro-historial') return manejarIndexproHistorial(req, res, sesion);
   if (recurso === 'indexpro-enviar-presentacion') return manejarIndexproEnviarPresentacion(req, res, sesion);
+  if (recurso === 'indexscale-oportunidades') return manejarIndexscaleOportunidades(req, res, sesion);
+  if (recurso === 'indexscale-estado') return manejarIndexscaleEstado(req, res, sesion);
+  if (recurso === 'indexscale-enviar-presentacion') return manejarIndexscaleEnviarPresentacion(req, res, sesion);
   if (recurso === 'analisis-clientes') return manejarAnalisisClientes(req, res, sesion);
   if (recurso === 'sync-analisis') return manejarSyncAnalisis(req, res, sesion);
   if (recurso === 'ventas-sku-tendencia') return manejarVentasSkuTendencia(req, res, sesion);
@@ -4446,6 +4449,173 @@ async function manejarIndexproEnviarPresentacion(req, res, sesion) {
     const nuevoEstado = fila.estado === 'sin_contactar' ? 'primer_correo' : fila.estado;
     await sql`
       UPDATE indexpro_oportunidades SET
+        presentacion_enviada_en = now(), estado = ${nuevoEstado},
+        actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now()
+      WHERE id = ${id};`;
+
+    return res.status(200).json({ ok: true, estado: nuevoEstado });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error enviando el correo', detail: String(err) });
+  }
+}
+
+// ==================== IndexScale (cold email: diseño web / e-commerce) ====
+// A diferencia de Indexpro (lista sembrada desde un archivo externo, con
+// una fase de "buscar RUT en Bsale"), los leads de IndexScale salen
+// directo de empresas que YA son clientes de Bsale (bsale_clientes_puntos,
+// campo "empresa" no vacío) -- pedido explícito del usuario tras
+// preguntarle de dónde sacar los 1000 candidatos. Por eso no hace falta
+// ninguna fase de matching ni de historial de compras: el vínculo con
+// Bsale ya existe desde el día uno (bsale_cliente_id).
+const ESTADOS_INDEXSCALE = ['sin_contactar', 'primer_correo', 'contactado', 'cotizado', 'ganado', 'perdido'];
+const INDEXSCALE_TOPE_LEADS = 1000; // pedido explícito del usuario ("selecciona 1000 clientes")
+
+async function manejarIndexscaleOportunidades(req, res, sesion) {
+  if (req.method === 'DELETE') {
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede eliminar oportunidades' });
+    const { id } = req.query;
+    if (!id) return res.status(400).json({ error: 'Falta el id' });
+    try {
+      const sql = await getSql();
+      await asegurarTablaIndexscale(sql);
+      // Igual que indexpro_excluidos: se recuerda ANTES de borrar, para que
+      // la re-siembra de la próxima carga (ver GET abajo) no lo vuelva a
+      // insertar apenas se borra.
+      const { rows } = await sql`SELECT bsale_cliente_id FROM indexscale_oportunidades WHERE id = ${id};`;
+      if (rows[0]) {
+        await sql`INSERT INTO indexscale_excluidos (bsale_cliente_id, excluido_por) VALUES (${rows[0].bsale_cliente_id}, ${sesion.nombre || sesion.email}) ON CONFLICT (bsale_cliente_id) DO NOTHING;`;
+      }
+      await sql`DELETE FROM indexscale_oportunidades WHERE id = ${id};`;
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      return res.status(500).json({ error: 'Error eliminando la oportunidad', detail: String(err) });
+    }
+  }
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexscale(sql);
+    await asegurarTablaBsalePuntos(sql);
+
+    // Re-siembra en cada request, igual criterio que indexpro_oportunidades:
+    // hasta 1000 empresas clientes de Bsale (razón social + correo),
+    // priorizando las más recientemente activas. ON CONFLICT DO NOTHING no
+    // pisa una fila ya existente (no pierde el estado/seguimiento de un
+    // lead ya trabajado) y nunca reinserta uno borrado a mano
+    // (indexscale_excluidos). Con el tiempo la lista puede crecer un poco
+    // más allá de 1000 si van entrando candidatos nuevos más recientes que
+    // los ya guardados -- no se "podan" los viejos automáticamente, mismo
+    // comportamiento que Indexpro (solo se sacan a mano, con 🗑️).
+    await sql.query(
+      `INSERT INTO indexscale_oportunidades (bsale_cliente_id, empresa, cliente_nombre, rut, telefono, email, ciudad, puntos)
+       SELECT bp.id, bp.empresa, bp.nombre, bp.rut, bp.telefono, bp.email, bp.ciudad, bp.puntos
+       FROM bsale_clientes_puntos bp
+       WHERE bp.empresa IS NOT NULL AND bp.empresa <> ''
+         AND bp.email IS NOT NULL AND bp.email <> ''
+         AND bp.id NOT IN (SELECT bsale_cliente_id FROM indexscale_excluidos)
+       ORDER BY bp.puntos_actualizado DESC NULLS LAST, bp.empresa ASC
+       LIMIT $1
+       ON CONFLICT (bsale_cliente_id) DO NOTHING;`,
+      [INDEXSCALE_TOPE_LEADS]
+    );
+
+    const { rows } = await sql`SELECT * FROM indexscale_oportunidades ORDER BY empresa ASC;`;
+    const oportunidades = rows.map(r => ({
+      id: r.id,
+      bsaleClienteId: r.bsale_cliente_id,
+      empresa: r.empresa,
+      clienteNombre: r.cliente_nombre,
+      rut: r.rut,
+      telefono: r.telefono,
+      email: r.email,
+      ciudad: r.ciudad,
+      puntos: r.puntos,
+      estado: r.estado,
+      actualizadoPor: r.actualizado_por,
+      presentacionEnviadaEn: r.presentacion_enviada_en,
+    }));
+
+    return res.status(200).json({ oportunidades, estadosDisponibles: ESTADOS_INDEXSCALE, total: oportunidades.length });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error leyendo oportunidades IndexScale', detail: String(err), oportunidades: [] });
+  }
+}
+
+async function manejarIndexscaleEstado(req, res, sesion) {
+  if (req.method !== 'PUT') return res.status(405).json({ error: 'Method not allowed' });
+  const { id, estado } = req.body || {};
+  if (!id || !estado) return res.status(400).json({ error: 'Falta id o estado' });
+  if (!ESTADOS_INDEXSCALE.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexscale(sql);
+    const { rows } = await sql`
+      UPDATE indexscale_oportunidades SET estado = ${estado}, actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now()
+      WHERE id = ${id} RETURNING id;
+    `;
+    if (rows.length === 0) return res.status(404).json({ error: 'No encontrado' });
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error actualizando el estado', detail: String(err) });
+  }
+}
+
+// Correo de primer contacto -- oferta de diseño web / optimización de
+// e-commerce de IndexScale (indexscale.cl), copy basado en el sitio real
+// (revisado en vivo). El gancho es que el destinatario YA es cliente de
+// IndexStore (compra repuestos/servicio técnico) -- no es un frío total,
+// se presenta el otro servicio del mismo grupo. Sin precios: igual que el
+// correo de Indexpro, el diagnóstico gratuito es el siguiente paso, no
+// algo que se cotiza en el primer correo.
+function construirCorreoPresentacionIndexscale(nombreEmpresa) {
+  const empresa = nombreEmpresa || 'estimado/a';
+  const texto = `Hola ${empresa},
+
+Somos IndexScale, el equipo de e-commerce y desarrollo web del mismo grupo de IndexStore.
+
+Te escribimos porque ya te conocemos como cliente, y quisimos contarte que además ayudamos a empresas como la tuya a mejorar su canal de venta digital: diseño y evolución de tiendas Shopify/WooCommerce, sitios corporativos, optimización de conversión (UX/CRO), Google Ads, y automatización conectando tu operación (ERP, WhatsApp, inventario).
+
+Nuestro propio caso: llevamos indexstore.cl de una tienda online a una operación que factura sobre $40MM al mes, con más de 12 años de experiencia operacional propia -- no vendemos algo que no hayamos probado primero con nuestro propio negocio.
+
+Si quieres, podemos revisar gratis y sin compromiso tu e-commerce actual y decirte cuál sería el siguiente paso más rentable.
+
+Más detalles acá: https://indexscale.cl/
+
+Quedamos atentos -- basta con responder este correo.
+
+Equipo IndexScale`;
+
+  const html = texto
+    .split('\n\n')
+    .map(p => `<p style="margin:0 0 14px;">${p.replace(/\n/g, '<br>').replace(/(https?:\/\/\S+)/g, '<a href="$1">$1</a>')}</p>`)
+    .join('');
+
+  return {
+    asunto: `${empresa}: ¿cómo está rindiendo tu e-commerce hoy?`,
+    texto,
+    html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1F2A24;">${html}</div>`,
+  };
+}
+
+async function manejarIndexscaleEnviarPresentacion(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { id } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'Falta el id' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexscale(sql);
+    const { rows } = await sql`SELECT email, empresa, cliente_nombre, estado FROM indexscale_oportunidades WHERE id = ${id};`;
+    const fila = rows[0];
+    if (!fila) return res.status(404).json({ error: 'No encontrado' });
+    if (!fila.email) return res.status(400).json({ error: 'Este cliente no tiene correo registrado' });
+
+    const correo = construirCorreoPresentacionIndexscale(fila.empresa || fila.cliente_nombre);
+    const resultado = await enviarCorreoIndexscale({ para: fila.email, ...correo });
+    if (!resultado.enviado) return res.status(200).json({ error: 'No se pudo enviar el correo', detail: resultado.motivo });
+
+    const nuevoEstado = fila.estado === 'sin_contactar' ? 'primer_correo' : fila.estado;
+    await sql`
+      UPDATE indexscale_oportunidades SET
         presentacion_enviada_en = now(), estado = ${nuevoEstado},
         actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now()
       WHERE id = ${id};`;
