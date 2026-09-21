@@ -366,8 +366,18 @@ function renderTablaIndexscale(segmento){
     { key:'empresa', label:'Empresa', render:o=>o.empresa||'—' },
     { key:'clienteNombre', label:'Contacto', render:o=>o.clienteNombre||'—' },
     { key:'ciudad', label:'Ciudad', render:o=>o.ciudad||'—' },
-    { key:'puntos', label:'Puntos Bsale', align:'amount', render:o=>fmtNum(o.puntos||0) },
+    // "Puntos Bsale" no aporta nada útil en Sin sitio propio (pedido del
+    // usuario) -- se deja solo en Potenciar, donde igual se usa para
+    // priorizar el orden de siembra.
+    ...(segmento === 'potenciar' ? [{ key:'puntos', label:'Puntos Bsale', align:'amount', render:o=>fmtNum(o.puntos||0) }] : []),
     { key:'rut', label:'RUT' },
+    // Solo en Sin sitio propio: distingue si el cliente cayó acá desde el
+    // principio (correo personal) o si venía de Potenciar y se movió
+    // porque "Verificar sitios" no le encontró contenido real -- se deriva
+    // de sitioVerificadoEn (solo se setea cuando pasa por esa verificación).
+    ...(segmento === 'sin_sitio' ? [{ key:'sitioVerificadoEn', label:'Origen', render:o=>o.sitioVerificadoEn
+      ? `<span title="Tenía correo con dominio propio, pero la verificación de sitios no le encontró contenido real">🔀 Migrado</span>`
+      : `<span title="Correo de un proveedor gratuito (Gmail, Hotmail, etc.) desde el primer sembrado">🆕 Identificado</span>` }] : []),
     { key:'clienteNombre', label:'', render:o=>{
         const dominio = segmento === 'potenciar' ? dominioSitioWeb(o.email) : null;
         const web = segmento !== 'potenciar' ? '' : (dominio

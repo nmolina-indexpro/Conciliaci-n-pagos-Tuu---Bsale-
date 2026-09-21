@@ -4526,6 +4526,30 @@ async function manejarIndexscaleOportunidades(req, res, sesion) {
       [DOMINIOS_EMAIL_PERSONAL]
     );
 
+    // Limpieza de leads que no son un objetivo comercial válido para
+    // IndexScale, sin importar el segmento (aplica a filas ya sembradas
+    // antes de agregar estos dos filtros, autocorrigiéndose con el tiempo
+    // igual que la reclasificación de segmento de arriba):
+    //  - RUT de persona natural: el número antes del dígito verificador de
+    //    un RUT de empresa en Chile parte desde 50.000.000 en adelante (en
+    //    la práctica casi todo hoy es 76.xxx.xxx/77.xxx.xxx) -- un número
+    //    menor es casi con certeza una persona natural, aunque haya
+    //    quedado con algo en "empresa" (típico de un emprendedor/persona
+    //    natural con giro que factura con un nombre de fantasía). Si el
+    //    RUT no se puede leer, se deja (no hay evidencia para sacarlo).
+    //  - Municipalidades y corporaciones municipales: son organismos
+    //    públicos, no se les puede ofrecer un servicio comercial directo
+    //    sin pasar por una licitación pública (Mercado Público) -- no son
+    //    un lead de venta directa válido para este flujo.
+    await sql`
+      DELETE FROM indexscale_oportunidades
+      WHERE empresa ~* 'municipal'
+         OR (
+           NULLIF(regexp_replace(split_part(rut, '-', 1), '[^0-9]', '', 'g'), '') IS NOT NULL
+           AND NULLIF(regexp_replace(split_part(rut, '-', 1), '[^0-9]', '', 'g'), '')::bigint < 50000000
+         );
+    `;
+
     // Re-siembra en cada request, igual criterio que indexpro_oportunidades,
     // pero separado por segmento según el dominio del correo (ver comentario
     // arriba). ON CONFLICT DO NOTHING no pisa una fila ya existente (no
@@ -4545,6 +4569,11 @@ async function manejarIndexscaleOportunidades(req, res, sesion) {
          AND bp.email IS NOT NULL AND bp.email <> ''
          AND lower(split_part(bp.email, '@', 2)) ${comparador} ($3::text[])
          AND bp.id NOT IN (SELECT bsale_cliente_id FROM indexscale_excluidos)
+         AND bp.empresa !~* 'municipal'
+         AND (
+           NULLIF(regexp_replace(split_part(bp.rut, '-', 1), '[^0-9]', '', 'g'), '') IS NULL
+           OR NULLIF(regexp_replace(split_part(bp.rut, '-', 1), '[^0-9]', '', 'g'), '')::bigint >= 50000000
+         )
        ORDER BY bp.puntos_actualizado DESC NULLS LAST, bp.empresa ASC
        LIMIT $1
        ON CONFLICT (bsale_cliente_id) DO NOTHING;`,
@@ -4565,6 +4594,7 @@ async function manejarIndexscaleOportunidades(req, res, sesion) {
       estado: r.estado,
       actualizadoPor: r.actualizado_por,
       presentacionEnviadaEn: r.presentacion_enviada_en,
+      sitioVerificadoEn: r.sitio_verificado_en,
     }));
 
     return res.status(200).json({ oportunidades, estadosDisponibles: ESTADOS_INDEXSCALE, total: oportunidades.length });
