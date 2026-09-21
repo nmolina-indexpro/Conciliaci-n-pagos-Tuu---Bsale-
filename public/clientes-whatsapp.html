@@ -173,8 +173,10 @@
   .lista-clientes-analitica .fila-cliente-analitica:last-child{border-bottom:none;}
   .lista-clientes-analitica .nombre-cliente-analitica{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .lista-clientes-analitica .dato-cliente-analitica{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11px;flex-shrink:0;}
-  .embudo .paso{background:var(--primary-dim);border-radius:8px;padding:10px 16px;font-size:12.5px;display:flex;justify-content:space-between;}
+  .embudo .paso{background:var(--primary-dim);border-radius:8px;padding:10px 16px;font-size:12.5px;display:flex;justify-content:space-between;align-items:baseline;}
   .embudo .paso b{font-family:'IBM Plex Mono',monospace;}
+  .embudo .paso .paso-valor{display:flex;align-items:baseline;gap:7px;}
+  .embudo .paso .pct-total{color:var(--muted);font-size:10.5px;font-family:'IBM Plex Mono',monospace;}
   .embudo .flecha{text-align:center;color:var(--muted);font-size:11px;}
 </style>
 <meta name="theme-color" content="#0F766E">

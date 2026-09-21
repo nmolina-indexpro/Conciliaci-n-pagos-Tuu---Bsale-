@@ -1206,10 +1206,18 @@ function renderChartEmbudo(e){
     { l: 'Cotización', v: e.cotizacion },
     { l: 'Venta', v: e.venta },
   ];
-  $('chartEmbudo').innerHTML = `<div class="embudo">${pasos.map((p,i) => `
-    <div class="paso"><span>${p.l}</span><b>${fmtNum(p.v)}</b></div>
+  const total = pasos[0].v; // "Conversaciones" -- base contra la que se mide el % de cada etapa
+  $('chartEmbudo').innerHTML = `<div class="embudo">${pasos.map((p,i) => {
+    // % del total: qué fracción de las conversaciones iniciales llegó a esta
+    // etapa (distinto del "↓X%" de abajo, que es el paso a paso entre dos
+    // etapas consecutivas) -- pedido del usuario para saber, por ejemplo,
+    // qué porcentaje de las conversaciones terminó en venta.
+    const pctTotal = i > 0 && total > 0 ? `<span class="pct-total">(${(p.v/total*100).toFixed(1)}% del total)</span>` : '';
+    return `
+    <div class="paso"><span>${p.l}</span><span class="paso-valor"><b>${fmtNum(p.v)}</b>${pctTotal}</span></div>
     ${i < pasos.length - 1 ? `<div class="flecha">↓ ${pasos[i].v > 0 ? Math.round((pasos[i+1].v/pasos[i].v)*100) : 0}%</div>` : ''}
-  `).join('')}</div>`;
+  `;
+  }).join('')}</div>`;
 }
 let motivosActuales = [];
 let sortColMotivos = 'cantidad';
