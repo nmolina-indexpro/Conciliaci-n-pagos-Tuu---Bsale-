@@ -4692,7 +4692,7 @@ Soy Nicolás, de IndexScale, el equipo de e-commerce y desarrollo web del mismo 
 
 Ya te conocemos como cliente, y notamos que probablemente ya tienes tu propio sitio o tienda online. Te ayudamos a sacarle más provecho a lo que ya tienes: que se vea más profesional, que cargue más rápido, que te encuentren más fácil en Google, y que te lleguen más consultas y ventas listas para cerrar.
 
-Nuestro propio caso: llevamos indexstore.cl a facturar sobre $40MM al mes -- no ofrecemos algo que no hayamos probado primero con nuestro negocio.
+Nuestro propio caso: llevamos indexstore.cl a facturar sobre $30MM al mes -- no ofrecemos algo que no hayamos probado primero con nuestro negocio.
 
 Si quieres, revisamos gratis y sin compromiso cómo está tu sitio hoy.
 
@@ -4707,7 +4707,7 @@ Soy Nicolás, de IndexScale, el equipo de e-commerce y desarrollo web del mismo 
 
 Ya te conocemos como cliente, y quisimos contarte que también ayudamos a empresas como la tuya a tener su propio sitio o tienda online: que se vea profesional, que te encuentren fácil en Google, y que te lleguen consultas y ventas listas para cerrar.
 
-Nuestro propio caso: llevamos indexstore.cl a facturar sobre $40MM al mes -- no ofrecemos algo que no hayamos probado primero con nuestro negocio.
+Nuestro propio caso: llevamos indexstore.cl a facturar sobre $30MM al mes -- no ofrecemos algo que no hayamos probado primero con nuestro negocio.
 
 Si quieres, te mostramos gratis y sin compromiso cómo se vería tu negocio con un sitio o tienda online propia.
 
@@ -4819,7 +4819,7 @@ Soy Nicolás, de IndexScale. Te escribo de nuevo porque vi que alcanzaste a revi
 
 Trabajamos desde Providencia, Santiago, y llevamos más de 12 años acompañando a pymes como la tuya -- conocemos bien los problemas que se repiten una y otra vez, y sabemos por dónde partir para resolverlos.
 
-Para no perder más tiempo, cuéntame qué prefieres:
+Cuéntame qué prefieres:
 - Conversar directo por WhatsApp
 - Que te haga una visita en terreno
 - Coordinar una llamada telefónica
