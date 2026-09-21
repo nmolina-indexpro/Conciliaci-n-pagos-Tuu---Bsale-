@@ -4680,15 +4680,21 @@ function construirCorreoPresentacionIndexscale(nombreEmpresa, segmento) {
   const empresa = limpiarRazonSocial(nombreEmpresa) || 'estimado/a';
   const esPotenciar = segmento === 'potenciar';
 
+  // No todos los clientes son e-commerce -- varios solo venden servicios,
+  // sin productos que poner en una tienda online. "sitio o tienda online" y
+  // "consultas y ventas" quedan a propósito lo bastante genéricos para que
+  // un negocio de puro servicio también se sienta identificado, sin decirlo
+  // explícito (mencionarlo de frente -- "seas o no e-commerce" -- suena a
+  // aclaración, no a que ya los conocemos).
   const texto = esPotenciar ? `Hola ${empresa},
 
 Soy Nicolás, de IndexScale, el equipo de e-commerce y desarrollo web del mismo grupo de indexstore.cl.
 
-Ya te conocemos como cliente, y notamos que probablemente ya tienes tu propio sitio o tienda online. Ayudamos a empresas como la tuya a sacarle más provecho a lo que ya tienen: conversión (UX/CRO), Google Ads, mejoras a tu tienda Shopify/WooCommerce y automatización de tu operación.
+Ya te conocemos como cliente, y notamos que probablemente ya tienes tu propio sitio o tienda online. Te ayudamos a sacarle más provecho a lo que ya tienes: que se vea más profesional, que cargue más rápido, que te encuentren más fácil en Google, y que te lleguen más consultas y ventas listas para cerrar.
 
 Nuestro propio caso: llevamos indexstore.cl a facturar sobre $40MM al mes -- no ofrecemos algo que no hayamos probado primero con nuestro negocio.
 
-Si quieres, revisamos gratis y sin compromiso tu e-commerce actual.
+Si quieres, revisamos gratis y sin compromiso cómo está tu sitio hoy.
 
 Más detalles acá: https://indexscale.cl/
 
@@ -4699,11 +4705,11 @@ IndexScale` : `Hola ${empresa},
 
 Soy Nicolás, de IndexScale, el equipo de e-commerce y desarrollo web del mismo grupo de indexstore.cl.
 
-Ya te conocemos como cliente, y quisimos contarte que también ayudamos a empresas como la tuya a dar el salto a la venta online: tiendas Shopify/WooCommerce, sitios corporativos, conversión (UX/CRO), Google Ads y automatización de tu operación.
+Ya te conocemos como cliente, y quisimos contarte que también ayudamos a empresas como la tuya a tener su propio sitio o tienda online: que se vea profesional, que te encuentren fácil en Google, y que te lleguen consultas y ventas listas para cerrar.
 
 Nuestro propio caso: llevamos indexstore.cl a facturar sobre $40MM al mes -- no ofrecemos algo que no hayamos probado primero con nuestro negocio.
 
-Si quieres, te mostramos gratis y sin compromiso cómo se vería tu negocio con tienda online propia.
+Si quieres, te mostramos gratis y sin compromiso cómo se vería tu negocio con un sitio o tienda online propia.
 
 Más detalles acá: https://indexscale.cl/
 
@@ -4718,7 +4724,11 @@ IndexScale`;
     .join('');
 
   return {
-    asunto: esPotenciar ? `${empresa}: ¿cómo está rindiendo tu e-commerce hoy?` : `${empresa}: ¿le has pensado a tener tu propia tienda online?`,
+    // Mismo asunto para los dos segmentos a propósito: no sabemos con
+    // certeza si el cliente tiene sitio o no (es una heurística por
+    // dominio de correo), así que el asunto cubre ambos casos en vez de
+    // apostar por uno.
+    asunto: `${empresa}: ¿tu sitio (o la falta de uno) te está haciendo perder clientes?`,
     texto,
     html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1F2A24;">${html}</div>`,
   };
@@ -4805,7 +4815,9 @@ function construirCorreoRecontactoIndexscale(nombreEmpresa, segmento) {
 
   const texto = `Hola ${empresa},
 
-Soy Nicolás, de IndexScale. Te escribo de nuevo porque vi que alcanzaste a revisar mi correo anterior sobre ${esPotenciar ? 'potenciar tu e-commerce' : 'tener tu propia tienda online'}.
+Soy Nicolás, de IndexScale. Te escribo de nuevo porque vi que alcanzaste a revisar mi correo anterior sobre ${esPotenciar ? 'sacarle más provecho a tu sitio o tienda online' : 'tener tu propio sitio o tienda online'}.
+
+Trabajamos desde Providencia, Santiago, y llevamos más de 12 años acompañando a pymes como la tuya -- conocemos bien los problemas que se repiten una y otra vez, y sabemos por dónde partir para resolverlos.
 
 Para no perder más tiempo, cuéntame qué prefieres:
 - Conversar directo por WhatsApp
