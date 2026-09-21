@@ -4686,24 +4686,13 @@ async function manejarIndexscaleEnviarPresentacion(req, res, sesion) {
 // aunque funcione en un navegador real (limitación conocida y aceptada,
 // no hay forma barata de renderizar miles de sitios). El que falla el
 // chequeo se reclasifica a 'sin_sitio'; el que lo pasa se deja tal cual.
-const INDEXSCALE_VERIFICAR_TIMEOUT_MS = 4000; // por esquema (https/http) -> hasta ~8s el peor caso de un solo dominio
+const INDEXSCALE_VERIFICAR_TIMEOUT_MS = 4000; // por esquema (https/http) -- ayuda a avanzar rápido en el caso normal
 const INDEXSCALE_VERIFICAR_UMBRAL_TEXTO = 300; // caracteres de texto visible mínimos para considerar que hay un sitio real
 const INDEXSCALE_VERIFICAR_CONCURRENCIA = 15; // fetches en paralelo por tanda
 const INDEXSCALE_VERIFICAR_LOTE_DB = 60; // filas leídas de la BD por vuelta del while
-// Presupuesto propio (más chico que PUNTOS_SYNC_PRESUPUESTO_MS): acá una
-// sola tanda puede tardar hasta ~8s (el más lento de la tanda, con
-// Promise.all), no unos pocos ms como en los syncs con Bsale -- si se
-// revisara el presupuesto solo ANTES de cada tanda con el mismo margen que
-// esos syncs, una tanda que arranca justo antes del límite podía terminar
-// después del tope de 60s de Vercel y la función se cortaba a medio
-// camino, devolviendo la página de error de Vercel (no JSON) en vez de la
-// respuesta -- bug real reportado ("Unexpected token 'A', "An error o"...
-// is not valid JSON"). Con este presupuesto y estos márgenes, el peor caso
-// (tanda arrancada justo en el límite + su UPDATE) queda bien por debajo
-// del tope real de la función.
-const INDEXSCALE_VERIFICAR_PRESUPUESTO_MS = 35000;
-const INDEXSCALE_VERIFICAR_MARGEN_LOTE_MS = 10000; // no se pide un nuevo lote de la BD si queda menos que esto
-const INDEXSCALE_VERIFICAR_MARGEN_TANDA_MS = 9000; // no se arranca una nueva tanda si queda menos que esto
+const INDEXSCALE_VERIFICAR_PRESUPUESTO_MS = 40000;
+const INDEXSCALE_VERIFICAR_MARGEN_LOTE_MS = 5000; // no se pide un nuevo lote de la BD si queda menos que esto
+const INDEXSCALE_VERIFICAR_MARGEN_CIERRE_MS = 3000; // tiempo reservado para el COUNT final + armar la respuesta
 
 function textoVisibleDeHtml(html) {
   return String(html || '')
@@ -4750,7 +4739,8 @@ async function manejarIndexscaleVerificarSitios(req, res, sesion) {
     let movidos = 0;
     let errores = 0;
 
-    while (presupuestoRestante() > INDEXSCALE_VERIFICAR_MARGEN_LOTE_MS) {
+    let sinTiempoParaMas = false;
+    while (!sinTiempoParaMas && presupuestoRestante() > INDEXSCALE_VERIFICAR_MARGEN_LOTE_MS) {
       const { rows: candidatos } = await sql`
         SELECT id, email FROM indexscale_oportunidades
         WHERE segmento = 'potenciar' AND sitio_verificado_en IS NULL
@@ -4759,7 +4749,8 @@ async function manejarIndexscaleVerificarSitios(req, res, sesion) {
       if (candidatos.length === 0) break;
 
       for (let i = 0; i < candidatos.length; i += INDEXSCALE_VERIFICAR_CONCURRENCIA) {
-        if (presupuestoRestante() <= INDEXSCALE_VERIFICAR_MARGEN_TANDA_MS) break;
+        const msDisponibles = presupuestoRestante() - INDEXSCALE_VERIFICAR_MARGEN_CIERRE_MS;
+        if (msDisponibles < 1000) { sinTiempoParaMas = true; break; }
         const tanda = candidatos.slice(i, i + INDEXSCALE_VERIFICAR_CONCURRENCIA);
         // Cada fila se procesa aislada de las demás -- una excepción puntual
         // (correo nulo/malformado, error de red no contemplado, falla de la
@@ -4767,16 +4758,33 @@ async function manejarIndexscaleVerificarSitios(req, res, sesion) {
         // como la consulta siempre parte por la fila más antigua sin verificar
         // (ORDER BY id), una sola fila problemática dejaba el botón fallando
         // por completo una y otra vez sin poder avanzar (bug real reportado).
-        const resultados = await Promise.all(tanda.map(async (fila) => {
-          try {
-            const dominio = ((fila.email || '').split('@')[1] || '').toLowerCase().trim();
-            const tieneContenido = dominio ? await sitioTieneContenidoReal(dominio) : false;
-            return { id: fila.id, tieneContenido, error: false };
-          } catch (err) {
-            return { id: fila.id, tieneContenido: null, error: true };
-          }
-        }));
-        for (const { id, tieneContenido, error } of resultados) {
+        //
+        // Además, la tanda completa corre contra un límite DURO (Promise.race
+        // con el presupuesto que realmente queda) en vez de confiar solo en
+        // el timeout interno de cada fetch -- si algún dominio se demora más
+        // de lo esperado (DNS colgado, red rara, lo que sea) por más que el
+        // AbortController debería cortarlo, esto igual garantiza que la
+        // función nunca siga corriendo más allá de su propio presupuesto, que
+        // fue justo lo que la hacía chocar contra el tope real de 60s de
+        // Vercel y cortarse a medio camino (bug real reportado: "Unexpected
+        // token 'A', "An error o"... is not valid JSON").
+        const carrera = await Promise.race([
+          Promise.all(tanda.map(async (fila) => {
+            try {
+              const dominio = ((fila.email || '').split('@')[1] || '').toLowerCase().trim();
+              const tieneContenido = dominio ? await sitioTieneContenidoReal(dominio) : false;
+              return { id: fila.id, tieneContenido, error: false };
+            } catch (err) {
+              return { id: fila.id, tieneContenido: null, error: true };
+            }
+          })).then((valor) => ({ agotado: false, valor })),
+          new Promise((resolve) => setTimeout(() => resolve({ agotado: true }), msDisponibles)),
+        ]);
+
+        if (carrera.agotado) { sinTiempoParaMas = true; break; }
+
+        for (const { id, tieneContenido, error } of carrera.valor) {
+          if (presupuestoRestante() <= INDEXSCALE_VERIFICAR_MARGEN_CIERRE_MS) { sinTiempoParaMas = true; break; }
           try {
             if (error) {
               // No se pudo determinar -- se marca como verificado para no
@@ -4797,6 +4805,7 @@ async function manejarIndexscaleVerificarSitios(req, res, sesion) {
             errores++; // ni siquiera se pudo marcar como verificada -- se reintentará después, pero no tumba la tanda
           }
         }
+        if (sinTiempoParaMas) break;
       }
     }
 
