@@ -4688,8 +4688,6 @@ function construirCorreoPresentacionIndexscale(nombreEmpresa, segmento) {
   // aclaración, no a que ya los conocemos).
   const texto = esPotenciar ? `Hola ${empresa},
 
-Soy Nicolás, de IndexScale, el equipo de e-commerce y desarrollo web del mismo grupo de indexstore.cl.
-
 Ya te conocemos como cliente, y notamos que probablemente ya tienes tu propio sitio o tienda online. Te ayudamos a sacarle más provecho a lo que ya tienes: que se vea más profesional, que cargue más rápido, que te encuentren más fácil en Google, y que te lleguen más consultas y ventas listas para cerrar.
 
 Nuestro propio caso: llevamos indexstore.cl a facturar sobre $30MM al mes -- no ofrecemos algo que no hayamos probado primero con nuestro negocio.
@@ -4702,8 +4700,6 @@ Quedo atento -- basta con responder este correo.
 
 Nicolás
 IndexScale` : `Hola ${empresa},
-
-Soy Nicolás, de IndexScale, el equipo de e-commerce y desarrollo web del mismo grupo de indexstore.cl.
 
 Ya te conocemos como cliente, y quisimos contarte que también ayudamos a empresas como la tuya a tener su propio sitio o tienda online: que se vea profesional, que te encuentren fácil en Google, y que te lleguen consultas y ventas listas para cerrar.
 
