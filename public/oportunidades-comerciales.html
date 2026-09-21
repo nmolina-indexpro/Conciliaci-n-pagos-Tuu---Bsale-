@@ -174,6 +174,7 @@
           <a href="oportunidades-comerciales.html" class="active">Ventas</a>
           <a href="sitio-web.html">Sitio Web</a>
           <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="indexscale.html">IndexScale</a>
         </div>
       </div>
       <div class="nav-dropdown">
@@ -203,9 +204,6 @@
     </button>
     <button class="tab-grande" id="tabBtnIndexpro" onclick="cambiarTab('indexpro')">
       <div class="titulo">🏢 Indexpro</div>
-    </button>
-    <button class="tab-grande" id="tabBtnIndexscale" onclick="cambiarTab('indexscale')">
-      <div class="titulo">🚀 IndexScale</div>
     </button>
     <button class="tab-grande" id="tabBtnCompraAgil" onclick="cambiarTab('compra-agil')">
       <div class="titulo">🏛️ Compra Ágil</div>
@@ -401,52 +399,6 @@
     </div>
   </div>
 
-  <div id="tabIndexscale" style="display:none;">
-    <div class="sub" style="margin-top:-4px;">Leads para presentar IndexScale (diseño web / optimización de e-commerce, indexscale.cl) a empresas que ya son clientes IndexStore en Bsale. Hasta 1.000, priorizando las más recientemente activas.</div>
-    <div class="toolbar">
-      <div class="form-inline">
-        <div class="campo">
-          <label>Buscar</label>
-          <input type="text" id="buscarIndexscaleInput" placeholder="Empresa, contacto o RUT..." oninput="renderTablaIndexscale()" style="width:220px;">
-        </div>
-        <div class="campo">
-          <label>Estado</label>
-          <select id="filtroEstadoIndexscale" onchange="renderTablaIndexscale()">
-            <option value="">Todos</option>
-            <option value="sin_contactar">Sin contactar</option>
-            <option value="primer_correo">Primer correo enviado</option>
-            <option value="contactado">Contactado</option>
-            <option value="cotizado">Cotizado</option>
-            <option value="ganado">Ganado</option>
-            <option value="perdido">Perdido</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-inline">
-        <button class="btn-ghost btn-compact" onclick="cargarIndexscale()">↻ Actualizar</button>
-      </div>
-    </div>
-
-    <div id="statusIndexscale"></div>
-
-    <div class="grid" id="kpiWrapIndexscale">
-      <div class="card"><div class="lbl">Leads totales</div><div class="big">—</div></div>
-      <div class="card"><div class="lbl">Con correo</div><div class="big">—</div></div>
-      <div class="card"><div class="lbl">Presentación enviada</div><div class="big">—</div></div>
-      <div class="card"><div class="lbl">Sin sitio propio detectado</div><div class="big">—</div></div>
-    </div>
-
-    <div class="seccion" id="seccionIndexscale">
-      <div class="seccion-head">
-        <div>
-          <h2>🚀 Oportunidades IndexScale (diseño web / e-commerce)</h2>
-          <div class="sub">Ordenado por puntos Bsale (mejor proxy de actividad/tamaño del cliente que tenemos hoy). El ícono 🌐 solo aparece si el correo NO es de un proveedor gratuito (Gmail, Hotmail, etc.) -- señal de que probablemente ya tiene dominio propio.</div>
-        </div>
-      </div>
-      <div id="wrapIndexscale"><p class="empty-note">Cargando...</p></div>
-    </div>
-  </div>
-
   <div id="tabCompraAgil" style="display:none;">
     <div class="sub" style="margin-top:-4px;">Órdenes de compra recibidas por IndexPro a través de Mercado Público / Compra Ágil (RUT 76.200.548-4), desde el 2026.</div>
 
@@ -597,19 +549,16 @@ function cambiarTab(tab){
   $('tabBtnPuntos').classList.toggle('activo', tab==='puntos');
   $('tabBtnCotizaciones').classList.toggle('activo', tab==='cotizaciones');
   $('tabBtnIndexpro').classList.toggle('activo', tab==='indexpro');
-  $('tabBtnIndexscale').classList.toggle('activo', tab==='indexscale');
   $('tabBtnCompraAgil').classList.toggle('activo', tab==='compra-agil');
   $('tabBtnAccesorios').classList.toggle('activo', tab==='accesorios');
   $('tabPuntos').style.display = tab==='puntos' ? '' : 'none';
   $('tabCotizaciones').style.display = tab==='cotizaciones' ? '' : 'none';
   $('tabIndexpro').style.display = tab==='indexpro' ? '' : 'none';
-  $('tabIndexscale').style.display = tab==='indexscale' ? '' : 'none';
   $('tabCompraAgil').style.display = tab==='compra-agil' ? '' : 'none';
   $('tabAccesorios').style.display = tab==='accesorios' ? '' : 'none';
   if(tab==='puntos' && !puntosCargados) cargar();
   if(tab==='cotizaciones' && !cotizacionesCargadas) cargarCotizaciones();
   if(tab==='indexpro' && !indexproCargado) cargarIndexpro();
-  if(tab==='indexscale' && !indexscaleCargado) cargarIndexscale();
   if(tab==='compra-agil' && !compraAgilCargado) cargarCompraAgil();
   if(tab==='accesorios' && !accesoriosCargado) cargarAccesorios();
 }
@@ -689,19 +638,6 @@ const ESTADOS_INDEXPRO_LABEL = {
   ganado: 'Ganado ✓',
   perdido: 'Perdido',
 };
-
-// ---------- IndexScale (cold email: diseño web / e-commerce) ----------
-// Mismos nombres/labels de estado que Indexpro (mismo embudo de ventas,
-// aunque la oferta sea otra) -- variables propias porque son dos listas de
-// leads completamente independientes.
-let oportunidadesIndexscale = [];
-let indexscaleCargado = false;
-let indexscaleExpandido = false;
-const INDEXSCALE_RESUMEN_TOPE = 15;
-const ESTADO_PRIORIDAD_INDEXSCALE = { cotizado: 0, contactado: 1, primer_correo: 2, sin_contactar: 3, ganado: 4, perdido: 5 };
-let sortColIndexscale = 'prioridad';
-let sortAscIndexscale = true;
-const ESTADOS_INDEXSCALE_LABEL = ESTADOS_INDEXPRO_LABEL; // mismo embudo, mismas etiquetas
 
 // ---------- Fechas rápidas (mismo cálculo que usa conciliacion.html) ----------
 const hoyStrCot = new Date().toLocaleDateString('en-CA');
@@ -2035,182 +1971,6 @@ async function eliminarOportunidadIndexpro(id){
   }
 }
 
-// ---------- IndexScale (cold email: diseño web / e-commerce) ----------
-async function cargarIndexscale(){
-  indexscaleCargado = true;
-  const status = $('statusIndexscale');
-  status.className = '';
-  status.textContent = 'Cargando oportunidades...';
-  $('wrapIndexscale').innerHTML = '<p class="empty-note">Cargando...</p>';
-
-  try{
-    const res = await fetch('/api/negocio?recurso=indexscale-oportunidades').then(r=>r.json());
-    if(res.error){
-      status.className = 'err';
-      status.textContent = 'Error: ' + (res.detail || res.error);
-      oportunidadesIndexscale = [];
-      renderTablaIndexscale();
-      return;
-    }
-    oportunidadesIndexscale = res.oportunidades || [];
-    renderKpisIndexscale();
-    renderTablaIndexscale();
-    status.className = 'ok';
-    status.textContent = `Listo — ${oportunidadesIndexscale.length} oportunidades`;
-  }catch(err){
-    status.className = 'err';
-    status.textContent = 'Error: ' + err.message;
-  }
-}
-
-function renderKpisIndexscale(){
-  const cards = document.querySelectorAll('#kpiWrapIndexscale .card');
-  cards[0].querySelector('.big').textContent = fmtNum(oportunidadesIndexscale.length);
-  cards[1].querySelector('.big').textContent = fmtNum(oportunidadesIndexscale.filter(o => o.email).length);
-  cards[2].querySelector('.big').textContent = fmtNum(oportunidadesIndexscale.filter(o => o.presentacionEnviadaEn).length);
-  cards[3].querySelector('.big').textContent = fmtNum(oportunidadesIndexscale.filter(o => !dominioSitioWeb(o.email)).length);
-}
-
-function cambiarOrdenIndexscale(col){
-  if(col === 'estado') col = 'prioridad';
-  if(sortColIndexscale === col) sortAscIndexscale = !sortAscIndexscale;
-  else { sortColIndexscale = col; sortAscIndexscale = col === 'prioridad'; }
-  renderTablaIndexscale();
-}
-
-function renderTablaIndexscale(){
-  const q = ($('buscarIndexscaleInput').value || '').trim().toLowerCase();
-  const filtroEstado = $('filtroEstadoIndexscale').value;
-  let filas = oportunidadesIndexscale.filter(o =>
-    (!q || (o.empresa||'').toLowerCase().includes(q) || (o.clienteNombre||'').toLowerCase().includes(q) || (o.rut||'').toLowerCase().includes(q)) &&
-    (!filtroEstado || o.estado === filtroEstado)
-  );
-
-  filas = [...filas].sort((a,b)=>{
-    if(sortColIndexscale === 'prioridad'){
-      const diff = ESTADO_PRIORIDAD_INDEXSCALE[a.estado] - ESTADO_PRIORIDAD_INDEXSCALE[b.estado];
-      const ordenado = sortAscIndexscale ? diff : -diff;
-      return ordenado !== 0 ? ordenado : ((b.puntos||0) - (a.puntos||0)); // empate: más puntos primero
-    }
-    let va = a[sortColIndexscale], vb = b[sortColIndexscale];
-    if(va==null) return 1; if(vb==null) return -1;
-    if(typeof va === 'string') return sortAscIndexscale ? va.localeCompare(vb) : vb.localeCompare(va);
-    return sortAscIndexscale ? va-vb : vb-va;
-  });
-
-  if(filas.length === 0){
-    $('wrapIndexscale').innerHTML = `<p class="empty-note">${oportunidadesIndexscale.length===0 ? 'Sin datos todavía.' : 'Sin resultados para ese filtro.'}</p>`;
-    return;
-  }
-
-  const totalFilas = filas.length;
-  const filasVisibles = indexscaleExpandido ? filas : filas.slice(0, INDEXSCALE_RESUMEN_TOPE);
-
-  const cols = [
-    { key:'empresa', label:'Empresa', render:o=>o.empresa||'—' },
-    { key:'clienteNombre', label:'Contacto', render:o=>o.clienteNombre||'—' },
-    { key:'ciudad', label:'Ciudad', render:o=>o.ciudad||'—' },
-    { key:'puntos', label:'Puntos Bsale', align:'amount', render:o=>fmtNum(o.puntos||0) },
-    { key:'rut', label:'RUT' },
-    { key:'clienteNombre', label:'', render:o=>{
-        const dominio = dominioSitioWeb(o.email);
-        const web = dominio ? `<a class="btn-icono" href="https://${dominio}" title="Sitio web: ${dominio}" target="_blank" rel="noopener">🌐</a>` : `<span class="btn-icono deshabilitado" title="Sin dominio propio detectado">🌐</span>`;
-        const mailto = o.email ? `<a class="btn-icono" href="mailto:${o.email}" title="Correo: ${o.email}" target="_blank" rel="noopener">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`;
-        const wa = o.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(o.telefono).replace('+','')}" title="WhatsApp: ${o.telefono}" target="_blank" rel="noopener">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`;
-        const tituloPresentacion = o.presentacionEnviadaEn ? `Ya se envió el ${new Date(o.presentacionEnviadaEn).toLocaleDateString('es-CL')} — enviar de nuevo` : 'Enviar presentación comercial (primer contacto)';
-        const presentacion = o.email ? `<button class="btn-icono" title="${tituloPresentacion}" onclick="enviarPresentacionIndexscale(${o.id})">${o.presentacionEnviadaEn ? '📨' : '✉️'}</button>` : `<span class="btn-icono deshabilitado" title="Sin correo">✉️</span>`;
-        const eliminar = esAdmin ? `<button class="btn-icono" title="Eliminar de la lista" onclick="eliminarOportunidadIndexscale(${o.id})">🗑️</button>` : '';
-        return `<div class="acciones-icono">${web}${mailto}${wa}${presentacion}${eliminar}</div>`;
-      } },
-    { key:'estado', label:'Estado', render:o=>`<select class="estado-select" onchange="cambiarEstadoIndexscale(${o.id}, this.value)">
-        ${Object.entries(ESTADOS_INDEXSCALE_LABEL).map(([valor,label])=>`<option value="${valor}" ${o.estado===valor?'selected':''}>${label}</option>`).join('')}
-      </select>` },
-  ];
-
-  const thead = `<tr>${cols.map(c=>{
-    const claveOrden = c.key === 'estado' ? 'prioridad' : c.key;
-    const marca = sortColIndexscale===claveOrden ? (sortAscIndexscale?' ▲':' ▼') : '';
-    return `<th class="${c.align==='amount'?'amount':''}" onclick="cambiarOrdenIndexscale('${c.key}')">${c.label}${marca}</th>`;
-  }).join('')}</tr>`;
-
-  const tbody = filasVisibles.map(o=>`<tr>${cols.map(col=>{
-    const claseEstado = col.key==='estado' ? `estado-${o.estado}` : '';
-    return `<td class="${[col.align==='amount'?'amount':'', claseEstado].filter(Boolean).join(' ')}">${col.render ? col.render(o) : (o[col.key] ?? '—')}</td>`;
-  }).join('')}</tr>`).join('');
-
-  const controlExpandir = totalFilas > INDEXSCALE_RESUMEN_TOPE
-    ? `<button class="btn-ghost btn-compact" onclick="toggleExpandidoIndexscale()">${indexscaleExpandido ? `▲ Ver resumen (${INDEXSCALE_RESUMEN_TOPE})` : `▼ Ver todos (${totalFilas})`}</button>`
-    : `<span class="empty-note">${totalFilas} oportunidad${totalFilas===1?'':'es'}</span>`;
-
-  $('wrapIndexscale').innerHTML = `
-    <div class="controles-tabla">
-      <span class="empty-note">Mostrando ${filasVisibles.length} de ${totalFilas}</span>
-      ${controlExpandir}
-    </div>
-    <div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
-}
-
-function toggleExpandidoIndexscale(){
-  indexscaleExpandido = !indexscaleExpandido;
-  renderTablaIndexscale();
-}
-
-async function cambiarEstadoIndexscale(id, estado){
-  const op = oportunidadesIndexscale.find(o => o.id === id);
-  const estadoAnterior = op ? op.estado : null;
-  if(op) op.estado = estado;
-  try{
-    const res = await fetch('/api/negocio?recurso=indexscale-estado', {
-      method: 'PUT', headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ id, estado })
-    });
-    const data = await res.json();
-    if(!res.ok){
-      if(op) op.estado = estadoAnterior;
-      alert(data.error || 'No se pudo actualizar el estado.');
-      renderTablaIndexscale();
-      return;
-    }
-  }catch(err){
-    if(op) op.estado = estadoAnterior;
-    alert('Error: ' + err.message);
-    renderTablaIndexscale();
-  }
-}
-
-async function enviarPresentacionIndexscale(id){
-  const op = oportunidadesIndexscale.find(o => o.id === id);
-  if(!op || !op.email) return;
-  const yaEnviado = op.presentacionEnviadaEn ? `\n\nOjo: ya se le envió este mismo correo el ${new Date(op.presentacionEnviadaEn).toLocaleDateString('es-CL')}.` : '';
-  if(!confirm(`¿Enviar el correo de presentación IndexScale a ${op.email}?${yaEnviado}`)) return;
-  try{
-    const res = await fetch('/api/negocio?recurso=indexscale-enviar-presentacion', {
-      method: 'POST', headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ id })
-    });
-    const data = await res.json();
-    if(!res.ok || data.error){ alert(data.detail || data.error || 'No se pudo enviar el correo.'); return; }
-    await cargarIndexscale();
-    alert('Correo enviado.');
-  }catch(err){
-    alert('Error: ' + err.message);
-  }
-}
-
-async function eliminarOportunidadIndexscale(id){
-  const op = oportunidadesIndexscale.find(o => o.id === id);
-  if(!confirm(`¿Eliminar "${op ? (op.empresa||op.clienteNombre) : 'este cliente'}" de la lista de oportunidades IndexScale?`)) return;
-  try{
-    const res = await fetch(`/api/negocio?recurso=indexscale-oportunidades&id=${id}`, { method: 'DELETE' });
-    const data = await res.json();
-    if(!res.ok){ alert(data.error || 'No se pudo eliminar.'); return; }
-    oportunidadesIndexscale = oportunidadesIndexscale.filter(o => o.id !== id);
-    renderKpisIndexscale();
-    renderTablaIndexscale();
-  }catch(err){
-    alert('Error: ' + err.message);
-  }
-}
 
 // Consulta en vivo a Bsale (no queda guardado) — solo al hacer clic en el
 // ícono 💰 de una fila puntual.

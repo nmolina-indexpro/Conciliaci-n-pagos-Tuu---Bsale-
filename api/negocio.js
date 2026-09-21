@@ -4468,7 +4468,16 @@ async function manejarIndexproEnviarPresentacion(req, res, sesion) {
 // ninguna fase de matching ni de historial de compras: el vínculo con
 // Bsale ya existe desde el día uno (bsale_cliente_id).
 const ESTADOS_INDEXSCALE = ['sin_contactar', 'primer_correo', 'contactado', 'cotizado', 'ganado', 'perdido'];
-const INDEXSCALE_TOPE_LEADS = 1000; // pedido explícito del usuario ("selecciona 1000 clientes")
+// Dos listas de leads mutuamente excluyentes según el dominio del correo del
+// cliente en Bsale (mismo criterio/lista que manejarClientesEmpresaCorreoPersonal,
+// ver DOMINIOS_EMAIL_PERSONAL más arriba): 'sin_sitio' (correo de un proveedor
+// gratuito -> probablemente no tiene dominio/sitio propio, se le ofrece crear
+// uno) y 'potenciar' (correo con dominio propio -> probablemente ya tiene
+// e-commerce, se le ofrece optimizarlo). No es una búsqueda web real cliente
+// por cliente (inviable a este volumen) sino esta heurística por dominio,
+// igual a la que ya usa el ícono 🌐 en Indexpro.
+const SEGMENTOS_INDEXSCALE = ['sin_sitio', 'potenciar'];
+const INDEXSCALE_TOPES = { sin_sitio: 1000, potenciar: 10000 }; // pedido explícito del usuario
 
 async function manejarIndexscaleOportunidades(req, res, sesion) {
   if (req.method === 'DELETE') {
@@ -4492,34 +4501,39 @@ async function manejarIndexscaleOportunidades(req, res, sesion) {
     }
   }
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const segmento = req.query.segmento;
+  if (!SEGMENTOS_INDEXSCALE.includes(segmento)) return res.status(400).json({ error: 'Falta o es inválido el parámetro segmento' });
   try {
     const sql = await getSql();
     await asegurarTablaIndexscale(sql);
     await asegurarTablaBsalePuntos(sql);
 
-    // Re-siembra en cada request, igual criterio que indexpro_oportunidades:
-    // hasta 1000 empresas clientes de Bsale (razón social + correo),
-    // priorizando las más recientemente activas. ON CONFLICT DO NOTHING no
-    // pisa una fila ya existente (no pierde el estado/seguimiento de un
-    // lead ya trabajado) y nunca reinserta uno borrado a mano
-    // (indexscale_excluidos). Con el tiempo la lista puede crecer un poco
-    // más allá de 1000 si van entrando candidatos nuevos más recientes que
-    // los ya guardados -- no se "podan" los viejos automáticamente, mismo
-    // comportamiento que Indexpro (solo se sacan a mano, con 🗑️).
+    // Re-siembra en cada request, igual criterio que indexpro_oportunidades,
+    // pero separado por segmento según el dominio del correo (ver comentario
+    // arriba). ON CONFLICT DO NOTHING no pisa una fila ya existente (no
+    // pierde el estado/seguimiento de un lead ya trabajado) y nunca
+    // reinserta uno borrado a mano (indexscale_excluidos). Con el tiempo la
+    // lista puede crecer un poco más allá del tope si van entrando
+    // candidatos nuevos más recientes que los ya guardados -- no se "podan"
+    // los viejos automáticamente, mismo comportamiento que Indexpro (solo se
+    // sacan a mano, con 🗑️). El comparador ('= ANY' / '<> ALL') es fijo por
+    // el propio código (nunca viene del request), no hay riesgo de inyección.
+    const comparador = segmento === 'sin_sitio' ? '= ANY' : '<> ALL';
     await sql.query(
-      `INSERT INTO indexscale_oportunidades (bsale_cliente_id, empresa, cliente_nombre, rut, telefono, email, ciudad, puntos)
-       SELECT bp.id, bp.empresa, bp.nombre, bp.rut, bp.telefono, bp.email, bp.ciudad, bp.puntos
+      `INSERT INTO indexscale_oportunidades (bsale_cliente_id, segmento, empresa, cliente_nombre, rut, telefono, email, ciudad, puntos)
+       SELECT bp.id, $2, bp.empresa, bp.nombre, bp.rut, bp.telefono, bp.email, bp.ciudad, bp.puntos
        FROM bsale_clientes_puntos bp
        WHERE bp.empresa IS NOT NULL AND bp.empresa <> ''
          AND bp.email IS NOT NULL AND bp.email <> ''
+         AND lower(split_part(bp.email, '@', 2)) ${comparador} ($3::text[])
          AND bp.id NOT IN (SELECT bsale_cliente_id FROM indexscale_excluidos)
        ORDER BY bp.puntos_actualizado DESC NULLS LAST, bp.empresa ASC
        LIMIT $1
        ON CONFLICT (bsale_cliente_id) DO NOTHING;`,
-      [INDEXSCALE_TOPE_LEADS]
+      [INDEXSCALE_TOPES[segmento], segmento, DOMINIOS_EMAIL_PERSONAL]
     );
 
-    const { rows } = await sql`SELECT * FROM indexscale_oportunidades ORDER BY empresa ASC;`;
+    const { rows } = await sql`SELECT * FROM indexscale_oportunidades WHERE segmento = ${segmento} ORDER BY empresa ASC;`;
     const oportunidades = rows.map(r => ({
       id: r.id,
       bsaleClienteId: r.bsale_cliente_id,
@@ -4566,18 +4580,36 @@ async function manejarIndexscaleEstado(req, res, sesion) {
 // IndexStore (compra repuestos/servicio técnico) -- no es un frío total,
 // se presenta el otro servicio del mismo grupo. Sin precios: igual que el
 // correo de Indexpro, el diagnóstico gratuito es el siguiente paso, no
-// algo que se cotiza en el primer correo.
-function construirCorreoPresentacionIndexscale(nombreEmpresa) {
+// algo que se cotiza en el primer correo. El pitch varía según segmento:
+// a 'sin_sitio' se le ofrece crear una tienda desde cero, a 'potenciar' se
+// le ofrece optimizar la que se asume que ya tiene.
+function construirCorreoPresentacionIndexscale(nombreEmpresa, segmento) {
   const empresa = nombreEmpresa || 'estimado/a';
-  const texto = `Hola ${empresa},
+  const esPotenciar = segmento === 'potenciar';
+
+  const texto = esPotenciar ? `Hola ${empresa},
 
 Somos IndexScale, el equipo de e-commerce y desarrollo web del mismo grupo de IndexStore.
 
-Te escribimos porque ya te conocemos como cliente, y quisimos contarte que además ayudamos a empresas como la tuya a mejorar su canal de venta digital: diseño y evolución de tiendas Shopify/WooCommerce, sitios corporativos, optimización de conversión (UX/CRO), Google Ads, y automatización conectando tu operación (ERP, WhatsApp, inventario).
+Te escribimos porque ya te conocemos como cliente, y notamos que probablemente ya cuentas con tu propio sitio o tienda online. Ayudamos a empresas como la tuya a sacarle más provecho a lo que ya tienen: optimización de conversión (UX/CRO), Google Ads, mejoras a la tienda Shopify/WooCommerce existente, y automatización conectando tu operación (ERP, WhatsApp, inventario).
 
 Nuestro propio caso: llevamos indexstore.cl de una tienda online a una operación que factura sobre $40MM al mes, con más de 12 años de experiencia operacional propia -- no vendemos algo que no hayamos probado primero con nuestro propio negocio.
 
 Si quieres, podemos revisar gratis y sin compromiso tu e-commerce actual y decirte cuál sería el siguiente paso más rentable.
+
+Más detalles acá: https://indexscale.cl/
+
+Quedamos atentos -- basta con responder este correo.
+
+Equipo IndexScale` : `Hola ${empresa},
+
+Somos IndexScale, el equipo de e-commerce y desarrollo web del mismo grupo de IndexStore.
+
+Te escribimos porque ya te conocemos como cliente, y quisimos contarte que además ayudamos a empresas como la tuya a dar el salto a la venta online: creación de tiendas Shopify/WooCommerce, sitios corporativos, optimización de conversión (UX/CRO), Google Ads, y automatización conectando tu operación (ERP, WhatsApp, inventario).
+
+Nuestro propio caso: llevamos indexstore.cl de una tienda online a una operación que factura sobre $40MM al mes, con más de 12 años de experiencia operacional propia -- no vendemos algo que no hayamos probado primero con nuestro propio negocio.
+
+Si quieres, podemos mostrarte gratis y sin compromiso cómo se vería tu negocio con una tienda online propia.
 
 Más detalles acá: https://indexscale.cl/
 
@@ -4591,7 +4623,7 @@ Equipo IndexScale`;
     .join('');
 
   return {
-    asunto: `${empresa}: ¿cómo está rindiendo tu e-commerce hoy?`,
+    asunto: esPotenciar ? `${empresa}: ¿cómo está rindiendo tu e-commerce hoy?` : `${empresa}: ¿le has pensado a tener tu propia tienda online?`,
     texto,
     html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1F2A24;">${html}</div>`,
   };
@@ -4604,12 +4636,12 @@ async function manejarIndexscaleEnviarPresentacion(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaIndexscale(sql);
-    const { rows } = await sql`SELECT email, empresa, cliente_nombre, estado FROM indexscale_oportunidades WHERE id = ${id};`;
+    const { rows } = await sql`SELECT email, empresa, cliente_nombre, estado, segmento FROM indexscale_oportunidades WHERE id = ${id};`;
     const fila = rows[0];
     if (!fila) return res.status(404).json({ error: 'No encontrado' });
     if (!fila.email) return res.status(400).json({ error: 'Este cliente no tiene correo registrado' });
 
-    const correo = construirCorreoPresentacionIndexscale(fila.empresa || fila.cliente_nombre);
+    const correo = construirCorreoPresentacionIndexscale(fila.empresa || fila.cliente_nombre, fila.segmento);
     const resultado = await enviarCorreoIndexscale({ para: fila.email, ...correo });
     if (!resultado.enviado) return res.status(200).json({ error: 'No se pudo enviar el correo', detail: resultado.motivo });
 
