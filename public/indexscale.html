@@ -496,22 +496,25 @@ async function verificarSitiosIndexscale(){
     let completo = false;
     let procesados = 0;
     let movidos = 0;
+    let errores = 0;
     let totalInicial = null;
     while(!completo){
       const res = await fetch('/api/negocio?recurso=indexscale-verificar-sitios', { method: 'POST' }).then(r=>r.json());
       if(res.error){
         status.className = 'err';
-        status.textContent = 'Error: ' + res.error;
+        status.textContent = 'Error: ' + res.error + (res.detail ? ' — ' + res.detail : '');
         break;
       }
       completo = !!res.completo;
       procesados += res.procesadosEnEstaLlamada || 0;
       movidos += res.movidosEnEstaLlamada || 0;
+      errores += res.erroresEnEstaLlamada || 0;
       if(totalInicial === null) totalInicial = res.pendientesAntes || 0;
       const pct = totalInicial ? Math.round((totalInicial - res.pendientesDespues) / totalInicial * 100) : 100;
+      const sufijoErrores = errores ? `, ${fmtNum(errores)} no se pudieron verificar` : '';
       status.textContent = completo
-        ? `Verificación completa — ${fmtNum(procesados)} sitios revisados, ${fmtNum(movidos)} movidos a "Sin sitio propio" por no tener contenido real.`
-        : `Verificando... ${pct}% (${fmtNum(procesados)} revisados, ${fmtNum(movidos)} movidos hasta ahora). Continuando automáticamente, no cierres la página...`;
+        ? `Verificación completa — ${fmtNum(procesados)} sitios revisados, ${fmtNum(movidos)} movidos a "Sin sitio propio" por no tener contenido real${sufijoErrores}.`
+        : `Verificando... ${pct}% (${fmtNum(procesados)} revisados, ${fmtNum(movidos)} movidos hasta ahora${sufijoErrores}). Continuando automáticamente, no cierres la página...`;
     }
     await Promise.all([cargarIndexscale('potenciar'), cargarIndexscale('sin_sitio')]);
   }catch(err){

@@ -4734,6 +4734,7 @@ async function manejarIndexscaleVerificarSitios(req, res, sesion) {
 
     let procesados = 0;
     let movidos = 0;
+    let errores = 0;
 
     while (presupuestoRestante() > 5000) {
       const { rows: candidatos } = await sql`
@@ -4746,19 +4747,41 @@ async function manejarIndexscaleVerificarSitios(req, res, sesion) {
       for (let i = 0; i < candidatos.length; i += INDEXSCALE_VERIFICAR_CONCURRENCIA) {
         if (presupuestoRestante() <= 3000) break;
         const tanda = candidatos.slice(i, i + INDEXSCALE_VERIFICAR_CONCURRENCIA);
+        // Cada fila se procesa aislada de las demás -- una excepción puntual
+        // (correo nulo/malformado, error de red no contemplado, falla de la
+        // UPDATE) NUNCA debe tumbar el resto de la tanda. Sin este aislamiento,
+        // como la consulta siempre parte por la fila más antigua sin verificar
+        // (ORDER BY id), una sola fila problemática dejaba el botón fallando
+        // por completo una y otra vez sin poder avanzar (bug real reportado).
         const resultados = await Promise.all(tanda.map(async (fila) => {
-          const dominio = (fila.email.split('@')[1] || '').toLowerCase().trim();
-          const tieneContenido = dominio ? await sitioTieneContenidoReal(dominio) : false;
-          return { id: fila.id, tieneContenido };
+          try {
+            const dominio = ((fila.email || '').split('@')[1] || '').toLowerCase().trim();
+            const tieneContenido = dominio ? await sitioTieneContenidoReal(dominio) : false;
+            return { id: fila.id, tieneContenido, error: false };
+          } catch (err) {
+            return { id: fila.id, tieneContenido: null, error: true };
+          }
         }));
-        for (const { id, tieneContenido } of resultados) {
-          await sql`
-            UPDATE indexscale_oportunidades
-            SET sitio_verificado_en = now(), segmento = ${tieneContenido ? 'potenciar' : 'sin_sitio'}, actualizado_en = now()
-            WHERE id = ${id};
-          `;
-          procesados++;
-          if (!tieneContenido) movidos++;
+        for (const { id, tieneContenido, error } of resultados) {
+          try {
+            if (error) {
+              // No se pudo determinar -- se marca como verificado para no
+              // reintentar esta misma fila en un loop infinito, pero SIN
+              // tocar el segmento (no hay certeza de si tiene sitio o no).
+              await sql`UPDATE indexscale_oportunidades SET sitio_verificado_en = now(), actualizado_en = now() WHERE id = ${id};`;
+              errores++;
+            } else {
+              await sql`
+                UPDATE indexscale_oportunidades
+                SET sitio_verificado_en = now(), segmento = ${tieneContenido ? 'potenciar' : 'sin_sitio'}, actualizado_en = now()
+                WHERE id = ${id};
+              `;
+              if (!tieneContenido) movidos++;
+            }
+            procesados++;
+          } catch (err) {
+            errores++; // ni siquiera se pudo marcar como verificada -- se reintentará después, pero no tumba la tanda
+          }
         }
       }
     }
@@ -4772,6 +4795,7 @@ async function manejarIndexscaleVerificarSitios(req, res, sesion) {
       completo: pendientesDespues === 0,
       procesadosEnEstaLlamada: procesados,
       movidosEnEstaLlamada: movidos,
+      erroresEnEstaLlamada: errores,
       pendientesAntes,
       pendientesDespues,
     });
