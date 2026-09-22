@@ -1482,6 +1482,44 @@ async function reanalizarDesactualizadas(){
   finally{ btn.disabled = false; btn.textContent = '🔄 Reanalizar desactualizadas'; }
 }
 
+// Migración puntual: reanaliza SOLO las conversaciones que ya quedaron
+// clasificadas como "Otro" o "Producto incompatible" -- las dos categorías
+// donde antes caía un "no trabajamos esa marca/producto", antes de que
+// existiera el motivo "Producto/marca que no vendemos" (ver
+// WHATSAPP_MOTIVOS_PERDIDA_LABEL en api/negocio.js). Se pagina por id
+// (desdeId), no por offset, porque el conjunto se va achicando a medida
+// que reclasifica conversaciones -- ver el comentario en el backend.
+async function reanalizarProductoNoDisponible(){
+  if (!confirm('¿Reanalizar las conversaciones marcadas como "Otro" o "Producto incompatible", por si ahora corresponden al nuevo motivo "Producto/marca que no vendemos"? Puede tardar varios minutos, y cada reanálisis tiene un costo pequeño en la API de Claude.')) return;
+  const btn = $('btnReanalizarProductoNoDisponible');
+  btn.disabled = true;
+  let totalReanalizadas = 0, totalErrores = 0, totalCambiadas = 0, ultimoRestantes = 0, desdeId = 0;
+  try{
+    let completo = false;
+    while (!completo) {
+      const totalAprox = totalReanalizadas + (ultimoRestantes || 0);
+      const pct = totalAprox ? Math.round(totalReanalizadas / totalAprox * 100) : 0;
+      btn.textContent = totalReanalizadas > 0 ? `🔎 Reanalizando… ${pct}% (${totalReanalizadas} revisadas)` : '🔎 Reanalizando…';
+      const res = await fetch('/api/negocio?recurso=whatsapp-reanalizar-producto-no-disponible', {
+        method: 'POST', headers: { 'Content-Type':'application/json' },
+        body: JSON.stringify({ desdeId })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { alert(data.error || 'No se pudo reanalizar las conversaciones.'); break; }
+      totalReanalizadas += data.reanalizadas; totalErrores += data.errores; totalCambiadas += data.cambiadas || 0;
+      ultimoRestantes = data.restantes || 0;
+      desdeId = data.ultimoId || desdeId;
+      completo = data.completo;
+      if (data.reanalizadas === 0 && !completo) break; // nada avanzó, evita loop infinito
+    }
+    alert(`Reanálisis terminado: ${totalReanalizadas} conversaciones revisadas, ${totalCambiadas} reclasificadas${totalErrores ? `, ${totalErrores} con error` : ''}.`);
+    vistasCargadas.clear();
+    const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
+    cambiarVistaModulo(vistaActiva);
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ btn.disabled = false; btn.textContent = '🔎 Reanalizar "no disponible"'; }
+}
+
 // Solo actualiza el link de Shopify de conversaciones que YA tienen
 // Análisis IA (sin volver a llamar a Claude, mucho más barato) -- sirve
 // para corregir en lote matches viejos guardados con una versión anterior

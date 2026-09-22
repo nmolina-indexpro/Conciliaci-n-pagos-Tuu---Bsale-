@@ -146,6 +146,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-analizar') return manejarWhatsappAnalizar(req, res, sesion);
   if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
   if (recurso === 'whatsapp-reanalizar-desactualizadas') return manejarWhatsappReanalizarDesactualizadas(req, res, sesion);
+  if (recurso === 'whatsapp-reanalizar-producto-no-disponible') return manejarWhatsappReanalizarProductoNoDisponible(req, res, sesion);
   if (recurso === 'whatsapp-backfill-fuente') return manejarWhatsappBackfillFuente(req, res, sesion);
   if (recurso === 'whatsapp-backfill-journey') return manejarWhatsappBackfillJourney(req, res, sesion);
   if (recurso === 'whatsapp-actualizar-shopify') return manejarWhatsappActualizarShopify(req, res, sesion);
@@ -8219,6 +8220,74 @@ async function manejarWhatsappRecategorizar(req, res, sesion) {
     return res.status(200).json({ reanalizadas, errores, offset: nuevoOffset, total, completo: nuevoOffset >= total });
   } catch (err) {
     return res.status(500).json({ error: 'Error recategorizando conversaciones', detail: String(err) });
+  }
+}
+
+// Migración puntual tras agregar el motivo de pérdida "producto_no_disponible"
+// (ver WHATSAPP_MOTIVOS_PERDIDA_LABEL): reanaliza SOLO las conversaciones que
+// ya quedaron clasificadas como "otro" o "producto_incompatible" -- las dos
+// categorías donde antes caía un "no trabajamos esa marca/producto", porque
+// esa opción no existía todavía. No reanaliza todo el historial (eso es
+// whatsapp-recategorizar, mucho más caro) -- solo este subconjunto acotado,
+// que además se va achicando solo a medida que las reclasifica.
+//
+// Se pagina por "id > desdeId" (cursor) y NO por offset numérico: como cada
+// conversación reanalizada que SÍ cambia de motivo deja de calzar con el
+// WHERE de abajo, un offset numérico saltaría candidatas sin querer (el
+// conjunto se va achicando mientras se recorre). El cursor por id evita eso
+// -- cada fila se visita como máximo una vez, cambie o no de motivo.
+async function manejarWhatsappReanalizarProductoNoDisponible(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede reanalizar en lote' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const desdeId = Math.max(0, Number(req.body?.desdeId) || 0);
+
+    const { rows: pendientesAntesRows } = await sql`
+      SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones c
+      JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+      WHERE c.motivo_perdida IN ('otro', 'producto_incompatible') AND c.id > ${desdeId};
+    `;
+    const pendientesAntes = pendientesAntesRows[0]?.n || 0;
+
+    const { rows: candidatas } = await sql`
+      SELECT c.id FROM whatsapp_conversaciones c
+      JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+      WHERE c.motivo_perdida IN ('otro', 'producto_incompatible') AND c.id > ${desdeId}
+      ORDER BY c.id ASC LIMIT 5;
+    `;
+
+    let reanalizadas = 0, errores = 0, cambiadas = 0, ultimoId = desdeId;
+    for (const fila of candidatas) {
+      ultimoId = fila.id;
+      try {
+        const { rows: antesRows } = await sql`SELECT motivo_perdida FROM whatsapp_conversaciones WHERE id = ${fila.id};`;
+        const motivoAntes = antesRows[0]?.motivo_perdida;
+        const resultado = await ejecutarAnalisisIA(sql, fila.id, 'Sistema (reanálisis producto no disponible)');
+        if (resultado.ok) {
+          reanalizadas++;
+          const { rows: despuesRows } = await sql`SELECT motivo_perdida FROM whatsapp_conversaciones WHERE id = ${fila.id};`;
+          if (despuesRows[0]?.motivo_perdida !== motivoAntes) cambiadas++;
+        } else {
+          errores++;
+        }
+      } catch (err) {
+        errores++;
+        console.error('[whatsapp-reanalizar-producto-no-disponible] error en conversación', fila.id, err);
+      }
+    }
+
+    const { rows: restantesRows } = await sql`
+      SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones c
+      JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+      WHERE c.motivo_perdida IN ('otro', 'producto_incompatible') AND c.id > ${ultimoId};
+    `;
+    const restantes = restantesRows[0]?.n || 0;
+
+    return res.status(200).json({ reanalizadas, errores, cambiadas, pendientesAntes, restantes, ultimoId, completo: restantes === 0 });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error reanalizando conversaciones', detail: String(err) });
   }
 }
 
