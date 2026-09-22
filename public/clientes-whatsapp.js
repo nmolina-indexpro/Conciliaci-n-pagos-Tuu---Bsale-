@@ -31,6 +31,7 @@ const CATEGORIA_LABEL = {
 const MOTIVO_PERDIDA_LABEL = {
   cliente_no_responde: 'Cliente dejó de responder', sin_stock: 'Sin stock', precio: 'Precio',
   respuesta_lenta: 'Respuesta demasiado lenta', producto_incompatible: 'Producto incompatible',
+  producto_no_disponible: 'Producto/marca que no vendemos',
   sin_seguimiento: 'No se realizó seguimiento', compro_en_otro_lugar: 'Compró en la competencia', otro: 'Otro',
 };
 // Recomendación fija por motivo (pedido del usuario) -- pensada para el
@@ -46,6 +47,7 @@ const MOTIVO_PERDIDA_RECOMENDACION = {
   precio: 'Revisar si hay margen para un descuento puntual en los productos que más se repiten acá, o reforzar el argumento de valor (garantía, original vs. alternativo) frente a la competencia.',
   respuesta_lenta: 'Revisar carga de vendedores en los horarios con más consultas y reforzar dotación ahí -- ver "Tiempo prom. 1ª respuesta" del dashboard para confirmar si coincide con un horario puntual.',
   producto_incompatible: 'Reforzar el uso de "Modelos de Notebook" (compatibilidad) ANTES de cotizar, para no ofrecer un repuesto que no calza con el equipo del cliente.',
+  producto_no_disponible: 'Revisar estas conversaciones para detectar marcas/productos que piden seguido y hoy no se venden, y evaluar si conviene sumarlos al catálogo -- mientras tanto, seguir derivando a Aliexpress/Mercado Libre para no dejar al cliente sin alternativa.',
   sin_seguimiento: 'Activar un recordatorio automático para cotizaciones sin respuesta después de X días, y asignar responsable explícito a cada conversación para que no quede sin dueño.',
   compro_en_otro_lugar: 'Revisar precio y tiempo de respuesta de estas conversaciones puntuales para identificar si fue velocidad o precio lo que decidió la venta de la competencia.',
   otro: 'Es la categoría más grande -- vale la pena revisar estas conversaciones a mano, probablemente esconden un motivo recurrente que todavía no está en la lista.',
