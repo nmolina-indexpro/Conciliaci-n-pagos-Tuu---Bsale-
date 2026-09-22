@@ -4698,8 +4698,9 @@ Más detalles acá: https://indexscale.cl/
 
 Quedo atento -- basta con responder este correo.
 
-Nicolás
-IndexScale` : `Hola ${empresa},
+Nicolás Molina
+IndexScale · indexscale.cl
+La Concepción 81, Providencia, Santiago` : `Hola ${empresa},
 
 Ya te conocemos como cliente, y quisimos contarte que también ayudamos a empresas como la tuya a tener su propio sitio o tienda online: que se vea profesional, que te encuentren fácil en Google, y que te lleguen consultas y ventas listas para cerrar.
 
@@ -4711,8 +4712,9 @@ Más detalles acá: https://indexscale.cl/
 
 Quedo atento -- basta con responder este correo.
 
-Nicolás
-IndexScale`;
+Nicolás Molina
+IndexScale · indexscale.cl
+La Concepción 81, Providencia, Santiago`;
 
   const html = texto
     .split('\n\n')
@@ -4822,8 +4824,9 @@ Cuéntame qué prefieres:
 
 Quedo atento.
 
-Nicolás
-IndexScale`;
+Nicolás Molina
+IndexScale · indexscale.cl
+La Concepción 81, Providencia, Santiago`;
 
   const html = texto
     .split('\n\n')
