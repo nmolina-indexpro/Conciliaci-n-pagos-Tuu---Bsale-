@@ -3797,6 +3797,7 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
 // tiene el array `cotizaciones` ya cargado en el navegador de nadie.
 const COTIZACIONES_SEGUIMIENTO_DESTINATARIOS = ['nmolina@indexstore.cl'];
 const COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS = 7;
+const COTIZACIONES_SEGUIMIENTO_TOPE_DIAS = 35; // más vieja que esto ya no entra al resumen diario -- prácticamente perdida
 const COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS = 3;
 const COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO = 300000;
 async function manejarCotizacionesSeguimientoDiario(req, res) {
@@ -3810,7 +3811,7 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
     await asegurarTablaCotizaciones(sql);
 
     const { rows } = await sql`
-      SELECT id, cliente_nombre, monto, fecha, actualizado_en, vendedor_nombre
+      SELECT id, cliente_nombre, monto, fecha, actualizado_en, estado, vendedor_nombre
       FROM bsale_cotizaciones
       WHERE estado NOT IN ('facturada', 'perdida');
     `;
@@ -3824,8 +3825,21 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
     // siempre a las cotizaciones de 3-6 días, que nunca llegarían a
     // "pendientes"). Ambas listas se derivan de esta misma base, cada una
     // con su propio corte.
+    //
+    // Bug real detectado (muchas cotizaciones repitiendo el mismo "días sin
+    // contacto"): actualizado_en tiene DEFAULT now() en la base de datos,
+    // así que NUNCA es null -- ni siquiera para una cotización recién
+    // sincronizada que nadie ha tocado -- y el fallback a "fecha" de más
+    // abajo nunca se activaba. Un lote grande sincronizado el mismo día
+    // (con estado todavía en 'sin_contactar', el default) quedaba pegado
+    // para siempre en la misma fecha de sincronización, no la fecha real
+    // de la cotización. Ahora "actualizado_en" solo se usa si la
+    // cotización realmente cambió de estado alguna vez (manejarCotizacionEstado
+    // es lo único que lo actualiza después del insert inicial); si sigue en
+    // 'sin_contactar', se usa "fecha" (la fecha de emisión real en Bsale).
     const abiertasConDias = rows.map(r => {
-      const base = r.actualizado_en ? new Date(r.actualizado_en).toISOString().slice(0, 10) : (r.fecha ? new Date(r.fecha).toISOString().slice(0, 10) : null);
+      const actualizadoDeVerdad = r.estado !== 'sin_contactar' && r.actualizado_en;
+      const base = actualizadoDeVerdad ? new Date(r.actualizado_en).toISOString().slice(0, 10) : (r.fecha ? new Date(r.fecha).toISOString().slice(0, 10) : null);
       const dias = base ? diasEntre(base, hoy) : null;
       return {
         cliente: r.cliente_nombre || 'Sin nombre', monto: Number(r.monto) || 0,
@@ -3833,8 +3847,12 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
       };
     }).filter(c => c.dias !== null);
 
+    // Tope de 35 días (pedido del usuario): una cotización más vieja que
+    // eso ya está prácticamente perdida -- seguir recordándola a diario en
+    // este resumen no aporta, y además esas son justo las que más se
+    // repetían con el mismo número por el bug de arriba.
     const pendientes = abiertasConDias
-      .filter(c => c.dias >= COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS)
+      .filter(c => c.dias >= COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS && c.dias <= COTIZACIONES_SEGUIMIENTO_TOPE_DIAS)
       .sort((a, b) => b.dias - a.dias);
 
     const envios = [];
@@ -3850,7 +3868,10 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
       }
       const bloquesVendedor = [...porVendedor.entries()]
         .sort((a, b) => b[1].length - a[1].length)
-        .map(([vendedor, items]) => `<h3>${vendedor} (${items.length})</h3><ul>${items.map(filaCot).join('')}</ul>`)
+        .map(([vendedor, items]) => {
+          const totalVendedor = items.reduce((suma, c) => suma + c.monto, 0);
+          return `<h3>${vendedor} (${items.length}) — Total: $${Math.round(totalVendedor).toLocaleString('es-CL')}</h3><ul>${items.map(filaCot).join('')}</ul>`;
+        })
         .join('');
       const html = `
         <h2>📋 Seguimiento de cotizaciones</h2>

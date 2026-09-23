@@ -1442,7 +1442,12 @@ function filtrarSoloRequierenSeguimiento(){
 // abiertas, una vez facturada o perdida ya no hay nada que "seguir".
 function diasSinContactoCot(c){
   if(c.estado === 'facturada' || c.estado === 'perdida') return null;
-  const base = c.actualizadoEn ? String(c.actualizadoEn).slice(0,10) : c.fecha;
+  // actualizadoEn tiene DEFAULT now() en la base -- nunca es null, ni siquiera
+  // para una cotización recién sincronizada que nadie ha tocado. Por eso solo
+  // se usa como fecha real de contacto si el estado ya salió de "sin_contactar";
+  // si no, se cae a la fecha de emisión real de la cotización.
+  const actualizadoDeVerdad = c.estado !== 'sin_contactar' && c.actualizadoEn;
+  const base = actualizadoDeVerdad ? String(c.actualizadoEn).slice(0,10) : c.fecha;
   if(!base) return null;
   return diasEntreCot(base, hoyStrCot);
 }
