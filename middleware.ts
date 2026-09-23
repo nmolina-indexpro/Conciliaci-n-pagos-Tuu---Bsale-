@@ -19,6 +19,8 @@ const RUTAS_PUBLICAS = new Set([
   '/login.html',
   '/api/auth-login',
   '/api/auth-bootstrap',
+  '/recuperar-password.html',
+  '/reset-password.html',
 ]);
 
 // El webhook de WhatsApp lo llama Meta directo, sin la cookie de sesión de
@@ -64,6 +66,20 @@ function esCotizacionesSeguimientoDiarioPublico(pathname, searchParams) {
 // algo que dependa de la sesión.
 function esIndexscalePixelPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'indexscale-pixel';
+}
+
+// Recuperación de contraseña (ver recuperar-password.html /
+// reset-password.html y manejarAuthRecuperarPassword /
+// manejarAuthResetearPassword en api/negocio.js) -- por definición corre
+// SIN sesión, ya que quien la usa es justamente alguien que no puede
+// entrar. Mismo patrón de "distinguir por ?recurso=" que los de arriba. La
+// seguridad real la hace el token aleatorio de un solo uso que llega solo
+// al correo registrado, no algo ligado a la cookie de sesión.
+function esAuthRecuperarPasswordPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'auth-recuperar-password';
+}
+function esAuthResetearPasswordPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'auth-resetear-password';
 }
 
 // Páginas que un usuario con un perfil restringido puede ver SIEMPRE, sin
@@ -116,7 +132,9 @@ export default async function middleware(req) {
     esAlertasSitioWebNotificarPublico(pathname, url.searchParams) ||
     esServicioTecnicoResumenSemanalPublico(pathname, url.searchParams) ||
     esCotizacionesSeguimientoDiarioPublico(pathname, url.searchParams) ||
-    esIndexscalePixelPublico(pathname, url.searchParams)
+    esIndexscalePixelPublico(pathname, url.searchParams) ||
+    esAuthRecuperarPasswordPublico(pathname, url.searchParams) ||
+    esAuthResetearPasswordPublico(pathname, url.searchParams)
   ) return; // deja pasar sin exigir sesión
 
   const cookieHeader = req.headers.get('cookie') || '';

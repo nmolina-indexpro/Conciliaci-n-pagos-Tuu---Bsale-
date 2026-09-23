@@ -9,13 +9,15 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale } from '../lib/db.js';
-import { usuarioDesdeRequest } from '../lib/auth-node.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios } from '../lib/db.js';
+import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
-import { sign as firmarRsaSha256, randomBytes } from 'node:crypto';
+import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
+const RESET_PASSWORD_EXPIRA_MIN = 30; // vigencia del link de recuperación
+const RESET_PASSWORD_REENVIO_MIN = 2; // no generar/mandar un link nuevo si ya se pidió uno hace menos de esto
 const ESTADOS_VALIDOS = ['pendiente', 'en progreso', 'resuelto'];
 const RESPONSABLE_REPORTES = 'Nicolás Molina'; // fijo por ahora, ver reportar-error.html
 const URL_REPORTES = 'https://conciliaci-n-pagos-tuu-bsale.vercel.app/reportar-error.html';
@@ -76,6 +78,14 @@ export default async function handler(req, res) {
   // por fila (?t=), no algo ligado a sesión. Ver middleware.ts
   // (esIndexscalePixelPublico).
   if (req.query.recurso === 'indexscale-pixel') return manejarIndexscalePixel(req, res);
+  // Recuperación de contraseña (ver recuperar-password.html /
+  // reset-password.html): por definición corre SIN sesión -- quien la usa
+  // es justamente alguien que no puede entrar. La seguridad real la hace el
+  // token aleatorio de un solo uso que se manda al correo registrado, no
+  // algo ligado a sesión. Ver también middleware.ts
+  // (esAuthRecuperarPasswordPublico / esAuthResetearPasswordPublico).
+  if (req.query.recurso === 'auth-recuperar-password') return manejarAuthRecuperarPassword(req, res);
+  if (req.query.recurso === 'auth-resetear-password') return manejarAuthResetearPassword(req, res);
 
   const sesion = usuarioDesdeRequest(req);
   if (!sesion) return res.status(401).json({ error: 'No hay sesión activa' });
@@ -6993,6 +7003,89 @@ async function manejarAlertasStockShopify(req, res, sesion) {
     } catch (err2) {
       return res.status(200).json({ error: 'Error consultando estado de productos en Shopify', detail: String(err2) });
     }
+  }
+}
+
+// Paso 1 de "olvidé mi contraseña" (ver public/recuperar-password.html):
+// recibe un email, y si corresponde a una cuenta activa le manda un correo
+// con un link de un solo uso hacia reset-password.html?token=... Público a
+// nivel de middleware (ver esAuthRecuperarPasswordPublico en
+// middleware.ts) -- por diseño, quien llama a esto todavía no puede entrar.
+//
+// Respuesta SIEMPRE genérica (mismo criterio que api/auth-login.js: no
+// revelar si un email está o no registrado) -- así nadie puede usar este
+// endpoint para enumerar cuentas válidas probando emails al voleo.
+async function manejarAuthRecuperarPassword(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ error: 'Falta el email' });
+  const emailNorm = String(email).toLowerCase().trim();
+  const respuestaGenerica = { ok: true, mensaje: 'Si el correo está registrado, te enviamos un enlace para recuperar tu contraseña.' };
+  try {
+    const sql = await getSql();
+    await asegurarTablaUsuarios(sql);
+    const { rows } = await sql`SELECT id, nombre, activo, reset_token_creado_en FROM usuarios WHERE email = ${emailNorm} LIMIT 1;`;
+    const usuario = rows[0];
+    if (!usuario || !usuario.activo) return res.status(200).json(respuestaGenerica);
+
+    // Evita ráfagas de reenvío (spam de correos, o regenerar el token sin
+    // parar) -- si ya se pidió uno hace menos de RESET_PASSWORD_REENVIO_MIN,
+    // no se genera ni manda uno nuevo. La respuesta sigue siendo la misma
+    // genérica, para no delatar que hubo throttling.
+    const pidioReciente = usuario.reset_token_creado_en &&
+      (Date.now() - new Date(usuario.reset_token_creado_en).getTime()) < RESET_PASSWORD_REENVIO_MIN * 60 * 1000;
+    if (pidioReciente) return res.status(200).json(respuestaGenerica);
+
+    const tokenCrudo = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(tokenCrudo).digest('hex');
+    const expira = new Date(Date.now() + RESET_PASSWORD_EXPIRA_MIN * 60 * 1000);
+    await sql`
+      UPDATE usuarios SET reset_token_hash = ${tokenHash}, reset_token_expira = ${expira}, reset_token_creado_en = now()
+      WHERE id = ${usuario.id};
+    `;
+
+    const url = `${URL_BASE_APP}/reset-password.html?token=${tokenCrudo}`;
+    const html = `
+      <h2>Recupera tu contraseña</h2>
+      <p>Hola${usuario.nombre ? ' ' + usuario.nombre : ''},</p>
+      <p>Alguien (esperamos que hayas sido tú) pidió restablecer la contraseña de tu cuenta en el ERP de IndexStore.</p>
+      <p><a href="${url}">Haz clic acá para crear una contraseña nueva</a></p>
+      <p style="color:#666;font-size:13px;">Este link vence en ${RESET_PASSWORD_EXPIRA_MIN} minutos y solo se puede usar una vez. Si no fuiste tú, puedes ignorar este correo -- tu contraseña actual sigue funcionando igual.</p>
+    `;
+    await enviarCorreo({ para: emailNorm, asunto: 'Recupera tu contraseña — IndexStore', html });
+
+    return res.status(200).json(respuestaGenerica);
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al solicitar la recuperación de contraseña', detail: String(err) });
+  }
+}
+
+// Paso 2 de "olvidé mi contraseña" (ver public/reset-password.html): recibe
+// el token del link del correo + la contraseña nueva, y si el token es
+// válido y no venció, la aplica. El token se invalida apenas se usa (de un
+// solo uso), sirva o no vuelva a intentarse con el mismo link.
+async function manejarAuthResetearPassword(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { token, password } = req.body || {};
+  if (!token || !password) return res.status(400).json({ error: 'Falta el token o la contraseña nueva' });
+  if (String(password).length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaUsuarios(sql);
+    const tokenHash = createHash('sha256').update(String(token)).digest('hex');
+    const { rows } = await sql`SELECT id, reset_token_expira FROM usuarios WHERE reset_token_hash = ${tokenHash} LIMIT 1;`;
+    const usuario = rows[0];
+    if (!usuario || !usuario.reset_token_expira || new Date(usuario.reset_token_expira).getTime() < Date.now()) {
+      return res.status(400).json({ error: 'El enlace ya no es válido o venció. Solicita uno nuevo.' });
+    }
+    const nuevoHash = hashPassword(password);
+    await sql`
+      UPDATE usuarios SET password_hash = ${nuevoHash}, reset_token_hash = NULL, reset_token_expira = NULL
+      WHERE id = ${usuario.id};
+    `;
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al restablecer la contraseña', detail: String(err) });
   }
 }
 
