@@ -8426,6 +8426,7 @@ async function manejarWhatsappReanalizarOtra(req, res, sesion) {
       [desdeId, desde, hasta]
     );
     let reanalizadas = 0, errores = 0, cambiadas = 0, ultimoId = desdeId;
+    let primerError = null; // el motivo real del primer fallo de la tanda, para poder diagnosticar
     for (const fila of candidatas) {
       ultimoId = fila.id;
       try {
@@ -8437,9 +8438,13 @@ async function manejarWhatsappReanalizarOtra(req, res, sesion) {
           const { rows: despuesRows } = await sql`SELECT categoria FROM whatsapp_conversaciones WHERE id = ${fila.id};`;
           const categoriaDespues = despuesRows[0]?.categoria || null;
           if (categoriaDespues && categoriaDespues !== 'otra' && categoriaDespues !== categoriaAntes) cambiadas++;
-        } else { errores++; }
+        } else {
+          errores++;
+          if (!primerError) primerError = resultado.motivo || 'el análisis no devolvió resultado';
+        }
       } catch (err) {
         errores++;
+        if (!primerError) primerError = String(err.message || err).slice(0, 400);
         console.error('[whatsapp-reanalizar-otra] error en conversación', fila.id, err);
       }
     }
@@ -8448,7 +8453,7 @@ async function manejarWhatsappReanalizarOtra(req, res, sesion) {
       [ultimoId, desde, hasta]
     );
     const restantes = restantesRows[0]?.n || 0;
-    return res.status(200).json({ reanalizadas, errores, cambiadas, restantes, ultimoId, completo: restantes === 0 });
+    return res.status(200).json({ reanalizadas, errores, cambiadas, primerError, restantes, ultimoId, completo: restantes === 0 });
   } catch (err) {
     return res.status(500).json({ error: 'Error reanalizando conversaciones de categoría Otra', detail: String(err) });
   }

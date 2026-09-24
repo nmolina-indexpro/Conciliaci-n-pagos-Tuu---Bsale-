@@ -1565,6 +1565,7 @@ async function reanalizarOtra(){
   const btn = $('btnReanalizarOtra');
   btn.disabled = true;
   let totalReanalizadas = 0, totalErrores = 0, totalCambiadas = 0, ultimoRestantes = 0, desdeId = 0;
+  let primerError = null, detenidoPorFallo = false;
   try{
     let completo = false;
     while (!completo) {
@@ -1581,9 +1582,18 @@ async function reanalizarOtra(){
       ultimoRestantes = data.restantes || 0;
       desdeId = data.ultimoId || desdeId;
       completo = data.completo;
+      if (data.errores > 0 && data.primerError && !primerError) primerError = data.primerError;
+      // Si nada ha funcionado ni una vez, la causa es sistémica (API key,
+      // cuota, saldo) -- seguir con las demás conversaciones solo repite el
+      // mismo error cientos de veces.
+      if (totalReanalizadas === 0 && totalErrores >= 5) { detenidoPorFallo = true; break; }
       if (data.reanalizadas + data.errores === 0 && !completo) break; // nada avanzó, evita loop infinito
     }
-    alert(`Reanálisis terminado: ${totalReanalizadas} conversaciones reanalizadas, ${totalCambiadas} pasaron a una categoría concreta${totalErrores ? `, ${totalErrores} no se pudieron analizar` : ''}.`);
+    if (detenidoPorFallo) {
+      alert(`Se detuvo: las primeras ${totalErrores} conversaciones fallaron todas, así que no tiene sentido seguir. Motivo del primer error:\n\n${primerError || '(sin detalle)'}`);
+    } else {
+      alert(`Reanálisis terminado: ${totalReanalizadas} conversaciones reanalizadas, ${totalCambiadas} pasaron a una categoría concreta${totalErrores ? `, ${totalErrores} no se pudieron analizar${primerError ? ` (primer error: ${primerError})` : ''}` : ''}.`);
+    }
     vistasCargadas.clear();
     const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
     cambiarVistaModulo(vistaActiva);
