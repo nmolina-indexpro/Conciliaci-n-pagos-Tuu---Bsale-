@@ -157,6 +157,8 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
   if (recurso === 'whatsapp-reanalizar-desactualizadas') return manejarWhatsappReanalizarDesactualizadas(req, res, sesion);
   if (recurso === 'whatsapp-reanalizar-producto-no-disponible') return manejarWhatsappReanalizarProductoNoDisponible(req, res, sesion);
+  if (recurso === 'whatsapp-categoria-otra') return manejarWhatsappCategoriaOtra(req, res, sesion);
+  if (recurso === 'whatsapp-reanalizar-otra') return manejarWhatsappReanalizarOtra(req, res, sesion);
   if (recurso === 'whatsapp-backfill-fuente') return manejarWhatsappBackfillFuente(req, res, sesion);
   if (recurso === 'whatsapp-backfill-journey') return manejarWhatsappBackfillJourney(req, res, sesion);
   if (recurso === 'whatsapp-actualizar-shopify') return manejarWhatsappActualizarShopify(req, res, sesion);
@@ -8337,6 +8339,121 @@ async function manejarWhatsappRecategorizar(req, res, sesion) {
   }
 }
 
+// Rango de fechas de los dos recursos de "categoría Otra" (listado y
+// reanálisis): mismo criterio que la analítica -- ?desde=&hasta= inclusivos,
+// en hora de Chile, "hasta" exclusivo internamente. Sin rango, no filtra.
+async function rangoFechasWhatsappOtra(sql, fuente) {
+  const esFecha = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  if (!esFecha(fuente?.desde) || !esFecha(fuente?.hasta)) return { desde: null, hasta: null };
+  const { rows } = await sql.query(
+    `SELECT ($1::date)::timestamp AT TIME ZONE 'America/Santiago' AS desde_ts,
+            (($2::date + 1))::timestamp AT TIME ZONE 'America/Santiago' AS hasta_ts;`,
+    [fuente.desde, fuente.hasta]
+  );
+  return { desde: rows[0].desde_ts, hasta: rows[0].hasta_ts };
+}
+
+// Listado de las conversaciones que hoy cuentan como "Otra" en el gráfico
+// "Categorías consultadas" de la Analítica. Ojo: son DOS grupos distintos --
+//   - sin_categoria: categoria IS NULL (la conversación nunca pasó por el
+//     análisis IA, o no tiene mensajes que analizar). El gráfico las
+//     mezclaba con las de abajo bajo el mismo nombre "Otra".
+//   - otra: la IA sí la analizó y decidió que no calza en ninguna categoría.
+async function manejarWhatsappCategoriaOtra(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const { desde, hasta } = await rangoFechasWhatsappOtra(sql, req.query);
+    const { rows } = await sql.query(
+      `SELECT c.id, c.iniciada_en, c.categoria, c.producto, c.marca, c.modelo,
+              ct.nombre AS contacto_nombre, ct.telefono AS contacto_telefono,
+              a.resumen, (a.conversacion_id IS NOT NULL) AS analizada,
+              (SELECT COUNT(*)::int FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id) AS mensajes,
+              (SELECT m.contenido_texto FROM whatsapp_mensajes m
+                 WHERE m.conversacion_id = c.id AND m.direccion = 'in' AND m.contenido_texto IS NOT NULL
+                 ORDER BY m.marca_tiempo ASC LIMIT 1) AS primer_mensaje
+       FROM whatsapp_conversaciones c
+       JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+       LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+       WHERE (c.categoria IS NULL OR c.categoria = 'otra')
+         AND ($1::timestamptz IS NULL OR c.iniciada_en >= $1)
+         AND ($2::timestamptz IS NULL OR c.iniciada_en < $2)
+       ORDER BY c.iniciada_en DESC
+       LIMIT 2000;`,
+      [desde, hasta]
+    );
+    const filas = rows.map(r => ({
+      id: r.id, iniciadaEn: r.iniciada_en, grupo: r.categoria === 'otra' ? 'otra' : 'sin_categoria',
+      cliente: r.contacto_nombre, telefono: r.contacto_telefono, analizada: r.analizada, mensajes: r.mensajes,
+      producto: [r.producto, r.marca, r.modelo].filter(Boolean).join(' '),
+      resumen: r.resumen || null,
+      primerMensaje: r.primer_mensaje ? String(r.primer_mensaje).slice(0, 200) : null,
+    }));
+    return res.status(200).json({
+      total: filas.length,
+      sinCategoria: filas.filter(f => f.grupo === 'sin_categoria').length,
+      otra: filas.filter(f => f.grupo === 'otra').length,
+      sinMensajes: filas.filter(f => f.mensajes === 0).length,
+      filas,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error listando conversaciones de categoría Otra', detail: String(err) });
+  }
+}
+
+// Reanálisis IA (con costo real de API) SOLO de las conversaciones que hoy
+// cuentan como "Otra" (categoria NULL u 'otra'), para rescatar las que en
+// realidad sí calzan en una categoría concreta. Mismo diseño que
+// manejarWhatsappReanalizarProductoNoDisponible: cursor por id (el
+// conjunto se achica a medida que reclasifica), admin-only, lote de 5.
+// Las conversaciones sin mensajes no se pueden analizar (ejecutarAnalisisIA
+// devuelve ok:false) -- cuentan como "errores" y el cursor sigue igual.
+async function manejarWhatsappReanalizarOtra(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede reanalizar en lote' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const desdeId = Math.max(0, Number(req.body?.desdeId) || 0);
+    const { desde, hasta } = await rangoFechasWhatsappOtra(sql, req.body);
+    const filtro = `(c.categoria IS NULL OR c.categoria = 'otra')
+      AND ($2::timestamptz IS NULL OR c.iniciada_en >= $2) AND ($3::timestamptz IS NULL OR c.iniciada_en < $3)
+      AND EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id)`;
+
+    const { rows: candidatas } = await sql.query(
+      `SELECT c.id FROM whatsapp_conversaciones c WHERE c.id > $1 AND ${filtro} ORDER BY c.id ASC LIMIT 5;`,
+      [desdeId, desde, hasta]
+    );
+    let reanalizadas = 0, errores = 0, cambiadas = 0, ultimoId = desdeId;
+    for (const fila of candidatas) {
+      ultimoId = fila.id;
+      try {
+        const { rows: antesRows } = await sql`SELECT categoria FROM whatsapp_conversaciones WHERE id = ${fila.id};`;
+        const categoriaAntes = antesRows[0]?.categoria || null;
+        const resultado = await ejecutarAnalisisIA(sql, fila.id, 'Sistema (reanálisis categoría Otra)');
+        if (resultado.ok) {
+          reanalizadas++;
+          const { rows: despuesRows } = await sql`SELECT categoria FROM whatsapp_conversaciones WHERE id = ${fila.id};`;
+          const categoriaDespues = despuesRows[0]?.categoria || null;
+          if (categoriaDespues && categoriaDespues !== 'otra' && categoriaDespues !== categoriaAntes) cambiadas++;
+        } else { errores++; }
+      } catch (err) {
+        errores++;
+        console.error('[whatsapp-reanalizar-otra] error en conversación', fila.id, err);
+      }
+    }
+    const { rows: restantesRows } = await sql.query(
+      `SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones c WHERE c.id > $1 AND ${filtro};`,
+      [ultimoId, desde, hasta]
+    );
+    const restantes = restantesRows[0]?.n || 0;
+    return res.status(200).json({ reanalizadas, errores, cambiadas, restantes, ultimoId, completo: restantes === 0 });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error reanalizando conversaciones de categoría Otra', detail: String(err) });
+  }
+}
+
 // Migración puntual tras agregar el motivo de pérdida "producto_no_disponible"
 // (ver WHATSAPP_MOTIVOS_PERDIDA_LABEL): reanaliza SOLO las conversaciones que
 // ya quedaron clasificadas como "otro" o "producto_incompatible" -- las dos
@@ -8582,8 +8699,12 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
     );
 
     const { rows: categoriaRows } = await sql.query(
-      `SELECT COALESCE(categoria,'otra') AS categoria, COUNT(*)::int AS n
-       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 GROUP BY categoria ORDER BY n DESC;`,
+      // NULL (nunca categorizada por la IA) se separa de 'otra' (la IA la
+      // analizó y no calzó en ninguna) -- antes se mostraban ambas como
+      // "Otra" en dos filas distintas, porque GROUP BY agrupaba por la
+      // columna cruda pero el nombre mostrado las unificaba.
+      `SELECT COALESCE(categoria,'sin_categoria') AS categoria, COUNT(*)::int AS n
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 GROUP BY 1 ORDER BY n DESC;`,
       [desde, hasta]
     );
 

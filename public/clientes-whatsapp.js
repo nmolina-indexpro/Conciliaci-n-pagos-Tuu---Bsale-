@@ -26,7 +26,7 @@ const CATEGORIA_LABEL = {
   pantalla: 'Pantallas notebook', cargador: 'Cargadores', bateria: 'Baterías',
   servicio_tecnico: 'Servicio técnico', repuestos: 'Repuestos', cotizacion: 'Cotización',
   compatibilidad: 'Compatibilidad', garantia: 'Garantía', estado_pedido: 'Estado de pedido',
-  postventa: 'Postventa', otra: 'Otra',
+  postventa: 'Postventa', otra: 'Otra (la IA no la clasificó)', sin_categoria: 'Sin categorizar (sin análisis IA)',
 };
 const MOTIVO_PERDIDA_LABEL = {
   cliente_no_responde: 'Cliente dejó de responder', sin_stock: 'Sin stock', precio: 'Precio',
@@ -1026,6 +1026,11 @@ function initAnalitica(){
       <div class="seccion">
         <h2>Categorías consultadas</h2>
         <div id="chartCategorias" style="margin-top:12px;"></div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost btn-compact" onclick="verListadoOtra()">📋 Ver listado de "Otra" / sin categorizar</button>
+          ${rolActual === 'admin' ? '<button class="btn-ghost btn-compact" id="btnReanalizarOtra" onclick="reanalizarOtra()">🔎 Reanalizar "Otra"</button>' : ''}
+        </div>
+        <div id="listadoOtra" style="margin-top:14px;"></div>
       </div>
       <div class="seccion">
         <h2>Embudo de conversión</h2>
@@ -1518,6 +1523,72 @@ async function reanalizarProductoNoDisponible(){
     cambiarVistaModulo(vistaActiva);
   }catch(err){ alert('Error: ' + err.message); }
   finally{ btn.disabled = false; btn.textContent = '🔎 Reanalizar "no disponible"'; }
+}
+
+// Listado de lo que hoy cuenta como "Otra" en el gráfico de categorías, del
+// mismo período que está elegido arriba en la Analítica.
+async function verListadoOtra(){
+  const cont = $('listadoOtra');
+  cont.innerHTML = '<p class="empty-note">Cargando…</p>';
+  try{
+    const desde = $('analiticaDesde').value, hasta = $('analiticaHasta').value;
+    const res = await fetch(`/api/negocio?recurso=whatsapp-categoria-otra&desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`);
+    const data = await res.json();
+    if (!res.ok || data.error) { cont.innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar el listado.')}</p>`; return; }
+    if (!data.total) { cont.innerHTML = '<p class="empty-note">No hay conversaciones "Otra" en este período.</p>'; return; }
+    const grupoLabel = { otra: 'Otra (IA)', sin_categoria: 'Sin categorizar' };
+    cont.innerHTML = `
+      <div class="sub" style="margin-bottom:8px;">${fmtNum(data.total)} conversaciones: ${fmtNum(data.otra)} que la IA analizó y dejó como "Otra", ${fmtNum(data.sinCategoria)} sin categorizar${data.sinMensajes ? ` (${fmtNum(data.sinMensajes)} sin ningún mensaje, no se pueden analizar)` : ''}.${data.total >= 2000 ? ' Se muestran las 2.000 más recientes.' : ''}</div>
+      <div class="tabla-wrap" style="max-height:480px;overflow:auto;"><table>
+        <thead><tr><th>Fecha</th><th>Grupo</th><th>Cliente</th><th>Msgs</th><th>Producto detectado</th><th>Resumen IA / primer mensaje</th></tr></thead>
+        <tbody>${data.filas.map(f => `
+          <tr>
+            <td>${escapeHtml(fmtFechaHora(f.iniciadaEn))}</td>
+            <td>${grupoLabel[f.grupo]}</td>
+            <td>${escapeHtml(f.cliente || f.telefono || '')}</td>
+            <td>${f.mensajes}</td>
+            <td>${escapeHtml(f.producto || '—')}</td>
+            <td>${escapeHtml(f.resumen || f.primerMensaje || '—')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>`;
+  }catch(err){ cont.innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`; }
+}
+
+// Reanálisis IA (con costo de API) de las conversaciones "Otra" / sin
+// categorizar del período elegido en la Analítica, por si alguna calza en
+// una categoría concreta. Cursor por id, igual que
+// reanalizarProductoNoDisponible.
+async function reanalizarOtra(){
+  const desde = $('analiticaDesde').value, hasta = $('analiticaHasta').value;
+  if (!confirm(`¿Reanalizar con IA las conversaciones "Otra" o sin categorizar entre ${desde} y ${hasta}? Puede tardar varios minutos y cada reanálisis tiene un costo pequeño en la API de IA.`)) return;
+  const btn = $('btnReanalizarOtra');
+  btn.disabled = true;
+  let totalReanalizadas = 0, totalErrores = 0, totalCambiadas = 0, ultimoRestantes = 0, desdeId = 0;
+  try{
+    let completo = false;
+    while (!completo) {
+      const totalAprox = totalReanalizadas + totalErrores + (ultimoRestantes || 0);
+      const pct = totalAprox ? Math.round((totalReanalizadas + totalErrores) / totalAprox * 100) : 0;
+      btn.textContent = totalReanalizadas + totalErrores > 0 ? `🔎 Reanalizando… ${pct}% (${totalReanalizadas + totalErrores} revisadas)` : '🔎 Reanalizando…';
+      const res = await fetch('/api/negocio?recurso=whatsapp-reanalizar-otra', {
+        method: 'POST', headers: { 'Content-Type':'application/json' },
+        body: JSON.stringify({ desdeId, desde, hasta })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { alert(data.error || 'No se pudo reanalizar las conversaciones.'); break; }
+      totalReanalizadas += data.reanalizadas; totalErrores += data.errores; totalCambiadas += data.cambiadas || 0;
+      ultimoRestantes = data.restantes || 0;
+      desdeId = data.ultimoId || desdeId;
+      completo = data.completo;
+      if (data.reanalizadas + data.errores === 0 && !completo) break; // nada avanzó, evita loop infinito
+    }
+    alert(`Reanálisis terminado: ${totalReanalizadas} conversaciones reanalizadas, ${totalCambiadas} pasaron a una categoría concreta${totalErrores ? `, ${totalErrores} no se pudieron analizar` : ''}.`);
+    vistasCargadas.clear();
+    const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
+    cambiarVistaModulo(vistaActiva);
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ btn.disabled = false; btn.textContent = '🔎 Reanalizar "Otra"'; }
 }
 
 // Solo actualiza el link de Shopify de conversaciones que YA tienen
