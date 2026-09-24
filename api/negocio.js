@@ -8417,7 +8417,16 @@ async function manejarWhatsappReanalizarOtra(req, res, sesion) {
     await asegurarTablaWhatsapp(sql);
     const desdeId = Math.max(0, Number(req.body?.desdeId) || 0);
     const { desde, hasta } = await rangoFechasWhatsappOtra(sql, req.body);
-    const filtro = `(c.categoria IS NULL OR c.categoria = 'otra')
+    // modo 'otra' (por defecto): las que hoy cuentan como "Otra" / sin
+    // categoría. modo 'sin_modelo': cualquier conversación con mensajes a
+    // la que todavía no se le detectó modelo (excepto "estado de pedido",
+    // donde el modelo no aplica) -- para rescatar modelos que las
+    // versiones anteriores del análisis no alcanzaron a leer.
+    const modo = req.body?.modo === 'sin_modelo' ? 'sin_modelo' : 'otra';
+    const condModo = modo === 'sin_modelo'
+      ? `(c.modelo IS NULL AND c.categoria IS DISTINCT FROM 'estado_pedido')`
+      : `(c.categoria IS NULL OR c.categoria = 'otra')`;
+    const filtro = `${condModo}
       AND ($2::timestamptz IS NULL OR c.iniciada_en >= $2) AND ($3::timestamptz IS NULL OR c.iniciada_en < $3)
       AND EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id)`;
 
@@ -8430,14 +8439,18 @@ async function manejarWhatsappReanalizarOtra(req, res, sesion) {
     for (const fila of candidatas) {
       ultimoId = fila.id;
       try {
-        const { rows: antesRows } = await sql`SELECT categoria FROM whatsapp_conversaciones WHERE id = ${fila.id};`;
+        const { rows: antesRows } = await sql`SELECT categoria, modelo FROM whatsapp_conversaciones WHERE id = ${fila.id};`;
         const categoriaAntes = antesRows[0]?.categoria || null;
-        const resultado = await ejecutarAnalisisIA(sql, fila.id, 'Sistema (reanálisis categoría Otra)');
+        const modeloAntes = antesRows[0]?.modelo || null;
+        const resultado = await ejecutarAnalisisIA(sql, fila.id, modo === 'sin_modelo' ? 'Sistema (reanálisis sin modelo)' : 'Sistema (reanálisis categoría Otra)');
         if (resultado.ok) {
           reanalizadas++;
-          const { rows: despuesRows } = await sql`SELECT categoria FROM whatsapp_conversaciones WHERE id = ${fila.id};`;
+          const { rows: despuesRows } = await sql`SELECT categoria, modelo FROM whatsapp_conversaciones WHERE id = ${fila.id};`;
           const categoriaDespues = despuesRows[0]?.categoria || null;
-          if (categoriaDespues && categoriaDespues !== 'otra' && categoriaDespues !== categoriaAntes) cambiadas++;
+          const modeloDespues = despuesRows[0]?.modelo || null;
+          if (modo === 'sin_modelo') {
+            if (modeloDespues && !modeloAntes) cambiadas++;
+          } else if (categoriaDespues && categoriaDespues !== 'otra' && categoriaDespues !== categoriaAntes) cambiadas++;
         } else {
           errores++;
           if (!primerError) primerError = resultado.motivo || 'el análisis no devolvió resultado';

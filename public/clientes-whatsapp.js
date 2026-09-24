@@ -1028,7 +1028,7 @@ function initAnalitica(){
         <div id="chartCategorias" style="margin-top:12px;"></div>
         <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-ghost btn-compact" onclick="verListadoOtra()">📋 Ver listado de "Otra" / sin categorizar</button>
-          ${rolActual === 'admin' ? '<button class="btn-ghost btn-compact" id="btnReanalizarOtra" onclick="reanalizarOtra()">🔎 Reanalizar "Otra"</button>' : ''}
+          ${rolActual === 'admin' ? '<button class="btn-ghost btn-compact" id="btnReanalizarOtra" onclick="reanalizarOtra()">🔎 Reanalizar "Otra"</button><button class="btn-ghost btn-compact" id="btnReanalizarSinModelo" onclick="reanalizarOtra(\'sin_modelo\')" title="Reanaliza las conversaciones sin modelo de equipo detectado, para rescatar modelos que el análisis anterior no leyó">🔎 Reanalizar sin modelo</button>' : ''}
         </div>
         <div id="listadoOtra" style="margin-top:14px;"></div>
       </div>
@@ -1563,10 +1563,15 @@ async function verListadoOtra(){
 // categorizar del período elegido en la Analítica, por si alguna calza en
 // una categoría concreta. Cursor por id, igual que
 // reanalizarProductoNoDisponible.
-async function reanalizarOtra(){
+async function reanalizarOtra(modo = 'otra'){
   const desde = $('analiticaDesde').value, hasta = $('analiticaHasta').value;
-  if (!confirm(`¿Reanalizar con IA las conversaciones "Otra" o sin categorizar entre ${desde} y ${hasta}? Puede tardar varios minutos y cada reanálisis tiene un costo pequeño en la API de IA.`)) return;
-  const btn = $('btnReanalizarOtra');
+  const sinModelo = modo === 'sin_modelo';
+  const textoBtn = sinModelo ? '🔎 Reanalizar sin modelo' : '🔎 Reanalizar "Otra"';
+  const detalle = sinModelo
+    ? 'las conversaciones a las que todavía no se les detectó un modelo de equipo'
+    : 'las conversaciones "Otra" o sin categorizar';
+  if (!confirm(`¿Reanalizar con IA ${detalle} entre ${desde} y ${hasta}? Puede tardar varios minutos (son muchas) y cada reanálisis tiene un costo pequeño en la API de IA. Las conversaciones donde el cliente nunca menciona el modelo quedarán igual.`)) return;
+  const btn = $(sinModelo ? 'btnReanalizarSinModelo' : 'btnReanalizarOtra');
   btn.disabled = true;
   let totalReanalizadas = 0, totalErrores = 0, totalCambiadas = 0, ultimoRestantes = 0, desdeId = 0;
   let primerError = null, detenidoPorFallo = false;
@@ -1578,7 +1583,7 @@ async function reanalizarOtra(){
       btn.textContent = totalReanalizadas + totalErrores > 0 ? `🔎 Reanalizando… ${pct}% (${totalReanalizadas + totalErrores} revisadas)` : '🔎 Reanalizando…';
       const res = await fetch('/api/negocio?recurso=whatsapp-reanalizar-otra', {
         method: 'POST', headers: { 'Content-Type':'application/json' },
-        body: JSON.stringify({ desdeId, desde, hasta })
+        body: JSON.stringify({ desdeId, desde, hasta, modo })
       });
       const data = await res.json();
       if (!res.ok || data.error) { alert(data.error || 'No se pudo reanalizar las conversaciones.'); break; }
@@ -1596,13 +1601,13 @@ async function reanalizarOtra(){
     if (detenidoPorFallo) {
       alert(`Se detuvo: las primeras ${totalErrores} conversaciones fallaron todas, así que no tiene sentido seguir. Motivo del primer error:\n\n${primerError || '(sin detalle)'}`);
     } else {
-      alert(`Reanálisis terminado: ${totalReanalizadas} conversaciones reanalizadas, ${totalCambiadas} pasaron a una categoría concreta${totalErrores ? `, ${totalErrores} no se pudieron analizar${primerError ? ` (primer error: ${primerError})` : ''}` : ''}.`);
+      alert(`Reanálisis terminado: ${totalReanalizadas} conversaciones reanalizadas, ${totalCambiadas} ${sinModelo ? 'ahora tienen un modelo detectado' : 'pasaron a una categoría concreta'}${totalErrores ? `, ${totalErrores} no se pudieron analizar${primerError ? ` (primer error: ${primerError})` : ''}` : ''}.`);
     }
     vistasCargadas.clear();
     const vistaActiva = document.querySelector('.tab-modulo.activo').dataset.vista;
     cambiarVistaModulo(vistaActiva);
   }catch(err){ alert('Error: ' + err.message); }
-  finally{ btn.disabled = false; btn.textContent = '🔎 Reanalizar "Otra"'; }
+  finally{ btn.disabled = false; btn.textContent = textoBtn; }
 }
 
 // Solo actualiza el link de Shopify de conversaciones que YA tienen
