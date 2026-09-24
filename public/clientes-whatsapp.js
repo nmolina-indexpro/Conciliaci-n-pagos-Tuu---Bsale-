@@ -1181,7 +1181,11 @@ function renderFuentes(fuentes, detalle){
 }
 function labelBucket(fecha, agrupacion){
   const d = new Date(fecha);
-  if (agrupacion === 'day') return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' });
+  if (agrupacion === 'day') {
+    const diaSemana = d.toLocaleDateString('es-CL', { weekday: 'short', timeZone: 'America/Santiago' }).replace('.', '');
+    const fechaCorta = d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', timeZone: 'America/Santiago' });
+    return `${diaSemana}<br>${fechaCorta}`;
+  }
   if (agrupacion === 'week') return 'sem. ' + d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' });
   return d.toLocaleDateString('es-CL', { month: 'short', year: '2-digit' });
 }
