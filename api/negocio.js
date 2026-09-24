@@ -20,8 +20,8 @@ const RESET_PASSWORD_EXPIRA_MIN = 30; // vigencia del link de recuperación
 const RESET_PASSWORD_REENVIO_MIN = 2; // no generar/mandar un link nuevo si ya se pidió uno hace menos de esto
 const ESTADOS_VALIDOS = ['pendiente', 'en progreso', 'resuelto'];
 const RESPONSABLE_REPORTES = 'Nicolás Molina'; // fijo por ahora, ver reportar-error.html
-const URL_REPORTES = 'https://conciliaci-n-pagos-tuu-bsale.vercel.app/reportar-error.html';
-const URL_BASE_APP = 'https://conciliaci-n-pagos-tuu-bsale.vercel.app';
+const URL_REPORTES = 'https://erp.indexstore.cl/reportar-error.html';
+const URL_BASE_APP = 'https://erp.indexstore.cl';
 const ZOHO_TIMEOUT_MS = 20000;
 
 // Vercel parsea el body a JSON automáticamente por defecto -- pero el
@@ -3770,7 +3770,7 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
       <p><b>Servicios vendidos:</b> ${semana.cantidadTotal} ${notaVariacion(variacionPct(semana.cantidadTotal, semanaPrevia.cantidadTotal))}</p>
       <p><b>Monto total:</b> $${Math.round(semana.montoTotal).toLocaleString('es-CL')} ${notaVariacion(variacionPct(semana.montoTotal, semanaPrevia.montoTotal))}</p>
       ${topServicios.length ? `<h3>Servicios más vendidos esta semana</h3><ul>${topServicios.map(filaServicio).join('')}</ul>` : '<p>No se registraron servicios vendidos esta semana.</p>'}
-      <p><a href="https://conciliaci-n-pagos-tuu-bsale.vercel.app/servicio-tecnico.html">Ver detalle en el ERP -- página Servicio Técnico</a></p>
+      <p><a href="https://erp.indexstore.cl/servicio-tecnico.html">Ver detalle en el ERP -- página Servicio Técnico</a></p>
       <p style="color:#999;font-size:11px;">Datos sincronizados desde Bsale hasta: ${ultimaSincronizacion ? new Date(ultimaSincronizacion).toLocaleString('es-CL') : 'nunca -- sincronizar manualmente en la página'}.</p>
     `;
     const asunto = `🔧 Servicio Técnico -- resumen semanal (${fmtFecha(inicioSemana)} al ${fmtFecha(finSemana)}): ${semana.cantidadTotal} servicios, $${Math.round(semana.montoTotal).toLocaleString('es-CL')}`;
@@ -3866,7 +3866,7 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
       .sort((a, b) => b.dias - a.dias);
 
     const envios = [];
-    const urlPagina = 'https://conciliaci-n-pagos-tuu-bsale.vercel.app/oportunidades-comerciales.html';
+    const urlPagina = 'https://erp.indexstore.cl/oportunidades-comerciales.html';
     const filaCot = c => `<li><b>${c.cliente}</b> — $${Math.round(c.monto).toLocaleString('es-CL')} — ${c.dias} días sin contacto</li>`;
 
     // ---------- 1) Resumen diario, agrupado por vendedor ----------
@@ -7161,7 +7161,7 @@ async function manejarAlertasSitioWebNotificar(req, res) {
       ${hayStock ? `<h3>⚠ ${stockNoVisible.length} producto(s) con stock disponible pero no visibles en la tienda</h3><ul>${stockNoVisible.slice(0, 30).map(filaStock).join('')}</ul>` : ''}
       ${hayPrecios ? `<h3>💲 ${preciosDistintos.length} producto(s) con precio distinto entre Bsale y Shopify</h3><ul>${preciosDistintos.slice(0, 30).map(filaPrecio).join('')}</ul><p style="color:#666;font-size:12px;">Precio de Bsale (con IVA) según la lista "${listaPrecioBsaleNombre || '—'}".</p>` : ''}
       ${hayDesincronizados ? `<h3>💲 ${preciosDesincronizados.length} producto(s) "de referencia" (pantalla/batería/cargador por modelo) con precio distinto al de Bsale para el SKU que representan</h3><ul>${preciosDesincronizados.slice(0, 30).map(filaDesincronizado).join('')}</ul><p style="color:#666;font-size:12px;">Precio de Bsale (con IVA) según la lista "${listaPrecioBsaleNombre || '—'}".</p>` : ''}
-      <p><a href="https://conciliaci-n-pagos-tuu-bsale.vercel.app/sitio-web.html">Revisar en el ERP -- página Sitio Web</a></p>
+      <p><a href="https://erp.indexstore.cl/sitio-web.html">Revisar en el ERP -- página Sitio Web</a></p>
     `;
     const asunto = `⚠ Alertas Sitio Web IndexStore -- ${stockNoVisible?.length || 0} sin stock visible, ${(preciosDistintos?.length || 0) + (preciosDesincronizados?.length || 0)} con precio distinto${haySkusIncorrectos ? `, ${skusIncorrectosReferencia.length} SKU mal vinculado` : ''}`;
 
