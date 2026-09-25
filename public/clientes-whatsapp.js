@@ -1043,16 +1043,6 @@ function initAnalitica(){
       <div id="chartEmbudoBsale" style="margin-top:12px;"></div>
     </div>
     <div class="seccion">
-      <div class="seccion-head">
-        <div><h2>Fuente de ingreso</h2><div class="sub">De dónde vienen las conversaciones: anuncios de Meta, un UTM real (Google Ads si utm_source=google, u otra plataforma), el botón de WhatsApp del sitio sin dato de campaña, origen desconocido, o el origen REAL de la venta según el tracking propio de Shopify (cómo llegó al sitio antes de comprar -- solo para ventas vinculadas a un pedido de Shopify con tracking disponible). Solo cuenta conversaciones con al menos un mensaje real.</div></div>
-      </div>
-      <div id="chartFuentes" style="margin-bottom:14px;"></div>
-      <div class="tabla-wrap"><table>
-        <thead><tr id="theadFuentesDetalle"></tr></thead>
-        <tbody id="tablaFuentesDetalle"></tbody>
-      </table></div>
-    </div>
-    <div class="seccion">
       <h2>Motivos de pérdida</h2>
       <div class="sub" style="margin-bottom:10px;">Haz clic en un motivo para ver esas conversaciones.</div>
       <div class="tabla-wrap"><table>
@@ -1087,6 +1077,16 @@ function initAnalitica(){
     <div class="seccion">
       <h2>Resultados de conversaciones</h2>
       <div id="chartResultados" style="margin-top:12px;"></div>
+    </div>
+    <div class="seccion">
+      <div class="seccion-head">
+        <div><h2>Fuente de ingreso</h2><div class="sub">De dónde vienen las conversaciones: anuncios de Meta, un UTM real (Google Ads si utm_source=google, u otra plataforma), el botón de WhatsApp del sitio sin dato de campaña, origen desconocido, o el origen REAL de la venta según el tracking propio de Shopify (cómo llegó al sitio antes de comprar -- solo para ventas vinculadas a un pedido de Shopify con tracking disponible). Solo cuenta conversaciones con al menos un mensaje real.</div></div>
+      </div>
+      <div id="chartFuentes" style="margin-bottom:14px;"></div>
+      <div class="tabla-wrap"><table>
+        <thead><tr id="theadFuentesDetalle"></tr></thead>
+        <tbody id="tablaFuentesDetalle"></tbody>
+      </table></div>
     </div>
   `;
   const hoy = hoyStrAnalitica();
