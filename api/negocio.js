@@ -4831,7 +4831,7 @@ async function manejarIndexscaleEnviarPresentacion(req, res, sesion) {
         actualizado_por = ${sesion.nombre || sesion.email}, actualizado_en = now()
       WHERE id = ${id};`;
 
-    return res.status(200).json({ ok: true, estado: nuevoEstado });
+    return res.status(200).json({ ok: true, estado: nuevoEstado, servidor: resultado.servidor || null });
   } catch (err) {
     return res.status(500).json({ error: 'Error enviando el correo', detail: String(err) });
   }

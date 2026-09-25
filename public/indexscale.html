@@ -484,7 +484,8 @@ async function enviarPresentacionIndexscale(segmento, id){
     const data = await res.json();
     if(!res.ok || data.error){ alert(data.detail || data.error || 'No se pudo enviar el correo.'); return; }
     await cargarIndexscale(segmento);
-    alert('Correo enviado.');
+    const s = data.servidor;
+    alert('Correo enviado.' + (s ? `\n\nRespuesta del servidor de correo:\nDesde: ${s.desde}\nRespuesta: ${s.respuesta}\nAceptado para: ${(s.aceptados || []).join(', ') || '(ninguno)'}\nRechazado para: ${(s.rechazados || []).join(', ') || '(ninguno)'}` : ''));
   }catch(err){
     alert('Error: ' + err.message);
   }
