@@ -160,6 +160,7 @@
   <div id="ventasBajaResumen" class="sub" style="margin:10px 0 14px;"></div>
   <div id="wrapVentasBaja"><p class="empty-note">Cargando...</p></div>
   <div id="syncStatus"></div>
+  <div id="resumenMermas"></div>
 
 </div>
 
@@ -402,6 +403,7 @@ async function cargarVentasBaja(){
       + (data.ultimaSincronizacion ? ` Última sincronización completa: ${new Date(data.ultimaSincronizacion).toLocaleString('es-CL')}.` : '');
     renderVentasBaja();
     renderResumenMontos();
+    renderResumenMermas(data.mermas);
     autoSincronizarSiCorresponde(data.ultimaSincronizacion);
   }catch(err){
     $('wrapVentasBaja').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
@@ -542,15 +544,31 @@ async function toggleVentaBajaFlag(sku, campo, valor){
   }
 }
 
+// Sacar un SKU de acá es cómo se marca un producto como MERMA: queda fuera
+// de este análisis para siempre (se da de baja del stock parado) y pasa a
+// contar en el resumen de mermas de más abajo. Se manda el snapshot de
+// nombre/categoría/stock/costo que ya se tiene calculado en memoria, porque
+// el backend no puede recalcularlo después (el SKU excluido deja de
+// aparecer en ventas-sku-tendencia).
 async function eliminarVentaBajaSku(sku){
-  if(!confirm(`¿Sacar el SKU ${sku} de este análisis? No va a volver a aparecer aunque siga estancado, salvo que se quite de la lista de exclusión directo en la base de datos.`)) return;
+  const p = ventasBajaActual.find(x => x.sku === sku);
+  if(!confirm(`¿Marcar el SKU ${sku} como merma? Se saca de este análisis para siempre (no va a volver a aparecer aunque siga estancado) y pasa a sumar en el resumen de mermas.`)) return;
   try{
-    const res = await fetch(`/api/negocio?recurso=ventas-sku-tendencia&sku=${encodeURIComponent(sku)}`, { method: 'DELETE' });
+    const params = new URLSearchParams({ sku });
+    if(p){
+      if(p.nombre) params.set('nombre', p.nombre);
+      if(p.categoria) params.set('categoria', p.categoria);
+      if(p.stockActual != null) params.set('stockActual', p.stockActual);
+      if(p.costoTotal != null) params.set('costoTotal', p.costoTotal);
+    }
+    const res = await fetch(`/api/negocio?recurso=ventas-sku-tendencia&${params.toString()}`, { method: 'DELETE' });
     const data = await res.json();
     if(!res.ok || data.error){ alert(data.error); return; }
-    ventasBajaActual = ventasBajaActual.filter(p => p.sku !== sku);
-    renderVentasBaja();
-    renderResumenMontos();
+    // Se recarga todo (en vez de solo sacarlo del array en memoria) porque
+    // el resumen de mermas lo calcula el servidor sobre TODOS los SKU
+    // marcados hasta ahora, no solo el que se acaba de marcar -- source of
+    // truth es la base, no una suma acumulada del lado del cliente.
+    await cargarVentasBaja();
   }catch(err){
     alert('Error: ' + err.message);
   }
@@ -622,7 +640,7 @@ function renderVentasBaja(){
               </div>
               <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
                 <button class="btn-icono" title="${p.comentario ? 'Comentario: ' + escapeHtml(p.comentario) : 'Sin comentario — clic para agregar'}" onclick="editarComentarioVentaBaja('${p.sku}')">📝</button>
-                ${esAdmin ? `<button class="btn-icono" title="Sacar de este análisis" onclick="eliminarVentaBajaSku('${p.sku}')">🗑️</button>` : ''}
+                ${esAdmin ? `<button class="btn-icono" title="Marcar como merma (sacar de este análisis)" onclick="eliminarVentaBajaSku('${p.sku}')">🗑️</button>` : ''}
                 ${p.comentario ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.comentario)}</span>` : ''}
               </div>
             </td>
@@ -676,6 +694,43 @@ function renderResumenMontos(){
       </div>
     </div>
     <div class="sub" style="margin:0 0 8px;">Por categoría (costo del stock parado / oportunidad de venta):</div>
+    <div class="grid" style="margin-bottom:22px;">${tarjetasCategoria}</div>
+  `;
+}
+
+// Resumen de mermas -- SKU marcados con 🗑️ (ver eliminarVentaBajaSku). Solo
+// admin (mismo criterio que el resumen de arriba: revela costo de compra).
+// Se calcula en el servidor sobre TODO lo marcado hasta ahora, no solo lo
+// que se ve en la tabla de hoy -- por diseño no aparece hasta que se marcó
+// al menos un SKU como merma.
+function renderResumenMermas(mermas){
+  const cont = $('resumenMermas');
+  if(!cont) return;
+  if(rolActual !== 'admin' || !mermas || !mermas.cantidad){ cont.innerHTML = ''; return; }
+  const nombreCategoria = clave => clave === 'otros' ? 'Otros / sin categoría' : (CATEGORIA_VENTA_BAJA_LABEL[clave] || clave);
+  const tarjetasCategoria = mermas.porCategoria.map(c => `
+    <div class="card">
+      <div class="lbl">${nombreCategoria(c.categoria)}</div>
+      <div class="big">${fmtMoneda(c.costoTotal)}</div>
+      <div class="pct">${fmtNum(c.cantidad)} SKU · ${fmtNum(c.unidades)} unid.</div>
+    </div>`).join('');
+  cont.innerHTML = `
+    <h2 style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:28px 0 4px;">🗑️ Resumen de mermas</h2>
+    <div class="sub" style="margin-bottom:14px;">Productos marcados como merma (sacados de este análisis) hasta ahora.</div>
+    <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px;">
+      <div class="card destacada">
+        <div class="lbl">SKU marcados</div>
+        <div class="big">${fmtNum(mermas.cantidad)}</div>
+      </div>
+      <div class="card destacada">
+        <div class="lbl">Unidades</div>
+        <div class="big">${fmtNum(mermas.unidades)}</div>
+      </div>
+      <div class="card destacada">
+        <div class="lbl">Costo total</div>
+        <div class="big">${fmtMoneda(mermas.costoTotal)}</div>
+      </div>
+    </div>
     <div class="grid" style="margin-bottom:22px;">${tarjetasCategoria}</div>
   `;
 }

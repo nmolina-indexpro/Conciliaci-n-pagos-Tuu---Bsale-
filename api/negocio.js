@@ -1755,12 +1755,25 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
     // Sacar un SKU del análisis (y de futuras sincronizaciones) -- mismo
     // criterio que analisis_excluidos/indexpro_excluidos: exclusión
     // permanente, acción destructiva -> solo admin, como el resto de los
-    // DELETE de este archivo.
+    // DELETE de este archivo. En "Productos estancados" este botón (🗑️) es
+    // la forma en la que se marca un producto como merma -- se guarda un
+    // snapshot de nombre/categoría/stock/costo de ESE momento (lo manda el
+    // frontend, que ya lo tiene calculado) para el resumen de mermas, ya
+    // que una vez excluido el SKU no vuelve a aparecer en ningún lado de
+    // donde recalcularlo.
     if (req.method === 'DELETE') {
       if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sacar un SKU de este análisis' });
       const sku = String(req.query.sku || '').trim().toUpperCase();
       if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
-      await sql`INSERT INTO ventas_sku_excluidos (sku, excluido_por) VALUES (${sku}, ${sesion.nombre || sesion.email}) ON CONFLICT (sku) DO NOTHING;`;
+      const nombre = req.query.nombre ? String(req.query.nombre).slice(0, 300) : null;
+      const categoria = req.query.categoria ? String(req.query.categoria).slice(0, 50) : null;
+      const stockAlMarcar = req.query.stockActual != null && req.query.stockActual !== '' ? Number(req.query.stockActual) : null;
+      const costoTotalAlMarcar = req.query.costoTotal != null && req.query.costoTotal !== '' ? Number(req.query.costoTotal) : null;
+      await sql`
+        INSERT INTO ventas_sku_excluidos (sku, excluido_por, nombre, categoria, stock_al_marcar, costo_total_al_marcar)
+        VALUES (${sku}, ${sesion.nombre || sesion.email}, ${nombre}, ${categoria}, ${stockAlMarcar}, ${costoTotalAlMarcar})
+        ON CONFLICT (sku) DO NOTHING;
+      `;
       return res.status(200).json({ ok: true });
     }
 
@@ -1837,7 +1850,32 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
       GROUP BY sku;
     `;
     const ultimaVentaPorSku = Object.fromEntries(ultimaVentaRows.map(r => [r.sku, new Date(r.ultima_venta).toISOString().slice(0, 10)]));
-    const { rows: excluidosRows } = await sql`SELECT sku FROM ventas_sku_excluidos;`;
+    const { rows: excluidosRows } = await sql`SELECT sku, nombre, categoria, stock_al_marcar, costo_total_al_marcar FROM ventas_sku_excluidos;`;
+
+    // Resumen de mermas: SKU sacados de este análisis con el botón 🗑️ (ver
+    // el DELETE de arriba) que además traen el snapshot de costo (los
+    // excluidos de antes de este cambio, o sin costo conocido al momento de
+    // marcarlos, quedan fuera de los montos -- sí cuentan para "cantidad").
+    const mermasPorCategoria = new Map();
+    let mermasCostoTotal = 0, mermasUnidades = 0;
+    for (const r of excluidosRows) {
+      const costo = r.costo_total_al_marcar != null ? Number(r.costo_total_al_marcar) : null;
+      const stock = r.stock_al_marcar != null ? Number(r.stock_al_marcar) : 0;
+      if (costo != null) mermasCostoTotal += costo;
+      mermasUnidades += stock;
+      const clave = r.categoria || 'otros';
+      if (!mermasPorCategoria.has(clave)) mermasPorCategoria.set(clave, { categoria: clave, cantidad: 0, unidades: 0, costoTotal: 0 });
+      const e = mermasPorCategoria.get(clave);
+      e.cantidad++;
+      e.unidades += stock;
+      if (costo != null) e.costoTotal += costo;
+    }
+    const mermas = {
+      cantidad: excluidosRows.length,
+      unidades: mermasUnidades,
+      costoTotal: mermasCostoTotal,
+      porCategoria: [...mermasPorCategoria.values()].sort((a, b) => b.costoTotal - a.costoTotal),
+    };
 
     const meses = ultimosNMeses(12);
     const mapaPorSku = new Map();
@@ -1876,7 +1914,7 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
     }
 
     return res.status(200).json({
-      meses, productos, estadoSku: estadoSkuCompleto, excluidos: excluidosRows.map(r => r.sku),
+      meses, productos, estadoSku: estadoSkuCompleto, excluidos: excluidosRows.map(r => r.sku), mermas,
       ultimaSincronizacion: estadoSync.ultima_pasada_completa_en || null,
     });
   } catch (err) {
