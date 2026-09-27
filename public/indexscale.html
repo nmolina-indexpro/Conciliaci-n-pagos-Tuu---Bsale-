@@ -139,7 +139,14 @@
         </div>
       </div>
       <a href="servicio-tecnico.html">Servicio Técnico</a>
-      <a href="analisis.html">Análisis</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+        </div>
+      </div>
     </nav>
     <div class="user-box" id="userBox"></div>
   </header>

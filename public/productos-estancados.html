@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Productos estancados — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-top:16px;color:var(--text);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  #syncStatus{font-size:12px;color:var(--muted);margin-top:10px;}
+  #syncStatus.err{color:var(--red);}
+
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:12px;padding:7px 13px;}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  th.amount, td.amount{text-align:right;}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);text-decoration:none;font-size:13px;cursor:pointer;transition:all .15s;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+  .sku-code{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);}
+  .badge-caida{display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;font-size:11px;background:var(--red-bg);color:var(--red);}
+  .chk-group{display:flex;flex-direction:column;gap:3px;}
+  .chk-mini{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;}
+  .chk-mini input{margin:0;cursor:pointer;}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:16px;}
+  .modal-overlay.open{display:flex;}
+  .modal-box{background:var(--surface);border-radius:16px;padding:24px 26px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:min(520px,100%);max-height:86vh;overflow-y:auto;}
+  .modal-box h3{margin:0 0 4px 0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;}
+  .comentario-item{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:12.5px;}
+  .comentario-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+  #modalComentarioNuevo{width:100%;margin-top:14px;min-height:70px;padding:10px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html">Compras</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="sitio-web.html">Sitio Web</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="indexscale.html">IndexScale</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <a href="servicio-tecnico.html">Servicio Técnico</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html" class="active">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>📉 Productos estancados</h1>
+  <div class="sub">SKU con stock disponible hoy y sin ninguna venta en los últimos 35 días o más (incluye los que no registran ninguna venta en el período analizado) -- candidatos a bajar de precio, ofrecer envío gratis o publicar en Mercado Libre para liquidar stock y generar efectivo.</div>
+
+  <div style="display:flex;justify-content:flex-end;">
+    <button class="btn-primary" id="btnSincronizar" style="display:none;" onclick="iniciarSincronizacion()">🔄 Sincronizar con Bsale</button>
+  </div>
+  <div id="ventasBajaResumen" class="sub" style="margin:10px 0 14px;"></div>
+  <div id="wrapVentasBaja"><p class="empty-note">Cargando...</p></div>
+  <div id="syncStatus"></div>
+
+</div>
+
+<div class="modal-overlay" id="modalComentariosOverlay" onclick="cerrarModalComentariosSiFondo(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <h3 id="modalComentariosTitulo">Comentarios</h3>
+    <div class="sub" style="margin-bottom:0;">Cada comentario queda guardado con quién lo escribió y cuándo -- no se borra ni se reemplaza al agregar uno nuevo.</div>
+    <div id="modalComentariosLista" style="margin-top:14px;display:flex;flex-direction:column;gap:10px;"></div>
+    <textarea id="modalComentarioNuevo" placeholder="Escribe un comentario nuevo..."></textarea>
+    <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:12px;">
+      <button class="btn-ghost" id="btnCancelarEdicionComentario" style="display:none;" onclick="cancelarEdicionComentario()">Cancelar edición</button>
+      <button class="btn-ghost" onclick="cerrarModalComentarios()">Cerrar</button>
+      <button class="btn-primary" id="btnGuardarComentario" onclick="guardarComentarioModal()">Agregar comentario</button>
+    </div>
+  </div>
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let rolActual = 'usuario';
+let nombreActual = '';
+let sincronizando = false;
+let autoSincronizacionIntentada = false; // una sola vez por carga de página
+
+function escapeHtml(texto){
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function fmtNum(n){ return new Intl.NumberFormat('es-CL').format(n || 0); }
+function fmtMoneda(n){ return '$' + fmtNum(Math.round(n || 0)); }
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    rolActual = u.rol;
+    nombreActual = u.nombre || u.email || '';
+    // "Costo total stock" (el orden por defecto) es una columna solo-admin --
+    // si no es admin, esa columna ni se muestra, así que ordenar por ahí se
+    // vería como un orden sin explicación.
+    if(rolActual !== 'admin' && ordenVentasBaja === 'costo') ordenVentasBaja = 'dias';
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+      $('btnSincronizar').style.display = '';
+    }
+    cargarVentasBaja();
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Productos con ventas a la baja (estancados) ----------
+// Estancado = (1) TIENE stock hoy (si no hay stock, no hay nada que
+// liquidar), (2) CERO ventas en los últimos 35+ días (o nunca ha vendido en
+// el período analizado). El stock actual y el costo (para margen) salen de
+// /api/bsale-sku-report (ya calculado ahí para Compras) -- se pide ANTES de
+// armar la lista, no como agregado posterior, porque el stock es un filtro,
+// no solo un dato más.
+const CATEGORIA_VENTA_BAJA_LABEL = { cargadores: '🔌 Cargador', baterias: '🔋 Batería', pantallas: '🖥️ Pantalla' };
+const UMBRAL_DIAS_ESTANCADO = 35;
+// Mismos filtros de ruido que usa el backend (ver negocio.js) para armar
+// los SKU "nunca vendidos" a partir de /api/bsale-sku-report, que no sabe
+// nada de este análisis y trae el catálogo completo de Bsale.
+const CODIGO_ENVIO_NUMERICO_REGEX = /^\d{8,}$/;
+const LINEA_ENVIO_EXCLUIDA_REGEX = /env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|99\s*minutos|global\s*tracking|^spread$|flete|courier|retiro en tienda|^pagado$|^rec[ií]belo$/i;
+function categoriaLineaCliente(codigo, nombre){
+  const c = (codigo || '').toUpperCase();
+  if(/^CAR/.test(c)) return 'cargadores';
+  if(/^BAT/.test(c)) return 'baterias';
+  if(/^SER/.test(c)) return 'servicios';
+  if(/^(PSLIM|PNORMAL|PTBEZEL|FDP)/.test(c)) return 'pantallas';
+  const n = nombre || '';
+  if(/\d+(\.\d+)?["″]\s*\d+p\b/i.test(n)) return 'pantallas';
+  if(/pantalla/i.test(n)) return 'pantallas';
+  if(/cargador/i.test(n)) return 'cargadores';
+  if(/bater[ií]a/i.test(n)) return 'baterias';
+  if(/servicio|instalaci[oó]n|garant[ií]a|mano de obra|diagn[oó]stico|reparaci[oó]n/i.test(n)) return 'servicios';
+  return null;
+}
+function diasDesdeVentas(fechaIso){
+  if(!fechaIso) return null;
+  return Math.floor((Date.now() - new Date(fechaIso + 'T00:00:00').getTime()) / 86400000);
+}
+const IVA_FACTOR = 1.19;
+// Proyección sobre el STOCK PARADO (no sobre lo ya vendido) -- el objetivo
+// de este reporte es liquidar, así que lo que importa es cuánto cuesta el
+// stock hoy y cuánto se podría hacer si se vende todo, no cuánto se ganó
+// en el pasado. costoNeto/precioVentaNeto en null cuando no hay dato real
+// (nunca se compró / nunca se vendió) -> no se inventa un número.
+function calcularProyeccion(stockActual, costoNeto, precioVentaNeto){
+  const costoTotal = costoNeto != null ? stockActual * costoNeto : null;
+  const oportunidadVenta = precioVentaNeto != null ? stockActual * precioVentaNeto * IVA_FACTOR : null;
+  const margenTotal = (costoNeto != null && precioVentaNeto != null) ? stockActual * (precioVentaNeto - costoNeto) : null;
+  return { costoTotal, oportunidadVenta, margenTotal };
+}
+let ventasBajaActual = [];
+// Arranca ordenado por costo total del stock parado (de mayor a menor) --
+// lo primero que se quiere ver son los productos donde hay más plata
+// inmovilizada, no necesariamente los más antiguos sin vender.
+let ordenVentasBaja = 'costo'; // 'stock' | 'dias' | 'anio' | 'monto' | 'costo' | 'oportunidad' | 'margen'
+let ordenVentasBajaAsc = false; // arranca de mayor a menor
+
+function ordenarVentasBaja(col){
+  if(ordenVentasBaja === col) ordenVentasBajaAsc = !ordenVentasBajaAsc;
+  else { ordenVentasBaja = col; ordenVentasBajaAsc = false; }
+  renderVentasBaja();
+}
+
+async function cargarVentasBaja(){
+  $('wrapVentasBaja').innerHTML = '<p class="empty-note">Cargando...</p>';
+  try{
+    const [resVentas, resStock] = await Promise.all([
+      fetch('/api/negocio?recurso=ventas-sku-tendencia'),
+      fetch('/api/bsale-sku-report'),
+    ]);
+    const data = await resVentas.json();
+    if(!resVentas.ok || data.error){
+      $('wrapVentasBaja').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`;
+      return;
+    }
+    const stockData = await resStock.json().catch(() => ({ skus: [] }));
+    const stockPorSku = {}, costoPorSku = {}, nombrePorSku = {};
+    for(const s of (stockData.skus || [])){
+      stockPorSku[s.code] = s.stockActual || 0;
+      if(s.ultimoCosto != null) costoPorSku[s.code] = s.ultimoCosto;
+      // "nombre" de bsale-sku-report ya viene armado como catálogo + ficha
+      // técnica (ej. "CARGADOR ORIGINAL ASUS 20V 2.25A USB-C") -- más
+      // completo que el que guarda bsale_ventas_sku al sincronizar (que
+      // suele ser solo la ficha técnica de la variante), así que se
+      // prefiere este para mostrar en la columna Producto.
+      if(s.nombre) nombrePorSku[s.code] = s.nombre;
+    }
+
+    const { meses, productos, estadoSku } = data;
+    if(!productos.length && !(stockData.skus || []).length){
+      $('ventasBajaResumen').textContent = '';
+      $('wrapVentasBaja').innerHTML = rolActual === 'admin'
+        ? '<p class="empty-note">Todavía no hay datos sincronizados. Usa "🔄 Sincronizar con Bsale" arriba.</p>'
+        : '<p class="empty-note">Todavía no hay datos sincronizados — pídele a un administrador que sincronice esta página.</p>';
+      return;
+    }
+    const skusExcluidos = new Set(data.excluidos || []);
+
+    // Estancado = tiene stock hoy Y no vende hace 35+ días (o nunca ha
+    // vendido en el período analizado) -- si hay stock parado y cero
+    // ventas, es plata detenida igual, sin importar si alguna vez tuvo
+    // demanda.
+    const conVenta = productos.filter(p => !skusExcluidos.has(p.sku)).map(p => {
+      const cantidadAnio = meses.reduce((acc, m) => acc + (p.porMes[m]?.cantidad || 0), 0);
+      const montoAnio = meses.reduce((acc, m) => acc + (p.porMes[m]?.monto || 0), 0);
+      const stockActual = stockPorSku[p.sku] ?? 0;
+      const costo = costoPorSku[p.sku] ?? null;
+      // Precio de venta neto promedio del año (lo que de verdad se cobró,
+      // no un precio de lista) -- base para proyectar margen/oportunidad
+      // sobre el stock parado, no sobre lo ya vendido.
+      const precioVentaNeto = cantidadAnio > 0 ? montoAnio / cantidadAnio : null;
+      const { margenTotal, costoTotal, oportunidadVenta } = calcularProyeccion(stockActual, costo, precioVentaNeto);
+      return {
+        sku: p.sku, nombre: nombrePorSku[p.sku] || p.nombre, categoria: p.categoria,
+        comentario: p.comentario || '', historial: p.historial || [], mercadoLibre: !!p.mercadoLibre, envioGratis: !!p.envioGratis, variacionPrecio: !!p.variacionPrecio,
+        cantidadAnio, montoAnio, stockActual, margenTotal, costoTotal, oportunidadVenta,
+        diasDesdeUltimaVenta: diasDesdeVentas(p.ultimaVenta), nuncaVendido: false,
+      };
+    }).filter(p => p.stockActual > 0 && p.diasDesdeUltimaVenta != null && p.diasDesdeUltimaVenta >= UMBRAL_DIAS_ESTANCADO);
+
+    // SKU con stock pero SIN ninguna fila de venta en bsale_ventas_sku (ni
+    // siquiera hace más de un año) -- estos nunca aparecen en "productos"
+    // porque esa tabla solo tiene una fila cuando hubo una venta real.
+    // Se rescatan desde /api/bsale-sku-report, que arma su listado desde
+    // stock/compras además de ventas y por eso sí los incluye.
+    const skusConVenta = new Set(productos.map(p => p.sku));
+    const sinVenta = [];
+    for(const s of (stockData.skus || [])){
+      const code = s.code;
+      if(!code || skusConVenta.has(code) || skusExcluidos.has(code)) continue;
+      if(CODIGO_ENVIO_NUMERICO_REGEX.test(code)) continue;
+      const nombre = s.nombre || code;
+      if(LINEA_ENVIO_EXCLUIDA_REGEX.test(nombre)) continue;
+      const categoria = categoriaLineaCliente(code, nombre);
+      if(categoria !== 'cargadores' && categoria !== 'baterias' && categoria !== 'pantallas') continue;
+      const stockActual = s.stockActual || 0;
+      if(stockActual <= 0) continue;
+      const est = (estadoSku || {})[code] || {};
+      // Nunca vendió -> no hay precio de venta propio para proyectar
+      // margen/oportunidad (calcularProyeccion() SIN precio), pero el costo
+      // del stock parado sí se puede calcular (viene de compras, no de
+      // ventas).
+      const { costoTotal } = calcularProyeccion(stockActual, costoPorSku[code] ?? null, null);
+      sinVenta.push({
+        sku: code, nombre, categoria,
+        comentario: est.comentario || '', historial: est.historial || [], mercadoLibre: !!est.mercadoLibre, envioGratis: !!est.envioGratis, variacionPrecio: !!est.variacionPrecio,
+        cantidadAnio: 0, montoAnio: 0, stockActual, margenTotal: null, costoTotal, oportunidadVenta: null,
+        diasDesdeUltimaVenta: null, nuncaVendido: true,
+      });
+    }
+
+    const calculados = [...conVenta, ...sinVenta];
+    ventasBajaActual = calculados;
+    $('ventasBajaResumen').textContent = `${fmtNum(calculados.length)} SKU estancado(s) con stock disponible (${fmtNum(sinVenta.length)} nunca vendido(s) en el período, ${fmtNum(conVenta.length)} sin vender hace ${UMBRAL_DIAS_ESTANCADO}+ días).`
+      + (data.ultimaSincronizacion ? ` Última sincronización completa: ${new Date(data.ultimaSincronizacion).toLocaleString('es-CL')}.` : '');
+    renderVentasBaja();
+    autoSincronizarSiCorresponde(data.ultimaSincronizacion);
+  }catch(err){
+    $('wrapVentasBaja').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+  }
+}
+
+// Sincroniza automáticamente al cargar la página, pero solo si ya pasaron
+// 12 horas desde la última pasada completa -- evita golpear Bsale en cada
+// visita.
+function autoSincronizarSiCorresponde(ultimaSincronizacion){
+  if(rolActual !== 'admin' || autoSincronizacionIntentada) return;
+  autoSincronizacionIntentada = true;
+  if(sincronizando) return; // ya hay una pasada en curso, no duplicar
+  const DOCE_HORAS_MS = 12 * 60 * 60 * 1000;
+  const ultima = ultimaSincronizacion ? new Date(ultimaSincronizacion).getTime() : 0;
+  if(Date.now() - ultima >= DOCE_HORAS_MS) iniciarSincronizacion();
+}
+
+function editarComentarioVentaBaja(sku){
+  const p = ventasBajaActual.find(x => x.sku === sku);
+  if(!p) return;
+  abrirModalComentarios(sku, `${sku} — ${p.nombre || sku}`, p.historial || []);
+}
+
+// ---------- Modal de comentarios (historial completo, no se pisa) ----------
+// Un comentario nuevo se AGREGA al historial, nunca reemplaza al anterior, y
+// queda registrado con quién lo escribió y cuándo. Cada quien puede editar
+// SOLO sus propios comentarios (el backend es quien de verdad lo exige
+// comparando contra el autor guardado; acá solo se decide si se MUESTRA el
+// botón ✏️, no es control de acceso real).
+let modalComentarioEntidad = null; // sku de la fila que el modal está mostrando
+let modalComentarioEditandoId = null; // id del comentario en edición, o null si se está agregando uno nuevo
+
+function abrirModalComentarios(sku, titulo, historial){
+  modalComentarioEntidad = sku;
+  cancelarEdicionComentario();
+  $('modalComentariosTitulo').textContent = `📝 ${titulo}`;
+  renderListaComentariosModal(historial);
+  $('modalComentariosOverlay').classList.add('open');
+}
+
+function renderListaComentariosModal(historial){
+  $('modalComentariosLista').innerHTML = (historial && historial.length)
+    ? historial.map(h => `
+        <div class="comentario-item">
+          <div style="flex:1;">
+            <div>${escapeHtml(h.comentario)}</div>
+            <div class="comentario-meta">${escapeHtml(h.autor || 'Desconocido')} — ${new Date(h.creadoEn).toLocaleString('es-CL')}${h.editadoEn ? ' (editado)' : ''}</div>
+          </div>
+          ${h.id != null && h.autor === nombreActual ? `<button class="btn-icono" title="Editar este comentario" onclick="prepararEdicionComentario(${h.id})">✏️</button>` : ''}
+        </div>`).join('')
+    : '<p class="empty-note">Todavía no hay comentarios guardados.</p>';
+}
+
+function objetivoComentarioActual(){
+  return ventasBajaActual.find(p => p.sku === modalComentarioEntidad);
+}
+
+function prepararEdicionComentario(id){
+  const entrada = (objetivoComentarioActual()?.historial || []).find(h => h.id === id);
+  if(!entrada) return;
+  modalComentarioEditandoId = id;
+  $('modalComentarioNuevo').value = entrada.comentario;
+  $('modalComentarioNuevo').focus();
+  $('btnGuardarComentario').textContent = 'Guardar edición';
+  $('btnCancelarEdicionComentario').style.display = '';
+}
+
+function cancelarEdicionComentario(){
+  modalComentarioEditandoId = null;
+  $('modalComentarioNuevo').value = '';
+  $('btnGuardarComentario').textContent = 'Agregar comentario';
+  $('btnCancelarEdicionComentario').style.display = 'none';
+}
+
+// Actualiza los datos en memoria sin volver a pedirle todo al servidor --
+// así guardar una nota no vacía la tabla entera mostrando "Cargando...".
+function agregarComentarioLocal(objetivo, texto, id){
+  const entrada = { id, comentario: texto, autor: nombreActual, creadoEn: new Date().toISOString(), editadoEn: null };
+  objetivo.historial = [entrada, ...(objetivo.historial || [])];
+  objetivo.comentario = texto;
+}
+function editarComentarioLocal(objetivo, id, texto){
+  const entrada = (objetivo.historial || []).find(h => h.id === id);
+  if(!entrada) return;
+  entrada.comentario = texto;
+  entrada.editadoEn = new Date().toISOString();
+  if(objetivo.historial[0] === entrada) objetivo.comentario = texto; // es el más reciente -> también actualiza el preview de la fila
+}
+
+async function guardarComentarioModal(){
+  const texto = $('modalComentarioNuevo').value.trim();
+  if(!texto) return;
+  const sku = modalComentarioEntidad, editandoId = modalComentarioEditandoId;
+  try{
+    const res = await fetch('/api/negocio?recurso=ventas-sku-tendencia', {
+      method: 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ sku, comentario: texto, ...(editandoId ? { comentarioId: editandoId } : {}) })
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar.'); return; }
+    const objetivo = objetivoComentarioActual();
+    if(objetivo){
+      if(editandoId) editarComentarioLocal(objetivo, editandoId, texto);
+      else agregarComentarioLocal(objetivo, texto, data.id);
+    }
+    cancelarEdicionComentario();
+    renderVentasBaja();
+    renderListaComentariosModal(objetivo?.historial || []);
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+function cerrarModalComentarios(){
+  $('modalComentariosOverlay').classList.remove('open');
+}
+function cerrarModalComentariosSiFondo(ev){
+  if(ev.target.id === 'modalComentariosOverlay') cerrarModalComentarios();
+}
+
+async function toggleVentaBajaFlag(sku, campo, valor){
+  const p = ventasBajaActual.find(x => x.sku === sku);
+  const anterior = p ? p[campo] : undefined;
+  if(p) p[campo] = valor; // optimista -- el checkbox ya cambió en pantalla
+  try{
+    const body = { sku, [campo]: valor };
+    const res = await fetch('/api/negocio?recurso=ventas-sku-tendencia', {
+      method: 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ throw new Error(data.error || 'No se pudo guardar.'); }
+  }catch(err){
+    if(p) p[campo] = anterior; // revierte si falló
+    alert('Error: ' + err.message);
+    renderVentasBaja();
+  }
+}
+
+async function eliminarVentaBajaSku(sku){
+  if(!confirm(`¿Sacar el SKU ${sku} de este análisis? No va a volver a aparecer aunque siga estancado, salvo que se quite de la lista de exclusión directo en la base de datos.`)) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=ventas-sku-tendencia&sku=${encodeURIComponent(sku)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error); return; }
+    ventasBajaActual = ventasBajaActual.filter(p => p.sku !== sku);
+    renderVentasBaja();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+function renderVentasBaja(){
+  if(!ventasBajaActual.length){
+    $('wrapVentasBaja').innerHTML = `<p class="empty-note">No se detectó ningún SKU estancado (con stock disponible y sin ventas hace ${UMBRAL_DIAS_ESTANCADO}+ días).</p>`;
+    return;
+  }
+  const campoOrden = { stock: 'stockActual', dias: 'diasDesdeUltimaVenta', anio: 'cantidadAnio', monto: 'montoAnio', costo: 'costoTotal', oportunidad: 'oportunidadVenta', margen: 'margenTotal' };
+  const ordenados = [...ventasBajaActual].sort((a, b) => {
+    const campo = campoOrden[ordenVentasBaja] || 'diasDesdeUltimaVenta';
+    // "Nunca vendido" (null) en días sin venta es MÁS estancado que
+    // cualquier número real -> se trata como infinito. Pero en las
+    // columnas de plata (costo/oportunidad/margen) null significa "no hay
+    // dato" (nunca se compró o nunca se vendió), no "el valor más alto de
+    // todos" -> ahí debe irse al final, no al principio.
+    const nuloComoInfinito = campo === 'diasDesdeUltimaVenta';
+    const va = a[campo] ?? (nuloComoInfinito ? Infinity : -Infinity);
+    const vb = b[campo] ?? (nuloComoInfinito ? Infinity : -Infinity);
+    return ordenVentasBajaAsc ? va - vb : vb - va;
+  });
+  const marca = col => ordenVentasBaja === col ? (ordenVentasBajaAsc ? ' ▲' : ' ▼') : '';
+  const esAdmin = rolActual === 'admin';
+  // Costo, oportunidad de venta y margen son datos sensibles (revelan
+  // costo de compra) -- solo admin.
+  const celdaAdminMonto = valor => {
+    if(!esAdmin) return '';
+    if(valor == null) return '<td class="amount empty-note">—</td>';
+    return `<td class="amount">${fmtMoneda(valor)}</td>`;
+  };
+  const celdaDias = p => p.nuncaVendido
+    ? '<span class="badge-caida">Nunca</span>'
+    : `<span class="badge-caida">${fmtNum(p.diasDesdeUltimaVenta)} d</span>`;
+  const checkFlag = (p, campo, etiqueta) => `<label class="chk-mini"><input type="checkbox" ${p[campo] ? 'checked' : ''} onchange="toggleVentaBajaFlag('${p.sku}','${campo}',this.checked)"> ${etiqueta}</label>`;
+  $('wrapVentasBaja').innerHTML = `
+    <div class="tabla-wrap"><table>
+      <thead><tr>
+        <th>SKU</th><th>Producto</th>
+        <th class="ordenable amount" onclick="ordenarVentasBaja('stock')">Stock actual${marca('stock')}</th>
+        <th class="ordenable amount" onclick="ordenarVentasBaja('dias')">Días sin venta${marca('dias')}</th>
+        <th class="ordenable amount" onclick="ordenarVentasBaja('anio')">Ventas último año (unid.)${marca('anio')}</th>
+        <th class="ordenable amount" onclick="ordenarVentasBaja('monto')">Monto acumulado (año)${marca('monto')}</th>
+        ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('costo')">Costo total stock${marca('costo')}</th>` : ''}
+        ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('oportunidad')">Oportunidad de venta (c/IVA)${marca('oportunidad')}</th>` : ''}
+        ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('margen')">Margen total stock${marca('margen')}</th>` : ''}
+        <th>Acciones</th>
+      </tr></thead>
+      <tbody>
+        ${ordenados.map(p => `
+          <tr>
+            <td><span class="sku-code">${escapeHtml(p.sku)}</span></td>
+            <td>${p.categoria && CATEGORIA_VENTA_BAJA_LABEL[p.categoria] ? `<div class="empty-note" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px;">${CATEGORIA_VENTA_BAJA_LABEL[p.categoria]}</div>` : ''}${escapeHtml(p.nombre || p.sku)}</td>
+            <td class="amount">${fmtNum(p.stockActual)}</td>
+            <td class="amount">${celdaDias(p)}</td>
+            <td class="amount">${fmtNum(p.cantidadAnio)}</td>
+            <td class="amount">${fmtMoneda(p.montoAnio)}</td>
+            ${celdaAdminMonto(p.costoTotal)}
+            ${celdaAdminMonto(p.oportunidadVenta)}
+            ${celdaAdminMonto(p.margenTotal)}
+            <td style="min-width:190px;">
+              <div class="chk-group">
+                ${checkFlag(p, 'mercadoLibre', '🛒 Mercado Libre')}
+                ${checkFlag(p, 'envioGratis', '🚚 Envío gratis')}
+                ${checkFlag(p, 'variacionPrecio', '💲 Variación de precio')}
+              </div>
+              <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
+                <button class="btn-icono" title="${p.comentario ? 'Comentario: ' + escapeHtml(p.comentario) : 'Sin comentario — clic para agregar'}" onclick="editarComentarioVentaBaja('${p.sku}')">📝</button>
+                ${esAdmin ? `<button class="btn-icono" title="Sacar de este análisis" onclick="eliminarVentaBajaSku('${p.sku}')">🗑️</button>` : ''}
+                ${p.comentario ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.comentario)}</span>` : ''}
+              </div>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table></div>
+  `;
+}
+
+async function iniciarSincronizacion(){
+  if(sincronizando) return;
+  sincronizando = true;
+  $('btnSincronizar').disabled = true;
+  $('syncStatus').className = '';
+  $('syncStatus').textContent = 'Sincronizando con Bsale...';
+  try{
+    let completo = false;
+    while(!completo){
+      const res = await fetch('/api/negocio?recurso=sync-analisis', { method: 'POST' });
+      const data = await res.json();
+      if(data.error){
+        $('syncStatus').className = 'err';
+        $('syncStatus').textContent = 'Error: ' + data.error;
+        break;
+      }
+      completo = data.completo;
+      const pctAnalisis = data.totalDocumentos ? ` — ${Math.round(data.offsetActual / data.totalDocumentos * 100)}%` : '';
+      $('syncStatus').textContent = completo
+        ? 'Sincronización completa.'
+        : `Sincronizando...${pctAnalisis} (${fmtNum(data.offsetActual)}${data.totalDocumentos ? ' de ' + fmtNum(data.totalDocumentos) : ''} documentos revisados)`;
+      if(completo){ cargarVentasBaja(); }
+    }
+  }catch(err){
+    $('syncStatus').className = 'err';
+    $('syncStatus').textContent = 'Error: ' + err.message;
+  }finally{
+    sincronizando = false;
+    $('btnSincronizar').disabled = false;
+  }
+}
+
+cargarSesionUsuario();
+</script>
+</body>
+</html>
