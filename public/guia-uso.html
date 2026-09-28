@@ -119,6 +119,12 @@
     <a href="#conciliacion">Conciliación</a>
     <a href="#compras">Compras</a>
     <a href="#alertas">Alertas de Stock</a>
+    <a href="#oportunidades-comerciales">Oportunidades Comerciales</a>
+    <a href="#cotizaciones-clientes">Cotizaciones Clientes</a>
+    <a href="#puntos-bsale">Puntos Bsale</a>
+    <a href="#indexpro-nas">Indexpro</a>
+    <a href="#compra-agil">Compra Ágil</a>
+    <a href="#panel-accesorios">Panel de Accesorios</a>
     <a href="#roles">Roles y permisos</a>
     <a href="#soporte">¿Algo no funciona?</a>
   </div>
@@ -162,6 +168,45 @@
     <h2>🔔 Alertas de Stock</h2>
     <p>Se enfoca en el riesgo: qué se está por quedar sin stock, qué productos nunca deberían faltar (marcados automáticamente por ser los más vendidos, o a mano por ti), y cómo viene la tendencia semana a semana. Cada tabla se puede ordenar, filtrar por categoría, expandir a la lista completa, o minimizar la sección entera.</p>
     <div class="ejemplo"><b>Ejemplo:</b> un cargador que vende bien lleva 3 días sin stock. En "Ventas que se están perdiendo por quiebre" ves que eso ya te costó cerca de $45.000 en margen estimado. Si el número no te hace sentido (por ejemplo, dejaste de vender ese modelo a propósito), usa el botón <b>"💬 Objetar"</b> en esa misma fila para avisarle a soporte con el contexto exacto que estabas viendo.</div>
+  </div>
+
+  <div class="card" id="oportunidades-comerciales">
+    <h2>📈 Oportunidades Comerciales</h2>
+    <p>Junta las distintas fuentes de negocio que maneja el equipo comercial en una sola página, repartidas en 5 pestañas: <b>Cotizaciones Clientes</b>, <b>Puntos Bsale</b>, <b>Indexpro</b>, <b>Compra Ágil</b> y <b>Panel de Accesorios</b>. Cada pestaña tiene sus propios datos y filtros, pero todas comparten la misma lógica de fondo: dejar registrado en qué estado está cada oportunidad para poder hacerle seguimiento, y para que el sistema pueda armar reportería real de gestión (cuántas se cierran, quién las cierra, cuánto se demora cada una) en vez de depender de la memoria de cada vendedor.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> entras a "Ventas → Oportunidades Comerciales" y por defecto se abre la pestaña "Cotizaciones Clientes" (la de uso más diario). Si lo que necesitas es revisar el avance del bono de accesorios del mes, cambias a la pestaña "Panel de Accesorios" arriba — son vistas independientes, no hace falta salir de la página.</div>
+  </div>
+
+  <div class="card" id="cotizaciones-clientes">
+    <h2>📋 Cotizaciones Clientes</h2>
+    <p>Trae todas las cotizaciones emitidas en Bsale (sincronizadas automáticamente, cubre los últimos 180 días) y las deja organizadas por cliente para hacerles seguimiento hasta que se conviertan en venta. Arriba puedes filtrar por <b>rango de fechas</b> (con atajos Hoy / Semana / Mes actual / Mes anterior, además del selector manual), por <b>nombre de cliente</b>, y por <b>estado</b>. Los KPI de arriba (cotizaciones y monto del rango filtrado, cotizaciones/monto/facturado del mes actual con su variación vs. el mes anterior) se recalculan según esos mismos filtros.</p>
+    <p>La sección <b>"Vendedores — rango filtrado"</b> arma un ranking por vendedor con cotizaciones creadas, facturadas, % de conversión, ticket promedio, antigüedad de las que siguen abiertas, tiempo promedio entre cotización y factura, y monto vendido — todo calculado sobre el rango de fechas elegido arriba, comparado contra el período inmediatamente anterior de igual duración. Haz clic en el nombre de un vendedor para filtrar la tabla de abajo solo por sus cotizaciones.</p>
+    <p>La tabla <b>"Cotizaciones por cliente"</b> es donde se hace el seguimiento día a día: cada fila tiene el cliente (con acceso directo a WhatsApp si hay teléfono), el vendedor, el N° de cotización, el monto, los días sin contacto (se marca en rojo desde los 7 días — la tarjeta "⏰ Requieren seguimiento" filtra directo por esas), si el cliente ya había comprado antes, y — si se llegó a facturar — el documento asociado y cuántos días pasaron entre cotizar y facturar. La columna <b>Estado</b> es un selector que se guarda solo al cambiarlo, sin botón de guardar aparte.</p>
+    <p>Los estados posibles son: <b>Sin contactar</b> (recién llegó, nadie la ha tocado) → <b>Contactado</b> (ya se hizo el primer contacto) → <b>Contactado — no responde</b> o <b>Contactado 2ª vez</b> (según cómo siga el seguimiento) → y, según cómo termine, <b>Mercado Público</b> (si el cliente sigue ese canal en vez de cerrarse directo), <b>Perdida</b> (no se concretó) o <b>Venta concretada ✓</b> (se facturó — Bsale la vincula solo por monto/fecha/cliente). Mantener el estado al día no es solo orden: de ahí sale el % de conversión por vendedor, el aviso de "requiere seguimiento", y los montos de "cotizado" vs. "facturado" del mes — si nadie avanza el estado, esos números quedan mal aunque la venta sí se haya hecho.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> Stephanie cotiza $180.000 a un cliente nuevo un lunes. Ese mismo día lo llama y cambia el estado a <b>"Contactado"</b>. El cliente no contesta en los días siguientes — a los 7 días la fila aparece marcada como "Requieren seguimiento", así que lo vuelve a llamar y pasa a <b>"Contactado 2ª vez"</b>. Dos días después el cliente compra: Bsale genera la factura, el sistema la vincula sola con esa cotización, y el estado pasa a <b>"Venta concretada ✓"</b> — automáticamente suma a "Facturadas" y "Monto vendido" de Stephanie en el ranking de vendedores, y a "Acumulado facturado — mes actual" arriba.</div>
+  </div>
+
+  <div class="card" id="puntos-bsale">
+    <h2>🎁 Puntos Bsale</h2>
+    <p>Lista a los clientes con puntos de fidelización disponibles en Bsale, ordenados de mayor a menor saldo — la base natural para una campaña de canje. Incluye exportación lista para subir a mailing o WhatsApp (solo clientes con ese dato disponible), y una detección aparte de "Empresas con correo personal": clientes registrados como empresa en Bsale pero cuyo correo es de un proveedor gratuito (Gmail, Hotmail, etc.) en vez de uno del dominio propio, señal de que probablemente solo una persona está recibiendo esos correos.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> quieres lanzar una campaña de canje de puntos por WhatsApp. Entras a esta pestaña, revisas cuántos clientes tienen teléfono registrado (contador junto al botón), y descargas esa lista ya filtrada con "📱 Exportar para WhatsApp" — sin tener que cruzar manualmente el reporte de puntos de Bsale con los datos de contacto.</div>
+  </div>
+
+  <div class="card" id="indexpro-nas">
+    <h2>🏢 Indexpro (NAS / soporte TI)</h2>
+    <p>Es el mismo tipo de seguimiento que "Cotizaciones Clientes", pero para las oportunidades de <b>NAS y soporte TI de Indexpro</b>: clientes de Bsale evaluados y priorizados con un puntaje (55% monto histórico comprado + 25% número de compras + 20% si compró en los últimos 12 meses), para saber a quién vale la pena ofrecerle el servicio primero. Tiene su propio flujo de estados, más simple que el de cotizaciones: <b>Sin contactar</b> → <b>Primer correo enviado</b> → <b>Contactado</b> → <b>Cotizado</b> → <b>Ganado ✓</b> o <b>Perdido</b>.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> el ranking muestra arriba de todo a un cliente que le compró $4.200.000 a Indexpro en el último año — buen candidato para ofrecerle NAS. Se le envía el primer correo y se marca <b>"Primer correo enviado"</b>; cuando responde interesado, pasa a <b>"Contactado"</b>, y así hasta cerrar el trato o descartarlo.</div>
+  </div>
+
+  <div class="card" id="compra-agil">
+    <h2>🏛️ Compra Ágil</h2>
+    <p>Muestra las órdenes de compra que IndexPro recibe a través de Mercado Público / Compra Ágil (bajo el RUT de IndexPro, desde 2026), sincronizadas directo desde la API de Mercado Público. Cada orden se cruza automáticamente por monto, fecha y organismo con las cotizaciones y facturas/boletas reales de Bsale — la mayoría se factura directo, sin pasar por una cotización, así que solo esas quedan con vendedor identificado en el comparativo de abajo (el resto cae en "Sin vendedor identificado"). Tiene los mismos filtros de fecha/organismo/estado y KPIs de total facturado, órdenes válidas/canceladas y ticket promedio, con comparación mes actual vs. mes anterior.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> llega una nueva orden de compra de una municipalidad. El sistema la sincroniza sola desde Mercado Público y, al facturarse en Bsale por el mismo monto y organismo, la vincula automáticamente — aparece en "Historial de órdenes de compra" ya con su documento de Bsale asociado, sin que nadie tenga que cruzarlas a mano.</div>
+  </div>
+
+  <div class="card" id="panel-accesorios">
+    <h2>🖱️ Panel de Accesorios</h2>
+    <p>Sigue la venta de accesorios de vitrina (mouse, funda para notebook, base notebook, soporte, kit limpiador, pad mouse) del mes en curso, ligada al bono mensual por vendedor. Cada vendedor ve su propia barra de avance acumulado hacia la meta del mes, y hay un ranking para comparar el desempeño entre todos.</p>
+    <div class="ejemplo"><b>Ejemplo:</b> la meta del mes es $200.000 por vendedor. David ya vendió $140.000 en accesorios — su barra de avance muestra 70%, y puede ver en el ranking cuánto le falta para alcanzar (o superar) al resto del equipo antes de fin de mes.</div>
   </div>
 
   <div class="card" id="roles">
