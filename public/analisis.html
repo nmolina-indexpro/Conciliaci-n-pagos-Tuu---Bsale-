@@ -246,6 +246,29 @@
     <div id="wrapVariacionPrecio"><p class="empty-note">Cargando...</p></div>
   </div>
 
+  <div class="seccion" id="seccionHorarioExtendido">
+    <div class="seccion-head">
+      <div>
+        <h2>🕕 Ventas en horario extendido (miércoles y jueves)</h2>
+        <div class="sub" style="margin-bottom:0;">Ventas reales de Bsale (boletas/facturas, sin cotizaciones ni notas de crédito) generadas entre las 18:30 y las 19:30 los días miércoles y jueves -- para evaluar si vale la pena la extensión horaria de esos dos días. Usa la hora real en que se generó el documento en Bsale (no la fecha de emisión, que no trae hora).</div>
+      </div>
+      <div class="seccion-head-acciones">
+        <button class="btn-toggle-seccion" id="toggle-seccionHorarioExtendido" onclick="toggleSeccion('seccionHorarioExtendido')" title="Minimizar">▾</button>
+      </div>
+    </div>
+    <div class="filtros" style="margin-top:6px;">
+      <div class="filtro-rango-fechas">
+        <div class="date-field"><label for="heDesde">Desde</label><input type="date" id="heDesde" onchange="cargarHorarioExtendido()"></div>
+        <div class="date-field"><label for="heHasta">Hasta</label><input type="date" id="heHasta" onchange="cargarHorarioExtendido()"></div>
+      </div>
+      <button class="btn-ghost btn-compact" id="btnHeSemana" onclick="setRangoRapidoHorarioExtendido('semana')">Última semana</button>
+      <button class="btn-ghost btn-compact active" id="btnHeMes" onclick="setRangoRapidoHorarioExtendido('mes')">Últimos 30 días</button>
+      <button class="btn-ghost btn-compact" id="btnHe3Meses" onclick="setRangoRapidoHorarioExtendido('3meses')">Últimos 3 meses</button>
+    </div>
+    <div id="horarioExtendidoResumen" class="sub" style="margin:10px 0 14px;"></div>
+    <div id="wrapHorarioExtendido"><p class="empty-note">Cargando...</p></div>
+  </div>
+
   <div class="seccion" id="seccionDetalle" style="display:none;">
     <div class="seccion-head">
       <div>
@@ -301,7 +324,7 @@ function fmtNum(n){ return new Intl.NumberFormat('es-CL').format(n || 0); }
 // El estado se guarda en localStorage por sección (no en el servidor):
 // es una preferencia de cómo cada persona quiere ver la pantalla en SU
 // navegador, no un dato que otros usuarios deban compartir.
-const SECCIONES_COLAPSABLES = ['seccionClientesRecurrentes', 'seccionVariacionPrecio'];
+const SECCIONES_COLAPSABLES = ['seccionClientesRecurrentes', 'seccionVariacionPrecio', 'seccionHorarioExtendido'];
 function toggleSeccion(id, forzarColapsada){
   const el = $(id);
   if(!el) return;
@@ -336,6 +359,7 @@ async function cargarSesionUsuario(){
     }
     cargarAnalisis();
     setRangoRapidoVarPrecio('mes'); // dispara cargarVariacionPrecio() con el rango por defecto (mes actual)
+    setRangoRapidoHorarioExtendido('mes'); // dispara cargarHorarioExtendido() con el rango por defecto (últimos 30 días)
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){
@@ -895,6 +919,66 @@ async function iniciarSincronizacion(){
   }finally{
     sincronizando = false;
     $('btnSincronizar').disabled = false;
+  }
+}
+
+// ---------- Ventas en horario extendido (miércoles y jueves) ----------
+// Consulta en vivo a Bsale (no hay tabla propia -- ver
+// manejarVentasHorarioExtendido en negocio.js), así que cada cambio de
+// rango vuelve a pedir. Rango de fechas con los mismos botones rápidos que
+// el resto de la página (Semana/Mes/personalizado).
+const hoyStrHe = new Date().toISOString().slice(0, 10);
+function addDaysStrHe(dateStr, days){
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  dt.setUTCDate(dt.getUTCDate()+days);
+  return dt.toISOString().slice(0,10);
+}
+const BOTONES_RANGO_HE = { semana: 'btnHeSemana', mes: 'btnHeMes', '3meses': 'btnHe3Meses' };
+function setRangoRapidoHorarioExtendido(tipo){
+  let desde;
+  if(tipo === 'semana') desde = addDaysStrHe(hoyStrHe, -6);
+  else if(tipo === '3meses') desde = addDaysStrHe(hoyStrHe, -89);
+  else desde = addDaysStrHe(hoyStrHe, -29); // 'mes' (default) -- últimos 30 días
+  $('heDesde').value = desde;
+  $('heHasta').value = hoyStrHe;
+  Object.values(BOTONES_RANGO_HE).forEach(id => $(id).classList.remove('active'));
+  if(BOTONES_RANGO_HE[tipo]) $(BOTONES_RANGO_HE[tipo]).classList.add('active');
+  cargarHorarioExtendido();
+}
+async function cargarHorarioExtendido(){
+  Object.values(BOTONES_RANGO_HE).forEach(id => $(id).classList.remove('active')); // el rango pudo cambiar a mano
+  $('wrapHorarioExtendido').innerHTML = '<p class="empty-note">Cargando...</p>';
+  $('horarioExtendidoResumen').textContent = '';
+  try{
+    const desde = $('heDesde').value, hasta = $('heHasta').value;
+    const res = await fetch(`/api/negocio?recurso=ventas-horario-extendido&desde=${desde}&hasta=${hasta}`);
+    const data = await res.json();
+    if(!res.ok || data.error){
+      $('wrapHorarioExtendido').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`;
+      return;
+    }
+    $('horarioExtendidoResumen').textContent = `${fmtNum(data.cantidad)} ${data.cantidad === 1 ? 'venta' : 'ventas'} por ${fmtMoneda(data.totalMonto)} entre el ${data.desde} y el ${data.hasta}.`;
+    if(!data.ventas.length){
+      $('wrapHorarioExtendido').innerHTML = '<p class="empty-note">No hubo ventas en el horario extendido (18:30 a 19:30, miércoles y jueves) en este período.</p>';
+      return;
+    }
+    $('wrapHorarioExtendido').innerHTML = `
+      <div class="tabla-wrap"><table>
+        <thead><tr><th>Fecha</th><th>Día</th><th>Hora</th><th>Documento</th><th>Cliente</th><th class="amount">Monto</th></tr></thead>
+        <tbody>${data.ventas.map(v => `
+          <tr>
+            <td>${escapeHtml(v.fecha)}</td>
+            <td style="text-transform:capitalize;">${escapeHtml(v.diaSemana)}</td>
+            <td>${escapeHtml(v.hora)}</td>
+            <td>${escapeHtml([v.tipoDocumento, v.numero ? '#' + v.numero : ''].filter(Boolean).join(' '))}</td>
+            <td>${escapeHtml(v.cliente || 'Sin nombre')}</td>
+            <td class="amount">${fmtMoneda(v.monto)}</td>
+          </tr>`).join('')}</tbody>
+      </table></div>
+    `;
+  }catch(err){
+    $('wrapHorarioExtendido').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
   }
 }
 

@@ -130,6 +130,7 @@ export default async function handler(req, res) {
   if (recurso === 'sync-analisis') return manejarSyncAnalisis(req, res, sesion);
   if (recurso === 'ventas-sku-tendencia') return manejarVentasSkuTendencia(req, res, sesion);
   if (recurso === 'precios-sku-variacion') return manejarPreciosSkuVariacion(req, res, sesion);
+  if (recurso === 'ventas-horario-extendido') return manejarVentasHorarioExtendido(req, res, sesion);
   if (recurso === 'servicios-por-mes') return manejarServiciosPorMes(req, res, sesion);
   if (recurso === 'sync-servicios-tecnico') return manejarSyncServiciosTecnico(req, res, sesion);
   if (recurso === 'link-compra') return manejarLinkCompra(req, res, sesion);
@@ -2148,6 +2149,97 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error calculando la variación de precio por SKU', detail: String(err) });
+  }
+}
+
+// ---- Ventas en horario extendido (miércoles y jueves, 18:30-19:30) ----
+// Pedido del usuario: ver qué se vendió durante la extensión horaria de
+// esos dos días, para poder evaluar si vale la pena mantenerla. Bsale no
+// deja filtrar por HORA vía la API (emissiondaterange es por día completo),
+// así que se trae el rango de días completo (en vivo, no desde
+// bsale_ventas_sku -- esa tabla solo guarda la fecha, no la hora) y se
+// filtra la hora acá mismo, usando generationDate: el momento REAL en que
+// se generó el documento, con hora -- a diferencia de emissionDate, que
+// Bsale siempre normaliza a medianoche del día calendario (ver
+// toUtcDateStr en bsale-report.js), generationDate sí trae hora real.
+// OJO -- sin confirmar contra un documento real: se asume que generationDate
+// es un timestamp Unix genuino (UTC de verdad), así que alcanza con
+// convertirlo a America/Santiago. Si al revisar los resultados las horas no
+// calzan con lo que de verdad pasó en la tienda, es la primera hipótesis a
+// revisar.
+const HORARIO_EXTENDIDO_DIAS_SEMANA = ['miércoles', 'jueves'];
+const HORARIO_EXTENDIDO_DESDE_MIN = 18 * 60 + 30; // 18:30
+const HORARIO_EXTENDIDO_HASTA_MIN = 19 * 60 + 30; // 19:30 (inclusive)
+function diaYHoraChile(unixSeconds) {
+  if (!unixSeconds) return null;
+  const partes = new Intl.DateTimeFormat('es-CL', {
+    timeZone: 'America/Santiago', weekday: 'long', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(unixSeconds * 1000));
+  const obtener = tipo => partes.find(p => p.type === tipo)?.value;
+  const hora = Number(obtener('hour'));
+  const minuto = Number(obtener('minute'));
+  if (!Number.isFinite(hora) || !Number.isFinite(minuto)) return null;
+  return { diaSemana: obtener('weekday'), hora, minuto };
+}
+async function manejarVentasHorarioExtendido(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+  try {
+    const hastaStr = /^\d{4}-\d{2}-\d{2}$/.test(req.query.hasta) ? req.query.hasta : new Date().toISOString().slice(0, 10);
+    const desdeStr = /^\d{4}-\d{2}-\d{2}$/.test(req.query.desde)
+      ? req.query.desde
+      : new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+    const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
+    const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
+    const limit = 50;
+    const docsUrl = offset => `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[client,document_type]&limit=${limit}&offset=${offset}`;
+
+    const first = await fetchConTimeout(docsUrl(0), { headers: { access_token: token } }, 15000).then(r => r.json());
+    let allDocs = [...(first.items || [])];
+    const total = typeof first.count === 'number' ? first.count : allDocs.length;
+    const totalPages = Math.min(Math.ceil(total / limit), 40); // tope de seguridad: 2.000 documentos
+    if (totalPages > 1) {
+      const paginas = await Promise.all(
+        Array.from({ length: totalPages - 1 }, (_, i) => fetchConTimeout(docsUrl((i + 1) * limit), { headers: { access_token: token } }, 15000).then(r => r.json()))
+      );
+      for (const p of paginas) allDocs.push(...(p.items || []));
+    }
+
+    const seenIds = new Set();
+    const ventas = [];
+    for (const d of allDocs) {
+      if (seenIds.has(d.id)) continue;
+      seenIds.add(d.id);
+      if (d.state !== 0 || d.cancellationStatus) continue; // anulado/inactivo
+      if (!esVentaReal(d.document_type)) continue; // descarta cotizaciones y notas de crédito
+
+      // emissiondaterange trae ±6h de margen (ver rangeStart/rangeEnd) para
+      // no perder documentos de borde por husos horarios -> hay que
+      // recortar de nuevo al rango exacto pedido, en UTC puro (mismo
+      // criterio que toUtcDateStr en bsale-report.js).
+      const fechaEmision = d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null;
+      if (!fechaEmision || fechaEmision < desdeStr || fechaEmision > hastaStr) continue;
+
+      const infoHora = diaYHoraChile(d.generationDate);
+      if (!infoHora || !HORARIO_EXTENDIDO_DIAS_SEMANA.includes(infoHora.diaSemana)) continue;
+      const totalMinutos = infoHora.hora * 60 + infoHora.minuto;
+      if (totalMinutos < HORARIO_EXTENDIDO_DESDE_MIN || totalMinutos > HORARIO_EXTENDIDO_HASTA_MIN) continue;
+
+      ventas.push({
+        numero: d.number ? String(d.number) : '', tipoDocumento: d.document_type?.name || null,
+        cliente: nombreClienteDoc(d.client), monto: Number(d.totalAmount) || 0,
+        fecha: fechaEmision, diaSemana: infoHora.diaSemana,
+        hora: `${String(infoHora.hora).padStart(2, '0')}:${String(infoHora.minuto).padStart(2, '0')}`,
+      });
+    }
+    ventas.sort((a, b) => (a.fecha === b.fecha ? a.hora.localeCompare(b.hora) : a.fecha.localeCompare(b.fecha)));
+    const totalMonto = ventas.reduce((acc, v) => acc + v.monto, 0);
+
+    return res.status(200).json({ desde: desdeStr, hasta: hastaStr, cantidad: ventas.length, totalMonto, ventas });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error consultando ventas en horario extendido', detail: String(err) });
   }
 }
 
