@@ -72,6 +72,11 @@ export default async function handler(req, res) {
   // patrón que los dos de arriba. Ver vercel.json y middleware.ts
   // (esCotizacionesSeguimientoDiarioPublico).
   if (req.query.recurso === 'cotizaciones-seguimiento-diario') return manejarCotizacionesSeguimientoDiario(req, res);
+  // Cron diario (todos los días) de cambios en los checkboxes de "Productos
+  // estancados" (Mercado Libre / Envío gratis / Variación de precio) --
+  // mismo patrón que los de arriba. Ver vercel.json y middleware.ts
+  // (esProductosEstancadosFlagsNotificarPublico).
+  if (req.query.recurso === 'productos-estancados-flags-notificar') return manejarProductosEstancadosFlagsNotificar(req, res);
   // Píxel de seguimiento de apertura de los correos de IndexScale -- lo
   // carga el cliente de correo del destinatario, sin sesión. Mismo patrón
   // que los de arriba, pero la seguridad real la hace el token aleatorio
@@ -1802,6 +1807,18 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
         }
       }
       if (mercadoLibre !== undefined || envioGratis !== undefined || variacionPrecio !== undefined) {
+        // Se lee el estado ANTES de pisarlo -- es la única forma de saber
+        // qué campo realmente cambió (prender un checkbox que ya estaba
+        // prendido no es un cambio real, no debe generar una fila de
+        // historial ni aparecer en el correo diario de
+        // manejarProductosEstancadosFlagsNotificar).
+        const { rows: actualRows } = await sql`SELECT mercado_libre, envio_gratis, variacion_precio FROM ventas_sku_comentarios WHERE sku = ${sku};`;
+        const actual = actualRows[0] || { mercado_libre: false, envio_gratis: false, variacion_precio: false };
+        const cambios = [];
+        if (mercadoLibre !== undefined && !!mercadoLibre !== !!actual.mercado_libre) cambios.push(['mercado_libre', !!mercadoLibre]);
+        if (envioGratis !== undefined && !!envioGratis !== !!actual.envio_gratis) cambios.push(['envio_gratis', !!envioGratis]);
+        if (variacionPrecio !== undefined && !!variacionPrecio !== !!actual.variacion_precio) cambios.push(['variacion_precio', !!variacionPrecio]);
+
         await sql`
           INSERT INTO ventas_sku_comentarios (sku, mercado_libre, envio_gratis, variacion_precio, actualizado_por, actualizado_en)
           VALUES (${sku}, ${!!mercadoLibre}, ${!!envioGratis}, ${!!variacionPrecio}, ${sesion.nombre || sesion.email}, now())
@@ -1811,6 +1828,9 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
             variacion_precio = CASE WHEN ${variacionPrecio !== undefined} THEN EXCLUDED.variacion_precio ELSE ventas_sku_comentarios.variacion_precio END,
             actualizado_por = EXCLUDED.actualizado_por, actualizado_en = EXCLUDED.actualizado_en;
         `;
+        for (const [campo, valorNuevo] of cambios) {
+          await sql`INSERT INTO ventas_sku_flags_historial (sku, campo, valor_nuevo, cambiado_por) VALUES (${sku}, ${campo}, ${valorNuevo}, ${sesion.nombre || sesion.email});`;
+        }
       }
       return res.status(200).json({ ok: true, id: nuevoComentarioId });
     }
@@ -1919,6 +1939,90 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error leyendo la tendencia de ventas por SKU', detail: String(err) });
+  }
+}
+
+// Correo diario con lo que cambió en los 3 checkboxes de "Productos
+// estancados" (Mercado Libre / Envío gratis / Variación de precio) --
+// ventana móvil de 24h (no "desde medianoche") para no depender de que el
+// cron dispare siempre a la misma hora exacta. Solo se manda si hubo algún
+// cambio real (ver el filtro en el PUT de manejarVentasSkuTendencia, que ya
+// descarta prender un checkbox que ya estaba prendido) -- si no hay nada
+// en la ventana, no se envía nada, a propósito.
+const PRODUCTOS_ESTANCADOS_FLAGS_DESTINATARIOS = ['nmolina@indexstore.cl'];
+const PRODUCTOS_ESTANCADOS_FLAGS_CAMPO_INFO = {
+  mercado_libre: {
+    titulo: '🛒 Mercado Libre',
+    activado: 'Publicar en Mercado Libre si todavía no está publicado.',
+    desactivado: 'Se desmarcó "Mercado Libre" para este producto.',
+  },
+  envio_gratis: {
+    titulo: '🚚 Envío gratis',
+    activado: 'Configurar envío gratis a todo Chile para este producto.',
+    desactivado: 'Se desmarcó "Envío gratis" para este producto.',
+  },
+  variacion_precio: {
+    titulo: '💲 Variación de precio',
+    activado: 'Se marcó una variación de precio en este producto -- revisar el precio publicado.',
+    desactivado: 'Se desmarcó "Variación de precio" para este producto.',
+  },
+};
+async function manejarProductosEstancadosFlagsNotificar(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  try {
+    const sql = await getSql();
+    await asegurarTablaVentasSkuEstado(sql);
+    const { rows } = await sql`
+      SELECT sku, campo, valor_nuevo, cambiado_por, cambiado_en
+      FROM ventas_sku_flags_historial
+      WHERE cambiado_en >= now() - interval '24 hours'
+      ORDER BY cambiado_en ASC;
+    `;
+    if (rows.length === 0) return res.status(200).json({ ok: true, cambios: 0, enviado: false });
+
+    await asegurarTablaVentasSku(sql);
+    const skus = [...new Set(rows.map(r => r.sku))];
+    const { rows: nombresRows } = await sql.query(
+      `SELECT sku, MAX(nombre) AS nombre FROM bsale_ventas_sku WHERE sku = ANY($1) GROUP BY sku;`,
+      [skus]
+    );
+    const nombrePorSku = Object.fromEntries(nombresRows.map(r => [r.sku, r.nombre]));
+
+    const porCampo = new Map();
+    for (const r of rows) {
+      if (!porCampo.has(r.campo)) porCampo.set(r.campo, []);
+      porCampo.get(r.campo).push(r);
+    }
+
+    const urlPagina = `${URL_BASE_APP}/productos-estancados.html`;
+    const bloques = [...porCampo.entries()].map(([campo, filas]) => {
+      const info = PRODUCTOS_ESTANCADOS_FLAGS_CAMPO_INFO[campo] || { titulo: campo, activado: 'Se activó.', desactivado: 'Se desactivó.' };
+      const items = filas.map(f => {
+        const nombre = nombrePorSku[f.sku] || f.sku;
+        const accion = f.valor_nuevo ? info.activado : info.desactivado;
+        return `<li><b>${f.sku}</b> — ${nombre}: ${accion} <span style="color:#999;font-size:11px;">(${f.cambiado_por || 'Desconocido'}, ${new Date(f.cambiado_en).toLocaleString('es-CL')})</span></li>`;
+      }).join('');
+      return `<h3>${info.titulo} (${filas.length})</h3><ul>${items}</ul>`;
+    }).join('');
+
+    const html = `
+      <h2>📋 Cambios en Productos estancados</h2>
+      <p style="color:#666;">${rows.length} ${rows.length === 1 ? 'cambio' : 'cambios'} en las últimas 24 horas.</p>
+      ${bloques}
+      <p><a href="${urlPagina}">Ver en el ERP -- Productos estancados</a></p>
+    `;
+    const asunto = `📋 Productos estancados -- ${rows.length} ${rows.length === 1 ? 'cambio' : 'cambios'} en las últimas 24h`;
+    const envios = [];
+    for (const para of PRODUCTOS_ESTANCADOS_FLAGS_DESTINATARIOS) {
+      envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
+    }
+    return res.status(200).json({ ok: true, cambios: rows.length, enviado: true, envios });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error generando el resumen de cambios de Productos estancados', detail: String(err) });
   }
 }
 

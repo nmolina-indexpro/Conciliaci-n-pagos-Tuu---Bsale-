@@ -25,6 +25,10 @@
     {
       "path": "/api/negocio?recurso=cotizaciones-seguimiento-diario",
       "schedule": "0 13 * * 1-5"
+    },
+    {
+      "path": "/api/negocio?recurso=productos-estancados-flags-notificar",
+      "schedule": "30 13 * * *"
     }
   ],
   "headers": [
