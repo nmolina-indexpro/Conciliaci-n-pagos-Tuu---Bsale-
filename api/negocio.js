@@ -2181,6 +2181,18 @@ function diaYHoraChile(unixSeconds) {
   if (!Number.isFinite(hora) || !Number.isFinite(minuto)) return null;
   return { diaSemana: obtener('weekday'), hora, minuto };
 }
+// Primer/último día del mes de una fecha YYYY-MM-DD, en el mismo formato.
+function primerDiaMes(fechaStr) { return fechaStr.slice(0, 7) + '-01'; }
+function ultimoDiaMes(fechaStr) {
+  const [y, m] = fechaStr.slice(0, 7).split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); // día 0 del mes siguiente = último día de este mes
+}
+function diaAnterior(fechaStr) { return new Date(new Date(fechaStr + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10); }
+function resumenVentas(ventas) {
+  const cantidad = ventas.length;
+  const totalMonto = ventas.reduce((acc, v) => acc + v.monto, 0);
+  return { cantidad, totalMonto, ticketPromedio: cantidad > 0 ? Math.round(totalMonto / cantidad) : 0 };
+}
 async function manejarVentasHorarioExtendido(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   const token = process.env.BSALE_ACCESS_TOKEN;
@@ -2191,12 +2203,31 @@ async function manejarVentasHorarioExtendido(req, res, sesion) {
       ? req.query.desde
       : new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
 
-    const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
-    const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
-    const limit = 50;
-    const docsUrl = offset => `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[client,document_type]&limit=${limit}&offset=${offset}`;
+    // Mes actual (hasta hoy, no hasta fin de mes -- no se inventan ventas
+    // futuras) y mes anterior completo -- pedido del usuario, para poder
+    // comparar sin depender de qué rango eligió arriba en el filtro.
+    const hoyStr = new Date().toISOString().slice(0, 10);
+    const mesActualDesde = primerDiaMes(hoyStr);
+    const mesActualHasta = hoyStr;
+    const mesAnteriorHasta = diaAnterior(mesActualDesde);
+    const mesAnteriorDesde = primerDiaMes(mesAnteriorHasta);
 
-    const first = await fetchConTimeout(docsUrl(0), { headers: { access_token: token } }, 15000).then(r => r.json());
+    // Una sola pasada a Bsale que cubra el rango elegido POR EL USUARIO y
+    // los dos meses de comparación a la vez -- evita pedir lo mismo 3 veces
+    // si los rangos se superponen (lo normal: el filtro por defecto ya son
+    // los últimos 30 días, que casi siempre incluye el mes actual).
+    const fetchDesde = [desdeStr, mesAnteriorDesde].sort()[0];
+    const fetchHasta = [hastaStr, mesActualHasta].sort().slice(-1)[0];
+
+    const rangeStart = Math.floor(new Date(`${fetchDesde}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
+    const rangeEnd = Math.floor(new Date(`${fetchHasta}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
+    const limit = 50;
+    const docsUrl = offset => `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[client,document_type,user]&limit=${limit}&offset=${offset}`;
+
+    const [first, vendedoresPorId] = await Promise.all([
+      fetchConTimeout(docsUrl(0), { headers: { access_token: token } }, 15000).then(r => r.json()),
+      obtenerMapaVendedores(token),
+    ]);
     let allDocs = [...(first.items || [])];
     const total = typeof first.count === 'number' ? first.count : allDocs.length;
     const totalPages = Math.min(Math.ceil(total / limit), 40); // tope de seguridad: 2.000 documentos
@@ -2208,7 +2239,7 @@ async function manejarVentasHorarioExtendido(req, res, sesion) {
     }
 
     const seenIds = new Set();
-    const ventas = [];
+    const todasLasVentas = []; // TODO lo que califica como horario extendido dentro de [fetchDesde, fetchHasta]
     for (const d of allDocs) {
       if (seenIds.has(d.id)) continue;
       seenIds.add(d.id);
@@ -2220,24 +2251,52 @@ async function manejarVentasHorarioExtendido(req, res, sesion) {
       // recortar de nuevo al rango exacto pedido, en UTC puro (mismo
       // criterio que toUtcDateStr en bsale-report.js).
       const fechaEmision = d.emissionDate ? new Date(d.emissionDate * 1000).toISOString().slice(0, 10) : null;
-      if (!fechaEmision || fechaEmision < desdeStr || fechaEmision > hastaStr) continue;
+      if (!fechaEmision || fechaEmision < fetchDesde || fechaEmision > fetchHasta) continue;
 
       const infoHora = diaYHoraChile(d.generationDate);
       if (!infoHora || !HORARIO_EXTENDIDO_DIAS_SEMANA.includes(infoHora.diaSemana)) continue;
       const totalMinutos = infoHora.hora * 60 + infoHora.minuto;
       if (totalMinutos < HORARIO_EXTENDIDO_DESDE_MIN || totalMinutos > HORARIO_EXTENDIDO_HASTA_MIN) continue;
 
-      ventas.push({
+      // Sin vendedor asignado (doc.user) -> se asume venta web/automática
+      // (ej. un pedido de Shopify sincronizado), ya que una venta tomada en
+      // el local siempre queda registrada con la sesión de quien la vendió
+      // en Bsale. Sin confirmar contra un documento real -- si aparecen
+      // ventas de mostrador marcadas como "Venta web", esta es la primera
+      // hipótesis a revisar.
+      const vendedorId = d.user?.id ?? null;
+      const vendedor = vendedorId ? (vendedoresPorId.get(vendedorId) || `Usuario #${vendedorId}`) : 'Venta web';
+
+      todasLasVentas.push({
         numero: d.number ? String(d.number) : '', tipoDocumento: d.document_type?.name || null,
         cliente: nombreClienteDoc(d.client), monto: Number(d.totalAmount) || 0,
         fecha: fechaEmision, diaSemana: infoHora.diaSemana,
         hora: `${String(infoHora.hora).padStart(2, '0')}:${String(infoHora.minuto).padStart(2, '0')}`,
+        vendedor,
       });
     }
-    ventas.sort((a, b) => (a.fecha === b.fecha ? a.hora.localeCompare(b.hora) : a.fecha.localeCompare(b.fecha)));
-    const totalMonto = ventas.reduce((acc, v) => acc + v.monto, 0);
+    todasLasVentas.sort((a, b) => (a.fecha === b.fecha ? a.hora.localeCompare(b.hora) : a.fecha.localeCompare(b.fecha)));
 
-    return res.status(200).json({ desde: desdeStr, hasta: hastaStr, cantidad: ventas.length, totalMonto, ventas });
+    const ventas = todasLasVentas.filter(v => v.fecha >= desdeStr && v.fecha <= hastaStr);
+    const ventasMesActual = todasLasVentas.filter(v => v.fecha >= mesActualDesde && v.fecha <= mesActualHasta);
+    const ventasMesAnterior = todasLasVentas.filter(v => v.fecha >= mesAnteriorDesde && v.fecha <= mesAnteriorHasta);
+
+    const porVendedorMap = new Map();
+    for (const v of ventas) {
+      if (!porVendedorMap.has(v.vendedor)) porVendedorMap.set(v.vendedor, { vendedor: v.vendedor, cantidad: 0, monto: 0 });
+      const e = porVendedorMap.get(v.vendedor);
+      e.cantidad++; e.monto += v.monto;
+    }
+    const porVendedor = [...porVendedorMap.values()].sort((a, b) => b.monto - a.monto);
+
+    return res.status(200).json({
+      desde: desdeStr, hasta: hastaStr, ventas, porVendedor,
+      ...resumenVentas(ventas),
+      resumenMensual: {
+        actual: { desde: mesActualDesde, hasta: mesActualHasta, ...resumenVentas(ventasMesActual) },
+        anterior: { desde: mesAnteriorDesde, hasta: mesAnteriorHasta, ...resumenVentas(ventasMesAnterior) },
+      },
+    });
   } catch (err) {
     return res.status(500).json({ error: 'Error consultando ventas en horario extendido', detail: String(err) });
   }

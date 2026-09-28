@@ -265,7 +265,9 @@
       <button class="btn-ghost btn-compact active" id="btnHeMes" onclick="setRangoRapidoHorarioExtendido('mes')">Últimos 30 días</button>
       <button class="btn-ghost btn-compact" id="btnHe3Meses" onclick="setRangoRapidoHorarioExtendido('3meses')">Últimos 3 meses</button>
     </div>
+    <div id="horarioExtendidoResumenMensual" style="margin:14px 0;"></div>
     <div id="horarioExtendidoResumen" class="sub" style="margin:10px 0 14px;"></div>
+    <div id="horarioExtendidoPorVendedor" style="margin-bottom:14px;"></div>
     <div id="wrapHorarioExtendido"><p class="empty-note">Cargando...</p></div>
   </div>
 
@@ -946,10 +948,22 @@ function setRangoRapidoHorarioExtendido(tipo){
   if(BOTONES_RANGO_HE[tipo]) $(BOTONES_RANGO_HE[tipo]).classList.add('active');
   cargarHorarioExtendido();
 }
+// Tarjeta de un mes para el resumen mensual (mes actual vs mes anterior) --
+// mismo estilo .card que el resto del sitio.
+function tarjetaMesHorarioExtendido(titulo, resumenMes, destacada){
+  return `
+    <div class="card${destacada ? ' destacada' : ''}">
+      <div class="lbl">${titulo}</div>
+      <div class="big">${fmtMoneda(resumenMes.totalMonto)}</div>
+      <div class="pct">${fmtNum(resumenMes.cantidad)} ${resumenMes.cantidad === 1 ? 'venta' : 'ventas'} · ticket prom. ${fmtMoneda(resumenMes.ticketPromedio)}</div>
+    </div>`;
+}
 async function cargarHorarioExtendido(){
   Object.values(BOTONES_RANGO_HE).forEach(id => $(id).classList.remove('active')); // el rango pudo cambiar a mano
   $('wrapHorarioExtendido').innerHTML = '<p class="empty-note">Cargando...</p>';
   $('horarioExtendidoResumen').textContent = '';
+  $('horarioExtendidoResumenMensual').innerHTML = '';
+  $('horarioExtendidoPorVendedor').innerHTML = '';
   try{
     const desde = $('heDesde').value, hasta = $('heHasta').value;
     const res = await fetch(`/api/negocio?recurso=ventas-horario-extendido&desde=${desde}&hasta=${hasta}`);
@@ -958,14 +972,35 @@ async function cargarHorarioExtendido(){
       $('wrapHorarioExtendido').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`;
       return;
     }
-    $('horarioExtendidoResumen').textContent = `${fmtNum(data.cantidad)} ${data.cantidad === 1 ? 'venta' : 'ventas'} por ${fmtMoneda(data.totalMonto)} entre el ${data.desde} y el ${data.hasta}.`;
+
+    // Mes actual vs mes anterior -- siempre el calendario real, sin importar
+    // el rango elegido arriba (ver manejarVentasHorarioExtendido: se calcula
+    // aparte en el backend, no es un recorte del rango pedido).
+    if(data.resumenMensual){
+      $('horarioExtendidoResumenMensual').innerHTML = `
+        <div class="grid" style="grid-template-columns:repeat(2,1fr);">
+          ${tarjetaMesHorarioExtendido(`Mes actual (${data.resumenMensual.actual.desde} a ${data.resumenMensual.actual.hasta})`, data.resumenMensual.actual, true)}
+          ${tarjetaMesHorarioExtendido(`Mes anterior (${data.resumenMensual.anterior.desde} a ${data.resumenMensual.anterior.hasta})`, data.resumenMensual.anterior, false)}
+        </div>`;
+    }
+
+    $('horarioExtendidoResumen').textContent = `${fmtNum(data.cantidad)} ${data.cantidad === 1 ? 'venta' : 'ventas'} por ${fmtMoneda(data.totalMonto)} (ticket promedio ${fmtMoneda(data.ticketPromedio)}) entre el ${data.desde} y el ${data.hasta}.`;
+
+    if(data.porVendedor && data.porVendedor.length){
+      $('horarioExtendidoPorVendedor').innerHTML = `
+        <div class="sub" style="margin-bottom:6px;">Por vendedor (una venta sin vendedor asignado en Bsale se cuenta como "Venta web"):</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          ${data.porVendedor.map(v => `<span class="badge" style="background:var(--surface-2);color:var(--text);">${escapeHtml(v.vendedor)}: ${fmtNum(v.cantidad)} · ${fmtMoneda(v.monto)}</span>`).join('')}
+        </div>`;
+    }
+
     if(!data.ventas.length){
       $('wrapHorarioExtendido').innerHTML = '<p class="empty-note">No hubo ventas en el horario extendido (18:30 a 19:30, miércoles y jueves) en este período.</p>';
       return;
     }
     $('wrapHorarioExtendido').innerHTML = `
       <div class="tabla-wrap"><table>
-        <thead><tr><th>Fecha</th><th>Día</th><th>Hora</th><th>Documento</th><th>Cliente</th><th class="amount">Monto</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Día</th><th>Hora</th><th>Documento</th><th>Cliente</th><th>Vendedor</th><th class="amount">Monto</th></tr></thead>
         <tbody>${data.ventas.map(v => `
           <tr>
             <td>${escapeHtml(v.fecha)}</td>
@@ -973,6 +1008,7 @@ async function cargarHorarioExtendido(){
             <td>${escapeHtml(v.hora)}</td>
             <td>${escapeHtml([v.tipoDocumento, v.numero ? '#' + v.numero : ''].filter(Boolean).join(' '))}</td>
             <td>${escapeHtml(v.cliente || 'Sin nombre')}</td>
+            <td>${escapeHtml(v.vendedor || '—')}</td>
             <td class="amount">${fmtMoneda(v.monto)}</td>
           </tr>`).join('')}</tbody>
       </table></div>
