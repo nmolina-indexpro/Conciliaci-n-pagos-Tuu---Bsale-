@@ -60,6 +60,9 @@
   .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
   .btn-compact{font-size:12px;padding:7px 13px;}
 
+  .filtros{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  input[type=text]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
+
   .tabla-wrap{overflow-x:auto;}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
@@ -154,9 +157,14 @@
 
   <div id="resumenMontos"></div>
 
-  <div style="display:flex;justify-content:flex-end;">
+  <div class="filtros" style="justify-content:space-between;">
+    <div class="filtros">
+      <input type="text" id="buscarSkuEditarInput" placeholder="Buscar por SKU o nombre para editar otro producto (no solo estancados)..." style="width:380px;" oninput="buscarProductoParaEditar()">
+    </div>
     <button class="btn-primary" id="btnSincronizar" style="display:none;" onclick="iniciarSincronizacion()">🔄 Sincronizar con Bsale</button>
   </div>
+  <div id="resultadosBusquedaSku"></div>
+
   <div id="ventasBajaResumen" class="sub" style="margin:10px 0 14px;"></div>
   <div id="wrapVentasBaja"><p class="empty-note">Cargando...</p></div>
   <div id="syncStatus"></div>
@@ -282,6 +290,21 @@ let ventasBajaActual = [];
 let ordenVentasBaja = 'costo'; // 'stock' | 'dias' | 'anio' | 'monto' | 'costo' | 'oportunidad' | 'margen'
 let ordenVentasBajaAsc = false; // arranca de mayor a menor
 
+// ---- Búsqueda de SKU para editar productos que no son estancados ----
+// El catálogo completo (bsale-sku-report) y el estado de los 3 checkboxes
+// se guardan en variables globales -- ya se piden igual dentro de
+// cargarVentasBaja(), así que la búsqueda no necesita ningún fetch propio.
+let catalogoSkusGlobal = [];
+let costoPorSkuGlobal = {}, nombrePorSkuGlobal = {}, estadoSkuGlobal = {};
+let resultadosBusqueda = [];
+// Los checkboxes/comentario/merma son las mismas acciones para la tabla de
+// estancados Y para los resultados de búsqueda -- esta función los busca en
+// cualquiera de los dos arreglos en memoria para no duplicar toda esa
+// lógica (toggleVentaBajaFlag, editarComentarioVentaBaja, etc.).
+function buscarProductoPorSku(sku){
+  return ventasBajaActual.find(x => x.sku === sku) || resultadosBusqueda.find(x => x.sku === sku);
+}
+
 function ordenarVentasBaja(col){
   if(ordenVentasBaja === col) ordenVentasBajaAsc = !ordenVentasBajaAsc;
   else { ordenVentasBaja = col; ordenVentasBajaAsc = false; }
@@ -317,6 +340,8 @@ async function cargarVentasBaja(){
     }
 
     const { meses, productos, estadoSku } = data;
+    catalogoSkusGlobal = stockData.skus || [];
+    costoPorSkuGlobal = costoPorSku; nombrePorSkuGlobal = nombrePorSku; estadoSkuGlobal = estadoSku || {};
     if(!productos.length && !(stockData.skus || []).length){
       $('ventasBajaResumen').textContent = '';
       $('wrapVentasBaja').innerHTML = rolActual === 'admin'
@@ -423,7 +448,7 @@ function autoSincronizarSiCorresponde(ultimaSincronizacion){
 }
 
 function editarComentarioVentaBaja(sku){
-  const p = ventasBajaActual.find(x => x.sku === sku);
+  const p = buscarProductoPorSku(sku);
   if(!p) return;
   abrirModalComentarios(sku, `${sku} — ${p.nombre || sku}`, p.historial || []);
 }
@@ -459,7 +484,7 @@ function renderListaComentariosModal(historial){
 }
 
 function objetivoComentarioActual(){
-  return ventasBajaActual.find(p => p.sku === modalComentarioEntidad);
+  return buscarProductoPorSku(modalComentarioEntidad);
 }
 
 function prepararEdicionComentario(id){
@@ -512,6 +537,7 @@ async function guardarComentarioModal(){
     }
     cancelarEdicionComentario();
     renderVentasBaja();
+    if(resultadosBusqueda.length) renderResultadosBusqueda(resultadosBusqueda.length);
     renderListaComentariosModal(objetivo?.historial || []);
   }catch(err){
     alert('Error: ' + err.message);
@@ -526,7 +552,7 @@ function cerrarModalComentariosSiFondo(ev){
 }
 
 async function toggleVentaBajaFlag(sku, campo, valor){
-  const p = ventasBajaActual.find(x => x.sku === sku);
+  const p = buscarProductoPorSku(sku);
   const anterior = p ? p[campo] : undefined;
   if(p) p[campo] = valor; // optimista -- el checkbox ya cambió en pantalla
   try{
@@ -541,6 +567,7 @@ async function toggleVentaBajaFlag(sku, campo, valor){
     if(p) p[campo] = anterior; // revierte si falló
     alert('Error: ' + err.message);
     renderVentasBaja();
+    if(resultadosBusqueda.length) renderResultadosBusqueda(resultadosBusqueda.length);
   }
 }
 
@@ -551,7 +578,7 @@ async function toggleVentaBajaFlag(sku, campo, valor){
 // el backend no puede recalcularlo después (el SKU excluido deja de
 // aparecer en ventas-sku-tendencia).
 async function eliminarVentaBajaSku(sku){
-  const p = ventasBajaActual.find(x => x.sku === sku);
+  const p = buscarProductoPorSku(sku);
   if(!confirm(`¿Marcar el SKU ${sku} como merma? Se saca de este análisis para siempre (no va a volver a aparecer aunque siga estancado) y pasa a sumar en el resumen de mermas.`)) return;
   try{
     const params = new URLSearchParams({ sku });
@@ -564,6 +591,8 @@ async function eliminarVentaBajaSku(sku){
     const res = await fetch(`/api/negocio?recurso=ventas-sku-tendencia&${params.toString()}`, { method: 'DELETE' });
     const data = await res.json();
     if(!res.ok || data.error){ alert(data.error); return; }
+    resultadosBusqueda = resultadosBusqueda.filter(x => x.sku !== sku);
+    renderResultadosBusqueda(resultadosBusqueda.length);
     // Se recarga todo (en vez de solo sacarlo del array en memoria) porque
     // el resumen de mermas lo calcula el servidor sobre TODOS los SKU
     // marcados hasta ahora, no solo el que se acaba de marcar -- source of
@@ -632,6 +661,77 @@ function renderVentasBaja(){
             ${celdaAdminMonto(p.costoTotal)}
             ${celdaAdminMonto(p.oportunidadVenta)}
             ${celdaAdminMonto(p.margenTotal)}
+            <td style="min-width:190px;">
+              <div class="chk-group">
+                ${checkFlag(p, 'mercadoLibre', '🛒 Mercado Libre')}
+                ${checkFlag(p, 'envioGratis', '🚚 Envío gratis')}
+                ${checkFlag(p, 'variacionPrecio', '💲 Variación de precio')}
+              </div>
+              <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
+                <button class="btn-icono" title="${p.comentario ? 'Comentario: ' + escapeHtml(p.comentario) : 'Sin comentario — clic para agregar'}" onclick="editarComentarioVentaBaja('${p.sku}')">📝</button>
+                ${esAdmin ? `<button class="btn-icono" title="Marcar como merma (sacar de este análisis)" onclick="eliminarVentaBajaSku('${p.sku}')">🗑️</button>` : ''}
+                ${p.comentario ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.comentario)}</span>` : ''}
+              </div>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table></div>
+  `;
+}
+
+// Busca en TODO el catálogo (no solo estancados) para poder marcar los 3
+// checkboxes / dejar un comentario en cualquier producto, aunque no esté en
+// la lista de arriba. Se filtra por SKU o por nombre, sin pegarle a ningún
+// endpoint nuevo -- reutiliza lo que cargarVentasBaja() ya trajo.
+function buscarProductoParaEditar(){
+  const qRaw = $('buscarSkuEditarInput').value.trim();
+  if(qRaw.length < 2){ resultadosBusqueda = []; $('resultadosBusquedaSku').innerHTML = ''; return; }
+  const q = qRaw.toUpperCase();
+  const yaEstancados = new Set(ventasBajaActual.map(p => p.sku));
+  const coincidencias = catalogoSkusGlobal.filter(s =>
+    s.code && !yaEstancados.has(s.code) && // ya se ve arriba, no lo dupliques acá
+    (s.code.toUpperCase().includes(q) || (s.nombre || '').toUpperCase().includes(q))
+  );
+  const LIMITE_RESULTADOS = 25;
+  resultadosBusqueda = coincidencias.slice(0, LIMITE_RESULTADOS).map(s => {
+    const code = s.code;
+    const est = estadoSkuGlobal[code] || {};
+    const stockActual = s.stockActual || 0;
+    const costo = costoPorSkuGlobal[code] ?? null;
+    return {
+      sku: code, nombre: nombrePorSkuGlobal[code] || s.nombre || code,
+      categoria: categoriaLineaCliente(code, s.nombre || ''),
+      comentario: est.comentario || '', historial: est.historial || [],
+      mercadoLibre: !!est.mercadoLibre, envioGratis: !!est.envioGratis, variacionPrecio: !!est.variacionPrecio,
+      stockActual, costoTotal: costo != null ? stockActual * costo : null,
+    };
+  });
+  renderResultadosBusqueda(coincidencias.length);
+}
+
+function renderResultadosBusqueda(totalCoincidencias){
+  const cont = $('resultadosBusquedaSku');
+  if(!resultadosBusqueda.length){
+    cont.innerHTML = $('buscarSkuEditarInput').value.trim().length >= 2 ? '<p class="empty-note">Sin resultados.</p>' : '';
+    return;
+  }
+  const esAdmin = rolActual === 'admin';
+  const checkFlag = (p, campo, etiqueta) => `<label class="chk-mini"><input type="checkbox" ${p[campo] ? 'checked' : ''} onchange="toggleVentaBajaFlag('${p.sku}','${campo}',this.checked)"> ${etiqueta}</label>`;
+  cont.innerHTML = `
+    <div class="sub" style="margin:10px 0 8px;">${fmtNum(resultadosBusqueda.length)}${totalCoincidencias > resultadosBusqueda.length ? ` de ${fmtNum(totalCoincidencias)}` : ''} producto(s) encontrado(s) -- no necesariamente estancados, para poder marcarlos igual.</div>
+    <div class="tabla-wrap"><table>
+      <thead><tr>
+        <th>SKU</th><th>Producto</th><th class="amount">Stock actual</th>
+        ${esAdmin ? `<th class="amount">Costo total stock</th>` : ''}
+        <th>Acciones</th>
+      </tr></thead>
+      <tbody>
+        ${resultadosBusqueda.map(p => `
+          <tr>
+            <td><span class="sku-code">${escapeHtml(p.sku)}</span></td>
+            <td>${p.categoria && CATEGORIA_VENTA_BAJA_LABEL[p.categoria] ? `<div class="empty-note" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px;">${CATEGORIA_VENTA_BAJA_LABEL[p.categoria]}</div>` : ''}${escapeHtml(p.nombre || p.sku)}</td>
+            <td class="amount">${fmtNum(p.stockActual)}</td>
+            ${esAdmin ? (p.costoTotal != null ? `<td class="amount">${fmtMoneda(p.costoTotal)}</td>` : '<td class="amount empty-note">—</td>') : ''}
             <td style="min-width:190px;">
               <div class="chk-group">
                 ${checkFlag(p, 'mercadoLibre', '🛒 Mercado Libre')}
