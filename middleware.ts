@@ -23,6 +23,14 @@ const RUTAS_PUBLICAS = new Set([
   '/reset-password.html',
 ]);
 
+// getSql también sirve en Edge (@vercel/postgres es fetch-based, sin nada
+// de Node puro) -- se usa acá abajo para revisar en vivo, en cada
+// navegación a una página .html, cuál es el perfil ACTUAL del usuario y
+// qué páginas tiene permitidas ESE perfil ahora mismo (ver más abajo por
+// qué: la sesión ya no confía en la foto que quedó guardada en el token
+// al momento del login).
+import { getSql } from './lib/db.js';
+
 // El webhook de WhatsApp lo llama Meta directo, sin la cookie de sesión de
 // esta app -> tiene que quedar público. Vive multiplexado dentro de
 // /api/negocio (mismo motivo que todo lo demás: tope de 12 funciones
@@ -163,23 +171,44 @@ export default async function middleware(req) {
     destino.searchParams.set('next', pathname);
     return Response.redirect(destino, 302);
   }
-  // Perfil de acceso a páginas (ver lib/db.js -> asegurarTablaPerfiles):
-  // sesion.paginas es la lista exacta de páginas .html que puede ver, o
-  // null si no tiene restricción (comportamiento de siempre). Solo aplica
-  // a navegación de páginas .html -- no a assets (css/js/imágenes) ni a
-  // /api/*, para no romper que la página cargue sus propios recursos ni
-  // llamadas de fondo.
-  if (
-    Array.isArray(sesion.paginas) &&
-    pathname.endsWith('.html') &&
-    !PAGINAS_SIEMPRE_PERMITIDAS.has(pathname)
-  ) {
-    const permitido = sesion.paginas.some(p => `/${p}` === pathname);
-    if (!permitido) {
-      const destino = sesion.paginas.length > 0 ? `/${sesion.paginas[0]}` : '/reportar-error.html';
-      // Si el destino de respaldo también fuera la página actual (no
-      // debería pasar, pero por seguridad ante loops) se deja pasar.
-      if (destino !== pathname) return Response.redirect(new URL(destino, req.url), 302);
+  // Perfil de acceso a páginas (ver lib/db.js -> asegurarTablaPerfiles).
+  // Solo aplica a navegación de páginas .html -- no a assets (css/js/
+  // imágenes) ni a /api/*, para no romper que la página cargue sus propios
+  // recursos ni llamadas de fondo. Un admin nunca queda restringido por
+  // perfil (mismo criterio que api/auth-login.js).
+  //
+  // IMPORTANTE: acá NO se usa sesion.paginas tal cual viene en el token.
+  // Ese valor es solo la foto de qué perfil/páginas tenía el usuario al
+  // momento de iniciar sesión -- si un admin después edita ese perfil (o le
+  // cambia el perfil asignado al usuario), un usuario que ya estaba logueado
+  // seguía viendo las páginas viejas hasta por 7 días, porque nadie volvía a
+  // mirar la base de datos (bug real reportado: a una vendedora con perfil
+  // "Ventas" le seguía apareciendo Flujo de Caja después de sacárselo del
+  // perfil). Por eso acá se vuelve a consultar en vivo cuál es el perfil
+  // ACTUAL del usuario y qué páginas tiene permitidas ESE perfil ahora mismo,
+  // usando sesion.uid -- sesion.paginas queda solo como respaldo por si la
+  // consulta falla (BD caída, etc.), para no dejar a todo el mundo sin poder
+  // navegar por un problema de infraestructura puntual.
+  if (pathname.endsWith('.html') && sesion.rol !== 'admin' && !PAGINAS_SIEMPRE_PERMITIDAS.has(pathname)) {
+    let paginas = sesion.paginas;
+    try {
+      const sql = await getSql();
+      const { rows } = await sql`
+        SELECT p.paginas FROM usuarios u LEFT JOIN perfiles p ON p.id = u.perfil_id
+        WHERE u.id = ${sesion.uid};
+      `;
+      paginas = rows[0] && Array.isArray(rows[0].paginas) ? rows[0].paginas : null;
+    } catch {
+      // Se sigue con lo que trae el token (ver comentario de arriba).
+    }
+    if (Array.isArray(paginas)) {
+      const permitido = paginas.some(p => `/${p}` === pathname);
+      if (!permitido) {
+        const destino = paginas.length > 0 ? `/${paginas[0]}` : '/reportar-error.html';
+        // Si el destino de respaldo también fuera la página actual (no
+        // debería pasar, pero por seguridad ante loops) se deja pasar.
+        if (destino !== pathname) return Response.redirect(new URL(destino, req.url), 302);
+      }
     }
   }
 

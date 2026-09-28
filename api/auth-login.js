@@ -78,10 +78,12 @@ export default async function handler(req, res) {
       await sql`UPDATE usuarios SET ultimo_login = now() WHERE id = ${usuario.id};`;
     } catch (err) { /* no crítico */ }
 
-    // Perfil de acceso a páginas: se resuelve UNA VEZ acá y se guarda
-    // directo en el token de sesión (ver middleware.ts), para que
-    // controlar qué páginas puede ver el usuario no requiera consultar la
-    // base de datos en cada request de página. Un admin nunca queda
+    // Perfil de acceso a páginas: esto queda guardado en el token de sesión
+    // solo como valor inicial/de respaldo -- middleware.ts y
+    // /api/auth-session vuelven a consultar el perfil ACTUAL en cada
+    // request de página (por sesion.uid), así que editar el perfil o
+    // reasignarle otro a este usuario tiene efecto de inmediato, sin
+    // esperar a que vuelva a iniciar sesión. Un admin nunca queda
     // restringido por perfil, aunque tenga uno asignado -- necesita poder
     // llegar a cualquier parte del sistema, incluyendo el mantenedor de
     // usuarios para deshacer un error de configuración.
