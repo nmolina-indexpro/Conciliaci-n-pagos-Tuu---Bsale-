@@ -73,6 +73,18 @@
   .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
   .filtro-rango-fechas{display:flex;align-items:center;gap:7px;}
 
+  .chart-legend{display:flex;gap:16px;margin:2px 0 14px;flex-wrap:wrap;}
+  .chart-legend-item{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);}
+  .chart-legend-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+
+  .canal-chart{max-height:420px;overflow-y:auto;padding-right:4px;}
+  .canal-grupo{margin-bottom:14px;}
+  .canal-titulo{font-size:12px;color:var(--text);margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .canal-fila{display:flex;align-items:center;gap:8px;margin-bottom:3px;}
+  .canal-pista{flex:1;background:var(--surface-2);border-radius:5px;height:12px;overflow:hidden;}
+  .canal-relleno{height:100%;border-radius:5px;min-width:3px;}
+  .canal-valor{width:56px;flex-shrink:0;text-align:right;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text);}
+
   .tabla-wrap{overflow-x:auto;}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
@@ -398,12 +410,165 @@ function renderSeccionGA(tab){
   else if(tab === 'audiencia') renderGaAudiencia(d);
 }
 
+// Paleta categórica validada con el validador de la skill de dataviz
+// (node scripts/validate_palette.js) -- pasa separación CVD (deutan/tritan)
+// y contraste sobre el fondo de la app. Sesiones/Usuarios comparten gráfico
+// (misma escala, un solo eje) así que su par es el que debía pasar el
+// chequeo de separación; Transacciones va en su propio gráfico chico (su
+// escala es muchísimo menor -- mezclarlas en un eje único las aplastaría,
+// ver "One axis" en la guía de dataviz) y al ser una sola serie no
+// necesita leyenda propia.
+const CHART_COLOR_SESIONES = '#0D9488';
+const CHART_COLOR_USUARIOS = '#2563EB';
+const CHART_COLOR_TRANSACCIONES = '#D97706';
+
+function renderLeyendaChart(items){
+  return `<div class="chart-legend">${items.map(it => `<span class="chart-legend-item"><span class="chart-legend-dot" style="background:${it.color};"></span>${escapeHtml(it.label)}</span>`).join('')}</div>`;
+}
+
+// Barras horizontales agrupadas (Sesiones/Usuarios) por canal -- horizontal
+// para no atropellar los nombres de canal (pueden ser largos: "Organic
+// Search", "Paid Social", etc.), que en vertical quedarían rotados o
+// cortados. Una sola escala compartida entre ambas métricas (mismo eje).
+function renderGaCanalChart(porCanal){
+  if(!porCanal.length) return '';
+  const max = Math.max(1, ...porCanal.map(c => Math.max(c.sesiones, c.usuarios)));
+  const fila = (valor, color) => `
+    <div class="canal-fila">
+      <div class="canal-pista"><div class="canal-relleno" style="width:${Math.max(2, Math.round(valor / max * 100))}%;background:${color};"></div></div>
+      <div class="canal-valor">${fmtNum(valor)}</div>
+    </div>`;
+  return `
+    ${renderLeyendaChart([{ color: CHART_COLOR_SESIONES, label: 'Sesiones' }, { color: CHART_COLOR_USUARIOS, label: 'Usuarios' }])}
+    <div class="canal-chart">
+      ${porCanal.map(c => `
+        <div class="canal-grupo" title="${escapeHtml(c.canal)} — ${fmtNum(c.sesiones)} sesiones, ${fmtNum(c.usuarios)} usuarios">
+          <div class="canal-titulo">${escapeHtml(c.canal)}</div>
+          ${fila(c.sesiones, CHART_COLOR_SESIONES)}
+          ${fila(c.usuarios, CHART_COLOR_USUARIOS)}
+        </div>`).join('')}
+    </div>
+  `;
+}
+
+// Cuántos días saltar entre etiquetas del eje X -- con muchos días
+// seguidas se amontonan y quedan ilegibles (rango de hasta 90 días).
+function pasoEtiquetasGA(n){
+  return n <= 10 ? 1 : n <= 31 ? 3 : n <= 62 ? 7 : 14;
+}
+// Índices del eje X que llevan etiqueta -- siempre se fuerza a mostrar el
+// último día (para no dejar el gráfico "cortado" sin fecha de cierre), pero
+// si el paso regular ya cae muy cerca del final, lo REEMPLAZA en vez de
+// agregarse aparte: dos etiquetas a menos de medio paso de distancia
+// terminan pisándose (bug real, visto con getBBox() en un preview -- ver
+// conversación).
+function indicesEtiquetaGA(n){
+  const paso = pasoEtiquetasGA(n);
+  const indices = [];
+  for(let i = 0; i < n; i += paso) indices.push(i);
+  const ultimo = n - 1;
+  if(indices[indices.length - 1] !== ultimo){
+    // Menos de un paso completo de distancia -> las dos etiquetas quedan
+    // más juntas que el resto y terminan pisándose (el texto de la última,
+    // anclado a la derecha, se extiende hacia atrás sobre la anterior).
+    if(ultimo - indices[indices.length - 1] < paso) indices[indices.length - 1] = ultimo;
+    else indices.push(ultimo);
+  }
+  return new Set(indices);
+}
+// dd/mm corto, solo para el eje de los gráficos -- "dd-mm-aaaa" (fmtFechaGA,
+// que sí se usa en tooltips y tablas) es casi el doble de ancho y con varias
+// etiquetas visibles a la vez terminaba pisándose una con otra.
+function fmtFechaCortaGA(fechaStr){
+  if(!fechaStr) return '—';
+  const [, m, d] = fechaStr.split('-');
+  return `${d}/${m}`;
+}
+
+// Línea de tendencia (SVG, sin librería -- este proyecto no usa ninguna)
+// para Sesiones + Usuarios: comparten escala, así que van en el mismo eje.
+// Un <title> por punto sirve de tooltip nativo del navegador (mismo criterio
+// de interactividad que ya usa el resto del sitio, ej. renderChartSerie en
+// clientes-whatsapp.js).
+function renderGaLineasSesionesUsuarios(porDia){
+  if(!porDia.length) return '<p class="empty-note">Sin datos en este período.</p>';
+  const W = 640, H = 200, PAD_L = 44, PAD_B = 20, PAD_T = 10, PAD_R = 8;
+  const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
+  const n = porDia.length;
+  const max = Math.max(1, ...porDia.map(f => Math.max(f.sesiones, f.usuarios)));
+  const x = i => PAD_L + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+  const y = v => PAD_T + innerH - (v / max) * innerH;
+
+  const linea = campo => porDia.map((f, i) => `${x(i)},${y(f[campo])}`).join(' ');
+  const puntos = (campo, color) => porDia.map((f, i) =>
+    `<circle cx="${x(i)}" cy="${y(f[campo])}" r="2.5" fill="${color}"><title>${fmtFechaGA(f.fecha)} — ${fmtNum(f[campo])}</title></circle>`
+  ).join('');
+
+  // Eje Y recesivo: solo 0 y el máximo, con una línea guía tenue cada uno.
+  const ejeY = [0, max].map(v => `
+    <line x1="${PAD_L}" y1="${y(v)}" x2="${W - PAD_R}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/>
+    <text x="${PAD_L - 6}" y="${y(v) + 3}" font-size="9" fill="var(--muted)" text-anchor="end">${fmtNum(v)}</text>
+  `).join('');
+
+  const etiquetasVisibles = indicesEtiquetaGA(n);
+  const anchorX = i => i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
+  const ejeX = porDia.map((f, i) => etiquetasVisibles.has(i)
+    ? `<text x="${x(i)}" y="${H - 4}" font-size="9" fill="var(--muted)" text-anchor="${anchorX(i)}">${fmtFechaCortaGA(f.fecha)}</text>` : ''
+  ).join('');
+
+  return `
+    ${renderLeyendaChart([{ color: CHART_COLOR_SESIONES, label: 'Sesiones' }, { color: CHART_COLOR_USUARIOS, label: 'Usuarios' }])}
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;">
+      ${ejeY}
+      <polyline points="${linea('sesiones')}" fill="none" stroke="${CHART_COLOR_SESIONES}" stroke-width="2"/>
+      <polyline points="${linea('usuarios')}" fill="none" stroke="${CHART_COLOR_USUARIOS}" stroke-width="2"/>
+      ${puntos('sesiones', CHART_COLOR_SESIONES)}
+      ${puntos('usuarios', CHART_COLOR_USUARIOS)}
+      ${ejeX}
+    </svg>
+  `;
+}
+
+// Barras (SVG) para una sola métrica -- Transacciones va acá aparte porque
+// su escala es muchísimo más chica que Sesiones/Usuarios (mezclarla en el
+// mismo gráfico la aplastaría contra el eje, ver "One axis" en la guía de
+// dataviz: dos magnitudes muy distintas van en gráficos separados, no en
+// un segundo eje). Una sola serie -> sin leyenda, el título de la sección
+// ya dice qué es.
+function renderGaBarrasSimples(porDia, campo, color, etiquetaTooltip){
+  if(!porDia.length) return '<p class="empty-note">Sin datos en este período.</p>';
+  const W = 640, H = 110, PAD_L = 30, PAD_B = 18, PAD_T = 10, PAD_R = 6;
+  const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
+  const n = porDia.length;
+  const max = Math.max(1, ...porDia.map(f => f[campo]));
+  const anchoBarra = Math.max(1, innerW / n - 2);
+  const x = i => PAD_L + (i / n) * innerW;
+  const barras = porDia.map((f, i) => {
+    const h = Math.max(1, (f[campo] / max) * innerH);
+    return `<rect x="${x(i)}" y="${PAD_T + innerH - h}" width="${anchoBarra}" height="${h}" rx="1.5" fill="${color}"><title>${fmtFechaGA(f.fecha)} — ${fmtNum(f[campo])} ${etiquetaTooltip}</title></rect>`;
+  }).join('');
+  const etiquetasVisibles = indicesEtiquetaGA(n);
+  const anchorX = i => i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
+  const ejeX = porDia.map((f, i) => etiquetasVisibles.has(i)
+    ? `<text x="${x(i) + anchoBarra / 2}" y="${H - 4}" font-size="9" fill="var(--muted)" text-anchor="${anchorX(i)}">${fmtFechaCortaGA(f.fecha)}</text>` : ''
+  ).join('');
+  return `
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;">
+      <line x1="${PAD_L}" y1="${PAD_T}" x2="${W - PAD_R}" y2="${PAD_T}" stroke="var(--line)" stroke-width="1"/>
+      <text x="${PAD_L - 6}" y="${PAD_T + 3}" font-size="9" fill="var(--muted)" text-anchor="end">${fmtNum(max)}</text>
+      ${barras}
+      ${ejeX}
+    </svg>
+  `;
+}
+
 function renderGaTrafico(d){
   const monedaSinConvertir = d.moneda && d.moneda !== 'CLP' && d.moneda !== 'USD';
   $('wrapGaContenido').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
       <div>
         <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Tráfico por canal</h3>
+        ${d.porCanal.length ? renderGaCanalChart(d.porCanal) : ''}
         ${d.porCanal.length ? `<div class="tabla-wrap"><table>
           <thead><tr><th>Canal</th><th class="amount">Sesiones</th><th class="amount">Usuarios</th><th class="amount">Conversiones</th><th class="amount">Ingresos${monedaSinConvertir ? ` (${escapeHtml(d.moneda)})` : ''}</th></tr></thead>
           <tbody>${d.porCanal.map(c => `<tr>
@@ -417,11 +582,18 @@ function renderGaTrafico(d){
       </div>
       <div>
         <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Tendencia diaria</h3>
-        ${d.porDia.length ? `<div class="tabla-wrap" style="max-height:320px;overflow-y:auto;"><table>
-          <thead><tr><th>Fecha</th><th class="amount">Sesiones</th><th class="amount">Transacciones</th><th class="amount">Ingresos${monedaSinConvertir ? ` (${escapeHtml(d.moneda)})` : ''}</th></tr></thead>
+        ${d.porDia.length ? renderGaLineasSesionesUsuarios(d.porDia) : ''}
+        ${d.porDia.length ? `
+          <div style="margin-top:18px;">
+            <div class="sub" style="margin-bottom:6px;">Transacciones</div>
+            ${renderGaBarrasSimples(d.porDia, 'transacciones', CHART_COLOR_TRANSACCIONES, 'transacciones')}
+          </div>` : ''}
+        ${d.porDia.length ? `<div class="tabla-wrap" style="max-height:260px;overflow-y:auto;margin-top:18px;"><table>
+          <thead><tr><th>Fecha</th><th class="amount">Sesiones</th><th class="amount">Usuarios</th><th class="amount">Transacciones</th><th class="amount">Ingresos${monedaSinConvertir ? ` (${escapeHtml(d.moneda)})` : ''}</th></tr></thead>
           <tbody>${d.porDia.map(f => `<tr>
             <td>${fmtFechaGA(f.fecha)}</td>
             <td class="amount">${fmtNum(f.sesiones)}</td>
+            <td class="amount">${fmtNum(f.usuarios)}</td>
             <td class="amount">${fmtNum(f.transacciones)}</td>
             <td class="amount">${fmtMonedaGA(f.ingresos, d.moneda)}</td>
           </tr>`).join('')}</tbody>
