@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Identificación de Modelos — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;}
+  .seccion-head h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:0 0 4px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);font-size:12px;cursor:pointer;padding:0;vertical-align:middle;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+  .btn-icono.peligro:hover{border-color:var(--red);background:var(--red-bg);color:var(--red);}
+
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:5px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;color:var(--text);}
+
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;}
+  .campo{display:flex;flex-direction:column;gap:5px;}
+  .campo label{font-size:12px;font-weight:600;color:var(--muted);}
+  .campo input[type="text"], .campo textarea, .campo select{
+    font-family:'Plus Jakarta Sans',sans-serif;font-size:13.5px;padding:9px 11px;
+    border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);
+  }
+  .campo input[type="text"]:focus, .campo textarea:focus{outline:none;border-color:var(--primary);}
+  .campo textarea{resize:vertical;min-height:56px;font-family:inherit;}
+
+  .foto-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .foto-preview{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px;background:var(--surface-2);border-radius:10px;}
+  .foto-preview img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1.5px solid var(--line);cursor:zoom-in;}
+  .foto-preview .estado{font-size:12.5px;color:var(--muted);}
+  .foto-preview .estado.ok{color:var(--green);font-weight:600;}
+  .foto-preview .estado.err{color:var(--red);font-weight:600;}
+  .foto-preview button.quitar{background:none;border:none;color:var(--muted);font-size:12px;text-decoration:underline;cursor:pointer;padding:0;}
+
+  .niveles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:14px;}
+  .nivel-card{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--line);border-radius:10px;padding:11px 13px;cursor:pointer;background:var(--surface);transition:all .12s;}
+  .nivel-card:hover{border-color:var(--primary);}
+  .nivel-card:has(input:checked){border-color:var(--primary);background:var(--primary-dim);box-shadow:var(--shadow);}
+  .nivel-card input{margin-top:3px;accent-color:var(--primary);flex-shrink:0;}
+  .nivel-card .titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;margin-bottom:3px;}
+  .nivel-card .desc{font-size:11.5px;color:var(--muted);line-height:1.4;}
+
+  .filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .filtros input[type="text"]{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:8px 11px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);width:260px;}
+  .filtros input[type="text"]:focus{outline:none;border-color:var(--primary);}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  .badge-nivel{display:inline-block;font-family:'Space Grotesk',sans-serif;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+  .badge-nivel.n1{background:var(--green-bg);color:var(--green);}
+  .badge-nivel.n2{background:var(--blue-bg);color:var(--blue);}
+  .badge-nivel.n3{background:var(--amber-dim);color:var(--amber);}
+  .badge-nivel.n4{background:var(--red-bg);color:var(--red);}
+  td.notas{max-width:220px;white-space:normal;color:var(--muted);font-size:12px;}
+  .miniatura{width:34px;height:34px;object-fit:cover;border-radius:6px;border:1.5px solid var(--line);cursor:zoom-in;display:block;}
+  .quien{color:var(--muted);font-size:11.5px;white-space:nowrap;}
+
+  .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;align-items:center;justify-content:center;z-index:999;cursor:zoom-out;padding:24px;}
+  .lightbox.abierto{display:flex;}
+  .lightbox img{max-width:100%;max-height:100%;border-radius:8px;}
+
+  .mensaje-guardado{font-size:12.5px;padding:9px 12px;border-radius:8px;margin-bottom:14px;}
+  .mensaje-guardado.ok{background:var(--green-bg);color:var(--green);}
+  .mensaje-guardado.err{background:var(--red-bg);color:var(--red);}
+
+  @media (max-width: 720px){
+    .form-grid{grid-template-columns:1fr;}
+  }
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html">Compras</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="sitio-web.html">Sitio Web</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="indexscale.html">IndexScale</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html" class="active">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>📱 Identificación de Modelos</h1>
+  <div class="sub">Registra la marca, el modelo y qué tan complicado es cambiarle la pantalla a cada equipo -- escribiéndolo a mano o sacándole una foto (la IA lee marca y modelo por ti). El nivel de complejidad siempre lo decides tú. Queda guardado acá abajo para el próximo técnico que se tope con el mismo modelo.</div>
+
+  <div class="grid" id="kpiWrap">
+    <div class="card"><div class="lbl">Modelos registrados</div><div class="big" id="kpiTotal">—</div></div>
+    <div class="card"><div class="lbl">Nivel 1 — Básico</div><div class="big" id="kpiN1">—</div></div>
+    <div class="card"><div class="lbl">Nivel 2 — Con batería</div><div class="big" id="kpiN2">—</div></div>
+    <div class="card"><div class="lbl">Nivel 3 — Avanzado</div><div class="big" id="kpiN3">—</div></div>
+    <div class="card"><div class="lbl">Nivel 4 — Específico</div><div class="big" id="kpiN4">—</div></div>
+  </div>
+
+  <div class="seccion" id="seccionForm">
+    <div class="seccion-head">
+      <div>
+        <h2 id="tituloForm">📝 Registrar modelo</h2>
+        <div class="sub" style="margin-bottom:0;">Escribe marca y modelo, o usa una foto para que la IA los detecte por ti -- de todas formas revísalos antes de guardar.</div>
+      </div>
+    </div>
+
+    <div id="mensajeGuardado"></div>
+
+    <div class="foto-toolbar">
+      <button type="button" class="btn-ghost" onclick="document.getElementById('inputFotoCamara').click()">📷 Tomar foto</button>
+      <button type="button" class="btn-ghost" onclick="document.getElementById('inputFotoArchivo').click()">🖼️ Subir imagen</button>
+      <input type="file" id="inputFotoCamara" accept="image/*" capture="environment" style="display:none;" onchange="onSeleccionarFoto(this)">
+      <input type="file" id="inputFotoArchivo" accept="image/*" style="display:none;" onchange="onSeleccionarFoto(this)">
+    </div>
+    <div id="wrapFotoPreview"></div>
+
+    <div class="form-grid">
+      <div class="campo">
+        <label>Marca</label>
+        <input type="text" id="fMarca" placeholder="Ej: HP, Lenovo, Dell, Asus..." list="listaMarcas">
+        <datalist id="listaMarcas"></datalist>
+      </div>
+      <div class="campo">
+        <label>Modelo</label>
+        <input type="text" id="fModelo" placeholder="Ej: Pavilion 15-eg0007la">
+      </div>
+    </div>
+
+    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:8px;">Nivel de complejidad para cambiar la pantalla</label>
+    <div class="niveles">
+      <label class="nivel-card">
+        <input type="radio" name="fNivel" value="1">
+        <div><div class="titulo">Nivel 1 — Básico</div><div class="desc">Sin extracción de batería (no es extraíble o no influye) -- la pantalla se cambia de forma simple.</div></div>
+      </label>
+      <label class="nivel-card">
+        <input type="radio" name="fNivel" value="2">
+        <div><div class="titulo">Nivel 2 — Con batería</div><div class="desc">Hay que extraer la batería: se abre el equipo, se saca la tapa y se procede al cambio.</div></div>
+      </label>
+      <label class="nivel-card">
+        <input type="radio" name="fNivel" value="3">
+        <div><div class="titulo">Nivel 3 — Avanzado</div><div class="desc">Hay que sacar el cubre flex y hacer la apertura completa de la tapa para desactivar la batería.</div></div>
+      </label>
+      <label class="nivel-card">
+        <input type="radio" name="fNivel" value="4">
+        <div><div class="titulo">Nivel 4 — Específico</div><div class="desc">Equipos particulares que no calzan en los niveles anteriores -- detalla el motivo en Notas.</div></div>
+      </label>
+    </div>
+
+    <div class="campo" style="margin-bottom:14px;">
+      <label>Notas (opcional)</label>
+      <textarea id="fNotas" placeholder="Detalle extra, sobre todo si elegiste Nivel 4 -- qué lo hace distinto."></textarea>
+    </div>
+
+    <button class="btn-primary" id="btnGuardar" onclick="guardarModelo()">💾 Guardar en la base de datos</button>
+    <button class="btn-ghost" id="btnCancelarEdicion" style="display:none;" onclick="limpiarFormulario()">✕ Cancelar edición</button>
+  </div>
+
+  <div class="seccion" id="seccionLista">
+    <div class="seccion-head">
+      <div>
+        <h2>📚 Base de datos de modelos</h2>
+        <div class="sub" style="margin-bottom:0;">Antes de registrar uno nuevo, busca acá -- puede que ya esté documentado por otro técnico.</div>
+      </div>
+    </div>
+    <div class="filtros">
+      <input type="text" id="buscarInput" placeholder="Buscar por marca o modelo..." oninput="onBuscarInput()">
+    </div>
+    <div id="wrapTabla"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+</div>
+
+<div class="lightbox" id="lightbox" onclick="cerrarLightbox()">
+  <img id="lightboxImg" src="">
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+
+function escapeHtml(texto){
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+let rolActual = 'usuario';
+let modelosCargados = [];
+let fotoActualDataUrl = null; // foto pendiente de guardar junto al modelo (si se usó alguno de los dos botones de foto)
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    rolActual = u.rol;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+    }
+    cargarModelos();
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Foto: tomar/subir -> comprimir -> IA detecta marca/modelo ----------
+// Mismo patrón de compresión que ya usan reportar-error.html (1280px) y el
+// comparador de cotizaciones de compras.html (1800px) -- acá se usa un lado
+// máximo intermedio (1600px) porque necesita quedar legible tanto para el
+// técnico como para que la IA lea bien una etiqueta de modelo con letra
+// chica, sin pesar tanto como para tardar en subir desde el celular.
+function comprimirFoto(file){
+  return new Promise((resolve, reject) => {
+    const lector = new FileReader();
+    lector.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxLado = 1600;
+        let { width, height } = img;
+        if(width > maxLado || height > maxLado){
+          const escala = maxLado / Math.max(width, height);
+          width = Math.round(width * escala);
+          height = Math.round(height * escala);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = reject;
+      img.src = lector.result;
+    };
+    lector.onerror = reject;
+    lector.readAsDataURL(file);
+  });
+}
+
+function renderFotoPreview(estadoTexto, estadoClase){
+  const wrap = $('wrapFotoPreview');
+  if(!fotoActualDataUrl){ wrap.innerHTML = ''; return; }
+  wrap.innerHTML = `
+    <div class="foto-preview">
+      <img src="${fotoActualDataUrl}" onclick="abrirLightbox('${fotoActualDataUrl}')">
+      <div>
+        <div class="estado ${estadoClase || ''}">${estadoTexto || ''}</div>
+        <button type="button" class="quitar" onclick="quitarFoto()">Quitar foto</button>
+      </div>
+    </div>`;
+}
+function quitarFoto(){
+  fotoActualDataUrl = null;
+  $('inputFotoCamara').value = '';
+  $('inputFotoArchivo').value = '';
+  renderFotoPreview();
+}
+
+async function onSeleccionarFoto(inputEl){
+  const file = inputEl.files && inputEl.files[0];
+  if(!file) return;
+  try{
+    fotoActualDataUrl = await comprimirFoto(file);
+  }catch(err){
+    alert('No se pudo leer la imagen: ' + err.message);
+    return;
+  }finally{
+    inputEl.value = '';
+  }
+  renderFotoPreview('🤖 Detectando marca y modelo...', '');
+  try{
+    const res = await fetch('/api/negocio?recurso=identificacion-modelo-foto', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imagenBase64: fotoActualDataUrl }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){
+      renderFotoPreview('⚠ ' + (data.error || 'No se pudo detectar el modelo -- ingrésalo a mano.'), 'err');
+      return;
+    }
+    if(data.marca) $('fMarca').value = data.marca;
+    if(data.modelo) $('fModelo').value = data.modelo;
+    if(data.marca || data.modelo){
+      renderFotoPreview('✓ Detectado con IA -- revisa que marca y modelo estén correctos.', 'ok');
+    }else{
+      renderFotoPreview('⚠ No se pudo leer la marca/modelo en la foto -- ingrésalos a mano.', 'err');
+    }
+  }catch(err){
+    renderFotoPreview('⚠ Error detectando el modelo: ' + err.message, 'err');
+  }
+}
+
+function abrirLightbox(src){
+  $('lightboxImg').src = src;
+  $('lightbox').classList.add('abierto');
+}
+function cerrarLightbox(){
+  $('lightbox').classList.remove('abierto');
+  $('lightboxImg').src = '';
+}
+
+// ---------- Guardar (upsert por marca+modelo -- ver api/negocio.js) ----------
+async function guardarModelo(){
+  const marca = $('fMarca').value.trim();
+  const modelo = $('fModelo').value.trim();
+  const nivelInput = document.querySelector('input[name="fNivel"]:checked');
+  const notas = $('fNotas').value.trim();
+  const mensaje = $('mensajeGuardado');
+
+  if(!marca || !modelo){ mensaje.innerHTML = '<div class="mensaje-guardado err">Falta la marca o el modelo.</div>'; return; }
+  if(!nivelInput){ mensaje.innerHTML = '<div class="mensaje-guardado err">Elige un nivel de complejidad.</div>'; return; }
+
+  const btn = $('btnGuardar');
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/negocio?recurso=identificacion-modelos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ marca, modelo, complejidad: Number(nivelInput.value), notas, imagenBase64: fotoActualDataUrl }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ mensaje.innerHTML = `<div class="mensaje-guardado err">${escapeHtml(data.error || 'No se pudo guardar.')}</div>`; return; }
+    mensaje.innerHTML = `<div class="mensaje-guardado ok">${data.actualizado ? '✓ Se actualizó el registro existente.' : '✓ Modelo nuevo guardado.'}</div>`;
+    limpiarFormulario(false);
+    await cargarModelos($('buscarInput').value.trim());
+  }catch(err){
+    mensaje.innerHTML = `<div class="mensaje-guardado err">Error: ${escapeHtml(err.message)}</div>`;
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+function limpiarFormulario(limpiarMensaje = true){
+  $('fMarca').value = '';
+  $('fModelo').value = '';
+  $('fNotas').value = '';
+  const nivelInput = document.querySelector('input[name="fNivel"]:checked');
+  if(nivelInput) nivelInput.checked = false;
+  fotoActualDataUrl = null;
+  renderFotoPreview();
+  $('tituloForm').textContent = '📝 Registrar modelo';
+  $('btnCancelarEdicion').style.display = 'none';
+  if(limpiarMensaje) $('mensajeGuardado').innerHTML = '';
+}
+
+// Copia un registro existente al formulario para corregirlo -- al guardar,
+// como marca+modelo no cambian, el upsert del backend actualiza esa misma
+// fila en vez de crear una nueva (ver ON CONFLICT en manejarIdentificacionModelos).
+function editarModelo(id){
+  const m = modelosCargados.find(x => x.id === id);
+  if(!m) return;
+  $('fMarca').value = m.marca;
+  $('fModelo').value = m.modelo;
+  $('fNotas').value = m.notas || '';
+  const nivelInput = document.querySelector(`input[name="fNivel"][value="${m.complejidad}"]`);
+  if(nivelInput) nivelInput.checked = true;
+  fotoActualDataUrl = null; // no se re-sube la foto existente -- si no se sube una nueva, el backend conserva la que ya tenía
+  renderFotoPreview();
+  $('tituloForm').textContent = `✏️ Editando: ${escapeHtml(m.marca)} ${escapeHtml(m.modelo)}`;
+  $('btnCancelarEdicion').style.display = '';
+  $('mensajeGuardado').innerHTML = '';
+  $('seccionForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function eliminarModelo(id, marca, modelo){
+  if(!confirm(`¿Eliminar el registro de ${marca} ${modelo}?`)) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=identificacion-modelos&id=${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo eliminar.'); return; }
+    await cargarModelos($('buscarInput').value.trim());
+  }catch(err){ alert('Error: ' + err.message); }
+}
+
+// ---------- Listado / búsqueda ----------
+let timeoutBusqueda = null;
+function onBuscarInput(){
+  clearTimeout(timeoutBusqueda);
+  timeoutBusqueda = setTimeout(() => cargarModelos($('buscarInput').value.trim()), 300);
+}
+
+async function cargarModelos(buscar = ''){
+  try{
+    const url = '/api/negocio?recurso=identificacion-modelos' + (buscar ? `&buscar=${encodeURIComponent(buscar)}` : '');
+    const res = await fetch(url);
+    const data = await res.json();
+    if(!res.ok || data.error){ $('wrapTabla').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar la lista.')}</p>`; return; }
+    modelosCargados = data.modelos || [];
+    renderKpis();
+    renderTabla();
+    renderDatalistMarcas();
+  }catch(err){
+    $('wrapTabla').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderKpis(){
+  $('kpiTotal').textContent = modelosCargados.length;
+  for(const n of [1,2,3,4]){
+    $(`kpiN${n}`).textContent = modelosCargados.filter(m => m.complejidad === n).length;
+  }
+}
+
+function renderDatalistMarcas(){
+  const marcas = [...new Set(modelosCargados.map(m => m.marca))].sort((a,b) => a.localeCompare(b));
+  $('listaMarcas').innerHTML = marcas.map(m => `<option value="${escapeHtml(m)}">`).join('');
+}
+
+const NIVEL_LABEL = { 1: 'N1 — Básico', 2: 'N2 — Con batería', 3: 'N3 — Avanzado', 4: 'N4 — Específico' };
+
+function fmtFechaCorta(fechaStr){
+  if(!fechaStr) return '—';
+  return new Date(fechaStr).toLocaleDateString('es-CL', { day:'2-digit', month:'2-digit', year:'2-digit' });
+}
+
+function renderTabla(){
+  const wrap = $('wrapTabla');
+  if(modelosCargados.length === 0){
+    wrap.innerHTML = '<p class="empty-note">Todavía no hay ningún modelo registrado -- sé el primero en documentar uno arriba.</p>';
+    return;
+  }
+  const filas = modelosCargados.map(m => `
+    <tr>
+      <td><b>${escapeHtml(m.marca)}</b></td>
+      <td>${escapeHtml(m.modelo)}</td>
+      <td><span class="badge-nivel n${m.complejidad}">${NIVEL_LABEL[m.complejidad] || m.complejidad}</span></td>
+      <td class="notas">${m.notas ? escapeHtml(m.notas) : '<span class="empty-note">—</span>'}</td>
+      <td>${m.imagenBase64 ? `<img class="miniatura" src="${m.imagenBase64}" onclick="abrirLightbox('${m.imagenBase64}')">` : '<span class="empty-note">—</span>'}</td>
+      <td class="quien">${escapeHtml(m.actualizadoPor || '—')}<br>${fmtFechaCorta(m.updatedAt)}</td>
+      <td>
+        <button type="button" class="btn-icono" title="Editar" onclick="editarModelo(${m.id})">✏️</button>
+        <button type="button" class="btn-icono peligro" title="Eliminar" onclick="eliminarModelo(${m.id}, '${escapeHtml(m.marca).replace(/'/g,"\\'")}', '${escapeHtml(m.modelo).replace(/'/g,"\\'")}')">🗑️</button>
+      </td>
+    </tr>`).join('');
+  wrap.innerHTML = `
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Marca</th><th>Modelo</th><th>Nivel</th><th>Notas</th><th>Foto</th><th>Actualizado</th><th></th></tr></thead>
+      <tbody>${filas}</tbody>
+    </table></div>`;
+}
+
+cargarSesionUsuario();
+</script>
+</body>
+</html>

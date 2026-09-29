@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios } from '../lib/db.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
@@ -101,6 +101,8 @@ export default async function handler(req, res) {
   if (recurso === 'modelos-compatibilidad') return manejarModelosCompatibilidad(req, res, sesion);
   if (recurso === 'buscar-repuestos-modelo') return manejarBuscarRepuestosModelo(req, res, sesion);
   if (recurso === 'colecciones-modelos-notebook') return manejarColeccionesModelosNotebook(req, res, sesion);
+  if (recurso === 'identificacion-modelos') return manejarIdentificacionModelos(req, res, sesion);
+  if (recurso === 'identificacion-modelo-foto') return manejarIdentificacionModeloFoto(req, res, sesion);
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
@@ -9776,5 +9778,197 @@ async function manejarSyncCompraAgil(req, res, sesion) {
     return res.status(200).json({ completo: true, diasProcesadosEnEstaLlamada: diasProcesados, ordenesNuevasEnEstaLlamada: ordenesNuevas, vinculosNuevosEnEstaLlamada: vinculosNuevos, diasTotales: totalDias });
   } catch (err) {
     return res.status(200).json({ error: 'Error sincronizando con Mercado Público', detail: String(err) });
+  }
+}
+
+// ---------------- Identificación de modelos para pantallas (Servicio Técnico) ----------------
+// Pedido del usuario: un técnico puede escribir marca+modelo a mano, o
+// sacarle una foto al equipo (la etiqueta de modelo, o el equipo mismo) y
+// que la IA lea la marca y el modelo por él -- mismos proveedores y mismo
+// patrón que el Análisis IA de WhatsApp más arriba en este archivo (Gemini
+// primero, Claude de respaldo; se reutilizan tal cual convertirSchemaAGemini/
+// mapearContenidoAGemini/fetchConTimeout/GEMINI_MODEL_ANALISIS ya definidos
+// más arriba). El nivel de complejidad del cambio de pantalla (1 a 4) lo
+// decide SIEMPRE el técnico a mano, tanto si escribió el modelo como si lo
+// detectó por foto -- la IA nunca lo determina.
+const MODELO_PANTALLA_TOOL = {
+  name: 'identificar_modelo_equipo',
+  description: 'Identifica la marca y el modelo de un notebook/laptop a partir de una foto.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      marca: { type: 'string', description: 'Marca del equipo (ej. HP, Lenovo, Dell, Asus, Acer, Apple, Samsung). Cadena vacía si no se puede determinar con confianza.' },
+      modelo: { type: 'string', description: 'Modelo o número de modelo específico del equipo, tal como aparece en la etiqueta o se reconoce visualmente (ej. "Pavilion 15-eg0007la", "ThinkPad E14 Gen 4", "Ideapad 3 15ITL6"). Cadena vacía si no se puede leer/reconocer con confianza -- no adivines.' },
+    },
+    required: ['marca', 'modelo'],
+  },
+};
+const MODELO_PANTALLA_TOOL_GEMINI = {
+  name: MODELO_PANTALLA_TOOL.name,
+  description: MODELO_PANTALLA_TOOL.description,
+  parameters: convertirSchemaAGemini(MODELO_PANTALLA_TOOL.input_schema),
+};
+const PROMPT_MODELO_PANTALLA = 'Eres un técnico experto en notebooks/laptops de todas las marcas. En la foto puede verse la etiqueta con el número de modelo (normalmente en la base o la tapa trasera del equipo) o el equipo completo. Identifica la MARCA y el MODELO exacto. Si logras leer un código de modelo específico, inclúyelo completo tal como aparece. Si no puedes determinar la marca o el modelo con confianza razonable, deja ese campo como cadena vacía en vez de adivinar.';
+
+async function llamarGeminiModeloPantalla(contenido) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('sin_gemini_api_key');
+  const respuesta = await fetchConTimeout(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ANALISIS}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: PROMPT_MODELO_PANTALLA }] },
+        contents: [{ role: 'user', parts: mapearContenidoAGemini(contenido) }],
+        tools: [{ function_declarations: [MODELO_PANTALLA_TOOL_GEMINI] }],
+        tool_config: { function_calling_config: { mode: 'ANY', allowed_function_names: [MODELO_PANTALLA_TOOL_GEMINI.name] } },
+        generationConfig: { maxOutputTokens: 512 },
+      }),
+    },
+    30000
+  );
+  if (!respuesta.ok) {
+    const texto = await respuesta.text().catch(() => '');
+    throw new Error(`Gemini HTTP ${respuesta.status}: ${texto.slice(0, 300)}`);
+  }
+  const dataIA = await respuesta.json();
+  const partes = dataIA.candidates?.[0]?.content?.parts || [];
+  const llamada = partes.find(p => p.functionCall);
+  if (!llamada) throw new Error('Gemini no devolvió un resultado estructurado');
+  return llamada.functionCall.args || {};
+}
+
+async function llamarClaudeModeloPantalla(contenido) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('sin_anthropic_api_key');
+  const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      system: PROMPT_MODELO_PANTALLA,
+      messages: [{ role: 'user', content: contenido }],
+      tools: [MODELO_PANTALLA_TOOL],
+      tool_choice: { type: 'tool', name: MODELO_PANTALLA_TOOL.name },
+    }),
+  }, 30000);
+  if (!respuestaIA.ok) {
+    const texto = await respuestaIA.text().catch(() => '');
+    throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
+  }
+  const dataIA = await respuestaIA.json();
+  const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
+  if (!bloqueHerramienta) throw new Error('La IA no devolvió un resultado estructurado');
+  return bloqueHerramienta.input || {};
+}
+
+async function manejarIdentificacionModeloFoto(req, res, sesion) {
+  try {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const { imagenBase64 } = req.body || {};
+    const coincidencia = String(imagenBase64 || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!coincidencia) return res.status(400).json({ error: 'Falta una imagen válida' });
+    const [, mediaType, base64Data] = coincidencia;
+
+    if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+      return res.status(200).json({ error: 'Ni GEMINI_API_KEY ni ANTHROPIC_API_KEY están configuradas en el servidor' });
+    }
+
+    const contenido = [
+      { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+      { type: 'text', text: 'Identifica la marca y el modelo del equipo en esta foto.' },
+    ];
+
+    let resultado, proveedorUsado;
+    try {
+      resultado = await llamarGeminiModeloPantalla(contenido);
+      proveedorUsado = 'gemini';
+    } catch (errGemini) {
+      console.warn('[identificacionModeloFoto] Gemini falló, reintentando con Claude:', errGemini.message);
+      try {
+        resultado = await llamarClaudeModeloPantalla(contenido);
+        proveedorUsado = 'claude (respaldo)';
+      } catch (errClaude) {
+        throw new Error(`Gemini: ${errGemini.message} | Claude (respaldo): ${errClaude.message}`);
+      }
+    }
+    console.log(`[identificacionModeloFoto] detectado con ${proveedorUsado}`);
+    return res.status(200).json({
+      marca: String(resultado.marca || '').trim(),
+      modelo: String(resultado.modelo || '').trim(),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error identificando el modelo en la foto', detail: String(err) });
+  }
+}
+
+function mapearModeloPantalla(r) {
+  return {
+    id: r.id, marca: r.marca, modelo: r.modelo, complejidad: r.complejidad,
+    notas: r.notas || '', imagenBase64: r.imagen_base64 || null,
+    creadoPor: r.creado_por, actualizadoPor: r.actualizado_por,
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+async function manejarIdentificacionModelos(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaIdentificacionModelosPantalla(sql);
+
+    if (req.method === 'GET') {
+      const buscar = String(req.query.buscar || '').trim();
+      const { rows } = buscar
+        ? await sql`SELECT * FROM identificacion_modelos_pantalla WHERE marca ILIKE ${'%' + buscar + '%'} OR modelo ILIKE ${'%' + buscar + '%'} ORDER BY marca ASC, modelo ASC;`
+        : await sql`SELECT * FROM identificacion_modelos_pantalla ORDER BY marca ASC, modelo ASC;`;
+      return res.status(200).json({ modelos: rows.map(mapearModeloPantalla) });
+    }
+
+    if (req.method === 'POST') {
+      const { marca, modelo, complejidad, notas, imagenBase64 } = req.body || {};
+      const marcaLimpia = String(marca || '').trim();
+      const modeloLimpio = String(modelo || '').trim();
+      const complejidadNum = parseInt(complejidad, 10);
+      if (!marcaLimpia || !modeloLimpio) return res.status(400).json({ error: 'Falta la marca o el modelo' });
+      if (![1, 2, 3, 4].includes(complejidadNum)) return res.status(400).json({ error: 'Nivel de complejidad inválido (debe ser 1, 2, 3 o 4)' });
+      const notasLimpias = notas ? (String(notas).trim() || null) : null;
+      const imagenValida = /^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(String(imagenBase64 || '')) ? imagenBase64 : null;
+      const autor = sesion.nombre || sesion.email;
+
+      // ON CONFLICT (marca, modelo) DO UPDATE -- misma idea que
+      // notebook_compatibilidad: si ya existe una fila para esa marca+modelo
+      // exactos, esto la actualiza en vez de duplicarla. "(xmax = 0)" es el
+      // truco estándar de Postgres para saber, desde el mismo INSERT, si la
+      // fila devuelta se creó recién (xmax=0) o si fue la rama DO UPDATE la
+      // que corrió -- evita un SELECT aparte antes del upsert (y la
+      // condición de carrera que tendría contra otro guardado simultáneo).
+      const { rows } = await sql`
+        INSERT INTO identificacion_modelos_pantalla (marca, modelo, complejidad, notas, imagen_base64, creado_por, actualizado_por)
+        VALUES (${marcaLimpia}, ${modeloLimpio}, ${complejidadNum}, ${notasLimpias}, ${imagenValida}, ${autor}, ${autor})
+        ON CONFLICT (marca, modelo) DO UPDATE SET
+          complejidad = EXCLUDED.complejidad, notas = EXCLUDED.notas,
+          imagen_base64 = COALESCE(EXCLUDED.imagen_base64, identificacion_modelos_pantalla.imagen_base64),
+          actualizado_por = EXCLUDED.actualizado_por, updated_at = now()
+        RETURNING *, (xmax = 0) AS insertado;
+      `;
+      const fila = rows[0];
+      return res.status(200).json({ ok: true, actualizado: !fila.insertado, modelo: mapearModeloPantalla(fila) });
+    }
+
+    if (req.method === 'DELETE') {
+      const { id } = req.query;
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      await sql`DELETE FROM identificacion_modelos_pantalla WHERE id = ${id};`;
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    if (String(err).includes('23505') || /duplicate key|unique constraint/i.test(String(err))) {
+      return res.status(400).json({ error: 'Ya existe una fila para esa marca y modelo' });
+    }
+    return res.status(500).json({ error: 'Error en identificación de modelos', detail: String(err) });
   }
 }

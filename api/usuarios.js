@@ -14,7 +14,7 @@ import { enviarCorreo } from '../lib/mailer.js';
 const PAGINAS_DISPONIBLES = [
   'home.html', 'index.html', 'conciliacion.html', 'compras.html',
   'alertas-stock.html', 'productos-en-transito.html', 'oportunidades-comerciales.html', 'sitio-web.html',
-  'eficiencia-tickets.html', 'analisis.html', 'servicio-tecnico.html', 'clientes-whatsapp.html', 'guia-uso.html',
+  'eficiencia-tickets.html', 'analisis.html', 'servicio-tecnico.html', 'identificacion-modelos.html', 'clientes-whatsapp.html', 'guia-uso.html',
 ];
 
 // Modo diagnóstico puntual (?debugBrevo=email@dominio.cl): consulta
