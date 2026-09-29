@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Productos Nuevos — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;}
+  .seccion-head h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:0 0 4px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.activo{background:var(--primary-dim);border-color:var(--primary);color:var(--primary);}
+  .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);font-size:12px;cursor:pointer;padding:0;vertical-align:middle;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+  .btn-icono.peligro:hover{border-color:var(--red);background:var(--red-bg);color:var(--red);}
+
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:5px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;color:var(--text);}
+
+  .form-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px;}
+  .campo{display:flex;flex-direction:column;gap:5px;}
+  .campo label{font-size:12px;font-weight:600;color:var(--muted);}
+  .campo input[type="text"], .campo input[type="date"], .campo input[type="number"], .campo textarea, .campo select{
+    font-family:'Plus Jakarta Sans',sans-serif;font-size:13.5px;padding:9px 11px;
+    border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);
+  }
+  .campo input:focus, .campo textarea:focus, .campo select:focus{outline:none;border-color:var(--primary);}
+  .campo textarea{resize:vertical;min-height:56px;font-family:inherit;}
+
+  .coincidencia-box{font-size:12px;padding:9px 12px;border-radius:8px;margin:-4px 0 14px;background:var(--surface-2);color:var(--muted);}
+  .coincidencia-box b{color:var(--text);}
+  .coincidencia-box .alerta{color:var(--amber);font-weight:600;}
+  .coincidencia-box .ok{color:var(--green);font-weight:600;}
+  .coincidencia-box a{color:var(--primary);}
+
+  .filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .filtros input[type="text"]{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:8px 11px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);width:220px;}
+  .filtros select{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:8px 11px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);}
+  .filtros input:focus, .filtros select:focus{outline:none;border-color:var(--primary);}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap;}
+  td.notas{max-width:220px;white-space:normal;color:var(--muted);font-size:12px;}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .quien{color:var(--muted);font-size:11.5px;}
+
+  .badge-tipo{display:inline-block;font-family:'Space Grotesk',sans-serif;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;background:var(--surface-2);color:var(--text);}
+  .badge-estado{display:inline-block;font-family:'Space Grotesk',sans-serif;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+  .badge-estado.pendiente{background:var(--amber-dim);color:var(--amber);}
+  .badge-estado.evaluando{background:var(--blue-bg);color:var(--blue);}
+  .badge-estado.integrado{background:var(--green-bg);color:var(--green);}
+  .badge-estado.descartado{background:var(--red-bg);color:var(--red);}
+  select.estado-select{font-family:'Space Grotesk',sans-serif;font-size:11.5px;font-weight:700;padding:5px 8px;border-radius:8px;border:1.5px solid var(--line);background:var(--surface);}
+
+  /* Ranking -- barras horizontales, mismo patrón que google-analytics.html */
+  .canal-chart{max-height:420px;overflow-y:auto;padding-right:4px;}
+  .canal-grupo{margin-bottom:14px;}
+  .canal-titulo{font-size:12px;color:var(--text);margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .canal-fila{display:flex;align-items:center;gap:8px;margin-bottom:3px;}
+  .canal-pista{flex:1;background:var(--surface-2);border-radius:5px;height:12px;overflow:hidden;}
+  .canal-relleno{height:100%;border-radius:5px;min-width:3px;background:var(--primary);}
+  .canal-valor{width:56px;flex-shrink:0;text-align:right;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text);}
+
+  .mensaje-guardado{font-size:12.5px;padding:9px 12px;border-radius:8px;margin-bottom:14px;}
+  .mensaje-guardado.ok{background:var(--green-bg);color:var(--green);}
+  .mensaje-guardado.err{background:var(--red-bg);color:var(--red);}
+
+  @media (max-width: 900px){
+    .form-grid{grid-template-columns:1fr 1fr;}
+  }
+  @media (max-width: 560px){
+    .form-grid{grid-template-columns:1fr;}
+  }
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html">Compras</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="sitio-web.html">Sitio Web</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="indexscale.html">IndexScale</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="productos-nuevos.html" class="active">Productos Nuevos</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>🔌 Productos Nuevos</h1>
+  <div class="sub">Registra cargadores, baterías o pantallas que no están en el catálogo y que te toca pedir seguido -- reemplaza la planilla de Google Sheets. Cada vez que se repite un modelo, queda sumado acá abajo para decidir qué vale la pena integrar.</div>
+
+  <div class="grid" id="kpiWrap">
+    <div class="card"><div class="lbl">Registros totales</div><div class="big" id="kpiRegistros">—</div></div>
+    <div class="card"><div class="lbl">Modelos distintos</div><div class="big" id="kpiModelos">—</div></div>
+    <div class="card"><div class="lbl">⏰ Pendientes</div><div class="big" id="kpiPendientes">—</div></div>
+    <div class="card"><div class="lbl">✓ Integrados</div><div class="big" id="kpiIntegrados">—</div></div>
+  </div>
+
+  <div class="seccion" id="seccionForm">
+    <div class="seccion-head">
+      <div>
+        <h2>📝 Registrar producto</h2>
+        <div class="sub" style="margin-bottom:0;">Cada vez que te falte uno, regístralo de nuevo aunque ya esté en la lista -- así se ve qué tan seguido se repite.</div>
+      </div>
+    </div>
+
+    <div id="mensajeGuardado"></div>
+
+    <div class="form-grid">
+      <div class="campo">
+        <label>Fecha</label>
+        <input type="date" id="fFecha">
+      </div>
+      <div class="campo">
+        <label>Tipo</label>
+        <select id="fTipo" onchange="onCambioMarcaModelo()">
+          <option value="cargador">🔌 Cargador</option>
+          <option value="bateria">🔋 Batería</option>
+          <option value="pantalla">🖥️ Pantalla</option>
+          <option value="otro">📦 Otro</option>
+        </select>
+      </div>
+      <div class="campo">
+        <label>Cantidad</label>
+        <input type="number" id="fCantidad" value="1" min="1">
+      </div>
+      <div class="campo">
+        <label>Marca</label>
+        <input type="text" id="fMarca" placeholder="Ej: HP, Lenovo, Dell, Asus..." list="listaMarcasProd" oninput="onCambioMarcaModelo()">
+        <datalist id="listaMarcasProd"></datalist>
+      </div>
+      <div class="campo" style="grid-column:span 2;">
+        <label>Modelo</label>
+        <input type="text" id="fModelo" placeholder="Ej: C31N1843" oninput="onCambioMarcaModelo()">
+      </div>
+    </div>
+
+    <div id="wrapCoincidencia"></div>
+
+    <div class="campo" style="margin-bottom:14px;">
+      <label>Notas (opcional)</label>
+      <textarea id="fNotas" placeholder="Contexto extra -- ej. qué cliente lo pidió, para qué otros modelos sirve, etc."></textarea>
+    </div>
+
+    <button class="btn-primary" id="btnGuardar" onclick="guardarRegistro()">💾 Registrar</button>
+  </div>
+
+  <div class="seccion" id="seccionRanking">
+    <div class="seccion-head">
+      <div>
+        <h2>📊 Ranking de modelos más solicitados</h2>
+        <div class="sub" style="margin-bottom:0;">Top 10 por cantidad acumulada (reemplaza el gráfico de torta de la planilla -- con más de 10-15 modelos, una torta deja de ser legible).</div>
+      </div>
+    </div>
+    <div id="wrapRanking"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+  <div class="seccion" id="seccionResumen">
+    <div class="seccion-head">
+      <div>
+        <h2>📋 Resumen por modelo</h2>
+        <div class="sub" style="margin-bottom:0;">Un modelo por fila (agrupa mayúsculas/minúsculas). Cambia el estado a medida que se evalúa o se integra al catálogo.</div>
+      </div>
+    </div>
+    <div class="filtros">
+      <input type="text" id="buscarResumenInput" placeholder="Buscar por marca o modelo..." oninput="renderResumenTabla()">
+      <select id="filtroTipoResumen" onchange="renderResumenTabla()">
+        <option value="">Todos los tipos</option>
+        <option value="cargador">🔌 Cargador</option>
+        <option value="bateria">🔋 Batería</option>
+        <option value="pantalla">🖥️ Pantalla</option>
+        <option value="otro">📦 Otro</option>
+      </select>
+      <select id="filtroEstadoResumen" onchange="renderResumenTabla()">
+        <option value="">Todos los estados</option>
+        <option value="pendiente">Pendiente</option>
+        <option value="evaluando">Evaluando</option>
+        <option value="integrado">Integrado</option>
+        <option value="descartado">Descartado</option>
+      </select>
+    </div>
+    <div id="wrapResumen"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+  <div class="seccion" id="seccionHistorial">
+    <div class="seccion-head">
+      <div>
+        <h2>🕒 Historial completo</h2>
+        <div class="sub" style="margin-bottom:0;">Cada vez que alguien registró algo -- fecha, artículo y cantidad, tal como en la planilla original.</div>
+      </div>
+    </div>
+    <div class="filtros">
+      <input type="text" id="buscarHistorialInput" placeholder="Buscar por marca o modelo..." oninput="renderHistorialTabla()">
+    </div>
+    <div id="wrapHistorial"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+
+function escapeHtml(texto){
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+let rolActual = 'usuario';
+let registrosCargados = [];
+let resumenCargado = [];
+
+const TIPO_LABEL = { cargador: '🔌 Cargador', bateria: '🔋 Batería', pantalla: '🖥️ Pantalla', otro: '📦 Otro' };
+const ESTADO_LABEL = { pendiente: 'Pendiente', evaluando: 'Evaluando', integrado: 'Integrado ✓', descartado: 'Descartado' };
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    rolActual = u.rol;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+    }
+    $('fFecha').value = new Date().toLocaleDateString('en-CA');
+    cargarTodo();
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+async function cargarTodo(){
+  await Promise.all([cargarRegistro(), cargarResumen()]);
+}
+
+async function cargarRegistro(){
+  try{
+    const res = await fetch('/api/negocio?recurso=productos-nuevos-registro');
+    const data = await res.json();
+    if(!res.ok || data.error){ $('wrapHistorial').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar el historial.')}</p>`; return; }
+    registrosCargados = data.registros || [];
+    renderKpis();
+    renderHistorialTabla();
+    renderDatalistMarcas();
+  }catch(err){
+    $('wrapHistorial').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function cargarResumen(){
+  try{
+    const res = await fetch('/api/negocio?recurso=productos-nuevos-resumen');
+    const data = await res.json();
+    if(!res.ok || data.error){ $('wrapResumen').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar el resumen.')}</p>`; return; }
+    resumenCargado = data.resumen || [];
+    renderKpis();
+    renderRanking();
+    renderResumenTabla();
+  }catch(err){
+    $('wrapResumen').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderKpis(){
+  $('kpiRegistros').textContent = registrosCargados.length;
+  $('kpiModelos').textContent = resumenCargado.length;
+  $('kpiPendientes').textContent = resumenCargado.filter(m => m.estado === 'pendiente').length;
+  $('kpiIntegrados').textContent = resumenCargado.filter(m => m.estado === 'integrado').length;
+}
+
+function renderDatalistMarcas(){
+  const marcas = [...new Set(registrosCargados.map(r => r.marca))].sort((a,b) => a.localeCompare(b));
+  $('listaMarcasProd').innerHTML = marcas.map(m => `<option value="${escapeHtml(m)}">`).join('');
+}
+
+// ---------- Funcionalidad 1: coincidencias ya registradas (evita
+// duplicar mal escrito -- "BATERIA ASUS" y "bateria asus" cuentan como lo
+// mismo) + Funcionalidad 2: cruce contra el catálogo real (Bsale/Shopify,
+// mismo buscador que ya usa el Análisis IA de WhatsApp) -- avisa si ese
+// modelo ya se vende, para no evaluar de nuevo algo que ya está integrado.
+let timeoutCoincidencia = null;
+function onCambioMarcaModelo(){
+  clearTimeout(timeoutCoincidencia);
+  timeoutCoincidencia = setTimeout(verificarCoincidenciaYCatalogo, 400);
+}
+
+async function verificarCoincidenciaYCatalogo(){
+  const wrap = $('wrapCoincidencia');
+  const tipo = $('fTipo').value;
+  const marca = $('fMarca').value.trim();
+  const modelo = $('fModelo').value.trim();
+  if(!marca || !modelo){ wrap.innerHTML = ''; return; }
+
+  const marcaNorm = marca.toUpperCase();
+  const modeloNorm = modelo.toUpperCase();
+  const existente = resumenCargado.find(m => m.tipo === tipo && m.marcaNorm === marcaNorm && m.modeloNorm === modeloNorm);
+
+  const partes = [];
+  if(existente){
+    partes.push(`<div>🔁 Ya se registró <b>${existente.vecesRegistrado}</b> ${existente.vecesRegistrado === 1 ? 'vez' : 'veces'} antes (cantidad acumulada: <b>${existente.cantidadTotal}</b>) -- estado actual: <span class="alerta">${ESTADO_LABEL[existente.estado]}</span>.</div>`);
+  } else {
+    partes.push('<div>Primera vez que se registra este modelo.</div>');
+  }
+  partes.push('<div id="wrapCatalogoCheck">🔎 Buscando en el catálogo...</div>');
+  wrap.innerHTML = `<div class="coincidencia-box">${partes.join('')}</div>`;
+
+  if(tipo === 'otro'){
+    $('wrapCatalogoCheck').innerHTML = 'No se puede cruzar automáticamente "Otro" contra el catálogo -- revísalo a mano.';
+    return;
+  }
+  try{
+    const res = await fetch(`/api/negocio?recurso=buscar-repuestos-modelo&marca=${encodeURIComponent(marca)}&modelo=${encodeURIComponent(modelo)}`);
+    const data = await res.json();
+    const encontrado = data && data[tipo];
+    const el = $('wrapCatalogoCheck');
+    if(!el) return; // el usuario ya siguió escribiendo y esto quedó obsoleto
+    if(data.error){
+      el.textContent = 'No se pudo revisar el catálogo (' + data.error + ').';
+    } else if(encontrado){
+      el.innerHTML = `<span class="alerta">⚠ Ya existe algo parecido en el catálogo:</span> ${encontrado.url ? `<a href="${encontrado.url}" target="_blank" rel="noopener">${escapeHtml(encontrado.titulo)}</a>` : escapeHtml(encontrado.titulo)}${encontrado.sku ? ` (SKU ${escapeHtml(encontrado.sku)})` : ''} -- confianza ${encontrado.confianza}%. Puede que no valga la pena integrarlo de nuevo.`;
+    } else {
+      el.innerHTML = '<span class="ok">✓ No se encontró en el catálogo actual</span> -- buen candidato para evaluar.';
+    }
+  }catch(err){
+    const el = $('wrapCatalogoCheck');
+    if(el) el.textContent = 'Error revisando el catálogo: ' + err.message;
+  }
+}
+
+async function guardarRegistro(){
+  const fecha = $('fFecha').value;
+  const tipo = $('fTipo').value;
+  const marca = $('fMarca').value.trim();
+  const modelo = $('fModelo').value.trim();
+  const cantidad = parseInt($('fCantidad').value, 10) || 1;
+  const notas = $('fNotas').value.trim();
+  const mensaje = $('mensajeGuardado');
+
+  if(!marca || !modelo){ mensaje.innerHTML = '<div class="mensaje-guardado err">Falta la marca o el modelo.</div>'; return; }
+
+  const btn = $('btnGuardar');
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/negocio?recurso=productos-nuevos-registro', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fecha, tipo, marca, modelo, cantidad, notas }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ mensaje.innerHTML = `<div class="mensaje-guardado err">${escapeHtml(data.error || 'No se pudo guardar.')}</div>`; return; }
+    mensaje.innerHTML = '<div class="mensaje-guardado ok">✓ Registrado.</div>';
+    $('fMarca').value = '';
+    $('fModelo').value = '';
+    $('fCantidad').value = '1';
+    $('fNotas').value = '';
+    $('wrapCoincidencia').innerHTML = '';
+    await cargarTodo();
+  }catch(err){
+    mensaje.innerHTML = `<div class="mensaje-guardado err">Error: ${escapeHtml(err.message)}</div>`;
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function eliminarRegistro(id){
+  if(!confirm('¿Eliminar este registro del historial?')) return;
+  try{
+    const res = await fetch(`/api/negocio?recurso=productos-nuevos-registro&id=${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo eliminar.'); return; }
+    await cargarTodo();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+
+// ---------- Funcionalidad 3: estado de seguimiento por modelo
+// (pendiente/evaluando/integrado/descartado), con SKU cuando se integra --
+// cierra el ciclo entre "esto se pide mucho" y "ya se agregó al catálogo".
+async function cambiarEstadoResumen(tipo, marcaNorm, modeloNorm, marca, modelo, nuevoEstado){
+  let skuIntegrado = '';
+  if(nuevoEstado === 'integrado'){
+    skuIntegrado = prompt(`SKU asignado en Bsale para ${marca} ${modelo} (opcional, puedes dejarlo en blanco):`, '') || '';
+  }
+  try{
+    const res = await fetch('/api/negocio?recurso=productos-nuevos-estado', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo, marca: marcaNorm, modelo: modeloNorm, estado: nuevoEstado, skuIntegrado }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo actualizar el estado.'); return; }
+    await cargarResumen();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+
+// ---------- Ranking (top 10, reemplaza la torta de la planilla) ----------
+function renderRanking(){
+  const wrap = $('wrapRanking');
+  const top = [...resumenCargado].sort((a,b) => b.cantidadTotal - a.cantidadTotal).slice(0, 10);
+  if(top.length === 0){ wrap.innerHTML = '<p class="empty-note">Todavía no hay registros.</p>'; return; }
+  const maxCantidad = Math.max(...top.map(m => m.cantidadTotal));
+  const filas = top.map(m => {
+    const pct = maxCantidad ? Math.round(m.cantidadTotal / maxCantidad * 100) : 0;
+    return `<div class="canal-grupo">
+      <div class="canal-titulo">${TIPO_LABEL[m.tipo] || m.tipo} -- <b>${escapeHtml(m.marca)} ${escapeHtml(m.modelo)}</b></div>
+      <div class="canal-fila">
+        <div class="canal-pista"><div class="canal-relleno" style="width:${pct}%;"></div></div>
+        <div class="canal-valor">${m.cantidadTotal}</div>
+      </div>
+    </div>`;
+  }).join('');
+  wrap.innerHTML = `<div class="canal-chart">${filas}</div>`;
+}
+
+function fmtFechaCorta(fechaStr){
+  if(!fechaStr) return '—';
+  return new Date(fechaStr + 'T00:00:00').toLocaleDateString('es-CL', { day:'2-digit', month:'2-digit', year:'2-digit' });
+}
+
+function resumenFiltrado(){
+  const buscar = $('buscarResumenInput').value.trim().toLowerCase();
+  const tipo = $('filtroTipoResumen').value;
+  const estado = $('filtroEstadoResumen').value;
+  return resumenCargado.filter(m => {
+    if(tipo && m.tipo !== tipo) return false;
+    if(estado && m.estado !== estado) return false;
+    if(buscar && !(`${m.marca} ${m.modelo}`.toLowerCase().includes(buscar))) return false;
+    return true;
+  });
+}
+
+function renderResumenTabla(){
+  const wrap = $('wrapResumen');
+  const filas = resumenFiltrado();
+  if(filas.length === 0){
+    wrap.innerHTML = `<p class="empty-note">${resumenCargado.length === 0 ? 'Todavía no hay ningún modelo registrado.' : 'Sin resultados para ese filtro.'}</p>`;
+    return;
+  }
+  const filasSorted = [...filas].sort((a,b) => b.cantidadTotal - a.cantidadTotal);
+  const tbody = filasSorted.map(m => `
+    <tr>
+      <td><span class="badge-tipo">${TIPO_LABEL[m.tipo] || m.tipo}</span></td>
+      <td><b>${escapeHtml(m.marca)}</b></td>
+      <td>${escapeHtml(m.modelo)}</td>
+      <td class="amount">${m.cantidadTotal}</td>
+      <td class="amount">${m.vecesRegistrado}</td>
+      <td>${fmtFechaCorta(m.ultimaFecha)}</td>
+      <td>
+        <select class="estado-select" onchange="cambiarEstadoResumen('${m.tipo}','${m.marcaNorm.replace(/'/g,"\\'")}','${m.modeloNorm.replace(/'/g,"\\'")}','${escapeHtml(m.marca).replace(/'/g,"\\'")}','${escapeHtml(m.modelo).replace(/'/g,"\\'")}', this.value)">
+          ${Object.entries(ESTADO_LABEL).map(([valor,label]) => `<option value="${valor}" ${m.estado===valor?'selected':''}>${label}</option>`).join('')}
+        </select>
+      </td>
+      <td>${m.skuIntegrado ? `<span class="amount">${escapeHtml(m.skuIntegrado)}</span>` : '<span class="empty-note">—</span>'}</td>
+    </tr>`).join('');
+  wrap.innerHTML = `<div class="tabla-wrap"><table>
+    <thead><tr><th>Tipo</th><th>Marca</th><th>Modelo</th><th>Cant. total</th><th>Veces</th><th>Última vez</th><th>Estado</th><th>SKU</th></tr></thead>
+    <tbody>${tbody}</tbody>
+  </table></div>`;
+}
+
+function historialFiltrado(){
+  const buscar = $('buscarHistorialInput').value.trim().toLowerCase();
+  return registrosCargados.filter(r => !buscar || `${r.marca} ${r.modelo}`.toLowerCase().includes(buscar));
+}
+
+function renderHistorialTabla(){
+  const wrap = $('wrapHistorial');
+  const filas = historialFiltrado();
+  if(filas.length === 0){
+    wrap.innerHTML = `<p class="empty-note">${registrosCargados.length === 0 ? 'Todavía no hay ningún registro.' : 'Sin resultados para ese filtro.'}</p>`;
+    return;
+  }
+  const tbody = filas.map(r => `
+    <tr>
+      <td>${fmtFechaCorta(r.fecha)}</td>
+      <td><span class="badge-tipo">${TIPO_LABEL[r.tipo] || r.tipo}</span></td>
+      <td><b>${escapeHtml(r.marca)}</b></td>
+      <td>${escapeHtml(r.modelo)}</td>
+      <td class="amount">${r.cantidad}</td>
+      <td class="notas">${r.notas ? escapeHtml(r.notas) : '<span class="empty-note">—</span>'}</td>
+      <td class="quien">${escapeHtml(r.creadoPor || '—')}</td>
+      <td><button type="button" class="btn-icono peligro" title="Eliminar" onclick="eliminarRegistro(${r.id})">🗑️</button></td>
+    </tr>`).join('');
+  wrap.innerHTML = `<div class="tabla-wrap"><table>
+    <thead><tr><th>Fecha</th><th>Tipo</th><th>Marca</th><th>Modelo</th><th>Cant.</th><th>Notas</th><th>Registró</th><th></th></tr></thead>
+    <tbody>${tbody}</tbody>
+  </table></div>`;
+}
+
+cargarSesionUsuario();
+</script>
+</body>
+</html>

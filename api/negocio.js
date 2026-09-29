@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios } from '../lib/db.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
@@ -103,6 +103,9 @@ export default async function handler(req, res) {
   if (recurso === 'colecciones-modelos-notebook') return manejarColeccionesModelosNotebook(req, res, sesion);
   if (recurso === 'identificacion-modelos') return manejarIdentificacionModelos(req, res, sesion);
   if (recurso === 'identificacion-modelo-foto') return manejarIdentificacionModeloFoto(req, res, sesion);
+  if (recurso === 'productos-nuevos-registro') return manejarProductosNuevosRegistro(req, res, sesion);
+  if (recurso === 'productos-nuevos-resumen') return manejarProductosNuevosResumen(req, res, sesion);
+  if (recurso === 'productos-nuevos-estado') return manejarProductosNuevosEstado(req, res, sesion);
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
@@ -9970,5 +9973,151 @@ async function manejarIdentificacionModelos(req, res, sesion) {
       return res.status(400).json({ error: 'Ya existe una fila para esa marca y modelo' });
     }
     return res.status(500).json({ error: 'Error en identificación de modelos', detail: String(err) });
+  }
+}
+
+// ---------------- Productos nuevos para el catálogo (Análisis) ----------------
+// Pedido del usuario: reemplaza una planilla de Google Sheets (fecha +
+// artículo + modelo + cantidad, con una torta de qué modelo se repite más)
+// por esta página. El cruce contra el catálogo real reutiliza TAL CUAL
+// buscarSkusModeloNotebook/buscarProductoShopify (mismo buscador con
+// confianza que ya usa el Análisis IA de WhatsApp y "Compatibilidad de
+// modelos" de Sitio Web) -- expuesto ya como ?recurso=buscar-repuestos-modelo,
+// no hace falta duplicar nada acá, el frontend lo llama directo.
+const TIPOS_PRODUCTO_NUEVO = ['cargador', 'bateria', 'pantalla', 'otro'];
+const ESTADOS_PRODUCTO_NUEVO = ['pendiente', 'evaluando', 'integrado', 'descartado'];
+
+function mapearProductoNuevoLog(r) {
+  const fecha = r.fecha instanceof Date ? r.fecha.toISOString() : String(r.fecha);
+  return {
+    id: r.id, fecha: fecha.slice(0, 10), tipo: r.tipo, marca: r.marca, modelo: r.modelo,
+    cantidad: r.cantidad, notas: r.notas || '', creadoPor: r.creado_por, createdAt: r.created_at,
+  };
+}
+
+async function manejarProductosNuevosRegistro(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaProductosNuevos(sql);
+
+    if (req.method === 'GET') {
+      const { rows } = await sql`SELECT * FROM productos_nuevos_registro ORDER BY fecha DESC, created_at DESC;`;
+      return res.status(200).json({ registros: rows.map(mapearProductoNuevoLog) });
+    }
+
+    if (req.method === 'POST') {
+      const { fecha, tipo, marca, modelo, cantidad, notas } = req.body || {};
+      const marcaLimpia = String(marca || '').trim();
+      const modeloLimpio = String(modelo || '').trim();
+      if (!marcaLimpia || !modeloLimpio) return res.status(400).json({ error: 'Falta la marca o el modelo' });
+      if (!TIPOS_PRODUCTO_NUEVO.includes(tipo)) return res.status(400).json({ error: 'Tipo de producto inválido' });
+      const cantidadNum = parseInt(cantidad, 10) || 1;
+      if (cantidadNum < 1) return res.status(400).json({ error: 'La cantidad debe ser al menos 1' });
+      // Fecha en zona horaria de Chile (no UTC) -- mismo motivo que
+      // hoyStrCot/hoyStrHe en el frontend: "hoy" tiene que calzar con el
+      // día real del técnico, no con el día UTC del servidor.
+      const hoyChile = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date());
+      const fechaFinal = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : hoyChile;
+      const notasLimpias = notas ? (String(notas).trim() || null) : null;
+      const autor = sesion.nombre || sesion.email;
+
+      const { rows } = await sql`
+        INSERT INTO productos_nuevos_registro (fecha, tipo, marca, modelo, cantidad, notas, creado_por)
+        VALUES (${fechaFinal}, ${tipo}, ${marcaLimpia}, ${modeloLimpio}, ${cantidadNum}, ${notasLimpias}, ${autor})
+        RETURNING *;
+      `;
+      return res.status(200).json({ ok: true, registro: mapearProductoNuevoLog(rows[0]) });
+    }
+
+    if (req.method === 'DELETE') {
+      const { id } = req.query;
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      await sql`DELETE FROM productos_nuevos_registro WHERE id = ${id};`;
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en el registro de productos nuevos', detail: String(err) });
+  }
+}
+
+// Agrupa el log crudo por tipo+marca+modelo NORMALIZADOS (mayúscula+trim
+// -- ver comentario de asegurarTablaProductosNuevos en lib/db.js) y le
+// cruza el estado de seguimiento (pendiente por defecto si nunca se tocó).
+// marca/modelo "de exhibición" son los de la fila más reciente de ese
+// grupo (ARRAY_AGG ordenado por created_at desc), para no mostrar una
+// mezcla rara de mayúsculas/minúsculas.
+async function manejarProductosNuevosResumen(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaProductosNuevos(sql);
+    const { rows } = await sql`
+      WITH resumen AS (
+        SELECT
+          tipo,
+          UPPER(TRIM(marca)) AS marca_norm,
+          UPPER(TRIM(modelo)) AS modelo_norm,
+          (ARRAY_AGG(marca ORDER BY created_at DESC))[1] AS marca,
+          (ARRAY_AGG(modelo ORDER BY created_at DESC))[1] AS modelo,
+          SUM(cantidad)::int AS cantidad_total,
+          COUNT(*)::int AS veces_registrado,
+          MAX(fecha) AS ultima_fecha,
+          MIN(fecha) AS primera_fecha
+        FROM productos_nuevos_registro
+        GROUP BY tipo, UPPER(TRIM(marca)), UPPER(TRIM(modelo))
+      )
+      SELECT r.*, COALESCE(e.estado, 'pendiente') AS estado, e.sku_integrado, e.notas_estado,
+             e.actualizado_por AS estado_actualizado_por, e.actualizado_en AS estado_actualizado_en
+      FROM resumen r
+      LEFT JOIN productos_nuevos_estado e
+        ON e.tipo = r.tipo AND e.marca_norm = r.marca_norm AND e.modelo_norm = r.modelo_norm
+      ORDER BY r.cantidad_total DESC, r.veces_registrado DESC;
+    `;
+    return res.status(200).json({
+      resumen: rows.map(r => ({
+        tipo: r.tipo, marcaNorm: r.marca_norm, modeloNorm: r.modelo_norm,
+        marca: r.marca, modelo: r.modelo,
+        cantidadTotal: r.cantidad_total, vecesRegistrado: r.veces_registrado,
+        ultimaFecha: String(r.ultima_fecha).slice(0, 10), primeraFecha: String(r.primera_fecha).slice(0, 10),
+        estado: r.estado, skuIntegrado: r.sku_integrado || '', notasEstado: r.notas_estado || '',
+        estadoActualizadoPor: r.estado_actualizado_por, estadoActualizadoEn: r.estado_actualizado_en,
+      })),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error armando el resumen de productos nuevos', detail: String(err) });
+  }
+}
+
+async function manejarProductosNuevosEstado(req, res, sesion) {
+  if (req.method !== 'PUT') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaProductosNuevos(sql);
+    const { tipo, marca, modelo, estado, skuIntegrado, notas } = req.body || {};
+    if (!TIPOS_PRODUCTO_NUEVO.includes(tipo)) return res.status(400).json({ error: 'Tipo de producto inválido' });
+    if (!ESTADOS_PRODUCTO_NUEVO.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+    // El frontend ya manda marca/modelo normalizados (marcaNorm/modeloNorm
+    // del resumen), pero se normaliza igual acá por si alguna vez se llama
+    // con el valor "de exhibición" -- es la clave real de la fila.
+    const marcaNorm = String(marca || '').trim().toUpperCase();
+    const modeloNorm = String(modelo || '').trim().toUpperCase();
+    if (!marcaNorm || !modeloNorm) return res.status(400).json({ error: 'Falta marca o modelo' });
+    const autor = sesion.nombre || sesion.email;
+    const sku = skuIntegrado ? String(skuIntegrado).trim() || null : null;
+    const notasLimpias = notas ? String(notas).trim() || null : null;
+
+    const { rows } = await sql`
+      INSERT INTO productos_nuevos_estado (tipo, marca_norm, modelo_norm, estado, sku_integrado, notas_estado, actualizado_por)
+      VALUES (${tipo}, ${marcaNorm}, ${modeloNorm}, ${estado}, ${sku}, ${notasLimpias}, ${autor})
+      ON CONFLICT (tipo, marca_norm, modelo_norm) DO UPDATE SET
+        estado = EXCLUDED.estado, sku_integrado = EXCLUDED.sku_integrado, notas_estado = EXCLUDED.notas_estado,
+        actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now()
+      RETURNING *;
+    `;
+    return res.status(200).json({ ok: true, estado: rows[0].estado, skuIntegrado: rows[0].sku_integrado });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error actualizando el estado del producto', detail: String(err) });
   }
 }
