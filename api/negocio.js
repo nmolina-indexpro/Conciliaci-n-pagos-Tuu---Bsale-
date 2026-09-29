@@ -9995,6 +9995,35 @@ function mapearProductoNuevoLog(r) {
   };
 }
 
+// Un solo registro validado + insertado -- usado tanto por el alta manual
+// (un producto a la vez) como por la importación masiva desde planilla
+// (pegar varias filas de una, ver manejarProductosNuevosRegistro más abajo
+// y la sección "Importar desde planilla" de productos-nuevos.html). Tira
+// una excepción con mensaje en español si algo no es válido, en vez de
+// devolver un objeto de error -- el llamador decide si aborta todo (alta
+// simple) o sigue con las demás filas y junta los errores (importación).
+async function insertarProductoNuevoRegistro(sql, { fecha, tipo, marca, modelo, cantidad, notas }, autor) {
+  const marcaLimpia = String(marca || '').trim();
+  const modeloLimpio = String(modelo || '').trim();
+  if (!marcaLimpia || !modeloLimpio) throw new Error('Falta la marca o el modelo');
+  if (!TIPOS_PRODUCTO_NUEVO.includes(tipo)) throw new Error(`Tipo de producto inválido: "${tipo}"`);
+  const cantidadNum = parseInt(cantidad, 10) || 1;
+  if (cantidadNum < 1) throw new Error('La cantidad debe ser al menos 1');
+  // Fecha en zona horaria de Chile (no UTC) -- mismo motivo que
+  // hoyStrCot/hoyStrHe en el frontend: "hoy" tiene que calzar con el día
+  // real del técnico, no con el día UTC del servidor.
+  const hoyChile = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date());
+  const fechaFinal = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : hoyChile;
+  const notasLimpias = notas ? (String(notas).trim() || null) : null;
+
+  const { rows } = await sql`
+    INSERT INTO productos_nuevos_registro (fecha, tipo, marca, modelo, cantidad, notas, creado_por)
+    VALUES (${fechaFinal}, ${tipo}, ${marcaLimpia}, ${modeloLimpio}, ${cantidadNum}, ${notasLimpias}, ${autor})
+    RETURNING *;
+  `;
+  return mapearProductoNuevoLog(rows[0]);
+}
+
 async function manejarProductosNuevosRegistro(req, res, sesion) {
   try {
     const sql = await getSql();
@@ -10006,27 +10035,33 @@ async function manejarProductosNuevosRegistro(req, res, sesion) {
     }
 
     if (req.method === 'POST') {
-      const { fecha, tipo, marca, modelo, cantidad, notas } = req.body || {};
-      const marcaLimpia = String(marca || '').trim();
-      const modeloLimpio = String(modelo || '').trim();
-      if (!marcaLimpia || !modeloLimpio) return res.status(400).json({ error: 'Falta la marca o el modelo' });
-      if (!TIPOS_PRODUCTO_NUEVO.includes(tipo)) return res.status(400).json({ error: 'Tipo de producto inválido' });
-      const cantidadNum = parseInt(cantidad, 10) || 1;
-      if (cantidadNum < 1) return res.status(400).json({ error: 'La cantidad debe ser al menos 1' });
-      // Fecha en zona horaria de Chile (no UTC) -- mismo motivo que
-      // hoyStrCot/hoyStrHe en el frontend: "hoy" tiene que calzar con el
-      // día real del técnico, no con el día UTC del servidor.
-      const hoyChile = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date());
-      const fechaFinal = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : hoyChile;
-      const notasLimpias = notas ? (String(notas).trim() || null) : null;
       const autor = sesion.nombre || sesion.email;
 
-      const { rows } = await sql`
-        INSERT INTO productos_nuevos_registro (fecha, tipo, marca, modelo, cantidad, notas, creado_por)
-        VALUES (${fechaFinal}, ${tipo}, ${marcaLimpia}, ${modeloLimpio}, ${cantidadNum}, ${notasLimpias}, ${autor})
-        RETURNING *;
-      `;
-      return res.status(200).json({ ok: true, registro: mapearProductoNuevoLog(rows[0]) });
+      // Importación masiva (pegar varias filas de la planilla de una) --
+      // se distingue del alta manual por traer "registros" en vez de los
+      // campos sueltos. Sigue fila por fila aunque alguna falle (una fecha
+      // rara, una fila sin modelo) -- junta los errores para mostrarlos
+      // todos juntos en vez de abortar la importación completa por una
+      // sola fila mala.
+      if (Array.isArray(req.body?.registros)) {
+        const guardados = [];
+        const errores = [];
+        for (const [i, fila] of req.body.registros.entries()) {
+          try {
+            guardados.push(await insertarProductoNuevoRegistro(sql, fila, autor));
+          } catch (err) {
+            errores.push({ fila: i + 1, marca: fila?.marca, modelo: fila?.modelo, error: err.message });
+          }
+        }
+        return res.status(200).json({ ok: true, insertados: guardados.length, registros: guardados, errores });
+      }
+
+      try {
+        const registro = await insertarProductoNuevoRegistro(sql, req.body || {}, autor);
+        return res.status(200).json({ ok: true, registro });
+      } catch (err) {
+        return res.status(400).json({ error: err.message });
+      }
     }
 
     if (req.method === 'DELETE') {
