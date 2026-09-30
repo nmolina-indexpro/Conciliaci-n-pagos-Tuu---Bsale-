@@ -7823,6 +7823,16 @@ async function guardarCacheModelosNotebook(sql, resultado) {
 // o se menciona en los mensajes salientes (ej. "Te habla Stefanie 😊").
 // Lista fija por ahora; si el equipo cambia, hay que actualizarla acá.
 const WHATSAPP_VENDEDORES = ['Stefanie', 'David', 'Nathalia', 'Fernando', 'Nicolas'];
+// Email real de la cuenta ERP de cada vendedor (dado por el usuario) --
+// ver ejecutarAnalisisIA, evita depender de que el nombre "oficial" de
+// arriba (el que la IA está obligada a usar) calce por texto con el
+// nombre guardado en la cuenta. Los que faltan acá (Fernando/Nicolas)
+// siguen resolviéndose por nombre mientras no se sepa su email.
+const WHATSAPP_VENDEDORES_EMAIL = {
+  Stefanie: 'snunez@indexstore.cl',
+  David: 'dtorres@indexstore.cl',
+  Nathalia: 'nathalia@indexstore.cl',
+};
 
 // Series/líneas reales de notebooks por marca -- ayuda a la IA a leer bien
 // una etiqueta o lo que escribe el cliente: el modelo real casi siempre
@@ -8244,17 +8254,30 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
     ? null
     : await buscarVentaPorTelefono(sql, convRows[0].contacto_telefono, convRows[0].iniciada_en);
 
-  // Si el vendedor detectado ya tiene cuenta creada en el ERP (match por
-  // nombre, sin distinguir acentos/mayúsculas), y la conversación no
-  // tiene responsable asignado todavía, se asigna solo -- mientras no
-  // exista la cuenta, igual queda guardado en vendedor_detectado para no
-  // perder la información hasta que se cree.
+  // Si el vendedor detectado ya tiene cuenta creada en el ERP, y la
+  // conversación no tiene responsable asignado todavía, se asigna solo --
+  // mientras no exista la cuenta, igual queda guardado en
+  // vendedor_detectado para no perder la información hasta que se cree.
+  //
+  // Primero por email exacto (WHATSAPP_VENDEDORES_EMAIL, dado por el
+  // usuario): el match por nombre de más abajo fallaba en producción para
+  // Stephanie porque WHATSAPP_VENDEDORES tiene el nombre "oficial"
+  // "Stefanie" (sin h) que la IA está obligada a usar, mientras la cuenta
+  // real está guardada como "Stephanie Nuñez" -- ninguna variante de
+  // acentos/mayúsculas arregla esa diferencia de una letra, así que para
+  // los vendedores con email conocido se evita el problema del todo. Los
+  // que no están en este mapa (por ahora Fernando/Nicolas) siguen cayendo
+  // al match por nombre de siempre.
   let responsableIdAsignado = null;
   let responsableNombreAsignado = null;
   if (vendedorDetectado && !convRows[0].responsable_id) {
-    const { rows: usuariosActivos } = await sql`SELECT id, nombre FROM usuarios WHERE activo = true;`;
-    const buscado = normalizarTexto(vendedorDetectado);
-    const match = usuariosActivos.find(u => normalizarTexto(u.nombre).includes(buscado));
+    const { rows: usuariosActivos } = await sql`SELECT id, nombre, email FROM usuarios WHERE activo = true;`;
+    const emailConocido = WHATSAPP_VENDEDORES_EMAIL[vendedorDetectado];
+    let match = emailConocido ? usuariosActivos.find(u => (u.email || '').toLowerCase() === emailConocido) : null;
+    if (!match) {
+      const buscado = normalizarTexto(vendedorDetectado);
+      match = usuariosActivos.find(u => normalizarTexto(u.nombre).includes(buscado));
+    }
     if (match) { responsableIdAsignado = match.id; responsableNombreAsignado = match.nombre; }
   }
 
