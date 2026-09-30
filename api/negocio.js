@@ -10302,7 +10302,7 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
   }
 }
 
-async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, sql) {
+async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, sql, diasHaciaAtras) {
   const resumen = { casilla: casilla.email, entrantesNuevos: 0, salientesNuevos: 0, cotizacionesAvanzadas: 0, error: null };
   if (!casilla.pass) { resumen.error = 'sin contraseña configurada (falta la variable de entorno IMAP_PASS_*)'; return resumen; }
 
@@ -10314,7 +10314,7 @@ async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, sql) {
 
   try {
     await client.connect();
-    const desde = new Date(Date.now() - DIAS_HACIA_ATRAS_CORREOS * 86400000);
+    const desde = new Date(Date.now() - diasHaciaAtras * 86400000);
 
     await procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, sql, resumen);
 
@@ -10354,12 +10354,22 @@ async function manejarCotizacionesCorreosSync(req, res) {
       return res.status(200).json({ ok: true, mensaje: 'Todavía no hay ningún cliente con email conocido -- nada que revisar.' });
     }
 
+    // ?dias= permite forzar una ventana más larga para una revisión puntual
+    // (ej. una primera prueba después de configurar las contraseñas, donde
+    // el correo real que se quiere encontrar es más viejo que los 3 días
+    // normales) -- el cron diario de vercel.json NUNCA manda este parámetro,
+    // así que en régimen se sigue usando el valor por defecto de siempre.
+    // Tope de 180 días (mismo criterio que otras ventanas de este archivo)
+    // para no dejar a alguien revisando años de correo por accidente.
+    const diasQuery = parseInt(req.query.dias, 10);
+    const diasHaciaAtras = (Number.isFinite(diasQuery) && diasQuery > 0) ? Math.min(diasQuery, 180) : DIAS_HACIA_ATRAS_CORREOS;
+
     const { ImapFlow } = await import('imapflow');
     const resultados = [];
     for (const casilla of CASILLAS_CORREO_VENDEDORES) {
-      resultados.push(await revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, sql));
+      resultados.push(await revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, sql, diasHaciaAtras));
     }
-    return res.status(200).json({ ok: true, clientesConEmail: clienteEmails.size, casillas: resultados });
+    return res.status(200).json({ ok: true, clientesConEmail: clienteEmails.size, diasRevisados: diasHaciaAtras, casillas: resultados });
   } catch (err) {
     return res.status(500).json({ error: 'Error sincronizando correspondencia de correo', detail: String(err) });
   }
