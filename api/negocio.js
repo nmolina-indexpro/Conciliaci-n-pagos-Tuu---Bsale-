@@ -1126,15 +1126,17 @@ async function manejarCotizacionDetalle(req, res, sesion) {
 
     // Correspondencia de correo con este cliente (ver
     // manejarCotizacionesCorreosSync, cron diario que la va llenando) --
-    // por cliente_email, no por esta cotización puntual, porque un mismo
-    // cliente puede tener varias cotizaciones y el correo real no separa
-    // "a cuál cotización responde" tan limpio.
-    const correos = clienteEmail
-      ? (await sql`
-          SELECT direccion, casilla, asunto, fecha FROM cotizaciones_correos
-          WHERE cliente_email = ${clienteEmail} ORDER BY fecha DESC LIMIT 50;
-        `).rows.map(r => ({ direccion: r.direccion, casilla: r.casilla, asunto: r.asunto, fecha: r.fecha }))
-      : [];
+    // dos formas de cruce, ninguna excluye a la otra: por cotizacion_id
+    // (cruce por el número real de esta cotización en el asunto, más
+    // preciso -- ver extraerNumerosCotizacionDeAsunto) y por cliente_email
+    // (respaldo, cubre respuestas de seguimiento que no repiten el número,
+    // y también correspondencia de OTRA cotización del mismo cliente).
+    const { rows: correosRows } = await sql`
+      SELECT direccion, casilla, asunto, fecha FROM cotizaciones_correos
+      WHERE cotizacion_id = ${cotizacionId} OR (cliente_email IS NOT NULL AND cliente_email = ${clienteEmail})
+      ORDER BY fecha DESC LIMIT 50;
+    `;
+    const correos = correosRows.map(r => ({ direccion: r.direccion, casilla: r.casilla, asunto: r.asunto, fecha: r.fecha }));
 
     const { rows: historialRows } = await sql`
       SELECT estado, autor, creado_en FROM bsale_cotizaciones_historial_estado
@@ -10255,13 +10257,34 @@ const CARPETAS_ENVIADOS_POSIBLES = ['INBOX.Sent', 'Sent', 'INBOX.Enviados', 'Env
 // correos si una pasada falla o Vercel se salta el disparo de cron ese día.
 const DIAS_HACIA_ATRAS_CORREOS = 3;
 
+// Direcciones de nuestras propias casillas -- al elegir "cuál de los
+// destinatarios de un correo saliente es el cliente" hay que descartar las
+// que son nuestras (venta@/las de los vendedores en copia), o si no
+// terminaría "detectando" a otro vendedor en copia como si fuera el cliente.
+const CASILLAS_CORREO_SET = new Set(CASILLAS_CORREO_VENDEDORES.map(c => c.email.toLowerCase()));
+
+// Caso real reportado: Bsale no tenía guardado el email del cliente en su
+// ficha (cliente_email vacío), aunque la cotización sí se mandó de verdad a
+// un correo real -- el asunto del correo real decía "COTIZACION 9756"
+// (el folio real de Bsale). Números de 3 a 6 dígitos -- se acota el largo
+// para no capturar basura como el año (2026) o un código de producto largo.
+function extraerNumerosCotizacionDeAsunto(asunto) {
+  if (!asunto) return [];
+  const encontrados = asunto.match(/\b\d{3,6}\b/g) || [];
+  return [...new Set(encontrados)];
+}
+
 // Revisa UNA carpeta IMAP (INBOX o la de enviados) buscando correos desde
-// "desde" que calcen con algún cliente_email conocido -- entrante si el
-// remitente es un cliente, saliente si algún destinatario lo es. Guarda
-// cada correo nuevo (ON CONFLICT ignora los ya vistos, idempotente entre
-// pasadas) y, si es saliente y calza con una cotización "sin_contactar",
-// la avanza a "contactado".
-async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, casilla, clienteEmails, sql, resumen) {
+// "desde" que se puedan relacionar con una cotización conocida -- primero
+// por el NÚMERO de cotización en el asunto (más confiable, funciona aunque
+// Bsale no tenga el email del cliente guardado), y si no aparece ninguno,
+// por cliente_email conocido (respaldo, para respuestas de seguimiento que
+// no repiten el número, ej. "Re: ..."). Guarda cada correo nuevo (ON
+// CONFLICT ignora los ya vistos, idempotente entre pasadas); si detectó el
+// email real del cliente y la cotización no lo tenía guardado, lo completa
+// solo; y si es saliente y calza con una cotización "sin_contactar", la
+// avanza a "contactado".
+async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen) {
   const lock = await client.getMailboxLock(nombreCarpeta); // tira si la carpeta no existe -- lo maneja revisarCasillaCorreo
   try {
     for await (const msg of client.fetch({ since: desde }, { envelope: true, uid: true })) {
@@ -10274,14 +10297,32 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
       const asunto = msg.envelope.subject || null;
       const fecha = msg.envelope.date ? new Date(msg.envelope.date) : null;
 
+      let cotizacionId = null;
       let clienteEmailDetectado = null;
-      if (direccion === 'entrante' && clienteEmails.has(remitente)) clienteEmailDetectado = remitente;
-      if (direccion === 'saliente') clienteEmailDetectado = destinatarios.find(d => clienteEmails.has(d)) || null;
-      if (!clienteEmailDetectado) continue; // no es correspondencia con un cliente conocido -- se ignora
+
+      for (const numero of extraerNumerosCotizacionDeAsunto(asunto)) {
+        const cot = cotizacionesPorNumero.get(numero);
+        if (!cot) continue;
+        cotizacionId = cot.id;
+        // La contraparte real: si es saliente, el destinatario que NO es
+        // una de nuestras propias casillas (venta@/vendedores en copia);
+        // si es entrante, directo el remitente.
+        clienteEmailDetectado = direccion === 'entrante'
+          ? remitente
+          : (destinatarios.find(d => !CASILLAS_CORREO_SET.has(d)) || null);
+        break;
+      }
+
+      if (!cotizacionId) {
+        if (direccion === 'entrante' && clienteEmails.has(remitente)) clienteEmailDetectado = remitente;
+        if (direccion === 'saliente') clienteEmailDetectado = destinatarios.find(d => clienteEmails.has(d)) || null;
+      }
+
+      if (!cotizacionId && !clienteEmailDetectado) continue; // no se pudo relacionar con nada conocido -- se ignora
 
       const { rows } = await sql`
-        INSERT INTO cotizaciones_correos (casilla, message_id, direccion, cliente_email, asunto, fecha)
-        VALUES (${casilla.email}, ${messageId}, ${direccion}, ${clienteEmailDetectado}, ${asunto}, ${fecha ? fecha.toISOString() : null})
+        INSERT INTO cotizaciones_correos (casilla, message_id, direccion, cliente_email, cotizacion_id, asunto, fecha)
+        VALUES (${casilla.email}, ${messageId}, ${direccion}, ${clienteEmailDetectado}, ${cotizacionId}, ${asunto}, ${fecha ? fecha.toISOString() : null})
         ON CONFLICT (casilla, message_id) DO NOTHING
         RETURNING id;
       `;
@@ -10289,7 +10330,19 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
 
       if (direccion === 'entrante') resumen.entrantesNuevos++; else resumen.salientesNuevos++;
 
-      if (direccion === 'saliente') {
+      // Bsale no tenía el email de este cliente guardado -- se completa
+      // solo con el que de verdad se usó, para que el modal de detalle
+      // deje de decir "sin correo registrado" y la próxima corrida ya lo
+      // reconozca directo por cliente_email, sin depender de que el
+      // asunto repita el número.
+      if (cotizacionId && clienteEmailDetectado) {
+        await sql`
+          UPDATE bsale_cotizaciones SET cliente_email = ${clienteEmailDetectado}
+          WHERE id = ${cotizacionId} AND (cliente_email IS NULL OR cliente_email = '');
+        `;
+      }
+
+      if (direccion === 'saliente' && clienteEmailDetectado) {
         const { rowCount } = await sql`
           UPDATE bsale_cotizaciones SET estado = 'contactado', actualizado_en = now()
           WHERE cliente_email = ${clienteEmailDetectado} AND estado = 'sin_contactar';
@@ -10302,7 +10355,7 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
   }
 }
 
-async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, sql, diasHaciaAtras) {
+async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacionesPorNumero, sql, diasHaciaAtras) {
   const resumen = { casilla: casilla.email, entrantesNuevos: 0, salientesNuevos: 0, cotizacionesAvanzadas: 0, error: null };
   if (!casilla.pass) { resumen.error = 'sin contraseña configurada (falta la variable de entorno IMAP_PASS_*)'; return resumen; }
 
@@ -10316,11 +10369,11 @@ async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, sql, diasH
     await client.connect();
     const desde = new Date(Date.now() - diasHaciaAtras * 86400000);
 
-    await procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, sql, resumen);
+    await procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen);
 
     for (const nombreCarpeta of CARPETAS_ENVIADOS_POSIBLES) {
       try {
-        await procesarCarpetaCorreo(client, nombreCarpeta, 'saliente', desde, casilla, clienteEmails, sql, resumen);
+        await procesarCarpetaCorreo(client, nombreCarpeta, 'saliente', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen);
         break; // la primera que abrió sin error es la real -- no hace falta seguir probando las demás
       } catch (err) {
         if (/unknown mailbox|does not exist|no encontrada|nonexistent/i.test(String(err.message || err))) continue;
@@ -10335,6 +10388,51 @@ async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, sql, diasH
   return resumen;
 }
 
+// Caso real reportado: para un cliente puntual, el campo estándar de Bsale
+// (client.email, el que ya lee manejarSyncCotizaciones) venía vacío, pero
+// Bsale SÍ tenía el correo real guardado -- como un atributo dinámico
+// ("Información adicional -> Correo electrónico" en la ficha del cliente),
+// un campo personalizado por cuenta de Bsale, no parte del objeto Client
+// estándar. Antes de revisar las casillas de correo, se completa
+// cliente_email para los clientes que lo tengan vacío consultando
+// /clients/{id}/attributes.json y buscando un atributo cuyo nombre
+// mencione "correo"/"email" -- acotado con LIMIT (ver consulta) para no
+// gastar el presupuesto de la función completa en una sola pasada si hay
+// muchos clientes sin email; los que queden pendientes se resuelven en la
+// próxima corrida del cron.
+const TOPE_CLIENTES_ATRIBUTOS_POR_PASADA = 30;
+async function completarEmailsDesdeAtributosBsale(sql) {
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return { revisados: 0, completados: 0 };
+
+  const { rows } = await sql`
+    SELECT DISTINCT cliente_id FROM bsale_cotizaciones
+    WHERE cliente_id IS NOT NULL AND (cliente_email IS NULL OR cliente_email = '')
+    LIMIT ${TOPE_CLIENTES_ATRIBUTOS_POR_PASADA};
+  `;
+  let completados = 0;
+  for (const { cliente_id } of rows) {
+    try {
+      const r = await fetchConTimeout(`${BSALE_BASE}/clients/${cliente_id}/attributes.json`, { headers: { access_token: token } }, 10000);
+      if (!r.ok) continue;
+      const data = await r.json();
+      const atributoCorreo = (data.items || []).find(a => /correo|email/i.test(a.name || '') && a.value && /@/.test(a.value));
+      if (!atributoCorreo) continue;
+      const email = atributoCorreo.value.trim().toLowerCase();
+      await sql`
+        UPDATE bsale_cotizaciones SET cliente_email = ${email}
+        WHERE cliente_id = ${cliente_id} AND (cliente_email IS NULL OR cliente_email = '');
+      `;
+      completados++;
+    } catch (err) {
+      // Mejor esfuerzo -- un cliente puntual que falle (ej. Bsale caído un
+      // instante) no debe tumbar el resto de la revisión.
+      console.warn('[completarEmailsDesdeAtributosBsale] error en cliente', cliente_id, err.message);
+    }
+  }
+  return { revisados: rows.length, completados };
+}
+
 async function manejarCotizacionesCorreosSync(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
   const auth = req.headers.authorization || '';
@@ -10346,13 +10444,21 @@ async function manejarCotizacionesCorreosSync(req, res) {
     await asegurarTablaCotizaciones(sql);
     await asegurarTablaCotizacionesCorreos(sql);
 
-    const { rows: clientesRows } = await sql`
-      SELECT DISTINCT cliente_email FROM bsale_cotizaciones WHERE cliente_email IS NOT NULL AND cliente_email != '';
+    const atributosBsale = await completarEmailsDesdeAtributosBsale(sql);
+
+    const { rows: cotizacionesRows } = await sql`
+      SELECT id, numero, cliente_email FROM bsale_cotizaciones WHERE numero IS NOT NULL AND numero != '';
     `;
-    const clienteEmails = new Set(clientesRows.map(r => r.cliente_email.toLowerCase()));
-    if (clienteEmails.size === 0) {
-      return res.status(200).json({ ok: true, mensaje: 'Todavía no hay ningún cliente con email conocido -- nada que revisar.' });
+    if (cotizacionesRows.length === 0) {
+      return res.status(200).json({ ok: true, mensaje: 'Todavía no hay ninguna cotización sincronizada -- nada que revisar.' });
     }
+    // Cruce por NÚMERO (más confiable, ver extraerNumerosCotizacionDeAsunto)
+    // y cruce por cliente_email conocido (respaldo, para respuestas de
+    // seguimiento que no repiten el número en el asunto).
+    const cotizacionesPorNumero = new Map(cotizacionesRows.map(r => [String(r.numero), { id: r.id }]));
+    const clienteEmails = new Set(
+      cotizacionesRows.filter(r => r.cliente_email).map(r => r.cliente_email.toLowerCase())
+    );
 
     // ?dias= permite forzar una ventana más larga para una revisión puntual
     // (ej. una primera prueba después de configurar las contraseñas, donde
@@ -10367,9 +10473,13 @@ async function manejarCotizacionesCorreosSync(req, res) {
     const { ImapFlow } = await import('imapflow');
     const resultados = [];
     for (const casilla of CASILLAS_CORREO_VENDEDORES) {
-      resultados.push(await revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, sql, diasHaciaAtras));
+      resultados.push(await revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacionesPorNumero, sql, diasHaciaAtras));
     }
-    return res.status(200).json({ ok: true, clientesConEmail: clienteEmails.size, diasRevisados: diasHaciaAtras, casillas: resultados });
+    return res.status(200).json({
+      ok: true, cotizacionesConocidas: cotizacionesRows.length, diasRevisados: diasHaciaAtras,
+      emailsCompletadosDesdeAtributosBsale: atributosBsale,
+      casillas: resultados,
+    });
   } catch (err) {
     return res.status(500).json({ error: 'Error sincronizando correspondencia de correo', detail: String(err) });
   }

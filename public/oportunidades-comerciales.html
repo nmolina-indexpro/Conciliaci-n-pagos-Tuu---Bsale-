@@ -1706,7 +1706,11 @@ function renderEstadosClienteCot(historial){
 // cliente_email, no por esta cotización puntual -- un mismo cliente puede
 // tener varias cotizaciones y el correo real no separa a cuál responde.
 function renderCorreosClienteCot(correos, clienteEmail){
-  if(!clienteEmail){
+  // Ojo: se chequea "correos" primero -- puede haber correspondencia real
+  // detectada por número de cotización aunque clienteEmail todavía no se
+  // haya completado en esta cotización puntual (caso raro, ver
+  // manejarCotizacionesCorreosSync).
+  if((!correos || correos.length === 0) && !clienteEmail){
     $('modalClienteCotCorreos').innerHTML = '<p class="empty-note">Este cliente no tiene un correo registrado en Bsale todavía.</p>';
     return;
   }
