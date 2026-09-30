@@ -8092,7 +8092,7 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   }
 
   const { rows: convRows } = await sql`
-    SELECT c.id, c.contacto_id, c.responsable_id, c.iniciada_en, c.venta_detectada, ct.telefono AS contacto_telefono
+    SELECT c.id, c.contacto_id, c.responsable_id, c.iniciada_en, c.venta_detectada, c.primera_respuesta_segundos, ct.telefono AS contacto_telefono
     FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
     WHERE c.id = ${conversacionId};
   `;
@@ -8156,6 +8156,22 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
       type: 'text',
       text: `Contexto (NO es la conversación a analizar, solo referencia): este mismo cliente tuvo una conversación anterior el ${new Date(conversacionAnterior.iniciada_en).toLocaleDateString('es-CL')} donde se detectó ${detalles || 'sin detalles adicionales'}. Resumen de esa conversación anterior: "${conversacionAnterior.resumen || 'sin resumen'}". Si la conversación de abajo es claramente un seguimiento de eso (el cliente no menciona un producto nuevo, ej. "gracias por la info", "lo voy a pensar", "sí, las dos"), puedes usar esos datos para completar categoría/producto/marca/modelo de la conversación actual también. Si la conversación de abajo es sobre algo distinto, ignora este contexto.`,
     });
+  }
+  // "rapidez" es parte de calidad_atencion_score (ver WHATSAPP_ANALISIS_TOOL
+  // más abajo) -- sin esto, la IA tenía que inferir el tiempo de respuesta
+  // a mano restando las horas que ve en cada mensaje (formateadas como
+  // texto), lo que es más propenso a error que pasarle el número real ya
+  // calculado (primera_respuesta_segundos, el mismo que usa el dashboard de
+  // WhatsApp -- ver manejarWhatsappDashboard) directo en el prompt.
+  const segundosRespuesta = convRows[0].primera_respuesta_segundos;
+  if (segundosRespuesta != null) {
+    let duracionTexto;
+    if (segundosRespuesta < 60) duracionTexto = `${segundosRespuesta} segundos`;
+    else if (segundosRespuesta < 3600) duracionTexto = `${Math.round(segundosRespuesta / 60)} minutos`;
+    else duracionTexto = `${Math.round(segundosRespuesta / 3600 * 10) / 10} horas`;
+    contenido.push({ type: 'text', text: `Dato real (no lo calcules tú, usa este número): el negocio respondió por primera vez al cliente ${duracionTexto} después de su primer mensaje -- úsalo para juzgar "rapidez" en calidad_atencion_score.` });
+  } else {
+    contenido.push({ type: 'text', text: 'Dato real: el negocio todavía no le ha respondido nada al cliente en esta conversación.' });
   }
   contenido.push({ type: 'text', text: 'Conversación de WhatsApp a analizar (en orden cronológico):' });
   mensajes.forEach((m, i) => {
