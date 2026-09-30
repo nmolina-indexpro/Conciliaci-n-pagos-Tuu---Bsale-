@@ -10355,7 +10355,26 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
 
       if (!cotizacionId && !clienteEmailDetectado) continue; // no se pudo relacionar con nada conocido -- se ignora
 
+      // Caso real reportado: un correo guardado ANTES de que existiera esta
+      // función de contenido se queda sin contenido_texto para siempre,
+      // porque el INSERT de abajo usa ON CONFLICT DO NOTHING (evita
+      // duplicados, pero también evita completarlo después). Se revisa
+      // primero si la fila ya existe: si ya tiene contenido, no hay nada
+      // que hacer (se ahorra el viaje IMAP extra); si existe pero sin
+      // contenido, se completa con un UPDATE sin volver a contarla como
+      // "nueva" ni repetir el avance de estado (ya se hizo en su momento).
+      const { rows: existentes } = await sql`
+        SELECT id, contenido_texto FROM cotizaciones_correos
+        WHERE casilla = ${casilla.email} AND message_id = ${messageId};
+      `;
+      if (existentes.length > 0 && existentes[0].contenido_texto) continue;
+
       const contenidoTexto = await obtenerContenidoTextoCorreo(client, msg.uid, simpleParser);
+
+      if (existentes.length > 0) {
+        await sql`UPDATE cotizaciones_correos SET contenido_texto = ${contenidoTexto} WHERE id = ${existentes[0].id};`;
+        continue;
+      }
 
       const { rows } = await sql`
         INSERT INTO cotizaciones_correos (casilla, message_id, direccion, cliente_email, cotizacion_id, asunto, fecha, contenido_texto)
@@ -10363,7 +10382,7 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
         ON CONFLICT (casilla, message_id) DO NOTHING
         RETURNING id;
       `;
-      if (rows.length === 0) continue; // ya se había guardado en una pasada anterior
+      if (rows.length === 0) continue; // carrera rarísima: otra pasada lo insertó justo ahora
 
       if (direccion === 'entrante') resumen.entrantesNuevos++; else resumen.salientesNuevos++;
 
