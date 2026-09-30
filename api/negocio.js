@@ -1132,11 +1132,11 @@ async function manejarCotizacionDetalle(req, res, sesion) {
     // (respaldo, cubre respuestas de seguimiento que no repiten el número,
     // y también correspondencia de OTRA cotización del mismo cliente).
     const { rows: correosRows } = await sql`
-      SELECT direccion, casilla, asunto, fecha FROM cotizaciones_correos
+      SELECT direccion, casilla, asunto, fecha, contenido_texto FROM cotizaciones_correos
       WHERE cotizacion_id = ${cotizacionId} OR (cliente_email IS NOT NULL AND cliente_email = ${clienteEmail})
       ORDER BY fecha DESC LIMIT 50;
     `;
-    const correos = correosRows.map(r => ({ direccion: r.direccion, casilla: r.casilla, asunto: r.asunto, fecha: r.fecha }));
+    const correos = correosRows.map(r => ({ direccion: r.direccion, casilla: r.casilla, asunto: r.asunto, fecha: r.fecha, contenidoTexto: r.contenido_texto || null }));
 
     const { rows: historialRows } = await sql`
       SELECT estado, autor, creado_en FROM bsale_cotizaciones_historial_estado
@@ -10284,7 +10284,31 @@ function extraerNumerosCotizacionDeAsunto(asunto) {
 // email real del cliente y la cotización no lo tenía guardado, lo completa
 // solo; y si es saliente y calza con una cotización "sin_contactar", la
 // avanza a "contactado".
-async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen) {
+// Pedido del usuario: poder previsualizar el contenido de cada correo, no
+// solo saber que existió. Se pide el cuerpo con una segunda consulta IMAP
+// puntual (fetchOne con source:true, mensaje RFC822 crudo) SOLO para los
+// mensajes que ya se decidió guardar -- pedirlo para cada mensaje que se
+// recorre sería un viaje IMAP extra por nada para los que se van a
+// descartar igual. mailparser separa el texto plano del resto del MIME
+// (adjuntos, HTML, headers) sin tener que hacerlo a mano. Mejor esfuerzo:
+// si por lo que sea no se puede leer el cuerpo (mensaje raro, timeout),
+// el evento igual se guarda sin contenido en vez de perderse entero.
+const TOPE_CONTENIDO_CORREO = 8000; // caracteres -- alcanza para leer de qué se trató sin guardar firmas/citas gigantes
+async function obtenerContenidoTextoCorreo(client, uid, simpleParser) {
+  try {
+    const mensaje = await client.fetchOne(uid, { source: true }, { uid: true });
+    if (!mensaje || !mensaje.source) return null;
+    const parseado = await simpleParser(mensaje.source);
+    const texto = (parseado.text || '').trim();
+    if (!texto) return null;
+    return texto.length > TOPE_CONTENIDO_CORREO ? texto.slice(0, TOPE_CONTENIDO_CORREO) + '\n\n[...recortado...]' : texto;
+  } catch (err) {
+    console.warn('[obtenerContenidoTextoCorreo] no se pudo leer el cuerpo del mensaje', uid, err.message);
+    return null;
+  }
+}
+
+async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen, simpleParser) {
   const lock = await client.getMailboxLock(nombreCarpeta); // tira si la carpeta no existe -- lo maneja revisarCasillaCorreo
   try {
     for await (const msg of client.fetch({ since: desde }, { envelope: true, uid: true })) {
@@ -10331,9 +10355,11 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
 
       if (!cotizacionId && !clienteEmailDetectado) continue; // no se pudo relacionar con nada conocido -- se ignora
 
+      const contenidoTexto = await obtenerContenidoTextoCorreo(client, msg.uid, simpleParser);
+
       const { rows } = await sql`
-        INSERT INTO cotizaciones_correos (casilla, message_id, direccion, cliente_email, cotizacion_id, asunto, fecha)
-        VALUES (${casilla.email}, ${messageId}, ${direccion}, ${clienteEmailDetectado}, ${cotizacionId}, ${asunto}, ${fecha ? fecha.toISOString() : null})
+        INSERT INTO cotizaciones_correos (casilla, message_id, direccion, cliente_email, cotizacion_id, asunto, fecha, contenido_texto)
+        VALUES (${casilla.email}, ${messageId}, ${direccion}, ${clienteEmailDetectado}, ${cotizacionId}, ${asunto}, ${fecha ? fecha.toISOString() : null}, ${contenidoTexto})
         ON CONFLICT (casilla, message_id) DO NOTHING
         RETURNING id;
       `;
@@ -10366,7 +10392,7 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
   }
 }
 
-async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacionesPorNumero, sql, diasHaciaAtras) {
+async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacionesPorNumero, sql, diasHaciaAtras, simpleParser) {
   const resumen = { casilla: casilla.email, entrantesNuevos: 0, salientesNuevos: 0, cotizacionesAvanzadas: 0, error: null };
   if (!casilla.pass) { resumen.error = 'sin contraseña configurada (falta la variable de entorno IMAP_PASS_*)'; return resumen; }
 
@@ -10380,11 +10406,11 @@ async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacion
     await client.connect();
     const desde = new Date(Date.now() - diasHaciaAtras * 86400000);
 
-    await procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen);
+    await procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen, simpleParser);
 
     for (const nombreCarpeta of CARPETAS_ENVIADOS_POSIBLES) {
       try {
-        await procesarCarpetaCorreo(client, nombreCarpeta, 'saliente', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen);
+        await procesarCarpetaCorreo(client, nombreCarpeta, 'saliente', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen, simpleParser);
         break; // la primera que abrió sin error es la real -- no hace falta seguir probando las demás
       } catch (err) {
         if (/unknown mailbox|does not exist|no encontrada|nonexistent/i.test(String(err.message || err))) continue;
@@ -10494,9 +10520,10 @@ async function manejarCotizacionesCorreosSync(req, res) {
     const diasHaciaAtras = (Number.isFinite(diasQuery) && diasQuery > 0) ? Math.min(diasQuery, 180) : DIAS_HACIA_ATRAS_CORREOS;
 
     const { ImapFlow } = await import('imapflow');
+    const { simpleParser } = await import('mailparser');
     const resultados = [];
     for (const casilla of CASILLAS_CORREO_VENDEDORES) {
-      resultados.push(await revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacionesPorNumero, sql, diasHaciaAtras));
+      resultados.push(await revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacionesPorNumero, sql, diasHaciaAtras, simpleParser));
     }
     return res.status(200).json({
       ok: true, cotizacionesConocidas: cotizacionesRows.length, diasRevisados: diasHaciaAtras,

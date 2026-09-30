@@ -131,6 +131,9 @@
   .comentario-item{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:12.5px;}
   .comentario-meta{font-size:11px;color:var(--muted);margin-top:2px;}
   .estado-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;background:var(--surface-2);border-radius:9px;font-size:12.5px;margin-bottom:6px;}
+  .estado-item.clicable{cursor:pointer;}
+  .estado-item.clicable:hover{outline:1.5px solid var(--line);}
+  .correo-preview{background:var(--surface);border:1.5px solid var(--line);border-radius:9px;padding:10px 12px;margin:-4px 0 8px;font-size:12px;white-space:pre-wrap;color:var(--text);max-height:220px;overflow-y:auto;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1719,7 +1722,14 @@ function renderEstadosClienteCot(historial){
 // revisa por IMAP las casillas de los vendedores). Se agrupa por
 // cliente_email, no por esta cotización puntual -- un mismo cliente puede
 // tener varias cotizaciones y el correo real no separa a cuál responde.
+// Se guarda la última lista recibida para poder mostrar/ocultar el
+// contenido de un correo puntual al hacer clic (ver toggleCorreoPreview)
+// sin tener que volver a pedirle nada al backend -- ya vino completo en
+// data.correos junto con el resto del detalle del cliente.
+let modalClienteCotCorreosActuales = [];
+
 function renderCorreosClienteCot(correos, clienteEmail){
+  modalClienteCotCorreosActuales = correos || [];
   // Ojo: se chequea "correos" primero -- puede haber correspondencia real
   // detectada por número de cotización aunque clienteEmail todavía no se
   // haya completado en esta cotización puntual (caso raro, ver
@@ -1732,11 +1742,25 @@ function renderCorreosClienteCot(correos, clienteEmail){
     $('modalClienteCotCorreos').innerHTML = `<p class="empty-note">Sin correos detectados todavía con ${escapeHtmlCot(clienteEmail)} (se revisa una vez al día).</p>`;
     return;
   }
-  $('modalClienteCotCorreos').innerHTML = correos.map(c => `
-    <div class="estado-item">
+  $('modalClienteCotCorreos').innerHTML = correos.map((c, i) => `
+    <div class="estado-item clicable" onclick="toggleCorreoPreview(${i})" title="Haz clic para ver el contenido">
       <span>${c.direccion === 'entrante' ? '📩 El cliente escribió' : '📤 Le escribimos'}${c.asunto ? ': ' + escapeHtmlCot(c.asunto) : ''}</span>
       <span class="comentario-meta">${c.fecha ? new Date(c.fecha).toLocaleString('es-CL') : 'sin fecha'} — ${escapeHtmlCot(c.casilla)}</span>
-    </div>`).join('');
+    </div>
+    <div class="correo-preview" id="correoPreview${i}" style="display:none;"></div>`).join('');
+}
+
+// Vista previa del contenido de un correo puntual -- pedido del usuario.
+// El texto ya vino junto con el resto del detalle (modalClienteCotCorreosActuales),
+// así que mostrar/ocultar es instantáneo, sin ida y vuelta al servidor.
+function toggleCorreoPreview(i){
+  const c = modalClienteCotCorreosActuales[i];
+  const wrap = $(`correoPreview${i}`);
+  if(!c || !wrap) return;
+  const yaAbierto = wrap.style.display !== 'none';
+  if(yaAbierto){ wrap.style.display = 'none'; return; }
+  wrap.textContent = c.contenidoTexto || 'No se pudo guardar el contenido de este correo (sin texto plano legible, o quedó guardado antes de esta función).';
+  wrap.style.display = 'block';
 }
 
 function renderComentariosClienteCot(comentarios){
