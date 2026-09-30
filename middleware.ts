@@ -72,6 +72,12 @@ function esProductosEstancadosFlagsNotificarPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'productos-estancados-flags-notificar';
 }
 
+// Cron diario (todos los días) de correspondencia de correo con clientes
+// de Cotizaciones -- mismo motivo y mismo patrón que los de arriba.
+function esCotizacionesCorreosSyncPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'cotizaciones-correos-sync';
+}
+
 // El píxel de seguimiento de apertura de los correos de IndexScale (ver
 // manejarIndexscalePixel en api/negocio.js) lo carga el cliente de correo
 // del destinatario directo, sin ninguna cookie de sesión -> mismo motivo y
@@ -147,6 +153,7 @@ export default async function middleware(req) {
     esServicioTecnicoResumenSemanalPublico(pathname, url.searchParams) ||
     esCotizacionesSeguimientoDiarioPublico(pathname, url.searchParams) ||
     esProductosEstancadosFlagsNotificarPublico(pathname, url.searchParams) ||
+    esCotizacionesCorreosSyncPublico(pathname, url.searchParams) ||
     esIndexscalePixelPublico(pathname, url.searchParams) ||
     esAuthRecuperarPasswordPublico(pathname, url.searchParams) ||
     esAuthResetearPasswordPublico(pathname, url.searchParams)

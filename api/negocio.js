@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios } from '../lib/db.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
@@ -77,6 +77,10 @@ export default async function handler(req, res) {
   // mismo patrón que los de arriba. Ver vercel.json y middleware.ts
   // (esProductosEstancadosFlagsNotificarPublico).
   if (req.query.recurso === 'productos-estancados-flags-notificar') return manejarProductosEstancadosFlagsNotificar(req, res);
+  // Cron diario (todos los días) de correspondencia de correo con clientes
+  // de Cotizaciones -- mismo patrón que los de arriba. Ver vercel.json y
+  // middleware.ts (esCotizacionesCorreosSyncPublico).
+  if (req.query.recurso === 'cotizaciones-correos-sync') return manejarCotizacionesCorreosSync(req, res);
   // Píxel de seguimiento de apertura de los correos de IndexScale -- lo
   // carga el cliente de correo del destinatario, sin sesión. Mismo patrón
   // que los de arriba, pero la seguridad real la hace el token aleatorio
@@ -1097,6 +1101,7 @@ async function manejarCotizacionDetalle(req, res, sesion) {
     await asegurarTablaCotizacionesHistorialEstado(sql);
     await asegurarTablaComentariosLog(sql);
     await asegurarTablaAnalisis(sql);
+    await asegurarTablaCotizacionesCorreos(sql);
 
     if (req.method === 'PUT') {
       const { clienteId, comentario, comentarioId } = req.body || {};
@@ -1115,9 +1120,21 @@ async function manejarCotizacionDetalle(req, res, sesion) {
     const cotizacionId = Number(req.query.cotizacionId);
     if (!cotizacionId) return res.status(400).json({ error: 'Falta cotizacionId' });
 
-    const { rows: cotRows } = await sql`SELECT id, cliente_id, cliente_nombre FROM bsale_cotizaciones WHERE id = ${cotizacionId};`;
+    const { rows: cotRows } = await sql`SELECT id, cliente_id, cliente_nombre, cliente_email FROM bsale_cotizaciones WHERE id = ${cotizacionId};`;
     if (!cotRows[0]) return res.status(404).json({ error: 'Cotización no encontrada' });
-    const { cliente_id: clienteId, cliente_nombre: clienteNombre } = cotRows[0];
+    const { cliente_id: clienteId, cliente_nombre: clienteNombre, cliente_email: clienteEmail } = cotRows[0];
+
+    // Correspondencia de correo con este cliente (ver
+    // manejarCotizacionesCorreosSync, cron diario que la va llenando) --
+    // por cliente_email, no por esta cotización puntual, porque un mismo
+    // cliente puede tener varias cotizaciones y el correo real no separa
+    // "a cuál cotización responde" tan limpio.
+    const correos = clienteEmail
+      ? (await sql`
+          SELECT direccion, casilla, asunto, fecha FROM cotizaciones_correos
+          WHERE cliente_email = ${clienteEmail} ORDER BY fecha DESC LIMIT 50;
+        `).rows.map(r => ({ direccion: r.direccion, casilla: r.casilla, asunto: r.asunto, fecha: r.fecha }))
+      : [];
 
     const { rows: historialRows } = await sql`
       SELECT estado, autor, creado_en FROM bsale_cotizaciones_historial_estado
@@ -1144,7 +1161,7 @@ async function manejarCotizacionDetalle(req, res, sesion) {
       }
     }
 
-    return res.status(200).json({ clienteId, clienteNombre, historialEstados, comentarios, resumenCompras });
+    return res.status(200).json({ clienteId, clienteNombre, clienteEmail, historialEstados, comentarios, resumenCompras, correos });
   } catch (err) {
     return res.status(500).json({ error: 'Error leyendo el detalle de la cotización', detail: String(err) });
   }
@@ -1282,13 +1299,14 @@ async function manejarSyncCotizaciones(req, res, sesion) {
 
         if (cotizaciones.length > 0) {
           await sql.query(
-            `INSERT INTO bsale_cotizaciones (id, numero, cliente_id, cliente_nombre, cliente_telefono, monto, fecha, url_cotizacion, vendedor_id, vendedor_nombre, sincronizado_en)
-             SELECT * FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::text[], $5::text[], $6::numeric[], $7::date[], $8::text[], $9::int[], $10::text[], $11::timestamptz[])
+            `INSERT INTO bsale_cotizaciones (id, numero, cliente_id, cliente_nombre, cliente_telefono, monto, fecha, url_cotizacion, vendedor_id, vendedor_nombre, sincronizado_en, cliente_email)
+             SELECT * FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::text[], $5::text[], $6::numeric[], $7::date[], $8::text[], $9::int[], $10::text[], $11::timestamptz[], $12::text[])
              ON CONFLICT (id) DO UPDATE SET
                numero = EXCLUDED.numero, cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre,
                cliente_telefono = EXCLUDED.cliente_telefono, monto = EXCLUDED.monto, fecha = EXCLUDED.fecha,
                url_cotizacion = EXCLUDED.url_cotizacion, vendedor_id = EXCLUDED.vendedor_id,
-               vendedor_nombre = EXCLUDED.vendedor_nombre, sincronizado_en = EXCLUDED.sincronizado_en;`,
+               vendedor_nombre = EXCLUDED.vendedor_nombre, sincronizado_en = EXCLUDED.sincronizado_en,
+               cliente_email = EXCLUDED.cliente_email;`,
             [
               cotizaciones.map(d => d.id),
               cotizaciones.map(d => d.number ? String(d.number) : ''),
@@ -1301,6 +1319,7 @@ async function manejarSyncCotizaciones(req, res, sesion) {
               cotizaciones.map(d => d.user?.id || null),
               cotizaciones.map(d => vendedoresPorId.get(d.user?.id) || (d.user?.id ? `Usuario #${d.user.id}` : '')),
               cotizaciones.map(() => new Date().toISOString()),
+              cotizaciones.map(d => (d.client?.email || '').trim()),
             ]
           );
         }
@@ -10201,5 +10220,147 @@ async function manejarProductosNuevosEstado(req, res, sesion) {
     return res.status(200).json({ ok: true, estado: rows[0].estado, skuIntegrado: rows[0].sku_integrado });
   } catch (err) {
     return res.status(500).json({ error: 'Error actualizando el estado del producto', detail: String(err) });
+  }
+}
+
+// ---------------- Correspondencia de correo con clientes de Cotizaciones ----------------
+// Pedido del usuario: las cotizaciones se mandan por correo (cada
+// vendedor desde su propia casilla en indexstore.cl, no por la Cloud API
+// de nadie), y hasta ahora el seguimiento de si el cliente respondió era
+// 100% manual. Cron diario que revisa por IMAP cada casilla y cruza
+// remitente/destinatario contra los cliente_email conocidos en
+// bsale_cotizaciones -- solo guarda metadata (asunto/fecha/dirección),
+// nunca el cuerpo del correo. Un correo SALIENTE (nosotros -> cliente)
+// contra una cotización todavía "sin_contactar" la avanza sola a
+// "contactado", mismo criterio que ya usa el eco de WhatsApp para marcar
+// que el negocio ya tocó al cliente.
+const EMAIL_IMAP_HOST = process.env.EMAIL_IMAP_HOST || 'mail.indexstore.cl';
+const EMAIL_IMAP_PORT = Number(process.env.EMAIL_IMAP_PORT) || 993;
+// Una casilla por vendedor (cada uno manda desde la suya) + la genérica de
+// ventas -- direcciones confirmadas por el usuario. El password de cada
+// una vive en su propia variable de entorno (nunca en este archivo); si
+// falta, esa casilla se salta sola (ver revisarCasillaCorreo) sin tumbar
+// la sincronización de las demás.
+const CASILLAS_CORREO_VENDEDORES = [
+  { vendedor: 'Stefanie', email: 'snunez@indexstore.cl', pass: process.env.IMAP_PASS_SNUNEZ },
+  { vendedor: 'David', email: 'dtorres@indexstore.cl', pass: process.env.IMAP_PASS_DTORRES },
+  { vendedor: 'Nathalia', email: 'nathalia@indexstore.cl', pass: process.env.IMAP_PASS_NATHALIA },
+  { vendedor: null, email: 'venta@indexstore.cl', pass: process.env.IMAP_PASS_VENTA },
+];
+// Carpeta de enviados típica en cPanel/Dovecot -- el nombre exacto varía
+// según cómo esté configurada cada cuenta, así que se prueban en orden y
+// se sigue con la primera que abra sin error (ver revisarCasillaCorreo).
+const CARPETAS_ENVIADOS_POSIBLES = ['INBOX.Sent', 'Sent', 'INBOX.Enviados', 'Enviados'];
+// Más días que el ritmo del cron (1 día) a propósito -- para no perder
+// correos si una pasada falla o Vercel se salta el disparo de cron ese día.
+const DIAS_HACIA_ATRAS_CORREOS = 3;
+
+// Revisa UNA carpeta IMAP (INBOX o la de enviados) buscando correos desde
+// "desde" que calcen con algún cliente_email conocido -- entrante si el
+// remitente es un cliente, saliente si algún destinatario lo es. Guarda
+// cada correo nuevo (ON CONFLICT ignora los ya vistos, idempotente entre
+// pasadas) y, si es saliente y calza con una cotización "sin_contactar",
+// la avanza a "contactado".
+async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, casilla, clienteEmails, sql, resumen) {
+  const lock = await client.getMailboxLock(nombreCarpeta); // tira si la carpeta no existe -- lo maneja revisarCasillaCorreo
+  try {
+    for await (const msg of client.fetch({ since: desde }, { envelope: true, uid: true })) {
+      const remitente = (msg.envelope.from?.[0]?.address || '').toLowerCase();
+      const destinatarios = [...(msg.envelope.to || []), ...(msg.envelope.cc || [])].map(d => (d.address || '').toLowerCase());
+      // Fallback si el correo no trae Message-ID (rarísimo, pero pasa con
+      // algunos envíos automatizados mal formados) -- casilla+carpeta+uid
+      // sigue siendo único dentro de esta misma casilla.
+      const messageId = msg.envelope.messageId || `sin-message-id:${nombreCarpeta}:${msg.uid}`;
+      const asunto = msg.envelope.subject || null;
+      const fecha = msg.envelope.date ? new Date(msg.envelope.date) : null;
+
+      let clienteEmailDetectado = null;
+      if (direccion === 'entrante' && clienteEmails.has(remitente)) clienteEmailDetectado = remitente;
+      if (direccion === 'saliente') clienteEmailDetectado = destinatarios.find(d => clienteEmails.has(d)) || null;
+      if (!clienteEmailDetectado) continue; // no es correspondencia con un cliente conocido -- se ignora
+
+      const { rows } = await sql`
+        INSERT INTO cotizaciones_correos (casilla, message_id, direccion, cliente_email, asunto, fecha)
+        VALUES (${casilla.email}, ${messageId}, ${direccion}, ${clienteEmailDetectado}, ${asunto}, ${fecha ? fecha.toISOString() : null})
+        ON CONFLICT (casilla, message_id) DO NOTHING
+        RETURNING id;
+      `;
+      if (rows.length === 0) continue; // ya se había guardado en una pasada anterior
+
+      if (direccion === 'entrante') resumen.entrantesNuevos++; else resumen.salientesNuevos++;
+
+      if (direccion === 'saliente') {
+        const { rowCount } = await sql`
+          UPDATE bsale_cotizaciones SET estado = 'contactado', actualizado_en = now()
+          WHERE cliente_email = ${clienteEmailDetectado} AND estado = 'sin_contactar';
+        `;
+        resumen.cotizacionesAvanzadas += rowCount || 0;
+      }
+    }
+  } finally {
+    lock.release();
+  }
+}
+
+async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, sql) {
+  const resumen = { casilla: casilla.email, entrantesNuevos: 0, salientesNuevos: 0, cotizacionesAvanzadas: 0, error: null };
+  if (!casilla.pass) { resumen.error = 'sin contraseña configurada (falta la variable de entorno IMAP_PASS_*)'; return resumen; }
+
+  const client = new ImapFlow({
+    host: EMAIL_IMAP_HOST, port: EMAIL_IMAP_PORT, secure: true,
+    auth: { user: casilla.email, pass: casilla.pass },
+    logger: false,
+  });
+
+  try {
+    await client.connect();
+    const desde = new Date(Date.now() - DIAS_HACIA_ATRAS_CORREOS * 86400000);
+
+    await procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, sql, resumen);
+
+    for (const nombreCarpeta of CARPETAS_ENVIADOS_POSIBLES) {
+      try {
+        await procesarCarpetaCorreo(client, nombreCarpeta, 'saliente', desde, casilla, clienteEmails, sql, resumen);
+        break; // la primera que abrió sin error es la real -- no hace falta seguir probando las demás
+      } catch (err) {
+        if (/unknown mailbox|does not exist|no encontrada|nonexistent/i.test(String(err.message || err))) continue;
+        throw err;
+      }
+    }
+  } catch (err) {
+    resumen.error = err.message || String(err);
+  } finally {
+    try { await client.logout(); } catch { /* mejor esfuerzo -- no tumbar el resumen por esto */ }
+  }
+  return resumen;
+}
+
+async function manejarCotizacionesCorreosSync(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  try {
+    const sql = await getSql();
+    await asegurarTablaCotizaciones(sql);
+    await asegurarTablaCotizacionesCorreos(sql);
+
+    const { rows: clientesRows } = await sql`
+      SELECT DISTINCT cliente_email FROM bsale_cotizaciones WHERE cliente_email IS NOT NULL AND cliente_email != '';
+    `;
+    const clienteEmails = new Set(clientesRows.map(r => r.cliente_email.toLowerCase()));
+    if (clienteEmails.size === 0) {
+      return res.status(200).json({ ok: true, mensaje: 'Todavía no hay ningún cliente con email conocido -- nada que revisar.' });
+    }
+
+    const { ImapFlow } = await import('imapflow');
+    const resultados = [];
+    for (const casilla of CASILLAS_CORREO_VENDEDORES) {
+      resultados.push(await revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, sql));
+    }
+    return res.status(200).json({ ok: true, clientesConEmail: clienteEmails.size, casillas: resultados });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error sincronizando correspondencia de correo', detail: String(err) });
   }
 }

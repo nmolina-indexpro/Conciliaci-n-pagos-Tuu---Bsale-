@@ -525,6 +525,9 @@
       <h4 style="margin:18px 0 8px 0;font-family:'Space Grotesk',sans-serif;font-size:13px;">📈 Historial de esta cotización</h4>
       <div id="modalClienteCotEstados"></div>
 
+      <h4 style="margin:18px 0 8px 0;font-family:'Space Grotesk',sans-serif;font-size:13px;">✉️ Correos con el cliente</h4>
+      <div id="modalClienteCotCorreos" style="max-height:150px;overflow-y:auto;"></div>
+
       <h4 style="margin:18px 0 8px 0;font-family:'Space Grotesk',sans-serif;font-size:13px;">📝 Comentarios del cliente</h4>
       <div id="modalClienteCotComentarios" style="display:flex;flex-direction:column;gap:10px;max-height:180px;overflow-y:auto;"></div>
       <textarea id="modalClienteCotNuevoComentario" placeholder="Escribe un comentario nuevo..." style="width:100%;margin-top:10px;min-height:60px;padding:9px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
@@ -1653,6 +1656,7 @@ async function abrirModalClienteCotizacion(cotizacionId){
   $('modalClienteCotSub').textContent = c ? `Cotización #${c.numero || cotizacionId} — ${fmtMoneda(c.monto)} — ${c.fecha || 'sin fecha'}` : '';
   $('modalClienteCotResumen').innerHTML = '<p class="empty-note">Cargando...</p>';
   $('modalClienteCotEstados').innerHTML = '';
+  $('modalClienteCotCorreos').innerHTML = '';
   $('modalClienteCotComentarios').innerHTML = '';
   cancelarEdicionComentarioCot();
   $('modalClienteCotOverlay').classList.add('open');
@@ -1666,6 +1670,7 @@ async function abrirModalClienteCotizacion(cotizacionId){
     modalClienteCotClienteId = data.clienteId;
     renderResumenClienteCot(data.resumenCompras);
     renderEstadosClienteCot(data.historialEstados);
+    renderCorreosClienteCot(data.correos, data.clienteEmail);
     renderComentariosClienteCot(data.comentarios);
   }catch(err){
     $('modalClienteCotResumen').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
@@ -1693,6 +1698,27 @@ function renderEstadosClienteCot(historial){
           <span class="comentario-meta">${escapeHtmlCot(h.autor || 'Desconocido')} — ${new Date(h.creadoEn).toLocaleString('es-CL')}</span>
         </div>`).join('')
     : '<p class="empty-note">Sin cambios de estado registrados todavía (el actual quedó guardado la primera vez que se tocó el select).</p>';
+}
+
+// Correspondencia de correo real con este cliente (ver
+// manejarCotizacionesCorreosSync en api/negocio.js -- cron diario que
+// revisa por IMAP las casillas de los vendedores). Se agrupa por
+// cliente_email, no por esta cotización puntual -- un mismo cliente puede
+// tener varias cotizaciones y el correo real no separa a cuál responde.
+function renderCorreosClienteCot(correos, clienteEmail){
+  if(!clienteEmail){
+    $('modalClienteCotCorreos').innerHTML = '<p class="empty-note">Este cliente no tiene un correo registrado en Bsale todavía.</p>';
+    return;
+  }
+  if(!correos || correos.length === 0){
+    $('modalClienteCotCorreos').innerHTML = `<p class="empty-note">Sin correos detectados todavía con ${escapeHtmlCot(clienteEmail)} (se revisa una vez al día).</p>`;
+    return;
+  }
+  $('modalClienteCotCorreos').innerHTML = correos.map(c => `
+    <div class="estado-item">
+      <span>${c.direccion === 'entrante' ? '📩 El cliente escribió' : '📤 Le escribimos'}${c.asunto ? ': ' + escapeHtmlCot(c.asunto) : ''}</span>
+      <span class="comentario-meta">${c.fecha ? new Date(c.fecha).toLocaleString('es-CL') : 'sin fecha'} — ${escapeHtmlCot(c.casilla)}</span>
+    </div>`).join('');
 }
 
 function renderComentariosClienteCot(comentarios){

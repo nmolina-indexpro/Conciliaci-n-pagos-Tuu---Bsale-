@@ -29,6 +29,10 @@
     {
       "path": "/api/negocio?recurso=productos-estancados-flags-notificar",
       "schedule": "30 13 * * *"
+    },
+    {
+      "path": "/api/negocio?recurso=cotizaciones-correos-sync",
+      "schedule": "0 12 * * *"
     }
   ],
   "headers": [
