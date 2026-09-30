@@ -10290,6 +10290,17 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
     for await (const msg of client.fetch({ since: desde }, { envelope: true, uid: true })) {
       const remitente = (msg.envelope.from?.[0]?.address || '').toLowerCase();
       const destinatarios = [...(msg.envelope.to || []), ...(msg.envelope.cc || [])].map(d => (d.address || '').toLowerCase());
+
+      // Caso real reportado: cuando David manda una cotización a un cliente
+      // con venta@/snunez@ en copia (CC), esa copia también cae en la
+      // bandeja de ENTRADA de venta@/snunez@ -- sin este chequeo, se
+      // registraba como "el cliente escribió", con David (un compañero de
+      // trabajo, no un cliente) como remitente detectado. El evento real
+      // "saliente" ya queda capturado al revisar la carpeta de enviados de
+      // la casilla que mandó el correo de verdad -- esta copia se ignora
+      // por completo, no hay nada nuevo que guardar acá.
+      if (direccion === 'entrante' && CASILLAS_CORREO_SET.has(remitente)) continue;
+
       // Fallback si el correo no trae Message-ID (rarísimo, pero pasa con
       // algunos envíos automatizados mal formados) -- casilla+carpeta+uid
       // sigue siendo único dentro de esta misma casilla.
@@ -10443,6 +10454,18 @@ async function manejarCotizacionesCorreosSync(req, res) {
     const sql = await getSql();
     await asegurarTablaCotizaciones(sql);
     await asegurarTablaCotizacionesCorreos(sql);
+
+    // Limpieza de datos que quedaron mal guardados por el bug de las
+    // copias en CC (ver el chequeo "direccion === 'entrante' &&
+    // CASILLAS_CORREO_SET.has(remitente)" en procesarCarpetaCorreo, recién
+    // agregado): antes de ese chequeo, una copia que nos llegaba en CC de
+    // un correo que OTRO vendedor mandó quedaba registrada como "el
+    // cliente escribió" con ese vendedor como remitente detectado. Se
+    // corre en cada pasada -- inofensivo repetirlo, después de la primera
+    // vez ya no queda nada que limpiar.
+    const casillasPropias = [...CASILLAS_CORREO_SET];
+    await sql.query(`DELETE FROM cotizaciones_correos WHERE cliente_email = ANY($1::text[]);`, [casillasPropias]);
+    await sql.query(`UPDATE bsale_cotizaciones SET cliente_email = NULL WHERE cliente_email = ANY($1::text[]);`, [casillasPropias]);
 
     const atributosBsale = await completarEmailsDesdeAtributosBsale(sql);
 

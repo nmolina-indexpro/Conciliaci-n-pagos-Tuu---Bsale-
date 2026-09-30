@@ -1649,7 +1649,19 @@ let modalClienteCotClienteId = null;
 let modalClienteCotEditandoId = null;
 let modalClienteCotComentariosActuales = []; // último historial recibido del backend, para poder buscar el texto al editar
 
+// Caso real reportado: al abrir el modal de un cliente justo después de
+// haber abierto el de otro, la respuesta del primero (más lenta) podía
+// llegar DESPUÉS de la del segundo y pisar lo que ya se estaba mostrando
+// -- el título quedaba correcto (se pone antes, de forma síncrona, con el
+// dato ya cargado en "cotizaciones") pero el resto del modal (correos,
+// estados, comentarios) terminaba mostrando el de otro cliente. Un
+// contador simple de "cuál es la solicitud más reciente" alcanza: si
+// cuando responde el fetch ya se abrió otro modal después, esta respuesta
+// quedó obsoleta y se descarta.
+let modalClienteCotSolicitudActual = 0;
+
 async function abrirModalClienteCotizacion(cotizacionId){
+  const miSolicitud = ++modalClienteCotSolicitudActual;
   modalClienteCotCotizacionId = cotizacionId;
   const c = cotizaciones.find(x => x.id === cotizacionId);
   $('modalClienteCotTitulo').textContent = `👤 ${c ? c.clienteNombre : 'Cliente'}`;
@@ -1663,6 +1675,7 @@ async function abrirModalClienteCotizacion(cotizacionId){
 
   try{
     const data = await fetch(`/api/negocio?recurso=cotizacion-detalle&cotizacionId=${cotizacionId}`).then(r=>r.json());
+    if(miSolicitud !== modalClienteCotSolicitudActual) return; // se abrió otro cliente mientras esto cargaba -- esta respuesta ya quedó obsoleta
     if(data.error){
       $('modalClienteCotResumen').innerHTML = `<p class="empty-note">${data.detail || data.error}</p>`;
       return;
@@ -1673,6 +1686,7 @@ async function abrirModalClienteCotizacion(cotizacionId){
     renderCorreosClienteCot(data.correos, data.clienteEmail);
     renderComentariosClienteCot(data.comentarios);
   }catch(err){
+    if(miSolicitud !== modalClienteCotSolicitudActual) return;
     $('modalClienteCotResumen').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
   }
 }
