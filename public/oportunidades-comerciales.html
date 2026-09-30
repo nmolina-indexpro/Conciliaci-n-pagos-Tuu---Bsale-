@@ -1168,6 +1168,35 @@ function notaVariacionHtmlDias(pct, dias){
   return `<span class="${clase}">${flecha} ${pct>=0?'+':''}${Math.round(pct)}% vs ${dias} días previos</span>`;
 }
 
+// Caso real reportado: la misma Municipalidad tenía dos fichas de cliente
+// distintas en Bsale (una con el contacto en el nombre, "MUNICIPALIDAD DE
+// RECOLETA (Julio César Campano)", y otra sin él, "MUNICIPALIDAD DE
+// RECOLETA" -- mismo organismo, dos client_id de Bsale) -- cada una con su
+// propia cotización, y AMBAS terminaron vinculadas al mismo documento real
+// (misma guía de despacho) porque Bsale las agrupa por RUT al buscar el
+// historial de cada client_id (ver intentarVincular en api/negocio.js).
+// Sumar el monto de cada cotización "facturada" por separado cuenta esa
+// misma venta dos veces. Esta función deja pasar TODAS las cotizaciones tal
+// cual para la TABLA (cada fila sigue viéndose y editándose independiente),
+// pero para cualquier SUMA de dinero/conteo de ventas reales, se queda con
+// una sola cotización por documentoAsociadoId distinto (la de menor id,
+// elección arbitraria pero estable -- no hay forma de saber cuál de las dos
+// "es la real" solo con estos datos). Las facturadas sin
+// documentoAsociadoId (todavía no vinculadas a un documento concreto) no se
+// pueden deduplicar entre sí por falta de esa clave -- caso raro, no el que
+// reportó el usuario, quedan tal cual.
+function cotizacionesFacturadasSinDuplicar(lista){
+  const facturadas = lista.filter(c => c.estado === 'facturada');
+  const porDocumento = new Map(); // documentoAsociadoId -> cotización elegida
+  const sinDocumento = [];
+  for(const c of facturadas){
+    if(c.documentoAsociadoId == null){ sinDocumento.push(c); continue; }
+    const actual = porDocumento.get(c.documentoAsociadoId);
+    if(!actual || c.id < actual.id) porDocumento.set(c.documentoAsociadoId, c);
+  }
+  return [...porDocumento.values(), ...sinDocumento];
+}
+
 function renderKpisCotizaciones(){
   const cards = document.querySelectorAll('#kpiWrapCotizaciones .card');
   const filtradas = cotizacionesFiltradasBase();
@@ -1183,8 +1212,8 @@ function renderKpisCotizaciones(){
   const delMesActual = cotizaciones.filter(c => c.fecha && c.fecha >= inicioMes && c.fecha <= finMes);
   const delMesAnterior = cotizaciones.filter(c => c.fecha && c.fecha >= inicioMesAnt && c.fecha <= finMesAnt);
 
-  const facturadasActual = delMesActual.filter(c=>c.estado==='facturada');
-  const facturadasAnterior = delMesAnterior.filter(c=>c.estado==='facturada');
+  const facturadasActual = cotizacionesFacturadasSinDuplicar(delMesActual);
+  const facturadasAnterior = cotizacionesFacturadasSinDuplicar(delMesAnterior);
   const montoActual = delMesActual.reduce((a,c)=>a+c.monto,0);
   const montoAnterior = delMesAnterior.reduce((a,c)=>a+c.monto,0);
   const facturadoActual = facturadasActual.reduce((a,c)=>a+c.monto,0);
@@ -1253,12 +1282,24 @@ function renderVendedores(delRangoFiltrado){
   const diasPeriodo = periodoAnt ? diasEntreCot(periodoAnt.desde, periodoAnt.hasta) + 1 : null;
   const montoAnteriorPorVendedor = new Map();
   if(periodoAnt){
-    for(const c of cotizaciones){
-      if(c.estado !== 'facturada' || !c.fecha || c.fecha < periodoAnt.desde || c.fecha > periodoAnt.hasta) continue;
+    // Deduplicado GLOBAL antes de agrupar por vendedor -- las dos
+    // cotizaciones duplicadas de un mismo documento real pueden traer
+    // vendedores distintos asignados (caso raro, pero posible), así que
+    // hay que decidir cuál cuenta ANTES de repartir por vendedor, no
+    // después (ver cotizacionesFacturadasSinDuplicar más arriba).
+    const facturadasPeriodoAnt = cotizacionesFacturadasSinDuplicar(
+      cotizaciones.filter(c => c.fecha && c.fecha >= periodoAnt.desde && c.fecha <= periodoAnt.hasta)
+    );
+    for(const c of facturadasPeriodoAnt){
       const clave = c.vendedorId ?? 'sin_vendedor';
       montoAnteriorPorVendedor.set(clave, (montoAnteriorPorVendedor.get(clave)||0) + c.monto);
     }
   }
+  // Mismo criterio: se decide qué cotizaciones "facturada" cuentan de
+  // verdad (una por documento real) ANTES del loop de abajo, que sigue
+  // recorriendo TODAS las filas para "creadas"/antigüedad/etc. -- esos
+  // conteos no representan plata real, no necesitan deduplicarse.
+  const facturadasContables = new Set(cotizacionesFacturadasSinDuplicar(delRangoFiltrado).map(c => c.id));
 
   const porVendedor = new Map();
   for(const c of delRangoFiltrado){
@@ -1266,7 +1307,7 @@ function renderVendedores(delRangoFiltrado){
     if(!porVendedor.has(clave)) porVendedor.set(clave, { id: c.vendedorId ?? null, nombre: c.vendedorNombre || 'Sin vendedor asignado', creadas:0, facturadas:0, montoVendido:0, sumaDiasAbiertas:0, countAbiertas:0, sumaDiasCierre:0, countCierre:0 });
     const v = porVendedor.get(clave);
     v.creadas++;
-    if(c.estado === 'facturada'){ v.facturadas++; v.montoVendido += c.monto; }
+    if(c.estado === 'facturada' && facturadasContables.has(c.id)){ v.facturadas++; v.montoVendido += c.monto; }
     if(c.estado === 'sin_contactar' && c.fecha){ v.sumaDiasAbiertas += diasEntreCot(c.fecha, hoyStrCot); v.countAbiertas++; }
     if(c.fecha && c.documentoAsociadoFecha){
       const dias = diasEntreCot(c.fecha, c.documentoAsociadoFecha);

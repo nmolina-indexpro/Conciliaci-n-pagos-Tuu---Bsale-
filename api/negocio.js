@@ -991,6 +991,14 @@ async function manejarCotizacionesClientes(req, res, sesion) {
       actualizadoPor: r.actualizado_por,
       actualizadoEn: r.actualizado_en,
       urlCotizacion: r.url_cotizacion,
+      // Clave real para detectar cuando DOS cotizaciones distintas (a
+      // veces hasta de dos fichas de cliente distintas en Bsale para el
+      // mismo organismo -- ver comentario de intentarVincular más arriba)
+      // terminan vinculadas al MISMO documento real -- el frontend la usa
+      // para no sumar esa venta dos veces en los KPIs/ranking de
+      // vendedores (ver cotizacionesFacturadasSinDuplicar en
+      // oportunidades-comerciales.html).
+      documentoAsociadoId: r.documento_asociado_id,
       documentoAsociadoTipo: r.documento_asociado_tipo,
       documentoAsociadoNumero: r.documento_asociado_numero,
       documentoAsociadoUrl: r.documento_asociado_url,
