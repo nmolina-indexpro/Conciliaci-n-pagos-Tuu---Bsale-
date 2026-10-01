@@ -9105,18 +9105,33 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
     );
     const totalPerdidas = motivosRows.reduce((a, r) => a + r.n, 0);
 
+    // CASO REAL REPORTADO -- "Cargador"/"cargador", "Batería"/"bateria"/
+    // "Bateria" aparecían como filas separadas en el ranking: producto/
+    // marca/modelo los escribe la IA en texto libre al analizar cada
+    // conversación, sin una capitalización ni acentuación consistente entre
+    // una conversación y otra. Agrupar por la columna cruda (como antes)
+    // separa lo que en realidad es el mismo producto. Se agrupa por una
+    // clave normalizada (minúsculas, sin tildes, con translate() -- no
+    // hace falta la extensión unaccent) y se muestra la variante de
+    // escritura más común dentro de ese grupo (MODE()) en vez de inventar
+    // una combinada.
     const { rows: productosRows } = await sql.query(
-      `SELECT producto, COUNT(*)::int AS consultas, COUNT(*) FILTER (WHERE venta_detectada)::int AS ventas
+      `SELECT MODE() WITHIN GROUP (ORDER BY producto) AS producto,
+              COUNT(*)::int AS consultas, COUNT(*) FILTER (WHERE venta_detectada)::int AS ventas
        FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 AND producto IS NOT NULL
-       GROUP BY producto ORDER BY consultas DESC LIMIT 15;`,
+       GROUP BY translate(lower(producto), 'áéíóúñ', 'aeioun') ORDER BY consultas DESC LIMIT 15;`,
       [desde, hasta]
     );
     const { rows: marcasRows } = await sql.query(
-      `SELECT marca, COUNT(*)::int AS consultas FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 AND marca IS NOT NULL GROUP BY marca ORDER BY consultas DESC LIMIT 10;`,
+      `SELECT MODE() WITHIN GROUP (ORDER BY marca) AS marca, COUNT(*)::int AS consultas
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 AND marca IS NOT NULL
+       GROUP BY translate(lower(marca), 'áéíóúñ', 'aeioun') ORDER BY consultas DESC LIMIT 10;`,
       [desde, hasta]
     );
     const { rows: modelosRows } = await sql.query(
-      `SELECT modelo, COUNT(*)::int AS consultas FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 AND modelo IS NOT NULL GROUP BY modelo ORDER BY consultas DESC LIMIT 10;`,
+      `SELECT MODE() WITHIN GROUP (ORDER BY modelo) AS modelo, COUNT(*)::int AS consultas
+       FROM whatsapp_conversaciones WHERE iniciada_en >= $1 AND iniciada_en < $2 AND modelo IS NOT NULL
+       GROUP BY translate(lower(modelo), 'áéíóúñ', 'aeioun') ORDER BY consultas DESC LIMIT 10;`,
       [desde, hasta]
     );
     const { rows: resultadosRows } = await sql.query(
