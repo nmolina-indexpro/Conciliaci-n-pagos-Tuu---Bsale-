@@ -10466,14 +10466,20 @@ async function completarEmailsDesdeAtributosBsale(sql) {
     WHERE cliente_id IS NOT NULL AND (cliente_email IS NULL OR cliente_email = '')
     LIMIT ${TOPE_CLIENTES_ATRIBUTOS_POR_PASADA};
   `;
+  // Las llamadas a Bsale son independientes entre sí -- se disparan en
+  // paralelo (mismo criterio que la paginación de otros reportes, ver
+  // CLAUDE.md) en vez de una por una, porque esperarlas en serie (hasta 30
+  // viajes de ida y vuelta) fue lo que hizo que la función completa se
+  // pasara del tiempo máximo (FUNCTION_INVOCATION_TIMEOUT) la primera vez
+  // que se probó en producción.
   let completados = 0;
-  for (const { cliente_id } of rows) {
+  await Promise.all(rows.map(async ({ cliente_id }) => {
     try {
       const r = await fetchConTimeout(`${BSALE_BASE}/clients/${cliente_id}/attributes.json`, { headers: { access_token: token } }, 10000);
-      if (!r.ok) continue;
+      if (!r.ok) return;
       const data = await r.json();
       const atributoCorreo = (data.items || []).find(a => /correo|email/i.test(a.name || '') && a.value && /@/.test(a.value));
-      if (!atributoCorreo) continue;
+      if (!atributoCorreo) return;
       const email = atributoCorreo.value.trim().toLowerCase();
       await sql`
         UPDATE bsale_cotizaciones SET cliente_email = ${email}
@@ -10485,7 +10491,7 @@ async function completarEmailsDesdeAtributosBsale(sql) {
       // instante) no debe tumbar el resto de la revisión.
       console.warn('[completarEmailsDesdeAtributosBsale] error en cliente', cliente_id, err.message);
     }
-  }
+  }));
   return { revisados: rows.length, completados };
 }
 
@@ -10540,10 +10546,17 @@ async function manejarCotizacionesCorreosSync(req, res) {
 
     const { ImapFlow } = await import('imapflow');
     const { simpleParser } = await import('mailparser');
-    const resultados = [];
-    for (const casilla of CASILLAS_CORREO_VENDEDORES) {
-      resultados.push(await revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacionesPorNumero, sql, diasHaciaAtras, simpleParser));
-    }
+    // Las 4 casillas se revisan en paralelo (conexiones IMAP independientes,
+    // cada una con su propio resumen) -- en serie, sumado al tiempo que toma
+    // leer el cuerpo de cada correo nuevo (fetchOne por mensaje, ver
+    // obtenerContenidoTextoCorreo), fue lo que hizo que esta función se
+    // pasara del tiempo máximo (FUNCTION_INVOCATION_TIMEOUT) la primera vez
+    // que corrió de verdad en producción.
+    const resultados = await Promise.all(
+      CASILLAS_CORREO_VENDEDORES.map(casilla =>
+        revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacionesPorNumero, sql, diasHaciaAtras, simpleParser)
+      )
+    );
     return res.status(200).json({
       ok: true, cotizacionesConocidas: cotizacionesRows.length, diasRevisados: diasHaciaAtras,
       emailsCompletadosDesdeAtributosBsale: atributosBsale,
