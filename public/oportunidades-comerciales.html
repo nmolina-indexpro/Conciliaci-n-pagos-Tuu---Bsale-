@@ -1723,9 +1723,9 @@ function renderEstadosClienteCot(historial){
 // cliente_email, no por esta cotización puntual -- un mismo cliente puede
 // tener varias cotizaciones y el correo real no separa a cuál responde.
 // Se guarda la última lista recibida para poder mostrar/ocultar el
-// contenido de un correo puntual al hacer clic (ver toggleCorreoPreview)
-// sin tener que volver a pedirle nada al backend -- ya vino completo en
-// data.correos junto con el resto del detalle del cliente.
+// contenido de un correo puntual al hacer clic (ver toggleCorreoPreview) --
+// el contenido en sí se pide bajo demanda la primera vez que se abre cada
+// correo (ver el comentario de toggleCorreoPreview), no viene precargado.
 let modalClienteCotCorreosActuales = [];
 
 function renderCorreosClienteCot(correos, clienteEmail){
@@ -1751,16 +1751,45 @@ function renderCorreosClienteCot(correos, clienteEmail){
 }
 
 // Vista previa del contenido de un correo puntual -- pedido del usuario.
-// El texto ya vino junto con el resto del detalle (modalClienteCotCorreosActuales),
-// así que mostrar/ocultar es instantáneo, sin ida y vuelta al servidor.
-function toggleCorreoPreview(i){
+// CASO REAL REPORTADO: leer el cuerpo de CADA correo durante la sync diaria
+// tumbaba la función completa (este servidor de correo tarda 8+ segundos
+// por mensaje, de forma consistente) -- el contenido se mudó a pedirse acá,
+// bajo demanda, un solo mensaje por clic sí tolera esos segundos. Si ya se
+// había leído antes (quedó cacheado en la BD), vuelve al toque; si no, se
+// pide a /api/negocio?recurso=cotizacion-correo-contenido y se guarda en
+// el array local para que el próximo clic sobre el MISMO correo sea
+// instantáneo sin volver a tocar IMAP.
+async function toggleCorreoPreview(i){
   const c = modalClienteCotCorreosActuales[i];
   const wrap = $(`correoPreview${i}`);
   if(!c || !wrap) return;
   const yaAbierto = wrap.style.display !== 'none';
   if(yaAbierto){ wrap.style.display = 'none'; return; }
-  wrap.textContent = c.contenidoTexto || 'No se pudo guardar el contenido de este correo (sin texto plano legible, o quedó guardado antes de esta función).';
+
+  if(c.contenidoTexto){
+    wrap.textContent = c.contenidoTexto;
+    wrap.style.display = 'block';
+    return;
+  }
+
+  if(c._cargando) return; // ya hay una consulta en curso para este mismo correo, no duplicar
+  wrap.textContent = 'Leyendo el contenido real del correo… puede tardar unos segundos.';
   wrap.style.display = 'block';
+  c._cargando = true;
+  try {
+    const resp = await fetch(`/api/negocio?recurso=cotizacion-correo-contenido&correoId=${c.id}`);
+    const data = await resp.json();
+    if(data && data.contenidoTexto){
+      c.contenidoTexto = data.contenidoTexto; // cachea localmente -- el siguiente clic no vuelve a pedirlo
+      wrap.textContent = data.contenidoTexto;
+    } else {
+      wrap.textContent = 'No se pudo leer el contenido de este correo (sin texto plano legible, o el servidor de correo no respondió a tiempo).';
+    }
+  } catch (err) {
+    wrap.textContent = 'No se pudo leer el contenido de este correo (error de conexión).';
+  } finally {
+    c._cargando = false;
+  }
 }
 
 function renderComentariosClienteCot(comentarios){

@@ -122,6 +122,7 @@ export default async function handler(req, res) {
   if (recurso === 'cotizacion-estado') return manejarCotizacionEstado(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
+  if (recurso === 'cotizacion-correo-contenido') return manejarCotizacionCorreoContenido(req, res, sesion);
   if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
   if (recurso === 'calendario-pagos-importar') return manejarCalendarioPagosImportar(req, res, sesion);
   if (recurso === 'saldo-bci') return manejarSaldoBci(req, res, sesion);
@@ -1132,11 +1133,11 @@ async function manejarCotizacionDetalle(req, res, sesion) {
     // (respaldo, cubre respuestas de seguimiento que no repiten el número,
     // y también correspondencia de OTRA cotización del mismo cliente).
     const { rows: correosRows } = await sql`
-      SELECT direccion, casilla, asunto, fecha, contenido_texto FROM cotizaciones_correos
+      SELECT id, direccion, casilla, asunto, fecha, contenido_texto FROM cotizaciones_correos
       WHERE cotizacion_id = ${cotizacionId} OR (cliente_email IS NOT NULL AND cliente_email = ${clienteEmail})
       ORDER BY fecha DESC LIMIT 50;
     `;
-    const correos = correosRows.map(r => ({ direccion: r.direccion, casilla: r.casilla, asunto: r.asunto, fecha: r.fecha, contenidoTexto: r.contenido_texto || null }));
+    const correos = correosRows.map(r => ({ id: r.id, direccion: r.direccion, casilla: r.casilla, asunto: r.asunto, fecha: r.fecha, contenidoTexto: r.contenido_texto || null }));
 
     const { rows: historialRows } = await sql`
       SELECT estado, autor, creado_en FROM bsale_cotizaciones_historial_estado
@@ -10428,36 +10429,24 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
       if (!cotizacionId && !clienteEmailDetectado) continue; // no se pudo relacionar con nada conocido -- se ignora
       progreso.relevantes++;
 
-      // Caso real reportado: un correo guardado ANTES de que existiera esta
-      // función de contenido se queda sin contenido_texto para siempre,
-      // porque el INSERT de abajo usa ON CONFLICT DO NOTHING (evita
-      // duplicados, pero también evita completarlo después). Se revisa
-      // primero si la fila ya existe: si ya tiene contenido, no hay nada
-      // que hacer (se ahorra el viaje IMAP extra); si existe pero sin
-      // contenido, se completa con un UPDATE sin volver a contarla como
-      // "nueva" ni repetir el avance de estado (ya se hizo en su momento).
-      const { rows: existentes } = await sql`
-        SELECT id, contenido_texto FROM cotizaciones_correos
-        WHERE casilla = ${casilla.email} AND message_id = ${messageId};
-      `;
-      if (existentes.length > 0 && existentes[0].contenido_texto) continue;
-
-      const inicioContenido = Date.now();
-      const contenidoTexto = await obtenerContenidoTextoCorreo(client, msg.uid);
-      progreso.msContenido += Date.now() - inicioContenido;
-
-      if (existentes.length > 0) {
-        await sql`UPDATE cotizaciones_correos SET contenido_texto = ${contenidoTexto} WHERE id = ${existentes[0].id};`;
-        continue;
-      }
-
+      // CASO REAL REPORTADO -- leer el cuerpo de cada correo ACÁ, durante la
+      // sync diaria, fue lo que tumbaba la función: en este mismo servidor
+      // de correo (hosting compartido), pedir el cuerpo de un solo mensaje
+      // toma 8+ segundos de forma consistente (confirmado con
+      // resumen.progreso en producción -- no es por adjuntos grandes, el
+      // servidor es así de lento para ESTA operación puntual). Con varios
+      // correos relevantes por casilla, eso solo no cabe en los 60s de la
+      // función. Se guarda carpeta_imap + uid_imap (ya se tienen gratis acá)
+      // para poder leer el cuerpo DESPUÉS, bajo demanda, cuando el usuario
+      // hace clic en el correo en el modal (ver manejarCotizacionCorreoContenido)
+      // -- un solo mensaje por request tolera sin problema esos 8+ segundos.
       const { rows } = await sql`
-        INSERT INTO cotizaciones_correos (casilla, message_id, direccion, cliente_email, cotizacion_id, asunto, fecha, contenido_texto)
-        VALUES (${casilla.email}, ${messageId}, ${direccion}, ${clienteEmailDetectado}, ${cotizacionId}, ${asunto}, ${fecha ? fecha.toISOString() : null}, ${contenidoTexto})
+        INSERT INTO cotizaciones_correos (casilla, message_id, direccion, cliente_email, cotizacion_id, asunto, fecha, carpeta_imap, uid_imap)
+        VALUES (${casilla.email}, ${messageId}, ${direccion}, ${clienteEmailDetectado}, ${cotizacionId}, ${asunto}, ${fecha ? fecha.toISOString() : null}, ${nombreCarpeta}, ${msg.uid})
         ON CONFLICT (casilla, message_id) DO NOTHING
         RETURNING id;
       `;
-      if (rows.length === 0) continue; // carrera rarísima: otra pasada lo insertó justo ahora
+      if (rows.length === 0) continue; // ya se había guardado en una pasada anterior
 
       if (direccion === 'entrante') resumen.entrantesNuevos++; else resumen.salientesNuevos++;
 
@@ -10519,7 +10508,7 @@ async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacion
       // relevantes, cuánto de ese tiempo fue leyendo cuerpos) en vez de
       // perderse por completo, que es exactamente lo que hace falta para
       // saber en qué se va el tiempo sin seguir adivinando.
-      const progresoInbox = { carpeta: 'INBOX', totalMensajes: 0, relevantes: 0, msContenido: 0 };
+      const progresoInbox = { carpeta: 'INBOX', totalMensajes: 0, relevantes: 0 };
       resumen.progreso = progresoInbox;
       await medir(resumen, 'INBOX', conTimeout(
         procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen, progresoInbox),
@@ -10527,7 +10516,7 @@ async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacion
       ));
 
       for (const nombreCarpeta of CARPETAS_ENVIADOS_POSIBLES) {
-        const progresoCarpeta = { carpeta: nombreCarpeta, totalMensajes: 0, relevantes: 0, msContenido: 0 };
+        const progresoCarpeta = { carpeta: nombreCarpeta, totalMensajes: 0, relevantes: 0 };
         resumen.progreso = progresoCarpeta;
         try {
           await medir(resumen, `enviados:${nombreCarpeta}`, conTimeout(
@@ -10651,10 +10640,11 @@ async function manejarCotizacionesCorreosSync(req, res) {
 
     const { ImapFlow } = await import('imapflow');
     // Las 4 casillas se revisan en paralelo (conexiones IMAP independientes,
-    // cada una con su propio resumen) -- en serie, sumado al tiempo que toma
-    // leer el cuerpo de cada correo nuevo, fue lo que hizo que esta función
-    // se pasara del tiempo máximo (FUNCTION_INVOCATION_TIMEOUT) la primera
-    // vez que corrió de verdad en producción.
+    // cada una con su propio resumen) -- en serie fue lo que hizo que esta
+    // función se pasara del tiempo máximo (FUNCTION_INVOCATION_TIMEOUT) la
+    // primera vez que corrió de verdad en producción. Esta pasada ya NO lee
+    // el cuerpo de ningún correo (ver manejarCotizacionCorreoContenido, más
+    // abajo, para eso) -- solo detecta y guarda metadata, mucho más rápido.
     const resultados = await Promise.all(
       CASILLAS_CORREO_VENDEDORES.map(casilla =>
         revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacionesPorNumero, sql, diasHaciaAtras)
@@ -10667,5 +10657,108 @@ async function manejarCotizacionesCorreosSync(req, res) {
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error sincronizando correspondencia de correo', detail: String(err) });
+  }
+}
+
+// Pedido del usuario: leer el contenido de un correo puntual al hacer clic
+// en el modal de cliente. CASO REAL REPORTADO -- intentar leer el cuerpo de
+// TODOS los correos relevantes dentro de la sync diaria (arriba) tumbaba la
+// función entera, porque este servidor de correo (hosting compartido) tarda
+// 8+ segundos de forma consistente en devolver el cuerpo de un solo mensaje
+// -- confirmado con resumen.progreso en producción, no por adjuntos
+// grandes. Un único mensaje por request SÍ tolera esos 8+ segundos sin
+// competir con las otras 3 casillas ni con las llamadas a Bsale. Requiere
+// sesión (como cualquier otro recurso de este archivo) en vez de
+// CRON_SECRET, porque lo dispara un usuario logueado haciendo clic, no el
+// cron.
+const TIMEOUT_CONTENIDO_BAJO_DEMANDA_MS = 25000;
+async function manejarCotizacionCorreoContenido(req, res, _sesion) {
+  try {
+    const correoId = parseInt(req.query.correoId, 10);
+    if (!Number.isFinite(correoId)) return res.status(400).json({ error: 'correoId inválido' });
+
+    const sql = await getSql();
+    await asegurarTablaCotizacionesCorreos(sql);
+    const { rows } = await sql`
+      SELECT casilla, message_id, carpeta_imap, uid_imap, contenido_texto
+      FROM cotizaciones_correos WHERE id = ${correoId};
+    `;
+    if (rows.length === 0) return res.status(404).json({ error: 'correo no encontrado' });
+    const fila = rows[0];
+
+    // Ya se había leído antes (ya sea por esta misma función en una pasada
+    // anterior) -- camino rápido, sin tocar IMAP de nuevo.
+    if (fila.contenido_texto) {
+      return res.status(200).json({ contenidoTexto: fila.contenido_texto, yaEstaba: true });
+    }
+
+    const casilla = CASILLAS_CORREO_VENDEDORES.find(c => c.email === fila.casilla);
+    if (!casilla || !casilla.pass) {
+      return res.status(200).json({ contenidoTexto: null, error: 'sin contraseña configurada para esta casilla (falta la variable de entorno IMAP_PASS_*)' });
+    }
+
+    const { ImapFlow } = await import('imapflow');
+    const client = new ImapFlow({
+      host: EMAIL_IMAP_HOST, port: EMAIL_IMAP_PORT, secure: true,
+      auth: { user: casilla.email, pass: casilla.pass },
+      logger: false,
+      connectionTimeout: TIMEOUT_CONTENIDO_BAJO_DEMANDA_MS,
+      greetingTimeout: TIMEOUT_CONTENIDO_BAJO_DEMANDA_MS,
+    });
+
+    let contenidoTexto = null;
+    try {
+      await conTimeout((async () => {
+        await client.connect();
+
+        // Camino rápido: ya se sabe exactamente dónde está (guardado al
+        // sincronizar, ver procesarCarpetaCorreo). Si la carpeta cambió de
+        // nombre o el UID dejó de ser válido (ej. cambió el UIDVALIDITY de
+        // la casilla, raro pero posible), se cae al respaldo de abajo.
+        if (fila.carpeta_imap && fila.uid_imap) {
+          try {
+            const lock = await client.getMailboxLock(fila.carpeta_imap);
+            try {
+              contenidoTexto = await obtenerContenidoTextoCorreo(client, fila.uid_imap);
+            } finally {
+              lock.release();
+            }
+          } catch { /* se intenta el respaldo por Message-ID abajo */ }
+        }
+
+        // Respaldo para correos guardados ANTES de que existieran estas
+        // columnas (toda la correspondencia sincronizada hasta ahora) -- se
+        // busca el mensaje por Message-ID en INBOX y en cada candidata de
+        // enviados, igual que la sync diaria para elegir la carpeta real.
+        if (!contenidoTexto) {
+          for (const nombreCarpeta of ['INBOX', ...CARPETAS_ENVIADOS_POSIBLES]) {
+            try {
+              const lock = await client.getMailboxLock(nombreCarpeta);
+              try {
+                const uids = await client.search({ header: { 'message-id': fila.message_id } }, { uid: true });
+                if (uids && uids.length > 0) {
+                  contenidoTexto = await obtenerContenidoTextoCorreo(client, uids[uids.length - 1]);
+                  if (contenidoTexto) break;
+                }
+              } finally {
+                lock.release();
+              }
+            } catch (err) {
+              if (/unknown mailbox|does not exist|no encontrada|nonexistent/i.test(String(err.message || err))) continue;
+              // último recurso -- un error real de una carpeta no debería impedir probar las demás
+            }
+          }
+        }
+      })(), TIMEOUT_CONTENIDO_BAJO_DEMANDA_MS, 'leer este correo tardó demasiado');
+    } finally {
+      try { await conTimeout(client.logout(), 5000, 'logout demoró demasiado'); } catch { /* mejor esfuerzo */ }
+    }
+
+    if (contenidoTexto) {
+      await sql`UPDATE cotizaciones_correos SET contenido_texto = ${contenidoTexto} WHERE id = ${correoId};`;
+    }
+    return res.status(200).json({ contenidoTexto, yaEstaba: false });
+  } catch (err) {
+    return res.status(200).json({ contenidoTexto: null, error: err.message || String(err) });
   }
 }
