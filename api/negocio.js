@@ -10293,10 +10293,33 @@ function extraerNumerosCotizacionDeAsunto(asunto) {
 // (adjuntos, HTML, headers) sin tener que hacerlo a mano. Mejor esfuerzo:
 // si por lo que sea no se puede leer el cuerpo (mensaje raro, timeout),
 // el evento igual se guarda sin contenido en vez de perderse entero.
+// CASO REAL REPORTADO -- la sync completa reventó con FUNCTION_INVOCATION_TIMEOUT
+// la primera vez que corrió en producción (incluso después de paralelizar las
+// 4 casillas y las llamadas a Bsale, ver manejarCotizacionesCorreosSync). La
+// causa real: ImapFlow por defecto espera hasta 90s para conectar y hasta 5
+// minutos de inactividad de socket -- muy por encima del maxDuration de 60s
+// de esta función (vercel.json). Si el servidor de correo (hosting
+// compartido) se demora o se cuelga en UNA sola operación, Vercel mata toda
+// la función sin que nuestro propio try/catch alcance a reaccionar. Se
+// envuelve cada operación IMAP riesgosa en un timeout propio, bien por
+// debajo del límite de la función, para que un cuelgue puntual se trate como
+// un error de esa casilla/ese correo (ya manejado como "mejor esfuerzo") en
+// vez de tumbar la función entera.
+function conTimeout(promesa, ms, mensaje) {
+  let temporizador;
+  return Promise.race([
+    promesa.finally(() => clearTimeout(temporizador)),
+    new Promise((_, reject) => { temporizador = setTimeout(() => reject(new Error(mensaje || `tiempo de espera agotado (${ms}ms)`)), ms); }),
+  ]);
+}
+const TIMEOUT_CONEXION_IMAP_MS = 10000;
+const TIMEOUT_CUERPO_CORREO_MS = 8000;
+const TIMEOUT_CASILLA_COMPLETA_MS = 40000; // tope por casilla -- deja margen bajo los 60s para el resto de la función (Bsale, consultas a la BD)
+
 const TOPE_CONTENIDO_CORREO = 8000; // caracteres -- alcanza para leer de qué se trató sin guardar firmas/citas gigantes
 async function obtenerContenidoTextoCorreo(client, uid, simpleParser) {
   try {
-    const mensaje = await client.fetchOne(uid, { source: true }, { uid: true });
+    const mensaje = await conTimeout(client.fetchOne(uid, { source: true }, { uid: true }), TIMEOUT_CUERPO_CORREO_MS, `leer el cuerpo del mensaje ${uid} tardó demasiado`);
     if (!mensaje || !mensaje.source) return null;
     const parseado = await simpleParser(mensaje.source);
     const texto = (parseado.text || '').trim();
@@ -10419,27 +10442,40 @@ async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacion
     host: EMAIL_IMAP_HOST, port: EMAIL_IMAP_PORT, secure: true,
     auth: { user: casilla.email, pass: casilla.pass },
     logger: false,
+    // Topes bien por debajo de los defaults de la librería (90s para
+    // conectar, 5 minutos de inactividad de socket) -- ver el comentario
+    // junto a conTimeout, más arriba, sobre por qué estos defaults tumbaron
+    // la función entera la primera vez que esto corrió en producción.
+    connectionTimeout: TIMEOUT_CONEXION_IMAP_MS,
+    greetingTimeout: TIMEOUT_CONEXION_IMAP_MS,
   });
 
   try {
-    await client.connect();
-    const desde = new Date(Date.now() - diasHaciaAtras * 86400000);
+    // Toda la revisión de esta casilla (conectar + INBOX + probar las
+    // carpetas de enviados) queda bajo UN solo tope -- si el servidor de
+    // correo se cuelga en cualquier punto, esta casilla se da por fallida y
+    // las demás (que corren en paralelo, ver manejarCotizacionesCorreosSync)
+    // no se ven afectadas.
+    await conTimeout((async () => {
+      await client.connect();
+      const desde = new Date(Date.now() - diasHaciaAtras * 86400000);
 
-    await procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen, simpleParser);
+      await procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen, simpleParser);
 
-    for (const nombreCarpeta of CARPETAS_ENVIADOS_POSIBLES) {
-      try {
-        await procesarCarpetaCorreo(client, nombreCarpeta, 'saliente', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen, simpleParser);
-        break; // la primera que abrió sin error es la real -- no hace falta seguir probando las demás
-      } catch (err) {
-        if (/unknown mailbox|does not exist|no encontrada|nonexistent/i.test(String(err.message || err))) continue;
-        throw err;
+      for (const nombreCarpeta of CARPETAS_ENVIADOS_POSIBLES) {
+        try {
+          await procesarCarpetaCorreo(client, nombreCarpeta, 'saliente', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen, simpleParser);
+          break; // la primera que abrió sin error es la real -- no hace falta seguir probando las demás
+        } catch (err) {
+          if (/unknown mailbox|does not exist|no encontrada|nonexistent/i.test(String(err.message || err))) continue;
+          throw err;
+        }
       }
-    }
+    })(), TIMEOUT_CASILLA_COMPLETA_MS, `la casilla ${casilla.email} tardó demasiado (más de ${TIMEOUT_CASILLA_COMPLETA_MS / 1000}s)`);
   } catch (err) {
     resumen.error = err.message || String(err);
   } finally {
-    try { await client.logout(); } catch { /* mejor esfuerzo -- no tumbar el resumen por esto */ }
+    try { await conTimeout(client.logout(), 5000, 'logout demoró demasiado'); } catch { /* mejor esfuerzo -- no tumbar el resumen por esto */ }
   }
   return resumen;
 }
