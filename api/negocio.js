@@ -1191,8 +1191,12 @@ async function obtenerIdTipoCotizacion(token) {
 // 50 usuarios entre activos e inactivos, y justo el que falte puede ser el
 // vendedor de una cotización -> aparecía como "Usuario #51" en vez del
 // nombre real).
-async function obtenerMapaVendedores(token) {
-  const mapa = new Map();
+// Extraído de obtenerMapaVendedores para poder reusar los mismos usuarios
+// crudos de Bsale (id, nombre Y correo) en manejarAccesoriosVendedores sin
+// pedirle /users.json a Bsale dos veces -- ver el comentario ahí sobre por
+// qué hace falta el correo además del nombre.
+async function obtenerUsuariosBsale(token) {
+  const usuarios = [];
   const limit = 50;
   let offset = 0;
   let total = null;
@@ -1203,12 +1207,19 @@ async function obtenerMapaVendedores(token) {
     const data = await r.json();
     const items = data.items || [];
     if (typeof data.count === 'number') total = data.count;
-    for (const u of items) {
-      const nombre = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || `Usuario #${u.id}`;
-      mapa.set(u.id, nombre);
-    }
+    usuarios.push(...items);
     offset += items.length;
     if (items.length < limit || (total != null && offset >= total)) break;
+  }
+  return usuarios;
+}
+
+async function obtenerMapaVendedores(token) {
+  const usuarios = await obtenerUsuariosBsale(token);
+  const mapa = new Map();
+  for (const u of usuarios) {
+    const nombre = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || `Usuario #${u.id}`;
+    mapa.set(u.id, nombre);
   }
   return mapa;
 }
@@ -2470,15 +2481,39 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
   if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
 
   try {
-    const hastaStr = new Date().toISOString().slice(0, 10);
-    const desdeStr = `${hastaStr.slice(0, 7)}-01`; // día 1 del mes en curso
+    // Pedido del usuario: poder ver un mes distinto al actual (?mes=YYYY-MM),
+    // no solo el mes en curso -- el resto del cálculo (semanas acumuladas,
+    // meta, etc.) sigue asumiendo que todo el rango cae DENTRO de un mismo
+    // mes calendario (ver construirSemanasAccesorios, que arma las semanas
+    // a partir del día-del-mes), así que el filtro es por mes completo, no
+    // por un rango de fechas arbitrario.
+    const hoyStr = new Date().toISOString().slice(0, 10);
+    const mesActualStr = hoyStr.slice(0, 7);
+    const mesQuery = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : null;
+    // Un mes futuro no tiene ventas que mostrar -- se cae al mes actual en
+    // vez de devolver un rango vacío sin explicación.
+    const mes = (mesQuery && mesQuery <= mesActualStr) ? mesQuery : mesActualStr;
+    const esMesActual = mes === mesActualStr;
+    const desdeStr = `${mes}-01`;
+    const hastaStr = esMesActual ? hoyStr : ultimoDiaMes(mes); // reusa el helper existente (ver más arriba) -- funciona igual con un "YYYY-MM" que con una fecha completa
     const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
     const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
 
-    const [catalogoPorSku, vendedoresPorId] = await Promise.all([
+    // CASO REAL REPORTADO -- Stephanie y David SÍ aparecen en la tabla de
+    // abajo (con ventas reales), pero su propia sección "Mi avance" les
+    // decía que no tenían ventas: el cruce "¿cuál fila de abajo soy yo?"
+    // comparaba nombres (sesion.nombre de esta app vs nombre real en
+    // Bsale) de forma difusa, y basta con que se hayan escrito distinto en
+    // un sistema que en el otro (con o sin segundo apellido, con o sin
+    // tilde rara, etc.) para que nunca calce. Mismo problema -- y mismo
+    // arreglo -- que WHATSAPP_VENDEDORES_EMAIL más abajo en este archivo:
+    // el correo es un dato exacto en los dos sistemas, el nombre no.
+    const [catalogoPorSku, usuariosBsale] = await Promise.all([
       obtenerCatalogoPorSku(token),
-      obtenerMapaVendedores(token),
+      obtenerUsuariosBsale(token),
     ]);
+    const vendedoresPorId = new Map(usuariosBsale.map(u => [u.id, `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || `Usuario #${u.id}`]));
+    const emailVendedorPorId = new Map(usuariosBsale.filter(u => u.email).map(u => [u.id, u.email.trim().toLowerCase()]));
 
     const limit = 50;
     const topePaginas = 40; // ~2.000 documentos del mes -- de sobra
@@ -2522,7 +2557,7 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
         const info = catalogoPorSku.get(det.variant?.code || '');
         const categoria = info ? clasificarAccesorioVitrina(info.nombre, info.descripcion) : null;
         if (!categoria) continue;
-        if (!porVendedor.has(vendedorId)) porVendedor.set(vendedorId, { vendedorId, nombre: vendedorNombre, totalMes: 0, unidades: 0, porDia: new Map(), porCategoria: new Map() });
+        if (!porVendedor.has(vendedorId)) porVendedor.set(vendedorId, { vendedorId, nombre: vendedorNombre, email: emailVendedorPorId.get(vendedorId) || null, totalMes: 0, unidades: 0, porDia: new Map(), porCategoria: new Map() });
         const entrada = porVendedor.get(vendedorId);
         const monto = (det.quantity || 0) * (det.netUnitValue || 0) * 1.19; // con IVA, mismo criterio que el resto de "precio real" en este archivo
         entrada.totalMes += monto;
@@ -2539,6 +2574,7 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
       .map(v => ({
         vendedorId: v.vendedorId,
         nombre: v.nombre,
+        email: v.email, // solo para el cruce de miVendedorId más abajo -- se saca antes de responder (ver delete)
         totalMes: Math.round(v.totalMes),
         unidades: v.unidades,
         faltante: Math.max(0, ACCESORIOS_META_MENSUAL - Math.round(v.totalMes)),
@@ -2551,18 +2587,30 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
       }))
       .sort((a, b) => b.totalMes - a.totalMes);
 
-    // Vincula al usuario logueado con "su" fila de vendedor por nombre (la
-    // cuenta de esta app y el usuario de Bsale son sistemas separados, no
-    // hay un id compartido) -- comparación normalizada (sin tildes/mayús),
-    // exacta primero y por inclusión como respaldo (ej. "Juan Pérez" en la
-    // app vs "Juan Pérez G." en Bsale).
+    // Vincula al usuario logueado con "su" fila de vendedor -- la cuenta de
+    // esta app y el usuario de Bsale son sistemas separados, no hay un id
+    // compartido. CASO REAL REPORTADO: comparar solo por nombre (difuso,
+    // normalizado) fallaba para Stephanie y David aunque SÍ estuvieran en
+    // la lista de abajo -- basta con que se haya escrito el nombre distinto
+    // en un sistema que en el otro. Se prueba primero por correo (exacto,
+    // confiable en los dos sistemas) y el nombre difuso queda de respaldo
+    // por si el usuario de Bsale no tiene correo cargado.
+    const emailSesion = (sesion.email || '').trim().toLowerCase();
     const nombreSesion = normalizarTexto(sesion.nombre || '');
     let miVendedorId = null;
-    if (nombreSesion) {
+    if (emailSesion) {
+      miVendedorId = vendedores.find(v => v.email === emailSesion)?.vendedorId ?? null;
+    }
+    if (miVendedorId == null && nombreSesion) {
       const exacto = vendedores.find(v => normalizarTexto(v.nombre) === nombreSesion);
       const parcial = exacto || vendedores.find(v => normalizarTexto(v.nombre).includes(nombreSesion) || nombreSesion.includes(normalizarTexto(v.nombre)));
       miVendedorId = (exacto || parcial)?.vendedorId ?? null;
     }
+
+    // El correo solo era para el cruce de arriba -- no hace falta mandarlo
+    // al frontend (y es un dato del usuario de Bsale, no algo que el panel
+    // de accesorios deba mostrar).
+    for (const v of vendedores) delete v.email;
 
     const sinAsignar = porVendedor.get(-1);
 

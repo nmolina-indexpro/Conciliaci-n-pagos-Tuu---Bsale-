@@ -481,14 +481,21 @@
   </div>
 
   <div id="tabAccesorios" style="display:none;">
-    <div class="sub" style="margin-top:-4px;">Venta del mes en curso de productos de vitrina (mouse, funda notebook, base notebook, soporte, kit limpiadores, pad mouse). Meta: <b id="accMetaTexto">$200.000</b> por vendedor al mes para ganar el bono — el avance de abajo es acumulado dentro del mes.</div>
+    <div class="sub" style="margin-top:-4px;">Venta de productos de vitrina (mouse, funda notebook, base notebook, soporte, kit limpiadores, pad mouse). Meta: <b id="accMetaTexto">$200.000</b> por vendedor al mes para ganar el bono — el avance de abajo es acumulado dentro del mes elegido.</div>
+
+    <div class="toolbar" style="margin:12px 0;">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div class="date-field"><label for="accesoriosMes">Mes</label><input type="month" id="accesoriosMes" onchange="cambiarMesAccesorios()"></div>
+        <button class="btn-ghost btn-compact" id="btnAccMesActual" onclick="cambiarMesAccesorios('actual')">Mes actual</button>
+      </div>
+    </div>
 
     <div id="statusAccesorios"></div>
 
     <div class="seccion" id="seccionMiAvanceAccesorios" style="display:none;">
       <div class="seccion-head">
         <div>
-          <h2>🎯 Tu avance este mes</h2>
+          <h2>🎯 Tu avance — <span id="accMesLabelMio">este mes</span></h2>
           <div class="sub" id="accMiResumen"></div>
         </div>
       </div>
@@ -497,13 +504,13 @@
     </div>
 
     <div class="seccion" id="seccionSinDatosAccesorios" style="display:none;">
-      <p class="empty-note">Todavía no tienes ventas de estos productos registradas este mes en Bsale (o tu nombre de usuario no coincide con tu nombre de vendedor en Bsale — avísale a un administrador si esto no se ve bien).</p>
+      <p class="empty-note">Todavía no tienes ventas de estos productos registradas en Bsale para este mes (o tu nombre de usuario no coincide con tu nombre de vendedor en Bsale — avísale a un administrador si esto no se ve bien).</p>
     </div>
 
     <div class="seccion" id="seccionRankingAccesorios" style="display:none;">
       <div class="seccion-head">
         <div>
-          <h2>🏆 Todos los vendedores — mes actual</h2>
+          <h2>🏆 Todos los vendedores — <span id="accMesLabelRanking">mes actual</span></h2>
           <div class="sub">Solo visible para administradores. Ordenado de mayor a menor venta acumulada de accesorios/vitrina.</div>
         </div>
       </div>
@@ -713,12 +720,24 @@ function limpiarRangoCotizaciones(){
 }
 
 // ---------- Accesorios de vitrina / bono vendedores ----------
+// Pedido del usuario: poder ver un mes distinto al actual, no solo el mes en
+// curso -- el backend sigue asumiendo que todo el cálculo cae dentro de UN
+// mes calendario (ver el comentario en manejarAccesoriosVendedores), así que
+// el filtro es por mes completo (input type="month"), no un rango libre.
+function mesActualStrAcc(){ return new Date().toLocaleDateString('en-CA').slice(0,7); }
+function cambiarMesAccesorios(tipo){
+  if(tipo === 'actual') $('accesoriosMes').value = mesActualStrAcc();
+  $('btnAccMesActual').classList.toggle('active', $('accesoriosMes').value === mesActualStrAcc());
+  cargarAccesorios();
+}
 async function cargarAccesorios(){
   accesoriosCargado = true;
+  if(!$('accesoriosMes').value){ $('accesoriosMes').value = mesActualStrAcc(); $('btnAccMesActual').classList.add('active'); }
   const status = $('statusAccesorios');
   status.innerHTML = '<p class="empty-note">Cargando...</p>';
   try{
-    const res = await fetch('/api/negocio?recurso=accesorios-vendedores');
+    const mes = $('accesoriosMes').value || mesActualStrAcc();
+    const res = await fetch(`/api/negocio?recurso=accesorios-vendedores&mes=${mes}`);
     const data = await res.json();
     if(!res.ok || data.error){ status.innerHTML = `<p class="empty-note">${escapeHtmlCot(data.error || 'No se pudo cargar.')}</p>`; return; }
     status.innerHTML = '';
@@ -757,9 +776,17 @@ function cambiarOrdenRankAccesorios(col){
   else { sortColRankAccesorios = col; sortAscRankAccesorios = false; }
   renderAccesorios(ultimosDatosAccesorios);
 }
+const MESES_ES_ACC = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+function etiquetaMesAccesorios(mesStr){
+  const [y,m] = mesStr.split('-').map(Number);
+  return `${MESES_ES_ACC[m-1]} ${y}` + (mesStr === mesActualStrAcc() ? ' (mes actual)' : '');
+}
 function renderAccesorios(data){
   ultimosDatosAccesorios = data;
   $('accMetaTexto').textContent = fmtMoneda(data.meta);
+  const etiquetaMes = etiquetaMesAccesorios(data.mes);
+  $('accMesLabelMio').textContent = etiquetaMes;
+  $('accMesLabelRanking').textContent = etiquetaMes;
 
   const mio = data.vendedores.find(v => v.vendedorId === data.miVendedorId);
   const seccionMio = $('seccionMiAvanceAccesorios');
