@@ -10314,7 +10314,24 @@ function conTimeout(promesa, ms, mensaje) {
 }
 const TIMEOUT_CONEXION_IMAP_MS = 10000;
 const TIMEOUT_CUERPO_CORREO_MS = 8000;
+const TIMEOUT_CARPETA_MS = 12000; // tope por CADA carpeta probada (INBOX, o cada intento de carpeta de enviados) -- antes solo existía el tope de casilla completa, así que una sola carpeta colgada se comía los 40s enteros sin dejar rastro
 const TIMEOUT_CASILLA_COMPLETA_MS = 40000; // tope por casilla -- deja margen bajo los 60s para el resto de la función (Bsale, consultas a la BD)
+
+// CASO REAL REPORTADO -- dtorres@ seguía dando "tardó demasiado" incluso
+// después de acotar la descarga de adjuntos, con 0 correos nuevos
+// detectados -- es decir, el tiempo se iba ANTES de llegar a leer ningún
+// cuerpo. Sin saber en qué paso exacto (conectar, INBOX, o probar cada una
+// de las 4 carpetas de enviados candidatas) no hay forma de arreglarlo bien
+// en vez de adivinar -- se mide cada paso y se guarda en resumen.pasos, que
+// viaja en la respuesta, para que la próxima corrida diga la verdad.
+async function medir(resumen, nombrePaso, promesa) {
+  const inicio = Date.now();
+  try {
+    return await promesa;
+  } finally {
+    resumen.pasos.push({ paso: nombrePaso, ms: Date.now() - inicio });
+  }
+}
 
 const TOPE_CONTENIDO_CORREO = 8000; // caracteres -- alcanza para leer de qué se trató sin guardar firmas/citas gigantes
 const TOPE_BYTES_DESCARGA_CORREO = 65536; // 64KB -- de sobra para un cuerpo de texto; corta mucho antes si por error el servidor manda algo gigante
@@ -10466,7 +10483,7 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
 }
 
 async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacionesPorNumero, sql, diasHaciaAtras) {
-  const resumen = { casilla: casilla.email, entrantesNuevos: 0, salientesNuevos: 0, cotizacionesAvanzadas: 0, error: null };
+  const resumen = { casilla: casilla.email, entrantesNuevos: 0, salientesNuevos: 0, cotizacionesAvanzadas: 0, error: null, pasos: [] };
   if (!casilla.pass) { resumen.error = 'sin contraseña configurada (falta la variable de entorno IMAP_PASS_*)'; return resumen; }
 
   const client = new ImapFlow({
@@ -10488,14 +10505,20 @@ async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacion
     // las demás (que corren en paralelo, ver manejarCotizacionesCorreosSync)
     // no se ven afectadas.
     await conTimeout((async () => {
-      await client.connect();
+      await medir(resumen, 'connect', conTimeout(client.connect(), TIMEOUT_CONEXION_IMAP_MS, 'conectar tardó demasiado'));
       const desde = new Date(Date.now() - diasHaciaAtras * 86400000);
 
-      await procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen);
+      await medir(resumen, 'INBOX', conTimeout(
+        procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen),
+        TIMEOUT_CARPETA_MS, 'revisar INBOX tardó demasiado'
+      ));
 
       for (const nombreCarpeta of CARPETAS_ENVIADOS_POSIBLES) {
         try {
-          await procesarCarpetaCorreo(client, nombreCarpeta, 'saliente', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen);
+          await medir(resumen, `enviados:${nombreCarpeta}`, conTimeout(
+            procesarCarpetaCorreo(client, nombreCarpeta, 'saliente', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen),
+            TIMEOUT_CARPETA_MS, `probar la carpeta ${nombreCarpeta} tardó demasiado`
+          ));
           break; // la primera que abrió sin error es la real -- no hace falta seguir probando las demás
         } catch (err) {
           if (/unknown mailbox|does not exist|no encontrada|nonexistent/i.test(String(err.message || err))) continue;
