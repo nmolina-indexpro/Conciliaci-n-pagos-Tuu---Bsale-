@@ -81,6 +81,7 @@ export default async function handler(req, res) {
   // de Cotizaciones -- mismo patrón que los de arriba. Ver vercel.json y
   // middleware.ts (esCotizacionesCorreosSyncPublico).
   if (req.query.recurso === 'cotizaciones-correos-sync') return manejarCotizacionesCorreosSync(req, res);
+  if (req.query.recurso === 'cotizaciones-correos-analizar-respuestas') return manejarCotizacionesCorreosAnalizarRespuestas(req, res);
   // Píxel de seguimiento de apertura de los correos de IndexScale -- lo
   // carga el cliente de correo del destinatario, sin sesión. Mismo patrón
   // que los de arriba, pero la seguridad real la hace el token aleatorio
@@ -1133,11 +1134,11 @@ async function manejarCotizacionDetalle(req, res, sesion) {
     // (respaldo, cubre respuestas de seguimiento que no repiten el número,
     // y también correspondencia de OTRA cotización del mismo cliente).
     const { rows: correosRows } = await sql`
-      SELECT id, direccion, casilla, asunto, fecha, contenido_texto, visto FROM cotizaciones_correos
+      SELECT id, direccion, casilla, asunto, fecha, contenido_texto, visto, resumen_ia FROM cotizaciones_correos
       WHERE cotizacion_id = ${cotizacionId} OR (cliente_email IS NOT NULL AND cliente_email = ${clienteEmail})
       ORDER BY fecha DESC LIMIT 50;
     `;
-    const correos = correosRows.map(r => ({ id: r.id, direccion: r.direccion, casilla: r.casilla, asunto: r.asunto, fecha: r.fecha, contenidoTexto: r.contenido_texto || null, visto: !!r.visto }));
+    const correos = correosRows.map(r => ({ id: r.id, direccion: r.direccion, casilla: r.casilla, asunto: r.asunto, fecha: r.fecha, contenidoTexto: r.contenido_texto || null, visto: !!r.visto, resumenIa: r.resumen_ia || null }));
 
     const { rows: historialRows } = await sql`
       SELECT estado, autor, creado_en FROM bsale_cotizaciones_historial_estado
@@ -10675,6 +10676,169 @@ async function manejarCotizacionesCorreosSync(req, res) {
   }
 }
 
+// Pedido del usuario: cuando el CLIENTE responde un correo, que la IA lea
+// la respuesta, deje un resumen corto, y mueva el estado de la cotización
+// sola -- en vez de que el vendedor tenga que notar la respuesta y cambiar
+// el estado a mano. Estados que puede elegir la IA, acotados a los que
+// tienen sentido como reacción a UNA respuesta puntual del cliente:
+// "contactado" (sigue interesado / pide más info / negocia -- la
+// conversación sigue viva), "perdida" (dice explícitamente que no le
+// interesa o que ya compró en otro lado) y "mercado_publico" (indica que
+// hay que cotizar vía la plataforma de Mercado Público). Deliberadamente
+// NO incluye "sin_contactar" (ya se contactó, no tiene sentido retroceder),
+// "contactado_no_responde"/"contactado_segunda_vez" (son para seguimientos
+// NUESTROS, no para clasificar lo que dice el cliente) ni "facturada" (esa
+// la determina un documento real de Bsale, no la lectura de un correo).
+const CORREO_RESPUESTA_ANALISIS_TOOL = {
+  name: 'registrar_analisis_respuesta',
+  description: 'Registra el análisis de la respuesta de un cliente a una cotización que IndexStore (venta de repuestos y servicio técnico de notebooks) le envió por correo.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      resumen: { type: 'string', description: 'Resumen de 1 frase (máximo ~15 palabras) de qué dice el cliente en su respuesta. Directo, sin relleno -- ej. "Pide un 10% de descuento antes de confirmar", "Dice que ya compró en otro lado", "Pregunta por el plazo de entrega".' },
+      estado_sugerido: { type: 'string', enum: ['contactado', 'perdida', 'mercado_publico'], description: 'A qué estado debería pasar la cotización según esta respuesta: "contactado" si el cliente sigue interesado, pide más información, negocia el precio, o cualquier señal de que la conversación sigue abierta (incluye preguntas, dudas, pedidos de descuento); "perdida" SOLO si el cliente dice explícitamente que no le interesa, que desiste, o que ya compró en otro lugar; "mercado_publico" si el cliente indica que la compra debe hacerse a través de la plataforma de Mercado Público (licitación/compra estatal) en vez de una compra directa.' },
+    },
+    required: ['resumen', 'estado_sugerido'],
+  },
+};
+async function llamarClaudeAnalisisRespuestaCorreo(textoCorreo) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('sin_anthropic_api_key');
+  const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      system: 'Eres un analista comercial de IndexStore (venta de repuestos y servicio técnico de notebooks en Chile). Se te muestra la respuesta de un cliente a una cotización que le mandamos por correo -- puede incluir firmas, citas del correo original, o texto repetido, ignóralo y concéntrate en lo que el cliente realmente dice.',
+      messages: [{ role: 'user', content: textoCorreo }],
+      tools: [CORREO_RESPUESTA_ANALISIS_TOOL],
+      tool_choice: { type: 'tool', name: 'registrar_analisis_respuesta' },
+    }),
+  }, 30000);
+
+  if (!respuestaIA.ok) {
+    const texto = await respuestaIA.text().catch(() => '');
+    throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
+  }
+  const dataIA = await respuestaIA.json();
+  const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
+  if (!bloqueHerramienta) throw new Error('La IA no devolvió un análisis estructurado');
+  return bloqueHerramienta.input || {};
+}
+
+// Corre una sola vez por correo (ver analizado_ia) -- la llama tanto
+// manejarCotizacionCorreoContenido (apenas alguien abre la respuesta en el
+// modal) como el cron de respaldo manejarCotizacionesCorreosAnalizarRespuestas
+// (para las respuestas que nadie abrió a mano). "Mejor esfuerzo": nunca
+// tira error hacia arriba por cosas esperables (sin api key, ya facturada,
+// etc.) -- el llamador decide si eso importa o no.
+async function analizarRespuestaCorreo(sql, correoId, direccion, cotizacionId, contenidoTexto) {
+  if (direccion !== 'entrante' || !cotizacionId || !contenidoTexto) return { ok: false, motivo: 'no_aplica' };
+  if (!process.env.ANTHROPIC_API_KEY) return { ok: false, motivo: 'sin_api_key' };
+
+  let analisis;
+  try {
+    analisis = await llamarClaudeAnalisisRespuestaCorreo(contenidoTexto);
+  } catch (err) {
+    console.warn('[analizarRespuestaCorreo] error consultando la IA', correoId, err.message);
+    return { ok: false, motivo: 'error_ia' };
+  }
+
+  const resumen = (analisis.resumen || '').slice(0, 300) || null;
+  const estadoSugerido = ['contactado', 'perdida', 'mercado_publico'].includes(analisis.estado_sugerido) ? analisis.estado_sugerido : null;
+  await sql`UPDATE cotizaciones_correos SET analizado_ia = true, resumen_ia = ${resumen} WHERE id = ${correoId};`;
+
+  // No pisa una cotización ya facturada (venta real, más fuerte que
+  // cualquier lectura de un correo) -- el WHERE hace de guardia atómica en
+  // vez de un SELECT aparte para chequear el estado actual antes.
+  if (estadoSugerido) {
+    const { rowCount } = await sql`
+      UPDATE bsale_cotizaciones SET estado = ${estadoSugerido}, actualizado_por = 'IA (respuesta del cliente)', actualizado_en = now()
+      WHERE id = ${cotizacionId} AND estado <> 'facturada';
+    `;
+    if (rowCount > 0) {
+      await sql`INSERT INTO bsale_cotizaciones_historial_estado (cotizacion_id, estado, autor) VALUES (${cotizacionId}, ${estadoSugerido}, 'IA (respuesta del cliente)');`;
+    }
+  }
+  return { ok: true, resumen, estadoSugerido };
+}
+
+// Conecta a la casilla dueña de "fila" y lee el cuerpo de ESE correo puntual
+// -- camino rápido por carpeta_imap+uid_imap (gratis, guardado al
+// sincronizar), con respaldo por búsqueda de Message-ID para correos
+// guardados antes de que esas columnas existieran. Extraído de
+// manejarCotizacionCorreoContenido para poder reusarlo también desde
+// manejarCotizacionesCorreosAnalizarRespuestas (el cron de respaldo que
+// analiza las respuestas que nadie abrió a mano) sin duplicar la lógica.
+const TIMEOUT_CONTENIDO_BAJO_DEMANDA_MS = 25000;
+async function leerContenidoCorreoDesdeImap(ImapFlow, fila) {
+  const casilla = CASILLAS_CORREO_VENDEDORES.find(c => c.email === fila.casilla);
+  if (!casilla || !casilla.pass) {
+    return { contenidoTexto: null, error: 'sin contraseña configurada para esta casilla (falta la variable de entorno IMAP_PASS_*)' };
+  }
+
+  const client = new ImapFlow({
+    host: EMAIL_IMAP_HOST, port: EMAIL_IMAP_PORT, secure: true,
+    auth: { user: casilla.email, pass: casilla.pass },
+    logger: false,
+    connectionTimeout: TIMEOUT_CONTENIDO_BAJO_DEMANDA_MS,
+    greetingTimeout: TIMEOUT_CONTENIDO_BAJO_DEMANDA_MS,
+  });
+
+  let contenidoTexto = null;
+  let errorConexion = null;
+  try {
+    await conTimeout((async () => {
+      await client.connect();
+
+      // Camino rápido: ya se sabe exactamente dónde está (guardado al
+      // sincronizar, ver procesarCarpetaCorreo). Si la carpeta cambió de
+      // nombre o el UID dejó de ser válido (ej. cambió el UIDVALIDITY de
+      // la casilla, raro pero posible), se cae al respaldo de abajo.
+      if (fila.carpeta_imap && fila.uid_imap) {
+        try {
+          const lock = await client.getMailboxLock(fila.carpeta_imap);
+          try {
+            contenidoTexto = await obtenerContenidoTextoCorreo(client, fila.uid_imap);
+          } finally {
+            lock.release();
+          }
+        } catch { /* se intenta el respaldo por Message-ID abajo */ }
+      }
+
+      // Respaldo para correos guardados ANTES de que existieran esas
+      // columnas (toda la correspondencia sincronizada hasta ahora) -- se
+      // busca el mensaje por Message-ID en INBOX y en cada candidata de
+      // enviados, igual que la sync diaria para elegir la carpeta real.
+      if (!contenidoTexto) {
+        for (const nombreCarpeta of ['INBOX', ...CARPETAS_ENVIADOS_POSIBLES]) {
+          try {
+            const lock = await client.getMailboxLock(nombreCarpeta);
+            try {
+              const uids = await client.search({ header: { 'message-id': fila.message_id } }, { uid: true });
+              if (uids && uids.length > 0) {
+                contenidoTexto = await obtenerContenidoTextoCorreo(client, uids[uids.length - 1]);
+                if (contenidoTexto) break;
+              }
+            } finally {
+              lock.release();
+            }
+          } catch (err) {
+            if (/unknown mailbox|does not exist|no encontrada|nonexistent/i.test(String(err.message || err))) continue;
+            // último recurso -- un error real de una carpeta no debería impedir probar las demás
+          }
+        }
+      }
+    })(), TIMEOUT_CONTENIDO_BAJO_DEMANDA_MS, 'leer este correo tardó demasiado');
+  } catch (err) {
+    errorConexion = err.message || String(err);
+  } finally {
+    try { await conTimeout(client.logout(), 5000, 'logout demoró demasiado'); } catch { /* mejor esfuerzo */ }
+  }
+  return { contenidoTexto, error: contenidoTexto ? null : errorConexion };
+}
+
 // Pedido del usuario: leer el contenido de un correo puntual al hacer clic
 // en el modal de cliente. CASO REAL REPORTADO -- intentar leer el cuerpo de
 // TODOS los correos relevantes dentro de la sync diaria (arriba) tumbaba la
@@ -10686,7 +10850,6 @@ async function manejarCotizacionesCorreosSync(req, res) {
 // sesión (como cualquier otro recurso de este archivo) en vez de
 // CRON_SECRET, porque lo dispara un usuario logueado haciendo clic, no el
 // cron.
-const TIMEOUT_CONTENIDO_BAJO_DEMANDA_MS = 25000;
 async function manejarCotizacionCorreoContenido(req, res, _sesion) {
   try {
     const correoId = parseInt(req.query.correoId, 10);
@@ -10695,7 +10858,7 @@ async function manejarCotizacionCorreoContenido(req, res, _sesion) {
     const sql = await getSql();
     await asegurarTablaCotizacionesCorreos(sql);
     const { rows } = await sql`
-      SELECT casilla, message_id, carpeta_imap, uid_imap, contenido_texto, visto
+      SELECT casilla, message_id, carpeta_imap, uid_imap, contenido_texto, visto, direccion, cotizacion_id, analizado_ia
       FROM cotizaciones_correos WHERE id = ${correoId};
     `;
     if (rows.length === 0) return res.status(404).json({ error: 'correo no encontrado' });
@@ -10712,76 +10875,91 @@ async function manejarCotizacionCorreoContenido(req, res, _sesion) {
     // Ya se había leído antes (ya sea por esta misma función en una pasada
     // anterior) -- camino rápido, sin tocar IMAP de nuevo.
     if (fila.contenido_texto) {
-      return res.status(200).json({ contenidoTexto: fila.contenido_texto, yaEstaba: true });
-    }
-
-    const casilla = CASILLAS_CORREO_VENDEDORES.find(c => c.email === fila.casilla);
-    if (!casilla || !casilla.pass) {
-      return res.status(200).json({ contenidoTexto: null, error: 'sin contraseña configurada para esta casilla (falta la variable de entorno IMAP_PASS_*)' });
+      // Pedido del usuario: si es la respuesta de un cliente y todavía no
+      // se analizó, se hace ACÁ -- ya se tiene el texto en la mano (sin
+      // costo de IMAP extra), y es la primera vez que alguien la mira.
+      // Si el análisis falla por lo que sea, no debe tirarse abajo una
+      // respuesta de contenido que YA se tiene -- se aísla en su propio
+      // try/catch, separado del catch general de la función.
+      let analisis = null;
+      if (!fila.analizado_ia) {
+        try { analisis = await analizarRespuestaCorreo(sql, correoId, fila.direccion, fila.cotizacion_id, fila.contenido_texto); }
+        catch (err) { console.warn('[manejarCotizacionCorreoContenido] error analizando la respuesta', correoId, err.message); }
+      }
+      return res.status(200).json({ contenidoTexto: fila.contenido_texto, yaEstaba: true, analisis: analisis?.ok ? analisis : null });
     }
 
     const { ImapFlow } = await import('imapflow');
-    const client = new ImapFlow({
-      host: EMAIL_IMAP_HOST, port: EMAIL_IMAP_PORT, secure: true,
-      auth: { user: casilla.email, pass: casilla.pass },
-      logger: false,
-      connectionTimeout: TIMEOUT_CONTENIDO_BAJO_DEMANDA_MS,
-      greetingTimeout: TIMEOUT_CONTENIDO_BAJO_DEMANDA_MS,
-    });
-
-    let contenidoTexto = null;
-    try {
-      await conTimeout((async () => {
-        await client.connect();
-
-        // Camino rápido: ya se sabe exactamente dónde está (guardado al
-        // sincronizar, ver procesarCarpetaCorreo). Si la carpeta cambió de
-        // nombre o el UID dejó de ser válido (ej. cambió el UIDVALIDITY de
-        // la casilla, raro pero posible), se cae al respaldo de abajo.
-        if (fila.carpeta_imap && fila.uid_imap) {
-          try {
-            const lock = await client.getMailboxLock(fila.carpeta_imap);
-            try {
-              contenidoTexto = await obtenerContenidoTextoCorreo(client, fila.uid_imap);
-            } finally {
-              lock.release();
-            }
-          } catch { /* se intenta el respaldo por Message-ID abajo */ }
-        }
-
-        // Respaldo para correos guardados ANTES de que existieran estas
-        // columnas (toda la correspondencia sincronizada hasta ahora) -- se
-        // busca el mensaje por Message-ID en INBOX y en cada candidata de
-        // enviados, igual que la sync diaria para elegir la carpeta real.
-        if (!contenidoTexto) {
-          for (const nombreCarpeta of ['INBOX', ...CARPETAS_ENVIADOS_POSIBLES]) {
-            try {
-              const lock = await client.getMailboxLock(nombreCarpeta);
-              try {
-                const uids = await client.search({ header: { 'message-id': fila.message_id } }, { uid: true });
-                if (uids && uids.length > 0) {
-                  contenidoTexto = await obtenerContenidoTextoCorreo(client, uids[uids.length - 1]);
-                  if (contenidoTexto) break;
-                }
-              } finally {
-                lock.release();
-              }
-            } catch (err) {
-              if (/unknown mailbox|does not exist|no encontrada|nonexistent/i.test(String(err.message || err))) continue;
-              // último recurso -- un error real de una carpeta no debería impedir probar las demás
-            }
-          }
-        }
-      })(), TIMEOUT_CONTENIDO_BAJO_DEMANDA_MS, 'leer este correo tardó demasiado');
-    } finally {
-      try { await conTimeout(client.logout(), 5000, 'logout demoró demasiado'); } catch { /* mejor esfuerzo */ }
+    const { contenidoTexto, error: errorLectura } = await leerContenidoCorreoDesdeImap(ImapFlow, fila);
+    if (errorLectura && !contenidoTexto) {
+      return res.status(200).json({ contenidoTexto: null, error: errorLectura });
     }
 
     if (contenidoTexto) {
       await sql`UPDATE cotizaciones_correos SET contenido_texto = ${contenidoTexto} WHERE id = ${correoId};`;
     }
-    return res.status(200).json({ contenidoTexto, yaEstaba: false });
+    let analisis = null;
+    if (!fila.analizado_ia && contenidoTexto) {
+      try { analisis = await analizarRespuestaCorreo(sql, correoId, fila.direccion, fila.cotizacion_id, contenidoTexto); }
+      catch (err) { console.warn('[manejarCotizacionCorreoContenido] error analizando la respuesta', correoId, err.message); }
+    }
+    return res.status(200).json({ contenidoTexto, yaEstaba: false, analisis: analisis?.ok ? analisis : null });
   } catch (err) {
     return res.status(200).json({ contenidoTexto: null, error: err.message || String(err) });
+  }
+}
+
+// Cron de respaldo (diario) para el análisis de respuestas de clientes (ver
+// analizarRespuestaCorreo) -- cubre las respuestas que NINGÚN vendedor
+// abrió a mano en el modal, para que el estado de la cotización igual
+// termine moviéndose solo, sin depender de que alguien se acuerde de
+// revisar cada correo nuevo. Tope bajo (cada fila puede costar 8+s de IMAP
+// más una llamada a la IA) para no competir por tiempo con nada más de
+// esta función -- las que no alcancen a procesarse quedan para la próxima
+// pasada (no se marcan analizado_ia hasta que de verdad se analizan).
+const TOPE_RESPUESTAS_ANALIZAR_POR_PASADA = 10;
+async function manejarCotizacionesCorreosAnalizarRespuestas(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  try {
+    const sql = await getSql();
+    await asegurarTablaCotizacionesCorreos(sql);
+
+    const { rows } = await sql`
+      SELECT id, casilla, message_id, carpeta_imap, uid_imap, contenido_texto, direccion, cotizacion_id
+      FROM cotizaciones_correos
+      WHERE direccion = 'entrante' AND cotizacion_id IS NOT NULL AND analizado_ia = false
+      ORDER BY fecha ASC NULLS LAST LIMIT ${TOPE_RESPUESTAS_ANALIZAR_POR_PASADA};
+    `;
+    if (rows.length === 0) {
+      return res.status(200).json({ ok: true, revisados: 0, analizados: 0, errores: 0 });
+    }
+
+    const { ImapFlow } = await import('imapflow');
+    let analizados = 0, errores = 0;
+    for (const fila of rows) {
+      try {
+        let contenidoTexto = fila.contenido_texto;
+        if (!contenidoTexto) {
+          const leido = await leerContenidoCorreoDesdeImap(ImapFlow, fila);
+          contenidoTexto = leido.contenidoTexto;
+          if (contenidoTexto) {
+            await sql`UPDATE cotizaciones_correos SET contenido_texto = ${contenidoTexto} WHERE id = ${fila.id};`;
+          }
+        }
+        if (!contenidoTexto) { errores++; continue; } // no se pudo leer esta pasada -- se reintenta la próxima, no se marca analizado_ia
+        const resultado = await analizarRespuestaCorreo(sql, fila.id, fila.direccion, fila.cotizacion_id, contenidoTexto);
+        if (resultado.ok) analizados++; else errores++;
+      } catch (err) {
+        errores++;
+        console.warn('[manejarCotizacionesCorreosAnalizarRespuestas] error con correo', fila.id, err.message);
+      }
+    }
+    return res.status(200).json({ ok: true, revisados: rows.length, analizados, errores });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error analizando respuestas de correo', detail: String(err) });
   }
 }

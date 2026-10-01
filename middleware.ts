@@ -78,6 +78,12 @@ function esCotizacionesCorreosSyncPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'cotizaciones-correos-sync';
 }
 
+// Cron de respaldo (diario) que analiza con IA las respuestas de clientes
+// que nadie abrió a mano -- mismo motivo y mismo patrón que el de arriba.
+function esCotizacionesCorreosAnalizarRespuestasPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'cotizaciones-correos-analizar-respuestas';
+}
+
 // El píxel de seguimiento de apertura de los correos de IndexScale (ver
 // manejarIndexscalePixel en api/negocio.js) lo carga el cliente de correo
 // del destinatario directo, sin ninguna cookie de sesión -> mismo motivo y
@@ -154,6 +160,7 @@ export default async function middleware(req) {
     esCotizacionesSeguimientoDiarioPublico(pathname, url.searchParams) ||
     esProductosEstancadosFlagsNotificarPublico(pathname, url.searchParams) ||
     esCotizacionesCorreosSyncPublico(pathname, url.searchParams) ||
+    esCotizacionesCorreosAnalizarRespuestasPublico(pathname, url.searchParams) ||
     esIndexscalePixelPublico(pathname, url.searchParams) ||
     esAuthRecuperarPasswordPublico(pathname, url.searchParams) ||
     esAuthResetearPasswordPublico(pathname, url.searchParams)

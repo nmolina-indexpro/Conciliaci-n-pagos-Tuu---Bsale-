@@ -134,6 +134,7 @@
   .estado-item.clicable{cursor:pointer;}
   .estado-item.clicable:hover{outline:1.5px solid var(--line);}
   .correo-preview{background:var(--surface);border:1.5px solid var(--line);border-radius:9px;padding:10px 12px;margin:-4px 0 8px;font-size:12px;white-space:pre-wrap;color:var(--text);max-height:220px;overflow-y:auto;}
+  .correo-resumen-ia{font-size:11.5px;color:var(--primary-dark);background:var(--primary-dim);border-radius:7px;padding:5px 10px;margin:-4px 0 8px;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1788,11 +1789,16 @@ function renderCorreosClienteCot(correos, clienteEmail){
   // rastreo en el envío real, que no pasa por este sistema). visto queda en
   // true apenas alguien hace clic para ver el contenido (ver
   // toggleCorreoPreview), sin importar si la lectura del cuerpo funcionó.
+  // Pedido del usuario: cuando el cliente responde, que la IA deje un
+  // resumen corto visible sin tener que abrir el correo -- se muestra
+  // aparte, no detrás del clic de la vista previa (ver resumenIa, llenado
+  // por analizarRespuestaCorreo en api/negocio.js).
   $('modalClienteCotCorreos').innerHTML = correos.map((c, i) => `
     <div class="estado-item clicable" onclick="toggleCorreoPreview(${i})" title="Haz clic para ver el contenido">
       <span>${c.direccion === 'entrante' ? '📩 El cliente escribió' : '📤 Le escribimos'}${c.asunto ? ': ' + escapeHtmlCot(c.asunto) : ''} <span class="badge pend" id="correoVistoBadge${i}" style="${c.visto ? 'display:none;' : ''}">Sin abrir</span></span>
       <span class="comentario-meta">${c.fecha ? new Date(c.fecha).toLocaleString('es-CL') : 'sin fecha'} — ${escapeHtmlCot(c.casilla)}</span>
     </div>
+    ${c.resumenIa ? `<div class="correo-resumen-ia" id="correoResumenIa${i}">🤖 ${escapeHtmlCot(c.resumenIa)}</div>` : `<div class="correo-resumen-ia" id="correoResumenIa${i}" style="display:none;"></div>`}
     <div class="correo-preview" id="correoPreview${i}" style="display:none;"></div>`).join('');
 }
 
@@ -1839,10 +1845,34 @@ async function toggleCorreoPreview(i){
     } else {
       wrap.textContent = 'No se pudo leer el contenido de este correo (sin texto plano legible, o el servidor de correo no respondió a tiempo).';
     }
+    if(data && data.analisis) aplicarAnalisisRespuestaCorreo(i, data.analisis);
   } catch (err) {
     wrap.textContent = 'No se pudo leer el contenido de este correo (error de conexión).';
   } finally {
     c._cargando = false;
+  }
+}
+
+// Pedido del usuario: cuando el cliente responde, la IA deja un resumen
+// corto y (si corresponde) mueve el estado de la cotización sola -- ver
+// analizarRespuestaCorreo en api/negocio.js. El modal no tiene su propio
+// selector de estado (vive en la fila de la tabla, debajo del modal), así
+// que se actualiza el array local y se vuelve a pintar la tabla para que
+// quede al día apenas se cierre el modal, sin tener que recargar la página.
+function aplicarAnalisisRespuestaCorreo(i, analisis){
+  const c = modalClienteCotCorreosActuales[i];
+  if(!c) return;
+  if(analisis.resumen){
+    c.resumenIa = analisis.resumen;
+    const nota = $(`correoResumenIa${i}`);
+    if(nota){ nota.textContent = '🤖 ' + analisis.resumen; nota.style.display = 'block'; }
+  }
+  if(analisis.estadoSugerido){
+    const cot = cotizaciones.find(x => x.id === modalClienteCotCotizacionId);
+    if(cot && cot.estado !== analisis.estadoSugerido){
+      cot.estado = analisis.estadoSugerido;
+      renderTablaCotizaciones();
+    }
   }
 }
 
