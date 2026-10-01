@@ -10379,10 +10379,11 @@ async function obtenerContenidoTextoCorreo(client, uid) {
   }
 }
 
-async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen) {
+async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen, progreso) {
   const lock = await client.getMailboxLock(nombreCarpeta); // tira si la carpeta no existe -- lo maneja revisarCasillaCorreo
   try {
     for await (const msg of client.fetch({ since: desde }, { envelope: true, uid: true })) {
+      progreso.totalMensajes++;
       const remitente = (msg.envelope.from?.[0]?.address || '').toLowerCase();
       const destinatarios = [...(msg.envelope.to || []), ...(msg.envelope.cc || [])].map(d => (d.address || '').toLowerCase());
 
@@ -10425,6 +10426,7 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
       }
 
       if (!cotizacionId && !clienteEmailDetectado) continue; // no se pudo relacionar con nada conocido -- se ignora
+      progreso.relevantes++;
 
       // Caso real reportado: un correo guardado ANTES de que existiera esta
       // función de contenido se queda sin contenido_texto para siempre,
@@ -10440,7 +10442,9 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
       `;
       if (existentes.length > 0 && existentes[0].contenido_texto) continue;
 
+      const inicioContenido = Date.now();
       const contenidoTexto = await obtenerContenidoTextoCorreo(client, msg.uid);
+      progreso.msContenido += Date.now() - inicioContenido;
 
       if (existentes.length > 0) {
         await sql`UPDATE cotizaciones_correos SET contenido_texto = ${contenidoTexto} WHERE id = ${existentes[0].id};`;
@@ -10483,7 +10487,7 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
 }
 
 async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacionesPorNumero, sql, diasHaciaAtras) {
-  const resumen = { casilla: casilla.email, entrantesNuevos: 0, salientesNuevos: 0, cotizacionesAvanzadas: 0, error: null, pasos: [] };
+  const resumen = { casilla: casilla.email, entrantesNuevos: 0, salientesNuevos: 0, cotizacionesAvanzadas: 0, error: null, pasos: [], progreso: null };
   if (!casilla.pass) { resumen.error = 'sin contraseña configurada (falta la variable de entorno IMAP_PASS_*)'; return resumen; }
 
   const client = new ImapFlow({
@@ -10508,15 +10512,26 @@ async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacion
       await medir(resumen, 'connect', conTimeout(client.connect(), TIMEOUT_CONEXION_IMAP_MS, 'conectar tardó demasiado'));
       const desde = new Date(Date.now() - diasHaciaAtras * 86400000);
 
+      // progreso se expone en resumen y se va mutando EN VIVO mientras se
+      // recorre la carpeta (no solo al terminar) -- si el tope de tiempo se
+      // cumple a mitad de camino, resumen.progreso igual queda con la última
+      // foto (cuántos mensajes se alcanzaron a revisar, cuántos eran
+      // relevantes, cuánto de ese tiempo fue leyendo cuerpos) en vez de
+      // perderse por completo, que es exactamente lo que hace falta para
+      // saber en qué se va el tiempo sin seguir adivinando.
+      const progresoInbox = { carpeta: 'INBOX', totalMensajes: 0, relevantes: 0, msContenido: 0 };
+      resumen.progreso = progresoInbox;
       await medir(resumen, 'INBOX', conTimeout(
-        procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen),
+        procesarCarpetaCorreo(client, 'INBOX', 'entrante', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen, progresoInbox),
         TIMEOUT_CARPETA_MS, 'revisar INBOX tardó demasiado'
       ));
 
       for (const nombreCarpeta of CARPETAS_ENVIADOS_POSIBLES) {
+        const progresoCarpeta = { carpeta: nombreCarpeta, totalMensajes: 0, relevantes: 0, msContenido: 0 };
+        resumen.progreso = progresoCarpeta;
         try {
           await medir(resumen, `enviados:${nombreCarpeta}`, conTimeout(
-            procesarCarpetaCorreo(client, nombreCarpeta, 'saliente', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen),
+            procesarCarpetaCorreo(client, nombreCarpeta, 'saliente', desde, casilla, clienteEmails, cotizacionesPorNumero, sql, resumen, progresoCarpeta),
             TIMEOUT_CARPETA_MS, `probar la carpeta ${nombreCarpeta} tardó demasiado`
           ));
           break; // la primera que abrió sin error es la real -- no hace falta seguir probando las demás
