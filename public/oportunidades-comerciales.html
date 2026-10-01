@@ -521,7 +521,11 @@
 
   <div class="modal-overlay" id="modalClienteCotOverlay" onclick="cerrarModalClienteCotizacionSiFondo(event)">
     <div class="modal-box" style="width:min(640px,100%);" onclick="event.stopPropagation()">
-      <h3 id="modalClienteCotTitulo">Cliente</h3>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="btn-icono" id="btnClienteCotAnterior" onclick="navegarClienteCotizacion(-1)" title="Cliente anterior" style="flex:none;">◀</button>
+        <h3 id="modalClienteCotTitulo" style="flex:1;min-width:0;">Cliente</h3>
+        <button class="btn-icono" id="btnClienteCotSiguiente" onclick="navegarClienteCotizacion(1)" title="Cliente siguiente" style="flex:none;">▶</button>
+      </div>
       <div class="sub" id="modalClienteCotSub"></div>
       <div id="modalClienteCotResumen" style="margin-top:14px;"></div>
 
@@ -1524,11 +1528,13 @@ function diasCotizacionFacturaCot(c){
   return dias >= 0 ? dias : null;
 }
 
-function renderTablaCotizaciones(){
-  renderKpisCotizaciones();
+// Extraído de renderTablaCotizaciones para poder reusar el mismo orden
+// (filtros + columna ordenada) desde la navegación "cliente anterior /
+// siguiente" del modal -- debe moverse por la MISMA lista que el usuario
+// está viendo en la tabla, no por el orden crudo de sincronización.
+function filasCotOrdenadas(){
   let filas = cotizacionesFiltradas();
-
-  filas = [...filas].sort((a,b)=>{
+  return [...filas].sort((a,b)=>{
     if(sortColCot === 'prioridad'){
       const diff = ESTADO_PRIORIDAD_COTIZACION[a.estado] - ESTADO_PRIORIDAD_COTIZACION[b.estado];
       return sortAscCot ? diff : -diff;
@@ -1549,6 +1555,11 @@ function renderTablaCotizaciones(){
     if(typeof va === 'string') return sortAscCot ? va.localeCompare(vb) : vb.localeCompare(va);
     return sortAscCot ? va-vb : vb-va;
   });
+}
+
+function renderTablaCotizaciones(){
+  renderKpisCotizaciones();
+  const filas = filasCotOrdenadas();
 
   if(filas.length === 0){
     $('wrapCotizaciones').innerHTML = `<p class="empty-note">${cotizaciones.length===0 ? 'No hay cotizaciones sincronizadas todavía.' : 'Sin resultados para ese filtro.'}</p>`;
@@ -1663,6 +1674,35 @@ let modalClienteCotComentariosActuales = []; // último historial recibido del b
 // quedó obsoleta y se descarta.
 let modalClienteCotSolicitudActual = 0;
 
+// Pedido del usuario: poder ir al cliente anterior/siguiente sin cerrar el
+// modal y volver a buscarlo en la tabla. Se mueve por la MISMA lista
+// filtrada/ordenada que se ve en la tabla (filasCotOrdenadas) -- un mismo
+// cliente puede tener varias cotizaciones seguidas en ese orden, así que se
+// saltan las filas del mismo clienteId para avanzar/retroceder entre
+// clientes de verdad, no entre cotizaciones repetidas del mismo cliente.
+function indiceSiguienteClienteDistinto(filas, i, direccion){
+  if(i === -1) return -1;
+  const clienteActual = filas[i].clienteId;
+  let j = i + direccion;
+  while(j >= 0 && j < filas.length && filas[j].clienteId === clienteActual) j += direccion;
+  return (j >= 0 && j < filas.length) ? j : -1;
+}
+
+function navegarClienteCotizacion(direccion){
+  const filas = filasCotOrdenadas();
+  const i = filas.findIndex(c => c.id === modalClienteCotCotizacionId);
+  const j = indiceSiguienteClienteDistinto(filas, i, direccion);
+  if(j === -1) return; // en la punta de la lista -- el botón ya debería estar deshabilitado
+  abrirModalClienteCotizacion(filas[j].id);
+}
+
+function actualizarBotonesNavegacionClienteCot(){
+  const filas = filasCotOrdenadas();
+  const i = filas.findIndex(c => c.id === modalClienteCotCotizacionId);
+  $('btnClienteCotAnterior').classList.toggle('deshabilitado', indiceSiguienteClienteDistinto(filas, i, -1) === -1);
+  $('btnClienteCotSiguiente').classList.toggle('deshabilitado', indiceSiguienteClienteDistinto(filas, i, 1) === -1);
+}
+
 async function abrirModalClienteCotizacion(cotizacionId){
   const miSolicitud = ++modalClienteCotSolicitudActual;
   modalClienteCotCotizacionId = cotizacionId;
@@ -1674,6 +1714,7 @@ async function abrirModalClienteCotizacion(cotizacionId){
   $('modalClienteCotCorreos').innerHTML = '';
   $('modalClienteCotComentarios').innerHTML = '';
   cancelarEdicionComentarioCot();
+  actualizarBotonesNavegacionClienteCot();
   $('modalClienteCotOverlay').classList.add('open');
 
   try{
@@ -1742,9 +1783,14 @@ function renderCorreosClienteCot(correos, clienteEmail){
     $('modalClienteCotCorreos').innerHTML = `<p class="empty-note">Sin correos detectados todavía con ${escapeHtmlCot(clienteEmail)} (se revisa una vez al día).</p>`;
     return;
   }
+  // Pedido del usuario: marcar si un correo ya fue abierto dentro del ERP
+  // (no si el CLIENTE lo abrió -- eso no se puede saber sin un pixel de
+  // rastreo en el envío real, que no pasa por este sistema). visto queda en
+  // true apenas alguien hace clic para ver el contenido (ver
+  // toggleCorreoPreview), sin importar si la lectura del cuerpo funcionó.
   $('modalClienteCotCorreos').innerHTML = correos.map((c, i) => `
     <div class="estado-item clicable" onclick="toggleCorreoPreview(${i})" title="Haz clic para ver el contenido">
-      <span>${c.direccion === 'entrante' ? '📩 El cliente escribió' : '📤 Le escribimos'}${c.asunto ? ': ' + escapeHtmlCot(c.asunto) : ''}</span>
+      <span>${c.direccion === 'entrante' ? '📩 El cliente escribió' : '📤 Le escribimos'}${c.asunto ? ': ' + escapeHtmlCot(c.asunto) : ''} <span class="badge pend" id="correoVistoBadge${i}" style="${c.visto ? 'display:none;' : ''}">Sin abrir</span></span>
       <span class="comentario-meta">${c.fecha ? new Date(c.fecha).toLocaleString('es-CL') : 'sin fecha'} — ${escapeHtmlCot(c.casilla)}</span>
     </div>
     <div class="correo-preview" id="correoPreview${i}" style="display:none;"></div>`).join('');
@@ -1765,6 +1811,14 @@ async function toggleCorreoPreview(i){
   if(!c || !wrap) return;
   const yaAbierto = wrap.style.display !== 'none';
   if(yaAbierto){ wrap.style.display = 'none'; return; }
+
+  // Se marca "visto" apenas se abre, sin importar si la lectura del
+  // contenido funciona o no -- abrir la fila ya cuenta como visto.
+  if(!c.visto){
+    c.visto = true;
+    const badge = $(`correoVistoBadge${i}`);
+    if(badge) badge.style.display = 'none';
+  }
 
   if(c.contenidoTexto){
     wrap.textContent = c.contenidoTexto;

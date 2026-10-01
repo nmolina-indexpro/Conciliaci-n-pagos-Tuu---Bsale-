@@ -1133,11 +1133,11 @@ async function manejarCotizacionDetalle(req, res, sesion) {
     // (respaldo, cubre respuestas de seguimiento que no repiten el número,
     // y también correspondencia de OTRA cotización del mismo cliente).
     const { rows: correosRows } = await sql`
-      SELECT id, direccion, casilla, asunto, fecha, contenido_texto FROM cotizaciones_correos
+      SELECT id, direccion, casilla, asunto, fecha, contenido_texto, visto FROM cotizaciones_correos
       WHERE cotizacion_id = ${cotizacionId} OR (cliente_email IS NOT NULL AND cliente_email = ${clienteEmail})
       ORDER BY fecha DESC LIMIT 50;
     `;
-    const correos = correosRows.map(r => ({ id: r.id, direccion: r.direccion, casilla: r.casilla, asunto: r.asunto, fecha: r.fecha, contenidoTexto: r.contenido_texto || null }));
+    const correos = correosRows.map(r => ({ id: r.id, direccion: r.direccion, casilla: r.casilla, asunto: r.asunto, fecha: r.fecha, contenidoTexto: r.contenido_texto || null, visto: !!r.visto }));
 
     const { rows: historialRows } = await sql`
       SELECT estado, autor, creado_en FROM bsale_cotizaciones_historial_estado
@@ -10680,11 +10680,19 @@ async function manejarCotizacionCorreoContenido(req, res, _sesion) {
     const sql = await getSql();
     await asegurarTablaCotizacionesCorreos(sql);
     const { rows } = await sql`
-      SELECT casilla, message_id, carpeta_imap, uid_imap, contenido_texto
+      SELECT casilla, message_id, carpeta_imap, uid_imap, contenido_texto, visto
       FROM cotizaciones_correos WHERE id = ${correoId};
     `;
     if (rows.length === 0) return res.status(404).json({ error: 'correo no encontrado' });
     const fila = rows[0];
+
+    // Pedido del usuario: saber si un correo ya fue abierto dentro del ERP.
+    // Se marca con solo abrir la fila en el modal, independiente de si el
+    // contenido se pudo leer o no -- abrir la fila es lo que cuenta como
+    // "visto" acá, no el éxito de la lectura.
+    if (!fila.visto) {
+      await sql`UPDATE cotizaciones_correos SET visto = true WHERE id = ${correoId};`;
+    }
 
     // Ya se había leído antes (ya sea por esta misma función en una pasada
     // anterior) -- camino rápido, sin tocar IMAP de nuevo.
