@@ -15,7 +15,7 @@ import { paginasEfectivas, paginasParaGuardar } from '../lib/paginas-perfil.js';
 // reportar-error.html (siempre accesibles, ver middleware.ts).
 const PAGINAS_DISPONIBLES = [
   'home.html', 'index.html', 'conciliacion.html', 'compras.html',
-  'alertas-stock.html', 'productos-en-transito.html', 'oportunidades-comerciales.html', 'cotizaciones-clientes.html', 'compra-agil.html', 'metas-de-venta.html', 'sitio-web.html',
+  'alertas-stock.html', 'productos-en-transito.html', 'oportunidades-comerciales.html', 'cotizaciones-clientes.html', 'compra-agil.html', 'metas-de-venta.html', 'llamadas.html', 'sitio-web.html',
   'eficiencia-tickets.html', 'analisis.html', 'servicio-tecnico.html', 'identificacion-modelos.html', 'productos-nuevos.html', 'clientes-whatsapp.html', 'guia-uso.html',
 ];
 

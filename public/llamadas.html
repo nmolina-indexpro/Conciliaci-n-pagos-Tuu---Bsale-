@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Llamadas — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;letter-spacing:0.2px;margin:0 0 5px 0;}
+  h1 span{color:var(--primary);}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin:0 0 4px 0;}
+  .sub{color:var(--muted);font-size:13px;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  input[type="date"], select, textarea{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 10px;border-radius:9px;font-size:13px;}
+  textarea{width:100%;min-height:110px;font-family:'IBM Plex Mono',monospace;font-size:12px;resize:vertical;}
+  input:focus, select:focus, textarea:focus{outline:none;border-color:var(--primary);}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);border-color:var(--primary);color:var(--primary-dark);}
+  .btn-compact{padding:7px 12px;font-size:12px;}
+
+  .date-field{display:flex;align-items:center;gap:5px;}
+  .date-field label, .campo label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  .campo{display:flex;align-items:center;gap:5px;}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;}
+  .filtros{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px;}
+  .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);}
+  #status{font-size:12px;color:var(--muted);margin-bottom:10px;}
+  #status.err{color:var(--red);}
+
+  .kpis-llam{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+  @media (max-width:900px){.kpis-llam{grid-template-columns:repeat(2,1fr);}}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);}
+  .kpi .lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+  .kpi .big{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:700;margin-top:4px;}
+  .kpi .nota{font-size:11px;color:var(--muted);margin-top:3px;}
+
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+  .seccion-head > *{min-width:0;}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tabla-wrap{overflow-x:auto;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  th.amount, td.amount{text-align:right;}
+  td{padding:9px;border-bottom:1px solid var(--line);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .num-tel{font-family:'IBM Plex Mono',monospace;white-space:nowrap;}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;display:inline-block;}
+  .badge.verde{background:var(--green-bg);color:var(--green);}
+  .badge.gris{background:var(--surface-2);color:var(--muted);}
+  .badge.ambar{background:var(--amber-dim);color:var(--amber);}
+  .badge.azul{background:var(--blue-bg);color:var(--blue);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:14px;color:var(--text);}
+  .note-box.err{background:var(--red-bg);border-color:#F5B5B5;}
+  .note-box.ok{background:var(--green-bg);border-color:#B8E2C4;}
+  .paginacion{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;color:var(--muted);gap:10px;}
+  .importar-acciones{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+<link rel="stylesheet" href="comercial-movil.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html">Compras</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="sitio-web.html">Sitio Web</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html" class="active">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <div class="toolbar">
+    <div>
+      <h1>Llamadas <span>Fono IP</span></h1>
+      <div class="sub">Registro de llamadas de la central telefónica, cruzado por teléfono con tus clientes, cotizaciones y ventas.</div>
+    </div>
+  </div>
+
+  <div class="seccion" id="seccionImportar" style="display:none;">
+    <div class="seccion-head">
+      <div>
+        <h2>📥 Importar registro de llamadas</h2>
+        <div class="sub" id="infoRegistro">Cargando...</div>
+      </div>
+    </div>
+    <div class="sub" style="margin-bottom:8px;">En el panel de Fono IP, abre <b>Registro de Llamadas</b>, exporta o copia el listado y súbelo acá (archivo CSV/TXT) o pégalo en el cuadro. Se puede importar varias veces: las llamadas que ya estaban no se duplican.</div>
+    <textarea id="textoImportar" placeholder="Fecha	Origen	Destino	Duración	Dirección	Grabación&#10;02/10/2026 11:09:46	102	228401000	00:00	saliente"></textarea>
+    <div class="importar-acciones">
+      <input type="file" id="archivoImportar" accept=".csv,.txt,.tsv,text/plain,text/csv">
+      <button class="btn-primary" id="btnImportar" onclick="importarLlamadas()">Importar llamadas</button>
+    </div>
+    <div id="resultadoImportar" style="margin-top:12px;"></div>
+  </div>
+
+  <div class="filtros">
+    <div class="date-field"><label for="llamDesde">Desde</label><input type="date" id="llamDesde" onchange="cargar()"></div>
+    <div class="date-field"><label for="llamHasta">Hasta</label><input type="date" id="llamHasta" onchange="cargar()"></div>
+    <button class="btn-ghost btn-compact" id="btnLlamHoy" onclick="setRangoRapido('hoy')">Hoy</button>
+    <button class="btn-ghost btn-compact" id="btnLlam7d" onclick="setRangoRapido('7d')">7 días</button>
+    <button class="btn-ghost btn-compact" id="btnLlam30d" onclick="setRangoRapido('30d')">30 días</button>
+    <button class="btn-ghost btn-compact" id="btnLlamMes" onclick="setRangoRapido('mes')">Mes actual</button>
+    <button class="btn-ghost btn-compact" id="btnLlamMesAnt" onclick="setRangoRapido('mes_anterior')">Mes anterior</button>
+    <div class="campo"><label for="llamAnexo">Anexo</label><select id="llamAnexo" onchange="cargar()"><option value="">Todos</option></select></div>
+  </div>
+  <div id="status"></div>
+  <div id="avisoWrap"></div>
+
+  <div class="kpis-llam" id="kpisLlam"></div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>🧑‍💼 Por anexo / vendedor</h2>
+        <div class="sub">Cada anexo es la extensión interna de una persona. Asigna quién usa cada uno para ver el resumen por vendedor.</div>
+      </div>
+    </div>
+    <div id="wrapAnexos"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>📞 Detalle de llamadas</h2>
+        <div class="sub" id="rangoTexto"></div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+        <label class="chk"><input type="checkbox" id="chkContestadas" onchange="pagina=1;renderDetalle()"> Solo con conversación</label>
+        <label class="chk"><input type="checkbox" id="chkIdentificados" onchange="pagina=1;renderDetalle()"> Solo clientes identificados</label>
+        <label class="chk"><input type="checkbox" id="chkConVenta" onchange="pagina=1;renderDetalle()"> Solo con venta posterior</label>
+      </div>
+    </div>
+    <div id="wrapLlamadas"><p class="empty-note">Cargando...</p></div>
+    <div class="paginacion" id="paginacionLlam"></div>
+    <div class="note-box" style="margin-top:16px;margin-bottom:0;">
+      <b>Cómo leer esto:</b> "Con conversación" = la llamada duró más de 0 segundos (si quedó en 00:00 nadie contestó). El cliente se identifica por los <b>últimos 9 dígitos</b> del teléfono contra tus cotizaciones de Bsale, Puntos Bsale y WhatsApp. "Venta posterior" = el cliente tiene una cotización que se facturó dentro de los <span id="ventanaDias">30</span> días siguientes a la llamada; es una pista de que la llamada ayudó, no una prueba. Un número que no aparece en ninguno de esos lugares queda sin identificar.
+    </div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script src="comercial-movil.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+function fmtMoneda(n){ return '$' + fmtNum(n); }
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDuracion(seg){
+  seg = Math.max(0, Math.round(seg||0));
+  const m = Math.floor(seg/60), s = seg % 60;
+  return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}
+function fmtTiempoTotal(seg){
+  seg = Math.max(0, Math.round(seg||0));
+  const h = Math.floor(seg/3600), m = Math.floor((seg%3600)/60);
+  return h > 0 ? `${h} h ${m} min` : `${m} min`;
+}
+function fmtFechaHora(iso){
+  return new Date(iso).toLocaleString('es-CL', { timeZone:'America/Santiago', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:false });
+}
+function fmtTelefono(num){
+  const d = String(num||'').replace(/\D/g,'');
+  const l9 = d.slice(-9);
+  if(l9.length < 9) return d;
+  const prefijo = d.length > 9 ? '+' + d.slice(0, d.length-9) + ' ' : '+56 ';
+  return l9[0] === '9' ? `${prefijo}9 ${l9.slice(1,5)} ${l9.slice(5)}` : `${prefijo}${l9[0]} ${l9.slice(1,5)} ${l9.slice(5)}`;
+}
+const ESTADO_COT_LABEL = { sin_contactar:'Sin contactar', cotizacion_enviada:'Cotización enviada', cliente_respondio:'Cliente respondió', contactado:'Contactado', contactado_no_responde:'No responde', contactado_segunda_vez:'Contactado 2ª vez', mercado_publico:'Mercado Público', perdida:'Perdida', facturada:'Facturada' };
+
+let esAdmin = false;
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    $('userBox').innerHTML = `<span>Hola, <b>${esc(u.nombre || u.email)}</b></span>`;
+    if(u.rol === 'admin'){
+      esAdmin = true;
+      const nav = $('navUsuarios');
+      if(nav) nav.style.display = '';
+      $('seccionImportar').style.display = '';
+    }
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Fechas rápidas ----------
+const hoyStr = new Date().toLocaleDateString('en-CA', { timeZone:'America/Santiago' });
+function addDays(dateStr, days){
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d)); dt.setUTCDate(dt.getUTCDate()+days);
+  return dt.toISOString().slice(0,10);
+}
+function setRangoRapido(tipo){
+  const [y,m] = hoyStr.split('-').map(Number);
+  const primeroMes = `${y}-${String(m).padStart(2,'0')}-01`;
+  let d, h = hoyStr;
+  if(tipo === 'hoy') d = hoyStr;
+  else if(tipo === '7d') d = addDays(hoyStr, -6);
+  else if(tipo === '30d') d = addDays(hoyStr, -29);
+  else if(tipo === 'mes') d = primeroMes;
+  else { h = addDays(primeroMes, -1); d = h.slice(0,8) + '01'; }
+  $('llamDesde').value = d; $('llamHasta').value = h;
+  ['Hoy','7d','30d','Mes','MesAnt'].forEach(k => $('btnLlam'+k).classList.remove('active'));
+  $('btnLlam' + ({hoy:'Hoy','7d':'7d','30d':'30d',mes:'Mes',mes_anterior:'MesAnt'}[tipo])).classList.add('active');
+  cargar();
+}
+
+// ---------- Carga ----------
+let datos = null;
+let pagina = 1;
+const POR_PAGINA = 100;
+
+async function cargar(){
+  const status = $('status');
+  status.className = ''; status.textContent = 'Cargando...';
+  $('avisoWrap').innerHTML = '';
+  const qs = new URLSearchParams({ recurso:'llamadas' });
+  if($('llamDesde').value) qs.set('desde', $('llamDesde').value);
+  if($('llamHasta').value) qs.set('hasta', $('llamHasta').value);
+  if($('llamAnexo').value) qs.set('anexo', $('llamAnexo').value);
+  try{
+    const res = await fetch('/api/negocio?' + qs).then(r => r.json());
+    if(res.error){
+      status.className = 'err'; status.textContent = 'Error al cargar las llamadas.';
+      $('avisoWrap').innerHTML = `<div class="note-box err"><b>No se pudo cargar:</b> ${esc(res.detail || res.error)}</div>`;
+      return;
+    }
+    datos = res; pagina = 1;
+    $('llamDesde').value = res.desde; $('llamHasta').value = res.hasta;
+    $('ventanaDias').textContent = res.ventanaVentaDias;
+    $('rangoTexto').textContent = res.desde === res.hasta ? `Día: ${res.desde}` : `Del ${res.desde} al ${res.hasta}`;
+    poblarSelectAnexos(res);
+    renderRegistro(res.registro);
+    renderKpis(res.resumen);
+    renderAnexos(res);
+    renderDetalle();
+    status.textContent = res.truncado ? 'Se muestran las primeras 5.000 llamadas del rango; acota las fechas.' : 'Actualizado.';
+  }catch(err){
+    status.className = 'err'; status.textContent = 'Error: ' + err.message;
+  }
+}
+
+function poblarSelectAnexos(res){
+  const sel = $('llamAnexo'); const actual = res.anexoFiltro || sel.value;
+  const nombrePorUsuario = Object.fromEntries(res.usuarios.map(u => [u.id, u.nombre]));
+  sel.innerHTML = '<option value="">Todos</option>' + res.anexos.map(a =>
+    `<option value="${esc(a.anexo)}">${esc(a.anexo)}${a.usuarioId && nombrePorUsuario[a.usuarioId] ? ' — ' + esc(nombrePorUsuario[a.usuarioId]) : ''}</option>`).join('');
+  sel.value = actual || '';
+}
+
+function renderRegistro(r){
+  if(!r || !r.totalGuardadas){ $('infoRegistro').textContent = 'Todavía no hay llamadas importadas.'; return; }
+  $('infoRegistro').textContent = `${fmtNum(r.totalGuardadas)} llamadas guardadas, entre el ${fmtFechaHora(r.primera).slice(0,10)} y el ${fmtFechaHora(r.ultima).slice(0,10)}. Última importación: ${fmtFechaHora(r.ultimaImportacion)}.`;
+}
+
+function renderKpis(r){
+  const pct = r.llamadas ? Math.round(r.contestadas / r.llamadas * 100) : 0;
+  $('kpisLlam').innerHTML = `
+    <div class="kpi"><div class="lbl">Llamadas</div><div class="big">${fmtNum(r.llamadas)}</div><div class="nota">${fmtNum(r.numerosDistintos)} números distintos</div></div>
+    <div class="kpi"><div class="lbl">Con conversación</div><div class="big">${fmtNum(r.contestadas)}</div><div class="nota">${pct}% de las llamadas</div></div>
+    <div class="kpi"><div class="lbl">Tiempo hablado</div><div class="big">${fmtTiempoTotal(r.duracionTotalSeg)}</div><div class="nota">${fmtNum(r.clientesIdentificados)} clientes identificados</div></div>
+    <div class="kpi"><div class="lbl">Ventas tras llamada</div><div class="big">${fmtNum(r.ventasTrasLlamada)}</div><div class="nota">${fmtMoneda(r.montoVentasTrasLlamada)} cotizado y facturado</div></div>`;
+}
+
+function renderAnexos(res){
+  if(!res.porAnexo.length){ $('wrapAnexos').innerHTML = '<p class="empty-note">Sin llamadas en este período.</p>'; return; }
+  const filas = res.porAnexo.map(a => {
+    const asign = esAdmin
+      ? `<select onchange="asignarAnexo('${esc(a.anexo)}', this.value)"><option value="">Sin asignar</option>${res.usuarios.map(u => `<option value="${u.id}" ${(res.anexos.find(x=>x.anexo===a.anexo)||{}).usuarioId === u.id ? 'selected' : ''}>${esc(u.nombre)}</option>`).join('')}</select>`
+      : esc(a.vendedor || 'Sin asignar');
+    return `<tr>
+      <td><b>${esc(a.anexo)}</b></td>
+      <td>${asign}</td>
+      <td class="amount">${fmtNum(a.llamadas)}</td>
+      <td class="amount">${fmtNum(a.contestadas)}</td>
+      <td class="amount">${fmtTiempoTotal(a.duracionTotalSeg)}</td>
+      <td class="amount">${fmtNum(a.numerosDistintos)}</td>
+      <td class="amount">${fmtNum(a.clientesIdentificados)}</td>
+      <td class="amount">${fmtNum(a.ventasTrasLlamada)}</td>
+    </tr>`;
+  }).join('');
+  $('wrapAnexos').innerHTML = `<div class="tabla-wrap"><table>
+    <thead><tr><th>Anexo</th><th>Vendedor</th><th class="amount">Llamadas</th><th class="amount">Con conversación</th><th class="amount">Tiempo hablado</th><th class="amount">Números</th><th class="amount">Identificados</th><th class="amount">Ventas posteriores</th></tr></thead>
+    <tbody>${filas}</tbody></table></div>`;
+}
+
+async function asignarAnexo(anexo, usuarioId){
+  try{
+    const res = await fetch('/api/negocio?recurso=llamadas-anexo', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ anexo, usuarioId: usuarioId || null }) }).then(r=>r.json());
+    if(res.error) throw new Error(res.error);
+    cargar();
+  }catch(err){ $('status').className = 'err'; $('status').textContent = 'No se pudo asignar: ' + err.message; }
+}
+
+function llamadasFiltradas(){
+  if(!datos) return [];
+  return datos.llamadas.filter(l =>
+    (!$('chkContestadas').checked || l.duracionSeg > 0) &&
+    (!$('chkIdentificados').checked || l.cliente) &&
+    (!$('chkConVenta').checked || l.ventaPosterior));
+}
+
+function renderDetalle(){
+  const lista = llamadasFiltradas();
+  if(!lista.length){ $('wrapLlamadas').innerHTML = '<p class="empty-note">No hay llamadas con estos filtros.</p>'; $('paginacionLlam').innerHTML = ''; return; }
+  const totalPaginas = Math.max(1, Math.ceil(lista.length / POR_PAGINA));
+  if(pagina > totalPaginas) pagina = totalPaginas;
+  const ini = (pagina-1) * POR_PAGINA;
+  const filas = lista.slice(ini, ini + POR_PAGINA).map(l => {
+    const cliente = l.cliente
+      ? `<b>${esc(l.cliente.nombre)}</b>`
+      : '<span class="badge gris">Sin identificar</span>';
+    const cot = l.cotizacion
+      ? `#${esc(l.cotizacion.numero)} <span class="badge ${l.cotizacion.estado==='facturada'?'verde':'gris'}">${esc(ESTADO_COT_LABEL[l.cotizacion.estado] || l.cotizacion.estado)}</span>`
+      : '';
+    const venta = l.ventaPosterior ? `<span class="badge verde">Venta${l.documentoNumero ? ' · ' + esc(l.documentoNumero) : ''}</span>` : '';
+    const dir = l.direccion === 'entrante' ? '<span class="badge azul">Entrante</span>' : '<span class="badge gris">Saliente</span>';
+    return `<tr>
+      <td>${fmtFechaHora(l.fecha)}</td>
+      <td>${esc(l.anexo)}${l.vendedor ? ' · ' + esc(l.vendedor) : ''}</td>
+      <td>${dir}</td>
+      <td class="num-tel">${esc(fmtTelefono(l.numero))}</td>
+      <td>${cliente}</td>
+      <td class="amount">${l.duracionSeg > 0 ? fmtDuracion(l.duracionSeg) : '<span class="badge ambar">Sin contestar</span>'}</td>
+      <td>${cot}</td>
+      <td>${venta}</td>
+    </tr>`;
+  }).join('');
+  $('wrapLlamadas').innerHTML = `<div class="tabla-wrap"><table>
+    <thead><tr><th>Fecha</th><th>Anexo</th><th>Tipo</th><th>Teléfono</th><th>Cliente</th><th class="amount">Duración</th><th>Cotización</th><th>Resultado</th></tr></thead>
+    <tbody>${filas}</tbody></table></div>`;
+  $('paginacionLlam').innerHTML = totalPaginas > 1 ? `
+    <span>Mostrando ${fmtNum(ini+1)}–${fmtNum(Math.min(ini+POR_PAGINA, lista.length))} de ${fmtNum(lista.length)}</span>
+    <span><button class="btn-ghost btn-compact" ${pagina<=1?'disabled':''} onclick="pagina--;renderDetalle()">← Anterior</button>
+    <button class="btn-ghost btn-compact" ${pagina>=totalPaginas?'disabled':''} onclick="pagina++;renderDetalle()">Siguiente →</button></span>`
+    : `<span>${fmtNum(lista.length)} llamada${lista.length===1?'':'s'}</span>`;
+}
+
+// ---------- Importar ----------
+$('archivoImportar').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if(!f) return;
+  $('textoImportar').value = await f.text();
+});
+async function importarLlamadas(){
+  const texto = $('textoImportar').value;
+  const out = $('resultadoImportar');
+  if(!texto.trim()){ out.innerHTML = '<div class="note-box err">Sube un archivo o pega el registro de llamadas primero.</div>'; return; }
+  const btn = $('btnImportar'); btn.disabled = true; btn.textContent = 'Importando...';
+  try{
+    const res = await fetch('/api/negocio?recurso=llamadas-importar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ texto }) }).then(r=>r.json());
+    if(res.error){
+      const ej = (res.invalidas || []).map(i => `línea ${i.linea}: ${esc(i.motivo)}`).join('<br>');
+      out.innerHTML = `<div class="note-box err"><b>${esc(res.error)}</b>${ej ? '<br>' + ej : ''}</div>`;
+      return;
+    }
+    const ej = (res.ejemplosInvalidas || []).map(i => `línea ${i.linea}: ${esc(i.motivo)}`).join('<br>');
+    out.innerHTML = `<div class="note-box ok"><b>Listo.</b> ${fmtNum(res.leidas)} llamadas leídas (${res.desde} al ${res.hasta}): <b>${fmtNum(res.nuevas)} nuevas</b>, ${fmtNum(res.duplicadas)} ya estaban${res.invalidas ? `, ${fmtNum(res.invalidas)} con errores` : ''}.${ej ? '<br>' + ej : ''}</div>`;
+    $('textoImportar').value = ''; $('archivoImportar').value = '';
+    cargar();
+  }catch(err){
+    out.innerHTML = `<div class="note-box err">Error: ${esc(err.message)}</div>`;
+  }finally{
+    btn.disabled = false; btn.textContent = 'Importar llamadas';
+  }
+}
+
+cargarSesionUsuario();
+setRangoRapido('30d');
+</script>
+</body>
+</html>

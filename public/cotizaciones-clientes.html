@@ -267,6 +267,7 @@
           <a href="metas-de-venta.html">Metas de venta</a>
           <a href="sitio-web.html">Sitio Web</a>
           <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
           <a href="indexscale.html">IndexScale</a>
         </div>
       </div>
@@ -1297,6 +1298,15 @@ function renderFichaLateralCot(c, detalle){
     ? `<div class="ficha-cot-fila"><span>WhatsApp</span><b><a href="#" onclick="event.preventDefault();abrirConversacionWhatsappDesdeCot(${detalle.conversacionesWhatsapp[0].id})" title="Coincidencia por teléfono -- no es un vínculo guardado">💬 Ver conversación</a></b></div>`
     : '';
 
+  // Llamadas de Fono IP al mismo teléfono (importadas a mano en Comercial > Llamadas).
+  const llamHtml = (detalle?.totalLlamadas > 0)
+    ? (() => {
+        const u = detalle.llamadas[0];
+        const dur = u.duracionSeg > 0 ? ` (${Math.floor(u.duracionSeg/60)}:${String(u.duracionSeg%60).padStart(2,'0')} min)` : ' (sin contestar)';
+        return `<div class="ficha-cot-fila"><span>Llamadas</span><b>📞 ${detalle.totalLlamadas} · última ${fmtFechaHoraCot(u.fecha)}${dur}</b></div>`;
+      })()
+    : '';
+
   $('fichaLateralCot').innerHTML = `
     <div class="ficha-cot-head">
       <div style="display:flex;align-items:center;gap:4px;">
@@ -1316,6 +1326,7 @@ function renderFichaLateralCot(c, detalle){
         ${(detalle?.clienteEmail || c.clienteEmail) ? `<div class="ficha-cot-fila"><span>Correo</span><b style="word-break:break-all;"><a href="mailto:${escapeHtmlCot(detalle?.clienteEmail || c.clienteEmail)}" class="doc-link">${escapeHtmlCot(detalle?.clienteEmail || c.clienteEmail)}</a></b></div>` : ''}
         <div class="ficha-cot-fila"><span>Monto</span><b>${fmtMoneda(c.monto)}</b></div>
         ${waHtml}
+        ${llamHtml}
       </div>
 
       <div class="ficha-cot-grupo">

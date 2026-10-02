@@ -9,9 +9,10 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones } from '../lib/db.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
+import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
@@ -126,6 +127,9 @@ export default async function handler(req, res) {
   if (recurso === 'cotizacion-gestion') return manejarCotizacionGestion(req, res, sesion);
   if (recurso === 'cotizacion-contacto') return manejarCotizacionContacto(req, res, sesion);
   if (recurso === 'cotizacion-items') return manejarCotizacionItems(req, res, sesion);
+  if (recurso === 'llamadas') return manejarLlamadas(req, res, sesion);
+  if (recurso === 'llamadas-importar') return manejarLlamadasImportar(req, res, sesion);
+  if (recurso === 'llamadas-anexo') return manejarLlamadasAnexo(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
   if (recurso === 'cotizacion-correo-contenido') return manejarCotizacionCorreoContenido(req, res, sesion);
@@ -1272,6 +1276,23 @@ async function manejarCotizacionDetalle(req, res, sesion) {
       conversacionesWhatsapp = waRows.map(r => ({ id: r.id, iniciadaEn: r.iniciada_en, contactoNombre: r.contacto_nombre }));
     }
 
+    // Llamadas de la central Fono IP (importadas a mano, ver
+    // manejarLlamadasImportar) a este mismo teléfono -- mismo cruce por
+    // últimos 9 dígitos que WhatsApp.
+    let llamadas = [];
+    let totalLlamadas = 0;
+    if (clienteTelefono && clienteTelefono.replace(/\D/g, '').length >= 9) {
+      await asegurarTablaLlamadasFonoip(sql);
+      const { rows: llamRows } = await sql`
+        SELECT fecha, direccion, duracion_seg, anexo, COUNT(*) OVER ()::int AS total
+        FROM llamadas_fonoip
+        WHERE numero_normalizado = right(regexp_replace(${clienteTelefono}, '[^0-9]', '', 'g'), 9)
+        ORDER BY fecha DESC LIMIT 10;
+      `;
+      llamadas = llamRows.map(r => ({ fecha: new Date(r.fecha).toISOString(), direccion: r.direccion, duracionSeg: r.duracion_seg, anexo: r.anexo }));
+      totalLlamadas = llamRows[0]?.total || 0;
+    }
+
     // Correspondencia de correo con este cliente (ver
     // manejarCotizacionesCorreosSync, cron diario que la va llenando) --
     // dos formas de cruce, ninguna excluye a la otra: por cotizacion_id
@@ -1311,7 +1332,7 @@ async function manejarCotizacionDetalle(req, res, sesion) {
       }
     }
 
-    return res.status(200).json({ clienteId, clienteNombre, clienteEmail, historialEstados, comentarios, resumenCompras, correos, conversacionesWhatsapp });
+    return res.status(200).json({ clienteId, clienteNombre, clienteEmail, historialEstados, comentarios, resumenCompras, correos, conversacionesWhatsapp, llamadas, totalLlamadas });
   } catch (err) {
     return res.status(500).json({ error: 'Error leyendo el detalle de la cotización', detail: String(err) });
   }
@@ -11683,5 +11704,218 @@ async function manejarCotizacionesCorreosAnalizarRespuestas(req, res) {
     return res.status(200).json({ ok: true, revisados: rows.length, analizados, errores });
   } catch (err) {
     return res.status(500).json({ error: 'Error analizando respuestas de correo', detail: String(err) });
+  }
+}
+
+// ================= Llamadas (Fono IP) =================
+// Fono IP no tiene API: el registro de llamadas se exporta desde su panel y se
+// importa acá (ver lib/llamadas-fonoip.js). Se cruza por teléfono (últimos 9
+// dígitos) contra cotizaciones/ventas de Bsale, Puntos Bsale y WhatsApp.
+const VENTANA_VENTA_DESPUES_DE_LLAMADA_DIAS = 30;
+
+async function manejarLlamadasImportar(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede importar llamadas' });
+
+  const texto = req.body?.texto;
+  if (typeof texto !== 'string' || !texto.trim()) return res.status(400).json({ error: 'Falta el contenido del registro de llamadas' });
+  if (texto.length > 3000000) return res.status(413).json({ error: 'El archivo es demasiado grande (máximo ~3 MB). Divídelo por rango de fechas.' });
+
+  const { filas, invalidas } = parsearRegistroFonoip(texto);
+  if (filas.length === 0) {
+    return res.status(400).json({ error: 'No encontré llamadas válidas en el archivo', invalidas: invalidas.slice(0, 10) });
+  }
+
+  try {
+    const sql = await getSql();
+    await asegurarTablaLlamadasFonoip(sql);
+    const quien = sesion.nombre || sesion.email;
+
+    let nuevas = 0;
+    const TAMANO_TANDA = 500;
+    for (let i = 0; i < filas.length; i += TAMANO_TANDA) {
+      const tanda = filas.slice(i, i + TAMANO_TANDA);
+      const { rows } = await sql.query(
+        `INSERT INTO llamadas_fonoip (fecha, anexo, numero, duracion_seg, direccion, grabacion, importado_por)
+         SELECT (t.f::timestamp AT TIME ZONE 'America/Santiago'), t.a, t.n, t.d, t.di, t.g, $7
+         FROM UNNEST($1::text[], $2::text[], $3::text[], $4::int[], $5::text[], $6::text[]) AS t(f, a, n, d, di, g)
+         ON CONFLICT (fecha, anexo, numero, direccion) DO NOTHING
+         RETURNING id;`,
+        [
+          tanda.map(f => f.fecha), tanda.map(f => f.anexo), tanda.map(f => f.numero),
+          tanda.map(f => f.duracionSeg), tanda.map(f => f.direccion), tanda.map(f => f.grabacion), quien,
+        ]
+      );
+      nuevas += rows.length;
+    }
+
+    const fechas = filas.map(f => f.fecha).sort();
+    return res.status(200).json({
+      ok: true,
+      leidas: filas.length,
+      nuevas,
+      duplicadas: filas.length - nuevas,
+      invalidas: invalidas.length,
+      ejemplosInvalidas: invalidas.slice(0, 5),
+      desde: fechas[0].slice(0, 10),
+      hasta: fechas[fechas.length - 1].slice(0, 10),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al importar las llamadas', detail: String(err) });
+  }
+}
+
+// Asigna un anexo (extensión interna) a una persona del equipo.
+async function manejarLlamadasAnexo(req, res, sesion) {
+  if (req.method !== 'PUT') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede asignar anexos' });
+  const { anexo, usuarioId } = req.body || {};
+  if (!anexo || !/^\d+$/.test(String(anexo))) return res.status(400).json({ error: 'Falta el anexo' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaLlamadasFonoip(sql);
+    await sql`
+      INSERT INTO llamadas_fonoip_anexos (anexo, usuario_id, actualizado_en)
+      VALUES (${String(anexo)}, ${usuarioId ? Number(usuarioId) : null}, now())
+      ON CONFLICT (anexo) DO UPDATE SET usuario_id = EXCLUDED.usuario_id, actualizado_en = now();
+    `;
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al asignar el anexo', detail: String(err) });
+  }
+}
+
+async function manejarLlamadas(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaLlamadasFonoip(sql);
+    await asegurarTablaCotizaciones(sql);
+    await asegurarTablaBsalePuntos(sql);
+    await asegurarTablaWhatsapp(sql);
+
+    const esFecha = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const hace30 = new Date(Date.now() - 29 * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const desde = esFecha(req.query.desde) ? req.query.desde : hace30;
+    const hasta = esFecha(req.query.hasta) ? req.query.hasta : hoy;
+    const anexoFiltro = /^\d+$/.test(String(req.query.anexo || '')) ? String(req.query.anexo) : null;
+
+    const { rows } = await sql.query(
+      `WITH cot AS (
+         SELECT right(regexp_replace(cliente_telefono, '[^0-9]', '', 'g'), 9) AS tel,
+                id, numero, cliente_nombre, estado, monto, fecha,
+                documento_asociado_id, documento_asociado_numero, documento_asociado_fecha
+         FROM bsale_cotizaciones
+         WHERE cliente_telefono IS NOT NULL AND length(regexp_replace(cliente_telefono, '[^0-9]', '', 'g')) >= 9
+       )
+       SELECT l.id, l.fecha, l.anexo, l.numero, l.direccion, l.duracion_seg,
+              u.nombre AS vendedor_nombre,
+              c.id AS cot_id, c.numero AS cot_numero, c.estado AS cot_estado, c.monto AS cot_monto,
+              c.documento_asociado_id AS doc_id, c.documento_asociado_numero AS doc_numero,
+              (c.documento_asociado_fecha IS NOT NULL
+                 AND c.documento_asociado_fecha >= (l.fecha AT TIME ZONE 'America/Santiago')::date
+                 AND c.documento_asociado_fecha <= (l.fecha AT TIME ZONE 'America/Santiago')::date + ${VENTANA_VENTA_DESPUES_DE_LLAMADA_DIAS}) AS venta_posterior,
+              COALESCE(c.cliente_nombre, p.nombre, w.nombre) AS cliente_nombre,
+              CASE WHEN c.id IS NOT NULL THEN 'cotizacion' WHEN p.nombre IS NOT NULL THEN 'puntos' WHEN w.nombre IS NOT NULL THEN 'whatsapp' END AS cliente_fuente
+       FROM llamadas_fonoip l
+       LEFT JOIN llamadas_fonoip_anexos an ON an.anexo = l.anexo
+       LEFT JOIN usuarios u ON u.id = an.usuario_id
+       LEFT JOIN LATERAL (
+         SELECT * FROM cot
+         WHERE cot.tel = l.numero_normalizado
+         ORDER BY (documento_asociado_fecha IS NOT NULL
+                   AND documento_asociado_fecha >= (l.fecha AT TIME ZONE 'America/Santiago')::date
+                   AND documento_asociado_fecha <= (l.fecha AT TIME ZONE 'America/Santiago')::date + ${VENTANA_VENTA_DESPUES_DE_LLAMADA_DIAS}) DESC,
+                  fecha DESC, id DESC
+         LIMIT 1
+       ) c ON true
+       LEFT JOIN LATERAL (
+         SELECT nombre FROM bsale_clientes_puntos WHERE telefono_normalizado = l.numero_normalizado LIMIT 1
+       ) p ON true
+       LEFT JOIN LATERAL (
+         SELECT NULLIF(ct.nombre, '') AS nombre FROM whatsapp_contactos ct
+         WHERE right(regexp_replace(ct.telefono, '[^0-9]', '', 'g'), 9) = l.numero_normalizado LIMIT 1
+       ) w ON true
+       WHERE l.fecha >= ($1::date)::timestamp AT TIME ZONE 'America/Santiago'
+         AND l.fecha < (($2::date + 1))::timestamp AT TIME ZONE 'America/Santiago'
+         AND ($3::text IS NULL OR l.anexo = $3)
+       ORDER BY l.fecha DESC
+       LIMIT 5000;`,
+      [desde, hasta, anexoFiltro]
+    );
+
+    const llamadas = rows.map(r => ({
+      id: r.id,
+      fecha: new Date(r.fecha).toISOString(),
+      anexo: r.anexo,
+      vendedor: r.vendedor_nombre || null,
+      numero: r.numero,
+      direccion: r.direccion,
+      duracionSeg: r.duracion_seg,
+      cliente: r.cliente_nombre ? { nombre: r.cliente_nombre, fuente: r.cliente_fuente } : null,
+      cotizacion: r.cot_id ? { id: r.cot_id, numero: r.cot_numero, estado: r.cot_estado, monto: Number(r.cot_monto) } : null,
+      ventaPosterior: !!r.venta_posterior,
+      documentoNumero: r.venta_posterior ? r.doc_numero : null,
+      _docId: r.venta_posterior ? (r.doc_id || `c${r.cot_id}`) : null,
+    }));
+
+    // Resumen general y por anexo (se calcula acá sobre el rango completo, no sobre la página que se muestre).
+    const resumirGrupo = lista => {
+      const contestadas = lista.filter(l => l.duracionSeg > 0);
+      const numeros = new Set(lista.map(l => l.numero.slice(-9)));
+      const identificados = new Set(lista.filter(l => l.cliente).map(l => l.numero.slice(-9)));
+      const ventasUnicas = new Map();
+      for (const l of lista) if (l.ventaPosterior && !ventasUnicas.has(l._docId)) ventasUnicas.set(l._docId, l.cotizacion?.monto || 0);
+      return {
+        llamadas: lista.length,
+        contestadas: contestadas.length,
+        duracionTotalSeg: lista.reduce((s, l) => s + l.duracionSeg, 0),
+        numerosDistintos: numeros.size,
+        clientesIdentificados: identificados.size,
+        ventasTrasLlamada: ventasUnicas.size,
+        montoVentasTrasLlamada: [...ventasUnicas.values()].reduce((s, m) => s + m, 0),
+      };
+    };
+    const porAnexoMapa = new Map();
+    for (const l of llamadas) {
+      if (!porAnexoMapa.has(l.anexo)) porAnexoMapa.set(l.anexo, []);
+      porAnexoMapa.get(l.anexo).push(l);
+    }
+    const porAnexo = [...porAnexoMapa.entries()]
+      .map(([anexo, lista]) => ({ anexo, vendedor: lista[0].vendedor, ...resumirGrupo(lista) }))
+      .sort((a, b) => b.llamadas - a.llamadas);
+
+    const { rows: anexosRows } = await sql`
+      SELECT a.anexo, an.usuario_id
+      FROM (SELECT DISTINCT anexo FROM llamadas_fonoip) a
+      LEFT JOIN llamadas_fonoip_anexos an ON an.anexo = a.anexo
+      ORDER BY a.anexo;
+    `;
+    const { rows: usuarios } = await sql`SELECT id, nombre FROM usuarios WHERE activo = true ORDER BY nombre ASC;`;
+    const { rows: infoRows } = await sql`
+      SELECT COUNT(*)::int AS total, MIN(fecha) AS primera, MAX(fecha) AS ultima, MAX(importado_en) AS ultima_importacion
+      FROM llamadas_fonoip;
+    `;
+    const info = infoRows[0] || {};
+
+    return res.status(200).json({
+      desde, hasta, anexoFiltro,
+      resumen: resumirGrupo(llamadas),
+      porAnexo,
+      llamadas: llamadas.map(({ _docId, ...l }) => l),
+      truncado: rows.length >= 5000,
+      anexos: anexosRows.map(a => ({ anexo: a.anexo, usuarioId: a.usuario_id })),
+      usuarios,
+      registro: {
+        totalGuardadas: info.total || 0,
+        primera: info.primera ? new Date(info.primera).toISOString() : null,
+        ultima: info.ultima ? new Date(info.ultima).toISOString() : null,
+        ultimaImportacion: info.ultima_importacion ? new Date(info.ultima_importacion).toISOString() : null,
+      },
+      ventanaVentaDias: VENTANA_VENTA_DESPUES_DE_LLAMADA_DIAS,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al cargar las llamadas', detail: String(err) });
   }
 }
