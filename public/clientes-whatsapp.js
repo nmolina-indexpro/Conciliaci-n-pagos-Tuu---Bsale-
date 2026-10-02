@@ -57,6 +57,96 @@ const MOTIVO_PERDIDA_RECOMENDACION = {
 const SEGUIMIENTO_ESTADO_LABEL = { pendiente: 'Pendiente', contactado: 'Contactado', venta: 'Venta', cerrado: 'Cerrado', no_interesado: 'No interesado' };
 const SEGUIMIENTO_ESTADO_BADGE = { pendiente: 'b-ambar', contactado: 'b-azul', venta: 'b-verde', cerrado: 'b-gris', no_interesado: 'b-rojo' };
 
+// ================= Rediseño bandeja: estado de atención / resultado =================
+// Pedido del usuario: separar "estado de atención" (4 valores: Pendiente,
+// En atención, Esperando al cliente, Resuelta) de "resultado comercial" (5
+// valores) -- calculados a partir de DATOS REALES (último mensaje,
+// primera_respuesta_segundos) en vez de depender del enum "estado" de
+// whatsapp_conversaciones, que tiene 6 valores históricos ('seguimiento' y
+// 'sin_respuesta' se solapan en significado con lo de acá) y puede quedar
+// desactualizado si nadie lo toca a mano. No se migra ni se reescribe ese
+// enum (dato histórico intacto) -- esto es solo una capa de
+// visualización que nunca vuelve a escribir 'seguimiento'/'sin_respuesta'
+// como estado nuevo (ver WHATSAPP_ESTADOS_ATENCION_EDITABLES más abajo).
+const INTENCIONES_NO_COMERCIALES = ['postventa', 'servicio_tecnico', 'garantia'];
+function esConversacionComercial(c){
+  if (c.intencion) return !INTENCIONES_NO_COMERCIALES.includes(c.intencion);
+  return true; // todavía sin intención detectada -- se trata como comercial hasta saber más
+}
+// Solo estos 4 valores se pueden ELEGIR desde la bandeja nueva (el select
+// de "Estado" sigue aceptando los 6 de siempre por compatibilidad con
+// datos viejos, pero un cambio manual desde acá nunca vuelve a escribir
+// 'seguimiento' ni 'sin_respuesta' -- esos quedan como quedaron, sin
+// reclasificar nada existente).
+const WHATSAPP_ESTADOS_ATENCION_EDITABLES = ['nueva', 'abierta', 'esperando_cliente', 'cerrada'];
+function estadoAtencionInfo(c){
+  if (c.estado === 'cerrada') return { clave: 'resuelta', label: 'Resuelta', badge: 'b-gris' };
+  if (!c.cantidadMensajes || c.primeraRespuestaSegundos == null) return { clave: 'pendiente', label: 'Pendiente', badge: 'b-ambar' };
+  if (c.ultimoMensajeDireccion === 'out') return { clave: 'esperando_cliente', label: 'Esperando al cliente', badge: 'b-azul' };
+  return { clave: 'en_atencion', label: 'En atención', badge: 'b-verde' };
+}
+// "Venta" de resultado solo cuenta como confirmada si hay una venta
+// REALMENTE asociada (c.venta, botón "Confirmar/Asociar venta") -- si la
+// IA clasificó resultado='venta' pero nadie la confirmó todavía, se
+// muestra como "En seguimiento" (pendiente de confirmar), nunca como
+// "Venta confirmada" ni como "Venta perdida".
+function resultadoComercialInfo(c){
+  if (!esConversacionComercial(c)) return { clave: 'no_aplica', label: 'No aplica', badge: 'b-gris' };
+  if (c.venta) return { clave: 'venta_confirmada', label: 'Venta confirmada', badge: 'b-verde' };
+  if (!c.resultado) return { clave: 'sin_definir', label: 'Sin definir', badge: 'b-gris' };
+  if (c.resultado === 'cotizacion' || c.resultado === 'seguimiento') return { clave: 'en_seguimiento', label: 'En seguimiento', badge: 'b-azul' };
+  if (c.resultado === 'venta') return { clave: 'en_seguimiento', label: 'Venta sin confirmar', badge: 'b-azul' };
+  return { clave: 'venta_perdida', label: 'Venta perdida', badge: 'b-rojo' };
+}
+// Probabilidad: "No aplica" en postventa/servicio técnico/garantía (no
+// "0%"), "Por confirmar" si es comercial pero la IA nunca la calculó
+// (nunca un porcentaje inventado), y siempre marcada como estimación de
+// IA -- no existe en este sistema una probabilidad "confirmada" a mano.
+function probabilidadDisplayHtml(c){
+  if (!esConversacionComercial(c)) return '<span class="badge b-gris">No aplica</span>';
+  if (c.probabilidadCompra == null) return '<span class="badge b-gris">Por confirmar</span>';
+  return semaforoHtml(c.probabilidadCompra) + ' <span class="sub" style="font-size:10px;">estimación IA</span>';
+}
+// Origen de un campo "de trabajo" (intención/producto/marca/modelo/
+// resultado/motivo de pérdida): si una persona ya lo editó a mano queda en
+// campos_editados_manualmente (ver api/negocio.js) y la IA nunca lo vuelve
+// a tocar -- si no, sigue siendo una sugerencia de IA sin validar.
+function origenCampoLabel(c, campoSnake){
+  return (c.camposEditadosManualmente || []).includes(campoSnake) ? '👤 agente' : '✨ IA · sin validar';
+}
+function fmtMinutos(min){
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+// Alerta principal de una conversación (una sola, la más relevante) -- a
+// partir de datos reales (último mensaje real, fecha de seguimiento), no
+// de un enum que pueda quedar desactualizado. Nunca marca "pendiente de
+// respuesta del agente" una conversación donde el último mensaje es
+// nuestro (esperando al cliente) -- justo la regla que pidió el usuario.
+function alertaPrincipalInfo(c){
+  const info = estadoAtencionInfo(c);
+  if (info.clave === 'pendiente' && c.cantidadMensajes > 0) {
+    const minutos = c.ultimoMensajeEn ? Math.round((Date.now() - new Date(c.ultimoMensajeEn).getTime()) / 60000) : null;
+    return { texto: `Pendiente de primera respuesta${minutos != null ? ' · ' + fmtMinutos(Math.max(0,minutos)) : ''}`, clase: 'critica', icono: '⛔' };
+  }
+  if (info.clave === 'en_atencion') {
+    const minutos = c.ultimoMensajeEn ? Math.round((Date.now() - new Date(c.ultimoMensajeEn).getTime()) / 60000) : null;
+    if (minutos != null && minutos > 30) return { texto: `Esperando respuesta hace ${fmtMinutos(minutos)}`, clase: 'demorada', icono: '🟠' };
+  }
+  if (c.requiereSeguimiento && c.seguimientoEn) {
+    const hoyStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const segStr = String(c.seguimientoEn).slice(0, 10);
+    if (segStr <= hoyStr) return { texto: `Seguimiento ${segStr === hoyStr ? 'para hoy' : 'vencido'}`, clase: 'seguimiento', icono: '📌' };
+  }
+  if (!c.responsableId && !c.vendedorDetectado) return { texto: 'Sin asignar', clase: 'seguimiento', icono: '👤' };
+  return null;
+}
+function alertaPrincipalHtml(c){
+  const a = alertaPrincipalInfo(c);
+  return a ? `<span class="alerta-chip ${a.clase}">${a.icono} ${escapeHtml(a.texto)}</span>` : '<span class="sub">—</span>';
+}
+
 function $(id){ return document.getElementById(id); }
 function escapeHtml(s){
   if (s === null || s === undefined) return '';
@@ -288,84 +378,132 @@ async function cargarDashboard(){
 }
 
 // ================= CONVERSACIONES =================
-let convState = { page: 1, pageSize: 200, q: '', filtros: {}, orden: 'fecha_desc', total: 0, totalPaginas: 1 };
+// Rediseño: bandeja de 3 paneles (lista / chat / ficha) como vista
+// principal de atención, con un selector "Bandeja / Tabla" para seguir
+// teniendo la tabla de supervisión de siempre (ver renderTablaConv más
+// abajo, ahora con columnas por defecto reducidas). Ambas vistas comparten
+// el mismo estado de filtros/búsqueda/orden y el mismo fetch
+// (cargarConversaciones) -- cambiar de vista nunca vuelve a pedir datos al
+// servidor, solo re-renderiza lo ya cargado (convState.ultimaData).
+let convState = {
+  page: 1, pageSize: 200, q: '', filtros: {}, orden: 'fecha_desc', total: 0, totalPaginas: 1,
+  vista: 'pendientes', // pestaña de la bandeja: pendientes | mias | todas
+  vistaUI: 'bandeja', // bandeja | tabla
+  columnasExtendidas: false,
+  contadores: {},
+};
+let conversacionSeleccionadaId = null;
+let detalleBandejaActual = null;
+let composerModoActual = {}; // {[conversacionId]: 'responder'|'nota'}
+const borradoresComposer = {}; // {[conversacionId+':'+modo]: texto} -- sobrevive a cambios de vista/ficha mientras la pestaña siga abierta
+let sugerenciaIaActual = null; // {conversacionId, texto} -- se descarta al cambiar de conversación
 
 function initConversaciones(){
   $('vistaConversaciones').innerHTML = `
-    <div class="seccion">
-      <div class="seccion-head">
-        <div><h2>Conversaciones</h2><div class="sub">Todas las conversaciones de WhatsApp, con filtros y búsqueda global.</div></div>
+    <div class="bandeja-toolbar">
+      <div class="view-toggle">
+        <button id="btnVistaBandeja" class="activo" onclick="cambiarVistaConv('bandeja')">📥 Bandeja</button>
+        <button id="btnVistaTabla" onclick="cambiarVistaConv('tabla')">📋 Tabla</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <select id="selVistaTablaRapida" style="display:none;font-size:12px;" onchange="cambiarTabBandeja(this.value)"></select>
         <button class="btn-ghost btn-compact" id="btnToggleFiltrosConv" onclick="toggleFiltrosConv()">🔎 Filtros</button>
       </div>
-      <div class="buscador-wrap" style="margin-bottom:12px;">
-        <span class="icono-buscar">🔍</span>
-        <input type="text" id="buscadorConv" placeholder="Buscar por nombre, teléfono, texto, marca, modelo, pedido o ID de conversación...">
+    </div>
+    <div id="chipFiltroMotivo"></div>
+    <div class="filtros-panel" id="panelFiltrosConv" style="display:none;">
+      <div class="campo"><label>Fecha desde</label><input type="date" id="fDesde"></div>
+      <div class="campo"><label>Fecha hasta</label><input type="date" id="fHasta"></div>
+      <div class="campo"><label>Estado</label><select id="fEstado"><option value="">Todos</option>${WHATSAPP_ESTADOS_OPT()}</select></div>
+      <div class="campo"><label>Resultado</label><select id="fResultado"><option value="">Todos</option>${WHATSAPP_RESULTADOS_OPT()}</select></div>
+      <div class="campo"><label>Intención</label><select id="fIntencion"><option value="">Todas</option>${WHATSAPP_INTENCIONES_OPT()}</select></div>
+      <div class="campo"><label>Categoría</label><select id="fProducto"><option value="">Todas</option>${WHATSAPP_CATEGORIAS_OPT()}</select></div>
+      <div class="campo"><label>1ª respuesta</label><select id="fRespuesta">
+        <option value="">Todas</option>
+        <option value="menos1">&lt; 1 min</option><option value="menos5">&lt; 5 min</option>
+        <option value="5a10">5-10 min</option><option value="10a30">10-30 min</option>
+        <option value="mas30">&gt; 30 min</option><option value="sin_respuesta">Sin respuesta</option>
+      </select></div>
+      <div class="campo"><label>Prob. de compra</label><select id="fProbabilidad">
+        <option value="">Todas</option>
+        <option value="0a25">0-25%</option><option value="26a50">26-50%</option>
+        <option value="51a75">51-75%</option><option value="76a100">76-100%</option>
+      </select></div>
+      <div class="campo"><label>Venta</label><select id="fVenta"><option value="">Todas</option><option value="con_venta">Con venta</option><option value="sin_venta">Sin venta</option></select></div>
+      <div class="campo"><label>Seguimiento</label><select id="fSeguimiento"><option value="">Todas</option><option value="requiere">Requiere</option><option value="no_requiere">No requiere</option></select></div>
+      <div class="campo"><label>Responsable</label><select id="fResponsable">${opcionesResponsable(null, true)}</select></div>
+      <div class="campo"><label title="Todavía no es un campo propio del sistema -- no existe una columna de prioridad en los datos de WhatsApp, así que no se puede filtrar por algo que no se guarda. Queda documentado como limitación pendiente.">Prioridad (pendiente)</label><select disabled><option>No disponible todavía</option></select></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-primary btn-compact" onclick="aplicarFiltrosConv()">Aplicar</button>
+        <button class="btn-ghost btn-compact" onclick="limpiarFiltrosConv()">Limpiar</button>
       </div>
-      <div id="chipFiltroMotivo"></div>
-      <div class="filtros-panel" id="panelFiltrosConv" style="display:none;">
-        <div class="campo"><label>Fecha desde</label><input type="date" id="fDesde"></div>
-        <div class="campo"><label>Fecha hasta</label><input type="date" id="fHasta"></div>
-        <div class="campo"><label>Estado</label><select id="fEstado"><option value="">Todos</option>${WHATSAPP_ESTADOS_OPT()}</select></div>
-        <div class="campo"><label>Resultado</label><select id="fResultado"><option value="">Todos</option>${WHATSAPP_RESULTADOS_OPT()}</select></div>
-        <div class="campo"><label>Intención</label><select id="fIntencion"><option value="">Todas</option>${WHATSAPP_INTENCIONES_OPT()}</select></div>
-        <div class="campo"><label>Producto</label><select id="fProducto"><option value="">Todos</option>${WHATSAPP_CATEGORIAS_OPT()}</select></div>
-        <div class="campo"><label>1ª respuesta</label><select id="fRespuesta">
-          <option value="">Todas</option>
-          <option value="menos1">&lt; 1 min</option><option value="menos5">&lt; 5 min</option>
-          <option value="5a10">5-10 min</option><option value="10a30">10-30 min</option>
-          <option value="mas30">&gt; 30 min</option><option value="sin_respuesta">Sin respuesta</option>
-        </select></div>
-        <div class="campo"><label>Prob. de compra</label><select id="fProbabilidad">
-          <option value="">Todas</option>
-          <option value="0a25">0-25%</option><option value="26a50">26-50%</option>
-          <option value="51a75">51-75%</option><option value="76a100">76-100%</option>
-        </select></div>
-        <div class="campo"><label>Venta</label><select id="fVenta"><option value="">Todas</option><option value="con_venta">Con venta</option><option value="sin_venta">Sin venta</option></select></div>
-        <div class="campo"><label>Seguimiento</label><select id="fSeguimiento"><option value="">Todas</option><option value="requiere">Requiere</option><option value="no_requiere">No requiere</option></select></div>
-        <div class="campo"><label>Responsable</label><select id="fResponsable">${opcionesResponsable(null, true)}</select></div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn-primary btn-compact" onclick="aplicarFiltrosConv()">Aplicar</button>
-          <button class="btn-ghost btn-compact" onclick="limpiarFiltrosConv()">Limpiar</button>
+    </div>
+
+    <div id="vistaBandejaConv" class="bandeja-layout">
+      <div class="panel-lista activa" id="panelLista">
+        <div class="lista-head">
+          <div class="lista-indicadores" id="listaIndicadores"></div>
+          <div class="lista-buscador">
+            <span class="icono-buscar">🔍</span>
+            <input type="text" id="buscadorBandeja" placeholder="Buscar por nombre, teléfono, mensaje, producto, modelo o ID...">
+          </div>
+          <div class="lista-tabs" id="listaTabs"></div>
         </div>
+        <div class="lista-items" id="listaItemsBandeja"><p class="empty-note" style="padding:16px;">Cargando…</p></div>
+        <div class="lista-paginacion" id="listaPaginacionBandeja"></div>
       </div>
-      <div class="tabla-wrap">
-        <table>
-          <thead><tr id="theadConv"></tr></thead>
-          <tbody id="tablaConv"><tr><td colspan="15" class="empty-note">Cargando…</td></tr></tbody>
-        </table>
+      <div class="panel-chat" id="panelChat"><div class="sin-seleccion">Selecciona una conversación de la lista para verla acá.</div></div>
+      <div class="panel-ficha-bandeja" id="panelFichaBandeja"></div>
+    </div>
+    <div class="overlay-ficha-movil" id="overlayFichaMovil" onclick="cerrarFichaMovil()"></div>
+
+    <div id="vistaTablaConv" style="display:none;">
+      <div class="seccion">
+        <div class="seccion-head">
+          <div><h2>Tabla de conversaciones</h2><div class="sub">Vista de supervisión. Columnas reducidas por defecto -- usa "Más columnas" o abre la conversación para ver todo el detalle.</div></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <div class="buscador-wrap" style="min-width:260px;">
+              <span class="icono-buscar">🔍</span>
+              <input type="text" id="buscadorConv" placeholder="Buscar por nombre, teléfono, texto, marca, modelo, pedido o ID...">
+            </div>
+            <button class="btn-ghost btn-compact" id="btnColumnasExtendidas" onclick="toggleColumnasExtendidas()">➕ Más columnas</button>
+          </div>
+        </div>
+        <div class="tabla-wrap">
+          <table>
+            <thead><tr id="theadConv"></tr></thead>
+            <tbody id="tablaConv"><tr><td colspan="6" class="empty-note">Cargando…</td></tr></tbody>
+          </table>
+        </div>
+        <div id="paginacionConv" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12.5px;color:var(--muted);"></div>
       </div>
-      <div id="paginacionConv" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12.5px;color:var(--muted);"></div>
     </div>
   `;
   renderTheadConv();
+  $('buscadorBandeja').addEventListener('input', debounce(() => { convState.q = $('buscadorBandeja').value.trim(); convState.page = 1; cargarConversaciones(); }, 350));
   $('buscadorConv').addEventListener('input', debounce(() => { convState.q = $('buscadorConv').value.trim(); convState.page = 1; cargarConversaciones(); }, 350));
   cargarConversaciones();
 }
-// Ordena solo las filas de la página actual (esta tabla pagina server-side
-// y ordenar el dataset completo implicaría un cambio de API más grande) --
-// mismo criterio que ya usaban fecha/respuesta, extendido al resto de las
-// columnas con un valor natural para ordenar.
-function flechaConv(campo){
-  if (convState.orden === campo + '_asc') return ' ▲';
-  if (convState.orden === campo + '_desc') return ' ▼';
-  return '';
+
+function cambiarVistaConv(vistaUI){
+  convState.vistaUI = vistaUI;
+  $('btnVistaBandeja').classList.toggle('activo', vistaUI === 'bandeja');
+  $('btnVistaTabla').classList.toggle('activo', vistaUI === 'tabla');
+  $('vistaBandejaConv').style.display = vistaUI === 'bandeja' ? '' : 'none';
+  $('vistaTablaConv').style.display = vistaUI === 'tabla' ? '' : 'none';
+  // Mismo texto de búsqueda en ambos inputs al cambiar de vista -- el
+  // usuario no pierde lo que ya había escrito (punto "conserva la
+  // selección al cambiar de vista").
+  if (vistaUI === 'tabla') {
+    $('buscadorConv').value = convState.q;
+    renderTablaConv(convState.ultimaDataOrdenada || convState.ultimaData || []);
+    renderPaginacionConv();
+  } else {
+    $('buscadorBandeja').value = convState.q;
+    actualizarListaBandeja({ conversaciones: convState.ultimaData || [], contadores: convState.contadores });
+  }
 }
-function renderTheadConv(){
-  $('theadConv').innerHTML = `
-    <th class="ordenable" onclick="ordenarConv('fecha')">Fecha${flechaConv('fecha')}</th>
-    <th>Cliente</th><th>Teléfono</th>
-    <th class="ordenable" onclick="ordenarConv('estado')">Estado${flechaConv('estado')}</th>
-    <th>Último mensaje</th>
-    <th class="ordenable" onclick="ordenarConv('intencion')">Intención${flechaConv('intencion')}</th>
-    <th>Producto</th><th>Shopify</th>
-    <th class="ordenable" onclick="ordenarConv('respuesta')">1ª respuesta${flechaConv('respuesta')}</th>
-    <th class="ordenable" onclick="ordenarConv('probabilidad')">Prob. compra${flechaConv('probabilidad')}</th>
-    <th class="ordenable" onclick="ordenarConv('resultado')">Resultado${flechaConv('resultado')}</th>
-    <th class="amount ordenable" onclick="ordenarConv('venta')">Venta${flechaConv('venta')}</th>
-    <th class="ordenable" onclick="ordenarConv('responsable')">Responsable${flechaConv('responsable')}</th>
-    <th>Alertas</th><th>IA</th>
-  `;
-}
+
 function WHATSAPP_ESTADOS_OPT(){ return WHATSAPP_ESTADOS.map(e => `<option value="${e}">${ESTADO_LABEL[e]}</option>`).join(''); }
 function WHATSAPP_RESULTADOS_OPT(){ return WHATSAPP_RESULTADOS.map(r => `<option value="${r}">${RESULTADO_LABEL[r]}</option>`).join(''); }
 function WHATSAPP_INTENCIONES_OPT(){ return WHATSAPP_INTENCIONES.map(i => `<option value="${i}">${INTENCION_LABEL[i]}</option>`).join(''); }
@@ -399,10 +537,20 @@ function limpiarFiltrosConv(){
   convState.page = 1;
   cargarConversaciones();
 }
-// Chip visible arriba de la tabla cuando se llega filtrado por un motivo de
-// pérdida (ver irAConversacionesConMotivo) -- sin esto el filtro queda
-// invisible para quien mira la tabla, no se entiende por qué aparecen menos
-// conversaciones que el total.
+function filtrarSinAsignar(){
+  convState.filtros.responsableId = 'sin_asignar';
+  const sel = $('fResponsable'); if (sel) sel.value = 'sin_asignar';
+  convState.page = 1;
+  cargarConversaciones();
+}
+// El indicador de seguimientos (hoy/vencidos) manda directo a la pestaña
+// "Seguimientos" de este mismo módulo -- ya existe esa vista dedicada, no
+// hace falta duplicar su lógica acá.
+function irASeguimientosHoy(){ cambiarVistaModulo('seguimientos'); }
+
+// Chip visible arriba cuando se llega filtrado por un motivo de pérdida
+// (ver irAConversacionesConMotivo, en Analítica) -- sin esto el filtro
+// queda invisible, no se entiende por qué aparecen menos conversaciones.
 function renderChipFiltroMotivo(){
   const el = $('chipFiltroMotivo');
   if (!el) return;
@@ -413,36 +561,483 @@ function renderChipFiltroMotivo(){
       <button class="btn-icono" title="Quitar filtro" onclick="limpiarFiltrosConv()">✕</button>
     </div>`;
 }
+
+async function cargarConversaciones(){
+  const params = new URLSearchParams({ page: convState.page, pageSize: convState.pageSize, q: convState.q });
+  if (convState.vista) params.set('vista', convState.vista);
+  for (const [k, v] of Object.entries(convState.filtros)) if (v) params.set(k, v);
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-conversaciones&' + params.toString());
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      const msg = escapeHtml(data.error || 'Error al cargar.');
+      $('tablaConv').innerHTML = `<tr><td colspan="17" class="empty-note">${msg}</td></tr>`;
+      $('listaItemsBandeja').innerHTML = `<p class="empty-note" style="padding:16px;">${msg}</p>`;
+      return;
+    }
+    convState.total = data.total; convState.totalPaginas = data.totalPaginas;
+    convState.ultimaData = data.conversaciones; convState.contadores = data.contadores || {};
+    if (convState.vistaUI === 'tabla') { renderTablaConv(data.conversaciones); renderPaginacionConv(); }
+    else { actualizarListaBandeja(data); }
+    renderChipFiltroMotivo();
+  }catch(err){
+    const msg = 'Error: ' + escapeHtml(err.message);
+    $('tablaConv').innerHTML = `<tr><td colspan="17" class="empty-note">${msg}</td></tr>`;
+    $('listaItemsBandeja').innerHTML = `<p class="empty-note" style="padding:16px;">${msg}</p>`;
+  }
+}
+function irPaginaConv(p){ convState.page = p; cargarConversaciones(); }
+
+// ---------------- Bandeja: lista (izquierda) ----------------
+function renderListaIndicadores(contadores){
+  const c = contadores || {};
+  $('listaIndicadores').innerHTML = `
+    <div class="indicador-chip rojo" onclick="cambiarTabBandeja('pendientes')" title="Conversaciones sin ninguna respuesta todavía"><span class="num">${fmtNum(c.pendientes)}</span><span class="lbl-ind">Sin responder</span></div>
+    <div class="indicador-chip ambar" onclick="irASeguimientosHoy()" title="Seguimientos programados para hoy o ya vencidos"><span class="num">${fmtNum(c.seguimientosHoyOVencidos)}</span><span class="lbl-ind">Seguim. hoy/vencidos</span></div>
+    <div class="indicador-chip gris" onclick="filtrarSinAsignar()" title="Conversaciones sin responsable asignado"><span class="num">${fmtNum(c.sinAsignar)}</span><span class="lbl-ind">Sin asignar</span></div>
+  `;
+}
+function renderListaTabs(contadores){
+  const c = contadores || {};
+  const tabs = [['pendientes', 'Pendientes', c.pendientes], ['mias', 'Mías', c.mias], ['todas', 'Todas', c.todas]];
+  $('listaTabs').innerHTML = tabs.map(([clave, label, n]) => `
+    <button class="${convState.vista === clave ? 'activo' : ''}" onclick="cambiarTabBandeja('${clave}')">${label} <span class="num-tab">${fmtNum(n)}</span></button>
+  `).join('');
+  const sel = $('selVistaTablaRapida');
+  if (sel) {
+    sel.style.display = '';
+    sel.innerHTML = tabs.map(([clave, label, n]) => `<option value="${clave}" ${convState.vista === clave ? 'selected' : ''}>${label} (${fmtNum(n)})</option>`).join('');
+  }
+}
+function cambiarTabBandeja(vista){
+  convState.vista = vista;
+  convState.page = 1;
+  cargarConversaciones();
+}
+function iniciales(nombre){
+  if (!nombre) return '?';
+  const partes = String(nombre).trim().split(/\s+/);
+  return ((partes[0]?.[0] || '') + (partes[1]?.[0] || '')).toUpperCase() || '?';
+}
+// Tiempo relativo compacto para la fila de la lista (igual criterio visual
+// que cualquier bandeja de mensajería) -- fmtFecha/fmtFechaHora (arriba)
+// siguen existiendo para fechas completas en la ficha y la tabla.
+function tiempoRelativo(iso){
+  if (!iso) return '';
+  const diffMin = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (diffMin < 1) return 'ahora';
+  if (diffMin < 60) return `${diffMin} min`;
+  const h = Math.round(diffMin / 60);
+  if (h < 24) return `${h} h`;
+  const d = Math.round(h / 24);
+  if (d < 7) return `${d} d`;
+  return fmtFecha(iso);
+}
+function itemConvHtml(c){
+  const info = estadoAtencionInfo(c);
+  const alerta = alertaPrincipalInfo(c);
+  const seleccionado = conversacionSeleccionadaId === c.id;
+  return `
+    <div class="item-conv ${seleccionado ? 'seleccionado' : ''}" onclick="seleccionarConversacionBandeja(${c.id})">
+      <div class="avatar-chip">${iniciales(c.clienteNombre)}</div>
+      <div class="item-cuerpo">
+        <div class="item-top-row">
+          <span class="item-nombre">${escapeHtml(c.clienteNombre || 'Sin nombre')}</span>
+          <span class="item-tiempo">${tiempoRelativo(c.ultimoMensajeEn || c.fecha)}</span>
+        </div>
+        <div class="item-mensaje">${escapeHtml(c.ultimoMensaje || 'Sin mensajes')}</div>
+        <div class="item-meta-row">
+          <span class="item-estado-punto ${info.clave}" title="${info.label}"></span>
+          ${c.categoria ? `<span class="badge-mini b-gris">${escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria)}</span>` : ''}
+          <span class="sub" style="font-size:10.5px;">${escapeHtml(c.responsableNombre || (c.vendedorDetectado ? c.vendedorDetectado + ' 🤖' : 'Sin asignar'))}</span>
+        </div>
+        ${alerta ? `<div style="margin-top:4px;"><span class="alerta-chip ${alerta.clase}" style="font-size:10px;padding:2px 7px;">${alerta.icono} ${escapeHtml(alerta.texto)}</span></div>` : ''}
+      </div>
+    </div>
+  `;
+}
+function actualizarListaBandeja(data){
+  renderListaIndicadores(data.contadores);
+  renderListaTabs(data.contadores);
+  const lista = data.conversaciones || [];
+  $('listaItemsBandeja').innerHTML = lista.length
+    ? lista.map(itemConvHtml).join('')
+    : '<p class="empty-note" style="padding:16px;">No hay conversaciones que calcen con los filtros.</p>';
+  $('listaPaginacionBandeja').innerHTML = `
+    <span>${fmtNum(convState.total)} conversación(es)${convState.totalPaginas > 1 ? ` · pág. ${convState.page}/${convState.totalPaginas}` : ''}</span>
+    <span>
+      <button class="btn-ghost btn-compact" style="padding:4px 9px;" ${convState.page <= 1 ? 'disabled' : ''} onclick="irPaginaConv(${convState.page - 1})">←</button>
+      <button class="btn-ghost btn-compact" style="padding:4px 9px;" ${convState.page >= convState.totalPaginas ? 'disabled' : ''} onclick="irPaginaConv(${convState.page + 1})">→</button>
+    </span>
+  `;
+}
+
+// ---------------- Bandeja: selección + chat (centro) ----------------
+async function seleccionarConversacionBandeja(id){
+  conversacionSeleccionadaId = id;
+  sugerenciaIaActual = null;
+  document.querySelectorAll('#listaItemsBandeja .item-conv').forEach(el => el.classList.remove('seleccionado'));
+  $('panelChat').innerHTML = '<div class="sin-seleccion">Cargando conversación…</div>';
+  await cargarDetalleBandeja(id, { forzarScroll: true });
+  if (window.matchMedia('(max-width:860px)').matches) mostrarPanelMovil('chat');
+}
+async function cargarDetalleBandeja(id, opts){
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-conversacion-detalle&id=' + id);
+    const data = await res.json();
+    if (!res.ok || data.error) { $('panelChat').innerHTML = `<div class="sin-seleccion">${escapeHtml(data.error || 'No se pudo cargar.')}</div>`; return; }
+    detalleBandejaActual = data;
+    renderChatBandeja(data, opts || {});
+    renderFichaBandeja(data);
+    const idx = (convState.ultimaData || []).findIndex(c => c.id === id);
+    const items = document.querySelectorAll('#listaItemsBandeja .item-conv');
+    items.forEach(el => el.classList.remove('seleccionado'));
+    if (idx >= 0 && items[idx]) items[idx].classList.add('seleccionado');
+  }catch(err){
+    $('panelChat').innerHTML = `<div class="sin-seleccion">Error: ${escapeHtml(err.message)}</div>`;
+  }
+}
+// Mezcla mensajes reales + notas internas en un solo hilo cronológico --
+// las notas se distinguen visualmente (fondo ámbar punteado) y nunca se
+// mandan por WhatsApp (ver whatsapp_notas_internas en lib/db.js).
+function hiloCombinadoHtml(mensajes, notas){
+  const items = [
+    ...(mensajes || []).map(m => ({ t: new Date(m.marcaTiempo).getTime(), html: burbujaMensaje(m) })),
+    ...(notas || []).map(n => ({ t: new Date(n.fecha).getTime(), html: notaInternaHtml(n) })),
+  ].sort((a, b) => a.t - b.t);
+  if (!items.length) return '<p class="empty-note">Sin mensajes registrados.</p>';
+  return items.map(it => it.html).join('');
+}
+function notaInternaHtml(n){
+  return `<div class="nota-interna-burbuja"><span class="nota-autor">📝 Nota interna — ${escapeHtml(n.autor)}</span>${escapeHtml(n.texto)}<span class="hora" style="display:block;text-align:right;margin-top:3px;">${fmtHora(n.fecha)}</span></div>`;
+}
+function renderChatBandeja(data, opts){
+  opts = opts || {};
+  const c = data.conversacion, ct = data.contacto;
+  const info = estadoAtencionInfo(c);
+  const alerta = alertaPrincipalInfo(c);
+  const modo = composerModoActual[c.id] || 'responder';
+
+  // Conserva la posición de lectura: si el usuario estaba leyendo mensajes
+  // antiguos (no al fondo), el re-render no lo manda al final -- solo se
+  // fuerza el scroll al fondo al abrir la conversación o justo después de
+  // mandar algo (opts.forzarScroll), o si ya estaba al fondo de todas
+  // formas (igual que cualquier chat).
+  const hiloViejo = $('chatHiloWrap');
+  const scrollViejo = hiloViejo ? hiloViejo.scrollTop : null;
+  const alFondoAntes = hiloViejo ? (hiloViejo.scrollTop + hiloViejo.clientHeight >= hiloViejo.scrollHeight - 60) : true;
+
+  const hilo = hiloCombinadoHtml(data.mensajes, data.notasInternas);
+
+  const sugerenciaHtml = (sugerenciaIaActual && sugerenciaIaActual.conversacionId === c.id) ? `
+    <div class="chat-ia-sugerencia">
+      <div class="txt"><b>✨ Sugerencia IA — revisa antes de enviar</b>${escapeHtml(sugerenciaIaActual.texto)}</div>
+      <div style="display:flex;gap:6px;flex-shrink:0;">
+        <button class="btn-primary btn-compact" onclick="insertarSugerenciaIA(${c.id})">Insertar</button>
+        <button class="btn-ghost btn-compact" onclick="descartarSugerenciaIA()">Descartar</button>
+      </div>
+    </div>` : '';
+
+  const areaComposerHtml = modo === 'nota'
+    ? `<div class="composer-area">
+         <textarea id="composerBandeja${c.id}" rows="1" placeholder="Nota interna -- no se envía al cliente…" oninput="guardarBorradorComposer(${c.id})" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); accionComposerBandeja(${c.id});}">${escapeHtml(borradoresComposer[c.id + ':nota'] || '')}</textarea>
+         <button class="btn-primary btn-compact" id="btnComposerBandeja${c.id}" onclick="accionComposerBandeja(${c.id})">Guardar nota</button>
+       </div>`
+    : (data.ventanaAbierta
+        ? `<div class="composer-area">
+             <textarea id="composerBandeja${c.id}" rows="1" placeholder="Escribe una respuesta…" oninput="guardarBorradorComposer(${c.id})" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); accionComposerBandeja(${c.id});}">${escapeHtml(borradoresComposer[c.id + ':responder'] || '')}</textarea>
+             <button class="btn-primary btn-compact" id="btnComposerBandeja${c.id}" onclick="accionComposerBandeja(${c.id})">Enviar</button>
+           </div>
+           <div class="composer-extra">
+             <button class="btn-ghost btn-compact" disabled title="Los adjuntos de salida todavía no están disponibles en este sistema -- solo se reciben, no se envían">📎 Adjuntar</button>
+             <button class="btn-ghost btn-compact" disabled title="Las respuestas rápidas todavía no están disponibles en este sistema">💬 Respuestas rápidas</button>
+             <button class="btn-ghost btn-compact" onclick="pedirSugerenciaIA(${c.id})" id="btnSugerirIA${c.id}">✨ Sugerir respuesta</button>
+           </div>`
+        : `<div class="composer-cerrado">🔒 Pasaron más de 24h desde el último mensaje del cliente — WhatsApp ya no permite texto libre acá (se necesita una plantilla pre-aprobada, no disponible todavía). La nota interna sigue disponible en la otra pestaña.</div>`);
+
+  $('panelChat').innerHTML = `
+    <div class="chat-head">
+      <div class="chat-head-id">
+        <button class="btn-ghost btn-compact btn-volver-lista" onclick="mostrarPanelMovil('lista')" title="Volver a la lista">←</button>
+        <div class="avatar-chip">${iniciales(ct?.nombre)}</div>
+        <div>
+          <h2>${escapeHtml(ct?.nombre || 'Sin nombre')}</h2>
+          <div class="sub" style="font-size:11px;">WhatsApp · #${c.id}${c.categoria ? ' · ' + escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria) : ''}</div>
+        </div>
+      </div>
+      <div class="chat-head-acciones">
+        ${info.clave !== 'resuelta'
+          ? `<button class="btn-primary btn-compact" onclick="guardarCampoConvBandeja(${c.id}, 'estado', 'cerrada')">✓ Resolver</button>`
+          : `<span class="badge b-gris">Resuelta</span>`}
+        <button class="btn-ghost btn-compact btn-cerrar-panel-movil" onclick="mostrarPanelMovil('ficha')" title="Ver ficha del cliente">👤 Ficha</button>
+      </div>
+    </div>
+    ${alerta ? `<div class="chat-alerta-pendiente">${alerta.icono} ${escapeHtml(alerta.texto)}</div>` : ''}
+    <div class="chat-hilo-wrap" id="chatHiloWrap">${hilo}</div>
+    ${sugerenciaHtml}
+    <div class="chat-composer-wrap">
+      <div class="composer-tabs">
+        <button class="${modo === 'responder' ? 'activo' : ''}" onclick="cambiarComposerModo(${c.id}, 'responder')">💬 Responder</button>
+        <button class="nota ${modo === 'nota' ? 'activo' : ''}" onclick="cambiarComposerModo(${c.id}, 'nota')">📝 Nota interna</button>
+      </div>
+      ${areaComposerHtml}
+    </div>
+  `;
+
+  const hiloNuevo = $('chatHiloWrap');
+  if (hiloNuevo) {
+    if (opts.forzarScroll || alFondoAntes) hiloNuevo.scrollTop = hiloNuevo.scrollHeight;
+    else if (scrollViejo != null) hiloNuevo.scrollTop = scrollViejo;
+  }
+}
+function cambiarComposerModo(id, modo){
+  composerModoActual[id] = modo;
+  if (detalleBandejaActual && detalleBandejaActual.conversacion.id === id) renderChatBandeja(detalleBandejaActual, {});
+}
+function guardarBorradorComposer(id){
+  const modo = composerModoActual[id] || 'responder';
+  const el = $('composerBandeja' + id);
+  if (el) borradoresComposer[id + ':' + modo] = el.value;
+}
+// Responder y Nota interna comparten el mismo botón de acción (cambia de
+// texto/endpoint según la pestaña activa) para no duplicar el composer --
+// nunca se confunden entre sí porque solo uno de los dos está visible a la
+// vez y usan endpoints distintos (whatsapp-enviar-mensaje vs.
+// whatsapp-nota-interna, ver api/negocio.js).
+async function accionComposerBandeja(id){
+  const modo = composerModoActual[id] || 'responder';
+  const el = $('composerBandeja' + id);
+  const btn = $('btnComposerBandeja' + id);
+  const texto = (el?.value || '').trim();
+  if (!texto || !el) return;
+  el.disabled = true; if (btn) btn.disabled = true;
+  try{
+    const recurso = modo === 'nota' ? 'whatsapp-nota-interna' : 'whatsapp-enviar-mensaje';
+    const res = await fetch('/api/negocio?recurso=' + recurso, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversacionId: id, texto }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) { alert(data.error || 'No se pudo completar la acción.'); return; }
+    borradoresComposer[id + ':' + modo] = '';
+    await cargarDetalleBandeja(id, { forzarScroll: true });
+    cargarConversaciones();
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{
+    const el2 = $('composerBandeja' + id); if (el2) el2.disabled = false;
+    const btn2 = $('btnComposerBandeja' + id); if (btn2) btn2.disabled = false;
+  }
+}
+async function guardarCampoConvBandeja(id, campo, valor){
+  try{
+    const body = { id }; body[campo] = valor;
+    const res = await fetch('/api/negocio?recurso=whatsapp-conversaciones', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) { alert(data.error || 'No se pudo guardar el cambio.'); return; }
+    await cargarDetalleBandeja(id, {});
+    cargarConversaciones();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+function programarSeguimientoBandeja(id){
+  const fecha = prompt('Fecha del seguimiento (AAAA-MM-DD):', new Date().toISOString().slice(0, 10));
+  if (!fecha) return;
+  (async () => {
+    try{
+      const res = await fetch('/api/negocio?recurso=whatsapp-conversaciones', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, requiereSeguimiento: true, seguimientoEn: fecha + 'T12:00:00', seguimientoEstado: 'pendiente' }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { alert(data.error || 'No se pudo programar el seguimiento.'); return; }
+      await cargarDetalleBandeja(id, {});
+      cargarConversaciones();
+    }catch(err){ alert('Error: ' + err.message); }
+  })();
+}
+// Sugerencia de respuesta de IA (botón manual, no automático -- ver
+// manejarWhatsappSugerirRespuesta): SIEMPRE requiere clic explícito de
+// "Insertar" para llegar al composer, y clic en "Enviar" para salir de
+// verdad -- nunca se manda sola.
+async function pedirSugerenciaIA(id){
+  const btn = $('btnSugerirIA' + id);
+  if (btn) { btn.disabled = true; btn.textContent = '✨ Pensando…'; }
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-sugerir-respuesta', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversacionId: id }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) { alert(data.error || 'No se pudo generar una sugerencia.'); return; }
+    sugerenciaIaActual = { conversacionId: id, texto: data.borrador };
+    if (detalleBandejaActual && detalleBandejaActual.conversacion.id === id) renderChatBandeja(detalleBandejaActual, {});
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ const b = $('btnSugerirIA' + id); if (b) { b.disabled = false; b.textContent = '✨ Sugerir respuesta'; } }
+}
+function insertarSugerenciaIA(id){
+  if (!sugerenciaIaActual || sugerenciaIaActual.conversacionId !== id) return;
+  composerModoActual[id] = 'responder';
+  borradoresComposer[id + ':responder'] = sugerenciaIaActual.texto;
+  sugerenciaIaActual = null;
+  if (detalleBandejaActual) renderChatBandeja(detalleBandejaActual, {});
+  const el = $('composerBandeja' + id); if (el) el.focus();
+}
+function descartarSugerenciaIA(){
+  sugerenciaIaActual = null;
+  if (detalleBandejaActual) renderChatBandeja(detalleBandejaActual, {});
+}
+
+// ---------------- Bandeja: ficha contextual (derecha) ----------------
+// Coincidencia con Bsale: SIEMPRE heurística por teléfono, nunca verificada
+// a mano (ver buscarClienteBsalePorTelefono en api/negocio.js) -- se marca
+// explícitamente "por confirmar", nunca como identidad confirmada.
+function fichaBsaleHtml(clienteBsale){
+  if (!clienteBsale) return '<div class="ficha-fila"><span>Bsale</span><b class="sub">Sin coincidencia</b></div>';
+  return `<div class="ficha-fila"><span>Bsale</span><b><span class="badge b-ambar" title="Coincidencia automática por teléfono -- todavía sin confirmar a mano">🔍 ${escapeHtml(clienteBsale.nombre)} (por confirmar)</span></b></div>`;
+}
+function renderFichaBandeja(data){
+  const c = data.conversacion, ct = data.contacto, ai = data.analisisIa;
+  const resInfo = resultadoComercialInfo(c);
+
+  let proximaAccionHtml;
+  if (c.requiereSeguimiento) {
+    proximaAccionHtml = `
+      <div class="ficha-fila"><span>Acción pendiente</span><b style="text-align:left;max-width:200px;">${escapeHtml(c.seguimientoObservaciones || 'Hacer seguimiento')}</b></div>
+      <div class="ficha-fila"><span>Fecha</span><b>${c.seguimientoEn ? fmtFecha(c.seguimientoEn) : '—'}</b></div>
+      <div class="ficha-fila"><span>Estado</span><b><span class="badge ${SEGUIMIENTO_ESTADO_BADGE[c.seguimientoEstado] || 'b-gris'}">${SEGUIMIENTO_ESTADO_LABEL[c.seguimientoEstado] || c.seguimientoEstado || 'Pendiente'}</span></b></div>`;
+  } else if (resInfo.clave === 'en_seguimiento' && c.bsaleDocumentoNumero && !c.venta) {
+    proximaAccionHtml = `<div class="ficha-fila"><span>Acción pendiente</span><b style="text-align:left;">Confirmar venta sugerida (Bsale)</b></div>`;
+  } else {
+    proximaAccionHtml = `<div class="ficha-fila"><span>Acción pendiente</span><b class="sub">Ninguna registrada</b></div>`;
+  }
+
+  $('panelFichaBandeja').innerHTML = `
+    <div class="ficha-bandeja-head">
+      <h2 style="font-size:13.5px;margin:0;">Ficha del cliente</h2>
+      <button class="btn-ghost btn-compact btn-cerrar-panel-movil" onclick="cerrarFichaMovil()">✕</button>
+    </div>
+    <div class="ficha-bandeja-body">
+      <div class="ficha-grupo">
+        <h3>👤 Cliente</h3>
+        <div class="ficha-fila"><span>Nombre</span><b>${escapeHtml(ct?.nombre || 'Sin nombre')}</b></div>
+        <div class="ficha-fila"><span>Teléfono</span><b>${escapeHtml(ct?.telefono || '—')}</b></div>
+        <div class="ficha-fila"><span>1ª conversación</span><b>${fmtFecha(ct?.primeraConversacionEn)}</b></div>
+        <div class="ficha-fila"><span>Última conversación</span><b>${fmtFecha(ct?.ultimaConversacionEn)}</b></div>
+        ${fichaBsaleHtml(data.clienteBsale)}
+      </div>
+      <div class="ficha-grupo">
+        <h3>⚙️ Gestión</h3>
+        <div class="ficha-fila"><span>Estado</span><b><select onchange="guardarCampoConvBandeja(${c.id}, 'estado', this.value)" style="font-size:12px;">${WHATSAPP_ESTADOS_ATENCION_EDITABLES.map(e => `<option value="${e}" ${e === c.estado ? 'selected' : ''}>${ESTADO_LABEL[e]}</option>`).join('')}</select></b></div>
+        <div class="ficha-fila"><span>Responsable</span><b><select onchange="guardarCampoConvBandeja(${c.id}, 'responsableId', this.value)" style="font-size:12px;">${opcionesResponsable(c.responsableId, false)}</select></b></div>
+        <div class="ficha-fila"><span>Prioridad</span><b><select disabled style="font-size:12px;" title="Todavía no es un campo propio del sistema -- no se guarda ninguna prioridad hoy, así que no se puede editar algo que no existe."><option>Normal</option></select></b></div>
+      </div>
+      <div class="ficha-grupo">
+        <h3>✨ Resumen IA</h3>
+        ${ai ? `
+          <div class="ficha-fila"><span>Resumen</span><b style="text-align:left;max-width:200px;">${escapeHtml(ai.resumen || 'Por confirmar')}</b></div>
+          <div class="ficha-fila"><span>Intención</span><b>${ai.intencion ? (INTENCION_LABEL[ai.intencion] || ai.intencion) : 'Por confirmar'} <span class="sub" style="font-size:9.5px;">(${origenCampoLabel(c, 'intencion')})</span></b></div>
+          <div class="ficha-fila"><span>Categoría</span><b>${ai.categoria ? (CATEGORIA_LABEL[ai.categoria] || ai.categoria) : 'Por confirmar'}</b></div>
+          <div class="ficha-fila"><span>Producto/modelo</span><b>${productoDisplayHtml(c)} <span class="sub" style="font-size:9.5px;">(${origenCampoLabel(c, 'modelo')})</span></b></div>
+          <div class="ficha-fila"><span>Prob. de compra</span><b>${probabilidadDisplayHtml(c)}</b></div>
+        ` : `<p class="sub">Sin análisis todavía. <button class="btn-ghost btn-compact" onclick="analizarConversacionIA(${c.id})">🤖 Analizar con IA</button></p>`}
+      </div>
+      <div class="ficha-grupo">
+        <h3>📅 Próxima acción</h3>
+        ${proximaAccionHtml}
+        <button class="btn-ghost btn-compact" style="margin-top:8px;" onclick="programarSeguimientoBandeja(${c.id})">📅 Programar seguimiento</button>
+      </div>
+      <details class="ficha-colapsable">
+        <summary>🛒 Compras y pedidos</summary>
+        <div class="ficha-fila"><span>Resultado comercial</span><b><span class="badge ${resInfo.badge}">${resInfo.label}</span></b></div>
+        ${c.shopifyProductoUrl ? `<div class="ficha-fila"><span>Shopify</span><b>${shopifyCellHtml(c)}</b></div>` : ''}
+        <div class="ficha-fila"><span>Venta</span><b>${ventaCellHtml(c)}</b></div>
+        ${!c.venta ? `<div class="ficha-fila"><span></span><b><button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id}, ${c.bsaleDocumentoMonto || 0}, '${escapeHtml(c.bsaleDocumentoNumero || '')}')">${c.bsaleDocumentoNumero ? 'Confirmar esta venta' : 'Asociar venta'}</button></b></div>` : ''}
+        ${c.motivoPerdida ? `<div class="ficha-fila"><span>Motivo de pérdida</span><b>${MOTIVO_PERDIDA_LABEL[c.motivoPerdida] || escapeHtml(c.motivoPerdida)} <span class="sub" style="font-size:9.5px;">(${origenCampoLabel(c, 'motivo_perdida')})</span></b></div>` : ''}
+      </details>
+      <details class="ficha-colapsable">
+        <summary>🏷️ Etiquetas</summary>
+        <div style="padding:6px 0;">${(data.etiquetas || []).map(e => `<span class="etiqueta-chip">${escapeHtml(e)}</span>`).join('') || '<span class="sub">Sin etiquetas.</span>'}</div>
+      </details>
+      <details class="ficha-colapsable">
+        <summary>🕓 Historial y auditoría</summary>
+        <div style="padding:6px 0;">
+          ${(data.auditoria || []).slice(0, 8).map(a => `<div class="ficha-fila"><span>${fmtFechaHora(a.fecha)}</span><b style="text-align:left;max-width:200px;">${escapeHtml(a.detalle)}</b></div>`).join('') || '<span class="sub">Sin registros.</span>'}
+        </div>
+      </details>
+    </div>
+  `;
+}
+
+// ---------------- Responsive: navegación lista/chat/ficha en pantallas chicas ----------------
+function mostrarPanelMovil(cual){
+  if (cual === 'ficha') {
+    $('panelFichaBandeja').classList.add('abierta-movil');
+    const o = $('overlayFichaMovil'); if (o) o.classList.add('abierto');
+    return;
+  }
+  cerrarFichaMovil();
+  const lista = $('panelLista'), chat = $('panelChat');
+  if (lista) lista.classList.toggle('activa', cual === 'lista');
+  if (chat) chat.classList.toggle('activa', cual === 'chat');
+}
+function cerrarFichaMovil(){
+  const f = $('panelFichaBandeja'); if (f) f.classList.remove('abierta-movil');
+  const o = $('overlayFichaMovil'); if (o) o.classList.remove('abierto');
+}
+
+// ---------------- Tabla de supervisión (columnas reducidas por defecto) ----------------
+// Ordena solo las filas de la página actual (esta tabla pagina server-side
+// y ordenar el dataset completo implicaría un cambio de API más grande) --
+// mismo criterio de siempre, extendido a las columnas nuevas.
+function flechaConv(campo){
+  if (convState.orden === campo + '_asc') return ' ▲';
+  if (convState.orden === campo + '_desc') return ' ▼';
+  return '';
+}
 function ordenarConv(campo){
   convState.orden = convState.orden === campo + '_desc' ? campo + '_asc' : campo + '_desc';
   renderTheadConv();
   renderTablaConv(convState.ultimaData || []);
 }
-async function cargarConversaciones(){
-  const params = new URLSearchParams({ page: convState.page, pageSize: convState.pageSize, q: convState.q });
-  for (const [k, v] of Object.entries(convState.filtros)) if (v) params.set(k, v);
-  try{
-    const res = await fetch('/api/negocio?recurso=whatsapp-conversaciones&' + params.toString());
-    const data = await res.json();
-    if (!res.ok || data.error) { $('tablaConv').innerHTML = `<tr><td colspan="14" class="empty-note">${data.error || 'Error al cargar.'}</td></tr>`; return; }
-    convState.total = data.total; convState.totalPaginas = data.totalPaginas; convState.ultimaData = data.conversaciones;
-    renderTablaConv(data.conversaciones);
-    renderPaginacionConv();
-    renderChipFiltroMotivo();
-  }catch(err){
-    $('tablaConv').innerHTML = `<tr><td colspan="14" class="empty-note">Error: ${escapeHtml(err.message)}</td></tr>`;
-  }
+function toggleColumnasExtendidas(){
+  convState.columnasExtendidas = !convState.columnasExtendidas;
+  $('btnColumnasExtendidas').textContent = convState.columnasExtendidas ? '➖ Menos columnas' : '➕ Más columnas';
+  renderTheadConv();
+  renderTablaConv(convState.ultimaDataOrdenada || convState.ultimaData || []);
+}
+function renderTheadConv(){
+  const ext = convState.columnasExtendidas;
+  $('theadConv').innerHTML = `
+    <th>Cliente</th>
+    <th class="ordenable" onclick="ordenarConv('fecha')">Última interacción${flechaConv('fecha')}</th>
+    <th class="ordenable" onclick="ordenarConv('estado')">Estado de atención${flechaConv('estado')}</th>
+    <th class="ordenable" onclick="ordenarConv('responsable')">Responsable${flechaConv('responsable')}</th>
+    <th>Próxima acción</th>
+    <th>Alerta principal</th>
+    ${ext ? `
+      <th>Teléfono</th>
+      <th>Último mensaje</th>
+      <th class="ordenable" onclick="ordenarConv('intencion')">Intención${flechaConv('intencion')}</th>
+      <th>Producto</th><th>Shopify</th>
+      <th class="ordenable" onclick="ordenarConv('respuesta')">1ª respuesta${flechaConv('respuesta')}</th>
+      <th class="ordenable" onclick="ordenarConv('probabilidad')">Prob. compra${flechaConv('probabilidad')}</th>
+      <th class="ordenable" onclick="ordenarConv('resultado')">Resultado comercial${flechaConv('resultado')}</th>
+      <th class="amount ordenable" onclick="ordenarConv('venta')">Venta${flechaConv('venta')}</th>
+      <th>IA</th>
+    ` : ''}
+  `;
 }
 function renderTablaConv(lista){
-  if (!lista.length) { $('tablaConv').innerHTML = '<tr><td colspan="15" class="empty-note">No hay conversaciones que calcen con los filtros.</td></tr>'; return; }
+  const colspan = convState.columnasExtendidas ? 17 : 6;
+  if (!lista.length) { $('tablaConv').innerHTML = `<tr><td colspan="${colspan}" class="empty-note">No hay conversaciones que calcen con los filtros.</td></tr>`; return; }
   let ordenada = [...lista];
   const VALOR_ORDEN_CONV = {
-    fecha: c => new Date(c.fecha).getTime(),
+    fecha: c => new Date(c.ultimoMensajeEn || c.fecha).getTime(),
     respuesta: c => c.primeraRespuestaSegundos ?? Infinity,
-    estado: c => ESTADO_LABEL[c.estado] || c.estado || '',
+    estado: c => estadoAtencionInfo(c).label,
     intencion: c => (c.intencion ? (INTENCION_LABEL[c.intencion] || c.intencion) : ''),
     probabilidad: c => c.probabilidadCompra ?? -1,
-    resultado: c => RESULTADO_LABEL[c.resultado] || c.resultado || '',
+    resultado: c => resultadoComercialInfo(c).label,
     venta: c => c.montoVenta || c.bsaleDocumentoMonto || 0,
     responsable: c => c.responsableNombre || c.vendedorDetectado || '',
   };
@@ -455,29 +1050,33 @@ function renderTablaConv(lista){
       return dir === 'asc' ? cmp : -cmp;
     });
   }
-  convState.ultimaDataOrdenada = ordenada; // orden realmente mostrado -- lo usa la navegación "Anterior/Siguiente" del detalle
+  convState.ultimaDataOrdenada = ordenada; // orden realmente mostrado -- lo usa la navegación "Anterior/Siguiente" del modal de detalle
 
-  $('tablaConv').innerHTML = ordenada.map(c => `
+  $('tablaConv').innerHTML = ordenada.map(c => {
+    const info = estadoAtencionInfo(c);
+    const proxima = c.requiereSeguimiento ? `📅 ${c.seguimientoEn ? fmtFecha(c.seguimientoEn) : 'Seguimiento'}` : '<span class="sub">—</span>';
+    return `
     <tr class="fila-clic" onclick="abrirConversacion(${c.id}, 'conversaciones')">
-      <td>${fmtFechaHora(c.fecha)}</td>
-      <td>${escapeHtml(c.clienteNombre || 'Sin nombre')}${c.cantidadImagenes > 0 ? ` <span title="${c.cantidadImagenes} foto(s) en esta conversación">📷</span>` : ''}${c.fuenteTipo ? ` <span title="${escapeHtml(fuenteInfo(c).texto)}">${fuenteInfo(c).icono}</span>` : ''}</td>
-      <td>${escapeHtml(c.clienteTelefono || '—')}</td>
-      <td>${badgeEstado(c.estado)}</td>
-      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.ultimoMensaje || '—')}</td>
-      <td>${c.intencion ? (INTENCION_LABEL[c.intencion] || c.intencion) : '—'}</td>
-      <td>${productoDisplayHtml(c)}</td>
-      <td>${shopifyCellHtml(c)}</td>
-      <td>${c.primeraRespuestaSegundos != null ? fmtDuracion(c.primeraRespuestaSegundos) : (c.cantidadMensajes > 0 ? '<span class="badge b-rojo">Sin respuesta</span>' : '—')}</td>
-      <td>${semaforoHtml(c.probabilidadCompra)}</td>
-      <td>${badgeResultado(c.resultado)}</td>
-      <td class="amount">${ventaCellHtml(c)}</td>
+      <td>${escapeHtml(c.clienteNombre || 'Sin nombre')}${c.cantidadImagenes > 0 ? ' 📷' : ''}</td>
+      <td>${fmtFechaHora(c.ultimoMensajeEn || c.fecha)}</td>
+      <td><span class="badge ${info.badge}">${info.label}</span></td>
       <td>${responsableCellHtml(c)}</td>
-      <td>${alertasConversacion(c)}</td>
-      <td>${c.analisisDesactualizado
-        ? `<button class="btn-ghost btn-compact" title="Nunca analizada, o llegaron mensajes nuevos después del último análisis" onclick="event.stopPropagation(); analizarDesdeListado(${c.id}, this)">🤖 Analizar</button>`
-        : ''}</td>
+      <td>${proxima}</td>
+      <td>${alertaPrincipalHtml(c)}</td>
+      ${convState.columnasExtendidas ? `
+        <td>${escapeHtml(c.clienteTelefono || '—')}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.ultimoMensaje || '—')}</td>
+        <td>${c.intencion ? (INTENCION_LABEL[c.intencion] || c.intencion) : '—'}</td>
+        <td>${productoDisplayHtml(c)}</td>
+        <td>${shopifyCellHtml(c)}</td>
+        <td>${c.primeraRespuestaSegundos != null ? fmtDuracion(c.primeraRespuestaSegundos) : (c.cantidadMensajes > 0 ? '<span class="badge b-rojo">Sin respuesta</span>' : '—')}</td>
+        <td>${probabilidadDisplayHtml(c)}</td>
+        <td>${(() => { const r = resultadoComercialInfo(c); return `<span class="badge ${r.badge}">${r.label}</span>`; })()}</td>
+        <td class="amount">${ventaCellHtml(c)}</td>
+        <td>${c.analisisDesactualizado ? `<button class="btn-ghost btn-compact" title="Nunca analizada, o llegaron mensajes nuevos después del último análisis" onclick="event.stopPropagation(); analizarDesdeListado(${c.id}, this)">🤖 Analizar</button>` : ''}</td>
+      ` : ''}
     </tr>
-  `).join('');
+  `;}).join('');
 }
 // Analizar con IA una conversación directo desde el listado (sin tener que
 // abrirla) -- botón solo visible si analisisDesactualizado (ver
@@ -507,7 +1106,6 @@ function renderPaginacionConv(){
     </span>
   `;
 }
-function irPaginaConv(p){ convState.page = p; cargarConversaciones(); }
 
 // ---- Detalle de conversación (modal, punto 11/12/13) ----
 let conversacionAbiertaId = null;

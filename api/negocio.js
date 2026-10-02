@@ -172,6 +172,8 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-etiquetas') return manejarWhatsappEtiquetas(req, res, sesion);
   if (recurso === 'whatsapp-venta') return manejarWhatsappVenta(req, res, sesion);
   if (recurso === 'whatsapp-enviar-mensaje') return manejarWhatsappEnviarMensaje(req, res, sesion);
+  if (recurso === 'whatsapp-nota-interna') return manejarWhatsappNotaInterna(req, res, sesion);
+  if (recurso === 'whatsapp-sugerir-respuesta') return manejarWhatsappSugerirRespuesta(req, res, sesion);
   if (recurso === 'whatsapp-analizar') return manejarWhatsappAnalizar(req, res, sesion);
   if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
   if (recurso === 'whatsapp-reanalizar-desactualizadas') return manejarWhatsappReanalizarDesactualizadas(req, res, sesion);
@@ -6177,10 +6179,33 @@ async function manejarWhatsappDashboard(req, res, sesion) {
 // no se presta bien para eso. Se usa sql.query(texto, params), mismo
 // mecanismo parametrizado que ya usa el resto del proyecto para inserts
 // masivos -> nunca se concatena el VALOR del usuario directo en el texto.
-function armarFiltrosConversacionesWhatsapp(query) {
+// Criterio único de "pendiente de primera respuesta" (rediseño bandeja):
+// nunca se respondió nada todavía Y la conversación sigue abierta. Se
+// centraliza acá porque se usa en 3 lugares que deben coincidir siempre
+// (filtro de la pestaña "Pendientes", el indicador "X sin responder" de
+// arriba, y el estado de atención "Pendiente" que se muestra por fila) --
+// basado en datos reales (primera_respuesta_segundos), nunca en el enum
+// "estado" que puede quedar desactualizado si nadie lo tocó a mano.
+function condicionPendienteSQL() {
+  return `c.estado <> 'cerrada' AND (c.cantidad_mensajes = 0 OR c.primera_respuesta_segundos IS NULL)`;
+}
+
+// "sesion" es opcional (solo hace falta para resolver query.vista==='mias') --
+// se agrega como segundo parámetro en vez de crear una función aparte para
+// no duplicar los ~20 filtros de abajo, que son idénticos para la bandeja
+// nueva y la tabla de supervisión (mismo endpoint, mismo WHERE base).
+function armarFiltrosConversacionesWhatsapp(query, sesion) {
   const cond = [];
   const params = [];
   const p = (valor) => { params.push(valor); return `$${params.length}`; };
+
+  // Pestañas de la bandeja (rediseño): "pendientes" usa el mismo criterio
+  // de datos reales que el indicador "sin responder" (ver
+  // condicionPendienteSQL más abajo, reutilizado también para los
+  // contadores) -- nunca un enum que pueda quedar desactualizado.
+  if (query.vista === 'pendientes') cond.push(condicionPendienteSQL());
+  else if (query.vista === 'mias' && sesion?.uid) cond.push(`c.responsable_id = ${p(sesion.uid)}`);
+  // 'todas' o vacío: sin condición extra.
 
   if (query.desde) cond.push(`c.iniciada_en >= ${p(query.desde + 'T00:00:00')}`);
   if (query.hasta) cond.push(`c.iniciada_en <= ${p(query.hasta + 'T23:59:59')}`);
@@ -6254,7 +6279,15 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
     await asegurarTablaWhatsapp(sql);
 
     if (req.method === 'GET') {
-      const { where, params } = armarFiltrosConversacionesWhatsapp(req.query);
+      // El listado real SÍ filtra por la pestaña activa (query.vista), pero
+      // los contadores de las pestañas/indicadores deben verse TODOS con
+      // el mismo denominador (los demás filtros -- fecha/estado/etc --
+      // aplicados, pero NUNCA la pestaña en sí) para que, parado en
+      // "Pendientes", igual se vea cuántas hay en "Mías"/"Todas". Por eso
+      // se arman dos WHERE distintos a partir del mismo query: uno con
+      // vista (para la página) y otro sin ella (para los contadores).
+      const { where, params } = armarFiltrosConversacionesWhatsapp(req.query, sesion);
+      const { where: whereContadores, params: paramsContadores } = armarFiltrosConversacionesWhatsapp({ ...req.query, vista: undefined }, sesion);
       const page = Math.max(1, parseInt(req.query.page, 10) || 1);
       const pageSize = Math.min(200, Math.max(10, parseInt(req.query.pageSize, 10) || 25));
       const offset = (page - 1) * pageSize;
@@ -6269,12 +6302,38 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
       const { rows: totalRows } = await sql.query(`SELECT COUNT(*)::int AS n ${sqlBase}`, params);
       const total = totalRows[0]?.n || 0;
 
+      // Contadores de la bandeja (pestañas + indicadores compactos) -- ver
+      // comentario de arriba sobre por qué usan whereContadores en vez de
+      // where. Una sola pasada con FILTER en vez de varias queries.
+      const sqlBaseContadores = `
+        FROM whatsapp_conversaciones c
+        JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+        LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+        LEFT JOIN usuarios u ON u.id = c.responsable_id
+        ${whereContadores}
+      `;
+      const paramMiId = sesion?.uid ? `$${paramsContadores.length + 1}` : 'NULL';
+      const paramsConMiId = sesion?.uid ? [...paramsContadores, sesion.uid] : paramsContadores;
+      const { rows: contadorRows } = await sql.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE ${condicionPendienteSQL()})::int AS pendientes,
+           COUNT(*) FILTER (WHERE c.responsable_id = ${paramMiId})::int AS mias,
+           COUNT(*)::int AS todas,
+           COUNT(*) FILTER (WHERE c.responsable_id IS NULL)::int AS sin_asignar,
+           COUNT(*) FILTER (WHERE c.requiere_seguimiento = true AND c.seguimiento_en IS NOT NULL
+             AND (c.seguimiento_en AT TIME ZONE 'America/Santiago')::date <= (now() AT TIME ZONE 'America/Santiago')::date
+             AND COALESCE(c.seguimiento_estado, 'pendiente') = 'pendiente')::int AS seguimientos_hoy_o_vencidos
+         ${sqlBaseContadores}`,
+        paramsConMiId
+      );
+
       const paramsConPaginacion = [...params, pageSize, offset];
       const { rows } = await sql.query(
         `SELECT
            c.id, c.iniciada_en, c.estado, c.intencion, c.categoria, c.producto, c.marca, c.modelo,
            c.primera_respuesta_segundos, c.resultado, c.motivo_perdida, c.venta_detectada, c.venta_monto,
-           c.requiere_seguimiento, c.cantidad_mensajes, c.ultimo_mensaje_resumen, c.responsable_id, c.vendedor_detectado,
+           c.requiere_seguimiento, c.seguimiento_en, c.seguimiento_estado, c.seguimiento_observaciones, c.cantidad_mensajes, c.ultimo_mensaje_resumen,
+           c.responsable_id, c.vendedor_detectado, c.campos_editados_manualmente,
            c.shopify_producto_url, c.shopify_producto_titulo, c.shopify_producto_confianza,
            c.bsale_documento_numero, c.bsale_documento_tipo, c.bsale_documento_monto, c.bsale_documento_fecha, c.bsale_documento_url,
            c.fuente_tipo, c.fuente_titulo, c.fuente_url, c.fuente_id, c.fuente_utm_source,
@@ -6283,6 +6342,14 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
            a.probabilidad_compra,
            u.nombre AS responsable_nombre,
            (SELECT COUNT(*)::int FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.tipo = 'imagen') AS cantidad_imagenes,
+           -- Dirección y hora del ÚLTIMO mensaje real (no la primera
+           -- respuesta) -- de esto depende el estado de atención en vivo
+           -- del rediseño (Pendiente/En atención/Esperando al cliente):
+           -- 'in' = esperando que el agente conteste, 'out' = esperando al
+           -- cliente. Dato real, no un enum que alguien pueda olvidar
+           -- actualizar.
+           (SELECT m.direccion FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id ORDER BY m.marca_tiempo DESC LIMIT 1) AS ultimo_mensaje_direccion,
+           (SELECT m.marca_tiempo FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id ORDER BY m.marca_tiempo DESC LIMIT 1) AS ultimo_mensaje_en,
            -- Para el botón "Analizar con IA" del listado (no solo dentro del
            -- detalle): true si nunca se analizó, o si llegaron mensajes
            -- nuevos después del último análisis (mismo criterio que
@@ -6298,9 +6365,14 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
         paramsConPaginacion
       );
 
+      const ct = contadorRows[0] || {};
       return res.status(200).json({
         conversaciones: rows.map(mapearConversacionWhatsapp),
         total, page, pageSize, totalPaginas: Math.max(1, Math.ceil(total / pageSize)),
+        contadores: {
+          pendientes: ct.pendientes || 0, mias: ct.mias || 0, todas: ct.todas || 0,
+          sinAsignar: ct.sin_asignar || 0, seguimientosHoyOVencidos: ct.seguimientos_hoy_o_vencidos || 0,
+        },
       });
     }
 
@@ -6409,9 +6481,15 @@ function mapearConversacionWhatsapp(r) {
     venta: r.venta_detectada,
     montoVenta: r.venta_monto != null ? Number(r.venta_monto) : null,
     requiereSeguimiento: r.requiere_seguimiento,
+    seguimientoEn: r.seguimiento_en || null,
+    seguimientoEstado: r.seguimiento_estado || null,
+    seguimientoObservaciones: r.seguimiento_observaciones || null,
     responsableId: r.responsable_id,
     responsableNombre: r.responsable_nombre,
     vendedorDetectado: r.vendedor_detectado,
+    camposEditadosManualmente: r.campos_editados_manualmente || [],
+    ultimoMensajeDireccion: r.ultimo_mensaje_direccion || null,
+    ultimoMensajeEn: r.ultimo_mensaje_en ? new Date(r.ultimo_mensaje_en).toISOString() : null,
     shopifyProductoUrl: r.shopify_producto_url,
     shopifyProductoTitulo: r.shopify_producto_titulo,
     shopifyProductoConfianza: r.shopify_producto_confianza,
@@ -6469,6 +6547,11 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
       WHERE ce.conversacion_id = ${id};
     `;
     const { rows: ventaRows } = await sql`SELECT * FROM whatsapp_ventas WHERE conversacion_id = ${id} ORDER BY created_at DESC LIMIT 1;`;
+    const { rows: notasInternas } = await sql`
+      SELECT n.id, n.texto, n.created_at, u.nombre AS autor_nombre
+      FROM whatsapp_notas_internas n LEFT JOIN usuarios u ON u.id = n.usuario_id
+      WHERE n.conversacion_id = ${id} ORDER BY n.created_at ASC;
+    `;
 
     // Ventana de 24h de WhatsApp: solo se puede mandar texto libre si el
     // cliente escribió dentro de las últimas 24h desde su último mensaje
@@ -6509,6 +6592,7 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
       } : null,
       etiquetas: etiquetas.map(e => e.nombre),
       auditoria: auditoria.map(a => ({ accion: a.accion, detalle: a.detalle, usuario: a.usuario_email, fecha: a.created_at })),
+      notasInternas: notasInternas.map(n => ({ id: n.id, texto: n.texto, fecha: n.created_at, autor: n.autor_nombre || '—' })),
       venta: ventaRows[0] ? {
         pedidoExterno: ventaRows[0].pedido_externo, fecha: ventaRows[0].fecha_venta,
         monto: ventaRows[0].monto != null ? Number(ventaRows[0].monto) : null,
@@ -6516,6 +6600,59 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error al cargar el detalle de la conversación', detail: String(err) });
+  }
+}
+
+// ---- Nota interna (rediseño bandeja): texto visible solo para el equipo,
+// nunca se manda por WhatsApp. Ver whatsapp_notas_internas en lib/db.js. ----
+async function manejarWhatsappNotaInterna(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { conversacionId, texto } = req.body || {};
+  if (!conversacionId || !texto || !String(texto).trim()) return res.status(400).json({ error: 'Falta conversacionId o texto' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const { rows: convRows } = await sql`SELECT id FROM whatsapp_conversaciones WHERE id = ${conversacionId};`;
+    if (!convRows[0]) return res.status(404).json({ error: 'Conversación no encontrada' });
+
+    const textoLimpio = String(texto).trim().slice(0, 2000);
+    const { rows: notaRows } = await sql`
+      INSERT INTO whatsapp_notas_internas (conversacion_id, usuario_id, texto)
+      VALUES (${conversacionId}, ${sesion.uid || null}, ${textoLimpio})
+      RETURNING id, created_at;
+    `;
+    return res.status(200).json({
+      ok: true,
+      nota: { id: notaRows[0].id, texto: textoLimpio, fecha: notaRows[0].created_at, autor: sesion.nombre || sesion.email },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al guardar la nota interna', detail: String(err) });
+  }
+}
+
+// ---- Sugerencia de respuesta de IA (rediseño bandeja): SOLO arma un
+// borrador para que el agente lo revise en el composer -- nunca se envía
+// automáticamente (ver manejarWhatsappEnviarMensaje para el único camino
+// real de envío, que sigue siendo 100% manual). No se persiste en la base:
+// es una sugerencia de un solo uso, no un campo de la conversación.
+async function manejarWhatsappSugerirRespuesta(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { conversacionId } = req.body || {};
+  if (!conversacionId) return res.status(400).json({ error: 'Falta conversacionId' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const resultado = await generarSugerenciaRespuesta(sql, conversacionId);
+    if (!resultado.ok) {
+      const mensajes = {
+        sin_api_key: 'No hay ninguna API de IA configurada en el servidor (GEMINI_API_KEY o ANTHROPIC_API_KEY).',
+        sin_mensajes: 'Esta conversación todavía no tiene mensajes para sugerir una respuesta.',
+      };
+      return res.status(200).json({ error: mensajes[resultado.motivo] || 'No se pudo generar una sugerencia.' });
+    }
+    return res.status(200).json({ ok: true, borrador: resultado.borrador });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al generar la sugerencia de respuesta', detail: String(err) });
   }
 }
 
@@ -8164,6 +8301,89 @@ async function llamarClaudeAnalisis(systemPrompt, contenido) {
   const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
   if (!bloqueHerramienta) throw new Error('La IA no devolvió un análisis estructurado');
   return bloqueHerramienta.input || {};
+}
+
+// ---- Sugerencia de respuesta (rediseño bandeja) -- mismo patrón Gemini-
+// primero/Claude-de-respaldo que el Análisis IA, pero sin "tool use"
+// forzado: acá solo hace falta texto libre corto, no un JSON estructurado.
+// Nunca escribe en la base ni manda nada a WhatsApp -- devuelve el
+// borrador para que manejarWhatsappSugerirRespuesta lo entregue al
+// frontend, que lo muestra como propuesta a revisar (ver composer en
+// clientes-whatsapp.js).
+async function llamarGeminiTexto(systemPrompt, prompt) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('sin_gemini_api_key');
+  const respuesta = await fetchConTimeout(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ANALISIS}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 300 },
+      }),
+    },
+    20000
+  );
+  if (!respuesta.ok) {
+    const texto = await respuesta.text().catch(() => '');
+    throw new Error(`Gemini HTTP ${respuesta.status}: ${texto.slice(0, 300)}`);
+  }
+  const dataIA = await respuesta.json();
+  const texto = (dataIA.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
+  if (!texto) throw new Error('Gemini no devolvió texto');
+  return texto;
+}
+async function llamarClaudeTexto(systemPrompt, prompt) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('sin_anthropic_api_key');
+  const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001', max_tokens: 300, system: systemPrompt,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  }, 20000);
+  if (!respuestaIA.ok) {
+    const texto = await respuestaIA.text().catch(() => '');
+    throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
+  }
+  const dataIA = await respuestaIA.json();
+  const bloque = (dataIA.content || []).find(b => b.type === 'text');
+  if (!bloque?.text) throw new Error('Claude no devolvió texto');
+  return bloque.text.trim();
+}
+async function generarSugerenciaRespuesta(sql, conversacionId) {
+  if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) return { ok: false, motivo: 'sin_api_key' };
+  const { rows: mensajes } = await sql`
+    SELECT direccion, tipo, contenido_texto, marca_tiempo FROM whatsapp_mensajes
+    WHERE conversacion_id = ${conversacionId} ORDER BY marca_tiempo DESC LIMIT 12;
+  `;
+  if (mensajes.length === 0) return { ok: false, motivo: 'sin_mensajes' };
+  mensajes.reverse();
+  const { rows: aiRows } = await sql`SELECT resumen FROM whatsapp_analisis_ia WHERE conversacion_id = ${conversacionId};`;
+
+  const systemPrompt = `Eres un asistente que AYUDA a un vendedor humano de IndexStore (tienda chilena de repuestos y servicio técnico de notebooks) a responder un chat de WhatsApp. Tu salida es solo un BORRADOR que el vendedor va a revisar antes de decidir si lo envía -- nunca se envía automáticamente, así que puedes y debes dejar huecos o preguntas si falta información. Escribe en español de Chile, tono cercano y profesional, breve (máximo 3-4 líneas). No inventes precios, stock, plazos de entrega ni datos técnicos que no estén en la conversación -- si el cliente pregunta algo así y no hay información suficiente, sugiere la pregunta o el paso que el vendedor debería dar para confirmarlo, en vez de inventar una respuesta. Responde SOLO con el texto del mensaje sugerido, sin comillas ni explicación aparte.`;
+  const resumenTexto = aiRows[0]?.resumen ? `Resumen de la conversación hasta ahora: ${aiRows[0].resumen}\n\n` : '';
+  const hilo = mensajes.map(m => `${m.direccion === 'in' ? 'Cliente' : 'IndexStore'}: ${m.tipo === 'texto' ? (m.contenido_texto || '') : `[${m.tipo}]`}`).join('\n');
+  const prompt = `${resumenTexto}Últimos mensajes de la conversación:\n${hilo}\n\nEscribe el borrador de respuesta para el vendedor.`;
+
+  let texto, proveedorUsado;
+  try {
+    texto = await llamarGeminiTexto(systemPrompt, prompt);
+    proveedorUsado = 'gemini';
+  } catch (errGemini) {
+    try {
+      texto = await llamarClaudeTexto(systemPrompt, prompt);
+      proveedorUsado = 'claude (respaldo)';
+    } catch (errClaude) {
+      throw new Error(`Gemini: ${errGemini.message} | Claude (respaldo): ${errClaude.message}`);
+    }
+  }
+  console.log(`[generarSugerenciaRespuesta] conversación ${conversacionId} sugerida con ${proveedorUsado}`);
+  return { ok: true, borrador: texto };
 }
 
 // Lógica central del Análisis IA, sin nada de HTTP -- la usa tanto el
