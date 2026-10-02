@@ -9,6 +9,7 @@
 
 import { usuarioDesdeRequest, cookieSesion } from '../lib/auth-node.js';
 import { getSql } from '../lib/db.js';
+import { paginasEfectivas } from '../lib/paginas-perfil.js';
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
@@ -33,7 +34,7 @@ export default async function handler(req, res) {
       } catch { /* se sigue con lo que trae el token */ }
     }
 
-    return res.status(200).json({ email: sesion.email, nombre: sesion.nombre, rol: sesion.rol, paginas });
+    return res.status(200).json({ email: sesion.email, nombre: sesion.nombre, rol: sesion.rol, paginas: paginasEfectivas(paginas) });
   }
 
   if (req.method === 'DELETE') {

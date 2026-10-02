@@ -1,6 +1,7 @@
 // /api/auth-login.js
 import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles, asegurarTablaIntentosLogin } from '../lib/db.js';
 import { verificarPassword, firmarSesion, cookieSesion } from '../lib/auth-node.js';
+import { paginasEfectivas } from '../lib/paginas-perfil.js';
 
 // Protección contra fuerza bruta / credential stuffing: 5 intentos fallidos
 // seguidos (dentro de VENTANA_MIN) bloquean ESE email por
@@ -90,7 +91,7 @@ export default async function handler(req, res) {
     let paginas = null;
     if (usuario.rol !== 'admin' && usuario.perfil_id) {
       const { rows: perfilRows } = await sql`SELECT paginas FROM perfiles WHERE id = ${usuario.perfil_id};`;
-      if (perfilRows[0]) paginas = perfilRows[0].paginas;
+      if (perfilRows[0]) paginas = paginasEfectivas(perfilRows[0].paginas);
     }
 
     // Si la cuenta tiene expiración, la cookie de sesión hereda ese

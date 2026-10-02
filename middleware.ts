@@ -30,6 +30,7 @@ const RUTAS_PUBLICAS = new Set([
 // qué: la sesión ya no confía en la foto que quedó guardada en el token
 // al momento del login).
 import { getSql } from './lib/db.js';
+import { paginasEfectivas } from './lib/paginas-perfil.js';
 
 // El webhook de WhatsApp lo llama Meta directo, sin la cookie de sesión de
 // esta app -> tiene que quedar público. Vive multiplexado dentro de
@@ -222,6 +223,7 @@ export default async function middleware(req) {
     } catch {
       // Se sigue con lo que trae el token (ver comentario de arriba).
     }
+    paginas = paginasEfectivas(paginas);
     if (Array.isArray(paginas)) {
       const permitido = paginas.some(p => `/${p}` === pathname);
       if (!permitido) {

@@ -4408,7 +4408,7 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
       .sort((a, b) => b.dias - a.dias);
 
     const envios = [];
-    const urlPagina = 'https://erp.indexstore.cl/oportunidades-comerciales.html';
+    const urlPagina = 'https://erp.indexstore.cl/cotizaciones-clientes.html';
     const filaCot = c => `<li><b>${c.cliente}</b> — $${Math.round(c.monto).toLocaleString('es-CL')} — ${c.dias} días sin contacto</li>`;
 
     // ---------- 1) Resumen diario, agrupado por vendedor ----------

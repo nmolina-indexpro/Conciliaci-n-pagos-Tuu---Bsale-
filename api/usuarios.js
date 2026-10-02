@@ -7,6 +7,7 @@ import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles, asegurarTablaNoti
 import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo } from '../lib/mailer.js';
 import { TIPOS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto } from '../lib/notificaciones.js';
+import { paginasEfectivas, paginasParaGuardar } from '../lib/paginas-perfil.js';
 
 // Páginas que se pueden marcar en un perfil de acceso (ver
 // asegurarTablaPerfiles en lib/db.js). No incluye usuarios.html (ya es
@@ -14,7 +15,7 @@ import { TIPOS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto } from '../li
 // reportar-error.html (siempre accesibles, ver middleware.ts).
 const PAGINAS_DISPONIBLES = [
   'home.html', 'index.html', 'conciliacion.html', 'compras.html',
-  'alertas-stock.html', 'productos-en-transito.html', 'oportunidades-comerciales.html', 'sitio-web.html',
+  'alertas-stock.html', 'productos-en-transito.html', 'oportunidades-comerciales.html', 'cotizaciones-clientes.html', 'compra-agil.html', 'metas-de-venta.html', 'sitio-web.html',
   'eficiencia-tickets.html', 'analisis.html', 'servicio-tecnico.html', 'identificacion-modelos.html', 'productos-nuevos.html', 'clientes-whatsapp.html', 'guia-uso.html',
 ];
 
@@ -250,7 +251,7 @@ async function manejarPerfiles(req, res, sql) {
              (SELECT COUNT(*)::int FROM usuarios u WHERE u.perfil_id = p.id) AS usuarios_asignados
       FROM perfiles p ORDER BY p.nombre ASC;
     `;
-    return res.status(200).json({ perfiles: rows, paginasDisponibles: PAGINAS_DISPONIBLES });
+    return res.status(200).json({ perfiles: rows.map(p => ({ ...p, paginas: paginasEfectivas(p.paginas) })), paginasDisponibles: PAGINAS_DISPONIBLES });
   }
 
   if (req.method === 'POST') {
@@ -259,10 +260,10 @@ async function manejarPerfiles(req, res, sql) {
     const paginasValidas = (Array.isArray(paginas) ? paginas : []).filter(p => PAGINAS_DISPONIBLES.includes(p));
     try {
       const { rows } = await sql`
-        INSERT INTO perfiles (nombre, paginas) VALUES (${nombre.trim()}, ${JSON.stringify(paginasValidas)})
+        INSERT INTO perfiles (nombre, paginas) VALUES (${nombre.trim()}, ${JSON.stringify(paginasParaGuardar(paginasValidas))})
         RETURNING id, nombre, paginas, created_at;
       `;
-      return res.status(200).json({ perfil: rows[0] });
+      return res.status(200).json({ perfil: { ...rows[0], paginas: paginasEfectivas(rows[0].paginas) } });
     } catch (err) {
       if (String(err).includes('duplicate key')) return res.status(400).json({ error: 'Ya existe un perfil con ese nombre' });
       throw err;
@@ -276,11 +277,11 @@ async function manejarPerfiles(req, res, sql) {
     await sql`
       UPDATE perfiles SET
         nombre = COALESCE(${nombre || null}, nombre),
-        paginas = COALESCE(${paginasValidas ? JSON.stringify(paginasValidas) : null}, paginas)
+        paginas = COALESCE(${paginasValidas ? JSON.stringify(paginasParaGuardar(paginasValidas)) : null}, paginas)
       WHERE id = ${id};
     `;
     const { rows } = await sql`SELECT id, nombre, paginas, created_at FROM perfiles WHERE id = ${id};`;
-    return res.status(200).json({ perfil: rows[0] });
+    return res.status(200).json({ perfil: rows[0] ? { ...rows[0], paginas: paginasEfectivas(rows[0].paginas) } : rows[0] });
   }
 
   if (req.method === 'DELETE') {

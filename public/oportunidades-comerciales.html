@@ -261,6 +261,9 @@
         <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
         <div class="nav-dropdown-menu" id="navComercial">
           <a href="oportunidades-comerciales.html" class="active">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
           <a href="sitio-web.html">Sitio Web</a>
           <a href="clientes-whatsapp.html">WhatsApp</a>
           <a href="indexscale.html">IndexScale</a>
@@ -296,28 +299,19 @@
 
   <div>
     <h1>Oportunidades <span>Comerciales</span></h1>
-    <div class="sub">Datos de Bsale para aprovechar — puntos por canjear y cotizaciones por cerrar.</div>
+    <div class="sub">Datos de Bsale para aprovechar — clientes con puntos por canjear y oportunidades de Indexpro.</div>
   </div>
 
   <div class="tabs-grandes">
-    <button class="tab-grande" id="tabBtnPuntos" onclick="cambiarTab('puntos')">
+    <button class="tab-grande activo" id="tabBtnPuntos" onclick="cambiarTab('puntos')">
       <div class="titulo">🎁 Puntos Bsale</div>
-    </button>
-    <button class="tab-grande activo" id="tabBtnCotizaciones" onclick="cambiarTab('cotizaciones')">
-      <div class="titulo">📋 Cotizaciones Clientes</div>
     </button>
     <button class="tab-grande" id="tabBtnIndexpro" onclick="cambiarTab('indexpro')">
       <div class="titulo">🏢 Indexpro</div>
     </button>
-    <button class="tab-grande" id="tabBtnCompraAgil" onclick="cambiarTab('compra-agil')">
-      <div class="titulo">🏛️ Compra Ágil</div>
-    </button>
-    <button class="tab-grande" id="tabBtnAccesorios" onclick="cambiarTab('accesorios')">
-      <div class="titulo">🖱️ Panel de Accesorios</div>
-    </button>
   </div>
 
-  <div id="tabPuntos" style="display:none;">
+  <div id="tabPuntos">
     <div class="toolbar">
       <div class="form-inline">
         <div class="campo">
@@ -377,101 +371,6 @@
     </div>
   </div>
 
-  <div id="tabCotizaciones">
-    <div class="cot-head">
-      <div>
-        <h2 style="font-size:20px;">Cotizaciones y ventas</h2>
-        <div class="sub">Gestiona tus cotizaciones, realiza seguimiento y convierte más ventas.</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <div class="cot-sync-pill" id="cotSyncPill"><span class="cot-sync-punto nunca"></span>Bsale — cargando...</div>
-        <button class="btn-ghost btn-compact" onclick="cargarCotizaciones()" title="Vuelve a leer lo ya sincronizado (no consulta Bsale)">↻ Actualizar vista</button>
-        <button class="btn-primary btn-compact" id="btnSincronizarCotizaciones" style="display:none;" onclick="iniciarSincronizacionCotizaciones()" title="Trae cotizaciones y documentos nuevos directo desde Bsale">☁️ Sincronizar con Bsale</button>
-      </div>
-    </div>
-
-    <div class="tabs-sub-cot" id="tabsSubCot">
-      <button class="tab-sub-cot activo" data-subvista="gestion" onclick="cambiarSubVistaCot('gestion')">Gestión</button>
-      <button class="tab-sub-cot" data-subvista="rendimiento" onclick="cambiarSubVistaCot('rendimiento')">Rendimiento</button>
-    </div>
-
-    <!-- Filtros compartidos entre Gestión y Rendimiento (persisten al cambiar de pestaña) -->
-    <div class="cot-filtros-toolbar">
-      <div class="filtro-rango-fechas">
-        <div class="date-field"><label for="cotizacionesDesde">Desde</label><input type="date" id="cotizacionesDesde" onchange="renderTablaCotizaciones()"></div>
-        <div class="date-field"><label for="cotizacionesHasta">Hasta</label><input type="date" id="cotizacionesHasta" onchange="renderTablaCotizaciones()"></div>
-      </div>
-      <button class="btn-ghost btn-compact" id="btnCotHoy" onclick="setRangoRapidoCotizaciones('hoy')">Hoy</button>
-      <button class="btn-ghost btn-compact" id="btnCotSemana" onclick="setRangoRapidoCotizaciones('semana')">Semana</button>
-      <button class="btn-ghost btn-compact" id="btnCotMes" onclick="setRangoRapidoCotizaciones('mes')">Mes actual</button>
-      <button class="btn-ghost btn-compact" id="btnCotMesAnterior" onclick="setRangoRapidoCotizaciones('mes_anterior')">Mes anterior</button>
-      <button class="btn-ghost btn-compact" onclick="limpiarRangoCotizaciones()">✕ Limpiar</button>
-      <div class="campo">
-        <label>Buscar</label>
-        <input type="text" id="buscarCotizacionesInput" placeholder="Cliente, contacto, teléfono o N° cotización..." oninput="renderTablaCotizaciones()" style="width:260px;">
-      </div>
-      <div class="campo">
-        <label>Vendedor</label>
-        <select id="filtroVendedorCotSelect" onchange="renderTablaCotizaciones()" style="min-width:160px;"><option value="">Todos</option></select>
-      </div>
-      <div class="campo">
-        <label>Estado</label>
-        <select id="filtroEstadoCotizacion" onchange="renderTablaCotizaciones()">
-          <option value="">Todos</option>
-          <option value="sin_contactar">Sin contactar</option>
-          <option value="cotizacion_enviada">Cotización enviada</option>
-          <option value="cliente_respondio">Cliente respondió post cotización</option>
-          <option value="contactado">Contactado</option>
-          <option value="contactado_no_responde">Contactado — no responde</option>
-          <option value="contactado_segunda_vez">Contactado 2ª vez</option>
-          <option value="mercado_publico">Mercado Público</option>
-          <option value="perdida">Perdida</option>
-          <option value="facturada">Venta concretada ✓</option>
-        </select>
-      </div>
-      <button class="btn-ghost btn-compact" id="btnMasFiltrosCot" onclick="toggleMasFiltrosCot()">⚙ Más filtros</button>
-    </div>
-    <div class="filtros-panel" id="panelMasFiltrosCot" style="display:none;margin-bottom:10px;">
-      <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;"><input type="checkbox" id="fSoloVencidosCot" onchange="renderTablaCotizaciones()"> Solo seguimientos vencidos</label>
-      <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;"><input type="checkbox" id="fSoloSinContactoCot" onchange="renderTablaCotizaciones()"> Solo sin contacto registrado</label>
-      <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;"><input type="checkbox" id="fSoloRecurrentesCot" onchange="renderTablaCotizaciones()"> Solo clientes recurrentes (2+ compras)</label>
-    </div>
-    <div class="cot-aviso-180" id="avisoCoberturaCot">📅 Trabajamos con los últimos 180 días sincronizados desde Bsale — no consulta Bsale en el momento.</div>
-
-    <div id="statusCotizaciones"></div>
-    <div id="syncCotizacionesWrap"></div>
-
-    <!-- ================= Pestaña Gestión ================= -->
-    <div id="subVistaGestionCot" class="vista-sub-cot activa">
-      <div class="kpis-cot-4" id="kpisCot4"></div>
-
-      <div class="filtros-rapidos-cot" id="filtrosRapidosCot"></div>
-
-      <div id="layoutGestionCot" class="layout-gestion-cot sin-ficha">
-        <div class="seccion" style="margin-bottom:0;">
-          <div id="wrapCotizaciones"><p class="empty-note">Cargando...</p></div>
-          <div class="paginacion-cot" id="paginacionCot"></div>
-        </div>
-        <div class="ficha-lateral-cot" id="fichaLateralCot" style="display:none;"></div>
-      </div>
-    </div>
-    <div class="overlay-ficha-movil" id="overlayFichaCot" onclick="cerrarFichaCotTablet()" style="display:none;position:fixed;inset:0;background:rgba(31,42,36,.4);z-index:140;"></div>
-
-    <!-- ================= Pestaña Rendimiento ================= -->
-    <div id="subVistaRendimientoCot" class="vista-sub-cot">
-      <div class="sub" style="margin-bottom:14px;">Facturado = facturación ya asociada a cotizaciones CREADAS en el rango filtrado arriba (no necesariamente facturas emitidas ese mismo rango) — ver nota en cada tarjeta. Usa el filtro "Vendedor" de arriba para ver solo las cotizaciones de uno.</div>
-      <div class="seccion" id="seccionVendedores">
-        <div class="seccion-head">
-          <div>
-            <h2>🧑‍💼 Comparación de vendedores</h2>
-            <div class="sub">Ordenado de mayor a menor monto vendido (cotizaciones facturadas, deduplicadas) en el rango de fechas filtrado arriba.</div>
-          </div>
-        </div>
-        <div id="wrapVendedores"><p class="empty-note">Cargando...</p></div>
-      </div>
-    </div>
-  </div>
-
   <div id="tabIndexpro" style="display:none;">
     <div class="toolbar">
       <div class="form-inline">
@@ -525,107 +424,6 @@
     </div>
   </div>
 
-  <div id="tabCompraAgil" style="display:none;">
-    <div class="sub" style="margin-top:-4px;">Órdenes de compra recibidas por IndexPro a través de Mercado Público / Compra Ágil (RUT 76.200.548-4), desde el 2026.</div>
-
-    <div class="grid">
-      <div class="card"><div class="lbl">Total facturado</div><div class="big" id="kpiCaTotal">—</div><div class="note">desde el 2026</div></div>
-      <div class="card"><div class="lbl">Órdenes válidas</div><div class="big" id="kpiCaValidas">—</div><div class="note">aceptadas / recepción conforme</div></div>
-      <div class="card"><div class="lbl">Órdenes canceladas</div><div class="big" id="kpiCaCanceladas">—</div><div class="note">no cuentan como facturado</div></div>
-      <div class="card"><div class="lbl">Ticket promedio</div><div class="big" id="kpiCaPromedio">—</div><div class="note">por orden válida</div></div>
-      <div class="card"><div class="lbl">Facturado mes actual</div><div class="big" id="kpiCaMesActual">—</div><div class="note" id="kpiCaMesActualSub"></div></div>
-      <div class="card"><div class="lbl">Facturado mes anterior</div><div class="big" id="kpiCaMesAnterior">—</div><div class="note" id="kpiCaMesAnteriorSub"></div></div>
-    </div>
-
-    <div class="toolbar">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <div class="filtro-rango-fechas">
-          <div class="date-field"><label for="caDesde">Desde</label><input type="date" id="caDesde" onchange="aplicarFiltrosCompraAgil()"></div>
-          <div class="date-field"><label for="caHasta">Hasta</label><input type="date" id="caHasta" onchange="aplicarFiltrosCompraAgil()"></div>
-        </div>
-        <button class="btn-primary" style="padding:9px 14px;" title="Buscar este rango" onclick="aplicarFiltrosCompraAgil()">🔍</button>
-        <button class="btn-ghost btn-compact" id="btnCaHoy" onclick="setRangoRapidoCompraAgil('hoy')">Hoy</button>
-        <button class="btn-ghost btn-compact" id="btnCaSemana" onclick="setRangoRapidoCompraAgil('semana')">Semana</button>
-        <button class="btn-ghost btn-compact" id="btnCaMes" onclick="setRangoRapidoCompraAgil('mes')">Mes actual</button>
-        <button class="btn-ghost btn-compact" id="btnCaMesAnterior" onclick="setRangoRapidoCompraAgil('mes_anterior')">Mes anterior</button>
-        <button class="btn-ghost btn-compact" onclick="limpiarRangoCompraAgil()">✕ Limpiar</button>
-        <div class="campo">
-          <label>Buscar</label>
-          <input type="text" id="caBuscar" placeholder="Organismo..." oninput="aplicarFiltrosCompraAgil()" style="width:220px;">
-        </div>
-        <div class="campo">
-          <label>Estado</label>
-          <select id="caFiltroEstado" onchange="aplicarFiltrosCompraAgil()">
-            <option value="">Todos</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-inline">
-        <button class="btn-ghost btn-compact" onclick="cargarCompraAgil()">↻ Actualizar</button>
-        <button class="btn-primary btn-compact" id="btnSincronizarCompraAgil" style="display:none;" onclick="iniciarSincronizacionCompraAgil()">🔄 Sincronizar con Mercado Público</button>
-      </div>
-    </div>
-
-    <div class="seccion">
-      <div class="seccion-head">
-        <div>
-          <h2>Comparativo de vendedores</h2>
-          <div class="sub" style="margin-bottom:0;">Sólo Bsale registra vendedor, y sólo en las cotizaciones -- las órdenes facturadas de forma directa (sin pasar por una cotización) quedan agrupadas en "Sin vendedor identificado". Respeta el filtro de fecha/organismo/estado de arriba.</div>
-        </div>
-      </div>
-      <div id="wrapVendedoresCompraAgil"><p class="empty-note">Cargando...</p></div>
-    </div>
-
-    <div class="seccion">
-      <div class="seccion-head">
-        <div>
-          <h2>Historial de órdenes de compra</h2>
-          <div class="sub" style="margin-bottom:0;">Se sincroniza directo desde la API de Mercado Público (no depende del portal compra-agil-two). Cada OC se cruza automáticamente por monto, fecha y organismo con las cotizaciones y las facturas/boletas reales de Bsale -- la mayoría de estas compras se facturan directo, sin pasar por una cotización. Puede quedar sin vínculo si el organismo se guardó con un nombre muy distinto en Bsale, o si la venta es más antigua que lo que Análisis tiene sincronizado.</div>
-        </div>
-      </div>
-      <div id="wrapTablaCompraAgil"><p class="empty-note">Cargando...</p></div>
-      <div id="syncStatusCompraAgil"></div>
-    </div>
-  </div>
-
-  <div id="tabAccesorios" style="display:none;">
-    <div class="sub" style="margin-top:-4px;">Venta de productos de vitrina (mouse, funda notebook, base notebook, soporte, kit limpiadores, pad mouse). Meta: <b id="accMetaTexto">$200.000</b> por vendedor al mes para ganar el bono — el avance de abajo es acumulado dentro del mes elegido.</div>
-
-    <div class="toolbar" style="margin:12px 0;">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <div class="date-field"><label for="accesoriosMes">Mes</label><input type="month" id="accesoriosMes" onchange="cambiarMesAccesorios()"></div>
-        <button class="btn-ghost btn-compact" id="btnAccMesActual" onclick="cambiarMesAccesorios('actual')">Mes actual</button>
-      </div>
-    </div>
-
-    <div id="statusAccesorios"></div>
-
-    <div class="seccion" id="seccionMiAvanceAccesorios" style="display:none;">
-      <div class="seccion-head">
-        <div>
-          <h2>🎯 Tu avance — <span id="accMesLabelMio">este mes</span></h2>
-          <div class="sub" id="accMiResumen"></div>
-        </div>
-      </div>
-      <div id="accMiBarra"></div>
-      <div id="wrapMisSemanasAccesorios" style="margin-top:14px;"></div>
-    </div>
-
-    <div class="seccion" id="seccionSinDatosAccesorios" style="display:none;">
-      <p class="empty-note">Todavía no tienes ventas de estos productos registradas en Bsale para este mes (o tu nombre de usuario no coincide con tu nombre de vendedor en Bsale — avísale a un administrador si esto no se ve bien).</p>
-    </div>
-
-    <div class="seccion" id="seccionRankingAccesorios" style="display:none;">
-      <div class="seccion-head">
-        <div>
-          <h2>🏆 Todos los vendedores — <span id="accMesLabelRanking">mes actual</span></h2>
-          <div class="sub">Solo visible para administradores. Ordenado de mayor a menor venta acumulada de accesorios/vitrina.</div>
-        </div>
-      </div>
-      <div id="wrapRankingAccesorios"><p class="empty-note">Cargando...</p></div>
-    </div>
-  </div>
-
   <div class="modal-overlay" id="modalHistorialOverlay" onclick="cerrarModalHistorialSiFondo(event)">
     <div class="modal-box" onclick="event.stopPropagation()">
       <h3 id="modalHistorialTitulo">Historial de compras</h3>
@@ -659,34 +457,7 @@ function escapeHtmlCot(texto){
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-
-// ---------- Tabs grandes ----------
-function cambiarTab(tab){
-  $('tabBtnPuntos').classList.toggle('activo', tab==='puntos');
-  $('tabBtnCotizaciones').classList.toggle('activo', tab==='cotizaciones');
-  $('tabBtnIndexpro').classList.toggle('activo', tab==='indexpro');
-  $('tabBtnCompraAgil').classList.toggle('activo', tab==='compra-agil');
-  $('tabBtnAccesorios').classList.toggle('activo', tab==='accesorios');
-  $('tabPuntos').style.display = tab==='puntos' ? '' : 'none';
-  $('tabCotizaciones').style.display = tab==='cotizaciones' ? '' : 'none';
-  $('tabIndexpro').style.display = tab==='indexpro' ? '' : 'none';
-  $('tabCompraAgil').style.display = tab==='compra-agil' ? '' : 'none';
-  $('tabAccesorios').style.display = tab==='accesorios' ? '' : 'none';
-  if(tab==='puntos' && !puntosCargados) cargar();
-  if(tab==='cotizaciones' && !cotizacionesCargadas) cargarCotizaciones();
-  if(tab==='indexpro' && !indexproCargado) cargarIndexpro();
-  if(tab==='compra-agil' && !compraAgilCargado) cargarCompraAgil();
-  if(tab==='accesorios' && !accesoriosCargado) cargarAccesorios();
-}
-
-let clientes = [];
-let clientesEmpresaCorreoPersonal = [];
-let sortCol = 'puntos';
-let sortAsc = false;
 let esAdmin = false;
-let sincronizando = false;
-let puntosCargados = false;
-
 // Auto-sincronización al cargar la página (pedido del usuario, mismo
 // patrón que Servicio Técnico): cada una de las 4 pestañas se sincroniza
 // sola, pero solo si ya pasaron 12 horas desde su última pasada completa
@@ -703,66 +474,6 @@ function autoSincronizarSiCorresponde(clave, ultimaSincronizacion, sincronizando
   const ultima = ultimaSincronizacion ? new Date(ultimaSincronizacion).getTime() : 0;
   if(Date.now() - ultima >= DOCE_HORAS_MS) funcionIniciar();
 }
-
-let cotizaciones = [];
-let cotizacionesCargadas = false;
-let resumenClientesCotizacion = {}; // clienteId -> {numCompras, montoTotal, ultimaCompra} -- ver cargarResumenClientesCotizacion
-let nombreActualCot = ''; // nombre/email de la sesión actual, para los comentarios en la ficha lateral
-// Filtro rápido de la tabla de Gestión -- reemplaza la vieja tarjeta
-// clicable "Requieren seguimiento" por los 5 chips pedidos por el usuario.
-// Se cuentan sin solaparse como "partes de un total" (pedido explícito: no
-// presentarlos como si sumaran el total de filas).
-let filtroRapidoCot = 'todas';
-let paginaCot = 1;
-const PAGE_SIZE_COT = 100;
-let cotizacionSeleccionadaId = null; // fila activa en la tabla / ficha lateral abierta
-// Orden por defecto: primero "Sin contactar" (lo pendiente de gestionar),
-// luego el resto por avance de embudo, dejando ganadas/perdidas al final.
-const ESTADO_PRIORIDAD_COTIZACION = {
-  sin_contactar: 0, cotizacion_enviada: 1, cliente_respondio: 2, contactado: 3, contactado_no_responde: 4,
-  contactado_segunda_vez: 5, mercado_publico: 6, facturada: 7, perdida: 8,
-};
-let sortColCot = 'prioridad';
-let sortAscCot = true;
-let sincronizandoCotizaciones = false;
-let sortColVend = 'montoVendido';
-let sortAscVend = false;
-const ESTADOS_COTIZACION_LABEL = {
-  sin_contactar: 'Sin contactar',
-  cotizacion_enviada: 'Cotización enviada',
-  cliente_respondio: 'Cliente respondió post cotización',
-  contactado: 'Contactado',
-  contactado_no_responde: 'Contactado — no responde',
-  contactado_segunda_vez: 'Contactado 2ª vez',
-  mercado_publico: 'Mercado Público',
-  perdida: 'Perdida',
-  facturada: 'Venta concretada ✓',
-};
-
-let oportunidadesIndexpro = [];
-let indexproCargado = false;
-let indexproExpandido = false;
-const INDEXPRO_RESUMEN_TOPE = 15;
-// Orden por defecto: primero los que ya están "Cotizado" (lo más urgente
-// de cerrar), después el resto por avance de embudo.
-const ESTADO_PRIORIDAD_INDEXPRO = { cotizado: 0, contactado: 1, primer_correo: 2, sin_contactar: 3, ganado: 4, perdido: 5 };
-let sortColIndexpro = 'prioridad';
-let sortAscIndexpro = true;
-
-let ordenesCompraAgil = [];
-let compraAgilCargado = false;
-let accesoriosCargado = false;
-let sincronizandoIndexpro = false;
-let sincronizandoCompraAgil = false;
-const ESTADOS_INDEXPRO_LABEL = {
-  sin_contactar: 'Sin contactar',
-  primer_correo: 'Primer correo enviado',
-  contactado: 'Contactado',
-  cotizado: 'Cotizado',
-  ganado: 'Ganado ✓',
-  perdido: 'Perdido',
-};
-
 // ---------- Fechas rápidas (mismo cálculo que usa conciliacion.html) ----------
 // Explícito America/Santiago (antes dependía de la zona del navegador) --
 // mismo patrón ya probado en el módulo de WhatsApp (clientes-whatsapp.js).
@@ -782,208 +493,34 @@ function lastDayOfMonthStr(dateStr){
   const dt = new Date(Date.UTC(y, m, 0)); // día 0 del mes siguiente = último día de este mes
   return dt.toISOString().slice(0,10);
 }
-function setRangoRapidoCotizaciones(tipo){
-  if(tipo === 'hoy'){
-    $('cotizacionesDesde').value = hoyStrCot;
-    $('cotizacionesHasta').value = hoyStrCot;
-  } else if(tipo === 'semana'){
-    $('cotizacionesDesde').value = addDaysStrCot(hoyStrCot, -6);
-    $('cotizacionesHasta').value = hoyStrCot;
-  } else if(tipo === 'mes_anterior'){
-    // Último día del mes anterior = un día antes del primero de este mes;
-    // de ahí se saca el primer día de ESE mes con la misma función de
-    // siempre, en vez de reimplementar la aritmética de meses a mano.
-    const ultimoDiaMesAnterior = addDaysStrCot(firstDayOfMonthStr(hoyStrCot), -1);
-    $('cotizacionesDesde').value = firstDayOfMonthStr(ultimoDiaMesAnterior);
-    $('cotizacionesHasta').value = ultimoDiaMesAnterior;
-  } else {
-    $('cotizacionesDesde').value = firstDayOfMonthStr(hoyStrCot);
-    $('cotizacionesHasta').value = lastDayOfMonthStr(hoyStrCot);
-  }
-  $('btnCotHoy').classList.toggle('active', tipo==='hoy');
-  $('btnCotSemana').classList.toggle('active', tipo==='semana');
-  $('btnCotMes').classList.toggle('active', tipo==='mes');
-  $('btnCotMesAnterior').classList.toggle('active', tipo==='mes_anterior');
-  renderTablaCotizaciones();
-}
-function limpiarRangoCotizaciones(){
-  $('cotizacionesDesde').value = '';
-  $('cotizacionesHasta').value = '';
-  ['btnCotHoy','btnCotSemana','btnCotMes','btnCotMesAnterior'].forEach(id => $(id).classList.remove('active'));
-  renderTablaCotizaciones();
-}
-
-// ---------- Accesorios de vitrina / bono vendedores ----------
-// Pedido del usuario: poder ver un mes distinto al actual, no solo el mes en
-// curso -- el backend sigue asumiendo que todo el cálculo cae dentro de UN
-// mes calendario (ver el comentario en manejarAccesoriosVendedores), así que
-// el filtro es por mes completo (input type="month"), no un rango libre.
-function mesActualStrAcc(){ return new Date().toLocaleDateString('en-CA').slice(0,7); }
-function cambiarMesAccesorios(tipo){
-  if(tipo === 'actual') $('accesoriosMes').value = mesActualStrAcc();
-  $('btnAccMesActual').classList.toggle('active', $('accesoriosMes').value === mesActualStrAcc());
-  cargarAccesorios();
-}
-async function cargarAccesorios(){
-  accesoriosCargado = true;
-  if(!$('accesoriosMes').value){ $('accesoriosMes').value = mesActualStrAcc(); $('btnAccMesActual').classList.add('active'); }
-  const status = $('statusAccesorios');
-  status.innerHTML = '<p class="empty-note">Cargando...</p>';
-  try{
-    const mes = $('accesoriosMes').value || mesActualStrAcc();
-    const res = await fetch(`/api/negocio?recurso=accesorios-vendedores&mes=${mes}`);
-    const data = await res.json();
-    if(!res.ok || data.error){ status.innerHTML = `<p class="empty-note">${escapeHtmlCot(data.error || 'No se pudo cargar.')}</p>`; return; }
-    status.innerHTML = '';
-    renderAccesorios(data);
-  }catch(err){
-    status.innerHTML = `<p class="empty-note">Error: ${escapeHtmlCot(err.message)}</p>`;
-  }
-}
-
-// Mismo orden y nombres que ACCESORIOS_VITRINA_PRODUCTOS en api/negocio.js
-// -- si se agrega/saca un producto allá, agregar/sacar la etiqueta acá.
-const ACCESORIOS_CATEGORIA_LABEL = {
-  MOUSE: 'Mouse',
-  PAD: 'Pad Mouse',
-  FUNDA: 'Funda',
-  'BASE NOTEBOOK': 'Base Notebook',
-  SOPORTE: 'Soporte',
-  'KIT LIMPIEZA LCD': 'Kit Limpiadores',
-};
-
-function barraProgresoAccesorios(acumulado, meta){
-  const pct = Math.min(100, Math.round((acumulado / meta) * 100));
-  const color = acumulado >= meta ? 'var(--green)' : 'var(--primary)';
-  return `<div style="background:var(--surface-2);border-radius:999px;height:22px;overflow:hidden;position:relative;">
-    <div style="background:${color};height:100%;width:${pct}%;"></div>
-    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;">${pct}%</div>
-  </div>`;
-}
-
-let ultimosDatosAccesorios = null;
-let sortColRankAccesorios = 'totalMes';
-let sortAscRankAccesorios = false;
-function flechaRankAccesorios(col){ return sortColRankAccesorios === col ? (sortAscRankAccesorios ? ' ▲' : ' ▼') : ''; }
-function cambiarOrdenRankAccesorios(col){
-  if(sortColRankAccesorios === col) sortAscRankAccesorios = !sortAscRankAccesorios;
-  else { sortColRankAccesorios = col; sortAscRankAccesorios = false; }
-  renderAccesorios(ultimosDatosAccesorios);
-}
-const MESES_ES_ACC = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-function etiquetaMesAccesorios(mesStr){
-  const [y,m] = mesStr.split('-').map(Number);
-  return `${MESES_ES_ACC[m-1]} ${y}` + (mesStr === mesActualStrAcc() ? ' (mes actual)' : '');
-}
-function renderAccesorios(data){
-  ultimosDatosAccesorios = data;
-  $('accMetaTexto').textContent = fmtMoneda(data.meta);
-  const etiquetaMes = etiquetaMesAccesorios(data.mes);
-  $('accMesLabelMio').textContent = etiquetaMes;
-  $('accMesLabelRanking').textContent = etiquetaMes;
-
-  const mio = data.vendedores.find(v => v.vendedorId === data.miVendedorId);
-  const seccionMio = $('seccionMiAvanceAccesorios');
-  const seccionSinDatos = $('seccionSinDatosAccesorios');
-  if(mio){
-    seccionMio.style.display = '';
-    seccionSinDatos.style.display = 'none';
-    $('accMiResumen').textContent = mio.cumplioMeta
-      ? `¡Meta cumplida! Llevas ${fmtMoneda(mio.totalMes)} vendidos este mes en accesorios/vitrina (${fmtNum(mio.unidades)} unidades). 🎉`
-      : `Llevas ${fmtMoneda(mio.totalMes)} de ${fmtMoneda(data.meta)} este mes (${fmtNum(mio.unidades)} unidades) — te faltan ${fmtMoneda(mio.faltante)} para el bono.`;
-    $('accMiBarra').innerHTML = barraProgresoAccesorios(mio.totalMes, data.meta);
-    $('wrapMisSemanasAccesorios').innerHTML = `
-      <div class="tabla-wrap"><table><thead><tr><th>Semana</th><th>Hasta el día</th><th>Acumulado en el mes</th><th>Estado</th></tr></thead>
-      <tbody>${mio.semanas.map(s => `
-        <tr>
-          <td>Semana ${s.semana}</td>
-          <td>Día ${s.diaHasta}</td>
-          <td>${fmtMoneda(s.acumulado)}</td>
-          <td>${s.cumplida ? '<span class="badge si">Meta cumplida ✓</span>' : `Faltan ${fmtMoneda(s.faltante)}`}</td>
-        </tr>`).join('')}</tbody></table></div>
-      <h4 style="margin:18px 0 8px 0;font-family:'Space Grotesk',sans-serif;font-size:13px;">Por categoría</h4>
-      <div class="tabla-wrap"><table><thead><tr>${Object.values(ACCESORIOS_CATEGORIA_LABEL).map(l => `<th>${l}</th>`).join('')}</tr></thead>
-      <tbody><tr>${Object.keys(ACCESORIOS_CATEGORIA_LABEL).map(k => `<td>${fmtMoneda(mio.porCategoria?.[k] || 0)}</td>`).join('')}</tr></tbody></table></div>`;
-  } else {
-    seccionMio.style.display = 'none';
-    seccionSinDatos.style.display = '';
-  }
-
-  const seccionRanking = $('seccionRankingAccesorios');
-  if(esAdmin){
-    seccionRanking.style.display = '';
-    if(data.vendedores.length === 0){
-      $('wrapRankingAccesorios').innerHTML = '<p class="empty-note">Sin ventas de estos productos todavía este mes.</p>';
-    } else {
-      const valorRankAcc = { nombre: v => v.nombre, totalMes: v => v.totalMes, unidades: v => v.unidades }[sortColRankAccesorios];
-      const vendedoresOrdenados = [...data.vendedores].sort((a, b) => {
-        const av = valorRankAcc(a), bv = valorRankAcc(b);
-        const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
-        return sortAscRankAccesorios ? cmp : -cmp;
-      });
-      $('wrapRankingAccesorios').innerHTML = `
-        <div class="tabla-wrap"><table><thead><tr>
-          <th class="ordenable" onclick="cambiarOrdenRankAccesorios('nombre')">Vendedor${flechaRankAccesorios('nombre')}</th>
-          <th class="ordenable" onclick="cambiarOrdenRankAccesorios('totalMes')">Total mes${flechaRankAccesorios('totalMes')}</th>
-          <th class="ordenable" onclick="cambiarOrdenRankAccesorios('unidades')">Unidades${flechaRankAccesorios('unidades')}</th>
-          ${Object.values(ACCESORIOS_CATEGORIA_LABEL).map(l => `<th>${l}</th>`).join('')}
-          <th>Avance</th><th>Meta</th>
-        </tr></thead>
-        <tbody>${vendedoresOrdenados.map(v => `
-          <tr>
-            <td>${escapeHtmlCot(v.nombre)}</td>
-            <td>${fmtMoneda(v.totalMes)}</td>
-            <td>${fmtNum(v.unidades)}</td>
-            ${Object.keys(ACCESORIOS_CATEGORIA_LABEL).map(k => `<td>${fmtMoneda(v.porCategoria?.[k] || 0)}</td>`).join('')}
-            <td style="min-width:140px;">${barraProgresoAccesorios(v.totalMes, data.meta)}</td>
-            <td>${v.cumplioMeta ? '<span class="badge si">✓ Cumplida</span>' : `Faltan ${fmtMoneda(v.faltante)}`}</td>
-          </tr>`).join('')}
-        </tbody></table></div>
-        ${data.ventasSinVendedorAsignado ? `<div class="sub" style="margin-top:10px;">+ ${fmtMoneda(data.ventasSinVendedorAsignado.totalMes)} en ventas sin vendedor asignado en Bsale (no entran al ranking).</div>` : ''}`;
-    }
-  } else {
-    seccionRanking.style.display = 'none';
-  }
-}
-
-// ---------- Sesión ----------
-async function cargarSesionUsuario(){
-  try{
-    const res = await fetch('/api/auth-session');
-    if(!res.ok) return;
-    const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
-    aplicarRestriccionesUsuario(u.rol);
-    aplicarRestriccionPaginas(u.paginas);
-    esAdmin = u.rol === 'admin';
-    nombreActualCot = u.nombre || u.email || '';
-    if(esAdmin){
-      const nav = document.getElementById('navUsuarios');
-      if(nav) nav.style.display = '';
-      $('btnSincronizar').style.display = '';
-      $('btnSincronizarCotizaciones').style.display = '';
-      $('btnSincronizarIndexpro').style.display = '';
-      $('btnSincronizarCompraAgil').style.display = '';
-      // Pedido del usuario: no depender de que alguien se acuerde de
-      // apretar "Sincronizar" -- se revisan las 4 pestañas al cargar la
-      // página (no solo la que está activa), y cada cargar*() decide si
-      // hace falta auto-sincronizar (ver autoSincronizarSiCorresponde,
-      // gatillado 12 horas después de la última pasada completa). Cada
-      // cargar*() ya marca su propio "Cargado" al entrar, así que si el
-      // bloque de más abajo (u otra pestaña clickeada) ya la cargó, este
-      // guard evita pedirla dos veces.
-      if(!puntosCargados) cargar();
-      if(!cotizacionesCargadas) { cargarCotizaciones(); cargarUsuariosActivosCot(); }
-      if(!indexproCargado) cargarIndexpro();
-      if(!compraAgilCargado) cargarCompraAgil();
-    }
-  }catch(err){ /* silencioso */ }
-}
 async function cerrarSesion(){
   await fetch('/api/auth-session', { method: 'DELETE' });
   location.href = '/login.html';
 }
-
+let clientes = [];
+let clientesEmpresaCorreoPersonal = [];
+let sortCol = 'puntos';
+let sortAsc = false;
+let sincronizando = false;
+let puntosCargados = false;
+let oportunidadesIndexpro = [];
+let indexproCargado = false;
+let indexproExpandido = false;
+const INDEXPRO_RESUMEN_TOPE = 15;
+// Orden por defecto: primero los que ya están "Cotizado" (lo más urgente
+// de cerrar), después el resto por avance de embudo.
+const ESTADO_PRIORIDAD_INDEXPRO = { cotizado: 0, contactado: 1, primer_correo: 2, sin_contactar: 3, ganado: 4, perdido: 5 };
+let sortColIndexpro = 'prioridad';
+let sortAscIndexpro = true;
+let sincronizandoIndexpro = false;
+const ESTADOS_INDEXPRO_LABEL = {
+  sin_contactar: 'Sin contactar',
+  primer_correo: 'Primer correo enviado',
+  contactado: 'Contactado',
+  cotizado: 'Cotizado',
+  ganado: 'Ganado ✓',
+  perdido: 'Perdido',
+};
 // ---------- Carga principal (lee de Postgres, no llama a Bsale) ----------
 async function cargar(){
   puntosCargados = true;
@@ -1015,7 +552,6 @@ async function cargar(){
   }
   cargarEmpresaCorreoPersonal();
 }
-
 // Pedido del usuario: entre los clientes empresa de Bsale, cuáles dejaron
 // un correo de proveedor gratuito (Gmail, Hotmail, etc.) en vez de uno del
 // dominio propio -- ver manejarClientesEmpresaCorreoPersonal en negocio.js
@@ -1055,7 +591,6 @@ function exportarEmpresaCorreoPersonal(){
   for(const c of clientesEmpresaCorreoPersonal) filas.push([c.empresa, c.nombre||'', c.rut||'', c.email, c.telefono||'', c.ciudad||'']);
   descargarCsv(filas, `empresas-correo-personal-${new Date().toISOString().slice(0,10)}.csv`);
 }
-
 // ---------- Estado de sincronización con Bsale ----------
 function renderEstadoSync(sync){
   if(sincronizando || !sync) return; // durante una sincronización activa, iniciarSincronizacion() controla este bloque
@@ -1068,7 +603,6 @@ function renderEstadoSync(sync){
     wrap.innerHTML = `<div class="note-box">✓ Última sincronización completa con Bsale: <b>${fecha}</b> (${fmtNum(sync.totalClientes)} clientes revisados).</div>`;
   }
 }
-
 // Encadena llamadas a sync-clientes-puntos (cada una avanza ~50s respetando
 // el rate limit de Bsale) hasta que el servidor informa completo:true, sin
 // que el admin tenga que hacer clic varias veces.
@@ -1119,7 +653,6 @@ async function iniciarSincronizacion(){
     cargar(); // refresca la tabla y el estado con lo que quedó en Postgres
   }
 }
-
 function renderKpis(res){
   const cards = document.querySelectorAll('#kpiWrap .card');
   cards[0].querySelector('.big').textContent = fmtNum(res.totalConPuntos);
@@ -1130,13 +663,11 @@ function renderKpis(res){
   $('conteoEmail').textContent = fmtNum(clientes.filter(c=>c.email).length);
   $('conteoTelefono').textContent = fmtNum(clientes.filter(c=>c.telefono).length);
 }
-
 function cambiarOrden(col){
   if(sortCol === col) sortAsc = !sortAsc;
   else { sortCol = col; sortAsc = false; }
   renderTabla();
 }
-
 function renderTabla(){
   const q = ($('buscarInput').value || '').trim().toLowerCase();
   let filas = clientes.filter(c => !q || c.nombre.toLowerCase().includes(q) || (c.rut||'').toLowerCase().includes(q) || (c.email||'').toLowerCase().includes(q));
@@ -1177,7 +708,6 @@ function renderTabla(){
     <div class="controles-tabla"><span class="empty-note">${filas.length} cliente${filas.length===1?'':'s'}</span></div>
     <div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
 }
-
 // ---------- Exportar CSV ----------
 function descargarCsv(filas, nombreArchivo){
   const csv = filas.map(f=>f.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
@@ -1189,7 +719,6 @@ function descargarCsv(filas, nombreArchivo){
   a.click();
   URL.revokeObjectURL(url);
 }
-
 function exportarCsv(){
   if(clientes.length===0){ alert('No hay clientes con puntos para exportar.'); return; }
   const filas = [['Cliente','RUT','Correo','Teléfono','Ciudad','Puntos disponibles','Última actualización','Sigue acumulando']];
@@ -1198,7 +727,6 @@ function exportarCsv(){
   }
   descargarCsv(filas, `clientes-con-puntos-${new Date().toISOString().slice(0,10)}.csv`);
 }
-
 // Formato típico que esperan Mailchimp/Klaviyo al importar: correo primero,
 // solo clientes que sí tienen correo registrado en Bsale.
 function exportarMailing(){
@@ -1208,7 +736,6 @@ function exportarMailing(){
   for(const c of lista) filas.push([c.email, c.nombre, c.puntos]);
   descargarCsv(filas, `clientes-puntos-mailing-${new Date().toISOString().slice(0,10)}.csv`);
 }
-
 // Teléfono en formato +56 9 XXXXXXXX cuando falta el prefijo, para subir a
 // una lista de difusión de WhatsApp Business.
 function formatearTelefonoWhatsapp(tel){
@@ -1225,1132 +752,6 @@ function exportarWhatsapp(){
   for(const c of lista) filas.push([formatearTelefonoWhatsapp(c.telefono), c.nombre, c.puntos]);
   descargarCsv(filas, `clientes-puntos-whatsapp-${new Date().toISOString().slice(0,10)}.csv`);
 }
-
-// ==================== Cotizaciones y ventas (rediseño) ====================
-let diasHistorialCot = 180; // lo confirma el backend en cada carga (ver manejarCotizacionesClientes)
-
-function cambiarSubVistaCot(vista){
-  document.querySelectorAll('#tabsSubCot .tab-sub-cot').forEach(b => b.classList.toggle('activo', b.dataset.subvista === vista));
-  $('subVistaGestionCot').classList.toggle('activa', vista === 'gestion');
-  $('subVistaRendimientoCot').classList.toggle('activa', vista === 'rendimiento');
-  // Los filtros de arriba son compartidos -- no se recargan datos, solo se
-  // vuelve a pintar la pestaña recién mostrada con lo que ya está en memoria.
-  if (vista === 'rendimiento') renderVendedores(cotizacionesFiltradasBase());
-  else renderTablaCotizaciones();
-}
-
-function renderSyncPillCot(sync){
-  const pill = $('cotSyncPill');
-  if (!pill) return;
-  if (!sync || !sync.ultimaPasadaCompletaEn) {
-    pill.innerHTML = `<span class="cot-sync-punto nunca"></span>Bsale — sin sincronizar todavía`;
-    return;
-  }
-  const ms = Date.now() - new Date(sync.ultimaPasadaCompletaEn).getTime();
-  const min = Math.round(ms / 60000);
-  const clase = min < 60 ? '' : (min < 24 * 60 ? 'viejo' : 'nunca');
-  const texto = min < 1 ? 'hace instantes' : min < 60 ? `hace ${min} min` : min < 24 * 60 ? `hace ${Math.round(min / 60)} h` : `hace ${Math.round(min / 1440)} días`;
-  pill.innerHTML = `<span class="cot-sync-punto ${clase}"></span>Bsale — actualizado ${texto}`;
-}
-
-function poblarSelectVendedoresCot(){
-  const sel = $('filtroVendedorCotSelect');
-  if (!sel) return;
-  const actual = sel.value;
-  const vendedores = [...new Map(cotizaciones.filter(c => c.vendedorId != null).map(c => [c.vendedorId, c.vendedorNombre])).entries()]
-    .sort((a, b) => (a[1] || '').localeCompare(b[1] || ''));
-  sel.innerHTML = '<option value="">Todos</option>' + vendedores.map(([id, nombre]) => `<option value="${id}">${escapeHtmlCot(nombre)}</option>`).join('');
-  sel.value = actual;
-}
-
-function actualizarAvisoCoberturaCot(){
-  const aviso = $('avisoCoberturaCot');
-  if (!aviso) return;
-  const desde = $('cotizacionesDesde').value;
-  const limiteStr = addDaysStrCot(hoyStrCot, -diasHistorialCot);
-  if (desde && desde < limiteStr) {
-    aviso.className = 'cot-aviso-180 fuera-cobertura';
-    aviso.textContent = `⚠ "Desde" (${desde}) cae antes de los últimos ${diasHistorialCot} días sincronizados (desde ${limiteStr}) — no hay garantía de cobertura completa ahí, los ceros de ese tramo pueden ser falta de sincronización, no falta de ventas.`;
-  } else {
-    aviso.className = 'cot-aviso-180';
-    aviso.textContent = `📅 Trabajamos con los últimos ${diasHistorialCot} días sincronizados desde Bsale — no consulta Bsale en el momento.`;
-  }
-}
-
-async function cargarCotizaciones(){
-  cotizacionesCargadas = true;
-  const status = $('statusCotizaciones');
-  status.className = '';
-  status.textContent = 'Cargando cotizaciones...';
-  $('wrapCotizaciones').innerHTML = '<p class="empty-note">Cargando...</p>';
-
-  try{
-    const [res, resResumen] = await Promise.all([
-      fetch('/api/negocio?recurso=cotizaciones-clientes').then(r=>r.json()),
-      fetch('/api/negocio?recurso=cotizacion-resumen-clientes').then(r=>r.json()).catch(()=>({resumenPorCliente:{}})),
-    ]);
-    resumenClientesCotizacion = resResumen.resumenPorCliente || {};
-    if(res.error){
-      status.className = 'err';
-      status.textContent = 'Error: ' + (res.detail || res.error);
-      // No se reemplaza "cotizaciones" por [] si ya había datos cargados --
-      // pedido explícito: no sustituir información válida por ceros cuando
-      // falla la integración (un error de red no debe vaciar lo que ya se
-      // veía en pantalla).
-      if (!cotizaciones.length) renderTablaCotizaciones();
-      return;
-    }
-    cotizaciones = res.cotizaciones || [];
-    diasHistorialCot = res.diasHistorialSincronizado || 180;
-    poblarSelectVendedoresCot();
-    actualizarAvisoCoberturaCot();
-    renderTablaCotizaciones();
-    renderSyncPillCot(res.sync);
-    renderEstadoSyncCotizaciones(res.sync);
-    status.className = 'ok';
-    status.textContent = `Listo — ${cotizaciones.length} cotizaciones (últimos ${diasHistorialCot} días)`;
-    autoSincronizarSiCorresponde('cotizaciones', res.sync?.ultimaPasadaCompletaEn, sincronizandoCotizaciones, iniciarSincronizacionCotizaciones);
-  }catch(err){
-    status.className = 'err';
-    status.textContent = 'Error: ' + err.message;
-  }
-}
-
-// Comparación "pareja": si hoy es 19 de agosto, el mes actual solo lleva
-// 19 días corridos -> comparar contra el mes pasado COMPLETO exagera la
-// variación (julio entero vs. 19 días de agosto). Se corta el mes anterior
-// en el mismo día del mes (19 de julio), no en su último día.
-function mesAnteriorRange(dateStr){
-  const [y,m,d] = dateStr.split('-').map(Number);
-  const prevM = m === 1 ? 12 : m-1;
-  const prevY = m === 1 ? y-1 : y;
-  const desde = `${prevY}-${String(prevM).padStart(2,'0')}-01`;
-  const finMesPrev = lastDayOfMonthStr(desde);
-  const diaFinMesPrev = Number(finMesPrev.split('-')[2]);
-  const diaCorte = Math.min(d, diaFinMesPrev); // ej. si hoy es 31 y el mes pasado tiene 28/30 días
-  const hasta = `${prevY}-${String(prevM).padStart(2,'0')}-${String(diaCorte).padStart(2,'0')}`;
-  return { desde, hasta };
-}
-function calcularVariacionPct(actual, anterior){
-  if(anterior === 0) return actual === 0 ? null : Infinity;
-  return ((actual - anterior) / anterior) * 100;
-}
-function notaVariacionHtml(pct){
-  if(pct === null) return '';
-  if(pct === Infinity) return '<span class="arrow-up">▲ Nuevo (sin datos el mes pasado)</span>';
-  const flecha = pct >= 0 ? '▲' : '▼';
-  const clase = pct >= 0 ? 'arrow-up' : 'arrow-down';
-  return `<span class="${clase}">${flecha} ${pct>=0?'+':''}${Math.round(pct)}% vs mes pasado</span>`;
-}
-// Misma idea que notaVariacionHtml, pero para las tablas que comparan
-// contra periodoAnteriorEquivalenteCot (mismo largo que el rango filtrado,
-// corrido hacia atrás -- NO el mes calendario anterior). "vs mes pasado"
-// ahí era engañoso para cualquier rango que no fuera un mes completo (ej.
-// "01 al 15" se comparaba contra "17 al 31 del mes anterior", no contra
-// "01 al 15" del mes anterior) -- pedido del usuario: mostrar la cantidad
-// real de días en vez de un texto que sugiere un mes calendario.
-function notaVariacionHtmlDias(pct, dias){
-  if(pct === null) return '';
-  if(pct === Infinity) return `<span class="arrow-up">▲ Nuevo (sin datos en los ${dias} días previos)</span>`;
-  const flecha = pct >= 0 ? '▲' : '▼';
-  const clase = pct >= 0 ? 'arrow-up' : 'arrow-down';
-  return `<span class="${clase}">${flecha} ${pct>=0?'+':''}${Math.round(pct)}% vs ${dias} días previos</span>`;
-}
-
-// Caso real reportado: la misma Municipalidad tenía dos fichas de cliente
-// distintas en Bsale (una con el contacto en el nombre, "MUNICIPALIDAD DE
-// RECOLETA (Julio César Campano)", y otra sin él, "MUNICIPALIDAD DE
-// RECOLETA" -- mismo organismo, dos client_id de Bsale) -- cada una con su
-// propia cotización, y AMBAS terminaron vinculadas al mismo documento real
-// (misma guía de despacho) porque Bsale las agrupa por RUT al buscar el
-// historial de cada client_id (ver intentarVincular en api/negocio.js).
-// Sumar el monto de cada cotización "facturada" por separado cuenta esa
-// misma venta dos veces. Esta función deja pasar TODAS las cotizaciones tal
-// cual para la TABLA (cada fila sigue viéndose y editándose independiente),
-// pero para cualquier SUMA de dinero/conteo de ventas reales, se queda con
-// una sola cotización por documentoAsociadoId distinto (la de menor id,
-// elección arbitraria pero estable -- no hay forma de saber cuál de las dos
-// "es la real" solo con estos datos). Las facturadas sin
-// documentoAsociadoId (todavía no vinculadas a un documento concreto) no se
-// pueden deduplicar entre sí por falta de esa clave -- caso raro, no el que
-// reportó el usuario, quedan tal cual.
-// Deduplica CUALQUIER lista de cotizaciones por documentoAsociadoId (ver
-// comentario histórico arriba sobre el caso real de la Municipalidad) --
-// generalizado desde cotizacionesFacturadasSinDuplicar (que antes solo
-// filtraba facturadas) para poder aplicar el MISMO criterio de unicidad a
-// "monto cotizado" y no solo a "monto facturado". Antes de este cambio la
-// tarjeta de cotizado sumaba TODO sin deduplicar mientras que facturado sí
-// deduplicaba -- eso descuadraba los números cuando dos cotizaciones
-// distintas quedaban vinculadas al mismo documento real (bug reportado:
-// "el monto cotizado aparece inferior al monto vendido de un vendedor").
-function deduplicarPorDocumentoAsociado(lista){
-  const porDocumento = new Map();
-  const sinDocumento = [];
-  for(const c of lista){
-    if(c.documentoAsociadoId == null){ sinDocumento.push(c); continue; }
-    const actual = porDocumento.get(c.documentoAsociadoId);
-    if(!actual || c.id < actual.id) porDocumento.set(c.documentoAsociadoId, c);
-  }
-  return [...porDocumento.values(), ...sinDocumento];
-}
-function cotizacionesFacturadasSinDuplicar(lista){
-  return deduplicarPorDocumentoAsociado(lista.filter(c => c.estado === 'facturada'));
-}
-
-// ---- Estado de gestión / resultado comercial / alerta operativa ----
-// Separados a pedido del usuario -- el "estado" real sigue siendo el de
-// siempre (7 valores, ver ESTADOS_COTIZACION en api/negocio.js), nunca se
-// reclasifica ni se pierde el dato histórico. Estas 3 funciones son solo
-// una capa de visualización/agrupación sobre ese mismo valor.
-const ESTADO_GESTION_MAP = {
-  sin_contactar: 'sin_contactar', cotizacion_enviada: 'contactada', cliente_respondio: 'en_seguimiento', contactado: 'contactada',
-  contactado_no_responde: 'en_seguimiento', contactado_segunda_vez: 'en_seguimiento',
-  mercado_publico: 'cerrada', perdida: 'cerrada', facturada: 'cerrada',
-};
-const ESTADO_GESTION_LABEL = { sin_contactar: 'Sin contactar', contactada: 'Contactada', en_seguimiento: 'En seguimiento', cerrada: 'Cerrada' };
-function estadoGestionInfo(c){
-  const clave = ESTADO_GESTION_MAP[c.estado] || 'sin_contactar';
-  return { clave, label: ESTADO_GESTION_LABEL[clave] };
-}
-// 'facturada_parcial' queda definida pero hoy NUNCA se produce -- Bsale se
-// vincula 1:1 (una cotización, un documento real, ver intentarVincular en
-// api/negocio.js); no hay forma de registrar facturación parcial con el
-// modelo de datos actual. Se deja el valor listo para el día que exista esa
-// capacidad, en vez de inventar una lógica de "parcial" que no se puede
-// verificar con los datos de hoy.
-const RESULTADO_COMERCIAL_LABEL = { pendiente: 'Pendiente', facturada_parcial: 'Facturada parcialmente', facturada: 'Facturada', perdida: 'Perdida' };
-function resultadoComercialInfo(c){
-  const clave = c.estado === 'facturada' ? 'facturada' : (c.estado === 'perdida' || c.estado === 'mercado_publico') ? 'perdida' : 'pendiente';
-  return { clave, label: RESULTADO_COMERCIAL_LABEL[clave] };
-}
-// "Seguimiento vencido" se deriva de proximaAccionFecha (si existe) -- NO
-// reemplaza al estado comercial, es una alerta aparte. Si nunca se
-// programó una próxima acción explícita, cae al heurístico histórico de
-// "días sin contacto" (diasSinContactoCot) como respaldo, para no perder
-// la señal en las cotizaciones viejas que nunca tuvieron este campo nuevo.
-function alertaOperativaInfo(c){
-  if(estadoGestionInfo(c).clave === 'cerrada') return null;
-  if(c.proximaAccionFecha){
-    const fechaStr = String(c.proximaAccionFecha).slice(0,10);
-    if(fechaStr < hoyStrCot) return { texto: 'Seguimiento vencido', clase: 'critica' };
-    if(fechaStr === hoyStrCot) return { texto: 'Seguimiento para hoy', clase: 'demorada' };
-    return null;
-  }
-  const dias = diasSinContactoCot(c);
-  if(dias != null && dias >= UMBRAL_DIAS_SIN_CONTACTO_COT) return { texto: `Sin próxima acción — ${dias}d sin contacto`, clase: 'demorada' };
-  return null;
-}
-function alertaOperativaHtmlCot(c){
-  const a = alertaOperativaInfo(c);
-  return a ? `<span class="alerta-chip-cot ${a.clase}">${a.texto}</span>` : '<span class="empty-note">—</span>';
-}
-
-// ---- 4 tarjetas KPI de Gestión (reemplaza las 8 tarjetas de antes) ----
-// Definiciones explícitas (pedido del usuario):
-// - Todos los montos son TOTALES CON IVA (totalAmount de Bsale) -- Bsale no
-//   entrega neto a este nivel sin pedir el documento completo, y mezclar
-//   neto/con-IVA entre tarjetas sería peor que ser consistente con-IVA en
-//   todas partes. Se rotula explícito en cada tarjeta para que nunca quede
-//   ambiguo.
-// - La fecha que determina inclusión es SIEMPRE la fecha de EMISIÓN de la
-//   cotización (nunca la fecha de la factura vinculada) -- mismo criterio
-//   para cotizado y facturado, para que ambos números describan "lo que
-//   pasó con las cotizaciones creadas en este rango", no dos ventanas de
-//   tiempo distintas sin avisar.
-// - "Documentos válidos": cualquier cotización sincronizada (las anuladas
-//   nunca llegan a sincronizarse, ver Fase 1 de manejarSyncCotizaciones) --
-//   no hay filtro adicional de validez acá.
-// - Deduplicadas por documentoAsociadoId (ver deduplicarPorDocumentoAsociado)
-//   -- cotizado Y facturado usan el MISMO conjunto deduplicado, para que
-//   nunca se descuadren entre sí.
-function renderKpis4Cot(){
-  const filtradas = cotizacionesFiltradasBase();
-  const dedup = deduplicarPorDocumentoAsociado(filtradas);
-  const montoCotizado = dedup.reduce((a,c)=>a+c.monto,0);
-  const facturadasDedup = cotizacionesFacturadasSinDuplicar(filtradas);
-  const montoFacturado = facturadasDedup.reduce((a,c)=>a+c.monto,0);
-  // Conversión por CANTIDAD (pedido explícito, no confundir con monto
-  // facturado/monto cotizado): cotizaciones únicas con facturación válida /
-  // cotizaciones válidas del conjunto seleccionado -- ambas ya
-  // deduplicadas por el mismo criterio.
-  const conversion = dedup.length ? Math.round(facturadasDedup.length / dedup.length * 100) : null;
-  const seguimientosPendientes = filtradas.filter(c => alertaOperativaInfo(c) !== null).length;
-
-  $('kpisCot4').innerHTML = `
-    <div class="kpi-card-cot"><div class="icono-kpi">📄</div><div><div class="lbl-kpi">Monto cotizado</div><div class="big-kpi">${fmtMoneda(montoCotizado)}</div><div class="nota-kpi">${fmtNum(dedup.length)} cotización(es) (deduplicadas)</div></div></div>
-    <div class="kpi-card-cot"><div class="icono-kpi">💰</div><div><div class="lbl-kpi">Monto facturado asociado</div><div class="big-kpi">${fmtMoneda(montoFacturado)}</div><div class="nota-kpi">De cotizaciones creadas en este rango</div></div></div>
-    <div class="kpi-card-cot"><div class="icono-kpi">📊</div><div><div class="lbl-kpi">Conversión</div><div class="big-kpi">${conversion === null ? 'Sin datos' : conversion + '%'}</div><div class="nota-kpi">Cotizaciones facturadas / cotizaciones del rango (por cantidad)</div></div></div>
-    <div class="kpi-card-cot"><div class="icono-kpi">🔔</div><div><div class="lbl-kpi">Seguimientos pendientes</div><div class="big-kpi">${fmtNum(seguimientosPendientes)}</div><div class="nota-kpi">Seguimiento vencido, para hoy, o sin próxima acción registrada</div></div></div>
-  `;
-}
-
-function diasEntreCot(desde, hasta){
-  return Math.round((new Date(hasta+'T00:00:00Z') - new Date(desde+'T00:00:00Z')) / 86400000);
-}
-// Mismo largo de ventana que la filtrada, pero corrida hacia atrás (si el
-// rango filtrado es "01 al 15", el período anterior es "el 16 días
-// inmediatamente antes del 01", no el mes calendario anterior) -- para que
-// la comparación de vendedores sea justa cualquiera sea el rango elegido
-// arriba, no solo para "mes actual".
-function periodoAnteriorEquivalenteCot(desde, hasta){
-  if(!desde || !hasta) return null;
-  const dias = diasEntreCot(desde, hasta) + 1;
-  const nuevaHasta = addDaysStrCot(desde, -1);
-  const nuevaDesde = addDaysStrCot(nuevaHasta, -(dias-1));
-  return { desde: nuevaDesde, hasta: nuevaHasta };
-}
-
-// Filtrar por vendedor ahora vive en UN solo lugar de verdad: el <select>
-// compartido de la barra de filtros (filtroVendedorCotSelect) -- este clic
-// desde la tabla de Vendedores en Rendimiento solo mueve ese mismo select
-// (alterna: un segundo clic sobre el mismo vendedor lo quita) y salta a la
-// pestaña Gestión para "consultar sus cotizaciones filtradas" (pedido del
-// usuario en la sección Rendimiento).
-function filtrarPorVendedorCotizacion(id){
-  const sel = $('filtroVendedorCotSelect');
-  const valorNuevo = (sel.value === String(id)) ? '' : (id == null ? '' : String(id));
-  sel.value = valorNuevo;
-  paginaCot = 1;
-  cambiarSubVistaCot('gestion');
-}
-
-function renderVendedores(delRangoFiltrado){
-  const desde = $('cotizacionesDesde').value;
-  const hasta = $('cotizacionesHasta').value;
-  const periodoAnt = periodoAnteriorEquivalenteCot(desde, hasta);
-  const diasPeriodo = periodoAnt ? diasEntreCot(periodoAnt.desde, periodoAnt.hasta) + 1 : null;
-  const montoAnteriorPorVendedor = new Map();
-  if(periodoAnt){
-    // Deduplicado GLOBAL antes de agrupar por vendedor -- las dos
-    // cotizaciones duplicadas de un mismo documento real pueden traer
-    // vendedores distintos asignados (caso raro, pero posible), así que
-    // hay que decidir cuál cuenta ANTES de repartir por vendedor, no
-    // después (ver cotizacionesFacturadasSinDuplicar más arriba).
-    const facturadasPeriodoAnt = cotizacionesFacturadasSinDuplicar(
-      cotizaciones.filter(c => c.fecha && c.fecha >= periodoAnt.desde && c.fecha <= periodoAnt.hasta)
-    );
-    for(const c of facturadasPeriodoAnt){
-      const clave = c.vendedorId ?? 'sin_vendedor';
-      montoAnteriorPorVendedor.set(clave, (montoAnteriorPorVendedor.get(clave)||0) + c.monto);
-    }
-  }
-  // Mismo criterio: se decide qué cotizaciones "facturada" cuentan de
-  // verdad (una por documento real) ANTES del loop de abajo, que sigue
-  // recorriendo TODAS las filas para "creadas"/antigüedad/etc. -- esos
-  // conteos no representan plata real, no necesitan deduplicarse.
-  const facturadasContables = new Set(cotizacionesFacturadasSinDuplicar(delRangoFiltrado).map(c => c.id));
-
-  const porVendedor = new Map();
-  for(const c of delRangoFiltrado){
-    const clave = c.vendedorId ?? 'sin_vendedor';
-    if(!porVendedor.has(clave)) porVendedor.set(clave, { id: c.vendedorId ?? null, nombre: c.vendedorNombre || 'Sin vendedor asignado', creadas:0, facturadas:0, montoVendido:0, sumaDiasAbiertas:0, countAbiertas:0, sumaDiasCierre:0, countCierre:0 });
-    const v = porVendedor.get(clave);
-    v.creadas++;
-    if(c.estado === 'facturada' && facturadasContables.has(c.id)){ v.facturadas++; v.montoVendido += c.monto; }
-    if(c.estado === 'sin_contactar' && c.fecha){ v.sumaDiasAbiertas += diasEntreCot(c.fecha, hoyStrCot); v.countAbiertas++; }
-    if(c.fecha && c.documentoAsociadoFecha){
-      const dias = diasEntreCot(c.fecha, c.documentoAsociadoFecha);
-      if(dias >= 0){ v.sumaDiasCierre += dias; v.countCierre++; }
-    }
-  }
-  let filas = [...porVendedor.entries()].map(([clave, v]) => ({
-    clave, ...v,
-    conversion: v.creadas ? Math.round(v.facturadas/v.creadas*100) : 0,
-    ticketPromedio: v.facturadas ? v.montoVendido/v.facturadas : 0,
-    antiguedadPromedio: v.countAbiertas ? Math.round(v.sumaDiasAbiertas/v.countAbiertas) : null,
-    diasCierrePromedio: v.countCierre ? Math.round(v.sumaDiasCierre/v.countCierre) : null,
-    variacionPct: periodoAnt ? calcularVariacionPct(v.montoVendido, montoAnteriorPorVendedor.get(clave) || 0) : null,
-  }));
-  // Si el período anterior no aplica (sin rango de fechas elegido) y el
-  // orden activo era justo esa columna, no queda ninguna columna con ese
-  // dato -> se cae de vuelta al orden por defecto en vez de mostrar todo
-  // en el mismo orden sin ningún criterio visible.
-  const columnaOrdenValida = sortColVend !== 'variacionPct' || periodoAnt;
-  const colOrden = columnaOrdenValida ? sortColVend : 'montoVendido';
-  filas = filas.sort((a,b)=>{
-    let va = a[colOrden], vb = b[colOrden];
-    if(va==null && vb==null) return 0;
-    if(va==null) return 1; if(vb==null) return -1;
-    if(typeof va === 'string') return sortAscVend ? va.localeCompare(vb) : vb.localeCompare(va);
-    return sortAscVend ? va-vb : vb-va;
-  });
-
-  if(filas.length === 0){
-    $('wrapVendedores').innerHTML = '<p class="empty-note">No hay cotizaciones en ese rango de fechas.</p>';
-    return;
-  }
-
-  const colsVend = [
-    { key:'nombre', label:'Vendedor' },
-    { key:'creadas', label:'Cotizaciones creadas' },
-    { key:'facturadas', label:'Facturadas' },
-    { key:'conversion', label:'% conversión' },
-    { key:'ticketPromedio', label:'Ticket promedio' },
-    { key:'antiguedadPromedio', label:'Antigüedad abiertas' },
-    { key:'diasCierrePromedio', label:'Cotización → factura' },
-    { key:'montoVendido', label:'Monto vendido' },
-    ...(periodoAnt ? [{ key:'variacionPct', label:'vs. período anterior' }] : []),
-  ];
-  const thead = `<tr>${colsVend.map(c=>{
-    const marca = sortColVend===c.key ? (sortAscVend?' ▲':' ▼') : '';
-    return `<th class="${c.key==='nombre'?'':'amount'}" onclick="cambiarOrdenVendedores('${c.key}')">${c.label}${marca}</th>`;
-  }).join('')}</tr>`;
-  const tbody = filas.map(v => `<tr>
-    <td><a href="#" class="doc-link" title="Filtrar la tabla de cotizaciones por este vendedor" onclick="event.preventDefault();filtrarPorVendedorCotizacion(${v.id})">${escapeHtmlCot(v.nombre)}</a></td>
-    <td class="amount">${fmtNum(v.creadas)}</td>
-    <td class="amount">${fmtNum(v.facturadas)}</td>
-    <td class="amount">${v.conversion < 50 ? `<span class="badge no">${v.conversion}%</span>` : `${v.conversion}%`}</td>
-    <td class="amount">${fmtMoneda(v.ticketPromedio)}</td>
-    <td class="amount">${v.antiguedadPromedio == null ? '<span class="empty-note">—</span>' : `${fmtNum(v.antiguedadPromedio)} días`}</td>
-    <td class="amount">${v.diasCierrePromedio == null ? '<span class="empty-note">—</span>' : `${fmtNum(v.diasCierrePromedio)} días`}</td>
-    <td class="amount"><b>${fmtMoneda(v.montoVendido)}</b></td>
-    ${periodoAnt ? `<td class="amount">${notaVariacionHtmlDias(v.variacionPct, diasPeriodo) || '<span class="empty-note">—</span>'}</td>` : ''}
-  </tr>`).join('');
-
-  $('wrapVendedores').innerHTML = `<div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
-}
-
-function renderEstadoSyncCotizaciones(sync){
-  if(sincronizandoCotizaciones || !sync) return;
-  const wrap = $('syncCotizacionesWrap');
-  if(!sync.ultimaPasadaCompletaEn){
-    const avance = sync.totalDocumentos ? `${fmtNum(sync.offsetActual)} de ${fmtNum(sync.totalDocumentos)} documentos revisados` : 'aún no empieza';
-    wrap.innerHTML = `<div class="note-box">⚠ Todavía no se completó la primera sincronización con Bsale (${avance}). ${esAdmin ? 'Presiona "Sincronizar con Bsale".' : 'Pídele a un administrador que la ejecute.'}</div>`;
-  } else {
-    const fecha = new Date(sync.ultimaPasadaCompletaEn).toLocaleString('es-CL');
-    wrap.innerHTML = `<div class="note-box">✓ Última sincronización completa con Bsale: <b>${fecha}</b>.</div>`;
-  }
-}
-
-async function iniciarSincronizacionCotizaciones(){
-  if(sincronizandoCotizaciones) return;
-  sincronizandoCotizaciones = true;
-  $('btnSincronizarCotizaciones').disabled = true;
-  const wrap = $('syncCotizacionesWrap');
-
-  try{
-    let completo = false;
-    let totalListado = 0;
-    let totalHistorial = 0;
-    while(!completo){
-      wrap.innerHTML = `<div class="note-box">⏳ Sincronizando cotizaciones con Bsale... ${fmtNum(totalListado)} revisadas. Esto puede tardar varios minutos, no cierres la página.</div>`;
-      const res = await fetch('/api/negocio?recurso=sync-cotizaciones', { method: 'POST' }).then(r=>r.json());
-      if(res.error){
-        wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${res.detail || res.error}</div>`;
-        break;
-      }
-      completo = !!res.completo;
-      if(res.fase === 'historial'){
-        totalHistorial += res.procesadosEnEstaLlamada || 0;
-        if(completo){
-          const nota = res.pendientesVinculo > 0
-            ? ` ${fmtNum(res.pendientesVinculo)} cotizaciones quedaron sin poder confirmar si se facturaron — se reintenta en la próxima sincronización.`
-            : '';
-          wrap.innerHTML = `<div class="note-box">✓ Sincronización completa — ${fmtNum(res.vinculosEncontrados||0)} cotizaciones vinculadas a una boleta/factura en esta corrida.${nota} Actualizando la lista...</div>`;
-        } else {
-          const totalAproxHist = totalHistorial + (res.pendientesHistorial || 0);
-          const pctHist = totalAproxHist ? Math.round(totalHistorial / totalAproxHist * 100) : 0;
-          wrap.innerHTML = `<div class="note-box">🧾 Revisando historial de compras y buscando vínculos con boletas/facturas... ${pctHist}% (${fmtNum(totalHistorial)} clientes revisados, ${fmtNum(res.pendientesHistorial||0)} pendientes). Continuando automáticamente...</div>`;
-        }
-      } else {
-        totalListado += res.procesadosEnEstaLlamada || 0;
-        const pctCot = res.totalDocumentos ? Math.round(res.offsetActual / res.totalDocumentos * 100) : 0;
-        wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${pctCot}% (${fmtNum(res.offsetActual)} de ${fmtNum(res.totalDocumentos||0)} documentos revisados). Continuando automáticamente...</div>`;
-      }
-    }
-  }catch(err){
-    wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${err.message}</div>`;
-  }finally{
-    sincronizandoCotizaciones = false;
-    $('btnSincronizarCotizaciones').disabled = false;
-    cargarCotizaciones();
-  }
-}
-
-function cambiarOrdenCotizaciones(col){
-  if(col === 'estado') col = 'prioridad'; // clic en "Estado" ordena por prioridad de embudo, no alfabético
-  if(sortColCot === col) sortAscCot = !sortAscCot;
-  else { sortColCot = col; sortAscCot = col === 'prioridad'; }
-  renderTablaCotizaciones();
-}
-
-function cambiarOrdenVendedores(col){
-  if(sortColVend === col) sortAscVend = !sortAscVend;
-  else { sortColVend = col; sortAscVend = col === 'nombre'; } // primer clic en Vendedor: A-Z; en el resto: mayor a menor
-  renderVendedores(cotizacionesFiltradasBase());
-}
-
-// Muestra el número de documento como link directo a Bsale cuando hay URL disponible (mismo patrón que conciliacion.html)
-function docLinkHtml(numero, url){
-  if(!numero) return '<span class="empty-note">—</span>';
-  if(url) return `<a href="${url}" target="_blank" rel="noopener" class="doc-link">#${numero} ↗</a>`;
-  return `#${numero}`;
-}
-
-// Filtro compartido por TODO lo demás (tarjetas KPI, tabla de Vendedores en
-// Rendimiento, y tabla de Gestión antes de aplicarle el chip rápido) --
-// búsqueda por cliente/contacto (ambos ya vienen combinados en
-// clienteNombre, ver nombreClienteDoc en api/negocio.js), teléfono o N° de
-// cotización; vendedor; estado; rango de fechas; y los filtros adicionales
-// (seguimientos vencidos / sin contacto / clientes recurrentes).
-function cotizacionesFiltradasBase(){
-  const q = ($('buscarCotizacionesInput').value || '').trim().toLowerCase();
-  const filtroEstado = $('filtroEstadoCotizacion').value;
-  const filtroVendedorId = $('filtroVendedorCotSelect')?.value || '';
-  const desde = $('cotizacionesDesde').value;
-  const hasta = $('cotizacionesHasta').value;
-  const soloVencidos = $('fSoloVencidosCot')?.checked;
-  const soloSinContacto = $('fSoloSinContactoCot')?.checked;
-  const soloRecurrentes = $('fSoloRecurrentesCot')?.checked;
-  return cotizaciones.filter(c => {
-    if (q) {
-      const enTexto = (c.clienteNombre || '').toLowerCase().includes(q)
-        || (c.clienteTelefono || '').toLowerCase().includes(q)
-        || String(c.numero || '').toLowerCase().includes(q);
-      if (!enTexto) return false;
-    }
-    if (filtroEstado && c.estado !== filtroEstado) return false;
-    if (filtroVendedorId && String(c.vendedorId) !== filtroVendedorId) return false;
-    if (desde && c.fecha && c.fecha < desde) return false;
-    if (hasta && c.fecha && c.fecha > hasta) return false;
-    if (soloVencidos) {
-      const a = alertaOperativaInfo(c);
-      if (!a || a.texto !== 'Seguimiento vencido') return false;
-    }
-    if (soloSinContacto && c.ultimoContactoEn) return false;
-    if (soloRecurrentes) {
-      const r = resumenClientesCotizacion[c.clienteId];
-      if (!r || r.numCompras < 2) return false;
-    }
-    return true;
-  });
-}
-function toggleMasFiltrosCot(){
-  const panel = $('panelMasFiltrosCot');
-  panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
-}
-function quitarFiltroVendedorCotizacion(){
-  $('filtroVendedorCotSelect').value = '';
-  renderTablaCotizaciones();
-}
-// Chips rápidos (reemplazan la vieja tarjeta clicable "Requieren
-// seguimiento"): Todas / Sin contactar / En seguimiento / Facturadas /
-// Seguimientos vencidos. Se cuentan sobre el filtro compartido YA aplicado
-// (cotizacionesFiltradasBase), así que pueden solaparse entre sí (una
-// facturada puede, en teoría, tener quedado con alerta vencida antes de
-// cerrarse) -- a propósito no se presentan como partes de una suma.
-const FILTROS_RAPIDOS_COT = [
-  { clave: 'todas', label: 'Todas', test: () => true },
-  { clave: 'sin_contactar', label: 'Sin contactar', test: c => c.estado === 'sin_contactar' },
-  { clave: 'en_seguimiento', label: 'En seguimiento', test: c => estadoGestionInfo(c).clave === 'en_seguimiento' },
-  { clave: 'facturadas', label: 'Facturadas', test: c => c.estado === 'facturada' },
-  { clave: 'vencidos', label: 'Seguimientos vencidos', test: c => alertaOperativaInfo(c)?.texto === 'Seguimiento vencido' },
-];
-function cambiarFiltroRapidoCot(clave){
-  filtroRapidoCot = clave;
-  paginaCot = 1;
-  renderTablaCotizaciones();
-}
-function renderFiltrosRapidosCot(filtradas){
-  $('filtrosRapidosCot').innerHTML = FILTROS_RAPIDOS_COT.map(f => `
-    <button class="chip-filtro-rapido ${filtroRapidoCot === f.clave ? 'activo' : ''}" onclick="cambiarFiltroRapidoCot('${f.clave}')">
-      ${f.label} <span class="num-chip">${fmtNum(filtradas.filter(f.test).length)}</span>
-    </button>
-  `).join('');
-}
-
-// Días sin que se toque el estado de la cotización (o desde que se creó,
-// si nunca cambió de estado) -- solo tiene sentido para las que siguen
-// abiertas, una vez facturada o perdida ya no hay nada que "seguir".
-function diasSinContactoCot(c){
-  if(c.estado === 'facturada' || c.estado === 'perdida') return null;
-  // actualizadoEn tiene DEFAULT now() en la base -- nunca es null, ni siquiera
-  // para una cotización recién sincronizada que nadie ha tocado. Por eso solo
-  // se usa como fecha real de contacto si el estado ya salió de "sin_contactar";
-  // si no, se cae a la fecha de emisión real de la cotización.
-  const actualizadoDeVerdad = c.estado !== 'sin_contactar' && c.actualizadoEn;
-  const base = actualizadoDeVerdad ? String(c.actualizadoEn).slice(0,10) : c.fecha;
-  if(!base) return null;
-  return diasEntreCot(base, hoyStrCot);
-}
-const UMBRAL_DIAS_SIN_CONTACTO_COT = 7;
-
-// Días entre que se creó la cotización y se emitió el documento asociado
-// -- null si todavía no se factura, o si el vínculo es más viejo que
-// documento_asociado_fecha (cotizaciones vinculadas antes de que ese campo
-// existiera, ver lib/db.js).
-function diasCotizacionFacturaCot(c){
-  if(!c.fecha || !c.documentoAsociadoFecha) return null;
-  const dias = diasEntreCot(c.fecha, c.documentoAsociadoFecha);
-  return dias >= 0 ? dias : null;
-}
-
-// Extraído de renderTablaCotizaciones para poder reusar el mismo orden
-// (filtros + columna ordenada + chip rápido) desde la navegación "anterior
-// / siguiente" de la ficha lateral -- debe moverse por la MISMA lista que
-// el usuario está viendo en la tabla, no por el orden crudo de sincronización.
-function filasCotOrdenadas(){
-  const chip = FILTROS_RAPIDOS_COT.find(f => f.clave === filtroRapidoCot) || FILTROS_RAPIDOS_COT[0];
-  let filas = cotizacionesFiltradasBase().filter(chip.test);
-  return [...filas].sort((a,b)=>{
-    if(sortColCot === 'prioridad'){
-      const diff = ESTADO_PRIORIDAD_COTIZACION[a.estado] - ESTADO_PRIORIDAD_COTIZACION[b.estado];
-      return sortAscCot ? diff : -diff;
-    }
-    if(sortColCot === 'diasSinContacto'){
-      const da = diasSinContactoCot(a), db = diasSinContactoCot(b);
-      if(da==null) return 1; if(db==null) return -1;
-      return sortAscCot ? da-db : db-da;
-    }
-    if(sortColCot === 'diasCotizacionFactura'){
-      const da = diasCotizacionFacturaCot(a), db = diasCotizacionFacturaCot(b);
-      if(da==null && db==null) return 0;
-      if(da==null) return 1; if(db==null) return -1;
-      return sortAscCot ? da-db : db-da;
-    }
-    let va = a[sortColCot], vb = b[sortColCot];
-    if(va==null) return 1; if(vb==null) return -1;
-    if(typeof va === 'string') return sortAscCot ? va.localeCompare(vb) : vb.localeCompare(va);
-    return sortAscCot ? va-vb : vb-va;
-  });
-}
-
-// Tabla compacta (pedido del usuario): Cliente+contacto, Cotización+fecha,
-// Monto+base tributaria, Estado de gestión, Responsable, Próxima acción.
-// Teléfono/historial/documentos/tiempo a facturación se mueven a la ficha
-// lateral o quedan accesibles abriendo la fila -- ya no son columnas fijas.
-function renderTablaCotizaciones(){
-  if ($('subVistaGestionCot')?.classList.contains('activa')) renderKpis4Cot();
-  renderFiltrosRapidosCot(cotizacionesFiltradasBase());
-
-  const todasOrdenadas = filasCotOrdenadas();
-  const totalPaginas = Math.max(1, Math.ceil(todasOrdenadas.length / PAGE_SIZE_COT));
-  if (paginaCot > totalPaginas) paginaCot = totalPaginas;
-  const inicio = (paginaCot - 1) * PAGE_SIZE_COT;
-  const filas = todasOrdenadas.slice(inicio, inicio + PAGE_SIZE_COT);
-
-  if(todasOrdenadas.length === 0){
-    $('wrapCotizaciones').innerHTML = `<p class="empty-note">${cotizaciones.length===0 ? 'No hay cotizaciones sincronizadas todavía.' : 'Sin resultados para ese filtro.'}</p>`;
-    $('paginacionCot').innerHTML = '';
-    // OJO: nunca llamar a cerrarFichaLateralCot() acá -- esa función vuelve
-    // a llamar a renderTablaCotizaciones(), y si el filtro sigue sin dar
-    // resultados (ej. mientras "cotizaciones" todavía está vacío al cargar
-    // la página) se entra en recursión infinita entre ambas. Si hay una
-    // ficha abierta, se limpia el estado directo, sin volver a renderizar.
-    if (cotizacionSeleccionadaId != null) {
-      cotizacionSeleccionadaId = null;
-      fichaCotDetalleActual = null;
-      const f = $('fichaLateralCot');
-      if (f) { f.style.display = 'none'; f.innerHTML = ''; }
-      $('layoutGestionCot').classList.add('sin-ficha');
-      cerrarFichaCotTablet();
-    }
-    return;
-  }
-
-  const cols = [
-    { key:'clienteNombre', label:'Cliente', render:c=>{
-        const resumen = resumenClientesCotizacion[c.clienteId];
-        const m = /^(.*) \((.*)\)$/.exec(c.clienteNombre || '');
-        const nombre = m ? m[1] : (c.clienteNombre || 'Sin nombre');
-        const contacto = m ? m[2] : null;
-        const badgeVip = resumen && resumen.numCompras >= 2 ? ' 🔁' : '';
-        return `<div class="celda-cliente-cot"><div class="nombre-cliente-cot">${escapeHtmlCot(nombre)}${badgeVip}</div>${contacto ? `<div class="contacto-cliente-cot">${escapeHtmlCot(contacto)}</div>` : ''}</div>`;
-      } },
-    { key:'numero', label:'Cotización', render:c=>`<div class="celda-cot-numero">${docLinkHtml(c.numero, c.urlCotizacion)}<span class="fecha-cot-numero">${c.fecha ? fmtFechaCot(c.fecha) : '—'}</span></div>` },
-    { key:'monto', label:'Monto', align:'amount', render:c=>`<div class="celda-monto-cot"><b>${fmtMoneda(c.monto)}</b></div>` },
-    { key:'estado', label:'Gestión', render:c=>{ const g = estadoGestionInfo(c); return `<span class="badge-gestion ${g.clave}">${g.label}</span>`; } },
-    { key:'responsable', label:'Responsable', render:c=>escapeHtmlCot(c.responsableGestionNombre || c.vendedorNombre || 'Sin asignar') },
-    { key:'proximaAccion', label:'Próxima acción', render:c=>{
-        if (!c.proximaAccionTexto && !c.proximaAccionFecha) return alertaOperativaHtmlCot(c);
-        return `<div class="celda-proxima-cot">${escapeHtmlCot(c.proximaAccionTexto || 'Seguimiento')}<span class="fecha-proxima-cot">${c.proximaAccionFecha ? fmtFechaHoraCot(c.proximaAccionFecha) : ''}</span></div>`;
-      } },
-  ];
-
-  const thead = `<tr><th style="width:26px;"></th>${cols.map(c=>{
-    const claveOrden = c.key === 'estado' ? 'prioridad' : c.key;
-    const marca = sortColCot===claveOrden ? (sortAscCot?' ▲':' ▼') : '';
-    return `<th class="${c.align==='amount'?'amount':''}" onclick="cambiarOrdenCotizaciones('${c.key}')">${c.label}${marca}</th>`;
-  }).join('')}</tr>`;
-
-  const tbody = filas.map(c=>`<tr class="fila-cot ${c.id === cotizacionSeleccionadaId ? 'seleccionada' : ''}" onclick="seleccionarCotizacion(${c.id})">
-    <td><input type="checkbox" onclick="event.stopPropagation();" ${c.id === cotizacionSeleccionadaId ? 'checked' : ''} disabled title="Selección visual de la fila"></td>
-    ${cols.map(col=>`<td class="${col.align==='amount'?'amount':''}">${col.render(c)}</td>`).join('')}
-  </tr>`).join('');
-
-  const chipVendedorSel = $('filtroVendedorCotSelect')?.value;
-  const chipVendedor = chipVendedorSel
-    ? `<span class="badge si" style="cursor:pointer;" title="Quitar filtro" onclick="quitarFiltroVendedorCotizacion()">Vendedor: ${escapeHtmlCot($('filtroVendedorCotSelect').selectedOptions[0]?.textContent || '')} ✕</span>`
-    : '';
-
-  $('wrapCotizaciones').innerHTML = `
-    <div class="controles-tabla"><span class="empty-note">${fmtNum(todasOrdenadas.length)} cotización${todasOrdenadas.length===1?'':'es'}</span>${chipVendedor}</div>
-    <div class="tabla-wrap"><table class="tabla-cot-compacta"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
-
-  $('paginacionCot').innerHTML = totalPaginas > 1 ? `
-    <span>Mostrando ${fmtNum(inicio+1)}–${fmtNum(Math.min(inicio+PAGE_SIZE_COT, todasOrdenadas.length))} de ${fmtNum(todasOrdenadas.length)}</span>
-    <span>
-      <button class="btn-ghost btn-compact" ${paginaCot<=1?'disabled':''} onclick="irPaginaCot(${paginaCot-1})">← Anterior</button>
-      ${Array.from({length:totalPaginas}, (_,i)=>i+1).slice(Math.max(0,paginaCot-3), paginaCot+2).map(p=>`<button class="btn-ghost btn-compact" style="${p===paginaCot?'background:var(--primary);color:#fff;border-color:var(--primary);':''}" onclick="irPaginaCot(${p})">${p}</button>`).join('')}
-      <button class="btn-ghost btn-compact" ${paginaCot>=totalPaginas?'disabled':''} onclick="irPaginaCot(${paginaCot+1})">Siguiente →</button>
-    </span>` : `<span>${fmtNum(todasOrdenadas.length)} cotización${todasOrdenadas.length===1?'':'es'}</span>`;
-
-  // Si la fila seleccionada ya no calza con el filtro/página actual, la
-  // ficha se mantiene mostrando lo último cargado (no se cierra sola) --
-  // mismo criterio ya usado en la bandeja de WhatsApp.
-}
-function irPaginaCot(p){ paginaCot = p; renderTablaCotizaciones(); }
-function fmtFechaCot(iso){ return new Date(iso+'T00:00:00').toLocaleDateString('es-CL'); }
-function fmtFechaHoraCot(iso){ return new Date(iso).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }); }
-
-// ---------- Panel de detalle de cliente (clic en el nombre de la fila) ----------
-// Reusa el mismo mecanismo de historial de comentarios ya construido para
-// Productos estancados / Clientes recurrentes en Análisis (contexto
-// 'cotizacion_cliente' del lado del backend) -- un comentario nuevo se
-// AGREGA, nunca reemplaza al anterior, y cada quien solo puede editar los
-// suyos.
-// ==================== Ficha lateral de una cotización (antes modal) ====================
-let usuariosActivosCot = [];
-async function cargarUsuariosActivosCot(){
-  // Reusa el mismo endpoint que ya usa el módulo de WhatsApp para poblar un
-  // selector de "Responsable" (usuarios activos del ERP) -- es una consulta
-  // genérica (usuarios activos), no tiene nada específico de WhatsApp,
-  // reutilizarla evita duplicar un endpoint idéntico solo por el nombre.
-  try{
-    const res = await fetch('/api/negocio?recurso=whatsapp-usuarios');
-    const data = await res.json();
-    if (res.ok) usuariosActivosCot = data.usuarios || [];
-  }catch(err){ /* silencioso */ }
-}
-function opcionesResponsableCot(seleccionadoId){
-  let out = '<option value="">Sin asignar</option>';
-  for (const u of usuariosActivosCot) out += `<option value="${u.id}" ${Number(seleccionadoId) === u.id ? 'selected' : ''}>${escapeHtmlCot(u.nombre)}</option>`;
-  return out;
-}
-
-// Mismo criterio de "solicitud más reciente gana" que ya probó el modal
-// viejo -- al navegar rápido entre fichas, una respuesta lenta de una
-// cotización anterior no debe pisar lo que ya se está mostrando.
-let fichaCotSolicitudActual = 0;
-let fichaCotDetalleActual = null; // último detalle completo recibido (incluye _cotizacionId para saber a cuál pertenece)
-let fichaCotComentariosActuales = [];
-let fichaCotEditandoComentarioId = null;
-let fichaCotCorreosActuales = [];
-let fichaCotItemsActual = null;
-let ultimoGuardadoFallidoCot = null; // {tipo:'gestion'|'estado', id, campo?, valor} -- para el botón "Reintentar"
-
-function seleccionarCotizacion(id){
-  cotizacionSeleccionadaId = id;
-  fichaCotItemsActual = null;
-  renderTablaCotizaciones();
-  cargarFichaCotizacion(id);
-}
-
-async function cargarFichaCotizacion(id){
-  const miSolicitud = ++fichaCotSolicitudActual;
-  const c = cotizaciones.find(x => x.id === id);
-  if (!c) return;
-  $('fichaLateralCot').style.display = '';
-  $('layoutGestionCot').classList.remove('sin-ficha');
-  if (window.matchMedia('(max-width:1150px)').matches) { $('fichaLateralCot').classList.add('abierta-tablet'); $('overlayFichaCot').style.display = 'block'; }
-
-  renderFichaLateralCot(c, (fichaCotDetalleActual && fichaCotDetalleActual._cotizacionId === id) ? fichaCotDetalleActual : null);
-
-  try{
-    const data = await fetch(`/api/negocio?recurso=cotizacion-detalle&cotizacionId=${id}`).then(r=>r.json());
-    if (miSolicitud !== fichaCotSolicitudActual) return; // se seleccionó otra cotización mientras esto cargaba
-    if (data.error) return;
-    data._cotizacionId = id;
-    fichaCotDetalleActual = data;
-    const cActual = cotizaciones.find(x => x.id === id);
-    if (cActual) renderFichaLateralCot(cActual, data);
-  }catch(err){
-    if (miSolicitud !== fichaCotSolicitudActual) return;
-  }
-  cargarItemsCotizacionFicha(id, miSolicitud);
-}
-
-async function cargarItemsCotizacionFicha(id, miSolicitud){
-  try{
-    const data = await fetch(`/api/negocio?recurso=cotizacion-items&cotizacionId=${id}`).then(r=>r.json());
-    if (miSolicitud !== fichaCotSolicitudActual) return;
-    fichaCotItemsActual = data;
-    renderDetalleItemsFicha(data);
-  }catch(err){
-    if (miSolicitud !== fichaCotSolicitudActual) return;
-    renderDetalleItemsFicha({ error: 'Error de conexión con Bsale' });
-  }
-}
-
-function cerrarFichaCotTablet(){
-  const f = $('fichaLateralCot'); if (f) f.classList.remove('abierta-tablet');
-  const o = $('overlayFichaCot'); if (o) o.style.display = 'none';
-}
-function cerrarFichaLateralCot(){
-  cotizacionSeleccionadaId = null;
-  fichaCotDetalleActual = null;
-  const f = $('fichaLateralCot');
-  if (f) { f.style.display = 'none'; f.innerHTML = ''; }
-  $('layoutGestionCot').classList.add('sin-ficha');
-  cerrarFichaCotTablet();
-  renderTablaCotizaciones();
-}
-function navegarFichaCot(direccion){
-  const filas = filasCotOrdenadas();
-  const i = filas.findIndex(c => c.id === cotizacionSeleccionadaId);
-  if (i === -1) return;
-  const j = i + direccion;
-  if (j < 0 || j >= filas.length) return;
-  seleccionarCotizacion(filas[j].id);
-}
-
-function abrirConversacionWhatsappDesdeCot(conversacionId){
-  window.open(`clientes-whatsapp.html?abrirConversacion=${conversacionId}`, '_blank');
-}
-
-function renderFichaLateralCot(c, detalle){
-  const m = /^(.*) \((.*)\)$/.exec(c.clienteNombre || '');
-  const nombreCliente = m ? m[1] : (c.clienteNombre || 'Sin nombre');
-  const contacto = m ? m[2] : null;
-
-  const proximaHtml = (c.proximaAccionTexto || c.proximaAccionFecha)
-    ? `<div class="proxima-accion-box">
-         <div style="font-weight:600;margin-bottom:4px;">${escapeHtmlCot(c.proximaAccionTexto || 'Seguimiento')}</div>
-         ${c.proximaAccionFecha ? `<div class="sub">📅 ${fmtFechaHoraCot(c.proximaAccionFecha)}</div>` : ''}
-         <div class="sub">${escapeHtmlCot(c.responsableGestionNombre || c.vendedorNombre || 'Sin responsable')}</div>
-       </div>`
-    : `<div class="proxima-accion-box sin-accion">Sin próxima acción registrada.</div>`;
-
-  // "Último contacto" viene del backend (evento real registrado, o correo
-  // saliente real detectado -- ver manejarCotizacionesClientes) -- nunca se
-  // inventa desde la fecha de creación. "Sin registro" es honesto cuando
-  // no hay ninguna de las dos evidencias.
-  const ultimoContactoHtml = c.ultimoContactoEn
-    ? `${fmtFechaHoraCot(c.ultimoContactoEn)}${c.ultimoContactoCanal ? ' · ' + escapeHtmlCot(c.ultimoContactoCanal) : ''}`
-    : 'Sin registro';
-  const diasAntiguedad = c.fecha ? diasEntreCot(c.fecha, hoyStrCot) : null;
-  const diasSinContacto = diasSinContactoCot(c);
-
-  const waHtml = (detalle?.conversacionesWhatsapp && detalle.conversacionesWhatsapp.length)
-    ? `<div class="ficha-cot-fila"><span>WhatsApp</span><b><a href="#" onclick="event.preventDefault();abrirConversacionWhatsappDesdeCot(${detalle.conversacionesWhatsapp[0].id})" title="Coincidencia por teléfono -- no es un vínculo guardado">💬 Ver conversación</a></b></div>`
-    : '';
-
-  $('fichaLateralCot').innerHTML = `
-    <div class="ficha-cot-head">
-      <div style="display:flex;align-items:center;gap:4px;">
-        <button class="btn-icono" onclick="navegarFichaCot(-1)" title="Cotización anterior en la tabla">◀</button>
-        <h3 style="font-size:13.5px;margin:0;">Cotización #${escapeHtmlCot(c.numero || c.id)}</h3>
-        <button class="btn-icono" onclick="navegarFichaCot(1)" title="Cotización siguiente en la tabla">▶</button>
-      </div>
-      <button class="btn-icono" onclick="cerrarFichaLateralCot()" title="Cerrar y ampliar la tabla">✕</button>
-    </div>
-    <div class="ficha-cot-body">
-      <div class="ficha-cot-grupo">
-        <h3>Resumen</h3>
-        <div class="ficha-cot-fila"><span>Documento</span><b>${docLinkHtml(c.numero, c.urlCotizacion)}${c.fecha ? ' · ' + fmtFechaCot(c.fecha) : ''}</b></div>
-        <div class="ficha-cot-fila"><span>Cliente</span><b>${escapeHtmlCot(nombreCliente)}</b></div>
-        ${contacto ? `<div class="ficha-cot-fila"><span>Contacto</span><b>${escapeHtmlCot(contacto)}</b></div>` : ''}
-        ${c.clienteTelefono ? `<div class="ficha-cot-fila"><span>Teléfono</span><b>${escapeHtmlCot(c.clienteTelefono)}</b></div>` : ''}
-        ${(detalle?.clienteEmail || c.clienteEmail) ? `<div class="ficha-cot-fila"><span>Correo</span><b style="word-break:break-all;"><a href="mailto:${escapeHtmlCot(detalle?.clienteEmail || c.clienteEmail)}" class="doc-link">${escapeHtmlCot(detalle?.clienteEmail || c.clienteEmail)}</a></b></div>` : ''}
-        <div class="ficha-cot-fila"><span>Monto</span><b>${fmtMoneda(c.monto)}</b></div>
-        ${waHtml}
-      </div>
-
-      <div class="ficha-cot-grupo">
-        <h3>Gestión comercial <span id="indicadorGuardadoCot" class="indicador-guardado"></span></h3>
-        <div class="ficha-cot-fila"><span>Responsable</span><b><select onchange="guardarGestionCotizacion(${c.id}, 'responsableGestionId', this.value)">${opcionesResponsableCot(c.responsableGestionId)}</select></b></div>
-        <div class="ficha-cot-fila"><span>Estado</span><b><select onchange="guardarEstadoCotizacionFicha(${c.id}, this.value)">${Object.entries(ESTADOS_COTIZACION_LABEL).map(([v,l])=>`<option value="${v}" ${c.estado===v?'selected':''}>${l}</option>`).join('')}</select></b></div>
-        <div class="ficha-cot-fila"><span>Resultado comercial</span><b>${(() => { const r = resultadoComercialInfo(c); return `<span class="badge-resultado ${r.clave}">${r.label}</span>`; })()}</b></div>
-        <div class="ficha-cot-fila"><span>Último contacto</span><b style="text-align:left;">${ultimoContactoHtml}</b></div>
-        <div class="ficha-cot-fila"><span>Antigüedad</span><b>${diasAntiguedad != null ? diasAntiguedad + ' días' : '—'}</b></div>
-        <div class="ficha-cot-fila"><span>Sin contacto hace</span><b>${diasSinContacto != null ? diasSinContacto + ' días' : '—'}</b></div>
-      </div>
-
-      <div class="ficha-cot-grupo">
-        <h3>Próxima acción</h3>
-        ${proximaHtml}
-        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-          <button class="btn-ghost btn-compact" onclick="abrirRegistrarContacto(${c.id})">📞 Registrar contacto</button>
-          <button class="btn-primary btn-compact" onclick="abrirProgramarSeguimientoCot(${c.id})">📅 Programar seguimiento</button>
-        </div>
-      </div>
-
-      <div class="ficha-cot-grupo" id="detalleItemsFichaCot"><h3>Detalle</h3><p class="empty-note">Cargando ítems desde Bsale...</p></div>
-
-      <details class="ficha-cot-colapsable">
-        <summary>Historial del cliente</summary>
-        <div id="historialClienteFichaCot">${detalle ? '' : '<p class="empty-note">Cargando...</p>'}</div>
-      </details>
-      <details class="ficha-cot-colapsable">
-        <summary>Documentos asociados</summary>
-        <div>${c.documentoAsociadoNumero
-          ? `<div class="ficha-cot-fila"><span>${escapeHtmlCot(c.documentoAsociadoTipo || 'Documento')} ${escapeHtmlCot(c.documentoAsociadoNumero)}</span><b>${c.documentoAsociadoUrl ? `<a href="${c.documentoAsociadoUrl}" target="_blank" rel="noopener" class="doc-link">Ver ↗</a>` : '—'}</b></div>`
-          : '<p class="empty-note">Sin documento asociado todavía.</p>'}</div>
-      </details>
-      <details class="ficha-cot-colapsable" open>
-        <summary>Notas y actividad</summary>
-        <div id="notasActividadFichaCot">${detalle ? '' : '<p class="empty-note">Cargando...</p>'}</div>
-      </details>
-    </div>
-  `;
-
-  if (detalle) {
-    renderHistorialClienteFicha(detalle.resumenCompras);
-    renderNotasActividadFicha(detalle);
-  }
-  if (fichaCotItemsActual) renderDetalleItemsFicha(fichaCotItemsActual);
-}
-
-function renderHistorialClienteFicha(resumen){
-  const el = $('historialClienteFichaCot');
-  if (!el) return;
-  el.innerHTML = (resumen && resumen.numCompras)
-    ? `<div class="ficha-cot-fila"><span>Compras históricas</span><b>${fmtNum(resumen.numCompras)}</b></div>
-       <div class="ficha-cot-fila"><span>Monto histórico</span><b>${fmtMoneda(resumen.montoTotal)}</b></div>
-       <div class="ficha-cot-fila"><span>Última compra</span><b>${resumen.ultimaCompra ? fmtFechaCot(resumen.ultimaCompra) : '—'}</b></div>`
-    : '<p class="empty-note">Sin compras reales (boletas/facturas) registradas para este cliente todavía.</p>';
-}
-
-function renderDetalleItemsFicha(data){
-  const el = $('detalleItemsFichaCot');
-  if (!el) return;
-  if (!data || data.error) {
-    el.innerHTML = `<h3>Detalle</h3><p class="empty-note">${escapeHtmlCot(data?.error || 'No se pudo cargar el detalle desde Bsale.')}</p>`;
-    return;
-  }
-  if (!data.items || !data.items.length) {
-    el.innerHTML = `<h3>Detalle</h3><p class="empty-note">Sin ítems disponibles.</p>`;
-    return;
-  }
-  el.innerHTML = `
-    <h3>Detalle</h3>
-    <div class="tabla-wrap"><table style="font-size:11.5px;">
-      <thead><tr><th>Producto / servicio</th><th class="amount">Cant.</th><th class="amount">Precio unit. (neto)</th><th class="amount">Total (neto)</th></tr></thead>
-      <tbody>${data.items.map(it => `<tr><td>${escapeHtmlCot(it.descripcion)}</td><td class="amount">${fmtNum(it.cantidad)}</td><td class="amount">${fmtMoneda(it.precioUnitarioNeto)}</td><td class="amount">${fmtMoneda(it.totalLineaNeto)}</td></tr>`).join('')}</tbody>
-      <tfoot>
-        ${data.netAmount != null ? `<tr><td colspan="3" class="amount">Subtotal (neto)</td><td class="amount">${fmtMoneda(data.netAmount)}</td></tr>` : ''}
-        ${data.totalAmount != null ? `<tr class="fila-total"><td colspan="3" class="amount">Total (IVA incluido)</td><td class="amount">${fmtMoneda(data.totalAmount)}</td></tr>` : ''}
-      </tfoot>
-    </table></div>`;
-}
-
-// ---- Notas y actividad: cambios de estado + correos reales + comentarios ----
-function renderNotasActividadFicha(detalle){
-  const el = $('notasActividadFichaCot');
-  if (!el) return;
-  const historialHtml = (detalle.historialEstados && detalle.historialEstados.length)
-    ? detalle.historialEstados.map(h => `<div class="estado-item"><span>${ESTADOS_COTIZACION_LABEL[h.estado] || h.estado}</span><span class="comentario-meta">${escapeHtmlCot(h.autor || 'Desconocido')} — ${new Date(h.creadoEn).toLocaleString('es-CL')}</span></div>`).join('')
-    : '';
-  el.innerHTML = `
-    ${historialHtml ? `<h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:2px 0 6px;">Cambios de estado</h4>${historialHtml}` : ''}
-    <h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:10px 0 6px;">Correos</h4>
-    <div id="correosFichaCotWrap">${renderCorreosFichaHtml(detalle.correos, detalle.clienteEmail)}</div>
-    <h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:10px 0 6px;">Comentarios</h4>
-    <div id="comentariosFichaCotWrap">${renderComentariosFichaHtml(detalle.comentarios)}</div>
-    <textarea id="nuevoComentarioFichaCot" placeholder="Escribe un comentario nuevo..." style="width:100%;margin-top:8px;min-height:50px;padding:8px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:12.5px;resize:vertical;box-sizing:border-box;"></textarea>
-    <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:6px;">
-      <button class="btn-ghost btn-compact" id="btnCancelarEdicionComentarioFichaCot" style="display:none;" onclick="cancelarEdicionComentarioFichaCot()">Cancelar</button>
-      <button class="btn-primary btn-compact" id="btnGuardarComentarioFichaCot" onclick="guardarComentarioFichaCot()">Agregar comentario</button>
-    </div>`;
-}
-
-function renderCorreosFichaHtml(correos, clienteEmail){
-  fichaCotCorreosActuales = correos || [];
-  if ((!correos || correos.length === 0) && !clienteEmail) return '<p class="empty-note">Este cliente no tiene un correo registrado en Bsale todavía.</p>';
-  if (!correos || correos.length === 0) return `<p class="empty-note">Sin correos detectados todavía con ${escapeHtmlCot(clienteEmail)} (se revisa una vez al día).</p>`;
-  return correos.map((c, i) => `
-    <div class="estado-item clicable" onclick="toggleCorreoPreviewFicha(${i})" title="Haz clic para ver el contenido">
-      <span>${c.direccion === 'entrante' ? '📩 El cliente escribió' : '📤 Le escribimos'}${c.asunto ? ': ' + escapeHtmlCot(c.asunto) : ''} <span class="badge pend" id="correoFichaVistoBadge${i}" style="${c.visto ? 'display:none;' : ''}">Sin abrir</span></span>
-      <span class="comentario-meta">${c.fecha ? new Date(c.fecha).toLocaleString('es-CL') : 'sin fecha'} — ${escapeHtmlCot(c.casilla)}</span>
-    </div>
-    ${c.resumenIa ? `<div class="correo-resumen-ia" id="correoFichaResumenIa${i}">🤖 ${escapeHtmlCot(c.resumenIa)}</div>` : `<div class="correo-resumen-ia" id="correoFichaResumenIa${i}" style="display:none;"></div>`}
-    <div class="correo-preview" id="correoFichaPreview${i}" style="display:none;"></div>`).join('');
-}
-async function toggleCorreoPreviewFicha(i){
-  const c = fichaCotCorreosActuales[i];
-  const wrap = $(`correoFichaPreview${i}`);
-  if (!c || !wrap) return;
-  const yaAbierto = wrap.style.display !== 'none';
-  if (yaAbierto) { wrap.style.display = 'none'; return; }
-  if (!c.visto) { c.visto = true; const badge = $(`correoFichaVistoBadge${i}`); if (badge) badge.style.display = 'none'; }
-  if (c.contenidoTexto) { wrap.textContent = c.contenidoTexto; wrap.style.display = 'block'; return; }
-  if (c._cargando) return;
-  wrap.textContent = 'Leyendo el contenido real del correo… puede tardar unos segundos.';
-  wrap.style.display = 'block';
-  c._cargando = true;
-  try{
-    const resp = await fetch(`/api/negocio?recurso=cotizacion-correo-contenido&correoId=${c.id}`);
-    const data = await resp.json();
-    if (data && data.contenidoTexto) { c.contenidoTexto = data.contenidoTexto; wrap.textContent = data.contenidoTexto; }
-    else wrap.textContent = 'No se pudo leer el contenido de este correo (sin texto plano legible, o el servidor de correo no respondió a tiempo).';
-    if (data && data.analisis) aplicarAnalisisRespuestaCorreoFicha(i, data.analisis);
-  }catch(err){ wrap.textContent = 'No se pudo leer el contenido de este correo (error de conexión).'; }
-  finally{ c._cargando = false; }
-}
-function aplicarAnalisisRespuestaCorreoFicha(i, analisis){
-  const c = fichaCotCorreosActuales[i];
-  if (!c) return;
-  if (analisis.resumen) {
-    c.resumenIa = analisis.resumen;
-    const nota = $(`correoFichaResumenIa${i}`);
-    if (nota) { nota.textContent = '🤖 ' + analisis.resumen; nota.style.display = 'block'; }
-  }
-  if (analisis.estadoSugerido) {
-    const cot = cotizaciones.find(x => x.id === cotizacionSeleccionadaId);
-    if (cot && cot.estado !== analisis.estadoSugerido) { cot.estado = analisis.estadoSugerido; renderTablaCotizaciones(); }
-  }
-}
-
-function renderComentariosFichaHtml(comentarios){
-  fichaCotComentariosActuales = comentarios || [];
-  return (comentarios && comentarios.length)
-    ? comentarios.map(h => `
-        <div class="comentario-item">
-          <div style="flex:1;">
-            <div>${escapeHtmlCot(h.comentario)}</div>
-            <div class="comentario-meta">${escapeHtmlCot(h.autor || 'Desconocido')} — ${new Date(h.creadoEn).toLocaleString('es-CL')}${h.editadoEn ? ' (editado)' : ''}</div>
-          </div>
-          ${h.id != null && h.autor === nombreActualCot ? `<button class="btn-icono" title="Editar este comentario" onclick="prepararEdicionComentarioFichaCot(${h.id})">✏️</button>` : ''}
-        </div>`).join('')
-    : '<p class="empty-note">Todavía no hay comentarios guardados.</p>';
-}
-function prepararEdicionComentarioFichaCot(id){
-  const entrada = fichaCotComentariosActuales.find(h => h.id === id);
-  if (!entrada) return;
-  fichaCotEditandoComentarioId = id;
-  $('nuevoComentarioFichaCot').value = entrada.comentario;
-  $('nuevoComentarioFichaCot').focus();
-  $('btnGuardarComentarioFichaCot').textContent = 'Guardar edición';
-  $('btnCancelarEdicionComentarioFichaCot').style.display = '';
-}
-function cancelarEdicionComentarioFichaCot(){
-  fichaCotEditandoComentarioId = null;
-  const ta = $('nuevoComentarioFichaCot'); if (ta) ta.value = '';
-  const btn = $('btnGuardarComentarioFichaCot'); if (btn) btn.textContent = 'Agregar comentario';
-  const btnCancel = $('btnCancelarEdicionComentarioFichaCot'); if (btnCancel) btnCancel.style.display = 'none';
-}
-async function guardarComentarioFichaCot(){
-  const ta = $('nuevoComentarioFichaCot');
-  const texto = (ta?.value || '').trim();
-  const clienteId = fichaCotDetalleActual?.clienteId;
-  if (!texto || !clienteId || !cotizacionSeleccionadaId) return;
-  const editandoId = fichaCotEditandoComentarioId;
-  try{
-    const res = await fetch('/api/negocio?recurso=cotizacion-detalle', {
-      method: 'PUT', headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ clienteId, comentario: texto, ...(editandoId ? { comentarioId: editandoId } : {}) })
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) { alert(data.error || 'No se pudo guardar.'); return; }
-    cancelarEdicionComentarioFichaCot();
-    const detalle = await fetch(`/api/negocio?recurso=cotizacion-detalle&cotizacionId=${cotizacionSeleccionadaId}`).then(r=>r.json());
-    if (!detalle.error) {
-      detalle._cotizacionId = cotizacionSeleccionadaId;
-      fichaCotDetalleActual = detalle;
-      const wrap = $('comentariosFichaCotWrap');
-      if (wrap) wrap.innerHTML = renderComentariosFichaHtml(detalle.comentarios);
-    }
-  }catch(err){
-    alert('Error: ' + err.message);
-  }
-}
-
-// ---- Autoguardado (Gestión comercial): indicadores Guardando/Guardado/Error ----
-function mostrarIndicadorGuardadoCot(estado){
-  const el = $('indicadorGuardadoCot');
-  if (!el) return;
-  if (estado === 'guardando') el.innerHTML = `<span class="indicador-guardado guardando">Guardando…</span>`;
-  else if (estado === 'guardado') {
-    el.innerHTML = `<span class="indicador-guardado guardado">✓ Guardado</span>`;
-    setTimeout(() => { if (el.innerHTML.includes('Guardado')) el.innerHTML = ''; }, 2500);
-  } else {
-    el.innerHTML = `<span class="indicador-guardado error">⚠ Error al guardar — <span class="reintentar" onclick="reintentarGuardadoCot()">Reintentar</span></span>`;
-  }
-}
-function reintentarGuardadoCot(){
-  if (!ultimoGuardadoFallidoCot) return;
-  const g = ultimoGuardadoFallidoCot;
-  if (g.tipo === 'gestion') guardarGestionCotizacion(g.id, g.campo, g.valor);
-  else if (g.tipo === 'estado') guardarEstadoCotizacionFicha(g.id, g.valor);
-}
-async function guardarGestionCotizacion(id, campo, valor){
-  mostrarIndicadorGuardadoCot('guardando');
-  const body = { id };
-  body[campo] = valor === '' ? null : (campo === 'responsableGestionId' ? Number(valor) : valor);
-  try{
-    const res = await fetch('/api/negocio?recurso=cotizacion-gestion', { method: 'PUT', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(body) });
-    const data = await res.json();
-    if (!res.ok || data.error) { ultimoGuardadoFallidoCot = { tipo:'gestion', id, campo, valor }; mostrarIndicadorGuardadoCot('error'); return; }
-    const c = cotizaciones.find(x => x.id === id);
-    if (c && campo === 'responsableGestionId') {
-      c.responsableGestionId = body.responsableGestionId;
-      c.responsableGestionNombre = body.responsableGestionId ? (usuariosActivosCot.find(u => u.id === body.responsableGestionId)?.nombre || null) : null;
-    }
-    mostrarIndicadorGuardadoCot('guardado');
-    renderTablaCotizaciones();
-  }catch(err){ ultimoGuardadoFallidoCot = { tipo:'gestion', id, campo, valor }; mostrarIndicadorGuardadoCot('error'); }
-}
-async function guardarEstadoCotizacionFicha(id, estado){
-  const cot = cotizaciones.find(c => c.id === id);
-  const estadoAnterior = cot ? cot.estado : null;
-  if (cot) cot.estado = estado; // optimista
-  mostrarIndicadorGuardadoCot('guardando');
-  try{
-    const res = await fetch('/api/negocio?recurso=cotizacion-estado', { method: 'PUT', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ id, estado }) });
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      if (cot) cot.estado = estadoAnterior;
-      ultimoGuardadoFallidoCot = { tipo:'estado', id, valor: estado };
-      mostrarIndicadorGuardadoCot('error');
-      renderTablaCotizaciones();
-      return;
-    }
-    mostrarIndicadorGuardadoCot('guardado');
-    renderTablaCotizaciones();
-  }catch(err){
-    if (cot) cot.estado = estadoAnterior;
-    ultimoGuardadoFallidoCot = { tipo:'estado', id, valor: estado };
-    mostrarIndicadorGuardadoCot('error');
-    renderTablaCotizaciones();
-  }
-}
-
-// "Registrar contacto" (evento real, NO equivale a cambiar el estado -- ver
-// bsale_cotizaciones_contactos) y "Programar seguimiento" (próxima acción
-// con fecha). Mismo patrón prompt() rápido ya usado en el resto del
-// proyecto para inputs puntuales de este tipo.
-function abrirRegistrarContacto(id){
-  const canal = prompt('Canal de contacto (teléfono / whatsapp / correo / otro):', 'teléfono');
-  if (!canal) return;
-  const nota = prompt('Nota (opcional):', '') || null;
-  (async () => {
-    try{
-      const res = await fetch('/api/negocio?recurso=cotizacion-contacto', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ cotizacionId: id, canal, nota }) });
-      const data = await res.json();
-      if (!res.ok || data.error) { alert(data.error || 'No se pudo registrar el contacto.'); return; }
-      await cargarCotizaciones();
-      seleccionarCotizacion(id);
-    }catch(err){ alert('Error: ' + err.message); }
-  })();
-}
-function abrirProgramarSeguimientoCot(id){
-  const texto = prompt('¿Qué hay que hacer?', 'Llamar para seguimiento');
-  if (texto === null) return;
-  const fecha = prompt('Fecha (AAAA-MM-DD):', hoyStrCot);
-  if (!fecha) return;
-  (async () => {
-    try{
-      const res = await fetch('/api/negocio?recurso=cotizacion-gestion', { method: 'PUT', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ id, proximaAccionTexto: texto, proximaAccionFecha: fecha + 'T12:00:00' }) });
-      const data = await res.json();
-      if (!res.ok || data.error) { alert(data.error || 'No se pudo programar el seguimiento.'); return; }
-      const cot = cotizaciones.find(c => c.id === id);
-      if (cot) { cot.proximaAccionTexto = texto; cot.proximaAccionFecha = fecha + 'T12:00:00'; }
-      if (cot) renderFichaLateralCot(cot, fichaCotDetalleActual);
-      renderTablaCotizaciones();
-    }catch(err){ alert('Error: ' + err.message); }
-  })();
-}
-
 // ==================== Indexpro (servicios a empresas: NAS, soporte TI) ====================
 async function cargarIndexpro(){
   indexproCargado = true;
@@ -2381,7 +782,6 @@ async function cargarIndexpro(){
     status.textContent = 'Error: ' + err.message;
   }
 }
-
 // Mismo criterio que ventas/leads-priorizados-nas.xlsx: 55% monto histórico
 // + 25% N° de compras + 20% si compró en los últimos 12 meses, cada
 // componente normalizado 0-1 contra el resto de la lista cargada
@@ -2400,7 +800,6 @@ function calcularScoresIndexpro(lista){
     return { ...o, score };
   });
 }
-
 function poblarFiltroRubroIndexpro(){
   const sel = $('filtroRubroIndexpro');
   const actual = sel.value;
@@ -2408,7 +807,6 @@ function poblarFiltroRubroIndexpro(){
   sel.innerHTML = '<option value="">Todos</option>' + rubros.map(r => `<option value="${r}">${r}</option>`).join('');
   sel.value = rubros.includes(actual) ? actual : '';
 }
-
 function renderKpisIndexpro(){
   const cards = document.querySelectorAll('#kpiWrapIndexpro .card');
   const encontrados = oportunidadesIndexpro.filter(o => o.encontradoEnBsale);
@@ -2417,7 +815,6 @@ function renderKpisIndexpro(){
   cards[2].querySelector('.big').textContent = fmtNum(oportunidadesIndexpro.filter(o => o.activo12m).length);
   cards[3].querySelector('.big').textContent = fmtMoneda(encontrados.reduce((a,o)=>a+(o.montoTotal||0),0));
 }
-
 function renderEstadoSyncIndexpro(sync){
   if(sincronizandoIndexpro || !sync) return;
   const wrap = $('syncIndexproWrap');
@@ -2428,7 +825,6 @@ function renderEstadoSyncIndexpro(sync){
     wrap.innerHTML = `<div class="note-box">✓ Última sincronización completa con Bsale: <b>${fecha}</b>.</div>`;
   }
 }
-
 async function iniciarSincronizacionIndexpro(){
   if(sincronizandoIndexpro) return;
   sincronizandoIndexpro = true;
@@ -2469,14 +865,12 @@ async function iniciarSincronizacionIndexpro(){
     cargarIndexpro();
   }
 }
-
 function cambiarOrdenIndexpro(col){
   if(col === 'estado') col = 'prioridad'; // clic en "Estado" ordena por prioridad de embudo, no alfabético
   if(sortColIndexpro === col) sortAscIndexpro = !sortAscIndexpro;
   else { sortColIndexpro = col; sortAscIndexpro = col === 'prioridad'; }
   renderTablaIndexpro();
 }
-
 function renderTablaIndexpro(){
   const q = ($('buscarIndexproInput').value || '').trim().toLowerCase();
   const rubro = $('filtroRubroIndexpro').value;
@@ -2555,12 +949,10 @@ function renderTablaIndexpro(){
     </div>
     <div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
 }
-
 function toggleExpandidoIndexpro(){
   indexproExpandido = !indexproExpandido;
   renderTablaIndexpro();
 }
-
 async function cambiarEstadoIndexpro(id, estado){
   const op = oportunidadesIndexpro.find(o => o.id === id);
   const estadoAnterior = op ? op.estado : null;
@@ -2583,7 +975,6 @@ async function cambiarEstadoIndexpro(id, estado){
     renderTablaIndexpro();
   }
 }
-
 // Dominios de correo genéricos (no son el sitio propio de la empresa) ->
 // para esos no se ofrece el ícono 🌐, sería un link engañoso.
 const DOMINIOS_CORREO_GENERICOS = new Set(['gmail.com','hotmail.com','outlook.com','yahoo.com','live.com','icloud.com','hotmail.es','yahoo.es','msn.com','me.com','protonmail.com']);
@@ -2593,7 +984,6 @@ function dominioSitioWeb(email){
   if(!dominio || DOMINIOS_CORREO_GENERICOS.has(dominio)) return null;
   return dominio;
 }
-
 async function enviarPresentacionIndexpro(id){
   const op = oportunidadesIndexpro.find(o => o.id === id);
   if(!op || !op.email) return;
@@ -2612,7 +1002,6 @@ async function enviarPresentacionIndexpro(id){
     alert('Error: ' + err.message);
   }
 }
-
 async function eliminarOportunidadIndexpro(id){
   const op = oportunidadesIndexpro.find(o => o.id === id);
   if(!confirm(`¿Eliminar "${op ? op.clienteNombre : 'este cliente'}" de la lista de oportunidades Indexpro?`)) return;
@@ -2627,8 +1016,6 @@ async function eliminarOportunidadIndexpro(id){
     alert('Error: ' + err.message);
   }
 }
-
-
 // Consulta en vivo a Bsale (no queda guardado) — solo al hacer clic en el
 // ícono 💰 de una fila puntual.
 async function abrirModalHistorial(id, nombre){
@@ -2669,360 +1056,56 @@ function cerrarModalHistorial(){
 function cerrarModalHistorialSiFondo(ev){
   if(ev.target.id === 'modalHistorialOverlay') cerrarModalHistorial();
 }
-
-// ==================== Compra Ágil (antes página aparte) ====================
-function fmtFechaCompraAgil(iso){ return iso ? new Date(iso).toLocaleDateString('es-CL') : '—'; }
-
-function badgeEstadoCompraAgil(estado, cuentaComoFacturado){
-  if(!cuentaComoFacturado) return `<span class="badge cancel">${estado || 'Cancelada'}</span>`;
-  if(estado === 'Aceptada' || estado === 'Recepción Conforme') return `<span class="badge si">${estado}</span>`;
-  return `<span class="badge pend">${estado || 'Enviada'}</span>`;
-}
-// La cotización se busca por monto+fecha+nombre del organismo (ver
-// vincularOrdenesCompraAgil en el backend) -- no hay un ID en común entre
-// Mercado Público y Bsale para cruzar directo, así que puede quedar sin
-// vínculo aunque exista de verdad (ej. si el organismo se guardó en Bsale
-// con un nombre muy distinto al de Mercado Público).
-function celdaCotizacionCompraAgil(o){
-  if(!o.cotizacionVinculada) return '<span class="empty-note">—</span>';
-  const c = o.cotizacionVinculada;
-  return c.url ? `<a href="${c.url}" target="_blank" rel="noopener" class="doc-link">#${c.numero} ↗</a>` : `#${c.numero}`;
-}
-function celdaFacturaCompraAgil(o){
-  if(!o.facturaVinculada) return '<span class="empty-note">—</span>';
-  const f = o.facturaVinculada;
-  const texto = `${f.tipo || 'Documento'} ${f.numero}`;
-  return f.url ? `<a href="${f.url}" target="_blank" rel="noopener" class="doc-link">${texto} ↗</a>` : texto;
-}
-function celdaDiasCompraAgil(o){
-  if(o.diasCotizacionFactura === null || o.diasCotizacionFactura === undefined) return '<span class="empty-note">—</span>';
-  return `${fmtNum(o.diasCotizacionFactura)} día${o.diasCotizacionFactura === 1 ? '' : 's'}`;
-}
-// Vendedor y "¿Ha comprado antes?" solo se conocen cuando la OC quedó
-// vinculada a una cotización de Bsale -- el vínculo directo con
-// analisis_compras (el caso más común) no trae ninguno de los dos.
-function celdaVendedorCompraAgil(o){
-  return o.vendedorNombre ? escapeHtmlCot(o.vendedorNombre) : '<span class="empty-note">—</span>';
-}
-function celdaHaCompradoCompraAgil(o){
-  if(o.haCompradoAntes === null || o.haCompradoAntes === undefined) return '<span class="empty-note">—</span>';
-  return `<span class="badge ${o.haCompradoAntes ? 'si' : 'no'}">${o.haCompradoAntes ? 'Sí' : 'No'}</span>`;
+// Muestra el número de documento como link directo a Bsale cuando hay URL disponible (mismo patrón que conciliacion.html)
+function docLinkHtml(numero, url){
+  if(!numero) return '<span class="empty-note">—</span>';
+  if(url) return `<a href="${url}" target="_blank" rel="noopener" class="doc-link">#${numero} ↗</a>`;
+  return `#${numero}`;
 }
 
-// ---------- Filtro de fecha/organismo/estado (rango filtrado) ----------
-// Reutiliza los helpers de fecha ya definidos para Cotizaciones
-// (hoyStrCot, addDaysStrCot, firstDayOfMonthStr, lastDayOfMonthStr,
-// diasEntreCot, periodoAnteriorEquivalenteCot) -- son genéricos, no tienen
-// nada específico de cotizaciones adentro.
-function setRangoRapidoCompraAgil(tipo){
-  if(tipo === 'hoy'){
-    $('caDesde').value = hoyStrCot;
-    $('caHasta').value = hoyStrCot;
-  } else if(tipo === 'semana'){
-    $('caDesde').value = addDaysStrCot(hoyStrCot, -6);
-    $('caHasta').value = hoyStrCot;
-  } else if(tipo === 'mes_anterior'){
-    const ultimoDiaMesAnterior = addDaysStrCot(firstDayOfMonthStr(hoyStrCot), -1);
-    $('caDesde').value = firstDayOfMonthStr(ultimoDiaMesAnterior);
-    $('caHasta').value = ultimoDiaMesAnterior;
-  } else {
-    $('caDesde').value = firstDayOfMonthStr(hoyStrCot);
-    $('caHasta').value = lastDayOfMonthStr(hoyStrCot);
-  }
-  $('btnCaHoy').classList.toggle('active', tipo==='hoy');
-  $('btnCaSemana').classList.toggle('active', tipo==='semana');
-  $('btnCaMes').classList.toggle('active', tipo==='mes');
-  $('btnCaMesAnterior').classList.toggle('active', tipo==='mes_anterior');
-  aplicarFiltrosCompraAgil();
-}
-function limpiarRangoCompraAgil(){
-  $('caDesde').value = '';
-  $('caHasta').value = '';
-  $('caBuscar').value = '';
-  $('caFiltroEstado').value = '';
-  ['btnCaHoy','btnCaSemana','btnCaMes','btnCaMesAnterior'].forEach(id => $(id).classList.remove('active'));
-  aplicarFiltrosCompraAgil();
-}
-function fechaStrCompraAgil(o){
-  return o.fechaEnvio ? new Date(o.fechaEnvio).toISOString().slice(0,10) : null;
-}
-function ordenesFiltradasCompraAgil(){
-  const desde = $('caDesde').value;
-  const hasta = $('caHasta').value;
-  const q = ($('caBuscar').value || '').trim().toLowerCase();
-  const filtroEstado = $('caFiltroEstado').value;
-  return ordenesCompraAgil.filter(o => {
-    const f = fechaStrCompraAgil(o);
-    return (!desde || !f || f >= desde)
-      && (!hasta || !f || f <= hasta)
-      && (!q || (o.organismo||'').toLowerCase().includes(q))
-      && (!filtroEstado || o.estado === filtroEstado);
-  });
-}
-function poblarFiltroEstadoCompraAgil(){
-  const select = $('caFiltroEstado');
-  const actual = select.value;
-  const estados = Array.from(new Set(ordenesCompraAgil.map(o => o.estado).filter(Boolean))).sort();
-  select.innerHTML = '<option value="">Todos</option>' + estados.map(e => `<option value="${escapeHtmlCot(e)}">${escapeHtmlCot(e)}</option>`).join('');
-  if(estados.includes(actual)) select.value = actual;
-}
-function aplicarFiltrosCompraAgil(){
-  renderVendedoresCompraAgil();
-  renderTablaCompraAgil();
+// ---------- Tabs grandes ----------
+function cambiarTab(tab){
+  $('tabBtnPuntos').classList.toggle('activo', tab==='puntos');
+  $('tabBtnIndexpro').classList.toggle('activo', tab==='indexpro');
+  $('tabPuntos').style.display = tab==='puntos' ? '' : 'none';
+  $('tabIndexpro').style.display = tab==='indexpro' ? '' : 'none';
+  if(tab==='puntos' && !puntosCargados) cargar();
+  if(tab==='indexpro' && !indexproCargado) cargarIndexpro();
 }
 
-let sortColCompraAgil = 'fechaEnvio';
-let sortAscCompraAgil = false;
-function flechaCompraAgil(col){ return sortColCompraAgil === col ? (sortAscCompraAgil ? ' ▲' : ' ▼') : ''; }
-function cambiarOrdenCompraAgil(col){
-  if(sortColCompraAgil === col) sortAscCompraAgil = !sortAscCompraAgil;
-  else { sortColCompraAgil = col; sortAscCompraAgil = false; }
-  renderTablaCompraAgil();
-}
-const VALOR_ORDEN_COMPRA_AGIL = {
-  fechaEnvio: o => o.fechaEnvio ? new Date(o.fechaEnvio).getTime() : 0,
-  organismo: o => o.organismo || '',
-  vendedorNombre: o => o.vendedorNombre || '',
-  estado: o => o.estado || '',
-  total: o => o.total || 0,
-  diasCotizacionFactura: o => o.diasCotizacionFactura ?? -1,
-};
-function renderTablaCompraAgil(){
-  if(!ordenesCompraAgil.length){
-    $('wrapTablaCompraAgil').innerHTML = '<p class="empty-note">Todavía no hay órdenes sincronizadas. Usa "🔄 Sincronizar con Mercado Público" para traer el historial.</p>';
-    return;
-  }
-  let ordenes = ordenesFiltradasCompraAgil();
-  if(!ordenes.length){
-    $('wrapTablaCompraAgil').innerHTML = '<p class="empty-note">Sin resultados para ese filtro.</p>';
-    return;
-  }
-  const valor = VALOR_ORDEN_COMPRA_AGIL[sortColCompraAgil];
-  ordenes = [...ordenes].sort((a, b) => {
-    const av = valor(a), bv = valor(b);
-    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
-    return sortAscCompraAgil ? cmp : -cmp;
-  });
-  const filas = ordenes.map(o => `
-    <tr>
-      <td>${fmtFechaCompraAgil(o.fechaEnvio)}</td>
-      <td>${escapeHtmlCot(o.organismo || '—')}</td>
-      <td>${celdaVendedorCompraAgil(o)}</td>
-      <td>${o.codigo}</td>
-      <td>${badgeEstadoCompraAgil(o.estado, o.cuentaComoFacturado)}</td>
-      <td>${celdaHaCompradoCompraAgil(o)}</td>
-      <td class="amount">${fmtMoneda(o.total)}</td>
-      <td>${celdaCotizacionCompraAgil(o)}</td>
-      <td>${celdaFacturaCompraAgil(o)}</td>
-      <td>${celdaDiasCompraAgil(o)}</td>
-    </tr>`).join('');
-  const totalFacturado = ordenes.filter(o => o.cuentaComoFacturado).reduce((s, o) => s + o.total, 0);
-
-  $('wrapTablaCompraAgil').innerHTML = `
-    <div class="tabla-wrap"><table>
-      <thead><tr>
-        <th class="ordenable" onclick="cambiarOrdenCompraAgil('fechaEnvio')">Fecha envío${flechaCompraAgil('fechaEnvio')}</th>
-        <th class="ordenable" onclick="cambiarOrdenCompraAgil('organismo')">Organismo comprador${flechaCompraAgil('organismo')}</th>
-        <th class="ordenable" onclick="cambiarOrdenCompraAgil('vendedorNombre')">Vendedor${flechaCompraAgil('vendedorNombre')}</th>
-        <th>Código OC</th>
-        <th class="ordenable" onclick="cambiarOrdenCompraAgil('estado')">Estado${flechaCompraAgil('estado')}</th>
-        <th>¿Ha comprado antes?</th>
-        <th class="ordenable" style="text-align:right;" onclick="cambiarOrdenCompraAgil('total')">Total${flechaCompraAgil('total')}</th>
-        <th>Cotización Bsale</th><th>Factura/Boleta</th>
-        <th class="ordenable" onclick="cambiarOrdenCompraAgil('diasCotizacionFactura')">Cotización → factura${flechaCompraAgil('diasCotizacionFactura')}</th>
-      </tr></thead>
-      <tbody>${filas}</tbody>
-      <tbody>
-        <tr class="fila-total"><td colspan="6">Total facturado (válidas, rango filtrado)</td><td class="amount">${fmtMoneda(totalFacturado)}</td><td colspan="3"></td></tr>
-      </tbody>
-    </table></div>
-  `;
-}
-
-function renderKpisCompraAgil(data){
-  $('kpiCaTotal').textContent = fmtMoneda(data.totalFacturado);
-  $('kpiCaValidas').textContent = fmtNum(data.totalOrdenesValidas);
-  $('kpiCaCanceladas').textContent = fmtNum(data.totalOrdenes - data.totalOrdenesValidas);
-  $('kpiCaPromedio').textContent = fmtMoneda(data.totalOrdenesValidas ? data.totalFacturado / data.totalOrdenesValidas : 0);
-}
-
-function renderResumenMesesCompraAgil(ordenes){
-  const ahora = new Date();
-  const inicioActual = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-  const inicioAnterior = new Date(inicioActual.getFullYear(), inicioActual.getMonth() - 1, 1);
-  let totalActual = 0, countActual = 0, totalAnterior = 0, countAnterior = 0;
-  ordenes.forEach(o => {
-    if(!o.cuentaComoFacturado || !o.fechaEnvio) return;
-    const f = new Date(o.fechaEnvio);
-    if(f >= inicioActual){ totalActual += o.total; countActual++; }
-    else if(f >= inicioAnterior && f < inicioActual){ totalAnterior += o.total; countAnterior++; }
-  });
-  $('kpiCaMesActual').textContent = fmtMoneda(totalActual);
-  $('kpiCaMesActualSub').textContent = `${fmtNum(countActual)} orden${countActual === 1 ? '' : 'es'}`;
-  $('kpiCaMesAnterior').textContent = fmtMoneda(totalAnterior);
-  $('kpiCaMesAnteriorSub').textContent = `${fmtNum(countAnterior)} orden${countAnterior === 1 ? '' : 'es'}`;
-}
-
-// Sólo bsale_cotizaciones registra vendedor -- las órdenes facturadas
-// directo (sin cotización de por medio) no tienen forma de identificarlo,
-// así que caen en el bucket "Sin vendedor identificado" en vez de
-// omitirse. "vs. período anterior" reutiliza periodoAnteriorEquivalenteCot
-// y calcularVariacionPct (genéricos, ya definidos para Cotizaciones) --
-// ignora el filtro de organismo/estado (solo fecha) para que la
-// comparación sea pareja, mismo criterio que "Vendedores — rango
-// filtrado" más arriba en esta misma página.
-let sortColVendCompraAgil = 'total';
-let sortAscVendCompraAgil = false;
-function flechaVendCompraAgil(col){ return sortColVendCompraAgil === col ? (sortAscVendCompraAgil ? ' ▲' : ' ▼') : ''; }
-function cambiarOrdenVendCompraAgil(col){
-  if(sortColVendCompraAgil === col) sortAscVendCompraAgil = !sortAscVendCompraAgil;
-  else { sortColVendCompraAgil = col; sortAscVendCompraAgil = false; }
-  renderVendedoresCompraAgil();
-}
-function renderVendedoresCompraAgil(){
-  if(!ordenesCompraAgil.length){
-    $('wrapVendedoresCompraAgil').innerHTML = '<p class="empty-note">No hay datos suficientes todavía.</p>';
-    return;
-  }
-  const desde = $('caDesde').value;
-  const hasta = $('caHasta').value;
-  const periodoAnt = periodoAnteriorEquivalenteCot(desde, hasta);
-  const diasPeriodo = periodoAnt ? diasEntreCot(periodoAnt.desde, periodoAnt.hasta) + 1 : null;
-  const montoAnteriorPorVendedor = new Map();
-  if(periodoAnt){
-    for(const o of ordenesCompraAgil){
-      if(!o.cuentaComoFacturado) continue;
-      const f = fechaStrCompraAgil(o);
-      if(!f || f < periodoAnt.desde || f > periodoAnt.hasta) continue;
-      const nombre = o.vendedorNombre || 'Sin vendedor identificado';
-      montoAnteriorPorVendedor.set(nombre, (montoAnteriorPorVendedor.get(nombre) || 0) + o.total);
-    }
-  }
-
-  const mapa = new Map();
-  ordenesFiltradasCompraAgil().forEach(o => {
-    if(!o.cuentaComoFacturado) return;
-    const nombre = o.vendedorNombre || 'Sin vendedor identificado';
-    if(!mapa.has(nombre)) mapa.set(nombre, { nombre, total: 0, ordenes: 0 });
-    const e = mapa.get(nombre);
-    e.total += o.total;
-    e.ordenes++;
-  });
-  const valorVendCa = { nombre: f => f.nombre, total: f => f.total, ordenes: f => f.ordenes }[sortColVendCompraAgil];
-  const filas = Array.from(mapa.values()).map(f => ({
-    ...f,
-    variacionPct: periodoAnt ? calcularVariacionPct(f.total, montoAnteriorPorVendedor.get(f.nombre) || 0) : null,
-  })).sort((a, b) => {
-    const av = valorVendCa(a), bv = valorVendCa(b);
-    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
-    return sortAscVendCompraAgil ? cmp : -cmp;
-  });
-  if(!filas.length){
-    $('wrapVendedoresCompraAgil').innerHTML = '<p class="empty-note">Sin resultados para ese filtro.</p>';
-    return;
-  }
-  const maxTotal = Math.max(...filas.map(f => f.total), 1);
-  const filasHtml = filas.map(f => `
-    <tr>
-      <td>${escapeHtmlCot(f.nombre)}</td>
-      <td class="amount">${fmtMoneda(f.total)}</td>
-      <td class="amount">${fmtNum(f.ordenes)}</td>
-      <td><div style="background:var(--primary-dim);border-radius:6px;overflow:hidden;height:14px;width:160px;"><div style="background:var(--primary);height:100%;width:${Math.round(f.total / maxTotal * 100)}%;"></div></div></td>
-      ${periodoAnt ? `<td>${notaVariacionHtmlDias(f.variacionPct, diasPeriodo) || '<span class="empty-note">—</span>'}</td>` : ''}
-    </tr>`).join('');
-  $('wrapVendedoresCompraAgil').innerHTML = `
-    <div class="tabla-wrap"><table>
-      <thead><tr>
-        <th class="ordenable" onclick="cambiarOrdenVendCompraAgil('nombre')">Vendedor${flechaVendCompraAgil('nombre')}</th>
-        <th class="ordenable" style="text-align:right;" onclick="cambiarOrdenVendCompraAgil('total')">Total facturado${flechaVendCompraAgil('total')}</th>
-        <th class="ordenable" style="text-align:right;" onclick="cambiarOrdenVendCompraAgil('ordenes')">Órdenes${flechaVendCompraAgil('ordenes')}</th>
-        <th>Comparativo</th>${periodoAnt ? '<th>vs. período anterior</th>' : ''}
-      </tr></thead>
-      <tbody>${filasHtml}</tbody>
-    </table></div>
-  `;
-}
-
-async function cargarCompraAgil(){
-  compraAgilCargado = true;
+// ---------- Sesión ----------
+async function cargarSesionUsuario(){
   try{
-    const res = await fetch('/api/negocio?recurso=compra-agil-ordenes');
-    const data = await res.json();
-    if(!res.ok || data.error){
-      $('wrapTablaCompraAgil').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar Compra Ágil.'}</p>`;
-      return;
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    esAdmin = u.rol === 'admin';
+    if(esAdmin){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+      $('btnSincronizar').style.display = '';
+      $('btnSincronizarIndexpro').style.display = '';
+      // Auto-sincronización al cargar (cada pestaña decide si ya pasaron 12 h
+      // desde su última pasada completa, ver autoSincronizarSiCorresponde).
+      if(!puntosCargados) cargar();
+      if(!indexproCargado) cargarIndexpro();
     }
-    ordenesCompraAgil = data.ordenes;
-    renderKpisCompraAgil(data);
-    renderResumenMesesCompraAgil(data.ordenes);
-    poblarFiltroEstadoCompraAgil();
-    // Mes actual por defecto (pedido del usuario), solo la PRIMERA vez que
-    // se carga esta pestaña -- si el filtro ya tiene algo (el usuario lo
-    // cambió, o una recarga en segundo plano por auto-sincronización), no
-    // se pisa lo que ya eligió.
-    if($('caDesde').value) aplicarFiltrosCompraAgil();
-    else setRangoRapidoCompraAgil('mes');
-    if(data.ultimaPasadaCompletaEn){
-      $('syncStatusCompraAgil').className = '';
-      $('syncStatusCompraAgil').textContent = `Última sincronización completa: ${new Date(data.ultimaPasadaCompletaEn).toLocaleString('es-CL')} (día ${fmtNum(data.offsetActual)} de ${fmtNum(data.diasTotales)} en curso).`;
-    } else if(!data.ordenes.length){
-      $('syncStatusCompraAgil').textContent = esAdmin ? 'Todavía no se ha sincronizado con Mercado Público.' : '';
-    }
-    autoSincronizarSiCorresponde('compraAgil', data.ultimaPasadaCompletaEn, sincronizandoCompraAgil, iniciarSincronizacionCompraAgil);
-  }catch(err){
-    $('wrapTablaCompraAgil').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
-  }
+  }catch(err){ /* silencioso */ }
 }
 
-// Encadena llamadas a sync-compra-agil (cada una avanza unos días,
-// respetando el rate limit de Mercado Público) hasta que el servidor
-// informa completo:true -- una pasada completa (~400 días a ~1.3s c/u)
-// toma varios minutos, no cierres la página mientras corre.
-async function iniciarSincronizacionCompraAgil(){
-  if(sincronizandoCompraAgil) return;
-  sincronizandoCompraAgil = true;
-  $('btnSincronizarCompraAgil').disabled = true;
-  $('syncStatusCompraAgil').className = '';
-  $('syncStatusCompraAgil').textContent = 'Sincronizando con Mercado Público...';
-  try{
-    let completo = false;
-    let ordenesNuevas = 0;
-    let vinculosNuevos = 0;
-    while(!completo){
-      const res = await fetch('/api/negocio?recurso=sync-compra-agil', { method: 'POST' }).then(r=>r.json());
-      if(res.error){
-        $('syncStatusCompraAgil').className = 'err';
-        $('syncStatusCompraAgil').textContent = 'Error: ' + res.error;
-        break;
-      }
-      completo = !!res.completo;
-      ordenesNuevas += res.ordenesNuevasEnEstaLlamada || 0;
-      vinculosNuevos += res.vinculosNuevosEnEstaLlamada || 0;
-      const pctCompraAgil = res.diasTotales ? Math.round((res.offsetActual||0) / res.diasTotales * 100) : 0;
-      $('syncStatusCompraAgil').textContent = completo
-        ? `Sincronización completa — ${fmtNum(ordenesNuevas)} órdenes nuevas, ${fmtNum(vinculosNuevos)} vinculadas a una cotización o factura de Bsale.`
-        : `Sincronizando... ${pctCompraAgil}% (${fmtNum(res.offsetActual)} de ${fmtNum(res.diasTotales)} días revisados), ${fmtNum(ordenesNuevas)} órdenes nuevas. Continuando automáticamente, no cierres la página...`;
-      if(completo) cargarCompraAgil();
-    }
-  }catch(err){
-    $('syncStatusCompraAgil').className = 'err';
-    $('syncStatusCompraAgil').textContent = 'Error: ' + err.message;
-  }finally{
-    sincronizandoCompraAgil = false;
-    $('btnSincronizarCompraAgil').disabled = false;
-  }
-}
-
-cargarSesionUsuario();
-// ?tab=compra-agil (o cualquier otra pestaña) abre directo ahí -- usado
-// por el redirect de la antigua página compra-agil.html.
+// Compatibilidad: Cotizaciones, Compra Ágil y el panel de accesorios ahora
+// son páginas propias -- los links viejos con ?tab= siguen funcionando.
+const PAGINAS_MOVIDAS = { 'cotizaciones': 'cotizaciones-clientes.html', 'compra-agil': 'compra-agil.html', 'accesorios': 'metas-de-venta.html' };
 const tabInicial = new URLSearchParams(location.search).get('tab');
-// Mes actual por defecto en Cotizaciones (pedido del usuario -- antes
-// eran los últimos 30 días corridos), sin importar en qué pestaña se
-// aterrice: antes solo se aplicaba si la pestaña inicial era Cotizaciones.
-setRangoRapidoCotizaciones('mes');
-if(tabInicial === 'compra-agil') cambiarTab('compra-agil');
-else cargarCotizaciones();
+if (PAGINAS_MOVIDAS[tabInicial]) {
+  location.replace(PAGINAS_MOVIDAS[tabInicial]);
+} else {
+  cargarSesionUsuario();
+  if (tabInicial === 'indexpro') cambiarTab('indexpro'); else cargar();
+}
 </script>
 </body>
 </html>
