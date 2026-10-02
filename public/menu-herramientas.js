@@ -42,6 +42,9 @@ function toggleNavDropdown(ev, id){
   menu.style.top = `${rect.bottom + 6}px`;
   menu.style.left = `${rect.left}px`;
   menu.classList.add('abierto');
+  // En pantallas angostas el menú no debe salirse por la derecha.
+  const maxLeft = window.innerWidth - menu.offsetWidth - 8;
+  menu.style.left = `${Math.max(8, Math.min(rect.left, maxLeft))}px`;
 }
 document.addEventListener('click', (e) => {
   if(e.target.closest('#menuHerramientas') || e.target.closest('.btn-settings') || e.target.closest('.nav-dropdown') || e.target.closest('.nav-dropdown-menu')) return;
@@ -54,3 +57,9 @@ document.addEventListener('keydown', (e) => {
 // Un desplegable position:fixed no sigue al botón si la página se
 // scrollea -- se cierra en vez de quedar flotando desconectado.
 window.addEventListener('scroll', () => cerrarTodosLosDesplegables(), true);
+
+// En celular el nav se desliza horizontalmente: deja a la vista la sección activa.
+document.addEventListener('DOMContentLoaded', () => {
+  const activo = document.querySelector('.page-nav .active');
+  if(activo && activo.scrollIntoView) activo.scrollIntoView({ block:'nearest', inline:'center' });
+});

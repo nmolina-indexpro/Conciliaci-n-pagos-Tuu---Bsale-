@@ -225,6 +225,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="responsive.css">
+<link rel="stylesheet" href="comercial-movil.css">
 </head>
 <body>
 <div class="wrap">
@@ -396,6 +397,7 @@
 
 <script src="restriccion-usuario.js"></script>
 <script src="menu-herramientas.js"></script>
+<script src="comercial-movil.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
@@ -1142,8 +1144,8 @@ function renderTablaCotizaciones(){
   }).join('')}</tr>`;
 
   const tbody = filas.map(c=>`<tr class="fila-cot ${c.id === cotizacionSeleccionadaId ? 'seleccionada' : ''}" onclick="seleccionarCotizacion(${c.id})">
-    <td><input type="checkbox" onclick="event.stopPropagation();" ${c.id === cotizacionSeleccionadaId ? 'checked' : ''} disabled title="Selección visual de la fila"></td>
-    ${cols.map(col=>`<td class="${col.align==='amount'?'amount':''}">${col.render(c)}</td>`).join('')}
+    <td class="col-check"><input type="checkbox" onclick="event.stopPropagation();" ${c.id === cotizacionSeleccionadaId ? 'checked' : ''} disabled title="Selección visual de la fila"></td>
+    ${cols.map(col=>`<td class="celda-${col.key} ${col.align==='amount'?'amount':''}" data-label="${col.label}">${col.render(c)}</td>`).join('')}
   </tr>`).join('');
 
   const chipVendedorSel = $('filtroVendedorCotSelect')?.value;

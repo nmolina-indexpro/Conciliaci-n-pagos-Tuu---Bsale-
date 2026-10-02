@@ -1,0 +1,204 @@
+/* /public/comercial-movil.css
+   Ajustes de vista móvil SOLO para las páginas del menú Comercial
+   (Ventas, Cotizaciones, Compra Ágil, Metas de venta, Sitio Web,
+   WhatsApp e IndexScale). Se carga DESPUÉS de responsive.css, que ya
+   resuelve el header, el nav y las tarjetas KPI genéricas; acá va lo
+   específico de estas pantallas: filtros, tabla de cotizaciones como
+   tarjetas, ficha a pantalla completa, modales y tamaño de fuente de los
+   campos (iOS hace zoom al enfocar un input con menos de 16px). */
+
+@media (max-width: 900px) {
+  /* Ningún hijo de grilla/flex debe empujar el ancho de la página: sin
+     min-width:0 una tabla ancha estira su contenedor y toda la página
+     termina con scroll horizontal. */
+  .layout-gestion-cot > *, .cot-head > *, .seccion, .tabla-wrap, .bandeja-layout > *{ min-width: 0; }
+  html, body{ max-width: 100%; overflow-x: hidden; }
+
+  /* iOS hace zoom automático al enfocar campos con fuente < 16px. */
+  input[type=text], input[type=number], input[type=date], input[type=search],
+  input[type=email], input[type=tel], input[type=password], input[type=month], select, textarea{
+    font-size: 16px !important;
+  }
+  select.estado-select{ font-size: 16px !important; }
+
+  .seccion{ padding: 12px; border-radius: 12px; margin-bottom: 14px; }
+  .sub{ font-size: 12.5px; }
+
+  /* ---------- Encabezado de la página (título + sync + botones) ---------- */
+  .cot-head{ flex-direction: column; align-items: stretch; gap: 10px; text-align: left; }
+  .cot-head > div:last-child{ width: 100%; }
+  .cot-head > div:last-child > .btn-ghost, .cot-head > div:last-child > .btn-primary{ flex: 1 1 calc(50% - 5px); }
+  .cot-head > div:last-child > .btn-primary{ flex-basis: 100%; }
+  .cot-sync-pill{ width: 100%; font-size: 11.5px; }
+  header{ text-align: center; }
+  h2{ text-align: left; }
+
+  /* ---------- Sub-pestañas Gestión / Rendimiento ---------- */
+  .tabs-sub-cot{ width: 100%; }
+  .tab-sub-cot{ flex: 1; padding: 11px 8px; min-height: 44px; }
+
+  /* ---------- Filtros: grilla de 6 columnas para repartir los controles ---------- */
+  .cot-filtros-toolbar{
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; align-items: stretch;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px;
+    margin-bottom: 8px;
+  }
+  .cot-filtros-toolbar > *{ min-width: 0; }
+  .cot-filtros-toolbar .filtro-rango-fechas{ grid-column: span 6; }
+  .cot-filtros-toolbar .date-field input{ width: 100% !important; }
+  #btnCotHoy, #btnCotSemana, #btnCotMes{ grid-column: span 2; }
+  #btnCotMesAnterior, .cot-filtros-toolbar > button[onclick^="limpiarRango"]{ grid-column: span 3; }
+  .cot-filtros-toolbar > .campo{ grid-column: span 6; }
+  .cot-filtros-toolbar > .campo:has(#filtroVendedorCotSelect),
+  .cot-filtros-toolbar > .campo:has(#filtroEstadoCotizacion){ grid-column: span 3; }
+  .cot-filtros-toolbar input[type=text], .cot-filtros-toolbar select{ width: 100% !important; min-width: 0 !important; }
+  #btnMasFiltrosCot{ grid-column: span 6; }
+  .cot-filtros-toolbar .btn-compact{ padding: 8px 6px !important; min-height: 40px; }
+  .filtros-panel{ flex-direction: column; align-items: flex-start; gap: 10px; padding: 10px 12px; }
+  .filtros-panel label{ min-height: 32px; }
+  .filtros-panel input[type=checkbox]{ width: 20px; height: 20px; flex-shrink: 0; }
+  .cot-aviso-180{ font-size: 11px; align-items: flex-start; }
+
+  /* ---------- KPIs 2x2 compactos ---------- */
+  .kpis-cot-4{ gap: 8px; }
+  .kpi-card-cot{ padding: 10px; gap: 8px; flex-direction: column; align-items: flex-start; }
+  .kpi-card-cot .icono-kpi{ width: 28px; height: 28px; font-size: 13px; border-radius: 8px; }
+  .kpi-card-cot .big-kpi{ font-size: 16px; word-break: break-word; }
+  .kpi-card-cot .lbl-kpi{ font-size: 10.5px; }
+  .kpi-card-cot .nota-kpi{ font-size: 10px; }
+
+  /* ---------- Chips de filtro rápido: una fila que se desliza ---------- */
+  .filtros-rapidos-cot{
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    margin: 0 -12px 12px; padding: 2px 12px 4px;
+  }
+  .filtros-rapidos-cot::-webkit-scrollbar{ display: none; }
+  .chip-filtro-rapido{ flex: 0 0 auto; white-space: nowrap; min-height: 38px; padding: 6px 12px; }
+
+  /* ---------- Tabla de cotizaciones -> lista de tarjetas ---------- */
+  .tabla-wrap{ overflow-x: visible; border-radius: 0; }
+  table.tabla-cot-compacta{ display: block; overflow: visible; white-space: normal; background: transparent; }
+  .tabla-cot-compacta thead{ display: none; }
+  .tabla-cot-compacta tbody{ display: flex; flex-direction: column; gap: 8px; }
+  .tabla-cot-compacta tr.fila-cot{
+    display: grid; grid-template-columns: 1fr auto; column-gap: 10px; row-gap: 4px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+    box-shadow: var(--shadow);
+  }
+  .tabla-cot-compacta tr.fila-cot.seleccionada{ border-color: var(--primary); background: var(--primary-dim); }
+  .tabla-cot-compacta td{ display: block; padding: 0; border: 0; min-width: 0; }
+  .tabla-cot-compacta td.col-check{ display: none; }
+  .tabla-cot-compacta td.celda-clienteNombre{ grid-column: 1; grid-row: 1; font-size: 13.5px; }
+  .tabla-cot-compacta td.celda-monto{ grid-column: 2; grid-row: 1; text-align: right; font-size: 13.5px; }
+  .tabla-cot-compacta td.celda-numero{ grid-column: 1; grid-row: 2; }
+  .tabla-cot-compacta td.celda-numero .fecha-cot-numero::before{ content: ' · '; }
+  .tabla-cot-compacta td.celda-numero .fecha-cot-numero{ display: inline; }
+  .tabla-cot-compacta td.celda-estado{ grid-column: 2; grid-row: 2; text-align: right; }
+  .tabla-cot-compacta td.celda-responsable{ grid-column: 1; grid-row: 3; font-size: 11.5px; color: var(--muted); }
+  .tabla-cot-compacta td.celda-responsable::before{ content: '👤 '; }
+  .tabla-cot-compacta td.celda-proximaAccion{ grid-column: 1 / -1; grid-row: 4; font-size: 11.5px; }
+  .tabla-cot-compacta td.celda-proximaAccion:empty{ display: none; }
+  .tabla-cot-compacta td.celda-proximaAccion .fecha-proxima-cot{ display: inline; }
+  .tabla-cot-compacta td.celda-proximaAccion .fecha-proxima-cot::before{ content: ' · '; }
+  .controles-tabla{ margin-bottom: 8px; }
+
+  .paginacion-cot{ flex-direction: column; gap: 8px; align-items: stretch; text-align: center; }
+  .paginacion-cot > span:last-child{ display: flex; gap: 8px; justify-content: center; align-items: center; }
+
+  /* ---------- Ficha de la cotización: pantalla completa ---------- */
+  .ficha-lateral-cot.abierta-tablet{
+    inset: 0 !important; width: 100% !important; max-width: none !important;
+    height: 100dvh; max-height: none !important; border-radius: 0 !important; border: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .ficha-cot-head{ padding: 12px 14px; }
+  .ficha-cot-body{ padding: 12px 14px 28px; }
+  .ficha-cot-fila{ flex-direction: column; gap: 3px; }
+  .ficha-cot-fila b{ text-align: left; }
+  .ficha-cot-fila select, .ficha-cot-fila input{ width: 100%; }
+  .ficha-cot-colapsable summary{ min-height: 40px; }
+  .ficha-cot-body button{ width: 100%; min-height: 44px; }
+  .ficha-cot-body table{ white-space: normal; font-size: 11px; }
+  .ficha-cot-body table th, .ficha-cot-body table td{ padding: 6px 5px; }
+
+  /* ---------- Modales como hoja inferior ---------- */
+  .modal-overlay, .modal-backdrop{ padding: 0; align-items: flex-end; }
+  .modal-overlay .modal-box{
+    width: 100%; max-height: 92dvh; padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    border-radius: 16px 16px 0 0;
+  }
+  .modal-backdrop .modal-box{ width: 100%; max-width: none; max-height: 94dvh; border-radius: 16px 16px 0 0; }
+
+  /* ---------- Barras de filtros con rango de fechas (Compra Ágil, etc.) ---------- */
+  .filtro-rango-fechas > *{ min-width: 0; }
+  input[type=date]{ min-width: 0; max-width: 100%; }
+  .toolbar > div:has(> .filtro-rango-fechas){
+    display: grid !important; grid-template-columns: repeat(6, 1fr); gap: 8px; align-items: stretch;
+  }
+  .toolbar > div:has(> .filtro-rango-fechas) > *{ min-width: 0; }
+  .toolbar > div:has(> .filtro-rango-fechas) > .filtro-rango-fechas{ grid-column: span 6; }
+  .toolbar > div:has(> .filtro-rango-fechas) > .btn-primary:not(.btn-compact){ display: none; } /* la búsqueda ya corre al cambiar cada filtro */
+  .toolbar > div:has(> .filtro-rango-fechas) > .btn-compact{ grid-column: span 2; padding: 8px 4px !important; }
+  .toolbar > div:has(> .filtro-rango-fechas) > .btn-compact:nth-last-child(3),
+  .toolbar > div:has(> .filtro-rango-fechas) > .btn-compact:nth-last-child(4){ grid-column: span 3; }
+  .toolbar > div:has(> .filtro-rango-fechas) > .campo{ grid-column: span 6; }
+
+  /* ---------- WhatsApp: acciones en lote (solo admin) y pestañas del módulo ---------- */
+  #accionesDemo{ grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; }
+  #accionesDemo:not([style*="none"]){ display: grid; }
+  #accionesDemo .btn-compact{ white-space: normal; line-height: 1.2; padding: 8px 6px !important; }
+  #accionesDemo #btnAnalizarRecientes{ grid-column: 1 / -1; }
+  .tabs-modulo{ margin: 12px 0 14px; scrollbar-width: none; }
+  .tabs-modulo::-webkit-scrollbar{ display: none; }
+  .tab-modulo{ padding: 11px 14px; min-height: 44px; }
+
+  /* ---------- Pestañas de Oportunidades (Puntos Bsale / Indexpro) ---------- */
+  .tabs-grandes{ flex-wrap: nowrap; }
+  .tab-grande{ min-width: 0; text-align: center; }
+
+  /* ---------- Tablas anotadas por comercial-movil.js: una tarjeta por fila ---------- */
+  table.tabla-tarjetas{ display: block; overflow: visible; white-space: normal; border: 0; background: transparent; }
+  table.tabla-tarjetas thead{ display: none; }
+  table.tabla-tarjetas tbody{ display: flex; flex-direction: column; gap: 8px; }
+  table.tabla-tarjetas tr{
+    display: block; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 6px 12px; box-shadow: var(--shadow);
+  }
+  table.tabla-tarjetas td[data-label]{
+    display: flex; justify-content: space-between; align-items: center; gap: 14px;
+    padding: 6px 0; border: 0; border-bottom: 1px dashed var(--line); text-align: right; white-space: normal;
+  }
+  table.tabla-tarjetas td[data-label]:last-child{ border-bottom: 0; }
+  table.tabla-tarjetas td[data-label]::before{
+    content: attr(data-label); flex-shrink: 0; max-width: 45%; text-align: left;
+    font-family: 'Space Grotesk', sans-serif; font-size: 10px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--muted);
+  }
+  table.tabla-tarjetas td[data-label]:empty, table.tabla-tarjetas td[data-vacio]{ display: none; }
+  table.tabla-tarjetas td.amount{ text-align: right; }
+  table.tabla-tarjetas td input[type=text], table.tabla-tarjetas td select{ flex: 1; min-width: 0; width: auto !important; max-width: 100%; }
+  /* Celda de acciones (encabezado vacío): botones alineados a la derecha, sin etiqueta */
+  table.tabla-tarjetas td:not([data-label]){ display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; padding: 6px 0; border: 0; white-space: normal !important; }
+  table.tabla-tarjetas td.empty-note{ padding: 6px 0; }
+
+  /* ---------- Tablas genéricas: se deslizan, con borde para que se note ---------- */
+  .tabla-wrap{ -webkit-overflow-scrolling: touch; }
+  table:not(.tabla-cot-compacta){ border: 1px solid var(--line); border-radius: 10px; font-size: 12px; }
+  table:not(.tabla-cot-compacta) th, table:not(.tabla-cot-compacta) td{ padding: 8px 9px; }
+}
+
+/* La bandeja pasa a una sola columna (lista o chat) recién bajo 860px. */
+@media (max-width: 860px) {
+  /* ---------- Bandeja WhatsApp: la conversación abierta ocupa toda la pantalla,
+     como una app de mensajería (el botón ← vuelve a la lista) ---------- */
+  .panel-chat.activa{
+    position: fixed; inset: 0; z-index: 120; width: 100%; height: 100dvh; min-height: 0;
+    border: 0; border-radius: 0; box-shadow: none; padding-bottom: env(safe-area-inset-bottom);
+  }
+  .panel-ficha-bandeja.abierta-movil{ z-index: 160; }
+}
+
+@media (max-width: 480px) {
+  .seccion{ padding: 10px; }
+  .cot-filtros-toolbar{ padding: 8px; gap: 6px; }
+  .btn-icono{ width: 36px !important; height: 36px !important; }
+}
