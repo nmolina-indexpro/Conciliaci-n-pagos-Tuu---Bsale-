@@ -2051,6 +2051,7 @@ function renderFichaLateralCot(c, detalle){
         <div class="ficha-cot-fila"><span>Cliente</span><b>${escapeHtmlCot(nombreCliente)}</b></div>
         ${contacto ? `<div class="ficha-cot-fila"><span>Contacto</span><b>${escapeHtmlCot(contacto)}</b></div>` : ''}
         ${c.clienteTelefono ? `<div class="ficha-cot-fila"><span>Teléfono</span><b>${escapeHtmlCot(c.clienteTelefono)}</b></div>` : ''}
+        ${(detalle?.clienteEmail || c.clienteEmail) ? `<div class="ficha-cot-fila"><span>Correo</span><b style="word-break:break-all;"><a href="mailto:${escapeHtmlCot(detalle?.clienteEmail || c.clienteEmail)}" class="doc-link">${escapeHtmlCot(detalle?.clienteEmail || c.clienteEmail)}</a></b></div>` : ''}
         <div class="ficha-cot-fila"><span>Monto</span><b>${fmtMoneda(c.monto)}</b></div>
         ${waHtml}
       </div>

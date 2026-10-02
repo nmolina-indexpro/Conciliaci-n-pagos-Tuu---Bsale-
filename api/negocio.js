@@ -1017,6 +1017,7 @@ async function manejarCotizacionesClientes(req, res, sesion) {
       clienteId: r.cliente_id,
       clienteNombre: r.cliente_nombre,
       clienteTelefono: r.cliente_telefono,
+      clienteEmail: r.cliente_email,
       monto: Number(r.monto) || 0,
       // "fecha" es DATE en Postgres -> el driver lo entrega como Date y
       // res.json() lo serializa completo (...T00:00:00.000Z) si no se
