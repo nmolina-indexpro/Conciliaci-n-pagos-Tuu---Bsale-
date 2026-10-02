@@ -233,7 +233,7 @@ async function cargar(){
   $('wrapEjecutivos').innerHTML = `<p class="empty-note">Cargando...</p>`;
 
   try{
-    const qs = (desde && hasta) ? `?desde=${desde}&hasta=${hasta}` : '';
+    const qs = (desde && hasta) ? `&desde=${desde}&hasta=${hasta}` : '';
     const res = await fetch(`/api/negocio?recurso=whatsapp-analitica-ejecutivos${qs}`).then(r=>r.json());
     if(res.error){
       status.className = 'err';
