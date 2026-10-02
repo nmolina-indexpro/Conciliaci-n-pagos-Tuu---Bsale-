@@ -419,6 +419,8 @@
         <select id="filtroEstadoCotizacion" onchange="renderTablaCotizaciones()">
           <option value="">Todos</option>
           <option value="sin_contactar">Sin contactar</option>
+          <option value="cotizacion_enviada">Cotización enviada</option>
+          <option value="cliente_respondio">Cliente respondió post cotización</option>
           <option value="contactado">Contactado</option>
           <option value="contactado_no_responde">Contactado — no responde</option>
           <option value="contactado_segunda_vez">Contactado 2ª vez</option>
@@ -712,13 +714,13 @@ let nombreActualCot = ''; // nombre/email de la sesión actual, para los comenta
 // presentarlos como si sumaran el total de filas).
 let filtroRapidoCot = 'todas';
 let paginaCot = 1;
-const PAGE_SIZE_COT = 25;
+const PAGE_SIZE_COT = 100;
 let cotizacionSeleccionadaId = null; // fila activa en la tabla / ficha lateral abierta
 // Orden por defecto: primero "Sin contactar" (lo pendiente de gestionar),
 // luego el resto por avance de embudo, dejando ganadas/perdidas al final.
 const ESTADO_PRIORIDAD_COTIZACION = {
-  sin_contactar: 0, contactado: 1, contactado_no_responde: 2,
-  contactado_segunda_vez: 3, mercado_publico: 4, facturada: 5, perdida: 6,
+  sin_contactar: 0, cotizacion_enviada: 1, cliente_respondio: 2, contactado: 3, contactado_no_responde: 4,
+  contactado_segunda_vez: 5, mercado_publico: 6, facturada: 7, perdida: 8,
 };
 let sortColCot = 'prioridad';
 let sortAscCot = true;
@@ -727,6 +729,8 @@ let sortColVend = 'montoVendido';
 let sortAscVend = false;
 const ESTADOS_COTIZACION_LABEL = {
   sin_contactar: 'Sin contactar',
+  cotizacion_enviada: 'Cotización enviada',
+  cliente_respondio: 'Cliente respondió post cotización',
   contactado: 'Contactado',
   contactado_no_responde: 'Contactado — no responde',
   contactado_segunda_vez: 'Contactado 2ª vez',
@@ -1399,7 +1403,7 @@ function cotizacionesFacturadasSinDuplicar(lista){
 // reclasifica ni se pierde el dato histórico. Estas 3 funciones son solo
 // una capa de visualización/agrupación sobre ese mismo valor.
 const ESTADO_GESTION_MAP = {
-  sin_contactar: 'sin_contactar', contactado: 'contactada',
+  sin_contactar: 'sin_contactar', cotizacion_enviada: 'contactada', cliente_respondio: 'en_seguimiento', contactado: 'contactada',
   contactado_no_responde: 'en_seguimiento', contactado_segunda_vez: 'en_seguimiento',
   mercado_publico: 'cerrada', perdida: 'cerrada', facturada: 'cerrada',
 };
@@ -1473,8 +1477,8 @@ function renderKpis4Cot(){
   const seguimientosPendientes = filtradas.filter(c => alertaOperativaInfo(c) !== null).length;
 
   $('kpisCot4').innerHTML = `
-    <div class="kpi-card-cot"><div class="icono-kpi">📄</div><div><div class="lbl-kpi">Monto cotizado</div><div class="big-kpi">${fmtMoneda(montoCotizado)}</div><div class="nota-kpi">IVA incluido · CLP · ${fmtNum(dedup.length)} cotización(es) (deduplicadas)</div></div></div>
-    <div class="kpi-card-cot"><div class="icono-kpi">💰</div><div><div class="lbl-kpi">Monto facturado asociado</div><div class="big-kpi">${fmtMoneda(montoFacturado)}</div><div class="nota-kpi">IVA incluido · CLP · de cotizaciones creadas en este rango</div></div></div>
+    <div class="kpi-card-cot"><div class="icono-kpi">📄</div><div><div class="lbl-kpi">Monto cotizado</div><div class="big-kpi">${fmtMoneda(montoCotizado)}</div><div class="nota-kpi">${fmtNum(dedup.length)} cotización(es) (deduplicadas)</div></div></div>
+    <div class="kpi-card-cot"><div class="icono-kpi">💰</div><div><div class="lbl-kpi">Monto facturado asociado</div><div class="big-kpi">${fmtMoneda(montoFacturado)}</div><div class="nota-kpi">De cotizaciones creadas en este rango</div></div></div>
     <div class="kpi-card-cot"><div class="icono-kpi">📊</div><div><div class="lbl-kpi">Conversión</div><div class="big-kpi">${conversion === null ? 'Sin datos' : conversion + '%'}</div><div class="nota-kpi">Cotizaciones facturadas / cotizaciones del rango (por cantidad)</div></div></div>
     <div class="kpi-card-cot"><div class="icono-kpi">🔔</div><div><div class="lbl-kpi">Seguimientos pendientes</div><div class="big-kpi">${fmtNum(seguimientosPendientes)}</div><div class="nota-kpi">Seguimiento vencido, para hoy, o sin próxima acción registrada</div></div></div>
   `;
@@ -1854,7 +1858,7 @@ function renderTablaCotizaciones(){
         return `<div class="celda-cliente-cot"><div class="nombre-cliente-cot">${escapeHtmlCot(nombre)}${badgeVip}</div>${contacto ? `<div class="contacto-cliente-cot">${escapeHtmlCot(contacto)}</div>` : ''}</div>`;
       } },
     { key:'numero', label:'Cotización', render:c=>`<div class="celda-cot-numero">${docLinkHtml(c.numero, c.urlCotizacion)}<span class="fecha-cot-numero">${c.fecha ? fmtFechaCot(c.fecha) : '—'}</span></div>` },
-    { key:'monto', label:'Monto', align:'amount', render:c=>`<div class="celda-monto-cot"><b>${fmtMoneda(c.monto)}</b><span class="base-trib-cot">IVA incluido · CLP</span></div>` },
+    { key:'monto', label:'Monto', align:'amount', render:c=>`<div class="celda-monto-cot"><b>${fmtMoneda(c.monto)}</b></div>` },
     { key:'estado', label:'Gestión', render:c=>{ const g = estadoGestionInfo(c); return `<span class="badge-gestion ${g.clave}">${g.label}</span>`; } },
     { key:'responsable', label:'Responsable', render:c=>escapeHtmlCot(c.responsableGestionNombre || c.vendedorNombre || 'Sin asignar') },
     { key:'proximaAccion', label:'Próxima acción', render:c=>{
@@ -2047,7 +2051,7 @@ function renderFichaLateralCot(c, detalle){
         <div class="ficha-cot-fila"><span>Cliente</span><b>${escapeHtmlCot(nombreCliente)}</b></div>
         ${contacto ? `<div class="ficha-cot-fila"><span>Contacto</span><b>${escapeHtmlCot(contacto)}</b></div>` : ''}
         ${c.clienteTelefono ? `<div class="ficha-cot-fila"><span>Teléfono</span><b>${escapeHtmlCot(c.clienteTelefono)}</b></div>` : ''}
-        <div class="ficha-cot-fila"><span>Monto</span><b>${fmtMoneda(c.monto)} <span class="sub" style="font-size:10px;">IVA incl.</span></b></div>
+        <div class="ficha-cot-fila"><span>Monto</span><b>${fmtMoneda(c.monto)}</b></div>
         ${waHtml}
       </div>
 

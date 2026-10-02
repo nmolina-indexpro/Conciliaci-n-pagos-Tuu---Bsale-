@@ -883,7 +883,10 @@ const COTIZACIONES_DIAS_HISTORIAL = 180; // más allá de eso una cotización es
 // concretada", que es como le llaman ellos a lo que acá es 'facturada').
 // 'facturada' NO la elige una persona -> la pone sola la Fase 2 cuando
 // encuentra la boleta/factura vinculada (ver manejarSyncCotizaciones).
-const ESTADOS_COTIZACION = ['sin_contactar', 'contactado', 'contactado_no_responde', 'contactado_segunda_vez', 'mercado_publico', 'perdida', 'facturada'];
+// 'cotizacion_enviada' y 'cliente_respondio' los pone sola la sincronización
+// de correos (ver aplicarEstadosPorCorreoCotizaciones) -- también se pueden
+// elegir a mano.
+const ESTADOS_COTIZACION = ['sin_contactar', 'cotizacion_enviada', 'cliente_respondio', 'contactado', 'contactado_no_responde', 'contactado_segunda_vez', 'mercado_publico', 'perdida', 'facturada'];
 
 // Un cliente de Bsale puede tener a la vez nombre de contacto (firstName/
 // lastName) Y razón social (company) -- ej. una compra facturada a nombre
@@ -11110,13 +11113,11 @@ async function procesarCarpetaCorreo(client, nombreCarpeta, direccion, desde, ca
         `;
       }
 
-      if (direccion === 'saliente' && clienteEmailDetectado) {
-        const { rowCount } = await sql`
-          UPDATE bsale_cotizaciones SET estado = 'contactado', actualizado_en = now()
-          WHERE cliente_email = ${clienteEmailDetectado} AND estado = 'sin_contactar';
-        `;
-        resumen.cotizacionesAvanzadas += rowCount || 0;
-      }
+      // El estado "cotización enviada" / "cliente respondió" lo aplica
+      // aplicarEstadosPorCorreoCotizaciones al final de la pasada, sobre
+      // todo lo ya guardado (incluye correos viejos que quedaron sin
+      // reflejarse) -- ya no se hace acá por cliente_email, que avanzaba
+      // TODAS las cotizaciones abiertas de ese cliente por un solo correo.
     }
   } finally {
     lock.release();
@@ -11298,14 +11299,73 @@ async function manejarCotizacionesCorreosSync(req, res) {
         revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacionesPorNumero, sql, diasHaciaAtras)
       )
     );
+    const estadosActualizados = await aplicarEstadosPorCorreoCotizaciones(sql);
     return res.status(200).json({
       ok: true, cotizacionesConocidas: cotizacionesRows.length, diasRevisados: diasHaciaAtras,
       emailsCompletadosDesdeAtributosBsale: atributosBsale,
+      estadosActualizados,
       casillas: resultados,
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error sincronizando correspondencia de correo', detail: String(err) });
   }
+}
+
+// Estado automático según la correspondencia REAL ya guardada en
+// cotizaciones_correos (pedido del usuario):
+//  1) Un correo SALIENTE ligado a la cotización por su número (asunto)
+//     -> "cotizacion_enviada", solo si sigue "sin_contactar".
+//  2) Un correo ENTRANTE del cliente posterior -> "cliente_respondio",
+//     solo desde estados abiertos (nunca pisa facturada/perdida/
+//     mercado_publico). Por cotizacion_id directo, o por el correo del
+//     cliente SI esta misma cotización ya tuvo un correo saliente antes.
+// Guardia contra reaplicar y contra pisar a una persona: solo cuenta un
+// correo más nuevo que el último cambio de estado hecho por alguien
+// (actualizado_por no nulo). Al aplicar, actualizado_en queda con la
+// fecha del correo -- así "días sin contacto" parte del correo real, no
+// del día en que corrió el cron. Idempotente: se puede correr todos los días.
+async function aplicarEstadosPorCorreoCotizaciones(sql) {
+  const { rows: enviadas } = await sql.query(`
+    WITH cand AS (
+      SELECT c.id,
+        (SELECT MAX(e.fecha) FROM cotizaciones_correos e WHERE e.cotizacion_id = c.id AND e.direccion = 'saliente') AS ultima
+      FROM bsale_cotizaciones c WHERE c.estado = 'sin_contactar'
+    ), upd AS (
+      UPDATE bsale_cotizaciones c
+      SET estado = 'cotizacion_enviada', actualizado_por = 'Sistema (correo enviado)', actualizado_en = cand.ultima
+      FROM cand
+      WHERE c.id = cand.id AND cand.ultima IS NOT NULL AND (c.actualizado_por IS NULL OR cand.ultima > c.actualizado_en)
+      RETURNING c.id
+    )
+    INSERT INTO bsale_cotizaciones_historial_estado (cotizacion_id, estado, autor)
+    SELECT id, 'cotizacion_enviada', 'Sistema (correo enviado)' FROM upd
+    RETURNING cotizacion_id;
+  `);
+  const { rows: respondidas } = await sql.query(`
+    WITH cand AS (
+      SELECT c.id,
+        (SELECT MAX(e.fecha) FROM cotizaciones_correos e
+         WHERE e.direccion = 'entrante' AND e.fecha IS NOT NULL
+           AND (e.cotizacion_id = c.id
+                OR (c.cliente_email IS NOT NULL AND e.cliente_email = c.cliente_email
+                    AND e.fecha >= c.fecha::timestamptz
+                    AND EXISTS (SELECT 1 FROM cotizaciones_correos s
+                                WHERE s.cotizacion_id = c.id AND s.direccion = 'saliente' AND s.fecha < e.fecha)))
+        ) AS ultima
+      FROM bsale_cotizaciones c
+      WHERE c.estado IN ('sin_contactar','cotizacion_enviada','contactado','contactado_no_responde','contactado_segunda_vez')
+    ), upd AS (
+      UPDATE bsale_cotizaciones c
+      SET estado = 'cliente_respondio', actualizado_por = 'Sistema (respuesta del cliente)', actualizado_en = cand.ultima
+      FROM cand
+      WHERE c.id = cand.id AND cand.ultima IS NOT NULL AND (c.actualizado_por IS NULL OR cand.ultima > c.actualizado_en)
+      RETURNING c.id
+    )
+    INSERT INTO bsale_cotizaciones_historial_estado (cotizacion_id, estado, autor)
+    SELECT id, 'cliente_respondio', 'Sistema (respuesta del cliente)' FROM upd
+    RETURNING cotizacion_id;
+  `);
+  return { cotizacionEnviada: enviadas.length, clienteRespondio: respondidas.length };
 }
 
 // Pedido del usuario: cuando el CLIENTE responde un correo, que la IA lea
@@ -11378,7 +11438,10 @@ async function analizarRespuestaCorreo(sql, correoId, direccion, cotizacionId, c
   }
 
   const resumen = (analisis.resumen || '').slice(0, 300) || null;
-  const estadoSugerido = ['contactado', 'perdida', 'mercado_publico'].includes(analisis.estado_sugerido) ? analisis.estado_sugerido : null;
+  // "contactado" de la IA significa "el cliente respondió y sigue
+  // interesado" -- ahora eso tiene su propio estado, "cliente_respondio".
+  const estadoIa = ['contactado', 'perdida', 'mercado_publico'].includes(analisis.estado_sugerido) ? analisis.estado_sugerido : null;
+  const estadoSugerido = estadoIa === 'contactado' ? 'cliente_respondio' : estadoIa;
   await sql`UPDATE cotizaciones_correos SET analizado_ia = true, resumen_ia = ${resumen} WHERE id = ${correoId};`;
 
   // No pisa una cotización ya facturada (venta real, más fuerte que
