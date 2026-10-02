@@ -9,10 +9,11 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones } from '../lib/db.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
+import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
@@ -82,6 +83,7 @@ export default async function handler(req, res) {
   // middleware.ts (esCotizacionesCorreosSyncPublico).
   if (req.query.recurso === 'cotizaciones-correos-sync') return manejarCotizacionesCorreosSync(req, res);
   if (req.query.recurso === 'cotizaciones-correos-analizar-respuestas') return manejarCotizacionesCorreosAnalizarRespuestas(req, res);
+  if (req.query.recurso === 'whatsapp-ejecutivos-notificar-diario') return manejarWhatsappEjecutivosNotificarDiario(req, res);
   // Píxel de seguimiento de apertura de los correos de IndexScale -- lo
   // carga el cliente de correo del destinatario, sin sesión. Mismo patrón
   // que los de arriba, pero la seguridad real la hace el token aleatorio
@@ -182,6 +184,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-actualizar-ventas-bsale') return manejarWhatsappActualizarVentasBsale(req, res, sesion);
   if (recurso === 'whatsapp-recategorizar') return manejarWhatsappRecategorizar(req, res, sesion);
   if (recurso === 'whatsapp-analitica') return manejarWhatsappAnalitica(req, res, sesion);
+  if (recurso === 'whatsapp-analitica-ejecutivos') return manejarWhatsappAnaliticaEjecutivos(req, res, sesion);
   if (recurso === 'whatsapp-usuarios') return manejarWhatsappUsuarios(req, res, sesion);
   if (recurso === 'whatsapp-debug-categoria') return manejarWhatsappDebugCategoria(req, res, sesion);
   if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
@@ -1996,8 +1999,8 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
 // cron dispare siempre a la misma hora exacta. Solo se manda si hubo algún
 // cambio real (ver el filtro en el PUT de manejarVentasSkuTendencia, que ya
 // descarta prender un checkbox que ya estaba prendido) -- si no hay nada
-// en la ventana, no se envía nada, a propósito.
-const PRODUCTOS_ESTANCADOS_FLAGS_DESTINATARIOS = ['nmolina@indexstore.cl'];
+// en la ventana, no se envía nada, a propósito. Destinatarios: ver
+// TIPOS_NOTIFICACION['productos-estancados-flags'] / página Usuarios.
 const PRODUCTOS_ESTANCADOS_FLAGS_CAMPO_INFO = {
   mercado_libre: {
     titulo: '🛒 Mercado Libre',
@@ -2023,6 +2026,10 @@ async function manejarProductosEstancadosFlagsNotificar(req, res) {
   }
   try {
     const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    if (!(await notificacionDebeEnviarse(sql, 'productos-estancados-flags'))) {
+      return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    }
     await asegurarTablaVentasSkuEstado(sql);
     const { rows } = await sql`
       SELECT sku, campo, valor_nuevo, cambiado_por, cambiado_en
@@ -2064,11 +2071,13 @@ async function manejarProductosEstancadosFlagsNotificar(req, res) {
       <p><a href="${urlPagina}">Ver en el ERP -- Productos estancados</a></p>
     `;
     const asunto = `📋 Productos estancados -- ${rows.length} ${rows.length === 1 ? 'cambio' : 'cambios'} en las últimas 24h`;
+    const destinatarios = await obtenerSuscriptoresEmail(sql, 'productos-estancados-flags');
     const envios = [];
-    for (const para of PRODUCTOS_ESTANCADOS_FLAGS_DESTINATARIOS) {
+    for (const para of destinatarios) {
       envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
     }
-    return res.status(200).json({ ok: true, cambios: rows.length, enviado: true, envios });
+    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'productos-estancados-flags');
+    return res.status(200).json({ ok: true, cambios: rows.length, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando el resumen de cambios de Productos estancados', detail: String(err) });
   }
@@ -4081,8 +4090,8 @@ async function manejarPreferenciasUsuario(req, res, sesion) {
 // nuevo ni fuerza una resincronización -- un resync completo de 365 días
 // no cabe en una sola invocación); si nadie ha sincronizado hace tiempo, el
 // correo lo deja explícito con la fecha de "última sincronización" en vez
-// de fallar en silencio.
-const SERVICIO_TECNICO_DESTINATARIOS = ['nmolina@indexstore.cl', 'nathalia@indexstore.cl'];
+// de fallar en silencio. Destinatarios: ver
+// TIPOS_NOTIFICACION['servicio-tecnico-resumen-semanal'] / página Usuarios.
 async function manejarServicioTecnicoResumenSemanal(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
   const auth = req.headers.authorization || '';
@@ -4091,6 +4100,10 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
   }
   try {
     const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    if (!(await notificacionDebeEnviarse(sql, 'servicio-tecnico-resumen-semanal'))) {
+      return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    }
     await asegurarTablaServiciosMensual(sql);
 
     // "fecha" ya viene truncada a día en UTC (mismo criterio que
@@ -4154,11 +4167,13 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
     `;
     const asunto = `🔧 Servicio Técnico -- resumen semanal (${fmtFecha(inicioSemana)} al ${fmtFecha(finSemana)}): ${semana.cantidadTotal} servicios, $${Math.round(semana.montoTotal).toLocaleString('es-CL')}`;
 
+    const destinatarios = await obtenerSuscriptoresEmail(sql, 'servicio-tecnico-resumen-semanal');
     const envios = [];
-    for (const para of SERVICIO_TECNICO_DESTINATARIOS) {
+    for (const para of destinatarios) {
       envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
     }
-    return res.status(200).json({ ok: true, enviado: true, envios });
+    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'servicio-tecnico-resumen-semanal');
+    return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Servicio Técnico', detail: String(err) });
   }
@@ -4184,7 +4199,7 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
 // en oportunidades-comerciales.html -- es el mismo concepto ("días sin
 // contacto"), solo que acá se recalcula server-side porque un cron no
 // tiene el array `cotizaciones` ya cargado en el navegador de nadie.
-const COTIZACIONES_SEGUIMIENTO_DESTINATARIOS = ['nmolina@indexstore.cl'];
+// Destinatarios: ver TIPOS_NOTIFICACION['cotizaciones-seguimiento-diario'] / página Usuarios.
 const COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS = 7;
 const COTIZACIONES_SEGUIMIENTO_TOPE_DIAS = 35; // más vieja que esto ya no entra al resumen diario -- prácticamente perdida
 const COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS = 3;
@@ -4197,6 +4212,11 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
   }
   try {
     const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    if (!(await notificacionDebeEnviarse(sql, 'cotizaciones-seguimiento-diario'))) {
+      return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    }
+    const destinatariosSeguimiento = await obtenerSuscriptoresEmail(sql, 'cotizaciones-seguimiento-diario');
     await asegurarTablaCotizaciones(sql);
 
     const { rows } = await sql`
@@ -4269,7 +4289,7 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
         <p><a href="${urlPagina}">Ver en el ERP -- página Ventas</a></p>
       `;
       const asunto = `📋 Seguimiento -- ${pendientes.length} ${pendientes.length === 1 ? 'cotización' : 'cotizaciones'} sin contacto hace ${COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS}+ días`;
-      for (const para of COTIZACIONES_SEGUIMIENTO_DESTINATARIOS) {
+      for (const para of destinatariosSeguimiento) {
         envios.push({ tipo: 'resumen', para, ...(await enviarCorreo({ para, asunto, html })) });
       }
     }
@@ -4288,11 +4308,12 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
         <p><a href="${urlPagina}">Ver en el ERP -- página Ventas</a></p>
       `;
       const asunto = `🚨 ${urgentes.length} ${urgentes.length === 1 ? 'cotización' : 'cotizaciones'} en riesgo de perderse`;
-      for (const para of COTIZACIONES_SEGUIMIENTO_DESTINATARIOS) {
+      for (const para of destinatariosSeguimiento) {
         envios.push({ tipo: 'urgente', para, ...(await enviarCorreo({ para, asunto, html })) });
       }
     }
 
+    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'cotizaciones-seguimiento-diario');
     return res.status(200).json({ ok: true, pendientes: pendientes.length, urgentes: urgentes.length, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el seguimiento de cotizaciones', detail: String(err) });
@@ -7485,6 +7506,12 @@ async function manejarAlertasSitioWebNotificar(req, res) {
     return res.status(401).json({ error: 'No autorizado' });
   }
   try {
+    const sqlNotif = await getSql();
+    await asegurarTablaNotificaciones(sqlNotif);
+    if (!(await notificacionDebeEnviarse(sqlNotif, 'alertas-sitio-web'))) {
+      return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    }
+
     // Escanea y guarda PRIMERO el caché de "Modelos detectados en el
     // catálogo" (pantalla/batería/cargador por modelo) -- va antes, no
     // después, porque calcularAlertasSitioWeb compara el precio propio de
@@ -7544,12 +7571,13 @@ async function manejarAlertasSitioWebNotificar(req, res) {
     `;
     const asunto = `⚠ Alertas Sitio Web IndexStore -- ${stockNoVisible?.length || 0} sin stock visible, ${(preciosDistintos?.length || 0) + (preciosDesincronizados?.length || 0)} con precio distinto${haySkusIncorrectos ? `, ${skusIncorrectosReferencia.length} SKU mal vinculado` : ''}`;
 
-    const destinatarios = ['lcelis@indexstore.cl', 'nmolina@indexstore.cl'];
+    const destinatarios = await obtenerSuscriptoresEmail(sqlNotif, 'alertas-sitio-web');
     const envios = [];
     for (const para of destinatarios) {
       envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
     }
-    return res.status(200).json({ ok: true, enviado: true, envios });
+    if (envios.length > 0) await marcarNotificacionEnviada(sqlNotif, 'alertas-sitio-web');
+    return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando las alertas de Sitio Web', detail: String(err) });
   }
@@ -9076,6 +9104,192 @@ async function manejarWhatsappActualizarVentasBsale(req, res, sesion) {
 }
 
 // ---- Analítica (puntos 5/6/7/29/30 del pedido) ----
+// ══════════════════════════════════════════════════════════════════════
+// Analítica de WhatsApp por ejecutivo -- pedido del usuario
+// ══════════════════════════════════════════════════════════════════════
+// Cuatro indicadores por ejecutivo (David, Stephanie, Nathalia, Fernando),
+// derivados de las 2 variables reales que SÍ se pueden saber de cada
+// conversación: quién la tiene asignada (responsable_id) y, cruzando esas
+// dos preguntas (quién escribió el PRIMER mensaje de la conversación,
+// cliente o ejecutivo; y si esta es la primera conversación de ESE
+// contacto con nosotros o ya había hablado antes), salen las 4
+// combinaciones que pidió el usuario:
+//   - Inicia: el ejecutivo escribió primero (contacto nuevo o conocido).
+//   - Nuevas: primera conversación de ese contacto (sin importar quién
+//     escribió primero).
+//   - Cliente vuelve a hablar: el cliente escribe primero en una
+//     conversación que NO es la primera de ese contacto.
+//   - Recontacta proactivo: el ejecutivo escribe primero a un contacto que
+//     YA había hablado antes (subconjunto de "Inicia").
+//
+// OJO -- límite real de WhatsApp, no de este código: la API no dice qué
+// PERSONA del equipo mandó un mensaje salido directo de la app (solo si
+// fue entrante o saliente). responsable_id es la mejor aproximación que
+// existe hoy (asignado a mano, por quien primero contesta desde el ERP, o
+// por nombre detectado con IA en la firma -- ver WHATSAPP_VENDEDORES_EMAIL
+// más abajo en este archivo) -- un ejecutivo que responde desde su
+// celular sin que la IA detecte su firma puede quedar sin asignar.
+const WHATSAPP_EJECUTIVOS_REPORTE = ['Stefanie', 'David', 'Nathalia', 'Fernando'];
+
+async function calcularWhatsappAnaliticaEjecutivos(sql, desde, hasta) {
+  const { rows: usuariosActivos } = await sql`SELECT id, nombre, email FROM usuarios WHERE activo = true;`;
+  const { rows } = await sql.query(
+    `WITH primeros AS (
+       SELECT contacto_id, MIN(id) AS primer_conversacion_id FROM whatsapp_conversaciones GROUP BY contacto_id
+     ),
+     base AS (
+       SELECT c.id, c.responsable_id,
+         (c.id = p.primer_conversacion_id) AS es_primera_conversacion,
+         (SELECT m.direccion FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id ORDER BY m.marca_tiempo ASC LIMIT 1) AS primer_mensaje_direccion
+       FROM whatsapp_conversaciones c
+       JOIN primeros p ON p.contacto_id = c.contacto_id
+       WHERE c.iniciada_en >= $1 AND c.iniciada_en < $2
+     )
+     SELECT responsable_id,
+       COUNT(*)::int AS total,
+       COUNT(*) FILTER (WHERE primer_mensaje_direccion = 'out')::int AS inicia,
+       COUNT(*) FILTER (WHERE es_primera_conversacion)::int AS nuevas,
+       COUNT(*) FILTER (WHERE NOT es_primera_conversacion AND primer_mensaje_direccion = 'in')::int AS cliente_vuelve_a_hablar,
+       COUNT(*) FILTER (WHERE NOT es_primera_conversacion AND primer_mensaje_direccion = 'out')::int AS recontacta_proactivo
+     FROM base
+     GROUP BY responsable_id;`,
+    [desde, hasta]
+  );
+
+  const porResponsable = new Map(rows.map(r => [r.responsable_id, r]));
+  // Roster fijo (aparecen aunque tengan 0 en el período, para que el
+  // correo/la página no omitan en silencio a alguien sin actividad). CASO
+  // REAL REPORTADO antes en este mismo archivo (Panel de Accesorios): cruzar
+  // SOLO por nombre (difuso, normalizado) falla apenas la cuenta del ERP y
+  // el nombre "oficial" de la lista se escriben distinto (ej. "Stephanie"
+  // vs "Stefanie", con o sin el segundo apellido) -- se prueba primero por
+  // correo (exacto, mismo WHATSAPP_VENDEDORES_EMAIL que ya usa el análisis
+  // de IA para esto mismo) y el nombre difuso queda de respaldo para
+  // Fernando/Nicolas, que todavía no tienen correo cargado ahí.
+  const ejecutivos = WHATSAPP_EJECUTIVOS_REPORTE.map(nombreCorto => {
+    const emailConocido = WHATSAPP_VENDEDORES_EMAIL[nombreCorto];
+    const usuario = (emailConocido && usuariosActivos.find(u => (u.email || '').toLowerCase() === emailConocido))
+      || usuariosActivos.find(u => normalizarTexto(u.nombre || '').includes(normalizarTexto(nombreCorto)));
+    const fila = usuario ? porResponsable.get(usuario.id) : null;
+    return {
+      usuarioId: usuario?.id ?? null,
+      nombre: usuario?.nombre || nombreCorto,
+      total: fila?.total || 0,
+      inicia: fila?.inicia || 0,
+      nuevas: fila?.nuevas || 0,
+      clienteVuelveAHablar: fila?.cliente_vuelve_a_hablar || 0,
+      recontactaProactivo: fila?.recontacta_proactivo || 0,
+    };
+  });
+
+  const filaSinAsignar = porResponsable.get(null);
+  const sinAsignar = filaSinAsignar ? {
+    total: filaSinAsignar.total, inicia: filaSinAsignar.inicia, nuevas: filaSinAsignar.nuevas,
+    clienteVuelveAHablar: filaSinAsignar.cliente_vuelve_a_hablar, recontactaProactivo: filaSinAsignar.recontacta_proactivo,
+  } : null;
+
+  return { ejecutivos, sinAsignar };
+}
+
+async function manejarWhatsappAnaliticaEjecutivos(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+
+    // Mismo patrón de rango de fechas (hora de Chile, "hasta" exclusivo)
+    // que manejarWhatsappAnalitica, justo abajo.
+    const esFechaValida = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const hoyStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const ayerStr = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const qDesde = esFechaValida(req.query.desde) ? req.query.desde : ayerStr;
+    const qHasta = esFechaValida(req.query.hasta) ? req.query.hasta : ayerStr;
+
+    const { rows: rangoRows } = await sql.query(
+      `SELECT
+         ($1::date)::timestamp AT TIME ZONE 'America/Santiago' AS desde_ts,
+         (($2::date + 1))::timestamp AT TIME ZONE 'America/Santiago' AS hasta_ts;`,
+      [qDesde, qHasta]
+    );
+    const desde = rangoRows[0].desde_ts;
+    const hasta = rangoRows[0].hasta_ts;
+
+    const { ejecutivos, sinAsignar } = await calcularWhatsappAnaliticaEjecutivos(sql, desde, hasta);
+    return res.status(200).json({ desde: qDesde, hasta: qHasta, ejecutivos, sinAsignar, hoyStr });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error calculando la analítica de ejecutivos de WhatsApp', detail: String(err) });
+  }
+}
+
+// Correo diario (ver vercel.json) con el resumen de ejecutivos de ayer --
+// pedido del usuario. Destinatarios: ver
+// TIPOS_NOTIFICACION['whatsapp-ejecutivos-diario'] / página Usuarios.
+// Reusa exactamente el mismo cálculo que la página (calcularWhatsappAnaliticaEjecutivos).
+async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  try {
+    const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    if (!(await notificacionDebeEnviarse(sql, 'whatsapp-ejecutivos-diario'))) {
+      return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    }
+    await asegurarTablaWhatsapp(sql);
+
+    const ayerStr = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const { rows: rangoRows } = await sql.query(
+      `SELECT
+         ($1::date)::timestamp AT TIME ZONE 'America/Santiago' AS desde_ts,
+         (($1::date + 1))::timestamp AT TIME ZONE 'America/Santiago' AS hasta_ts;`,
+      [ayerStr]
+    );
+    const { ejecutivos, sinAsignar } = await calcularWhatsappAnaliticaEjecutivos(sql, rangoRows[0].desde_ts, rangoRows[0].hasta_ts);
+
+    const filaEjecutivo = e => `
+      <tr>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;"><b>${e.nombre}</b></td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${e.inicia}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${e.nuevas}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${e.clienteVuelveAHablar}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${e.recontactaProactivo}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${e.total}</td>
+      </tr>`;
+    const html = `
+      <h2>📈 Resumen diario de ejecutivos -- WhatsApp</h2>
+      <p style="color:#666;">Conversaciones del ${ayerStr}.</p>
+      <table style="border-collapse:collapse;font-family:sans-serif;font-size:13px;">
+        <thead><tr style="background:#f5f5f5;">
+          <th style="padding:6px 10px;text-align:left;">Ejecutivo</th>
+          <th style="padding:6px 10px;">Inicia</th>
+          <th style="padding:6px 10px;">Nuevas</th>
+          <th style="padding:6px 10px;">Cliente vuelve a hablar</th>
+          <th style="padding:6px 10px;">Recontacta proactivo</th>
+          <th style="padding:6px 10px;">Total</th>
+        </tr></thead>
+        <tbody>${ejecutivos.map(filaEjecutivo).join('')}</tbody>
+      </table>
+      ${sinAsignar ? `<p style="color:#999;font-size:12px;margin-top:10px;">Además, ${sinAsignar.total} conversación${sinAsignar.total === 1 ? '' : 'es'} sin ejecutivo asignado todavía.</p>` : ''}
+      <p style="color:#999;font-size:11px;margin-top:14px;">"Inicia" y "Recontacta proactivo" dependen de a quién quedó asignada cada conversación -- WhatsApp no dice qué persona mandó un mensaje escrito directo desde la app, así que esto es la mejor aproximación disponible, no un dato exacto.</p>
+      <p><a href="${URL_BASE_APP}/clientes-whatsapp.html">Ver en el ERP -- Clientes WhatsApp</a></p>
+    `;
+    const totalConversaciones = ejecutivos.reduce((s, e) => s + e.total, 0) + (sinAsignar?.total || 0);
+    const asunto = `📈 Resumen ejecutivos WhatsApp -- ${ayerStr} (${totalConversaciones} conversaciones)`;
+
+    const destinatarios = await obtenerSuscriptoresEmail(sql, 'whatsapp-ejecutivos-diario');
+    const envios = [];
+    for (const para of destinatarios) {
+      envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
+    }
+    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'whatsapp-ejecutivos-diario');
+    return res.status(200).json({ ok: true, enviado: envios.length > 0, envios, ejecutivos, sinAsignar });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error generando o enviando el resumen diario de ejecutivos de WhatsApp', detail: String(err) });
+  }
+}
+
 async function manejarWhatsappAnalitica(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {

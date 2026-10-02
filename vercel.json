@@ -37,6 +37,10 @@
     {
       "path": "/api/negocio?recurso=cotizaciones-correos-analizar-respuestas",
       "schedule": "30 12 * * *"
+    },
+    {
+      "path": "/api/negocio?recurso=whatsapp-ejecutivos-notificar-diario",
+      "schedule": "0 11 * * *"
     }
   ],
   "headers": [

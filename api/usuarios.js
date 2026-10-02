@@ -3,9 +3,10 @@
 // 'admin' — cualquier otro caso devuelve 403.
 
 import crypto from 'crypto';
-import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles } from '../lib/db.js';
+import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles, asegurarTablaNotificaciones } from '../lib/db.js';
 import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo } from '../lib/mailer.js';
+import { TIPOS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto } from '../lib/notificaciones.js';
 
 // Páginas que se pueden marcar en un perfil de acceso (ver
 // asegurarTablaPerfiles en lib/db.js). No incluye usuarios.html (ya es
@@ -52,8 +53,10 @@ export default async function handler(req, res) {
     const sql = await getSql();
     await asegurarTablaPerfiles(sql);
     await asegurarTablaUsuarios(sql);
+    await asegurarTablaNotificaciones(sql);
 
     if (req.query.recurso === 'perfiles') return manejarPerfiles(req, res, sql);
+    if (req.query.recurso === 'notificaciones') return manejarNotificaciones(req, res, sql);
 
     if (req.method === 'GET') {
       const { rows } = await sql`
@@ -287,6 +290,75 @@ async function manejarPerfiles(req, res, sql) {
     // perfil les queda acceso sin restricción, no se quedan sin páginas.
     await sql`DELETE FROM perfiles WHERE id = ${id};`;
     return res.status(200).json({ ok: true });
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
+}
+
+// ---------------- Notificaciones por correo (?recurso=notificaciones) ----------------
+// Ya se validó arriba que sesion.rol === 'admin' antes de llegar acá. Un
+// solo lugar para administrar quién recibe CADA notificación por correo
+// del sistema y con qué frecuencia se manda -- ver lib/notificaciones.js
+// para el registro de tipos y el porqué "frecuencia" no controla la HORA
+// exacta de envío (eso lo sigue fijando vercel.json).
+async function manejarNotificaciones(req, res, sql) {
+  if (req.method === 'GET') {
+    // Se siembra cada tipo antes de listarlo (config por defecto +
+    // destinatarios de antes, ver asegurarConfigYSuscriptoresPorDefecto) --
+    // así la página siempre muestra algo coherente, incluso para un tipo
+    // que nadie ha abierto nunca en esta pantalla.
+    for (const tipo of Object.keys(TIPOS_NOTIFICACION)) {
+      await asegurarConfigYSuscriptoresPorDefecto(sql, tipo);
+    }
+    const { rows: configRows } = await sql`SELECT tipo, frecuencia, dia_semana, activa, ultimo_envio_en FROM notificaciones_config;`;
+    const { rows: suscriptoresRows } = await sql`
+      SELECT ns.tipo, u.id, u.nombre, u.email, u.activo
+      FROM notificaciones_suscriptores ns JOIN usuarios u ON u.id = ns.usuario_id
+      ORDER BY u.nombre ASC;
+    `;
+    const { rows: usuariosRows } = await sql`SELECT id, nombre, email FROM usuarios WHERE activo = true ORDER BY nombre ASC;`;
+    const configPorTipo = Object.fromEntries(configRows.map(c => [c.tipo, c]));
+    const tipos = Object.entries(TIPOS_NOTIFICACION).map(([tipo, info]) => {
+      const c = configPorTipo[tipo] || {};
+      return {
+        tipo, nombre: info.nombre,
+        activa: c.activa !== false,
+        frecuencia: c.frecuencia || 'diaria',
+        diaSemana: c.dia_semana ?? null,
+        ultimoEnvioEn: c.ultimo_envio_en || null,
+        suscriptores: suscriptoresRows.filter(s => s.tipo === tipo).map(s => ({ id: s.id, nombre: s.nombre, email: s.email, activo: s.activo })),
+      };
+    });
+    return res.status(200).json({ tipos, usuariosDisponibles: usuariosRows });
+  }
+
+  if (req.method === 'PUT') {
+    const { tipo, activa, frecuencia, diaSemana, agregarUsuarioId, quitarUsuarioId } = req.body || {};
+    if (!tipo || !TIPOS_NOTIFICACION[tipo]) return res.status(400).json({ error: 'Tipo de notificación inválido' });
+    await asegurarConfigYSuscriptoresPorDefecto(sql, tipo);
+
+    if (typeof activa === 'boolean') {
+      await sql`UPDATE notificaciones_config SET activa = ${activa} WHERE tipo = ${tipo};`;
+    }
+    // dia_semana solo tiene sentido junto con frecuencia "semanal" -- al
+    // pasar a "diaria" se limpia (NULL), para que un día viejo no quede
+    // dando vueltas confundiendo si más adelante alguien vuelve a "semanal".
+    if (frecuencia === 'diaria') {
+      await sql`UPDATE notificaciones_config SET frecuencia = 'diaria', dia_semana = NULL WHERE tipo = ${tipo};`;
+    } else if (frecuencia === 'semanal') {
+      const dia = (typeof diaSemana === 'number' && diaSemana >= 0 && diaSemana <= 6) ? diaSemana : 0;
+      await sql`UPDATE notificaciones_config SET frecuencia = 'semanal', dia_semana = ${dia} WHERE tipo = ${tipo};`;
+    }
+
+    if (agregarUsuarioId) {
+      await sql`INSERT INTO notificaciones_suscriptores (tipo, usuario_id) VALUES (${tipo}, ${Number(agregarUsuarioId)}) ON CONFLICT DO NOTHING;`;
+    }
+    if (quitarUsuarioId) {
+      await sql`DELETE FROM notificaciones_suscriptores WHERE tipo = ${tipo} AND usuario_id = ${Number(quitarUsuarioId)};`;
+    }
+
+    const { rows: configRows } = await sql`SELECT tipo, frecuencia, dia_semana, activa, ultimo_envio_en FROM notificaciones_config WHERE tipo = ${tipo};`;
+    return res.status(200).json({ ok: true, config: configRows[0] });
   }
 
   return res.status(405).json({ error: 'Method not allowed' });

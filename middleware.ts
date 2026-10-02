@@ -84,6 +84,12 @@ function esCotizacionesCorreosAnalizarRespuestasPublico(pathname, searchParams) 
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'cotizaciones-correos-analizar-respuestas';
 }
 
+// Cron diario con el resumen de ejecutivos de WhatsApp -- mismo motivo y
+// mismo patrón que los de arriba.
+function esWhatsappEjecutivosNotificarDiarioPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'whatsapp-ejecutivos-notificar-diario';
+}
+
 // El píxel de seguimiento de apertura de los correos de IndexScale (ver
 // manejarIndexscalePixel en api/negocio.js) lo carga el cliente de correo
 // del destinatario directo, sin ninguna cookie de sesión -> mismo motivo y
@@ -161,6 +167,7 @@ export default async function middleware(req) {
     esProductosEstancadosFlagsNotificarPublico(pathname, url.searchParams) ||
     esCotizacionesCorreosSyncPublico(pathname, url.searchParams) ||
     esCotizacionesCorreosAnalizarRespuestasPublico(pathname, url.searchParams) ||
+    esWhatsappEjecutivosNotificarDiarioPublico(pathname, url.searchParams) ||
     esIndexscalePixelPublico(pathname, url.searchParams) ||
     esAuthRecuperarPasswordPublico(pathname, url.searchParams) ||
     esAuthResetearPasswordPublico(pathname, url.searchParams)
