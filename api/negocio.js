@@ -6327,6 +6327,31 @@ async function manejarWhatsappDashboard(req, res, sesion) {
 // arriba, y el estado de atención "Pendiente" que se muestra por fila) --
 // basado en datos reales (primera_respuesta_segundos), nunca en el enum
 // "estado" que puede quedar desactualizado si nadie lo tocó a mano.
+// Tiempo de primera respuesta REAL de una conversación (alias "c"): usa el
+// valor guardado y, si por cualquier motivo quedó en NULL (ej. el aviso del
+// mensaje saliente llegó antes que el entrante, o se respondió desde el
+// teléfono sin que se registrara), lo recalcula desde los mensajes: primer
+// mensaje saliente desde el primer mensaje del cliente. Así una conversación
+// que ya se respondió nunca figura como "pendiente de primera respuesta".
+function primeraRespuestaRealSQL() {
+  return `COALESCE(c.primera_respuesta_segundos, (
+    SELECT GREATEST(0, EXTRACT(EPOCH FROM (MIN(mo.marca_tiempo) - pi.t))::int)
+    FROM (SELECT COALESCE(c.primer_mensaje_cliente_en, (SELECT MIN(mi.marca_tiempo) FROM whatsapp_mensajes mi WHERE mi.conversacion_id = c.id AND mi.direccion = 'in')) AS t) pi
+    JOIN whatsapp_mensajes mo ON mo.conversacion_id = c.id AND mo.direccion = 'out' AND mo.marca_tiempo >= pi.t
+    GROUP BY pi.t
+  ))`;
+}
+
+// Misma regla que primeraRespuestaRealSQL, pero sobre los mensajes ya
+// cargados (detalle de una conversación). "mensajes" viene ordenado por fecha.
+function primeraRespuestaDesdeMensajes(mensajes) {
+  const primerIn = (mensajes || []).find(m => m.direccion === 'in');
+  if (!primerIn) return null;
+  const t0 = new Date(primerIn.marca_tiempo).getTime();
+  const salida = mensajes.find(m => m.direccion === 'out' && new Date(m.marca_tiempo).getTime() >= t0);
+  return salida ? Math.max(0, Math.round((new Date(salida.marca_tiempo).getTime() - t0) / 1000)) : null;
+}
+
 function condicionPendienteSQL() {
   // "Pendiente" NO es "nunca se respondió" a secas -- eso incluye
   // conversaciones abandonadas de semanas atrás que nadie marcó "Cerrada"
@@ -6337,7 +6362,7 @@ function condicionPendienteSQL() {
   // que eso no es una tarea accionable hoy, por más que siga sin
   // respuesta. Sin este corte, "Pendientes" se llena de ruido histórico
   // en vez de ser una cola de atención diaria real.
-  return `c.estado <> 'cerrada' AND (c.cantidad_mensajes = 0 OR c.primera_respuesta_segundos IS NULL)
+  return `c.estado <> 'cerrada' AND (c.cantidad_mensajes = 0 OR ${primeraRespuestaRealSQL()} IS NULL)
     AND (c.cantidad_mensajes = 0 OR EXISTS (
       SELECT 1 FROM whatsapp_mensajes m
       WHERE m.conversacion_id = c.id AND m.direccion = 'in' AND m.marca_tiempo > now() - interval '24 hours'
@@ -6374,13 +6399,14 @@ function armarFiltrosConversacionesWhatsapp(query, sesion) {
   if (query.responsableId) cond.push(query.responsableId === 'sin_asignar' ? `c.responsable_id IS NULL` : `c.responsable_id = ${p(Number(query.responsableId))}`);
 
   if (query.respuesta) {
+    const pr = primeraRespuestaRealSQL();
     const rangos = {
-      'menos1': `c.primera_respuesta_segundos < 60`,
-      'menos5': `c.primera_respuesta_segundos < 300`,
-      '5a10': `c.primera_respuesta_segundos >= 300 AND c.primera_respuesta_segundos <= 600`,
-      '10a30': `c.primera_respuesta_segundos > 600 AND c.primera_respuesta_segundos <= 1800`,
-      'mas30': `c.primera_respuesta_segundos > 1800`,
-      'sin_respuesta': `c.primera_respuesta_segundos IS NULL AND c.primer_mensaje_cliente_en IS NOT NULL`,
+      'menos1': `${pr} < 60`,
+      'menos5': `${pr} < 300`,
+      '5a10': `${pr} >= 300 AND ${pr} <= 600`,
+      '10a30': `${pr} > 600 AND ${pr} <= 1800`,
+      'mas30': `${pr} > 1800`,
+      'sin_respuesta': `${pr} IS NULL AND c.primer_mensaje_cliente_en IS NOT NULL`,
     };
     if (rangos[query.respuesta]) cond.push(rangos[query.respuesta]);
   }
@@ -6485,7 +6511,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
       const { rows } = await sql.query(
         `SELECT
            c.id, c.iniciada_en, c.estado, c.intencion, c.categoria, c.producto, c.marca, c.modelo,
-           c.primera_respuesta_segundos, c.resultado, c.motivo_perdida, c.venta_detectada, c.venta_monto,
+           ${primeraRespuestaRealSQL()} AS primera_respuesta_segundos, c.resultado, c.motivo_perdida, c.venta_detectada, c.venta_monto,
            c.requiere_seguimiento, c.seguimiento_en, c.seguimiento_estado, c.seguimiento_observaciones, c.cantidad_mensajes, c.ultimo_mensaje_resumen,
            c.responsable_id, c.vendedor_detectado, c.campos_editados_manualmente,
            c.shopify_producto_url, c.shopify_producto_titulo, c.shopify_producto_confianza,
@@ -6719,7 +6745,7 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
 
     return res.status(200).json({
       conversacion: {
-        ...mapearConversacionWhatsapp({ ...conv, cliente_nombre: contacto?.nombre, cliente_telefono: contacto?.telefono, probabilidad_compra: analisisRows[0]?.probabilidad_compra }),
+        ...mapearConversacionWhatsapp({ ...conv, primera_respuesta_segundos: conv.primera_respuesta_segundos ?? primeraRespuestaDesdeMensajes(mensajes), cliente_nombre: contacto?.nombre, cliente_telefono: contacto?.telefono, probabilidad_compra: analisisRows[0]?.probabilidad_compra }),
         pedidoAsociado: conv.pedido_asociado,
       },
       ventanaAbierta, ventanaExpiraEn,

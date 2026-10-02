@@ -658,6 +658,14 @@ function tiempoRelativo(iso){
   if (d < 7) return `${d} d`;
   return fmtFecha(iso);
 }
+// Teléfono legible para la lista: el número viene como wa_id (solo dígitos,
+// con código de país). Móviles chilenos: +56 9 1234 5678; el resto: +dígitos.
+function fmtTelefonoLista(tel){
+  const d = String(tel || '').replace(/\D/g, '');
+  if (!d) return '';
+  const m = /^56(9)(\d{4})(\d{4})$/.exec(d);
+  return m ? `+56 ${m[1]} ${m[2]} ${m[3]}` : '+' + d;
+}
 function itemConvHtml(c){
   const info = estadoAtencionInfo(c);
   const alerta = alertaPrincipalInfo(c);
@@ -675,6 +683,7 @@ function itemConvHtml(c){
           <span class="item-estado-punto ${info.clave}" title="${info.label}"></span>
           ${c.categoria ? `<span class="badge-mini b-gris">${escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria)}</span>` : ''}
           <span class="sub" style="font-size:10.5px;">${escapeHtml(c.responsableNombre || (c.vendedorDetectado ? c.vendedorDetectado + ' 🤖' : 'Sin asignar'))}</span>
+          ${c.clienteTelefono ? `<span class="sub item-telefono" style="font-size:10.5px;">· 📞 ${escapeHtml(fmtTelefonoLista(c.clienteTelefono))}</span>` : ''}
         </div>
         ${alerta ? `<div style="margin-top:4px;"><span class="alerta-chip ${alerta.clase}" style="font-size:10px;padding:2px 7px;">${alerta.icono} ${escapeHtml(alerta.texto)}</span></div>` : ''}
       </div>
