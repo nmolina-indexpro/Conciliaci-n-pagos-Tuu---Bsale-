@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Ejecutivos WhatsApp — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;letter-spacing:0.2px;margin:0 0 5px 0;}
+  h1 span{color:var(--primary);}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin:0 0 4px 0;}
+  .sub{color:var(--muted);font-size:13px;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  input[type="date"]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 10px;border-radius:9px;font-size:13px;}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);border-color:var(--primary);color:var(--primary-dark);}
+  .btn-compact{padding:7px 12px;font-size:12px;}
+
+  .date-field{display:flex;align-items:center;gap:5px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+  #status{font-size:12px;color:var(--muted);}
+  #status.err{color:var(--red);}
+
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tabla-wrap{overflow-x:auto;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  th.amount, td.amount{text-align:center;}
+  td{padding:9px;border-bottom:1px solid var(--line);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  tr.total-fila{font-weight:700;background:var(--surface-2);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:20px;color:var(--text);}
+  .note-box.err{background:var(--red-bg);border-color:#F5B5B5;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html">Compras</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="sitio-web.html">Sitio Web</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="indexscale.html">IndexScale</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html" class="active">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <div class="toolbar">
+    <div>
+      <h1>Ejecutivos <span>WhatsApp</span></h1>
+      <div class="sub">Conversaciones de WhatsApp por ejecutivo -- quién inicia, quién recibe clientes nuevos, y quién hace seguimiento proactivo.</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <div class="date-field"><label for="ejecDesde">Desde</label><input type="date" id="ejecDesde" onchange="cargar()"></div>
+      <div class="date-field"><label for="ejecHasta">Hasta</label><input type="date" id="ejecHasta" onchange="cargar()"></div>
+      <button class="btn-ghost btn-compact" id="btnEjecAyer" onclick="setRangoRapidoEjec('ayer')">Ayer</button>
+      <button class="btn-ghost btn-compact" id="btnEjecHoy" onclick="setRangoRapidoEjec('hoy')">Hoy</button>
+      <button class="btn-ghost btn-compact" id="btnEjec7d" onclick="setRangoRapidoEjec('7d')">7 días</button>
+      <button class="btn-ghost btn-compact" id="btnEjecMes" onclick="setRangoRapidoEjec('mes')">Mes actual</button>
+    </div>
+  </div>
+  <div id="status"></div>
+  <div id="avisoWrap"></div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>📈 Resumen por ejecutivo</h2>
+        <div class="sub" id="rangoTexto"></div>
+      </div>
+    </div>
+    <div id="wrapEjecutivos"><p class="empty-note">Cargando...</p></div>
+    <div class="note-box" style="margin-top:16px;margin-bottom:0;">
+      <b>Sobre estos números:</b> "Inicia" y "Recontacta proactivo" dependen de a quién quedó asignada cada conversación en el ERP -- WhatsApp no informa qué persona del equipo escribió un mensaje mandado directo desde la app, así que esto es la mejor aproximación disponible (asignación manual, quien responde primero desde el ERP, o firma detectada por IA), no un dato exacto al 100%.
+    </div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    if(u.rol === 'admin'){
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+    }
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Fechas rápidas ----------
+const hoyStrEjec = new Date().toLocaleDateString('en-CA');
+function addDaysStrEjec(dateStr, days){
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  dt.setUTCDate(dt.getUTCDate()+days);
+  return dt.toISOString().slice(0,10);
+}
+function firstDayOfMonthStrEjec(dateStr){
+  const [y,m] = dateStr.split('-').map(Number);
+  return `${y}-${String(m).padStart(2,'0')}-01`;
+}
+function setRangoRapidoEjec(tipo){
+  if(tipo === 'ayer'){
+    const ayer = addDaysStrEjec(hoyStrEjec, -1);
+    $('ejecDesde').value = ayer; $('ejecHasta').value = ayer;
+  } else if(tipo === 'hoy'){
+    $('ejecDesde').value = hoyStrEjec; $('ejecHasta').value = hoyStrEjec;
+  } else if(tipo === '7d'){
+    $('ejecDesde').value = addDaysStrEjec(hoyStrEjec, -6); $('ejecHasta').value = hoyStrEjec;
+  } else {
+    $('ejecDesde').value = firstDayOfMonthStrEjec(hoyStrEjec); $('ejecHasta').value = hoyStrEjec;
+  }
+  ['btnEjecAyer','btnEjecHoy','btnEjec7d','btnEjecMes'].forEach(id => $(id).classList.remove('active'));
+  $('btnEjec' + ({ayer:'Ayer', hoy:'Hoy', '7d':'7d', mes:'Mes'}[tipo])).classList.add('active');
+  cargar();
+}
+
+async function cargar(){
+  const desde = $('ejecDesde').value;
+  const hasta = $('ejecHasta').value;
+  const status = $('status');
+  status.className = '';
+  status.textContent = 'Cargando...';
+  $('avisoWrap').innerHTML = '';
+  $('wrapEjecutivos').innerHTML = `<p class="empty-note">Cargando...</p>`;
+
+  try{
+    const qs = (desde && hasta) ? `?desde=${desde}&hasta=${hasta}` : '';
+    const res = await fetch(`/api/negocio?recurso=whatsapp-analitica-ejecutivos${qs}`).then(r=>r.json());
+    if(res.error){
+      status.className = 'err';
+      status.textContent = 'Error al calcular la analítica.';
+      $('avisoWrap').innerHTML = `<div class="note-box err"><b>No se pudo calcular:</b> ${res.detail || res.error}</div>`;
+      $('wrapEjecutivos').innerHTML = `<p class="empty-note">Sin datos.</p>`;
+      return;
+    }
+    if(!desde){ $('ejecDesde').value = res.desde; $('ejecHasta').value = res.hasta; }
+    $('rangoTexto').textContent = res.desde === res.hasta ? `Día: ${res.desde}` : `Del ${res.desde} al ${res.hasta}`;
+    renderEjecutivos(res.ejecutivos || [], res.sinAsignar);
+    status.textContent = 'Actualizado.';
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
+}
+
+function renderEjecutivos(ejecutivos, sinAsignar){
+  if(ejecutivos.length === 0 && !sinAsignar){ $('wrapEjecutivos').innerHTML = `<p class="empty-note">Sin conversaciones en este período.</p>`; return; }
+  const filaEjec = e => `
+    <tr>
+      <td><b>${e.nombre}</b></td>
+      <td class="amount">${fmtNum(e.inicia)}</td>
+      <td class="amount">${fmtNum(e.nuevas)}</td>
+      <td class="amount">${fmtNum(e.clienteVuelveAHablar)}</td>
+      <td class="amount">${fmtNum(e.recontactaProactivo)}</td>
+      <td class="amount">${fmtNum(e.total)}</td>
+    </tr>`;
+  const totalFila = (campo) => ejecutivos.reduce((s,e)=>s+e[campo],0) + (sinAsignar ? sinAsignar[campo] : 0);
+  $('wrapEjecutivos').innerHTML = `
+    <div class="tabla-wrap"><table>
+      <thead><tr>
+        <th>Ejecutivo</th>
+        <th class="amount">Inicia</th>
+        <th class="amount">Nuevas</th>
+        <th class="amount">Cliente vuelve a hablar</th>
+        <th class="amount">Recontacta proactivo</th>
+        <th class="amount">Total</th>
+      </tr></thead>
+      <tbody>
+        ${ejecutivos.map(filaEjec).join('')}
+        ${sinAsignar ? `<tr><td class="empty-note">Sin ejecutivo asignado</td><td class="amount">${fmtNum(sinAsignar.inicia)}</td><td class="amount">${fmtNum(sinAsignar.nuevas)}</td><td class="amount">${fmtNum(sinAsignar.clienteVuelveAHablar)}</td><td class="amount">${fmtNum(sinAsignar.recontactaProactivo)}</td><td class="amount">${fmtNum(sinAsignar.total)}</td></tr>` : ''}
+        <tr class="total-fila"><td>Total</td><td class="amount">${fmtNum(totalFila('inicia'))}</td><td class="amount">${fmtNum(totalFila('nuevas'))}</td><td class="amount">${fmtNum(totalFila('clienteVuelveAHablar'))}</td><td class="amount">${fmtNum(totalFila('recontactaProactivo'))}</td><td class="amount">${fmtNum(totalFila('total'))}</td></tr>
+      </tbody>
+    </table></div>`;
+}
+
+cargarSesionUsuario();
+setRangoRapidoEjec('ayer');
+</script>
+</body>
+</html>

@@ -132,6 +132,7 @@
           <a href="productos-estancados.html">Productos estancados</a>
           <a href="google-analytics.html">Google Analytics</a>
           <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
         </div>
       </div>
     </nav>
@@ -180,6 +181,12 @@
     <div id="wrapPerfiles"><p class="empty-note">Cargando...</p></div>
   </div>
 
+  <div class="card" id="notificacionesCard" style="display:none;">
+    <h1 style="font-size:15px;margin-bottom:4px;">Notificaciones por correo</h1>
+    <div class="sub" style="margin-bottom:14px;">Administra quién recibe cada notificación automática del sistema y con qué frecuencia. La hora exacta de envío no se puede cambiar desde aquí — depende de la tarea programada en el servidor; esto solo decide si corresponde mandarla hoy.</div>
+    <div id="wrapNotificaciones"><p class="empty-note">Cargando...</p></div>
+  </div>
+
   <div class="card">
     <div id="tablaWrap"><p class="empty-note">Cargando...</p></div>
   </div>
@@ -225,6 +232,8 @@ async function cargarSesion(){
     } else {
       $('perfilesCard').style.display = '';
       await cargarPerfiles();
+      $('notificacionesCard').style.display = '';
+      await cargarNotificaciones();
     }
     cargarUsuarios();
   }catch(err){
@@ -336,6 +345,114 @@ async function eliminarPerfil(id){
   }catch(err){
     alert('Error: ' + err.message);
   }
+}
+
+// ---------------- Notificaciones por correo ----------------
+const DIAS_SEMANA = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+let listaNotificaciones = [];
+let usuariosDisponiblesNotif = [];
+
+async function cargarNotificaciones(){
+  try{
+    const res = await fetch('/api/usuarios?recurso=notificaciones');
+    const data = await res.json();
+    if(!res.ok){ $('wrapNotificaciones').innerHTML = `<p class="empty-note">${data.error}</p>`; return; }
+    listaNotificaciones = data.tipos || [];
+    usuariosDisponiblesNotif = data.usuariosDisponibles || [];
+    renderNotificaciones();
+  }catch(err){
+    $('wrapNotificaciones').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+  }
+}
+
+function renderNotificaciones(){
+  if(listaNotificaciones.length === 0){
+    $('wrapNotificaciones').innerHTML = `<p class="empty-note">No hay notificaciones configurables todavía.</p>`;
+    return;
+  }
+  $('wrapNotificaciones').innerHTML = listaNotificaciones.map(n => {
+    const disponibles = usuariosDisponiblesNotif.filter(u => !n.suscriptores.some(s => s.id === u.id));
+    const ultimoEnvio = n.ultimoEnvioEn ? new Date(n.ultimoEnvioEn).toLocaleString('es-CL') : null;
+    return `
+    <div class="fila-perfil">
+      <div class="fila-perfil-head">
+        <b>${n.nombre}</b>
+        <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:600;font-size:12px;margin:0;">
+          <input type="checkbox" ${n.activa ? 'checked' : ''} onchange="cambiarActivaNotificacion('${n.tipo}', this.checked)"> Activa
+        </label>
+      </div>
+      <div class="empty-note" style="margin-bottom:10px;">${ultimoEnvio ? 'Último envío: ' + ultimoEnvio : 'Sin envíos registrados todavía.'}</div>
+      <div class="fila-form" style="margin-bottom:12px;">
+        <div class="campo">
+          <label>Frecuencia</label>
+          <select id="frecuencia_${n.tipo}" onchange="cambiarFrecuenciaNotificacion('${n.tipo}')">
+            <option value="diaria" ${n.frecuencia === 'diaria' ? 'selected' : ''}>Diaria</option>
+            <option value="semanal" ${n.frecuencia === 'semanal' ? 'selected' : ''}>Semanal</option>
+          </select>
+        </div>
+        <div class="campo" id="diaSemanaWrap_${n.tipo}" style="${n.frecuencia === 'semanal' ? '' : 'display:none;'}">
+          <label>Día</label>
+          <select id="diaSemana_${n.tipo}" onchange="cambiarFrecuenciaNotificacion('${n.tipo}')">
+            ${DIAS_SEMANA.map((d,i) => `<option value="${i}" ${n.diaSemana === i ? 'selected' : ''}>${d}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="checks-paginas" style="margin-bottom:10px;">
+        ${n.suscriptores.length === 0 ? '<span class="empty-note">Sin destinatarios — nadie recibirá este correo.</span>' : n.suscriptores.map(s => `
+          <span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);border-radius:999px;padding:4px 6px 4px 12px;font-size:12px;">
+            ${s.nombre}${s.activo === false ? ' (inactivo)' : ''}
+            <button class="btn-danger" style="padding:2px 8px;font-size:11px;border-radius:999px;" onclick="quitarSuscriptorNotificacion('${n.tipo}', ${s.id})">×</button>
+          </span>
+        `).join('')}
+      </div>
+      <div class="fila-form">
+        <div class="campo">
+          <label>Agregar destinatario</label>
+          <select id="agregar_${n.tipo}" style="width:220px;">
+            <option value="">Elegir usuario...</option>
+            ${disponibles.map(u => `<option value="${u.id}">${u.nombre} (${u.email})</option>`).join('')}
+          </select>
+        </div>
+        <button class="btn-primary" onclick="agregarSuscriptorNotificacion('${n.tipo}')">+ Agregar</button>
+      </div>
+    </div>
+  `;
+  }).join('');
+}
+
+async function guardarNotificacion(tipo, cambios){
+  try{
+    const res = await fetch('/api/usuarios?recurso=notificaciones', {
+      method: 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ tipo, ...cambios })
+    });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error); return; }
+    cargarNotificaciones();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+function cambiarActivaNotificacion(tipo, activa){
+  guardarNotificacion(tipo, { activa });
+}
+
+function cambiarFrecuenciaNotificacion(tipo){
+  const frecuencia = $(`frecuencia_${tipo}`).value;
+  $(`diaSemanaWrap_${tipo}`).style.display = frecuencia === 'semanal' ? '' : 'none';
+  const diaSemana = Number($(`diaSemana_${tipo}`).value);
+  guardarNotificacion(tipo, { frecuencia, diaSemana });
+}
+
+function agregarSuscriptorNotificacion(tipo){
+  const usuarioId = $(`agregar_${tipo}`).value;
+  if(!usuarioId) return;
+  guardarNotificacion(tipo, { agregarUsuarioId: usuarioId });
+}
+
+function quitarSuscriptorNotificacion(tipo, usuarioId){
+  guardarNotificacion(tipo, { quitarUsuarioId: usuarioId });
 }
 
 async function cambiarPerfilUsuario(id, perfilId){
