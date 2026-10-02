@@ -412,7 +412,7 @@ async function cargarDashboard(){
 // servidor, solo re-renderiza lo ya cargado (convState.ultimaData).
 let convState = {
   page: 1, pageSize: 200, q: '', filtros: {}, orden: 'fecha_desc', total: 0, totalPaginas: 1,
-  vista: 'pendientes', // pestaña de la bandeja: pendientes | mias | todas
+  vista: 'todas', // pestaña de la bandeja (arranca en Todas): pendientes | mias | todas
   vistaUI: 'bandeja', // bandeja | tabla
   columnasExtendidas: false,
   contadores: {},
