@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones } from '../lib/db.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
@@ -123,6 +123,9 @@ export default async function handler(req, res) {
   if (recurso === 'cotizaciones-clientes') return manejarCotizacionesClientes(req, res, sesion);
   if (recurso === 'sync-cotizaciones') return manejarSyncCotizaciones(req, res, sesion);
   if (recurso === 'cotizacion-estado') return manejarCotizacionEstado(req, res, sesion);
+  if (recurso === 'cotizacion-gestion') return manejarCotizacionGestion(req, res, sesion);
+  if (recurso === 'cotizacion-contacto') return manejarCotizacionContacto(req, res, sesion);
+  if (recurso === 'cotizacion-items') return manejarCotizacionItems(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
   if (recurso === 'cotizacion-correo-contenido') return manejarCotizacionCorreoContenido(req, res, sesion);
@@ -967,6 +970,8 @@ async function manejarCotizacionesClientes(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaCotizaciones(sql);
+    await asegurarTablaCotizacionesContactos(sql);
+    await asegurarTablaCotizacionesCorreos(sql);
 
     // El LEFT JOIN a analisis_compras es solo un fallback para la fecha:
     // documento_asociado_fecha quedó NULL en las cotizaciones vinculadas
@@ -974,13 +979,30 @@ async function manejarCotizacionesClientes(req, res, sesion) {
     // documento (documento_asociado_id) ya está en analisis_compras (la
     // sync de Análisis lo trae por separado), se usa su fecha en vez de
     // dejar la columna "Cotización → factura" vacía para todo lo viejo.
+    //
+    // "último contacto" (rediseño): el más reciente entre un evento
+    // REGISTRADO a mano (bsale_cotizaciones_contactos) y un correo REAL
+    // saliente detectado por el cron de IMAP (cotizaciones_correos,
+    // dirección='saliente', cruzado por cotizacion_id o por el email del
+    // cliente) -- nunca se infiere de la fecha de creación ni de
+    // actualizado_en (que solo dice cuándo cambió el ESTADO, no si hubo
+    // contacto real). Si no hay ninguno de los dos, queda NULL -> el
+    // frontend muestra "Sin registro", no un valor inventado.
     const { rows } = await sql`
-      SELECT c.id, c.numero, c.cliente_id, c.cliente_nombre, c.cliente_telefono, c.monto, c.fecha, c.cliente_ha_comprado, c.estado, c.actualizado_por, c.actualizado_en,
+      SELECT c.id, c.numero, c.cliente_id, c.cliente_nombre, c.cliente_telefono, c.cliente_email, c.monto, c.fecha, c.cliente_ha_comprado, c.estado, c.actualizado_por, c.actualizado_en,
              c.url_cotizacion, c.documento_asociado_id, c.documento_asociado_tipo, c.documento_asociado_numero, c.documento_asociado_url, c.documento_asociado_fecha,
              fc.fecha AS documento_asociado_fecha_fallback,
-             c.vendedor_id, c.vendedor_nombre
+             c.vendedor_id, c.vendedor_nombre, c.responsable_gestion_id, ug.nombre AS responsable_gestion_nombre,
+             c.proxima_accion_texto, c.proxima_accion_fecha,
+             (SELECT MAX(x.fecha) FROM (
+                SELECT fecha FROM bsale_cotizaciones_contactos WHERE cotizacion_id = c.id
+                UNION ALL
+                SELECT fecha FROM cotizaciones_correos WHERE direccion = 'saliente' AND (cotizacion_id = c.id OR (cliente_email IS NOT NULL AND cliente_email = c.cliente_email))
+              ) x) AS ultimo_contacto_en,
+             (SELECT canal FROM bsale_cotizaciones_contactos WHERE cotizacion_id = c.id ORDER BY fecha DESC LIMIT 1) AS ultimo_contacto_canal_manual
       FROM bsale_cotizaciones c
       LEFT JOIN analisis_compras fc ON fc.documento_id = c.documento_asociado_id
+      LEFT JOIN usuarios ug ON ug.id = c.responsable_gestion_id
       ORDER BY c.fecha DESC NULLS LAST, c.id DESC;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM bsale_cotizaciones_sync_estado WHERE id = 1;`;
@@ -1007,7 +1029,7 @@ async function manejarCotizacionesClientes(req, res, sesion) {
       // mismo organismo -- ver comentario de intentarVincular más arriba)
       // terminan vinculadas al MISMO documento real -- el frontend la usa
       // para no sumar esa venta dos veces en los KPIs/ranking de
-      // vendedores (ver cotizacionesFacturadasSinDuplicar en
+      // vendedores (ver deduplicarPorDocumentoAsociado en
       // oportunidades-comerciales.html).
       documentoAsociadoId: r.documento_asociado_id,
       documentoAsociadoTipo: r.documento_asociado_tipo,
@@ -1018,11 +1040,22 @@ async function manejarCotizacionesClientes(req, res, sesion) {
         : (r.documento_asociado_fecha_fallback ? new Date(r.documento_asociado_fecha_fallback).toISOString().slice(0, 10) : null),
       vendedorId: r.vendedor_id,
       vendedorNombre: r.vendedor_nombre,
+      responsableGestionId: r.responsable_gestion_id,
+      responsableGestionNombre: r.responsable_gestion_nombre,
+      proximaAccionTexto: r.proxima_accion_texto,
+      proximaAccionFecha: r.proxima_accion_fecha,
+      ultimoContactoEn: r.ultimo_contacto_en,
+      // El canal solo se conoce con certeza si el último contacto fue un
+      // evento registrado a mano -- si el más reciente fue un correo
+      // detectado por IMAP, se marca "correo" aunque no haya fila en
+      // bsale_cotizaciones_contactos para ese momento puntual.
+      ultimoContactoCanal: r.ultimo_contacto_canal_manual || null,
     }));
 
     return res.status(200).json({
       cotizaciones,
       estadosDisponibles: ESTADOS_COTIZACION,
+      diasHistorialSincronizado: COTIZACIONES_DIAS_HISTORIAL,
       sync: {
         offsetActual: estado.offset_actual || 0,
         totalDocumentos: estado.total_documentos ?? null,
@@ -1031,6 +1064,91 @@ async function manejarCotizacionesClientes(req, res, sesion) {
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error leyendo cotizaciones', detail: String(err), cotizaciones: [] });
+  }
+}
+
+// ---- Gestión comercial editable (rediseño): responsable de seguimiento y
+// próxima acción -- separado de manejarCotizacionEstado porque cambiar el
+// estado y reasignar/programar seguimiento son ediciones independientes
+// (pedido del usuario: "cambiar el estado no equivale a registrar
+// contacto", y reasignar tampoco debería forzar un cambio de estado). ----
+async function manejarCotizacionGestion(req, res, sesion) {
+  if (req.method !== 'PUT') return res.status(405).json({ error: 'Method not allowed' });
+  const { id, responsableGestionId, proximaAccionTexto, proximaAccionFecha } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'Falta id' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaCotizaciones(sql);
+    await sql`
+      UPDATE bsale_cotizaciones SET
+        responsable_gestion_id = CASE WHEN ${responsableGestionId !== undefined} THEN ${responsableGestionId || null} ELSE responsable_gestion_id END,
+        proxima_accion_texto = CASE WHEN ${proximaAccionTexto !== undefined} THEN ${proximaAccionTexto || null} ELSE proxima_accion_texto END,
+        proxima_accion_fecha = CASE WHEN ${proximaAccionFecha !== undefined} THEN ${proximaAccionFecha || null} ELSE proxima_accion_fecha END
+      WHERE id = ${id};
+    `;
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error actualizando la gestión de la cotización', detail: String(err) });
+  }
+}
+
+// ---- Registrar contacto (rediseño): evento real, independiente del
+// estado -- ver asegurarTablaCotizacionesContactos. ----
+async function manejarCotizacionContacto(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { cotizacionId, canal, nota } = req.body || {};
+  if (!cotizacionId || !canal) return res.status(400).json({ error: 'Falta cotizacionId o canal' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaCotizaciones(sql);
+    await asegurarTablaCotizacionesContactos(sql);
+    const { rows: cotRows } = await sql`SELECT id FROM bsale_cotizaciones WHERE id = ${cotizacionId};`;
+    if (!cotRows[0]) return res.status(404).json({ error: 'Cotización no encontrada' });
+    const { rows } = await sql`
+      INSERT INTO bsale_cotizaciones_contactos (cotizacion_id, canal, registrado_por, nota)
+      VALUES (${cotizacionId}, ${canal}, ${sesion.nombre || sesion.email}, ${nota || null})
+      RETURNING id, fecha;
+    `;
+    return res.status(200).json({ ok: true, contacto: { id: rows[0].id, fecha: rows[0].fecha, canal, registradoPor: sesion.nombre || sesion.email, nota: nota || null } });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error registrando el contacto', detail: String(err) });
+  }
+}
+
+// ---- Ítems de una cotización, en vivo desde Bsale (rediseño: "Detalle de
+// la cotización" en la ficha lateral) -- no se guardan localmente, se piden
+// bajo demanda al abrir la ficha, así siempre quedan consistentes con
+// Bsale (nunca un detalle guardado hace tiempo que no cuadre con el
+// documento real). bsale_cotizaciones.id ES el id del documento en Bsale
+// (ver Fase 1 de manejarSyncCotizaciones), así que se pide directo por id.
+async function manejarCotizacionItems(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const cotizacionId = Number(req.query.cotizacionId);
+  if (!cotizacionId) return res.status(400).json({ error: 'Falta cotizacionId' });
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+  try {
+    const r = await fetchConTimeout(`${BSALE_BASE}/documents/${cotizacionId}.json?expand=[details]`, { headers: { access_token: token } }, 15000);
+    if (!r.ok) {
+      const texto = await r.text().catch(() => '');
+      return res.status(200).json({ error: `Bsale no devolvió el detalle de este documento (HTTP ${r.status})`, detail: texto.slice(0, 300) });
+    }
+    const doc = await r.json();
+    const detalles = doc.details?.items || (Array.isArray(doc.details) ? doc.details : []);
+    const items = detalles.map(det => ({
+      descripcion: det.variant?.description || det.comment || det.note || 'Ítem',
+      codigo: det.variant?.code || null,
+      cantidad: det.quantity || 0,
+      precioUnitarioNeto: det.netUnitValue || 0,
+      totalLineaNeto: (det.quantity || 0) * (det.netUnitValue || 0),
+    }));
+    return res.status(200).json({
+      items,
+      netAmount: doc.netAmount != null ? Number(doc.netAmount) : null,
+      totalAmount: doc.totalAmount != null ? Number(doc.totalAmount) : null,
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error leyendo el detalle en Bsale', detail: String(err) });
   }
 }
 
@@ -1127,9 +1245,28 @@ async function manejarCotizacionDetalle(req, res, sesion) {
     const cotizacionId = Number(req.query.cotizacionId);
     if (!cotizacionId) return res.status(400).json({ error: 'Falta cotizacionId' });
 
-    const { rows: cotRows } = await sql`SELECT id, cliente_id, cliente_nombre, cliente_email FROM bsale_cotizaciones WHERE id = ${cotizacionId};`;
+    const { rows: cotRows } = await sql`SELECT id, cliente_id, cliente_nombre, cliente_email, cliente_telefono FROM bsale_cotizaciones WHERE id = ${cotizacionId};`;
     if (!cotRows[0]) return res.status(404).json({ error: 'Cotización no encontrada' });
-    const { cliente_id: clienteId, cliente_nombre: clienteNombre, cliente_email: clienteEmail } = cotRows[0];
+    const { cliente_id: clienteId, cliente_nombre: clienteNombre, cliente_email: clienteEmail, cliente_telefono: clienteTelefono } = cotRows[0];
+
+    // Vínculo con WhatsApp (rediseño): NO existe ninguna asociación directa
+    // guardada entre una cotización y una conversación -- se busca por
+    // coincidencia de teléfono (mismo criterio heurístico que
+    // buscarClienteBsalePorTelefono, en sentido inverso) y se marca
+    // explícitamente como eso: una coincidencia, no un vínculo confirmado.
+    // Solo se intenta si hay teléfono -- nunca se inventa una asociación.
+    let conversacionesWhatsapp = [];
+    if (clienteTelefono) {
+      await asegurarTablaWhatsapp(sql);
+      const { rows: waRows } = await sql`
+        SELECT c.id, c.iniciada_en, ct.nombre AS contacto_nombre
+        FROM whatsapp_contactos ct
+        JOIN whatsapp_conversaciones c ON c.contacto_id = ct.id
+        WHERE ct.telefono <> '' AND right(regexp_replace(ct.telefono, '[^0-9]', '', 'g'), 9) = right(regexp_replace(${clienteTelefono}, '[^0-9]', '', 'g'), 9)
+        ORDER BY c.iniciada_en DESC LIMIT 5;
+      `;
+      conversacionesWhatsapp = waRows.map(r => ({ id: r.id, iniciadaEn: r.iniciada_en, contactoNombre: r.contacto_nombre }));
+    }
 
     // Correspondencia de correo con este cliente (ver
     // manejarCotizacionesCorreosSync, cron diario que la va llenando) --
@@ -1170,7 +1307,7 @@ async function manejarCotizacionDetalle(req, res, sesion) {
       }
     }
 
-    return res.status(200).json({ clienteId, clienteNombre, clienteEmail, historialEstados, comentarios, resumenCompras, correos });
+    return res.status(200).json({ clienteId, clienteNombre, clienteEmail, historialEstados, comentarios, resumenCompras, correos, conversacionesWhatsapp });
   } catch (err) {
     return res.status(500).json({ error: 'Error leyendo el detalle de la cotización', detail: String(err) });
   }

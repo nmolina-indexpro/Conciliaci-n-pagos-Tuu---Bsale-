@@ -305,7 +305,16 @@ async function cargarSesionUsuario(){
       $('accionesDemo').style.display = '';
     }
     cargarUsuariosActivos();
-    cambiarVistaModulo('dashboard');
+    // Vínculo real desde Cotizaciones y ventas (coincidencia de teléfono) --
+    // ?abrirConversacion=123 abre directo la bandeja en esa conversación en
+    // vez del Dashboard por defecto.
+    const idDesdeUrl = new URLSearchParams(location.search).get('abrirConversacion');
+    if (idDesdeUrl) {
+      cambiarVistaModulo('conversaciones');
+      seleccionarConversacionBandeja(Number(idDesdeUrl));
+    } else {
+      cambiarVistaModulo('dashboard');
+    }
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){
