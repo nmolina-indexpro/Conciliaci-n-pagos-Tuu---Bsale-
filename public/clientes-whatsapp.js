@@ -81,7 +81,19 @@ function esConversacionComercial(c){
 const WHATSAPP_ESTADOS_ATENCION_EDITABLES = ['nueva', 'abierta', 'esperando_cliente', 'cerrada'];
 function estadoAtencionInfo(c){
   if (c.estado === 'cerrada') return { clave: 'resuelta', label: 'Resuelta', badge: 'b-gris' };
-  if (!c.cantidadMensajes || c.primeraRespuestaSegundos == null) return { clave: 'pendiente', label: 'Pendiente', badge: 'b-ambar' };
+  if (!c.cantidadMensajes) return { clave: 'pendiente', label: 'Pendiente', badge: 'b-ambar' };
+  if (c.primeraRespuestaSegundos == null) {
+    // Nunca se respondió -- "Pendiente" (accionable) solo mientras siga
+    // abierta la ventana de 24h de WhatsApp (mismo corte que
+    // condicionPendienteSQL en el backend, para que el badge de cada fila
+    // coincida con los contadores de arriba). Pasado eso, ya no se puede
+    // responder con texto libre -- queda "Vencida", no desaparece ni se
+    // cuenta como tarea del día.
+    const dentroDeVentana = c.ultimoMensajeEn && (Date.now() - new Date(c.ultimoMensajeEn).getTime()) < 24 * 3600000;
+    return dentroDeVentana
+      ? { clave: 'pendiente', label: 'Pendiente', badge: 'b-ambar' }
+      : { clave: 'vencida', label: 'Vencida sin responder', badge: 'b-rojo' };
+  }
   if (c.ultimoMensajeDireccion === 'out') return { clave: 'esperando_cliente', label: 'Esperando al cliente', badge: 'b-azul' };
   return { clave: 'en_atencion', label: 'En atención', badge: 'b-verde' };
 }
@@ -126,6 +138,10 @@ function fmtMinutos(min){
 // nuestro (esperando al cliente) -- justo la regla que pidió el usuario.
 function alertaPrincipalInfo(c){
   const info = estadoAtencionInfo(c);
+  if (info.clave === 'vencida') {
+    const horas = c.ultimoMensajeEn ? Math.round((Date.now() - new Date(c.ultimoMensajeEn).getTime()) / 3600000) : null;
+    return { texto: `Sin responder hace ${horas != null ? horas + 'h' : 'más de 24h'} — ventana de WhatsApp cerrada`, clase: 'critica', icono: '⚠️' };
+  }
   if (info.clave === 'pendiente' && c.cantidadMensajes > 0) {
     const minutos = c.ultimoMensajeEn ? Math.round((Date.now() - new Date(c.ultimoMensajeEn).getTime()) / 60000) : null;
     return { texto: `Pendiente de primera respuesta${minutos != null ? ' · ' + fmtMinutos(Math.max(0,minutos)) : ''}`, clase: 'critica', icono: '⛔' };

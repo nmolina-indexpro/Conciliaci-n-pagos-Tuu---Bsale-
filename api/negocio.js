@@ -6187,7 +6187,20 @@ async function manejarWhatsappDashboard(req, res, sesion) {
 // basado en datos reales (primera_respuesta_segundos), nunca en el enum
 // "estado" que puede quedar desactualizado si nadie lo tocó a mano.
 function condicionPendienteSQL() {
-  return `c.estado <> 'cerrada' AND (c.cantidad_mensajes = 0 OR c.primera_respuesta_segundos IS NULL)`;
+  // "Pendiente" NO es "nunca se respondió" a secas -- eso incluye
+  // conversaciones abandonadas de semanas atrás que nadie marcó "Cerrada"
+  // (el sistema nunca cierra solo una conversación vieja). Pasadas 24h
+  // desde el último mensaje del cliente, WhatsApp ya no permite responder
+  // con texto libre (misma ventana que usa el composer, ver
+  // manejarWhatsappEnviarMensaje) -- así que una conversación más vieja
+  // que eso no es una tarea accionable hoy, por más que siga sin
+  // respuesta. Sin este corte, "Pendientes" se llena de ruido histórico
+  // en vez de ser una cola de atención diaria real.
+  return `c.estado <> 'cerrada' AND (c.cantidad_mensajes = 0 OR c.primera_respuesta_segundos IS NULL)
+    AND (c.cantidad_mensajes = 0 OR EXISTS (
+      SELECT 1 FROM whatsapp_mensajes m
+      WHERE m.conversacion_id = c.id AND m.direccion = 'in' AND m.marca_tiempo > now() - interval '24 hours'
+    ))`;
 }
 
 // "sesion" es opcional (solo hace falta para resolver query.vista==='mias') --
