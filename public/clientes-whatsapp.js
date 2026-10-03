@@ -1030,6 +1030,10 @@ function renderFichaBandeja(data){
         ` : `<p class="sub">Sin análisis todavía. <button class="btn-ghost btn-compact" onclick="analizarConversacionIA(${c.id})">🤖 Analizar con IA</button></p>`}
       </div>
       <div class="ficha-grupo">
+        <h3>🧾 Cotización</h3>
+        <button class="btn-ghost btn-compact" onclick="abrirCotBsale(${c.id})" title="Arma una cotización en Bsale con los productos de esta conversación (primero se puede simular)">🧾 Crear cotización en Bsale</button>
+      </div>
+      <div class="ficha-grupo">
         <h3>📅 Próxima acción</h3>
         ${proximaAccionHtml}
         <button class="btn-ghost btn-compact" style="margin-top:8px;" onclick="programarSeguimientoBandeja(${c.id})">📅 Programar seguimiento</button>
@@ -2359,3 +2363,196 @@ async function buscarVentasBsaleEnLote(){
   finally{ btn.disabled = false; btn.textContent = '🧾 Buscar ventas (Bsale/Shopify)'; }
 }
 
+// ================= Cotización en Bsale desde la conversación =================
+// Flujo: cliente (sugerido por teléfono o buscado) + productos (precio y stock reales de Bsale) ->
+// "Simular" valida todo SIN crear nada -> solo si la simulación salió bien y nada cambió después,
+// un administrador puede "Crear en Bsale" (pide confirmación).
+let cotBsale = null; // { conversacionId, prep, cliente, items, vigencia, comentario, simulacionOk: firma|null, resultado, buscandoCli, resCli, resProd }
+let cotBsaleTimer = null;
+
+function firmaCotBsale(){
+  return JSON.stringify({ c: cotBsale.cliente?.id, i: cotBsale.items.map(x => [x.variantId, x.cantidad, x.precioNeto, x.descuentoPct]), v: cotBsale.vigencia, k: cotBsale.comentario });
+}
+function totalesCotBsale(){
+  const neto = cotBsale.items.reduce((s, it) => s + Math.round((Number(it.cantidad) || 0) * (Number(it.precioNeto) || 0) * (1 - (Number(it.descuentoPct) || 0) / 100)), 0);
+  const iva = Math.round(neto * (cotBsale.prep?.ivaPct || 19) / 100);
+  return { neto, iva, total: neto + iva };
+}
+async function abrirCotBsale(conversacionId){
+  $('modalCotBsale').classList.add('abierto');
+  $('cotBsaleBody').innerHTML = '<p class="empty-note" style="padding:20px;">Cargando...</p>';
+  try{
+    const res = await fetch(`/api/negocio?recurso=bsale-cotizacion-preparar&conversacionId=${conversacionId}`).then(r => r.json());
+    if (res.error) throw new Error(res.detail || res.error);
+    cotBsale = { conversacionId, prep: res, cliente: res.clientesSugeridos.length === 1 ? res.clientesSugeridos[0] : null, items: [], vigencia: res.diasVigencia, comentario: '', simulacionOk: null, resultado: null, resCli: [], resProd: [] };
+    renderCotBsale();
+    if (res.sugerenciaProducto?.texto) { const el = $('cotProdQ'); if (el) { el.value = res.sugerenciaProducto.texto; buscarProductoCotBsale(); } }
+  }catch(err){
+    $('cotBsaleBody').innerHTML = `<p class="empty-note" style="padding:20px;color:var(--red);">No se pudo preparar la cotización: ${escapeHtml(err.message)}</p>`;
+  }
+}
+function cerrarCotBsale(){ $('modalCotBsale').classList.remove('abierto'); cotBsale = null; }
+
+function renderCotBsale(){
+  if (!cotBsale) return;
+  const p = cotBsale.prep;
+  const clienteHtml = cotBsale.cliente
+    ? `<div class="ficha-fila"><span>Cliente</span><b>${escapeHtml(cotBsale.cliente.nombre || '')}${cotBsale.cliente.empresa ? ' · ' + escapeHtml(cotBsale.cliente.empresa) : ''}</b></div>
+       <div class="ficha-fila"><span>RUT / correo</span><b>${escapeHtml(cotBsale.cliente.rut || 'sin RUT en la copia local')} · ${escapeHtml(cotBsale.cliente.email || 'sin correo')}</b></div>
+       <button class="btn-ghost btn-compact" onclick="cotBsale.cliente=null;cotBsale.simulacionOk=null;renderCotBsale()">Cambiar cliente</button>`
+    : `<div class="sub" style="margin-bottom:6px;">${p.clientesSugeridos.length ? 'Posibles clientes por el teléfono del contacto (confírmalo):' : 'No se encontró un cliente de Bsale con el teléfono de este contacto.'}</div>
+       ${p.clientesSugeridos.map(c => `<div class="ficha-fila"><span>${escapeHtml(c.origen)}</span><b>${escapeHtml(c.nombre || '')} <button class="btn-ghost btn-compact" onclick='elegirClienteCotBsale(${JSON.stringify(c).replace(/'/g, '&#39;')})'>Usar</button></b></div>`).join('')}
+       <div style="display:flex;gap:8px;margin-top:8px;"><input type="text" id="cotCliQ" placeholder="Buscar por RUT, nombre, empresa o correo..." style="flex:1;" oninput="buscarClienteCotBsale()"></div>
+       <div id="cotCliRes"></div>`;
+  $('cotBsaleBody').innerHTML = `
+    <div style="padding:16px 20px;">
+      <div class="note-box" style="margin-bottom:14px;">Contacto de WhatsApp: <b>${escapeHtml(p.contacto.nombre || 'Sin nombre')}</b> (${escapeHtml(p.contacto.telefono || '')}). ${escapeHtml(p.nota)}</div>
+      <div class="ficha-grupo"><h3>👤 Cliente de Bsale</h3>${clienteHtml}</div>
+      <div class="ficha-grupo" style="margin-top:14px;">
+        <h3>📦 Productos</h3>
+        <div style="display:flex;gap:8px;"><input type="text" id="cotProdQ" placeholder="SKU o nombre del producto..." style="flex:1;" oninput="buscarProductoCotBsale()"></div>
+        <div class="sub" id="cotProdNota" style="margin:4px 0;"></div>
+        <div id="cotProdRes"></div>
+        <div id="cotItems" style="margin-top:10px;"></div>
+      </div>
+      <div class="ficha-grupo" style="margin-top:14px;">
+        <h3>📝 Condiciones</h3>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+          <label class="sub">Vigencia (días) <input type="number" min="1" max="90" value="${cotBsale.vigencia}" style="width:70px;" oninput="cotBsale.vigencia=Number(this.value)||7;invalidarSimulacionCotBsale()"></label>
+          <input type="text" placeholder="Comentario en el documento (opcional)" value="${escapeHtml(cotBsale.comentario)}" style="flex:1;min-width:200px;" oninput="cotBsale.comentario=this.value;invalidarSimulacionCotBsale()">
+        </div>
+      </div>
+      <div id="cotTotales" style="margin-top:14px;"></div>
+      <div id="cotAcciones" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;"></div>
+      <div id="cotResultado" style="margin-top:14px;"></div>
+    </div>`;
+  renderItemsCotBsale();
+  renderResultadoCotBsale();
+}
+
+// ---- búsqueda de cliente / producto ----
+function buscarClienteCotBsale(){
+  clearTimeout(cotBsaleTimer);
+  cotBsaleTimer = setTimeout(async () => {
+    const q = $('cotCliQ')?.value.trim();
+    if (!q || q.length < 2) { $('cotCliRes').innerHTML = ''; return; }
+    try{
+      const res = await fetch(`/api/negocio?recurso=bsale-clientes-buscar&q=${encodeURIComponent(q)}`).then(r => r.json());
+      $('cotCliRes').innerHTML = (res.clientes || []).map(c => `<div class="ficha-fila"><span>${escapeHtml(c.rut || '')}</span><b>${escapeHtml(c.nombre || '')}${c.empresa ? ' · ' + escapeHtml(c.empresa) : ''} <button class="btn-ghost btn-compact" onclick='elegirClienteCotBsale(${JSON.stringify(c).replace(/'/g, '&#39;')})'>Usar</button></b></div>`).join('') || '<p class="sub">Sin resultados. Prueba con el RUT completo.</p>';
+    }catch(err){ $('cotCliRes').innerHTML = `<p class="sub">Error: ${escapeHtml(err.message)}</p>`; }
+  }, 300);
+}
+function elegirClienteCotBsale(c){ cotBsale.cliente = c; cotBsale.simulacionOk = null; renderCotBsale(); }
+function buscarProductoCotBsale(){
+  clearTimeout(cotBsaleTimer);
+  cotBsaleTimer = setTimeout(async () => {
+    const q = $('cotProdQ')?.value.trim();
+    if (!q || q.length < 2) { $('cotProdRes').innerHTML = ''; return; }
+    try{
+      const res = await fetch(`/api/negocio?recurso=bsale-productos-buscar&q=${encodeURIComponent(q)}`).then(r => r.json());
+      $('cotProdNota').textContent = res.nota || '';
+      const lista = res.productos || [];
+      $('cotProdRes').innerHTML = (lista.map(pr => `<div class="ficha-fila"><span>${escapeHtml(pr.sku)}</span><b>${escapeHtml(pr.nombre || '')} <button class="btn-ghost btn-compact" onclick="agregarProductoCotBsale('${escapeHtml(pr.sku).replace(/'/g, '')}')">Agregar</button></b></div>`).join(''))
+        + `<div class="ficha-fila"><span></span><b><button class="btn-ghost btn-compact" onclick="agregarProductoCotBsale(document.getElementById('cotProdQ').value.trim())">Agregar por SKU exacto: "${escapeHtml(q)}"</button></b></div>`;
+    }catch(err){ $('cotProdRes').innerHTML = `<p class="sub">Error: ${escapeHtml(err.message)}</p>`; }
+  }, 300);
+}
+async function agregarProductoCotBsale(codigo){
+  if (!codigo) return;
+  $('cotProdNota').textContent = `Consultando "${codigo}" en Bsale...`;
+  try{
+    const d = await fetch(`/api/negocio?recurso=bsale-variante-detalle&codigo=${encodeURIComponent(codigo)}`).then(r => r.json());
+    if (d.error) { $('cotProdNota').textContent = d.error; return; }
+    if (cotBsale.items.some(x => x.variantId === d.variantId)) { $('cotProdNota').textContent = 'Ese producto ya está en la cotización: cambia su cantidad.'; return; }
+    cotBsale.items.push({ variantId: d.variantId, codigo: d.codigo, descripcion: d.descripcion, cantidad: 1, precioNeto: d.precioNeto ?? 0, descuentoPct: 0, stock: d.stock, advertencias: d.advertencias || [] });
+    cotBsale.simulacionOk = null;
+    $('cotProdNota').textContent = '';
+    renderItemsCotBsale(); renderResultadoCotBsale();
+  }catch(err){ $('cotProdNota').textContent = 'No se pudo consultar Bsale: ' + err.message; }
+}
+
+// ---- líneas y totales ----
+function renderItemsCotBsale(){
+  const cont = $('cotItems'); if (!cont) return;
+  if (!cotBsale.items.length) { cont.innerHTML = '<p class="sub">Todavía no hay productos en la cotización.</p>'; actualizarTotalesCotBsale(); return; }
+  cont.innerHTML = `<div class="tabla-wrap"><table class="no-tarjetas">
+    <thead><tr><th>Producto</th><th>Stock</th><th>Cant.</th><th>Precio neto</th><th>Desc. %</th><th class="amount">Subtotal neto</th><th></th></tr></thead>
+    <tbody>${cotBsale.items.map((it, i) => `<tr>
+      <td><b>${escapeHtml(it.codigo)}</b><div class="sub">${escapeHtml(it.descripcion)}</div>${(it.advertencias || []).map(a => `<div class="sub" style="color:var(--amber);">⚠ ${escapeHtml(a)}</div>`).join('')}</td>
+      <td>${it.stock != null ? fmtNum(it.stock) : '—'}</td>
+      <td><input type="number" min="1" step="1" value="${it.cantidad}" style="width:70px;" oninput="actualizarItemCotBsale(${i},'cantidad',this.value)"></td>
+      <td><input type="number" min="0" step="1" value="${it.precioNeto}" style="width:100px;" oninput="actualizarItemCotBsale(${i},'precioNeto',this.value)"></td>
+      <td><input type="number" min="0" max="100" step="1" value="${it.descuentoPct}" style="width:60px;" oninput="actualizarItemCotBsale(${i},'descuentoPct',this.value)"></td>
+      <td class="amount" id="cotSub${i}">${fmtMoneda(Math.round(it.cantidad * it.precioNeto * (1 - it.descuentoPct / 100)))}</td>
+      <td><button class="btn-ghost btn-compact" onclick="quitarItemCotBsale(${i})" title="Quitar">✕</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+  actualizarTotalesCotBsale();
+}
+function actualizarItemCotBsale(i, campo, valor){
+  const it = cotBsale.items[i]; if (!it) return;
+  it[campo] = valor === '' ? 0 : Number(valor);
+  const sub = $('cotSub' + i); if (sub) sub.textContent = fmtMoneda(Math.round((it.cantidad || 0) * (it.precioNeto || 0) * (1 - (it.descuentoPct || 0) / 100)));
+  invalidarSimulacionCotBsale();
+  actualizarTotalesCotBsale();
+}
+function quitarItemCotBsale(i){ cotBsale.items.splice(i, 1); invalidarSimulacionCotBsale(); renderItemsCotBsale(); }
+function invalidarSimulacionCotBsale(){ if (!cotBsale) return; cotBsale.simulacionOk = null; renderAccionesCotBsale(); }
+function actualizarTotalesCotBsale(){
+  const t = totalesCotBsale();
+  const el = $('cotTotales');
+  if (el) el.innerHTML = `<div class="ficha-fila"><span>Neto</span><b>${fmtMoneda(t.neto)}</b></div><div class="ficha-fila"><span>IVA ${cotBsale.prep?.ivaPct || 19}%</span><b>${fmtMoneda(t.iva)}</b></div><div class="ficha-fila"><span><b>Total</b></span><b>${fmtMoneda(t.total)}</b></div>`;
+  renderAccionesCotBsale();
+}
+function renderAccionesCotBsale(){
+  const el = $('cotAcciones'); if (!el || !cotBsale) return;
+  const listo = !!cotBsale.cliente && cotBsale.items.length > 0;
+  const puedeReal = cotBsale.prep?.puedeCrearReal && cotBsale.simulacionOk === firmaCotBsale();
+  el.innerHTML = `
+    <button class="btn-ghost btn-compact" ${listo ? '' : 'disabled'} onclick="enviarCotBsale(true)" title="Valida cliente, productos, precios y stock en Bsale. No crea nada.">🧪 Simular (no crea nada)</button>
+    ${cotBsale.prep?.puedeCrearReal
+      ? `<button class="btn-primary btn-compact" ${puedeReal ? '' : 'disabled'} onclick="enviarCotBsale(false)" title="${puedeReal ? 'Crea el documento real en Bsale' : 'Primero simula; si cambias algo hay que volver a simular'}">🧾 Crear en Bsale (real)</button>`
+      : '<span class="sub">La creación real la hace un administrador.</span>'}`;
+}
+async function enviarCotBsale(simulacro){
+  if (!cotBsale?.cliente || !cotBsale.items.length) return;
+  const t = totalesCotBsale();
+  if (!simulacro && !confirm(`Se creará una cotización REAL en Bsale para ${cotBsale.cliente.nombre} por ${fmtMoneda(t.total)} (IVA incluido).\n\nQuedará numerada en Bsale (se puede anular, no borrar). ¿Continuar?`)) return;
+  const firma = firmaCotBsale();
+  $('cotResultado').innerHTML = `<p class="sub">${simulacro ? 'Simulando...' : 'Creando en Bsale...'}</p>`;
+  try{
+    const res = await fetch('/api/negocio?recurso=bsale-cotizacion-crear', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversacionId: cotBsale.conversacionId, clienteId: cotBsale.cliente.id, simulacro, confirmar: !simulacro,
+        diasVigencia: cotBsale.vigencia, comentario: cotBsale.comentario,
+        items: cotBsale.items.map(x => ({ variantId: x.variantId, codigo: x.codigo, descripcion: x.descripcion, cantidad: x.cantidad, precioNeto: x.precioNeto, descuentoPct: x.descuentoPct })),
+      }),
+    }).then(r => r.json());
+    cotBsale.resultado = res;
+    cotBsale.simulacionOk = (simulacro && res.ok) ? firma : null;
+    renderResultadoCotBsale(); renderAccionesCotBsale();
+    if (!simulacro && res.ok) cargarConversaciones && cargarConversaciones();
+  }catch(err){
+    cotBsale.resultado = { error: err.message };
+    renderResultadoCotBsale();
+  }
+}
+function renderResultadoCotBsale(){
+  const el = $('cotResultado'); if (!el || !cotBsale) return;
+  const r = cotBsale.resultado;
+  if (!r) { el.innerHTML = ''; return; }
+  if (r.error) {
+    el.innerHTML = `<div class="note-box" style="background:var(--red-bg);border-color:#F5B5B5;"><b>${escapeHtml(r.error)}</b>${r.errores ? '<br>' + r.errores.map(escapeHtml).join('<br>') : ''}${r.detalleBsale ? '<br>Bsale dice: ' + escapeHtml(r.detalleBsale) : ''}${r.detail ? '<br><span class="sub">' + escapeHtml(r.detail) + '</span>' : ''}</div>`;
+    return;
+  }
+  const adv = (r.advertencias || []).map(a => `<li>${escapeHtml(a)}</li>`).join('');
+  if (!r.simulacro && r.documento) {
+    el.innerHTML = `<div class="note-box" style="background:var(--green-bg);border-color:#B8E2C4;"><b>✅ Cotización creada en Bsale: N° ${escapeHtml(String(r.documento.numero ?? r.documento.id))}</b> por ${fmtMoneda(r.documento.totalBsale ?? r.totales.total)}.
+      ${r.documento.url ? `<br><a class="doc-link" href="${escapeHtml(r.documento.url)}" target="_blank" rel="noopener">Ver documento ↗</a>` : ''}${r.documento.pdf ? ` · <a class="doc-link" href="${escapeHtml(r.documento.pdf)}" target="_blank" rel="noopener">PDF ↗</a>` : ''}
+      <br><span class="sub">Ya aparece en Cotizaciones y quedó registrada en esta conversación. No se envió al cliente: eso se hace desde Bsale o por correo/WhatsApp.</span>${adv ? `<ul style="margin:6px 0 0 18px;">${adv}</ul>` : ''}</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="note-box"><b>🧪 Simulacro correcto — no se creó nada en Bsale.</b> Cliente <b>${escapeHtml(r.cliente.nombre)}</b>${r.cliente.rut ? ' (' + escapeHtml(r.cliente.rut) + ')' : ''}; total <b>${fmtMoneda(r.totales.total)}</b> (neto ${fmtMoneda(r.totales.neto)} + IVA ${fmtMoneda(r.totales.iva)}).
+    ${adv ? `<div style="margin-top:6px;"><b>Revisa antes de crear:</b><ul style="margin:4px 0 0 18px;">${adv}</ul></div>` : '<div class="sub" style="margin-top:4px;">Sin advertencias: cliente, productos, precios y stock cuadran con Bsale.</div>'}
+    <details style="margin-top:8px;"><summary class="sub" style="cursor:pointer;">Ver el documento que se enviaría a Bsale</summary><pre style="white-space:pre-wrap;font-size:11px;margin:6px 0 0;">${escapeHtml(JSON.stringify(r.payload, null, 2))}</pre></details></div>`;
+}

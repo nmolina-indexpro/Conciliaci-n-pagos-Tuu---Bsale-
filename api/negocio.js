@@ -13,6 +13,7 @@ import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, ase
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
+import { IVA_PCT, DIAS_VIGENCIA_POR_DEFECTO, normalizarItems, totalLinea, calcularTotales, armarPayloadCotizacion, ultimos9, normalizarRut } from '../lib/bsale-cotizacion.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
@@ -198,6 +199,11 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-control-ejecutivos') return manejarWhatsappControlEjecutivos(req, res, sesion);
   if (recurso === 'whatsapp-recontacto-motivo') return manejarWhatsappRecontactoMotivo(req, res, sesion);
   if (recurso === 'whatsapp-recontacto-clasificar-ia') return manejarWhatsappRecontactoClasificarIA(req, res, sesion);
+  if (recurso === 'bsale-cotizacion-preparar') return manejarBsaleCotizacionPreparar(req, res, sesion);
+  if (recurso === 'bsale-clientes-buscar') return manejarBsaleClientesBuscar(req, res, sesion);
+  if (recurso === 'bsale-productos-buscar') return manejarBsaleProductosBuscar(req, res, sesion);
+  if (recurso === 'bsale-variante-detalle') return manejarBsaleVarianteDetalle(req, res, sesion);
+  if (recurso === 'bsale-cotizacion-crear') return manejarBsaleCotizacionCrear(req, res, sesion);
   if (recurso === 'whatsapp-usuarios') return manejarWhatsappUsuarios(req, res, sesion);
   if (recurso === 'whatsapp-debug-categoria') return manejarWhatsappDebugCategoria(req, res, sesion);
   if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
@@ -12425,5 +12431,280 @@ async function manejarWhatsappRecontactoClasificarIA(req, res, sesion) {
     return res.status(200).json({ total, clasificados, errores, restantes, completo: restantes === 0 || (lote.length > 0 && errores === lote.length), todoFallo: lote.length > 0 && errores === lote.length });
   } catch (err) {
     return res.status(500).json({ error: 'Error clasificando los recontactos con IA', detail: String(err) });
+  }
+}
+
+// ================= Crear una cotización en Bsale desde una conversación de WhatsApp =================
+// La lógica de armado/totales vive en lib/bsale-cotizacion.js. Acá: datos de la conversación, búsquedas
+// (clientes y productos), el SIMULACRO (valida todo con consultas de lectura, no crea nada) y la
+// creación real (POST /v1/documents.json, solo administradores y con confirmación explícita).
+let configBsaleCache = null; // { oficinaId, listaPreciosId, ivaId, tipoDocumentoId, en }
+async function bsaleLeerJson(ruta, token) {
+  const r = await fetchConTimeout(`${BSALE_BASE}${ruta}`, { headers: { access_token: token } }, 15000);
+  if (!r.ok) throw new Error(`Bsale HTTP ${r.status} en ${ruta.split('?')[0]}`);
+  return r.json();
+}
+// Tipo "Cotización", oficina, lista de precios e IVA de esta cuenta (se cachea 10 minutos).
+async function resolverConfigCotizacionBsale(token) {
+  if (configBsaleCache && Date.now() - configBsaleCache.en < 10 * 60 * 1000) return configBsaleCache;
+  const faltantes = [];
+  const tipoDocumentoId = await obtenerIdTipoCotizacion(token);
+  if (!tipoDocumentoId) faltantes.push('el tipo de documento "Cotización"');
+  let oficinaId = Number(process.env.BSALE_OFFICE_ID) || null;
+  if (!oficinaId) {
+    const of = await bsaleLeerJson('/offices.json?limit=50', token).catch(() => null);
+    const activa = (of?.items || []).find(o => o.state === 0) || (of?.items || [])[0];
+    oficinaId = activa?.id || null;
+  }
+  if (!oficinaId) faltantes.push('la oficina (BSALE_OFFICE_ID)');
+  let listaPreciosId = Number(process.env.BSALE_PRICE_LIST_ID) || null;
+  if (!listaPreciosId) {
+    const pl = await bsaleLeerJson('/price_lists.json?limit=50', token).catch(() => null);
+    const activa = (pl?.items || []).find(l => l.state === 0) || (pl?.items || [])[0];
+    listaPreciosId = activa?.id || null;
+  }
+  let ivaId = null;
+  const imp = await bsaleLeerJson('/taxes.json?limit=50', token).catch(() => null);
+  const iva = (imp?.items || []).find(t => /iva/i.test(t.name || '') && Number(t.percentage) === IVA_PCT) || (imp?.items || []).find(t => /iva/i.test(t.name || ''));
+  ivaId = iva?.id || null;
+  const cfg = { oficinaId, listaPreciosId, ivaId, tipoDocumentoId, faltantes, en: Date.now() };
+  if (!faltantes.length) configBsaleCache = cfg; // no se cachea una configuración incompleta
+  return cfg;
+}
+async function detalleVarianteBsale(variantId, config, token) {
+  const advertencias = [];
+  const v = await bsaleLeerJson(`/variants/${variantId}.json?expand=[product]`, token);
+  let stock = null;
+  if (config.oficinaId) {
+    const st = await bsaleLeerJson(`/stocks.json?variantid=${variantId}&officeid=${config.oficinaId}&limit=1`, token).catch(() => null);
+    const it = st?.items?.[0];
+    if (it) stock = Number(it.quantityAvailable ?? it.quantity ?? 0);
+  }
+  let precioNeto = null, precioConIva = null;
+  if (config.listaPreciosId) {
+    const pr = await bsaleLeerJson(`/price_lists/${config.listaPreciosId}/details.json?variantid=${variantId}&limit=1`, token).catch(() => null);
+    const it = pr?.items?.[0];
+    if (it) { precioNeto = Number(it.variantValue); precioConIva = it.variantValueWithTaxes != null ? Number(it.variantValueWithTaxes) : null; }
+  }
+  if (precioNeto == null || !Number.isFinite(precioNeto)) advertencias.push('No se encontró el precio en la lista de precios: ingrésalo a mano');
+  if (v.state != null && v.state !== 0) advertencias.push('La variante está inactiva en Bsale');
+  return {
+    variantId: v.id, codigo: v.code || '', descripcion: [v.product?.name, v.description].filter(Boolean).join(' · ') || v.description || '',
+    precioNeto: Number.isFinite(precioNeto) ? precioNeto : null, precioConIva, stock, advertencias,
+  };
+}
+
+// GET ?recurso=bsale-cotizacion-preparar&conversacionId=
+async function manejarBsaleCotizacionPreparar(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const conversacionId = Number(req.query.conversacionId);
+  if (!Number.isInteger(conversacionId)) return res.status(400).json({ error: 'Falta conversacionId' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    await asegurarTablaBsalePuntos(sql);
+    await asegurarTablaCotizaciones(sql);
+    const { rows } = await sql`
+      SELECT c.id, c.producto, c.marca, c.modelo, c.shopify_producto_titulo, ct.nombre, ct.telefono
+      FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id WHERE c.id = ${conversacionId};`;
+    const c = rows[0];
+    if (!c) return res.status(404).json({ error: 'Conversación no encontrada' });
+    const tel9 = ultimos9(c.telefono);
+    const clientes = [];
+    if (tel9) {
+      const { rows: porTel } = await sql`SELECT id, nombre, rut, empresa, email FROM bsale_clientes_puntos WHERE telefono_normalizado = ${tel9} LIMIT 5;`;
+      for (const r of porTel) clientes.push({ id: r.id, nombre: r.nombre, rut: r.rut, empresa: r.empresa, email: r.email, origen: 'teléfono (Puntos Bsale)' });
+      const { rows: porCot } = await sql`
+        SELECT DISTINCT cliente_id AS id, cliente_nombre AS nombre, cliente_email AS email FROM bsale_cotizaciones
+        WHERE cliente_id IS NOT NULL AND right(regexp_replace(coalesce(cliente_telefono, ''), '[^0-9]', '', 'g'), 9) = ${tel9} LIMIT 5;`;
+      for (const r of porCot) if (!clientes.some(x => x.id === r.id)) clientes.push({ id: r.id, nombre: r.nombre, rut: null, empresa: null, email: r.email, origen: 'teléfono (cotizaciones anteriores)' });
+    }
+    return res.status(200).json({
+      conversacionId,
+      contacto: { nombre: c.nombre, telefono: c.telefono },
+      clientesSugeridos: clientes,
+      sugerenciaProducto: { texto: [c.marca, c.modelo, c.producto].filter(Boolean).join(' ').trim(), shopifyTitulo: c.shopify_producto_titulo || null },
+      ivaPct: IVA_PCT, diasVigencia: DIAS_VIGENCIA_POR_DEFECTO,
+      puedeCrearReal: sesion.rol === 'admin',
+      nota: 'Las sugerencias de cliente salen del cruce por teléfono: confírmalas antes de crear la cotización.',
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error preparando la cotización', detail: String(err) });
+  }
+}
+
+// GET ?recurso=bsale-clientes-buscar&q=  (RUT, nombre, empresa o correo; en la copia local de clientes de Bsale)
+async function manejarBsaleClientesBuscar(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.status(200).json({ clientes: [] });
+  try {
+    const sql = await getSql();
+    await asegurarTablaBsalePuntos(sql);
+    const rut = normalizarRut(q);
+    const rutPlano = rut ? rut.replace('-', '') : null;
+    const { rows } = await sql.query(
+      `SELECT id, nombre, rut, empresa, email FROM bsale_clientes_puntos
+       WHERE ($2::text IS NOT NULL AND upper(regexp_replace(coalesce(rut, ''), '[^0-9kK]', '', 'g')) = $2)
+          OR nombre ILIKE $1 OR empresa ILIKE $1 OR email ILIKE $1
+       ORDER BY (upper(regexp_replace(coalesce(rut, ''), '[^0-9kK]', '', 'g')) = coalesce($2, '#')) DESC, nombre ASC LIMIT 8;`,
+      ['%' + q.replace(/[%_]/g, ' ') + '%', rutPlano]
+    );
+    let clientes = rows.map(r => ({ id: r.id, nombre: r.nombre, rut: r.rut, empresa: r.empresa, email: r.email }));
+    // Un RUT válido que no esté en la copia local se busca directo en Bsale.
+    const token = process.env.BSALE_ACCESS_TOKEN;
+    if (!clientes.length && rut && token) {
+      const data = await bsaleLeerJson(`/clients.json?code=${encodeURIComponent(rut)}&limit=3`, token).catch(() => null);
+      clientes = (data?.items || []).map(c => ({ id: c.id, nombre: [c.firstName, c.lastName].filter(Boolean).join(' ') || c.company || '', rut: c.code || null, empresa: c.company || null, email: c.email || null }));
+    }
+    return res.status(200).json({ clientes });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error buscando clientes', detail: String(err) });
+  }
+}
+
+// GET ?recurso=bsale-productos-buscar&q=  (SKU o nombre, entre los productos que ya se han vendido)
+async function manejarBsaleProductosBuscar(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.status(200).json({ productos: [] });
+  try {
+    const sql = await getSql();
+    await asegurarTablaVentasSku(sql);
+    const { rows } = await sql.query(
+      `SELECT sku, MAX(nombre) AS nombre, SUM(cantidad) AS vendidas FROM bsale_ventas_sku
+       WHERE sku ILIKE $1 OR nombre ILIKE $2
+       GROUP BY sku ORDER BY (upper(sku) = upper($3)) DESC, SUM(cantidad) DESC LIMIT 10;`,
+      [q.replace(/[%_]/g, ' ') + '%', '%' + q.replace(/[%_]/g, ' ') + '%', q]
+    );
+    return res.status(200).json({
+      productos: rows.map(r => ({ sku: r.sku, nombre: r.nombre })),
+      nota: 'La búsqueda usa los productos que ya aparecen en ventas sincronizadas; si no está, escribe el SKU exacto.',
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error buscando productos', detail: String(err) });
+  }
+}
+
+// GET ?recurso=bsale-variante-detalle&codigo=SKU  -> variante de Bsale con precio y stock reales
+async function manejarBsaleVarianteDetalle(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const codigo = String(req.query.codigo || '').trim();
+  if (!codigo) return res.status(400).json({ error: 'Falta el código (SKU)' });
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+  try {
+    const lista = await bsaleLeerJson(`/variants.json?code=${encodeURIComponent(codigo)}&limit=2`, token);
+    const items = lista.items || [];
+    if (!items.length) return res.status(200).json({ error: `No existe una variante con el código "${codigo}" en Bsale` });
+    const advertenciasBusqueda = items.length > 1 ? [`Hay ${items.length} variantes con el código "${codigo}": se usó la primera, revísala`] : [];
+    const config = await resolverConfigCotizacionBsale(token);
+    const d = await detalleVarianteBsale(items[0].id, config, token);
+    return res.status(200).json({ ...d, advertencias: [...advertenciasBusqueda, ...d.advertencias] });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo consultar Bsale', detail: String(err) });
+  }
+}
+
+// POST ?recurso=bsale-cotizacion-crear
+// body: { conversacionId, clienteId, items:[{variantId, codigo, descripcion, cantidad, precioNeto, descuentoPct}],
+//         diasVigencia, comentario, simulacro (por defecto true), confirmar }
+// simulacro: valida cliente, productos, precios, stock y arma el documento, SIN crear nada.
+// real: solo administradores, con simulacro:false y confirmar:true; crea el documento en Bsale y lo enlaza en Cotizaciones.
+async function manejarBsaleCotizacionCrear(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const body = req.body || {};
+  const simulacro = body.simulacro !== false;
+  if (!simulacro) {
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede crear la cotización real en Bsale' });
+    if (body.confirmar !== true) return res.status(400).json({ error: 'Falta la confirmación explícita para crear el documento real' });
+  }
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+
+  const clienteId = Number(body.clienteId);
+  if (!Number.isInteger(clienteId) || clienteId <= 0) return res.status(400).json({ error: 'Falta elegir el cliente' });
+  const { items, errores } = normalizarItems(body.items);
+  if (errores.length) return res.status(400).json({ error: 'Revisa la cotización', errores });
+
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    await asegurarTablaCotizaciones(sql);
+    const config = await resolverConfigCotizacionBsale(token);
+    if (config.faltantes?.length) return res.status(200).json({ error: `No se pudo resolver en Bsale: ${config.faltantes.join(', ')}` });
+
+    const advertencias = [];
+    const cliente = await bsaleLeerJson(`/clients/${clienteId}.json`, token).catch(() => null);
+    if (!cliente || !cliente.id) return res.status(200).json({ error: `El cliente ${clienteId} no existe en Bsale` });
+    if (cliente.state != null && cliente.state !== 0) advertencias.push('El cliente está inactivo en Bsale');
+    const clienteNombre = [cliente.firstName, cliente.lastName].filter(Boolean).join(' ').trim() || cliente.company || '';
+
+    // Cada producto se valida en Bsale (existe, precio de lista, stock).
+    const lineas = await Promise.all(items.map(async (it, i) => {
+      const adv = [];
+      let d = null;
+      try { d = await detalleVarianteBsale(it.variantId, config, token); }
+      catch (err) { adv.push('No se pudo leer la variante en Bsale (¿existe?)'); }
+      if (d) {
+        if (it.codigo && d.codigo && it.codigo !== d.codigo) adv.push(`El código de la línea (${it.codigo}) no coincide con el de Bsale (${d.codigo})`);
+        if (d.stock != null && d.stock < it.cantidad) adv.push(`Stock disponible ${d.stock} < cantidad ${it.cantidad}`);
+        if (d.precioNeto != null && Math.abs(d.precioNeto - it.precioNeto) >= 1) adv.push(`Precio distinto al de la lista (${d.precioNeto}) — se usa el que ingresaste`);
+        for (const a of d.advertencias) if (!/precio/i.test(a) || d.precioNeto == null) adv.push(a);
+      }
+      return { n: i + 1, ...it, descripcionBsale: d?.descripcion || null, stock: d?.stock ?? null, precioLista: d?.precioNeto ?? null, existe: !!d, totalNeto: totalLinea(it), advertencias: adv };
+    }));
+    const inexistentes = lineas.filter(l => !l.existe);
+    if (inexistentes.length) return res.status(200).json({ error: `Producto${inexistentes.length > 1 ? 's' : ''} no encontrado${inexistentes.length > 1 ? 's' : ''} en Bsale: línea ${inexistentes.map(l => l.n).join(', ')}`, lineas });
+    for (const l of lineas) for (const a of l.advertencias) advertencias.push(`Línea ${l.n}: ${a}`);
+    if (!config.ivaId) advertencias.push('No se encontró el impuesto IVA en Bsale: las líneas se enviarán sin impuesto explícito, revisa los totales');
+
+    const totales = calcularTotales(items);
+    const payload = armarPayloadCotizacion({
+      tipoDocumentoId: config.tipoDocumentoId, oficinaId: config.oficinaId, listaPreciosId: config.listaPreciosId,
+      clienteId, items, ivaId: config.ivaId, ahoraSeg: Math.floor(Date.now() / 1000), diasVigencia: body.diasVigencia, comentario: body.comentario,
+    });
+    const resumen = {
+      cliente: { id: cliente.id, nombre: clienteNombre, rut: cliente.code || null, email: cliente.email || null },
+      lineas, totales, advertencias,
+      configuracion: { tipoDocumentoId: config.tipoDocumentoId, oficinaId: config.oficinaId, listaPreciosId: config.listaPreciosId, ivaId: config.ivaId },
+    };
+
+    if (simulacro) return res.status(200).json({ ok: true, simulacro: true, ...resumen, payload, mensaje: 'Simulacro: todo se validó con consultas de lectura, no se creó nada en Bsale.' });
+
+    // ---- Creación real ----
+    const rEnvio = await fetchConTimeout(`${BSALE_BASE}/documents.json`, {
+      method: 'POST',
+      headers: { access_token: token, 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    }, 30000);
+    const doc = await rEnvio.json().catch(() => ({}));
+    if (!rEnvio.ok || !doc.id) {
+      console.error('[bsale-cotizacion-crear] Bsale rechazó la creación', rEnvio.status, JSON.stringify(doc).slice(0, 500));
+      return res.status(200).json({ error: `Bsale rechazó la cotización (HTTP ${rEnvio.status})`, detalleBsale: doc.error || doc.message || JSON.stringify(doc).slice(0, 400), payload });
+    }
+    const totalBsale = Number(doc.totalAmount);
+    if (Number.isFinite(totalBsale) && Math.abs(totalBsale - totales.total) > 1) advertencias.push(`El total de Bsale ($${totalBsale}) difiere del calculado ($${totales.total}): revisa el documento`);
+
+    // Se enlaza en Cotizaciones (gestión a nombre de quien la creó) y queda auditado en la conversación.
+    let tel = '';
+    if (body.conversacionId) {
+      const { rows } = await sql`SELECT ct.telefono FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id WHERE c.id = ${Number(body.conversacionId)};`;
+      tel = rows[0]?.telefono || '';
+    }
+    await sql`
+      INSERT INTO bsale_cotizaciones (id, numero, cliente_id, cliente_nombre, cliente_telefono, monto, fecha, url_cotizacion, vendedor_nombre, sincronizado_en, cliente_email, responsable_gestion_id, actualizado_por)
+      VALUES (${doc.id}, ${String(doc.number || '')}, ${cliente.id}, ${clienteNombre}, ${tel}, ${Number.isFinite(totalBsale) ? totalBsale : totales.total}, ${new Date().toISOString().slice(0, 10)},
+              ${doc.urlPublicView || doc.urlPublicViewOriginal || ''}, ${sesion.nombre || sesion.email}, now(), ${cliente.email || ''}, ${sesion.uid || null}, ${sesion.nombre || sesion.email})
+      ON CONFLICT (id) DO NOTHING;`;
+    if (body.conversacionId) {
+      await sql`INSERT INTO whatsapp_auditoria (conversacion_id, usuario_email, accion, detalle) VALUES (${Number(body.conversacionId)}, ${sesion.nombre || sesion.email}, 'cotizacion_bsale', ${`Creó la cotización Bsale N° ${doc.number || doc.id} por $${totales.total}`});`;
+    }
+    return res.status(200).json({
+      ok: true, simulacro: false, ...resumen, advertencias,
+      documento: { id: doc.id, numero: doc.number || null, url: doc.urlPublicView || doc.urlPublicViewOriginal || null, pdf: doc.urlPdf || null, totalBsale: Number.isFinite(totalBsale) ? totalBsale : null },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al crear la cotización en Bsale', detail: String(err) });
   }
 }
