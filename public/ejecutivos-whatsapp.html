@@ -64,6 +64,67 @@
   .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
   .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:20px;color:var(--text);}
   .note-box.err{background:var(--red-bg);border-color:#F5B5B5;}
+
+  /* ================= Control operativo + efectividad del seguimiento ================= */
+  .filtros{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px;}
+  .campo{display:flex;align-items:center;gap:5px;}
+  .campo label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 10px;border-radius:9px;font-size:13px;}
+  input:focus, select:focus{outline:none;border-color:var(--primary);}
+  .sub-mini{font-size:10.5px;color:var(--muted);font-weight:500;margin-top:2px;}
+
+  .kpis-ejec{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px;}
+  @media (max-width:1100px){.kpis-ejec{grid-template-columns:repeat(2,1fr);}}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);min-width:0;}
+  .kpi .lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+  .kpi .big{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:700;margin-top:4px;}
+  .kpi .nota{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;}
+  .kpi.clicable{cursor:pointer;transition:border-color .15s, box-shadow .15s;}
+  .kpi.clicable:hover, .kpi.clicable:focus{border-color:var(--primary);outline:none;box-shadow:0 4px 14px rgba(31,42,36,.1);}
+  .kpi.nodisp{background:var(--surface-2);border-style:dashed;}
+  .kpi.nodisp .big{font-size:17px;color:var(--muted);}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tabla-ejec th, .tabla-ejec td{vertical-align:middle;}
+  .tabla-ejec td.amount, .tabla-ejec th.amount{text-align:right;white-space:nowrap;}
+  .tabla-ejec th{white-space:normal;line-height:1.25;}
+  td.clicable{cursor:pointer;}
+  td.clicable:hover{background:var(--primary-dim);}
+  tr.fila-especial td{background:var(--surface-2);}
+  tr.fila-especial td.clicable:hover{background:var(--primary-dim);}
+  .nombre-ejec{min-width:150px;}
+  .prov{display:inline-block;font-family:'Plus Jakarta Sans',sans-serif;font-size:10.5px;font-weight:600;color:var(--amber);background:var(--amber-dim);border-radius:999px;padding:1px 8px;margin-top:3px;}
+  .note-box.amb{background:var(--amber-dim);border-color:#F2D6A2;}
+
+  .par-tarjetas{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start;}
+  .par-tarjetas > *{min-width:0;}
+  @media (max-width:900px){.par-tarjetas{grid-template-columns:1fr;gap:16px;}}
+  .tabla-chica td, .tabla-chica th{padding:8px 8px;}
+  .barra-td{width:22%;min-width:60px;}
+  .barra{height:8px;border-radius:999px;background:var(--surface-2);overflow:hidden;}
+  .barra > div{height:100%;background:var(--primary);border-radius:999px;}
+
+  .reglas{margin:0;padding-left:18px;font-size:12.5px;line-height:1.55;color:var(--text);}
+  .reglas li{margin-bottom:6px;}
+  details.seccion > summary{cursor:pointer;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;}
+
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;display:inline-block;}
+  .badge.verde{background:var(--green-bg);color:var(--green);}
+  .badge.gris{background:var(--surface-2);color:var(--muted);}
+  .badge.ambar{background:var(--amber-dim);color:var(--amber);}
+  .doc-link{color:var(--primary);text-decoration:none;font-weight:600;}
+  .doc-link:hover{text-decoration:underline;}
+  .sel-motivo{font-size:12px;padding:5px 8px;max-width:190px;}
+
+  /* Modal de detalle (mismo patrón visual que el de conversaciones de Clientes WhatsApp) */
+  .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(31,42,36,.5);z-index:100;align-items:center;justify-content:center;padding:16px;}
+  .modal-backdrop.abierto{display:flex;}
+  .modal-box{background:var(--surface);border-radius:14px;max-width:620px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 8px 30px rgba(31,42,36,.25);}
+  .modal-box.ancho{max-width:1250px;}
+  .modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface);z-index:2;}
+  .modal-head h2{font-size:15px;margin:0;}
+  .modal-cerrar{background:none;border:none;font-size:18px;color:var(--muted);cursor:pointer;padding:4px 8px;}
+  .modal-cerrar:hover{color:var(--red);}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -146,33 +207,90 @@
   <div class="toolbar">
     <div>
       <h1>Ejecutivos <span>WhatsApp</span></h1>
-      <div class="sub">Conversaciones de WhatsApp por ejecutivo -- quién inicia, quién recibe clientes nuevos, y quién hace seguimiento proactivo.</div>
+      <div class="sub">Control operativo y efectividad del seguimiento: qué entra, quién lo atiende, a quién se recontacta y quién responde.</div>
     </div>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-      <div class="date-field"><label for="ejecDesde">Desde</label><input type="date" id="ejecDesde" onchange="cargar()"></div>
-      <div class="date-field"><label for="ejecHasta">Hasta</label><input type="date" id="ejecHasta" onchange="cargar()"></div>
-      <button class="btn-ghost btn-compact" id="btnEjecAyer" onclick="setRangoRapidoEjec('ayer')">Ayer</button>
-      <button class="btn-ghost btn-compact" id="btnEjecHoy" onclick="setRangoRapidoEjec('hoy')">Hoy</button>
-      <button class="btn-ghost btn-compact" id="btnEjec7d" onclick="setRangoRapidoEjec('7d')">7 días</button>
-      <button class="btn-ghost btn-compact" id="btnEjecMes" onclick="setRangoRapidoEjec('mes')">Mes actual</button>
+  </div>
+
+  <div class="filtros">
+    <div class="date-field"><label for="ejecDesde">Desde</label><input type="date" id="ejecDesde" onchange="cargar()"></div>
+    <div class="date-field"><label for="ejecHasta">Hasta</label><input type="date" id="ejecHasta" onchange="cargar()"></div>
+    <button class="btn-ghost btn-compact" id="btnEjecAyer" onclick="setRangoRapidoEjec('ayer')">Ayer</button>
+    <button class="btn-ghost btn-compact" id="btnEjecHoy" onclick="setRangoRapidoEjec('hoy')">Hoy</button>
+    <button class="btn-ghost btn-compact" id="btnEjec7d" onclick="setRangoRapidoEjec('7d')">7 días</button>
+    <button class="btn-ghost btn-compact" id="btnEjecMes" onclick="setRangoRapidoEjec('mes')">Mes actual</button>
+    <div class="campo"><label for="ejecFiltro">Ejecutivo</label>
+      <select id="ejecFiltro" onchange="cargar()"><option value="">Todos</option></select>
     </div>
   </div>
   <div id="status"></div>
   <div id="avisoWrap"></div>
 
+  <!-- 3. Tarjetas superiores -->
+  <div class="kpis-ejec" id="kpisEjec"></div>
+
+  <!-- 4. Tabla de control operativo -->
   <div class="seccion">
     <div class="seccion-head">
       <div>
-        <h2>📈 Resumen por ejecutivo</h2>
+        <h2>📈 Control operativo por ejecutivo</h2>
         <div class="sub" id="rangoTexto"></div>
       </div>
     </div>
     <div id="wrapEjecutivos"><p class="empty-note">Cargando...</p></div>
-    <div class="note-box" style="margin-top:16px;margin-bottom:0;">
-      <b>Sobre estos números:</b> "Inicia" y "Recontacta proactivo" dependen de a quién quedó asignada cada conversación en el ERP -- WhatsApp no informa qué persona del equipo escribió un mensaje mandado directo desde la app, así que esto es la mejor aproximación disponible (asignación manual, quien responde primero desde el ERP, o firma detectada por IA), no un dato exacto al 100%.
+    <div id="notaTabla"></div>
+  </div>
+
+  <!-- 5. Tarjetas inferiores -->
+  <div class="par-tarjetas">
+    <div class="seccion" style="margin-bottom:0;">
+      <div class="seccion-head"><div>
+        <h2>💬 Qué seguimiento obtiene respuesta</h2>
+        <div class="sub">Clientes recontactados que respondieron, según el motivo registrado del primer intento.</div>
+      </div></div>
+      <div id="wrapMotivos"><p class="empty-note">Cargando...</p></div>
+    </div>
+    <div class="seccion" style="margin-bottom:0;">
+      <div class="seccion-head"><div>
+        <h2>🔁 Intentos por cliente</h2>
+        <div class="sub">Intentos hasta la primera respuesta o el cierre de la ventana de 48 h.</div>
+      </div></div>
+      <div id="wrapIntentos"><p class="empty-note">Cargando...</p></div>
     </div>
   </div>
 
+  <div class="seccion" style="margin-top:22px;">
+    <div class="seccion-head"><div>
+      <h2>📖 Cómo se calcula</h2>
+      <div class="sub">Reglas aplicadas a la tabla, las tarjetas y el detalle (los tres usan el mismo cálculo).</div>
+    </div></div>
+    <ul class="reglas" id="listaReglas"></ul>
+  </div>
+
+  <details class="seccion" id="detVistaAnterior" ontoggle="if(this.open) cargarVistaAnterior()">
+    <summary>Vista anterior: conversaciones por ejecutivo asignado (Inicia / Nuevas / Cliente vuelve / Recontacta)</summary>
+    <div class="note-box" style="margin-top:12px;">Esta vista usa la <b>asignación actual</b> de cada conversación, que no demuestra quién escribió los mensajes. Se conserva por compatibilidad (el correo diario usa este mismo cálculo).</div>
+    <div id="wrapVistaAnterior"><p class="empty-note">Cargando...</p></div>
+  </details>
+
+</div>
+
+<!-- Modal de detalle de eventos (mismo estilo que el modal de conversaciones) -->
+<div class="modal-backdrop" id="modalDetalle" onclick="if(event.target===this) cerrarDetalle()">
+  <div class="modal-box ancho">
+    <div class="modal-head">
+      <div>
+        <h2 id="detalleTitulo">Detalle</h2>
+        <div class="sub" id="detalleSub"></div>
+      </div>
+      <button class="modal-cerrar" onclick="cerrarDetalle()" aria-label="Cerrar">✕</button>
+    </div>
+    <div style="padding:14px 20px 4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <div class="campo"><label for="detalleIndicador">Indicador</label>
+        <select id="detalleIndicador" onchange="renderDetalle()"></select>
+      </div>
+    </div>
+    <div style="padding:6px 20px 20px;" id="detalleCuerpo"></div>
+  </div>
 </div>
 
 <script src="restriccion-usuario.js"></script>
@@ -181,13 +299,31 @@
 <script>
 const $ = id => document.getElementById(id);
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function pctTxt(p){ return p == null ? '—' : p + '%'; }
+function fmtDur(seg){
+  if(seg == null) return '—';
+  if(seg < 60) return `${Math.round(seg)} s`;
+  const min = Math.round(seg / 60);
+  if(min < 60) return `${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `${h} h ${String(m).padStart(2,'0')} min` : `${h} h`;
+}
+function fmtFechaHora(iso){
+  return new Date(iso).toLocaleString('es-CL', { timeZone:'America/Santiago', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:false });
+}
+function fmtTelefono(num){
+  const d = String(num||'').replace(/\D/g,'');
+  const m = /^56(9)(\d{4})(\d{4})$/.exec(d);
+  return m ? `+56 ${m[1]} ${m[2]} ${m[3]}` : (d ? '+' + d : '');
+}
 
 async function cargarSesionUsuario(){
   try{
     const res = await fetch('/api/auth-session');
     if(!res.ok) return;
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${esc(u.nombre || u.email)}</b></span>`;
     if(u.rol === 'admin'){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
@@ -202,7 +338,7 @@ async function cerrarSesion(){
 }
 
 // ---------- Fechas rápidas ----------
-const hoyStrEjec = new Date().toLocaleDateString('en-CA');
+const hoyStrEjec = new Date().toLocaleDateString('en-CA', { timeZone:'America/Santiago' });
 function addDaysStrEjec(dateStr, days){
   const [y,m,d] = dateStr.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m-1, d));
@@ -229,40 +365,331 @@ function setRangoRapidoEjec(tipo){
   cargar();
 }
 
+// ---------- Carga ----------
+let datos = null;
+let detalleEstado = null; // { clave|null, indicador } mientras el modal está abierto
+
 async function cargar(){
   const desde = $('ejecDesde').value;
   const hasta = $('ejecHasta').value;
+  const filtro = $('ejecFiltro').value;
   const status = $('status');
   status.className = '';
   status.textContent = 'Cargando...';
   $('avisoWrap').innerHTML = '';
+  $('kpisEjec').innerHTML = [1,2,3,4].map(() => '<div class="kpi"><div class="lbl">Cargando...</div><div class="big">—</div></div>').join('');
   $('wrapEjecutivos').innerHTML = `<p class="empty-note">Cargando...</p>`;
+  $('wrapMotivos').innerHTML = `<p class="empty-note">Cargando...</p>`;
+  $('wrapIntentos').innerHTML = `<p class="empty-note">Cargando...</p>`;
 
   try{
-    const qs = (desde && hasta) ? `&desde=${desde}&hasta=${hasta}` : '';
-    const res = await fetch(`/api/negocio?recurso=whatsapp-analitica-ejecutivos${qs}`).then(r=>r.json());
+    const qs = new URLSearchParams({ recurso: 'whatsapp-control-ejecutivos' });
+    if(desde && hasta){ qs.set('desde', desde); qs.set('hasta', hasta); }
+    if(filtro) qs.set('ejecutivo', filtro);
+    const res = await fetch('/api/negocio?' + qs).then(r => r.json());
     if(res.error){
       status.className = 'err';
-      status.textContent = 'Error al calcular la analítica.';
-      $('avisoWrap').innerHTML = `<div class="note-box err"><b>No se pudo calcular:</b> ${res.detail || res.error}</div>`;
+      status.textContent = 'Error al calcular.';
+      $('avisoWrap').innerHTML = `<div class="note-box err"><b>No se pudo calcular:</b> ${esc(res.detail || res.error)}</div>`;
+      $('kpisEjec').innerHTML = '';
       $('wrapEjecutivos').innerHTML = `<p class="empty-note">Sin datos.</p>`;
+      $('wrapMotivos').innerHTML = `<p class="empty-note">Sin datos.</p>`;
+      $('wrapIntentos').innerHTML = `<p class="empty-note">Sin datos.</p>`;
       return;
     }
+    datos = res;
     if(!desde){ $('ejecDesde').value = res.desde; $('ejecHasta').value = res.hasta; }
-    $('rangoTexto').textContent = res.desde === res.hasta ? `Día: ${res.desde}` : `Del ${res.desde} al ${res.hasta}`;
-    renderEjecutivos(res.ejecutivos || [], res.sinAsignar);
-    status.textContent = 'Actualizado.';
+    poblarFiltroEjecutivo(res);
+    $('rangoTexto').textContent = (res.desde === res.hasta ? `Día: ${res.desde}` : `Del ${res.desde} al ${res.hasta}`) + (res.ejecutivoFiltro ? ' · filtrado por ejecutivo' : '');
+    renderAvisos(res);
+    renderKpis(res);
+    renderTabla(res);
+    renderMotivos(res);
+    renderIntentos(res);
+    renderReglas(res);
+    status.textContent = res.truncado ? 'Actualizado. Se muestran los 6.000 eventos más recientes en el detalle.' : 'Actualizado.';
+    if($('modalDetalle').classList.contains('abierto')) renderDetalle();
+    if($('detVistaAnterior').open) cargarVistaAnterior();
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
   }
 }
 
-function renderEjecutivos(ejecutivos, sinAsignar){
-  if(ejecutivos.length === 0 && !sinAsignar){ $('wrapEjecutivos').innerHTML = `<p class="empty-note">Sin conversaciones en este período.</p>`; return; }
+function poblarFiltroEjecutivo(res){
+  const sel = $('ejecFiltro');
+  const actual = res.ejecutivoFiltro || sel.value;
+  sel.innerHTML = '<option value="">Todos</option>' + res.ejecutivosDisponibles.map(e => `<option value="${esc(e.clave)}">${esc(e.nombre)}</option>`).join('');
+  sel.value = actual || '';
+}
+
+function renderAvisos(res){
+  const a = res.autoria;
+  const partes = [];
+  if(a && a.sinAutorVerificado > 0){
+    partes.push(`<div class="note-box"><b>Autoría:</b> ${fmtNum(a.sinAutorVerificado)} de ${fmtNum(a.salientesEnPeriodo)} mensajes salientes del período no tienen autor verificado (se enviaron desde la app del teléfono o antes de que el ERP registrara el autor). Se muestran en <b>Autor no verificado</b>, separados de la actividad confirmada; no se asignan al ejecutivo de la conversación.</div>`);
+  }
+  if(res.total.ventanasAbiertas > 0){
+    partes.push(`<div class="note-box amb"><b>Resultados provisionales:</b> ${fmtNum(res.total.ventanasAbiertas)} cliente${res.total.ventanasAbiertas===1?'':'s'} recontactado${res.total.ventanasAbiertas===1?'':'s'} todavía tiene${res.total.ventanasAbiertas===1?'':'n'} la ventana de ${res.reglas.ventanaRespuestaHoras} h abierta y podr${res.total.ventanasAbiertas===1?'ía':'ían'} responder. Se miden los recontactos iniciados en el período; una respuesta posterior al filtro cuenta si cae dentro de su ventana.</div>`);
+  }
+  $('avisoWrap').innerHTML = partes.join('');
+}
+
+// ---------- Tarjetas superiores ----------
+function renderKpis(res){
+  const t = res.total;
+  const clic = (ind) => `onclick="abrirDetalle(null,'${ind}')" role="button" tabindex="0"`;
+  const pctAt = t.recibidas ? Math.round(t.atendidas / t.recibidas * 100) : null;
+  const cob = res.cobertura;
+  let cobHtml;
+  if(!cob.disponible){
+    cobHtml = `<div class="kpi nodisp"><div class="lbl">Cobertura de seguimiento</div><div class="big">No disponible</div><div class="nota">${esc(cob.faltante)}</div></div>`;
+  } else {
+    cobHtml = `<div class="kpi clicable" ${clic('cobertura')}><div class="lbl">Cobertura de seguimiento</div>
+      <div class="big">${fmtNum(cob.recontactados)} / ${fmtNum(cob.elegibles)}</div>
+      <div class="nota">${cob.pct == null ? 'Sin clientes elegibles' : cob.pct + '% de los clientes elegibles recontactados'}</div>
+      <div class="nota">Elegibles hoy: ${fmtNum(cob.fuentes.cotizacionesPendientes)} con cotización abierta · ${fmtNum(cob.fuentes.seguimientosRegistrados)} con seguimiento pendiente registrado. No incluye: ${esc(res.coberturaNoIncluye.join(', '))} (no hay datos).</div></div>`;
+  }
+  $('kpisEjec').innerHTML = `
+    <div class="kpi clicable" ${clic('recibidas')}><div class="lbl">Entrantes atendidas</div>
+      <div class="big">${fmtNum(t.atendidas)} / ${fmtNum(t.recibidas)}</div>
+      <div class="nota">${pctAt == null ? 'Sin entrantes' : pctAt + '% atendidas'} · ${fmtNum(t.sinRespuesta)} pendiente${t.sinRespuesta===1?'':'s'}</div></div>
+    <div class="kpi clicable" ${clic('nuevos')}><div class="lbl">Contactos nuevos proactivos</div>
+      <div class="big">${fmtNum(t.nuevosProactivos)}</div>
+      <div class="nota">Primer mensaje a un cliente sin historial previo</div></div>
+    <div class="kpi clicable" ${clic('intentos')}><div class="lbl">Recontactos realizados</div>
+      <div class="big">${fmtNum(t.intentos)}</div>
+      <div class="nota">${fmtNum(t.clientes)} cliente${t.clientes===1?'':'s'} único${t.clientes===1?'':'s'} · pausa > ${res.reglas.pausaRecontactoHoras} h</div></div>
+    ${cobHtml}`;
+}
+
+// ---------- Tabla ----------
+function celdaClic(clave, ind, html, clase){
+  return `<td class="amount clicable ${clase||''}" onclick="abrirDetalle(${clave == null ? 'null' : `'${clave}'`},'${ind}')">${html}</td>`;
+}
+function renderTabla(res){
+  const hayActividad = res.total.recibidas || res.total.nuevosProactivos || res.total.intentos;
+  const filaHtml = f => {
+    const resp = f.clientes ? `${fmtNum(f.respondieron)} / ${fmtNum(f.clientes)} · ${pctTxt(f.pctRespondieron)}` : '—';
+    const prov = f.ventanasAbiertas ? `<span class="prov" title="Clientes recontactados cuya ventana de ${res.reglas.ventanaRespuestaHoras} h sigue abierta: el resultado es provisional">⏳ ${fmtNum(f.ventanasAbiertas)} abierta${f.ventanasAbiertas===1?'':'s'}</span>` : '';
+    const especial = f.clave === 'sa' || f.clave === 'nv';
+    return `<tr class="${especial ? 'fila-especial' : ''}">
+      <td class="nombre-ejec clicable" onclick="abrirDetalle('${f.clave}','todos')"><b>${esc(f.nombre)}</b>${f.clave==='nv' ? '<div class="sub-mini">Mensajes salientes sin autor registrado</div>' : (f.clave==='sa' ? '<div class="sub-mini">Entrantes pendientes sin responsable</div>' : '')}</td>
+      ${celdaClic(f.clave,'recibidas',fmtNum(f.recibidas))}
+      ${celdaClic(f.clave,'atendidas',fmtNum(f.atendidas))}
+      ${celdaClic(f.clave,'sin_respuesta',fmtNum(f.sinRespuesta))}
+      ${celdaClic(f.clave,'nuevos',fmtNum(f.nuevosProactivos))}
+      ${celdaClic(f.clave,'intentos',`${fmtNum(f.intentos)} / ${fmtNum(f.clientes)}`)}
+      ${celdaClic(f.clave,'respondieron',`${resp}${prov ? '<br>' + prov : ''}`)}
+      ${celdaClic(f.clave,'primera_respuesta',fmtDur(f.primeraRespuestaMedianaSeg))}
+    </tr>`;
+  };
+  const t = res.total;
+  const totalResp = t.clientes ? `${fmtNum(t.respondieron)} / ${fmtNum(t.clientes)} · ${pctTxt(t.pctRespondieron)}` : '—';
+  $('wrapEjecutivos').innerHTML = hayActividad || res.filas.length ? `
+    <div class="tabla-wrap"><table class="tabla-ejec">
+      <thead><tr>
+        <th>Ejecutivo</th>
+        <th class="amount">Recibidas</th>
+        <th class="amount">Atendidas</th>
+        <th class="amount">Sin respuesta</th>
+        <th class="amount">Nuevos proactivos</th>
+        <th class="amount" title="Intentos de recontacto / clientes distintos recontactados">Recontactos / clientes</th>
+        <th class="amount" title="Clientes recontactados que respondieron / clientes únicos recontactados">Recontactados que respondieron</th>
+        <th class="amount" title="${res.reglas.horarioAtencionConfigurado ? 'Mediana dentro del horario de atención' : 'Mediana en tiempo corrido: no hay horario de atención configurado'}">Primera respuesta</th>
+      </tr></thead>
+      <tbody>
+        ${res.filas.map(filaHtml).join('')}
+        <tr class="total-fila">
+          <td>${res.ejecutivoFiltro ? 'Total (filtro)' : 'Total (sin duplicar clientes)'}</td>
+          ${celdaClic(null,'recibidas',fmtNum(t.recibidas))}
+          ${celdaClic(null,'atendidas',fmtNum(t.atendidas))}
+          ${celdaClic(null,'sin_respuesta',fmtNum(t.sinRespuesta))}
+          ${celdaClic(null,'nuevos',fmtNum(t.nuevosProactivos))}
+          ${celdaClic(null,'intentos',`${fmtNum(t.intentos)} / ${fmtNum(t.clientes)}`)}
+          ${celdaClic(null,'respondieron',totalResp)}
+          ${celdaClic(null,'primera_respuesta',fmtDur(t.primeraRespuestaMedianaSeg))}
+        </tr>
+      </tbody>
+    </table></div>`
+    : `<p class="empty-note">Sin actividad de WhatsApp en este período.</p>`;
+  $('notaTabla').innerHTML = `<div class="note-box" style="margin-top:14px;margin-bottom:0;">
+    <b>Cómo leer la tabla:</b> en <b>Recontactos / clientes</b>, "14 / 9" son 14 intentos a 9 clientes distintos. En <b>Recontactados que respondieron</b>, el denominador son esos clientes únicos (no mensajes ni intentos). La fila de total no suma las filas: cuenta cada cliente una sola vez aunque lo hayan recontactado varios ejecutivos. Un guion (—) indica que el valor no se puede calcular. Haz clic en una cifra o en un ejecutivo para ver los eventos que la componen.
+  </div>`;
+}
+
+// ---------- Tarjetas inferiores ----------
+function renderMotivos(res){
+  const sinMotivos = res.motivos.every(m => m.clave === 'sin_clasificar' || m.clientes === 0);
+  if(!res.total.clientes){
+    $('wrapMotivos').innerHTML = `<p class="empty-note">No hubo recontactos en este período.</p>`;
+    return;
+  }
+  const filas = res.motivos.map(m => `<tr>
+    <td>${esc(m.label)}</td>
+    <td class="amount">${fmtNum(m.respondieron)} / ${fmtNum(m.clientes)}</td>
+    <td class="amount">${pctTxt(m.pct)}</td>
+    <td class="barra-td"><div class="barra"><div style="width:${m.pct || 0}%"></div></div></td>
+  </tr>`).join('');
+  $('wrapMotivos').innerHTML = `<div class="tabla-wrap"><table class="tabla-chica no-tarjetas">
+    <thead><tr><th>Motivo</th><th class="amount">Respondieron / recontactados</th><th class="amount">%</th><th></th></tr></thead>
+    <tbody>${filas}</tbody></table></div>
+    ${sinMotivos ? `<div class="note-box" style="margin-top:12px;margin-bottom:0;">Todavía no hay motivos clasificados: el sistema no tiene un motivo estructurado de cada seguimiento y no lo infiere con IA. <a href="#" onclick="event.preventDefault();abrirDetalle(null,'clientes')">Clasifica los recontactos</a> desde el detalle (columna Motivo).</div>` : ''}`;
+}
+function renderIntentos(res){
+  if(!res.total.clientes){ $('wrapIntentos').innerHTML = `<p class="empty-note">No hubo recontactos en este período.</p>`; return; }
+  const g = res.intentosPorCliente;
+  const fila = (label, x) => `<tr><td>${label}</td><td class="amount">${fmtNum(x.respondieron)} / ${fmtNum(x.clientes)}</td><td class="amount">${pctTxt(x.pct)}</td><td class="barra-td"><div class="barra"><div style="width:${x.pct || 0}%"></div></div></td></tr>`;
+  $('wrapIntentos').innerHTML = `<div class="tabla-wrap"><table class="tabla-chica no-tarjetas">
+    <thead><tr><th>Grupo</th><th class="amount">Respondieron / clientes</th><th class="amount">%</th><th></th></tr></thead>
+    <tbody>${fila('Un intento', g.uno)}${fila('Dos o más intentos', g.dosOMas)}</tbody></table></div>
+    <div class="sub" style="margin-top:10px;">Grupos excluyentes: cada cliente está en uno solo. Se cuentan los intentos hasta su primera respuesta o hasta que se cierra la ventana de ${res.reglas.ventanaRespuestaHoras} h.${res.total.ventanasAbiertas ? ` <b>Provisional:</b> ${fmtNum(res.total.ventanasAbiertas)} cliente${res.total.ventanasAbiertas===1?'':'s'} con ventana abierta.` : ''}</div>`;
+}
+function renderReglas(res){
+  const r = res.reglas;
+  $('listaReglas').innerHTML = `
+    <li><b>Episodio:</b> mensajes de un mismo cliente sin pausas mayores a ${r.pausaRecontactoHoras} h. Se recalcula desde los mensajes (las conversaciones del sistema se cortan a las 24 h, así que no sirven para esta regla); una pausa de exactamente ${r.pausaRecontactoHoras} h no abre un episodio nuevo.</li>
+    <li><b>Recibida / atendida / sin respuesta:</b> un episodio que parte con un mensaje del cliente. Es atendida si recibe una respuesta humana antes del corte (si el ejecutivo responde después de ${r.pausaRecontactoHoras} h sigue siendo una atención tardía, no un recontacto). La atendida se cuenta para quien respondió; la pendiente, para quien tiene la conversación asignada hoy (o "Sin asignar").</li>
+    <li><b>Nuevo proactivo:</b> primer mensaje humano saliente a un cliente sin ningún mensaje anterior.</li>
+    <li><b>Recontacto:</b> primer mensaje humano saliente de un episodio nuevo, con historial previo y más de ${r.pausaRecontactoHoras} h desde el último mensaje enviado o recibido. Varios mensajes seguidos del ejecutivo son un solo intento. Si el cliente escribe primero, es una entrante, no un recontacto.</li>
+    <li><b>Respuesta a un recontacto:</b> mensaje del cliente posterior al intento, dentro de ${r.ventanaRespuestaHoras} h desde el <b>primer</b> intento de ese ejecutivo a ese cliente en el período (los intentos extra no alargan la ventana). Si varios ejecutivos recontactan al mismo cliente, la respuesta se vincula al último intento anterior con ventana vigente y nunca a dos ejecutivos.</li>
+    <li><b>Primera respuesta:</b> mediana entre el mensaje del cliente y la primera respuesta humana. ${r.horarioAtencionConfigurado ? 'Dentro del horario de atención configurado.' : '<b>Tiempo corrido:</b> el sistema no tiene un horario de atención configurado, así que se cuenta también la noche y los fines de semana.'}</li>
+    <li><b>Autor:</b> solo cuenta como autor el usuario autenticado que envió el mensaje desde el ERP (registro directo o auditoría de envíos). Lo enviado desde la app del teléfono queda como <i>Autor no verificado</i>; no se atribuye al ejecutivo asignado ni se deduce de firmas detectadas por IA.</li>
+    <li><b>Mensajes excluidos:</b> envíos fallidos y contactos de demostración. El ERP no envía mensajes automáticos, pero si hay un saludo o mensaje de ausencia configurado en la app de WhatsApp Business no se puede distinguir de un mensaje humano (el sistema no guarda esa marca).</li>`;
+}
+
+// ---------- Detalle de eventos ----------
+const INDICADORES = [
+  ['todos', 'Todos los eventos'],
+  ['recibidas', 'Entrantes recibidas'],
+  ['atendidas', 'Entrantes atendidas'],
+  ['sin_respuesta', 'Entrantes sin respuesta'],
+  ['nuevos', 'Nuevos proactivos'],
+  ['intentos', 'Recontactos (intentos)'],
+  ['clientes', 'Clientes recontactados'],
+  ['respondieron', 'Recontactados que respondieron'],
+  ['abiertas', 'Ventana abierta (provisional)'],
+  ['cobertura', 'Elegibles recontactados (cobertura)'],
+  ['primera_respuesta', 'Entrantes con primera respuesta'],
+];
+const TIPO_LABEL = { entrante_atendido: 'Entrante atendida', entrante_sin_respuesta: 'Entrante sin respuesta', nuevo_proactivo: 'Nuevo proactivo', recontacto: 'Recontacto' };
+function origenLabel(e){
+  if(e.tipo === 'entrante_sin_respuesta') return 'Asignación actual (no es autoría)';
+  return { erp: 'ERP · usuario autenticado', auditoria_erp: 'ERP · auditoría de envíos', sin_registro: 'Sin registro de autor' }[e.autorOrigen] || 'Sin registro de autor';
+}
+function filtrarEventos(clave, ind){
+  if(!datos) return [];
+  const porClave = clave == null && datos.ejecutivoFiltro ? datos.ejecutivoFiltro : clave;
+  const scopeEjec = porClave != null;
+  let evs = datos.eventos.filter(e => porClave == null || e.clave === porClave);
+  const primero = e => scopeEjec ? e.primeroEjecutivo : e.primeroGlobal;
+  const respondio = e => scopeEjec ? e.respondioEjecutivo : e.respondioGlobal;
+  const abierta = e => scopeEjec ? e.abiertaEjecutivo : e.abiertaGlobal;
+  switch(ind){
+    case 'recibidas': evs = evs.filter(e => e.tipo.startsWith('entrante')); break;
+    case 'atendidas': evs = evs.filter(e => e.tipo === 'entrante_atendido'); break;
+    case 'sin_respuesta': evs = evs.filter(e => e.tipo === 'entrante_sin_respuesta'); break;
+    case 'nuevos': evs = evs.filter(e => e.tipo === 'nuevo_proactivo'); break;
+    case 'intentos': evs = evs.filter(e => e.tipo === 'recontacto'); break;
+    case 'clientes': evs = evs.filter(e => e.tipo === 'recontacto' && primero(e)); break;
+    case 'respondieron': evs = evs.filter(e => e.tipo === 'recontacto' && primero(e) && respondio(e)); break;
+    case 'abiertas': evs = evs.filter(e => e.tipo === 'recontacto' && primero(e) && abierta(e)); break;
+    case 'cobertura': {
+      const vistos = new Set();
+      evs = evs.filter(e => e.tipo === 'recontacto' && e.elegible).sort((a,b) => a.fecha < b.fecha ? -1 : 1).filter(e => !vistos.has(e.contactoId) && vistos.add(e.contactoId));
+      break;
+    }
+    case 'primera_respuesta': evs = evs.filter(e => e.tipo === 'entrante_atendido' && e.respuestaSeg != null); break;
+    default: break;
+  }
+  return evs.sort((a,b) => a.fecha < b.fecha ? 1 : -1);
+}
+function abrirDetalle(clave, ind){
+  detalleEstado = { clave, indicador: ind };
+  $('detalleIndicador').innerHTML = INDICADORES.map(([k,l]) => `<option value="${k}">${l}</option>`).join('');
+  $('detalleIndicador').value = ind;
+  $('modalDetalle').classList.add('abierto');
+  renderDetalle();
+}
+function cerrarDetalle(){ $('modalDetalle').classList.remove('abierto'); detalleEstado = null; }
+document.addEventListener('keydown', e => { if(e.key === 'Escape') cerrarDetalle(); });
+
+function respuestaAsociadaHtml(e, scopeEjec){
+  if(e.tipo === 'entrante_atendido') return `${fmtFechaHora(e.respuestaFecha)}<div class="sub-mini">a los ${fmtDur(e.respuestaSeg)}</div>`;
+  if(e.tipo === 'entrante_sin_respuesta') return '<span class="badge ambar">Pendiente</span>';
+  if(e.tipo === 'nuevo_proactivo') return '—';
+  const primero = scopeEjec ? e.primeroEjecutivo : e.primeroGlobal;
+  if(!primero) return '<span class="sub-mini">Intento adicional del mismo cliente</span>';
+  const resp = scopeEjec ? e.respondioEjecutivo : e.respondioGlobal;
+  const abierta = scopeEjec ? e.abiertaEjecutivo : e.abiertaGlobal;
+  const respFecha = scopeEjec ? e.respuestaFecha : e.respuestaGlobalFecha;
+  if(resp && respFecha) return `<span class="badge verde">Respondió</span><div class="sub-mini">${fmtFechaHora(respFecha)} · a las ${fmtDur((new Date(respFecha) - new Date(e.fecha)) / 1000)}</div>`;
+  if(abierta) return '<span class="badge ambar">Ventana abierta (provisional)</span>';
+  return '<span class="badge gris">Sin respuesta en 48 h</span>';
+}
+function renderDetalle(){
+  if(!datos || !detalleEstado) return;
+  detalleEstado.indicador = $('detalleIndicador').value;
+  const { clave, indicador } = detalleEstado;
+  const claveEfectiva = clave == null && datos.ejecutivoFiltro ? datos.ejecutivoFiltro : clave;
+  const scopeEjec = claveEfectiva != null;
+  const evs = filtrarEventos(clave, indicador);
+  const nombre = claveEfectiva ? (datos.ejecutivosDisponibles.find(x => x.clave === claveEfectiva)?.nombre || claveEfectiva) : 'Todos los ejecutivos';
+  $('detalleTitulo').textContent = nombre + ' · ' + (INDICADORES.find(i => i[0] === indicador)?.[1] || '');
+  const clientes = new Set(evs.map(e => e.contactoId)).size;
+  $('detalleSub').textContent = `${fmtNum(evs.length)} evento${evs.length===1?'':'s'} · ${fmtNum(clientes)} cliente${clientes===1?'':'s'} distinto${clientes===1?'':'s'} · ${datos.desde === datos.hasta ? datos.desde : datos.desde + ' al ' + datos.hasta}`;
+  if(!evs.length){ $('detalleCuerpo').innerHTML = '<p class="empty-note">No hay eventos para este indicador en el período.</p>'; return; }
+  const motivoSelect = e => {
+    if(e.tipo !== 'recontacto') return '—';
+    const m = e.motivo || '';
+    return `<select class="sel-motivo" onchange="guardarMotivo(${e.mensajeId}, this.value)" title="Motivo estructurado del intento (no se infiere con IA)">
+      <option value="">Sin clasificar</option>
+      ${datos.motivosDisponibles.map(x => `<option value="${x.clave}" ${m === x.clave ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}
+    </select>`;
+  };
+  const filas = evs.slice(0, 500).map(e => `<tr>
+    <td><a class="doc-link" href="clientes-whatsapp.html?abrirConversacion=${e.conversacionId}" target="_blank" rel="noopener">#${e.conversacionId} ↗</a></td>
+    <td><b>${esc(e.clienteNombre || 'Sin nombre')}</b><div class="sub-mini">${esc(fmtTelefono(e.clienteTelefono))}</div></td>
+    <td>${fmtFechaHora(e.fecha)}</td>
+    <td>${TIPO_LABEL[e.tipo] || e.tipo}</td>
+    <td>${esc(e.autor)}</td>
+    <td>${origenLabel(e)}</td>
+    <td class="amount">${e.pausaPreviaHoras == null ? '—' : e.pausaPreviaHoras + ' h'}</td>
+    <td>${respuestaAsociadaHtml(e, scopeEjec)}</td>
+    <td>${motivoSelect(e)}</td>
+  </tr>`).join('');
+  $('detalleCuerpo').innerHTML = `<div class="tabla-wrap"><table class="no-tarjetas">
+    <thead><tr><th>Conversación</th><th>Cliente</th><th>Fecha</th><th>Tipo de evento</th><th>Autor</th><th>Origen de la atribución</th><th class="amount">Pausa previa</th><th>Respuesta asociada</th><th>Motivo</th></tr></thead>
+    <tbody>${filas}</tbody></table></div>
+    ${evs.length > 500 ? `<div class="sub" style="margin-top:8px;">Se muestran los primeros 500 eventos.</div>` : ''}`;
+}
+async function guardarMotivo(mensajeId, motivo){
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-recontacto-motivo', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ mensajeId, motivo: motivo || null }) }).then(r => r.json());
+    if(res.error) throw new Error(res.error);
+    cargar(); // recalcula tabla, tarjetas y detalle con el motivo nuevo
+  }catch(err){
+    $('status').className = 'err';
+    $('status').textContent = 'No se pudo guardar el motivo: ' + err.message;
+  }
+}
+
+// ---------- Vista anterior (asignación por conversación) ----------
+async function cargarVistaAnterior(){
+  const desde = $('ejecDesde').value, hasta = $('ejecHasta').value;
+  $('wrapVistaAnterior').innerHTML = '<p class="empty-note">Cargando...</p>';
+  try{
+    const qs = (desde && hasta) ? `&desde=${desde}&hasta=${hasta}` : '';
+    const res = await fetch(`/api/negocio?recurso=whatsapp-analitica-ejecutivos${qs}`).then(r => r.json());
+    if(res.error){ $('wrapVistaAnterior').innerHTML = `<div class="note-box err"><b>No se pudo calcular:</b> ${esc(res.detail || res.error)}</div>`; return; }
+    renderVistaAnterior(res.ejecutivos || [], res.sinAsignar);
+  }catch(err){ $('wrapVistaAnterior').innerHTML = `<div class="note-box err">Error: ${esc(err.message)}</div>`; }
+}
+function renderVistaAnterior(ejecutivos, sinAsignar){
+  if(ejecutivos.length === 0 && !sinAsignar){ $('wrapVistaAnterior').innerHTML = `<p class="empty-note">Sin conversaciones en este período.</p>`; return; }
   const filaEjec = e => `
     <tr>
-      <td><b>${e.nombre}</b></td>
+      <td><b>${esc(e.nombre)}</b></td>
       <td class="amount">${fmtNum(e.inicia)}</td>
       <td class="amount">${fmtNum(e.nuevas)}</td>
       <td class="amount">${fmtNum(e.clienteVuelveAHablar)}</td>
@@ -270,7 +697,7 @@ function renderEjecutivos(ejecutivos, sinAsignar){
       <td class="amount">${fmtNum(e.total)}</td>
     </tr>`;
   const totalFila = (campo) => ejecutivos.reduce((s,e)=>s+e[campo],0) + (sinAsignar ? sinAsignar[campo] : 0);
-  $('wrapEjecutivos').innerHTML = `
+  $('wrapVistaAnterior').innerHTML = `
     <div class="tabla-wrap"><table>
       <thead><tr>
         <th>Ejecutivo</th>

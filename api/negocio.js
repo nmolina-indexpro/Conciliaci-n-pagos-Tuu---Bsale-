@@ -13,6 +13,7 @@ import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, ase
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
+import { calcularControlEjecutivos, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
@@ -194,6 +195,8 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-recategorizar') return manejarWhatsappRecategorizar(req, res, sesion);
   if (recurso === 'whatsapp-analitica') return manejarWhatsappAnalitica(req, res, sesion);
   if (recurso === 'whatsapp-analitica-ejecutivos') return manejarWhatsappAnaliticaEjecutivos(req, res, sesion);
+  if (recurso === 'whatsapp-control-ejecutivos') return manejarWhatsappControlEjecutivos(req, res, sesion);
+  if (recurso === 'whatsapp-recontacto-motivo') return manejarWhatsappRecontactoMotivo(req, res, sesion);
   if (recurso === 'whatsapp-usuarios') return manejarWhatsappUsuarios(req, res, sesion);
   if (recurso === 'whatsapp-debug-categoria') return manejarWhatsappDebugCategoria(req, res, sesion);
   if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
@@ -7105,8 +7108,8 @@ async function manejarWhatsappEnviarMensaje(req, res, sesion) {
     const whatsappMessageId = bodyEnvio.messages?.[0]?.id || null;
     const ahora = new Date();
     await sql`
-      INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto)
-      VALUES (${conversacionId}, ${whatsappMessageId}, ${ahora.toISOString()}, 'out', 'api', 'texto', ${textoLimpio})
+      INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto, autor_usuario_id)
+      VALUES (${conversacionId}, ${whatsappMessageId}, ${ahora.toISOString()}, 'out', 'api', 'texto', ${textoLimpio}, ${sesion.uid || null})
       ON CONFLICT (whatsapp_message_id) DO NOTHING;
     `;
 
@@ -11917,5 +11920,269 @@ async function manejarLlamadas(req, res, sesion) {
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error al cargar las llamadas', detail: String(err) });
+  }
+}
+
+// ================= Ejecutivos WhatsApp: control operativo + efectividad del seguimiento =================
+// El cálculo vive en lib/whatsapp-ejecutivos.js (función pura, con sus reglas documentadas).
+// Acá solo se arma la entrada con datos reales: línea de tiempo de mensajes del período,
+// autor verificado (columna o auditoría del ERP), motivos registrados y clientes con una
+// oportunidad de seguimiento identificable.
+const ESTADOS_COTIZACION_ABIERTOS = ['sin_contactar', 'cotizacion_enviada', 'cliente_respondio', 'contactado', 'contactado_no_responde', 'contactado_segunda_vez'];
+const MAX_EVENTOS_CONTROL_EJECUTIVOS = 6000;
+
+async function manejarWhatsappControlEjecutivos(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    await asegurarTablaCotizaciones(sql);
+
+    const esFecha = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const hoyStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const ayerStr = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const qDesde = esFecha(req.query.desde) ? req.query.desde : ayerStr;
+    const qHasta = esFecha(req.query.hasta) ? req.query.hasta : ayerStr;
+    const ejecutivoClave = /^(u\d+|nv|sa)$/.test(String(req.query.ejecutivo || '')) ? String(req.query.ejecutivo) : null;
+
+    const { rows: rangoRows } = await sql.query(
+      `SELECT ($1::date)::timestamp AT TIME ZONE 'America/Santiago' AS desde_ts,
+              (($2::date + 1))::timestamp AT TIME ZONE 'America/Santiago' AS hasta_ts;`,
+      [qDesde, qHasta]
+    );
+    const desdeMs = new Date(rangoRows[0].desde_ts).getTime();
+    const ahoraMs = Date.now();
+    const hastaMs = Math.min(new Date(rangoRows[0].hasta_ts).getTime(), ahoraMs + 1000);
+    // Las respuestas a un recontacto pueden llegar hasta 48 h después del fin del filtro.
+    const horizonteMs = Math.min(hastaMs + VENTANA_RESPUESTA_MS, ahoraMs + 1000);
+
+    // 1) Línea de tiempo del período (+48 h de respuestas). Se excluyen los envíos fallidos y los
+    //    contactos demo. No existe en el sistema una marca de "mensaje automático/bot": el ERP no
+    //    envía mensajes automáticos, pero un saludo/ausencia configurado en la app de WhatsApp
+    //    Business llegaría como saliente 'app' y no se puede distinguir (ver nota en la página).
+    const { rows: msgRows } = await sql.query(
+      `SELECT m.id, c.contacto_id, m.conversacion_id, c.responsable_id, m.marca_tiempo, m.direccion, m.origen,
+              m.autor_usuario_id,
+              aud.usuario_id AS auditoria_usuario_id
+       FROM whatsapp_mensajes m
+       JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id
+       JOIN whatsapp_contactos ct ON ct.id = c.contacto_id AND ct.es_demo = false
+       LEFT JOIN LATERAL (
+         SELECT u.id AS usuario_id
+         FROM whatsapp_auditoria a
+         JOIN usuarios u ON lower(u.nombre) = lower(a.usuario_email) OR lower(u.email) = lower(a.usuario_email)
+         WHERE m.direccion = 'out' AND m.origen = 'api' AND m.autor_usuario_id IS NULL
+           AND a.conversacion_id = m.conversacion_id AND a.accion = 'mensaje_enviado'
+           AND a.created_at BETWEEN m.marca_tiempo - interval '5 minutes' AND m.marca_tiempo + interval '5 minutes'
+           AND a.detalle = 'Envió: "' || left(coalesce(m.contenido_texto, ''), 80) || CASE WHEN length(coalesce(m.contenido_texto, '')) > 80 THEN '…' ELSE '' END || '"'
+         ORDER BY abs(extract(epoch FROM (a.created_at - m.marca_tiempo))) LIMIT 1
+       ) aud ON true
+       WHERE m.marca_tiempo >= $1 AND m.marca_tiempo < $2
+         AND COALESCE(m.estado, '') <> 'failed'
+       ORDER BY c.contacto_id, m.marca_tiempo, m.id
+       LIMIT 200000;`,
+      [new Date(desdeMs).toISOString(), new Date(horizonteMs).toISOString()]
+    );
+
+    const mensajes = msgRows.map(r => {
+      const autorId = r.direccion === 'out' ? (r.autor_usuario_id || r.auditoria_usuario_id || null) : null;
+      return {
+        id: r.id, contactoId: r.contacto_id, conversacionId: r.conversacion_id, responsableId: r.responsable_id,
+        t: new Date(r.marca_tiempo).getTime(), dir: r.direccion === 'out' ? 'out' : 'in',
+        autorId,
+        origenAutor: autorId ? (r.autor_usuario_id ? 'erp' : 'auditoria_erp') : null,
+      };
+    });
+
+    // 2) Historial anterior al período, solo de los contactos con actividad en él.
+    const contactoIds = [...new Set(mensajes.map(m => m.contactoId))];
+    const previos = new Map();
+    if (contactoIds.length) {
+      const { rows: prevRows } = await sql.query(
+        `SELECT c.contacto_id,
+                MAX(m.marca_tiempo) AS ultima,
+                MAX(m.marca_tiempo) FILTER (WHERE m.direccion = 'in') AS ultima_in,
+                MAX(m.marca_tiempo) FILTER (WHERE m.direccion = 'out') AS ultima_out
+         FROM whatsapp_mensajes m
+         JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id
+         WHERE c.contacto_id = ANY($1::int[]) AND m.marca_tiempo < $2 AND COALESCE(m.estado, '') <> 'failed'
+         GROUP BY c.contacto_id;`,
+        [contactoIds, new Date(desdeMs).toISOString()]
+      );
+      for (const r of prevRows) {
+        const ultimaIn = r.ultima_in ? new Date(r.ultima_in).getTime() : null;
+        const ultimaOut = r.ultima_out ? new Date(r.ultima_out).getTime() : null;
+        previos.set(r.contacto_id, {
+          ultimaT: new Date(r.ultima).getTime(),
+          abiertaSinResponder: ultimaIn != null && (ultimaOut == null || ultimaIn > ultimaOut),
+        });
+      }
+    }
+
+    // 3) Motivos registrados de los intentos del período.
+    const { rows: motRows } = await sql.query(
+      `SELECT mensaje_id, motivo FROM whatsapp_recontacto_motivos
+       WHERE mensaje_id = ANY($1::int[]);`,
+      [mensajes.filter(m => m.dir === 'out').map(m => m.id)]
+    );
+    const motivos = new Map(motRows.map(r => [r.mensaje_id, r.motivo]));
+
+    // 4) Clientes con una oportunidad de seguimiento IDENTIFICABLE (para la cobertura):
+    //    - cotización de Bsale todavía abierta (cruce por teléfono, últimos 9 dígitos), o
+    //    - conversación con "requiere seguimiento" marcado a mano y pendiente.
+    //    Se excluyen conversaciones cerradas y clientes marcados "no interesado". No existen datos
+    //    estructurados de "compatibilidad por confirmar", "aviso de stock" ni de rechazo de contacto
+    //    distinto de "no interesado": esas oportunidades no se pueden contar.
+    const hastaFecha = qHasta;
+    const { rows: elegRows } = await sql.query(
+      `WITH cot AS (
+         SELECT DISTINCT right(regexp_replace(cliente_telefono, '[^0-9]', '', 'g'), 9) AS tel
+         FROM bsale_cotizaciones
+         WHERE estado = ANY($1::text[]) AND fecha <= $2::date AND cliente_telefono IS NOT NULL
+           AND length(regexp_replace(cliente_telefono, '[^0-9]', '', 'g')) >= 9
+       ),
+       por_cotizacion AS (
+         SELECT ct.id AS contacto_id FROM whatsapp_contactos ct
+         JOIN cot ON cot.tel = right(regexp_replace(ct.telefono, '[^0-9]', '', 'g'), 9)
+         WHERE ct.es_demo = false
+       ),
+       por_seguimiento AS (
+         SELECT DISTINCT c.contacto_id FROM whatsapp_conversaciones c
+         JOIN whatsapp_contactos ct ON ct.id = c.contacto_id AND ct.es_demo = false
+         WHERE c.requiere_seguimiento = true AND COALESCE(c.seguimiento_estado, 'pendiente') = 'pendiente' AND c.estado <> 'cerrada'
+       ),
+       rechazados AS (
+         SELECT DISTINCT contacto_id FROM whatsapp_conversaciones WHERE seguimiento_estado = 'no_interesado'
+       )
+       SELECT contacto_id, bool_or(origen = 'cotizacion') AS por_cotizacion, bool_or(origen = 'seguimiento') AS por_seguimiento
+       FROM (SELECT contacto_id, 'cotizacion' AS origen FROM por_cotizacion
+             UNION ALL SELECT contacto_id, 'seguimiento' FROM por_seguimiento) x
+       WHERE contacto_id NOT IN (SELECT contacto_id FROM rechazados)
+       GROUP BY contacto_id;`,
+      [ESTADOS_COTIZACION_ABIERTOS, hastaFecha]
+    );
+    const elegibles = new Set(elegRows.map(r => r.contacto_id));
+    const fuentesElegibles = {
+      cotizacionesPendientes: elegRows.filter(r => r.por_cotizacion).length,
+      seguimientosRegistrados: elegRows.filter(r => r.por_seguimiento).length,
+    };
+    const { rows: cotCountRows } = await sql`SELECT COUNT(*)::int AS n FROM bsale_cotizaciones;`;
+    const hayDatosCotizaciones = (cotCountRows[0]?.n || 0) > 0;
+
+    // 5) Cálculo.
+    const resultado = calcularControlEjecutivos({
+      mensajes, previos, motivos, elegibles: (hayDatosCotizaciones || elegibles.size > 0) ? elegibles : null,
+      desdeMs, hastaMs, ahoraMs, ejecutivoClave,
+    });
+
+    // 6) Nombres: usuarios, contactos y roster de ejecutivos.
+    const { rows: usuariosActivos } = await sql`SELECT id, nombre, email FROM usuarios WHERE activo = true ORDER BY nombre ASC;`;
+    const { rows: todosUsuarios } = await sql`SELECT id, nombre FROM usuarios;`;
+    const nombreUsuario = new Map(todosUsuarios.map(u => [u.id, u.nombre]));
+    const roster = [];
+    for (const nombreCorto of WHATSAPP_EJECUTIVOS_REPORTE) {
+      const emailConocido = WHATSAPP_VENDEDORES_EMAIL[nombreCorto];
+      const u = (emailConocido && usuariosActivos.find(x => (x.email || '').toLowerCase() === emailConocido))
+        || usuariosActivos.find(x => normalizarTexto(x.nombre || '').includes(normalizarTexto(nombreCorto)));
+      if (u && !roster.includes(claveUsuario(u.id))) roster.push(claveUsuario(u.id));
+    }
+    const nombreClave = clave => clave === CLAVE_NO_VERIFICADO ? 'Autor no verificado'
+      : clave === CLAVE_SIN_ASIGNAR ? 'Sin asignar'
+      : (nombreUsuario.get(Number(clave.slice(1))) || 'Usuario ' + clave.slice(1));
+
+    // Filas: el roster siempre visible (aunque tenga 0), más quien tenga actividad, más las dos filas especiales.
+    const filasPorClave = new Map(resultado.filas.map(f => [f.clave, f]));
+    const vacia = clave => ({ clave, recibidas: 0, atendidas: 0, sinRespuesta: 0, nuevosProactivos: 0, intentos: 0, clientes: 0, respondieron: 0, ventanasAbiertas: 0, pctRespondieron: null, primeraRespuestaMedianaSeg: null });
+    const clavesFilas = [...new Set([...roster, ...resultado.filas.filter(f => f.clave.startsWith('u')).map(f => f.clave)])];
+    clavesFilas.sort((a, b) => nombreClave(a).localeCompare(nombreClave(b), 'es'));
+    clavesFilas.push(CLAVE_SIN_ASIGNAR, CLAVE_NO_VERIFICADO);
+    const filas = clavesFilas
+      .filter(c => !ejecutivoClave || c === ejecutivoClave)
+      .map(c => ({ ...(filasPorClave.get(c) || vacia(c)), nombre: nombreClave(c) }));
+
+    // Contactos de los eventos.
+    const idsContacto = [...new Set(resultado.eventos.map(e => e.contactoId))];
+    const { rows: contactosRows } = idsContacto.length
+      ? await sql.query(`SELECT id, nombre, telefono FROM whatsapp_contactos WHERE id = ANY($1::int[]);`, [idsContacto])
+      : { rows: [] };
+    const contactoPorId = new Map(contactosRows.map(c => [c.id, c]));
+
+    // Respuesta asociada de cada evento (para el detalle) + recorte defensivo.
+    const eventosOrdenados = [...resultado.eventos].sort((a, b) => b.t - a.t);
+    const truncado = eventosOrdenados.length > MAX_EVENTOS_CONTROL_EJECUTIVOS;
+    const eventos = eventosOrdenados.slice(0, MAX_EVENTOS_CONTROL_EJECUTIVOS).map(e => {
+      const c = contactoPorId.get(e.contactoId);
+      return {
+        tipo: e.tipo, conversacionId: e.conversacionId, contactoId: e.contactoId,
+        clienteNombre: c?.nombre || null, clienteTelefono: c?.telefono || null,
+        fecha: new Date(e.t).toISOString(), clave: e.clave, autor: nombreClave(e.clave),
+        autorOrigen: e.autorOrigen,
+        pausaPreviaHoras: e.pausaPrevia == null ? null : Math.round(e.pausaPrevia / 360000) / 10,
+        respuestaFecha: e.respuestaT ? new Date(e.respuestaT).toISOString() : null,
+        respuestaGlobalFecha: e.respuestaGlobalT ? new Date(e.respuestaGlobalT).toISOString() : null,
+        respuestaSeg: e.respuestaSeg ?? null,
+        mensajeId: e.mensajeId || null, motivo: e.motivo || e.motivoGlobal || null,
+        elegible: !!e.elegible,
+        primeroEjecutivo: !!e.primeroEjecutivo, respondioEjecutivo: !!e.respondioEjecutivo, abiertaEjecutivo: !!e.abiertaEjecutivo,
+        primeroGlobal: !!e.primeroGlobal, respondioGlobal: !!e.respondioGlobal, abiertaGlobal: !!e.abiertaGlobal,
+        intentosContados: e.intentosContados ?? null, intentosContadosGlobal: e.intentosContadosGlobal ?? null,
+      };
+    });
+
+    // Autoría: cuántos salientes tienen autor verificado y cuántos no (separado de la actividad confirmada).
+    const salientes = mensajes.filter(m => m.dir === 'out' && m.t >= desdeMs && m.t < hastaMs);
+    const autoria = {
+      salientesEnPeriodo: salientes.length,
+      conAutorVerificado: salientes.filter(m => m.autorId).length,
+      sinAutorVerificado: salientes.filter(m => !m.autorId).length,
+    };
+
+    return res.status(200).json({
+      desde: qDesde, hasta: qHasta, hoyStr, ejecutivoFiltro: ejecutivoClave, generadoEn: new Date(ahoraMs).toISOString(),
+      reglas: {
+        pausaRecontactoHoras: PAUSA_RECONTACTO_MS / 3600000,
+        ventanaRespuestaHoras: VENTANA_RESPUESTA_MS / 3600000,
+        horarioAtencionConfigurado: false,
+      },
+      ejecutivosDisponibles: [...roster, ...resultado.filas.filter(f => f.clave.startsWith('u') && !roster.includes(f.clave)).map(f => f.clave)]
+        .map(c => ({ clave: c, nombre: nombreClave(c) })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+        .concat([{ clave: CLAVE_SIN_ASIGNAR, nombre: 'Sin asignar' }, { clave: CLAVE_NO_VERIFICADO, nombre: 'Autor no verificado' }]),
+      filas, total: resultado.total,
+      motivos: resultado.motivos, motivosDisponibles: MOTIVOS_SEGUIMIENTO,
+      intentosPorCliente: resultado.intentosPorCliente,
+      cobertura: resultado.cobertura
+        ? { disponible: true, ...resultado.cobertura, fuentes: fuentesElegibles }
+        : { disponible: false, faltante: 'No hay cotizaciones sincronizadas ni seguimientos pendientes registrados en conversaciones para identificar oportunidades de seguimiento.' },
+      coberturaNoIncluye: ['compatibilidad por confirmar', 'aviso de stock', 'rechazos de contacto distintos de "no interesado"'],
+      autoria, eventos, truncado,
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error calculando el control de ejecutivos de WhatsApp', detail: String(err) });
+  }
+}
+
+// Clasifica (o limpia) el motivo de un intento de recontacto. La clave es el primer mensaje saliente del intento.
+async function manejarWhatsappRecontactoMotivo(req, res, sesion) {
+  if (req.method !== 'PUT') return res.status(405).json({ error: 'Method not allowed' });
+  const { mensajeId, motivo } = req.body || {};
+  if (!Number.isInteger(Number(mensajeId))) return res.status(400).json({ error: 'Falta mensajeId' });
+  if (motivo && !MOTIVOS_SEGUIMIENTO.some(m => m.clave === motivo)) return res.status(400).json({ error: 'Motivo inválido' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const { rows } = await sql`SELECT id, direccion FROM whatsapp_mensajes WHERE id = ${Number(mensajeId)};`;
+    if (!rows[0] || rows[0].direccion !== 'out') return res.status(404).json({ error: 'Mensaje saliente no encontrado' });
+    if (!motivo) {
+      await sql`DELETE FROM whatsapp_recontacto_motivos WHERE mensaje_id = ${Number(mensajeId)};`;
+    } else {
+      await sql`
+        INSERT INTO whatsapp_recontacto_motivos (mensaje_id, motivo, actualizado_por, actualizado_en)
+        VALUES (${Number(mensajeId)}, ${motivo}, ${sesion.nombre || sesion.email}, now())
+        ON CONFLICT (mensaje_id) DO UPDATE SET motivo = EXCLUDED.motivo, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();
+      `;
+    }
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al guardar el motivo', detail: String(err) });
   }
 }
