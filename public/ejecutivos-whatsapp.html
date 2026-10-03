@@ -225,6 +225,9 @@
     <label class="chk" title="Si el mensaje no tiene autor verificado y el ejecutivo se presenta por su nombre (por ejemplo 'soy Nathalia de Indexstore.cl'), se atribuye a esa persona. Es una atribución probable, no verificada; desmárcala para ver solo autores verificados.">
       <input type="checkbox" id="chkFirmas" checked onchange="cargar()"> Atribuir por firma del mensaje (probable)
     </label>
+    <label class="chk" title="Incluye los motivos de seguimiento que propuso la IA (no confirmados). Desmárcala para ver solo los motivos elegidos a mano.">
+      <input type="checkbox" id="chkMotivosIA" checked onchange="cargar()"> Incluir motivos sugeridos por IA
+    </label>
   </div>
   <div id="status"></div>
   <div id="avisoWrap"></div>
@@ -329,8 +332,10 @@ async function cargarSesionUsuario(){
     const u = await res.json();
     document.getElementById('userBox').innerHTML = `<span>Hola, <b>${esc(u.nombre || u.email)}</b></span>`;
     if(u.rol === 'admin'){
+      esAdminEjec = true;
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
+      if(datos) renderMotivos(datos); // muestra el botón de IA si la tarjeta ya se había dibujado
     }
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
@@ -372,6 +377,9 @@ function setRangoRapidoEjec(tipo){
 // ---------- Carga ----------
 let datos = null;
 let detalleEstado = null; // { clave|null, indicador } mientras el modal está abierto
+let esAdminEjec = false;
+let clasificandoIA = false;
+let mensajeIA = ''; // último avance/resultado de la clasificación (sobrevive al redibujado de la tarjeta)
 
 async function cargar(){
   const desde = $('ejecDesde').value;
@@ -391,6 +399,7 @@ async function cargar(){
     if(desde && hasta){ qs.set('desde', desde); qs.set('hasta', hasta); }
     if(filtro) qs.set('ejecutivo', filtro);
     qs.set('firmas', $('chkFirmas').checked ? '1' : '0');
+    qs.set('motivosIa', $('chkMotivosIA').checked ? '1' : '0');
     const res = await fetch('/api/negocio?' + qs).then(r => r.json());
     if(res.error){
       status.className = 'err';
@@ -539,8 +548,9 @@ function renderMotivos(res){
     $('wrapMotivos').innerHTML = `<p class="empty-note">No hubo recontactos en este período.</p>`;
     return;
   }
+  const totalIA = res.motivos.reduce((s, m) => s + (m.viaIA || 0), 0);
   const filas = res.motivos.map(m => `<tr>
-    <td>${esc(m.label)}</td>
+    <td>${esc(m.label)}${m.viaIA ? `<div class="sub-mini">🤖 ${fmtNum(m.viaIA)} sugerido${m.viaIA===1?'':'s'} por IA</div>` : ''}</td>
     <td class="amount">${fmtNum(m.respondieron)} / ${fmtNum(m.clientes)}</td>
     <td class="amount">${pctTxt(m.pct)}</td>
     <td class="barra-td"><div class="barra"><div style="width:${m.pct || 0}%"></div></div></td>
@@ -548,7 +558,39 @@ function renderMotivos(res){
   $('wrapMotivos').innerHTML = `<div class="tabla-wrap"><table class="tabla-chica no-tarjetas">
     <thead><tr><th>Motivo</th><th class="amount">Respondieron / recontactados</th><th class="amount">%</th><th></th></tr></thead>
     <tbody>${filas}</tbody></table></div>
-    ${sinMotivos ? `<div class="note-box" style="margin-top:12px;margin-bottom:0;">Todavía no hay motivos clasificados: el sistema no tiene un motivo estructurado de cada seguimiento y no lo infiere con IA. <a href="#" onclick="event.preventDefault();abrirDetalle(null,'clientes')">Clasifica los recontactos</a> desde el detalle (columna Motivo).</div>` : ''}`;
+    <div class="acciones-ia">
+      ${esAdminEjec ? `<button class="btn-ghost btn-compact" id="btnClasificarIA" onclick="clasificarMotivosIA()" ${clasificandoIA ? 'disabled' : ''} title="La IA lee el hilo y propone el motivo de cada recontacto del período que todavía no tiene uno. No pisa lo elegido a mano.">🤖 Clasificar motivos con IA</button>` : ''}
+      <button class="btn-ghost btn-compact" onclick="abrirDetalle(null,'clientes')">Revisar / clasificar a mano</button>
+    </div>
+    <div id="progresoIA" class="sub" style="margin-top:8px;">${mensajeIA}</div>
+    <div class="note-box" style="margin-top:12px;margin-bottom:0;">
+      ${sinMotivos ? 'Todavía no hay motivos clasificados. ' : ''}Los motivos <b>elegidos a mano</b> son datos confirmados. Los <b>sugeridos por IA</b> (🤖) son una propuesta basada en el texto del hilo, no confirmada: quedan marcados con su confianza y justificación en el detalle, puedes corregirlos (al corregirlos pasan a confirmados) y los puedes excluir con la casilla "Incluir motivos sugeridos por IA". Si la IA no puede determinarlo, el recontacto queda en "Sin clasificar".${totalIA ? ` Ahora mismo hay ${fmtNum(totalIA)} cliente${totalIA===1?'':'s'} con motivo sugerido por IA.` : ''}
+    </div>`;
+}
+
+// Clasifica en lotes (con avance en porcentaje) los recontactos del período sin motivo.
+async function clasificarMotivosIA(){
+  if(clasificandoIA || !datos) return;
+  clasificandoIA = true;
+  const btn = $('btnClasificarIA'); if(btn) btn.disabled = true;
+  const poner = html => { mensajeIA = html; const el = $('progresoIA'); if(el) el.innerHTML = html; };
+  try{
+    for(let vuelta = 0; vuelta < 200; vuelta++){
+      const res = await fetch(`/api/negocio?recurso=whatsapp-recontacto-clasificar-ia&desde=${datos.desde}&hasta=${datos.hasta}`, { method:'POST' }).then(r => r.json());
+      if(res.error) throw new Error(res.detail || res.error);
+      const hechos = res.total - res.restantes;
+      const pct = res.total ? Math.round(hechos / res.total * 100) : 100;
+      poner(`${pct}% — ${fmtNum(hechos)} de ${fmtNum(res.total)} recontactos revisados`);
+      if(res.todoFallo) throw new Error('La IA no respondió (revisa las claves de API o inténtalo de nuevo en unos minutos).');
+      if(res.completo) break;
+    }
+    poner('Clasificación terminada.');
+  }catch(err){
+    poner(`<span style="color:var(--red);">No se pudo clasificar: ${esc(err.message)}</span>`);
+  }finally{
+    clasificandoIA = false;
+    cargar();
+  }
 }
 function renderIntentos(res){
   if(!res.total.clientes){ $('wrapIntentos').innerHTML = `<p class="empty-note">No hubo recontactos en este período.</p>`; return; }
@@ -569,6 +611,7 @@ function renderReglas(res){
     <li><b>Recontacto (cómo se busca):</b> se recorren los mensajes de cada cliente en orden y se toma el primer mensaje humano saliente de un episodio nuevo que cumple las tres condiciones: (1) el cliente ya tenía historial; (2) pasaron más de ${r.pausaRecontactoHoras} h desde el último mensaje enviado o recibido; (3) no está contestando a un entrante sin atender de las últimas ${r.ventanaRespuestaTardiaHoras} h. Varios mensajes seguidos del ejecutivo son un solo intento. Si el cliente escribe primero, es una entrante, no un recontacto. Un mensaje del ejecutivo dentro de las ${r.pausaRecontactoHoras} h del anterior no abre un episodio, así que no se cuenta.</li>
     <li><b>Respuesta a un recontacto:</b> mensaje del cliente posterior al intento, dentro de ${r.ventanaRespuestaHoras} h desde el <b>primer</b> intento de ese ejecutivo a ese cliente en el período (los intentos extra no alargan la ventana). Si varios ejecutivos recontactan al mismo cliente, la respuesta se vincula al último intento anterior con ventana vigente y nunca a dos ejecutivos.</li>
     <li><b>Primera respuesta:</b> mediana entre el mensaje del cliente y la primera respuesta humana. ${r.horarioAtencionConfigurado ? 'Dentro del horario de atención configurado.' : '<b>Tiempo corrido:</b> el sistema no tiene un horario de atención configurado, así que se cuenta también la noche y los fines de semana.'}</li>
+    <li><b>Motivo del seguimiento:</b> hay dos orígenes. <i>Confirmado</i>: lo eligió una persona en el detalle. <i>Sugerido por IA</i> (🤖): la IA lee los mensajes anteriores del cliente y el seguimiento del ejecutivo y propone uno de los motivos con una confianza; si la confianza es menor a 50% o no se puede determinar, queda como "Sin clasificar". Lo sugerido nunca pisa lo confirmado, se identifica en el detalle y se puede excluir con la casilla "Incluir motivos sugeridos por IA". Cada cliente cuenta en un solo motivo: el de su primer intento.</li>
     <li><b>Autor:</b> prioridad 1, el usuario autenticado que envió el mensaje desde el ERP (registro directo o auditoría de envíos) = <i>verificado</i>. Prioridad 2, la <b>firma del texto</b> ("soy Nathalia", "habla David", "Stefanie de Indexstore.cl", "Saludos, Fernando"): se atribuye ese mensaje y, si el ejecutivo se presentó en un mensaje del mismo episodio, los demás mensajes sin autor de ese episodio = <i>probable</i> (regla fija de texto, no IA; se puede apagar con la casilla). Si un mensaje nombra a dos personas, o dos usuarios comparten el primer nombre, no se atribuye. Sin ninguna de las dos queda en <i>Autor no verificado</i>; nunca se asigna por la conversación.</li>
     <li><b>Mensajes excluidos:</b> envíos fallidos y contactos de demostración. El ERP no envía mensajes automáticos, pero si hay un saludo o mensaje de ausencia configurado en la app de WhatsApp Business no se puede distinguir de un mensaje humano (el sistema no guarda esa marca).</li>`;
 }
@@ -657,10 +700,14 @@ function renderDetalle(){
   const motivoSelect = e => {
     if(e.tipo !== 'recontacto') return '—';
     const m = e.motivo || '';
-    return `<select class="sel-motivo" onchange="guardarMotivo(${e.mensajeId}, this.value)" title="Motivo estructurado del intento (no se infiere con IA)">
+    const ia = e.motivoOrigen === 'ia' && m;
+    const marca = ia
+      ? `<div class="sub-mini" title="${esc(e.motivoJustificacion || '')}">🤖 Sugerido por IA (${e.motivoConfianza ?? '?'}% de confianza) — sin confirmar. ${esc(e.motivoJustificacion || '')}</div>`
+      : (e.motivoOrigen === 'manual' && m ? '<div class="sub-mini">✔ Confirmado a mano</div>' : (e.motivoRevisadoIA ? '<div class="sub-mini">🤖 Revisado por IA: no se pudo determinar</div>' : ''));
+    return `<select class="sel-motivo" onchange="guardarMotivo(${e.mensajeId}, this.value)" title="Motivo del intento. Al elegirlo tú queda confirmado (reemplaza la sugerencia de la IA).">
       <option value="">Sin clasificar</option>
       ${datos.motivosDisponibles.map(x => `<option value="${x.clave}" ${m === x.clave ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}
-    </select>`;
+    </select>${marca}`;
   };
   const filas = evs.slice(0, 500).map(e => `<tr>
     <td><a class="doc-link" href="clientes-whatsapp.html?abrirConversacion=${e.conversacionId}" target="_blank" rel="noopener">#${e.conversacionId} ↗</a></td>

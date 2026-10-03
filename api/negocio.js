@@ -197,6 +197,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-analitica-ejecutivos') return manejarWhatsappAnaliticaEjecutivos(req, res, sesion);
   if (recurso === 'whatsapp-control-ejecutivos') return manejarWhatsappControlEjecutivos(req, res, sesion);
   if (recurso === 'whatsapp-recontacto-motivo') return manejarWhatsappRecontactoMotivo(req, res, sesion);
+  if (recurso === 'whatsapp-recontacto-clasificar-ia') return manejarWhatsappRecontactoClasificarIA(req, res, sesion);
   if (recurso === 'whatsapp-usuarios') return manejarWhatsappUsuarios(req, res, sesion);
   if (recurso === 'whatsapp-debug-categoria') return manejarWhatsappDebugCategoria(req, res, sesion);
   if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
@@ -11937,15 +11938,22 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
     await asegurarTablaCotizaciones(sql);
+    return res.status(200).json(await armarControlEjecutivos(sql, req.query));
+  } catch (err) {
+    return res.status(200).json({ error: 'Error calculando el control de ejecutivos de WhatsApp', detail: String(err) });
+  }
+}
 
+// Arma todo el resultado (tabla, tarjetas, motivos, detalle). Lo usan el endpoint de arriba y la clasificación por IA.
+async function armarControlEjecutivos(sql, query) {
     const esFecha = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
     const hoyStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
     const ayerStr = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
-    const qDesde = esFecha(req.query.desde) ? req.query.desde : ayerStr;
-    const qHasta = esFecha(req.query.hasta) ? req.query.hasta : ayerStr;
-    const ejecutivoClave = /^(u\d+|nv|sa|n:[a-z0-9]+)$/.test(String(req.query.ejecutivo || '')) ? String(req.query.ejecutivo) : null;
+    const qDesde = esFecha(query.desde) ? query.desde : ayerStr;
+    const qHasta = esFecha(query.hasta) ? query.hasta : ayerStr;
+    const ejecutivoClave = /^(u\d+|nv|sa|n:[a-z0-9]+)$/.test(String(query.ejecutivo || '')) ? String(query.ejecutivo) : null;
     // Atribución por firma en el texto ("soy Nathalia de Indexstore.cl"): ACTIVADA por defecto, se puede apagar con ?firmas=0.
-    const usarFirmas = String(req.query.firmas ?? '1') !== '0';
+    const usarFirmas = String(query.firmas ?? '1') !== '0';
 
     // Ejecutivos conocidos: usuarios activos + roster del reporte (aunque no tengan usuario en el ERP).
     const { rows: usuariosActivos } = await sql`SELECT id, nombre, email FROM usuarios WHERE activo = true ORDER BY nombre ASC;`;
@@ -12058,12 +12066,24 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
     }
 
     // 3) Motivos registrados de los intentos del período.
+    //    Confirmados = elegidos a mano. Sugeridos = propuestos por IA (origen 'ia'), se pueden apagar con
+    //    ?motivosIa=0; "sin_clasificar" de la IA significa "revisado, no se pudo determinar" (no es un motivo).
+    const usarMotivosIA = String(query.motivosIa ?? '1') !== '0';
     const { rows: motRows } = await sql.query(
-      `SELECT mensaje_id, motivo FROM whatsapp_recontacto_motivos
+      `SELECT mensaje_id, motivo, origen, confianza, justificacion FROM whatsapp_recontacto_motivos
        WHERE mensaje_id = ANY($1::int[]);`,
       [mensajes.filter(m => m.dir === 'out').map(m => m.id)]
     );
-    const motivos = new Map(motRows.map(r => [r.mensaje_id, r.motivo]));
+    const filasMotivo = new Map(motRows.map(r => [r.mensaje_id, r]));
+    const motivos = new Map();
+    const motivosIA = new Set();
+    for (const r of motRows) {
+      if (r.origen === 'ia') {
+        if (!usarMotivosIA || r.motivo === 'sin_clasificar') continue;
+        motivosIA.add(r.mensaje_id);
+      }
+      motivos.set(r.mensaje_id, r.motivo);
+    }
 
     // 4) Clientes con una oportunidad de seguimiento IDENTIFICABLE (para la cobertura):
     //    - cotización de Bsale todavía abierta (cruce por teléfono, últimos 9 dígitos), o
@@ -12110,7 +12130,7 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
     // 5) Cálculo.
     const resultado = calcularControlEjecutivos({
       mensajes, previos, motivos, elegibles: (hayDatosCotizaciones || elegibles.size > 0) ? elegibles : null,
-      desdeMs, hastaMs, ahoraMs, ejecutivoClave,
+      motivosIA, desdeMs, hastaMs, ahoraMs, ejecutivoClave,
     });
 
     // 6) Nombres: usuarios, contactos y roster de ejecutivos.
@@ -12154,6 +12174,10 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
         respuestaGlobalFecha: e.respuestaGlobalT ? new Date(e.respuestaGlobalT).toISOString() : null,
         respuestaSeg: e.respuestaSeg ?? null,
         mensajeId: e.mensajeId || null, motivo: e.motivo || e.motivoGlobal || null,
+        motivoOrigen: (e.motivo || e.motivoGlobal) && e.mensajeId ? (filasMotivo.get(e.mensajeId)?.origen || null) : null,
+        motivoConfianza: e.mensajeId ? (filasMotivo.get(e.mensajeId)?.confianza ?? null) : null,
+        motivoJustificacion: e.mensajeId ? (filasMotivo.get(e.mensajeId)?.justificacion || null) : null,
+        motivoRevisadoIA: e.mensajeId ? filasMotivo.get(e.mensajeId)?.origen === 'ia' : false,
         elegible: !!e.elegible,
         primeroEjecutivo: !!e.primeroEjecutivo, respondioEjecutivo: !!e.respondioEjecutivo, abiertaEjecutivo: !!e.abiertaEjecutivo,
         primeroGlobal: !!e.primeroGlobal, respondioGlobal: !!e.respondioGlobal, abiertaGlobal: !!e.abiertaGlobal,
@@ -12170,7 +12194,7 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
       sinAutorVerificado: salientes.filter(m => !m.autorId && !m.autorClave).length,
     };
 
-    return res.status(200).json({
+    return ({
       desde: qDesde, hasta: qHasta, hoyStr, ejecutivoFiltro: ejecutivoClave, generadoEn: new Date(ahoraMs).toISOString(),
       reglas: {
         pausaRecontactoHoras: PAUSA_RECONTACTO_MS / 3600000,
@@ -12178,6 +12202,7 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
         ventanaRespuestaTardiaHoras: VENTANA_RESPUESTA_TARDIA_MS / 3600000,
         horarioAtencionConfigurado: false,
         atribucionPorFirma: usarFirmas,
+        motivosSugeridosPorIA: usarMotivosIA,
       },
       ejecutivosDisponibles: [...roster, ...resultado.filas.filter(f => esEjecutivo(f.clave) && !roster.includes(f.clave)).map(f => f.clave)]
         .map(c => ({ clave: c, nombre: nombreClave(c) })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
@@ -12191,9 +12216,6 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
       coberturaNoIncluye: ['compatibilidad por confirmar', 'aviso de stock', 'rechazos de contacto distintos de "no interesado"'],
       autoria, eventos, truncado,
     });
-  } catch (err) {
-    return res.status(200).json({ error: 'Error calculando el control de ejecutivos de WhatsApp', detail: String(err) });
-  }
 }
 
 // Clasifica (o limpia) el motivo de un intento de recontacto. La clave es el primer mensaje saliente del intento.
@@ -12211,13 +12233,177 @@ async function manejarWhatsappRecontactoMotivo(req, res, sesion) {
       await sql`DELETE FROM whatsapp_recontacto_motivos WHERE mensaje_id = ${Number(mensajeId)};`;
     } else {
       await sql`
-        INSERT INTO whatsapp_recontacto_motivos (mensaje_id, motivo, actualizado_por, actualizado_en)
-        VALUES (${Number(mensajeId)}, ${motivo}, ${sesion.nombre || sesion.email}, now())
-        ON CONFLICT (mensaje_id) DO UPDATE SET motivo = EXCLUDED.motivo, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();
+        INSERT INTO whatsapp_recontacto_motivos (mensaje_id, motivo, actualizado_por, actualizado_en, origen, confianza, justificacion)
+        VALUES (${Number(mensajeId)}, ${motivo}, ${sesion.nombre || sesion.email}, now(), 'manual', NULL, NULL)
+        ON CONFLICT (mensaje_id) DO UPDATE SET motivo = EXCLUDED.motivo, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now(),
+          origen = 'manual', confianza = NULL, justificacion = NULL;
       `;
     }
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: 'Error al guardar el motivo', detail: String(err) });
+  }
+}
+
+// ================= Motivo del recontacto sugerido por IA =================
+// La IA LEE el hilo (mensajes previos del cliente + el seguimiento que mandó el ejecutivo) y PROPONE
+// uno de los motivos. Se guarda con origen 'ia' (no confirmado): el detalle y las tarjetas lo marcan
+// como sugerido, se puede apagar (?motivosIa=0) y una elección manual nunca se pisa.
+const MOTIVOS_RECONTACTO_IA = ['cotizacion_pendiente', 'validar_compatibilidad', 'disponibilidad_stock', 'otro', 'sin_clasificar'];
+const CONFIANZA_MINIMA_MOTIVO_IA = 50;
+
+const WHATSAPP_MOTIVO_RECONTACTO_TOOL = {
+  name: 'registrar_motivo',
+  description: 'Registra el motivo por el que el ejecutivo recontactó al cliente.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      motivo: { type: 'string', enum: MOTIVOS_RECONTACTO_IA, description: 'cotizacion_pendiente: el seguimiento recuerda, pregunta por o reenvía una COTIZACIÓN/presupuesto ya enviado (si la revisó, si decidió, si la quiere). validar_compatibilidad: pide o confirma modelo del equipo, número de parte, foto de etiqueta o cualquier dato para saber si el repuesto calza. disponibilidad_stock: avisa o consulta por stock, llegada, reposición o disponibilidad de un producto. otro: hay un motivo claro pero es otro (postventa, retiro, pago, servicio técnico, saludo comercial). sin_clasificar: con los mensajes entregados NO se puede determinar el motivo.' },
+      confianza: { type: 'integer', description: 'De 0 a 100, qué tan seguro estás del motivo elegido. Si dudas entre dos motivos, baja la confianza (menos de 50) o usa sin_clasificar.' },
+      justificacion: { type: 'string', description: 'Una frase corta (máximo 25 palabras) que cite lo que dice el mensaje y explique la elección.' },
+    },
+    required: ['motivo', 'confianza', 'justificacion'],
+  },
+};
+const WHATSAPP_MOTIVO_RECONTACTO_TOOL_GEMINI = {
+  name: WHATSAPP_MOTIVO_RECONTACTO_TOOL.name,
+  description: WHATSAPP_MOTIVO_RECONTACTO_TOOL.description,
+  parameters: convertirSchemaAGemini(WHATSAPP_MOTIVO_RECONTACTO_TOOL.input_schema),
+};
+const SYSTEM_PROMPT_MOTIVO_RECONTACTO = 'Eres un asistente que clasifica, para el equipo comercial de IndexStore (tienda chilena de repuestos y servicio técnico de notebooks), POR QUÉ un ejecutivo volvió a escribirle a un cliente por WhatsApp después de una pausa. Recibes los mensajes anteriores del hilo (para dar contexto) y el mensaje de seguimiento del ejecutivo. Clasifica solo con lo que está escrito: no supongas ni inventes. Si el seguimiento es genérico ("hola, ¿cómo estás?") y el contexto no lo aclara, usa sin_clasificar.';
+
+// Arma el texto que ve la IA. contexto/seguimiento: [{ direccion:'in'|'out', texto, tipo, marca_tiempo }].
+function armarPromptMotivoRecontacto(contexto, seguimiento) {
+  const linea = m => `${m.direccion === 'in' ? 'Cliente' : 'IndexStore'}${m.marca_tiempo ? ' [' + new Date(m.marca_tiempo).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) + ']' : ''}: ${m.tipo && m.tipo !== 'texto' && !m.texto ? `[${m.tipo}]` : (m.texto || '').slice(0, 400)}`;
+  return `MENSAJES ANTERIORES (de más antiguo a más reciente):\n${contexto.length ? contexto.map(linea).join('\n') : '(no hay mensajes anteriores disponibles)'}\n\nSEGUIMIENTO DEL EJECUTIVO (el recontacto que hay que clasificar):\n${seguimiento.map(linea).join('\n')}`;
+}
+
+async function llamarGeminiMotivoRecontacto(prompt) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('sin_gemini_api_key');
+  const respuesta = await fetchConTimeout(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ANALISIS}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: SYSTEM_PROMPT_MOTIVO_RECONTACTO }] },
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        tools: [{ function_declarations: [WHATSAPP_MOTIVO_RECONTACTO_TOOL_GEMINI] }],
+        tool_config: { function_calling_config: { mode: 'ANY', allowed_function_names: [WHATSAPP_MOTIVO_RECONTACTO_TOOL_GEMINI.name] } },
+        generationConfig: { maxOutputTokens: 300 },
+      }),
+    },
+    20000
+  );
+  if (!respuesta.ok) {
+    const texto = await respuesta.text().catch(() => '');
+    throw new Error(`Gemini HTTP ${respuesta.status}: ${texto.slice(0, 300)}`);
+  }
+  const data = await respuesta.json();
+  const llamada = (data.candidates?.[0]?.content?.parts || []).find(p => p.functionCall);
+  if (!llamada) throw new Error('Gemini no devolvió una clasificación estructurada');
+  return llamada.functionCall.args || {};
+}
+async function llamarClaudeMotivoRecontacto(prompt) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('sin_anthropic_api_key');
+  const respuesta = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001', max_tokens: 300, system: SYSTEM_PROMPT_MOTIVO_RECONTACTO,
+      messages: [{ role: 'user', content: prompt }],
+      tools: [WHATSAPP_MOTIVO_RECONTACTO_TOOL], tool_choice: { type: 'tool', name: WHATSAPP_MOTIVO_RECONTACTO_TOOL.name },
+    }),
+  }, 20000);
+  if (!respuesta.ok) {
+    const texto = await respuesta.text().catch(() => '');
+    throw new Error(`Anthropic HTTP ${respuesta.status}: ${texto.slice(0, 300)}`);
+  }
+  const data = await respuesta.json();
+  const bloque = (data.content || []).find(b => b.type === 'tool_use');
+  if (!bloque) throw new Error('Claude no devolvió una clasificación estructurada');
+  return bloque.input || {};
+}
+// Gemini primero, Claude de respaldo (mismo patrón que el Análisis IA de conversaciones).
+async function clasificarMotivoRecontactoIA(prompt) {
+  let crudo;
+  if (process.env.GEMINI_API_KEY) {
+    try { crudo = await llamarGeminiMotivoRecontacto(prompt); }
+    catch (err) {
+      if (!process.env.ANTHROPIC_API_KEY) throw err;
+      console.error('[motivo-recontacto-ia] Gemini falló, se usa Claude de respaldo:', err.message);
+    }
+  }
+  if (!crudo) crudo = await llamarClaudeMotivoRecontacto(prompt);
+  const confianza = Math.max(0, Math.min(100, Math.round(Number(crudo.confianza) || 0)));
+  let motivo = MOTIVOS_RECONTACTO_IA.includes(crudo.motivo) ? crudo.motivo : 'sin_clasificar';
+  // Con poca confianza no se propone un motivo: queda revisado pero "sin clasificar".
+  if (confianza < CONFIANZA_MINIMA_MOTIVO_IA) motivo = 'sin_clasificar';
+  return { motivo, confianza, justificacion: String(crudo.justificacion || '').slice(0, 300) };
+}
+
+// POST ?recurso=whatsapp-recontacto-clasificar-ia&desde=&hasta=
+// Clasifica en lotes (resumible: el frontend repite la llamada hasta "completo") los recontactos del período
+// que todavía no tienen motivo. Nunca pisa un motivo elegido a mano.
+async function manejarWhatsappRecontactoClasificarIA(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede clasificar con IA' });
+  if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) return res.status(200).json({ error: 'Falta configurar GEMINI_API_KEY o ANTHROPIC_API_KEY en el servidor' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    await asegurarTablaCotizaciones(sql);
+    const control = await armarControlEjecutivos(sql, { desde: req.query.desde, hasta: req.query.hasta, firmas: '1', motivosIa: '1' });
+    const intentos = control.eventos.filter(e => e.tipo === 'recontacto' && e.mensajeId);
+    const ids = intentos.map(e => e.mensajeId);
+    const { rows: yaRows } = ids.length
+      ? await sql.query('SELECT mensaje_id, origen FROM whatsapp_recontacto_motivos WHERE mensaje_id = ANY($1::int[]);', [ids])
+      : { rows: [] };
+    const yaPorId = new Map(yaRows.map(r => [r.mensaje_id, r.origen]));
+    // Pendientes: los que todavía no tienen fila (ni manual ni de la IA).
+    const pendientes = intentos.filter(e => !yaPorId.has(e.mensajeId));
+    const total = intentos.length;
+    const lote = pendientes.slice(0, 6);
+
+    let clasificados = 0, errores = 0;
+    for (const e of lote) {
+      try {
+        const { rows: base } = await sql`SELECT marca_tiempo, conversacion_id FROM whatsapp_mensajes WHERE id = ${e.mensajeId};`;
+        if (!base[0]) { errores++; continue; }
+        // Contexto: los 8 mensajes anteriores del CONTACTO (el hilo suele estar en una conversación previa).
+        const { rows: previos } = await sql`
+          SELECT m.direccion, m.tipo, m.contenido_texto AS texto, m.marca_tiempo
+          FROM whatsapp_mensajes m JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id
+          WHERE c.contacto_id = ${e.contactoId} AND m.marca_tiempo < ${base[0].marca_tiempo} AND COALESCE(m.estado, '') <> 'failed'
+          ORDER BY m.marca_tiempo DESC LIMIT 8;`;
+        // El seguimiento: ese mensaje y los salientes siguientes del mismo bloque (hasta 3, sin respuesta del cliente de por medio).
+        const { rows: desdeAqui } = await sql`
+          SELECT m.direccion, m.tipo, m.contenido_texto AS texto, m.marca_tiempo
+          FROM whatsapp_mensajes m JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id
+          WHERE c.contacto_id = ${e.contactoId} AND m.marca_tiempo >= ${base[0].marca_tiempo} AND COALESCE(m.estado, '') <> 'failed'
+          ORDER BY m.marca_tiempo ASC LIMIT 4;`;
+        const bloque = [];
+        for (const m of desdeAqui) { if (m.direccion !== 'out') break; bloque.push(m); }
+        const r = await clasificarMotivoRecontactoIA(armarPromptMotivoRecontacto(previos.reverse(), bloque.length ? bloque : desdeAqui.slice(0, 1)));
+        await sql`
+          INSERT INTO whatsapp_recontacto_motivos (mensaje_id, motivo, actualizado_por, actualizado_en, origen, confianza, justificacion)
+          VALUES (${e.mensajeId}, ${r.motivo}, 'IA', now(), 'ia', ${r.confianza}, ${r.justificacion})
+          ON CONFLICT (mensaje_id) DO UPDATE SET motivo = EXCLUDED.motivo, actualizado_por = 'IA', actualizado_en = now(),
+            origen = 'ia', confianza = EXCLUDED.confianza, justificacion = EXCLUDED.justificacion
+          WHERE whatsapp_recontacto_motivos.origen = 'ia';
+        `;
+        clasificados++;
+      } catch (err) {
+        errores++;
+        console.error('[whatsapp-recontacto-clasificar-ia] error en el mensaje', e.mensajeId, err);
+      }
+    }
+    const restantes = Math.max(0, pendientes.length - lote.length);
+    // Errores repetidos no deben dejar al frontend en un bucle infinito: si todo el lote falló, se avisa.
+    return res.status(200).json({ total, clasificados, errores, restantes, completo: restantes === 0 || (lote.length > 0 && errores === lote.length), todoFallo: lote.length > 0 && errores === lote.length });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error clasificando los recontactos con IA', detail: String(err) });
   }
 }
