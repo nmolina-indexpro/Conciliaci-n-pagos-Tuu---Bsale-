@@ -13,7 +13,7 @@ import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, ase
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
-import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
+import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
@@ -11996,7 +11996,7 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
     const { rows: msgRows } = await sql.query(
       `SELECT m.id, c.contacto_id, m.conversacion_id, c.responsable_id, m.marca_tiempo, m.direccion, m.origen,
               m.autor_usuario_id,
-              CASE WHEN m.direccion = 'out' THEN m.contenido_texto END AS texto,
+              left(m.contenido_texto, 300) AS texto,
               aud.usuario_id AS auditoria_usuario_id
        FROM whatsapp_mensajes m
        JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id
@@ -12050,6 +12050,8 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
         const ultimaOut = r.ultima_out ? new Date(r.ultima_out).getTime() : null;
         previos.set(r.contacto_id, {
           ultimaT: new Date(r.ultima).getTime(),
+          ultimaInT: ultimaIn,
+          ultimaDir: ultimaIn != null && (ultimaOut == null || ultimaIn > ultimaOut) ? 'in' : 'out',
           abiertaSinResponder: ultimaIn != null && (ultimaOut == null || ultimaIn > ultimaOut),
         });
       }
@@ -12173,13 +12175,14 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
       reglas: {
         pausaRecontactoHoras: PAUSA_RECONTACTO_MS / 3600000,
         ventanaRespuestaHoras: VENTANA_RESPUESTA_MS / 3600000,
+        ventanaRespuestaTardiaHoras: VENTANA_RESPUESTA_TARDIA_MS / 3600000,
         horarioAtencionConfigurado: false,
         atribucionPorFirma: usarFirmas,
       },
       ejecutivosDisponibles: [...roster, ...resultado.filas.filter(f => esEjecutivo(f.clave) && !roster.includes(f.clave)).map(f => f.clave)]
         .map(c => ({ clave: c, nombre: nombreClave(c) })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
         .concat([{ clave: CLAVE_SIN_ASIGNAR, nombre: 'Sin asignar' }, { clave: CLAVE_NO_VERIFICADO, nombre: 'Autor no verificado' }]),
-      filas, total: resultado.total,
+      filas, total: resultado.total, diagnostico: resultado.diagnostico,
       motivos: resultado.motivos, motivosDisponibles: MOTIVOS_SEGUIMIENTO,
       intentosPorCliente: resultado.intentosPorCliente,
       cobertura: resultado.cobertura
