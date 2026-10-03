@@ -8441,7 +8441,6 @@ const WHATSAPP_VENDEDORES_EMAIL = {
   Stefanie: 'snunez@indexstore.cl',
   David: 'dtorres@indexstore.cl',
   Nathalia: 'nathalia@indexstore.cl',
-  Luiggi: 'luiggi@indexstore.cl',
 };
 
 // Series/líneas reales de notebooks por marca -- ayuda a la IA a leer bien
