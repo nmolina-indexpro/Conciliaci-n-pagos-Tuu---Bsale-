@@ -8368,6 +8368,7 @@ const WHATSAPP_VENDEDORES_EMAIL = {
   Stefanie: 'snunez@indexstore.cl',
   David: 'dtorres@indexstore.cl',
   Nathalia: 'nathalia@indexstore.cl',
+  Luiggi: 'luiggi@indexstore.cl',
 };
 
 // Series/líneas reales de notebooks por marca -- ayuda a la IA a leer bien
@@ -11046,6 +11047,7 @@ const CASILLAS_CORREO_VENDEDORES = [
   { vendedor: 'Stefanie', email: 'snunez@indexstore.cl', pass: process.env.IMAP_PASS_SNUNEZ },
   { vendedor: 'David', email: 'dtorres@indexstore.cl', pass: process.env.IMAP_PASS_DTORRES },
   { vendedor: 'Nathalia', email: 'nathalia@indexstore.cl', pass: process.env.IMAP_PASS_NATHALIA },
+  { vendedor: 'Luiggi', email: 'luiggi@indexstore.cl', pass: process.env.IMAP_PASS_LUIGGI },
   { vendedor: null, email: 'venta@indexstore.cl', pass: process.env.IMAP_PASS_VENTA },
 ];
 // Carpeta de enviados típica en cPanel/Dovecot -- el nombre exacto varía
