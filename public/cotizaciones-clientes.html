@@ -134,6 +134,25 @@
   .estado-item.clicable{cursor:pointer;}
   .estado-item.clicable:hover{outline:1.5px solid var(--line);}
   .correo-preview{background:var(--surface);border:1.5px solid var(--line);border-radius:9px;padding:10px 12px;margin:-4px 0 8px;font-size:12px;white-space:pre-wrap;color:var(--text);max-height:220px;overflow-y:auto;}
+  .met-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:18px;}
+  @media (max-width:900px){.met-grid{grid-template-columns:1fr;}}
+  .met-card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);min-width:0;}
+  .met-card.ancho{grid-column:1/-1;}
+  .met-card h3{font-family:'Space Grotesk',sans-serif;font-size:14px;margin:0 0 2px;}
+  .met-sub{font-size:11.5px;color:var(--muted);margin-bottom:10px;}
+  .met-insight{margin-top:10px;padding:8px 10px;background:var(--primary-dim);border-radius:9px;font-size:12px;line-height:1.45;}
+  .hbar-row{display:grid;grid-template-columns:150px minmax(0,1fr) 120px;gap:10px;align-items:center;margin:7px 0;font-size:12px;}
+  .hbar-etq{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .hbar-track{background:var(--surface-2);border-radius:999px;height:14px;overflow:hidden;display:flex;gap:2px;}
+  .hbar-fill{height:100%;border-radius:999px;}
+  .hbar-val{text-align:right;font-family:'IBM Plex Mono',monospace;font-size:11.5px;white-space:nowrap;}
+  @media (max-width:600px){.hbar-row{grid-template-columns:96px minmax(0,1fr) 92px;gap:6px;}}
+  .leyenda-rend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin:2px 0 8px;}
+  .leyenda-rend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;}
+  .mini-barra{display:inline-block;width:70px;height:8px;background:var(--surface-2);border-radius:999px;overflow:hidden;vertical-align:middle;margin-right:6px;}
+  .mini-barra > div{height:100%;background:var(--primary);border-radius:999px;}
+  .correos-bloque{margin-bottom:10px;}
+  .correos-sub{font-family:'Space Grotesk',sans-serif;font-size:11.5px;font-weight:700;color:var(--text);margin:8px 0 6px;}
   .correo-resumen-ia{font-size:11.5px;color:var(--primary-dark);background:var(--primary-dim);border-radius:7px;padding:5px 10px;margin:-4px 0 8px;}
 
   /* ================= Rediseño "Cotizaciones y ventas" (estética de Conversaciones) ================= */
@@ -382,6 +401,7 @@
     <!-- ================= Pestaña Rendimiento ================= -->
     <div id="subVistaRendimientoCot" class="vista-sub-cot">
       <div class="sub" style="margin-bottom:14px;">Facturado = facturación ya asociada a cotizaciones CREADAS en el rango filtrado arriba (no necesariamente facturas emitidas ese mismo rango) — ver nota en cada tarjeta. Usa el filtro "Vendedor" de arriba para ver solo las cotizaciones de uno.</div>
+      <div id="wrapMetricasRend"></div>
       <div class="seccion" id="seccionVendedores">
         <div class="seccion-head">
           <div>
@@ -582,7 +602,7 @@ function cambiarSubVistaCot(vista){
   $('subVistaRendimientoCot').classList.toggle('activa', vista === 'rendimiento');
   // Los filtros de arriba son compartidos -- no se recargan datos, solo se
   // vuelve a pintar la pestaña recién mostrada con lo que ya está en memoria.
-  if (vista === 'rendimiento') renderVendedores(cotizacionesFiltradasBase());
+  if (vista === 'rendimiento') { const base = cotizacionesFiltradasBase(); renderMetricasRendimiento(base); renderVendedores(base); }
   else renderTablaCotizaciones();
 }
 function renderSyncPillCot(sync){
@@ -794,6 +814,234 @@ function filtrarPorVendedorCotizacion(id){
   sel.value = valorNuevo;
   paginaCot = 1;
   cambiarSubVistaCot('gestion');
+}
+// ==================== Rendimiento: 5 métricas accionables (4 con gráfico) ====================
+// Todas salen del MISMO conjunto filtrado que el resto de la página (fechas, vendedor, estado, búsqueda) y
+// deduplican por documentoAsociadoId, igual que las tarjetas KPI, para que nunca se descuadren entre sí.
+const ESTADOS_ABIERTOS_REND = new Set(['sin_contactar', 'cotizacion_enviada', 'cliente_respondio', 'contactado', 'contactado_no_responde', 'contactado_segunda_vez']);
+const COLORES_REND = { teal1: '#0F766E', teal2: '#3F9A92', teal3: '#8CC5BF', tealSuave: '#BFDDD9', ambar1: '#F2C27C', ambar2: '#E39A2E', ambar3: '#C26A0B', rojo: '#DC2626' };
+
+function fmtMonedaCorta(n){
+  n = Number(n) || 0;
+  if (n >= 1e6) return '$' + (n / 1e6).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' M';
+  if (n >= 1e3) return '$' + Math.round(n / 1e3).toLocaleString('es-CL') + ' mil';
+  return '$' + Math.round(n).toLocaleString('es-CL');
+}
+function pctRend(parte, total){ return total ? Math.round(parte / total * 100) : 0; }
+function lunesDeSemanaRend(fechaStr){
+  const d = new Date(fechaStr + 'T00:00:00Z');
+  const dow = (d.getUTCDay() + 6) % 7; // lunes = 0
+  d.setUTCDate(d.getUTCDate() - dow);
+  return d.toISOString().slice(0, 10);
+}
+function etiquetaSemanaRend(fechaLunes){
+  const [y, m, d] = fechaLunes.split('-');
+  return `${d}/${m}`;
+}
+function etiquetaMesRend(clave){
+  const [y, m] = clave.split('-');
+  return ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'][Number(m) - 1] + ' ' + y.slice(2);
+}
+
+// Barras horizontales simples (HTML/CSS, se adaptan al ancho). filas: [{ etiqueta, valor, texto, color, titulo }]
+function barrasHorizontalesRend(filas, maximo){
+  const max = maximo || Math.max(1, ...filas.map(f => f.valor));
+  return filas.map(f => `
+    <div class="hbar-row" title="${escapeHtmlCot(f.titulo || '')}">
+      <div class="hbar-etq">${escapeHtmlCot(f.etiqueta)}</div>
+      <div class="hbar-track"><div class="hbar-fill" style="width:${Math.max(f.valor > 0 ? 2 : 0, f.valor / max * 100)}%;background:${f.color};"></div></div>
+      <div class="hbar-val">${f.texto}</div>
+    </div>`).join('');
+}
+
+// 1) Embudo comercial
+function metricaEmbudoRend(dedup){
+  const total = dedup.length;
+  const gestionadas = dedup.filter(c => c.estado !== 'sin_contactar').length;
+  const facturadas = dedup.filter(c => c.estado === 'facturada').length;
+  const perdidas = dedup.filter(c => c.estado === 'perdida' || c.estado === 'mercado_publico').length;
+  const sinContactar = dedup.filter(c => c.estado === 'sin_contactar');
+  const montoSin = sinContactar.reduce((a, c) => a + c.monto, 0);
+  const pasos = [
+    { etiqueta: 'Cotizadas', valor: total, color: COLORES_REND.teal1, texto: `<b>${fmtNum(total)}</b> · 100%`, titulo: 'Cotizaciones del rango (deduplicadas)' },
+    { etiqueta: 'Con gestión', valor: gestionadas, color: COLORES_REND.teal2, texto: `<b>${fmtNum(gestionadas)}</b> · ${pctRend(gestionadas, total)}%`, titulo: 'Cotizaciones que salieron de "Sin contactar"' },
+    { etiqueta: 'Facturadas', valor: facturadas, color: COLORES_REND.teal3, texto: `<b>${fmtNum(facturadas)}</b> · ${pctRend(facturadas, total)}%`, titulo: 'Cotizaciones con venta (factura/boleta asociada)' },
+  ];
+  const insight = total === 0 ? '' : sinContactar.length
+    ? `💡 <b>${fmtNum(sinContactar.length)}</b> cotizaciones (${fmtMoneda(montoSin)}) siguen <b>sin contactar</b>: es la fuga más barata de recuperar. De las que sí se gestionaron, se factura el <b>${pctRend(facturadas, gestionadas)}%</b>.`
+    : `💡 Todas las cotizaciones del rango tuvieron gestión. De ellas se factura el <b>${pctRend(facturadas, gestionadas)}%</b>.`;
+  return { total, html: barrasHorizontalesRend(pasos, total) + `<div class="hbar-row" title="Cerradas sin venta (perdidas o Mercado Público)"><div class="hbar-etq">Perdidas / M. Público</div><div class="hbar-track"><div class="hbar-fill" style="width:${Math.max(perdidas ? 2 : 0, pctRend(perdidas, total))}%;background:#9AA39B;"></div></div><div class="hbar-val"><b>${fmtNum(perdidas)}</b> · ${pctRend(perdidas, total)}%</div></div>`, insight };
+}
+
+// 2) Cotizado vs facturado en el tiempo (barras agrupadas SVG): por semana, o por mes si el rango es largo
+function metricaEvolucionRend(lista, desde, hasta){
+  const dedup = deduplicarPorDocumentoAsociado(lista).filter(c => c.fecha);
+  if (!dedup.length) return { vacio: true };
+  const fechas = dedup.map(c => c.fecha).sort();
+  const ini = desde || fechas[0], fin = hasta || fechas[fechas.length - 1];
+  const dias = diasEntreCot(ini, fin) + 1;
+  const mensual = dias > 70;
+  const clave = c => mensual ? c.fecha.slice(0, 7) : lunesDeSemanaRend(c.fecha);
+  const grupos = new Map();
+  for (const c of dedup) {
+    const k = clave(c);
+    if (!grupos.has(k)) grupos.set(k, { k, cotizado: 0, facturado: 0, n: 0, nFact: 0 });
+    const g = grupos.get(k);
+    g.cotizado += c.monto; g.n++;
+    if (c.estado === 'facturada') { g.facturado += c.monto; g.nFact++; }
+  }
+  let datos = [...grupos.values()].sort((a, b) => a.k.localeCompare(b.k));
+  const recortado = datos.length > 12;
+  if (recortado) datos = datos.slice(-12);
+  const max = Math.max(1, ...datos.map(d => d.cotizado));
+  const W = 640, H = 230, mIzq = 54, mInf = 44, mSup = 14, mDer = 8;
+  const anchoGrupo = (W - mIzq - mDer) / datos.length;
+  const anchoBarra = Math.min(26, (anchoGrupo - 8) / 2);
+  const y = v => mSup + (H - mSup - mInf) * (1 - v / max);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => max * f);
+  const rejilla = ticks.map(t => `<line x1="${mIzq}" x2="${W - mDer}" y1="${y(t)}" y2="${y(t)}" stroke="#E3E7DC" stroke-width="1"/><text x="${mIzq - 6}" y="${y(t) + 3.5}" text-anchor="end" font-size="10" fill="#6B7568">${fmtMonedaCorta(t)}</text>`).join('');
+  const barras = datos.map((d, i) => {
+    const x0 = mIzq + i * anchoGrupo + (anchoGrupo - 2 * anchoBarra - 2) / 2;
+    const etiqueta = mensual ? etiquetaMesRend(d.k) : etiquetaSemanaRend(d.k);
+    const conv = pctRend(d.nFact, d.n);
+    const tip = `${mensual ? etiqueta : 'Semana del ' + etiqueta}: cotizado ${fmtMoneda(d.cotizado)} (${d.n} cot.), facturado ${fmtMoneda(d.facturado)} (${d.nFact} fact.), conversión ${conv}%`;
+    return `<g><title>${escapeHtmlCot(tip)}</title>
+      <rect x="${x0}" y="${y(d.cotizado)}" width="${anchoBarra}" height="${Math.max(0, y(0) - y(d.cotizado))}" rx="3" fill="${COLORES_REND.tealSuave}" stroke="${COLORES_REND.teal3}" stroke-width="1"/>
+      <rect x="${x0 + anchoBarra + 2}" y="${y(d.facturado)}" width="${anchoBarra}" height="${Math.max(0, y(0) - y(d.facturado))}" rx="3" fill="${COLORES_REND.teal1}"/>
+      <text x="${x0 + anchoBarra + 1}" y="${H - mInf + 15}" text-anchor="middle" font-size="10" fill="#1F2A24">${etiqueta}</text>
+      <text x="${x0 + anchoBarra + 1}" y="${H - mInf + 29}" text-anchor="middle" font-size="10" font-weight="700" fill="${conv >= 50 ? '#15803D' : '#6B7568'}">${conv}%</text></g>`;
+  }).join('');
+  const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Monto cotizado y facturado por ${mensual ? 'mes' : 'semana'}, con el porcentaje de conversión de cada período" style="max-width:100%;height:auto;">${rejilla}${barras}</svg>`;
+  // El período en curso todavía no cerró (sus cotizaciones aún pueden facturarse): no entra en la comparación.
+  const periodoActual = mensual ? hoyStrCot.slice(0, 7) : lunesDeSemanaRend(hoyStrCot);
+  const conVentas = datos.filter(d => d.n >= 3 && d.k !== periodoActual);
+  const mejor = conVentas.length ? conVentas.reduce((a, b) => (pctRend(b.nFact, b.n) > pctRend(a.nFact, a.n) ? b : a)) : null;
+  const peor = conVentas.length > 1 ? conVentas.reduce((a, b) => (pctRend(b.nFact, b.n) < pctRend(a.nFact, a.n) ? b : a)) : null;
+  const nom = d => (mensual ? etiquetaMesRend(d.k) : 'la semana del ' + etiquetaSemanaRend(d.k));
+  const insight = mejor && peor && mejor !== peor
+    ? `💡 Mejor conversión: <b>${nom(mejor)}</b> (${pctRend(mejor.nFact, mejor.n)}%). La más baja: <b>${nom(peor)}</b> (${pctRend(peor.nFact, peor.n)}%) — revisa qué se cotizó o cómo se hizo seguimiento ese período.`
+    : '💡 Hay pocos datos por período para comparar (se necesitan al menos 3 cotizaciones en cada período ya cerrado; el período en curso no se compara).';
+  return { vacio: false, svg, insight, mensual, recortado };
+}
+
+// 3) Pipeline abierto por antigüedad
+function metricaPipelineRend(dedup){
+  const abiertas = dedup.filter(c => ESTADOS_ABIERTOS_REND.has(c.estado) && c.fecha);
+  const tramos = [
+    { etiqueta: '0 – 7 días', min: 0, max: 7, color: COLORES_REND.ambar1 },
+    { etiqueta: '8 – 30 días', min: 8, max: 30, color: COLORES_REND.ambar2 },
+    { etiqueta: '31 – 60 días', min: 31, max: 60, color: COLORES_REND.ambar3 },
+    { etiqueta: 'Más de 60 días', min: 61, max: Infinity, color: COLORES_REND.rojo },
+  ].map(t => ({ ...t, lista: abiertas.filter(c => { const d = diasEntreCot(c.fecha, hoyStrCot); return d >= t.min && d <= t.max; }) }));
+  const total = abiertas.reduce((a, c) => a + c.monto, 0);
+  const maxMonto = Math.max(1, ...tramos.map(t => t.lista.reduce((a, c) => a + c.monto, 0)));
+  const html = barrasHorizontalesRend(tramos.map(t => {
+    const monto = t.lista.reduce((a, c) => a + c.monto, 0);
+    return { etiqueta: t.etiqueta, valor: monto, color: t.color, texto: `<b>${fmtMonedaCorta(monto)}</b> · ${t.lista.length} cot.`, titulo: `${t.lista.length} cotizaciones abiertas, ${fmtMoneda(monto)}` };
+  }), maxMonto);
+  const viejas = tramos.slice(2).flatMap(t => t.lista);
+  const montoViejas = viejas.reduce((a, c) => a + c.monto, 0);
+  const insight = abiertas.length === 0 ? '💡 No hay cotizaciones abiertas en este rango.'
+    : viejas.length ? `💡 De los <b>${fmtMoneda(total)}</b> abiertos, <b>${fmtMoneda(montoViejas)}</b> (${pctRend(montoViejas, total)}%, ${viejas.length} cot.) llevan más de 30 días: recontáctalas con una oferta concreta o ciérralas como perdidas para limpiar el pipeline.`
+    : `💡 Todo el pipeline abierto (${fmtMoneda(total)}) tiene menos de 30 días: es el momento de recontactar.`;
+  return { html, insight, total, n: abiertas.length };
+}
+
+// 4) Conversión por tramo de monto
+function metricaTramosRend(dedup){
+  const tramos = [
+    { etiqueta: 'Menos de $50.000', test: m => m < 50000 },
+    { etiqueta: '$50.000 – $150.000', test: m => m >= 50000 && m < 150000 },
+    { etiqueta: '$150.000 – $500.000', test: m => m >= 150000 && m < 500000 },
+    { etiqueta: 'Más de $500.000', test: m => m >= 500000 },
+  ].map(t => {
+    const lista = dedup.filter(c => t.test(c.monto));
+    const fact = lista.filter(c => c.estado === 'facturada');
+    const abiertas = lista.filter(c => ESTADOS_ABIERTOS_REND.has(c.estado));
+    return { ...t, n: lista.length, nFact: fact.length, conv: pctRend(fact.length, lista.length), vendido: fact.reduce((a, c) => a + c.monto, 0), montoAbierto: abiertas.reduce((a, c) => a + c.monto, 0) };
+  });
+  const filas = tramos.map(t => `<tr>
+    <td>${t.etiqueta}</td><td class="amount">${fmtNum(t.n)}</td><td class="amount">${fmtNum(t.nFact)}</td>
+    <td class="amount"><div class="mini-barra" title="${t.conv}% de conversión"><div style="width:${t.conv}%"></div></div> <b>${t.n ? t.conv + '%' : '—'}</b></td>
+    <td class="amount">${fmtMonedaCorta(t.vendido)}</td><td class="amount">${fmtMonedaCorta(t.montoAbierto)}</td></tr>`).join('');
+  const conDatos = tramos.filter(t => t.n >= 3);
+  const mejor = conDatos.length ? conDatos.reduce((a, b) => (b.conv > a.conv ? b : a)) : null;
+  const masAbierto = tramos.reduce((a, b) => (b.montoAbierto > a.montoAbierto ? b : a));
+  const insight = !dedup.length ? '' : `💡 ${mejor ? `Donde más se cierra: <b>${mejor.etiqueta}</b> (${mejor.conv}%). ` : ''}${masAbierto.montoAbierto > 0 ? `Donde hay más plata abierta: <b>${masAbierto.etiqueta}</b> (${fmtMonedaCorta(masAbierto.montoAbierto)}) — prioriza el seguimiento ahí.` : ''}`;
+  return { insight, html: `<div class="tabla-wrap"><table class="no-tarjetas"><thead><tr><th>Monto de la cotización</th><th class="amount">Cotizadas</th><th class="amount">Facturadas</th><th class="amount">Conversión</th><th class="amount">Vendido</th><th class="amount">Abierto</th></tr></thead><tbody>${filas}</tbody></table></div>` };
+}
+
+// 5) Seguimientos atrasados por responsable (barras apiladas)
+function metricaAtrasadosRend(lista){
+  const porResp = new Map();
+  for (const c of lista) {
+    const a = alertaOperativaInfo(c);
+    if (!a) continue;
+    const tipo = a.texto === 'Seguimiento vencido' ? 'vencido' : (a.texto.startsWith('Sin próxima acción') ? 'sinAccion' : null);
+    if (!tipo) continue; // "para hoy" no es un atraso
+    const nombre = c.responsableGestionNombre || c.vendedorNombre || 'Sin responsable';
+    if (!porResp.has(nombre)) porResp.set(nombre, { nombre, vencido: 0, sinAccion: 0, monto: 0 });
+    const r = porResp.get(nombre);
+    r[tipo]++; r.monto += c.monto;
+  }
+  const filas = [...porResp.values()].sort((a, b) => (b.vencido + b.sinAccion) - (a.vencido + a.sinAccion));
+  if (!filas.length) return { vacio: true };
+  const max = Math.max(...filas.map(f => f.vencido + f.sinAccion));
+  const html = filas.map(f => `
+    <div class="hbar-row" title="${escapeHtmlCot(f.nombre)}: ${f.vencido} con seguimiento vencido, ${f.sinAccion} sin próxima acción, ${fmtMoneda(f.monto)} en juego">
+      <div class="hbar-etq">${escapeHtmlCot(f.nombre)}</div>
+      <div class="hbar-track">
+        <div class="hbar-fill" style="width:${f.vencido / max * 100}%;background:${COLORES_REND.rojo};border-radius:999px 0 0 999px;"></div>
+        <div class="hbar-fill" style="width:${f.sinAccion / max * 100}%;background:${COLORES_REND.ambar2};border-radius:0 999px 999px 0;"></div>
+      </div>
+      <div class="hbar-val"><b>${f.vencido + f.sinAccion}</b> · ${fmtMonedaCorta(f.monto)}</div>
+    </div>`).join('') + `<div class="leyenda-rend"><span><i style="background:${COLORES_REND.rojo}"></i>Seguimiento vencido</span><span><i style="background:${COLORES_REND.ambar2}"></i>Sin próxima acción (${UMBRAL_DIAS_SIN_CONTACTO_COT}+ días sin contacto)</span></div>`;
+  const top = filas[0];
+  const totalAtrasados = filas.reduce((a, f) => a + f.vencido + f.sinAccion, 0);
+  const montoTotal = filas.reduce((a, f) => a + f.monto, 0);
+  const insight = `💡 Hay <b>${fmtNum(totalAtrasados)}</b> seguimientos atrasados (${fmtMoneda(montoTotal)}). <b>${escapeHtmlCot(top.nombre)}</b> concentra ${top.vencido + top.sinAccion} (${pctRend(top.vencido + top.sinAccion, totalAtrasados)}%): empieza por ahí.`;
+  return { vacio: false, html, insight };
+}
+
+function renderMetricasRendimiento(lista){
+  const cont = $('wrapMetricasRend');
+  if (!cont) return;
+  if (!lista.length) { cont.innerHTML = '<p class="empty-note">No hay cotizaciones en este rango: cambia las fechas o los filtros para ver las métricas.</p>'; return; }
+  const dedup = deduplicarPorDocumentoAsociado(lista);
+  const desde = $('cotizacionesDesde').value, hasta = $('cotizacionesHasta').value;
+  const embudo = metricaEmbudoRend(dedup);
+  const evol = metricaEvolucionRend(lista, desde, hasta);
+  const pipe = metricaPipelineRend(dedup);
+  const tramos = metricaTramosRend(dedup);
+  const atras = metricaAtrasadosRend(lista);
+  cont.innerHTML = `
+    <div class="met-grid">
+      <div class="met-card">
+        <h3>1 · Embudo comercial</h3>
+        <div class="met-sub">¿Dónde se pierden las cotizaciones? Cada barra es un paso del proceso.</div>
+        ${embudo.html}<div class="met-insight">${embudo.insight}</div>
+      </div>
+      <div class="met-card">
+        <h3>2 · Cotizado vs facturado por ${evol.mensual ? 'mes' : 'semana'}</h3>
+        <div class="met-sub">Monto de las cotizaciones creadas en cada período y cuánto de eso terminó facturado; debajo, la conversión por cantidad.</div>
+        ${evol.vacio ? '<p class="empty-note">Sin datos.</p>' : `<div class="leyenda-rend"><span><i style="background:${COLORES_REND.tealSuave};border:1px solid ${COLORES_REND.teal3}"></i>Cotizado</span><span><i style="background:${COLORES_REND.teal1}"></i>Facturado</span></div>${evol.svg}${evol.recortado ? '<div class="met-sub">Se muestran los últimos 12 períodos.</div>' : ''}<div class="met-insight">${evol.insight}</div>`}
+      </div>
+      <div class="met-card">
+        <h3>3 · Pipeline abierto por antigüedad</h3>
+        <div class="met-sub">Plata en cotizaciones todavía abiertas, según los días desde que se emitieron.</div>
+        ${pipe.html}<div class="met-insight">${pipe.insight}</div>
+      </div>
+      <div class="met-card">
+        <h3>4 · Conversión por tamaño de cotización</h3>
+        <div class="met-sub">¿Qué montos se cierran más y dónde está la plata sin cerrar?</div>
+        ${tramos.html}<div class="met-insight">${tramos.insight}</div>
+      </div>
+      <div class="met-card ancho">
+        <h3>5 · Seguimientos atrasados por responsable</h3>
+        <div class="met-sub">Cotizaciones abiertas con el seguimiento vencido o sin próxima acción. Pasa el cursor sobre una barra para ver el detalle.</div>
+        ${atras.vacio ? '<p class="empty-note">No hay seguimientos atrasados en este rango. 👏</p>' : `${atras.html}<div class="met-insight">${atras.insight}</div>`}
+      </div>
+    </div>`;
 }
 function renderVendedores(delRangoFiltrado){
   const desde = $('cotizacionesDesde').value;
@@ -1092,6 +1340,8 @@ function filasCotOrdenadas(){
 // lateral o quedan accesibles abriendo la fila -- ya no son columnas fijas.
 function renderTablaCotizaciones(){
   if ($('subVistaGestionCot')?.classList.contains('activa')) renderKpis4Cot();
+  // Los filtros de arriba son compartidos: si se está viendo Rendimiento, también se repinta (métricas + vendedores).
+  if ($('subVistaRendimientoCot')?.classList.contains('activa')) { const base = cotizacionesFiltradasBase(); renderMetricasRendimiento(base); renderVendedores(base); }
   renderFiltrosRapidosCot(cotizacionesFiltradasBase());
 
   const todasOrdenadas = filasCotOrdenadas();
@@ -1331,7 +1581,7 @@ function renderFichaLateralCot(c, detalle){
 
       <div class="ficha-cot-grupo">
         <h3>Gestión comercial <span id="indicadorGuardadoCot" class="indicador-guardado"></span></h3>
-        <div class="ficha-cot-fila"><span>Responsable</span><b><select onchange="guardarGestionCotizacion(${c.id}, 'responsableGestionId', this.value)">${opcionesResponsableCot(c.responsableGestionId)}</select></b></div>
+        <div class="ficha-cot-fila"><span>Responsable</span><b><select onchange="guardarGestionCotizacion(${c.id}, 'responsableGestionId', this.value)">${opcionesResponsableCot(c.responsableGestionId)}</select>${!c.responsableGestionId && c.vendedorNombre ? `<div class="sub-mini" style="font-size:10.5px;color:var(--muted);margin-top:3px;" title="El vendedor que emitió la cotización en Bsale no tiene un usuario equivalente activo en el ERP (se empareja por correo o nombre).">Vendedor en Bsale: ${escapeHtmlCot(c.vendedorNombre)} (sin usuario equivalente en el ERP)</div>` : ''}</b></div>
         <div class="ficha-cot-fila"><span>Estado</span><b><select onchange="guardarEstadoCotizacionFicha(${c.id}, this.value)">${Object.entries(ESTADOS_COTIZACION_LABEL).map(([v,l])=>`<option value="${v}" ${c.estado===v?'selected':''}>${l}</option>`).join('')}</select></b></div>
         <div class="ficha-cot-fila"><span>Resultado comercial</span><b>${(() => { const r = resultadoComercialInfo(c); return `<span class="badge-resultado ${r.clave}">${r.label}</span>`; })()}</b></div>
         <div class="ficha-cot-fila"><span>Último contacto</span><b style="text-align:left;">${ultimoContactoHtml}</b></div>
@@ -1405,6 +1655,11 @@ function renderDetalleItemsFicha(data){
     </table></div>`;
 }
 // ---- Notas y actividad: cambios de estado + correos reales + comentarios ----
+// Datos para sugerir el siguiente contacto (teléfono de la cotización y conversación de WhatsApp si existe).
+function contextoContactoFichaCot(detalle){
+  const cot = cotizaciones.find(x => x.id === cotizacionSeleccionadaId);
+  return { telefono: cot?.clienteTelefono || '', conversacionWhatsappId: detalle?.conversacionesWhatsapp?.[0]?.id || null };
+}
 function renderNotasActividadFicha(detalle){
   const el = $('notasActividadFichaCot');
   if (!el) return;
@@ -1414,7 +1669,7 @@ function renderNotasActividadFicha(detalle){
   el.innerHTML = `
     ${historialHtml ? `<h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:2px 0 6px;">Cambios de estado</h4>${historialHtml}` : ''}
     <h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:10px 0 6px;">Correos</h4>
-    <div id="correosFichaCotWrap">${renderCorreosFichaHtml(detalle.correos, detalle.clienteEmail)}</div>
+    <div id="correosFichaCotWrap">${renderCorreosFichaHtml(detalle.correos, detalle.clienteEmail, contextoContactoFichaCot(detalle))}</div>
     <h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:10px 0 6px;">Comentarios</h4>
     <div id="comentariosFichaCotWrap">${renderComentariosFichaHtml(detalle.comentarios)}</div>
     <textarea id="nuevoComentarioFichaCot" placeholder="Escribe un comentario nuevo..." style="width:100%;margin-top:8px;min-height:50px;padding:8px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:12.5px;resize:vertical;box-sizing:border-box;"></textarea>
@@ -1422,25 +1677,65 @@ function renderNotasActividadFicha(detalle){
       <button class="btn-ghost btn-compact" id="btnCancelarEdicionComentarioFichaCot" style="display:none;" onclick="cancelarEdicionComentarioFichaCot()">Cancelar</button>
       <button class="btn-primary btn-compact" id="btnGuardarComentarioFichaCot" onclick="guardarComentarioFichaCot()">Agregar comentario</button>
     </div>`;
+  precargarRespuestasClienteFicha(); // las respuestas del cliente se leen solas
 }
-function renderCorreosFichaHtml(correos, clienteEmail){
-  fichaCotCorreosActuales = correos || [];
-  if ((!correos || correos.length === 0) && !clienteEmail) return '<p class="empty-note">Este cliente no tiene un correo registrado en Bsale todavía.</p>';
-  if (!correos || correos.length === 0) return `<p class="empty-note">Sin correos detectados todavía con ${escapeHtmlCot(clienteEmail)} (se revisa una vez al día).</p>`;
-  return correos.map((c, i) => `
+// Teléfono para marcar / WhatsApp: deja solo dígitos y agrega el 56 de Chile si falta.
+function telefonoParaEnlaceCot(tel){
+  let d = String(tel || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.length === 9) d = '56' + d;
+  return d;
+}
+function filaCorreoFichaHtml(c, i, abierto){
+  return `
     <div class="estado-item clicable" onclick="toggleCorreoPreviewFicha(${i})" title="Haz clic para ver el contenido">
-      <span>${c.direccion === 'entrante' ? '📩 El cliente escribió' : '📤 Le escribimos'}${c.asunto ? ': ' + escapeHtmlCot(c.asunto) : ''} <span class="badge pend" id="correoFichaVistoBadge${i}" style="${c.visto ? 'display:none;' : ''}">Sin abrir</span></span>
+      <span>${c.asunto ? escapeHtmlCot(c.asunto) : '(sin asunto)'} <span class="badge pend" id="correoFichaVistoBadge${i}" style="${c.visto ? 'display:none;' : ''}">Sin abrir</span></span>
       <span class="comentario-meta">${c.fecha ? new Date(c.fecha).toLocaleString('es-CL') : 'sin fecha'} — ${escapeHtmlCot(c.casilla)}</span>
     </div>
     ${c.resumenIa ? `<div class="correo-resumen-ia" id="correoFichaResumenIa${i}">🤖 ${escapeHtmlCot(c.resumenIa)}</div>` : `<div class="correo-resumen-ia" id="correoFichaResumenIa${i}" style="display:none;"></div>`}
-    <div class="correo-preview" id="correoFichaPreview${i}" style="display:none;"></div>`).join('');
+    <div class="correo-preview" id="correoFichaPreview${i}" style="display:${abierto ? 'block' : 'none'};">${abierto ? 'Leyendo el correo del cliente…' : ''}</div>`;
 }
-async function toggleCorreoPreviewFicha(i){
+// Correos separados en "Enviados por IndexStore" y "Recibidos del cliente". Las respuestas del cliente se
+// muestran abiertas (su contenido se lee solo); si no hay ninguna se dice y se sugiere llamar o escribirle por WhatsApp.
+function renderCorreosFichaHtml(correos, clienteEmail, ctx){
+  fichaCotCorreosActuales = correos || [];
+  ctx = ctx || {};
+  if ((!correos || correos.length === 0) && !clienteEmail) return '<p class="empty-note">Este cliente no tiene un correo registrado en Bsale todavía.</p>' + sugerenciaContactoCotHtml(ctx, 'No hay correo registrado para este cliente.');
+  const enviados = [], recibidos = [];
+  (correos || []).forEach((c, i) => (c.direccion === 'entrante' ? recibidos : enviados).push(i));
+  const ultimoEnviado = enviados.length ? Math.max(...enviados.map(i => correos[i].fecha ? new Date(correos[i].fecha).getTime() : 0)) : 0;
+  const diasDesdeEnvio = ultimoEnviado ? Math.floor((Date.now() - ultimoEnviado) / 86400000) : null;
+  const bloqueEnviados = enviados.length
+    ? enviados.map(i => filaCorreoFichaHtml(correos[i], i, false)).join('')
+    : `<p class="empty-note">No se detectó ningún correo enviado${clienteEmail ? ' a ' + escapeHtmlCot(clienteEmail) : ''} (la correspondencia se revisa una vez al día).</p>`;
+  const avisoDias = diasDesdeEnvio != null ? ` Le escribimos hace ${diasDesdeEnvio} día${diasDesdeEnvio === 1 ? '' : 's'}.` : '';
+  const bloqueRecibidos = recibidos.length
+    ? recibidos.map(i => filaCorreoFichaHtml(correos[i], i, true)).join('')
+    : `<div class="proxima-accion-box sin-accion" style="margin-bottom:6px;"><b>El cliente no ha respondido por correo.</b>${avisoDias}</div>${sugerenciaContactoCotHtml(ctx, null)}`;
+  return `
+    <div class="correos-bloque"><div class="correos-sub">📤 Enviados por IndexStore (${enviados.length})</div>${bloqueEnviados}</div>
+    <div class="correos-bloque"><div class="correos-sub">📩 Recibidos del cliente (${recibidos.length})</div>${bloqueRecibidos}</div>`;
+}
+// Sugerencia de siguiente paso cuando el cliente no respondió por correo.
+function sugerenciaContactoCotHtml(ctx, textoPrevio){
+  const tel = telefonoParaEnlaceCot(ctx.telefono);
+  const previo = textoPrevio ? escapeHtmlCot(textoPrevio) + ' ' : '';
+  const botones = [];
+  if (tel) botones.push(`<a class="btn-ghost btn-compact" style="text-decoration:none;display:inline-block;" href="tel:+${tel}">📞 Llamar al +${escapeHtmlCot(tel)}</a>`);
+  if (ctx.conversacionWhatsappId) botones.push(`<button class="btn-ghost btn-compact" onclick="abrirConversacionWhatsappDesdeCot(${ctx.conversacionWhatsappId})">💬 Abrir la conversación de WhatsApp</button>`);
+  else if (tel) botones.push(`<a class="btn-ghost btn-compact" style="text-decoration:none;display:inline-block;" href="https://wa.me/${tel}" target="_blank" rel="noopener">💬 Escribir por WhatsApp</a>`);
+  if (!botones.length) return `<p class="empty-note">${previo}Tampoco hay un teléfono registrado: busca otro medio de contacto del cliente.</p>`;
+  return `<div class="proxima-accion-box" style="margin-bottom:6px;"><b>Sugerencia:</b> ${previo}llámalo por teléfono o escríbele por WhatsApp para retomar la cotización.<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">${botones.join('')}</div></div>`;
+}
+// Lee en segundo plano las respuestas del cliente (máx. 3, de a una) para mostrarlas sin que haya que abrir cada correo.
+async function precargarRespuestasClienteFicha(){
+  const idsEntrantes = fichaCotCorreosActuales.map((c, i) => c.direccion === 'entrante' ? i : -1).filter(i => i >= 0).slice(0, 3);
+  for (const i of idsEntrantes) await asegurarContenidoCorreoFicha(i);
+}
+async function asegurarContenidoCorreoFicha(i){
   const c = fichaCotCorreosActuales[i];
   const wrap = $(`correoFichaPreview${i}`);
   if (!c || !wrap) return;
-  const yaAbierto = wrap.style.display !== 'none';
-  if (yaAbierto) { wrap.style.display = 'none'; return; }
   if (!c.visto) { c.visto = true; const badge = $(`correoFichaVistoBadge${i}`); if (badge) badge.style.display = 'none'; }
   if (c.contenidoTexto) { wrap.textContent = c.contenidoTexto; wrap.style.display = 'block'; return; }
   if (c._cargando) return;
@@ -1455,6 +1750,12 @@ async function toggleCorreoPreviewFicha(i){
     if (data && data.analisis) aplicarAnalisisRespuestaCorreoFicha(i, data.analisis);
   }catch(err){ wrap.textContent = 'No se pudo leer el contenido de este correo (error de conexión).'; }
   finally{ c._cargando = false; }
+}
+async function toggleCorreoPreviewFicha(i){
+  const wrap = $(`correoFichaPreview${i}`);
+  if (!wrap) return;
+  if (wrap.style.display !== 'none') { wrap.style.display = 'none'; return; }
+  await asegurarContenidoCorreoFicha(i);
 }
 function aplicarAnalisisRespuestaCorreoFicha(i, analisis){
   const c = fichaCotCorreosActuales[i];

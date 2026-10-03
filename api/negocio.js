@@ -13,6 +13,7 @@ import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, ase
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
+import { asignacionesPorVendedor } from '../lib/vendedores-cotizacion.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
@@ -983,6 +984,8 @@ async function manejarCotizacionesClientes(req, res, sesion) {
     await asegurarTablaCotizaciones(sql);
     await asegurarTablaCotizacionesContactos(sql);
     await asegurarTablaCotizacionesCorreos(sql);
+    // Cotizaciones sin responsable: se asigna al vendedor de Bsale (por nombre; el cruce por correo se hace al sincronizar).
+    await asignarResponsablesDeVendedor(sql, null).catch(err => console.error('[cotizaciones] asignación de responsables falló:', err));
 
     // El LEFT JOIN a analisis_compras es solo un fallback para la fecha:
     // documento_asociado_fecha quedó NULL en las cotizaciones vinculadas
@@ -1395,6 +1398,31 @@ async function obtenerMapaVendedores(token) {
   return mapa;
 }
 
+// Deja como RESPONSABLE de la gestión al usuario del ERP que corresponde al vendedor de Bsale que emitió
+// la cotización (correo exacto, luego nombre; ver lib/vendedores-cotizacion.js). Solo toca cotizaciones SIN
+// responsable: lo que una persona asignó o cambió a mano nunca se pisa. usuariosBsale (opcional) trae el
+// correo de cada vendedor; sin él se empareja solo por nombre. Devuelve cuántas cotizaciones se asignaron.
+async function asignarResponsablesDeVendedor(sql, usuariosBsale) {
+  const { rows: pendientes } = await sql`
+    SELECT vendedor_id, MAX(vendedor_nombre) AS vendedor_nombre FROM bsale_cotizaciones
+    WHERE responsable_gestion_id IS NULL AND vendedor_id IS NOT NULL GROUP BY vendedor_id;`;
+  if (pendientes.length === 0) return 0;
+  const { rows: usuarios } = await sql`SELECT id, nombre, email FROM usuarios WHERE activo = true;`;
+  const emailPorVendedor = new Map((usuariosBsale || []).map(u => [u.id, u.email || '']));
+  const mapa = asignacionesPorVendedor(
+    pendientes.map(p => ({ id: p.vendedor_id, nombre: p.vendedor_nombre, email: emailPorVendedor.get(p.vendedor_id) || '' })),
+    usuarios
+  );
+  if (mapa.size === 0) return 0;
+  const { rows } = await sql.query(
+    `UPDATE bsale_cotizaciones c SET responsable_gestion_id = m.uid
+     FROM UNNEST($1::int[], $2::int[]) AS m(vid, uid)
+     WHERE c.vendedor_id = m.vid AND c.responsable_gestion_id IS NULL RETURNING c.id;`,
+    [[...mapa.keys()], [...mapa.values()]]
+  );
+  return rows.length;
+}
+
 // Solo un admin puede disparar la sincronización (misma razón que la de
 // puntos: golpea la API de Bsale repetidamente).
 async function manejarSyncCotizaciones(req, res, sesion) {
@@ -1424,6 +1452,7 @@ async function manejarSyncCotizaciones(req, res, sesion) {
 
     // ---- Fase 1: listado paginado de cotizaciones del período ----
     let pasadaListadoTerminada = total != null && offset >= total;
+    const listadoYaTerminado = pasadaListadoTerminada;
     if (!pasadaListadoTerminada) {
       const tipoCotizacionId = await obtenerIdTipoCotizacion(token);
       const vendedoresPorId = await obtenerMapaVendedores(token);
@@ -1515,6 +1544,12 @@ async function manejarSyncCotizaciones(req, res, sesion) {
         pasadaListadoTerminada = ultimaPaginaIncompleta || (total != null && offset >= total);
         await sql`UPDATE bsale_cotizaciones_sync_estado SET offset_actual = ${offset}, total_documentos = ${total}, actualizado_en = now() WHERE id = 1;`;
       }
+    }
+
+    // Recién terminado el listado: cada cotización nueva queda a nombre del vendedor que la emitió (correo y nombre).
+    if (pasadaListadoTerminada && !listadoYaTerminado) {
+      try { await asignarResponsablesDeVendedor(sql, await obtenerUsuariosBsale(token)); }
+      catch (err) { console.error('[sync-cotizaciones] asignación de responsables falló:', err); }
     }
 
     if (!pasadaListadoTerminada) {
