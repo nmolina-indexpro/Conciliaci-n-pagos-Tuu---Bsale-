@@ -144,12 +144,6 @@
   .panel-ficha{padding:16px 18px;border-left:1px solid var(--line);overflow-y:auto;max-height:70vh;}
   @media (max-width:860px){.panel-ficha{border-left:none;border-top:1px solid var(--line);}}
   .ficha-grupo{margin-bottom:16px;}
-  /* Modal "Cotización en Bsale" */
-  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;color:var(--text);}
-  .doc-link{color:var(--primary);text-decoration:none;font-weight:600;}
-  .doc-link:hover{text-decoration:underline;}
-  #cotBsaleBody input[type=text], #cotBsaleBody input[type=number]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:7px 10px;border-radius:9px;font-size:13px;}
-  #cotBsaleBody input:focus{outline:none;border-color:var(--primary);}
   .ficha-grupo h3{font-family:'Space Grotesk',sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:0 0 8px;}
   .ficha-fila{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--line);}
   .ficha-fila:last-child{border-bottom:none;}
@@ -408,16 +402,6 @@
       <button class="modal-cerrar" onclick="cerrarModalCliente()">✕</button>
     </div>
     <div class="modal-body" id="modalClienteBody"></div>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="modalCotBsale" onclick="if(event.target===this) cerrarCotBsale()">
-  <div class="modal-box ancho">
-    <div class="modal-head">
-      <h2>🧾 Cotización en Bsale</h2>
-      <button class="modal-cerrar" onclick="cerrarCotBsale()">✕</button>
-    </div>
-    <div class="modal-body" id="cotBsaleBody"></div>
   </div>
 </div>
 
