@@ -1686,6 +1686,7 @@ function renderNotasActividadFicha(detalle){
     ${historialHtml ? `<h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:2px 0 6px;">Cambios de estado</h4>${historialHtml}` : ''}
     <h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:10px 0 6px;">Correos</h4>
     <div id="correosFichaCotWrap">${renderCorreosFichaHtml(detalle.correos, detalle.clienteEmail, contextoContactoFichaCot(detalle))}</div>
+    <div id="zohoFichaCotWrap">${detalle.clienteEmail ? '<p class="empty-note">Buscando tickets de servicio técnico (Zoho Desk)…</p>' : ''}</div>
     <h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:10px 0 6px;">Comentarios</h4>
     <div id="comentariosFichaCotWrap">${renderComentariosFichaHtml(detalle.comentarios)}</div>
     <textarea id="nuevoComentarioFichaCot" placeholder="Escribe un comentario nuevo..." style="width:100%;margin-top:8px;min-height:50px;padding:8px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:12.5px;resize:vertical;box-sizing:border-box;"></textarea>
@@ -1694,6 +1695,51 @@ function renderNotasActividadFicha(detalle){
       <button class="btn-primary btn-compact" id="btnGuardarComentarioFichaCot" onclick="guardarComentarioFichaCot()">Agregar comentario</button>
     </div>`;
   precargarRespuestasClienteFicha(); // las respuestas del cliente se leen solas
+  if (detalle.clienteEmail) cargarZohoFichaCot(cotizacionSeleccionadaId);
+}
+// ---- Servicio técnico (Zoho Desk): tickets del cliente con mensajes entrantes y salientes ----
+async function cargarZohoFichaCot(cotizacionId){
+  try{
+    const data = await fetch(`/api/negocio?recurso=cotizacion-zoho&cotizacionId=${cotizacionId}`).then(r=>r.json());
+    if (cotizacionId !== cotizacionSeleccionadaId) return; // el usuario ya abrió otra ficha
+    const wrap = $('zohoFichaCotWrap');
+    if (!wrap) return;
+    wrap.innerHTML = renderZohoFichaHtml(data);
+    // Si el cliente respondió por Zoho, no decir que "no ha respondido": aclararlo en el aviso de correos.
+    const aviso = $('avisoSinRespuestaCorreoCot');
+    if (aviso && data && data.resumen && data.resumen.entrantes > 0) {
+      aviso.innerHTML = `<b>El cliente no ha respondido por el correo de ventas, pero sí por Zoho Desk</b> (${data.resumen.entrantes} mensaje${data.resumen.entrantes === 1 ? '' : 's'}${data.resumen.ultimoEntrante ? ', el último el ' + new Date(data.resumen.ultimoEntrante).toLocaleString('es-CL') : ''}). Revisa abajo, en Servicio técnico.`;
+    }
+  }catch(err){
+    const wrap = $('zohoFichaCotWrap');
+    if (wrap && cotizacionId === cotizacionSeleccionadaId) wrap.innerHTML = '';
+  }
+}
+function renderZohoFichaHtml(d){
+  const titulo = '<h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:10px 0 6px;">Servicio técnico (Zoho Desk)</h4>';
+  if (!d || d.configurado === false) return '';
+  if (d.sinCorreo) return '';
+  if (d.error) return `${titulo}<p class="empty-note">No se pudo consultar Zoho Desk ahora (${escapeHtmlCot(d.detail || d.error)}).</p>`;
+  if (!d.tickets || !d.tickets.length) return `${titulo}<p class="empty-note">No hay tickets de Zoho Desk con el correo ${escapeHtmlCot(d.correo || '')}.</p>`;
+  const r = d.resumen || {};
+  const fecha = f => f ? new Date(f).toLocaleString('es-CL') : '—';
+  const alcance = d.basadoEnExactos ? 'tickets que citan esta cotización' : 'todos los tickets de este cliente (ninguno cita esta cotización)';
+  const pend = r.pendienteDeRespuesta ? '<span class="badge pend" style="margin-left:6px;">Cliente espera respuesta</span>' : '';
+  const resumen = `<div class="proxima-accion-box" style="margin-bottom:6px;">📤 <b>${r.salientes || 0}</b> enviados por IndexStore · 📩 <b>${r.entrantes || 0}</b> recibidos del cliente${pend}<br><span class="comentario-meta">Último contacto: ${fecha(r.ultimoContacto)} · Calculado sobre ${alcance}</span></div>`;
+  const tickets = d.tickets.map(t => `
+    <div class="estado-item">
+      <span>${t.url ? `<a href="${escapeHtmlCot(t.url)}" target="_blank" rel="noopener">#${escapeHtmlCot(t.numero)}</a>` : '#' + escapeHtmlCot(t.numero)} ${escapeHtmlCot(t.asunto)}
+        <span class="badge ${t.vinculo === 'exacto' ? 'si' : 'no'}" title="${escapeHtmlCot(t.motivoVinculo)}">${t.vinculo === 'exacto' ? 'Cita esta cotización' : 'Mismo cliente'}</span>
+        <span class="badge ${t.cerrado ? 'no' : 'pend'}">${escapeHtmlCot(t.estado)}</span></span>
+      <span class="comentario-meta">${fecha(t.creado)} — 📤 ${t.salientes} / 📩 ${t.entrantes}${t.motivoIngreso ? ' — ' + escapeHtmlCot(t.motivoIngreso) : ''}</span>
+    </div>`).join('');
+  const hilos = d.hilos.slice(0, 30).map(h => `
+    <div class="estado-item">
+      <span>${h.direccion === 'entrante' ? '📩 Cliente' : '📤 IndexStore'}: ${escapeHtmlCot(h.resumen || '(sin texto)')}${h.adjuntos ? ` 📎${h.adjuntos}` : ''}</span>
+      <span class="comentario-meta">${fecha(h.fecha)} — ${escapeHtmlCot(h.autor || '')} — #${escapeHtmlCot(h.ticketNumero)}</span>
+    </div>`).join('');
+  const aviso = d.ticketsSinLeer ? `<p class="empty-note">No se pudieron leer los mensajes de ${d.ticketsSinLeer} ticket(s).</p>` : '';
+  return `${titulo}${resumen}${tickets}<div class="correos-sub" style="margin-top:8px;">Mensajes</div>${hilos || '<p class="empty-note">Los tickets no tienen mensajes públicos todavía.</p>'}${aviso}`;
 }
 // Teléfono para marcar / WhatsApp: deja solo dígitos y agrega el 56 de Chile si falta.
 function telefonoParaEnlaceCot(tel){
@@ -1727,7 +1773,7 @@ function renderCorreosFichaHtml(correos, clienteEmail, ctx){
   const avisoDias = diasDesdeEnvio != null ? ` Le escribimos hace ${diasDesdeEnvio} día${diasDesdeEnvio === 1 ? '' : 's'}.` : '';
   const bloqueRecibidos = recibidos.length
     ? recibidos.map(i => filaCorreoFichaHtml(correos[i], i, true)).join('')
-    : `<div class="proxima-accion-box sin-accion" style="margin-bottom:6px;"><b>El cliente no ha respondido por correo.</b>${avisoDias}</div>${sugerenciaContactoCotHtml(ctx, null)}`;
+    : `<div class="proxima-accion-box sin-accion" id="avisoSinRespuestaCorreoCot" style="margin-bottom:6px;"><b>El cliente no ha respondido por correo.</b>${avisoDias}</div>${sugerenciaContactoCotHtml(ctx, null)}`;
   return `
     <div class="correos-bloque"><div class="correos-sub">📤 Enviados por IndexStore (${enviados.length})</div>${bloqueEnviados}</div>
     <div class="correos-bloque"><div class="correos-sub">📩 Recibidos del cliente (${recibidos.length})</div>${bloqueRecibidos}</div>`;

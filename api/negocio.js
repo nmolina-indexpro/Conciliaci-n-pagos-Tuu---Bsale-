@@ -14,6 +14,7 @@ import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
+import { armarComunicacionZoho } from '../lib/zoho-cotizaciones.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
@@ -135,6 +136,7 @@ export default async function handler(req, res) {
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
   if (recurso === 'cotizacion-correo-contenido') return manejarCotizacionCorreoContenido(req, res, sesion);
+  if (recurso === 'cotizacion-zoho') return manejarCotizacionZoho(req, res, sesion);
   if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
   if (recurso === 'calendario-pagos-importar') return manejarCalendarioPagosImportar(req, res, sesion);
   if (recurso === 'saldo-bci') return manejarSaldoBci(req, res, sesion);
@@ -4801,6 +4803,77 @@ async function manejarZohoTickets(req, res, sesion) {
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error consultando Zoho Desk', detail: String(err), tickets: [] });
+  }
+}
+
+// Comunicación del cliente de una cotización que vive en Zoho Desk (servicio técnico): Luiggi ingresa el equipo,
+// Zoho genera la orden de servicio + ticket y ahí se escribe con el cliente, fuera de los buzones del ERP.
+// Cruce: correo del cliente de la cotización -> tickets de ese contacto -> hilos públicos (entrante = cliente,
+// saliente = IndexStore). Un ticket que cita "Cot. NNNN" queda como vínculo exacto (ver lib/zoho-cotizaciones.js).
+const TOPE_TICKETS_ZOHO_POR_COTIZACION = 8;
+const PAGINAS_RESPALDO_TICKETS_ZOHO = 5;
+
+async function buscarTicketsZohoPorCorreo(correo, headers, dc) {
+  const base = `https://desk.zoho.${dc}/api/v1`;
+  // 1) búsqueda directa por correo (requiere el permiso Desk.search.READ)
+  const r = await fetchConTimeout(`${base}/tickets/search?email=${encodeURIComponent(correo)}&limit=${TOPE_TICKETS_ZOHO_POR_COTIZACION}&sortBy=-createdTime`, { headers });
+  if (r.status === 204) return { tickets: [], via: 'busqueda' };
+  if (r.ok) return { tickets: (await r.json()).data || [], via: 'busqueda' };
+  if (r.status !== 401 && r.status !== 403) {
+    const texto = await r.text().catch(() => '');
+    throw new Error(`Zoho Desk respondió HTTP ${r.status}: ${texto.slice(0, 200)}`);
+  }
+  // 2) respaldo si el token no tiene permiso de búsqueda: se revisan los tickets recientes y se filtra por correo
+  const hallados = [];
+  for (let pagina = 0; pagina < PAGINAS_RESPALDO_TICKETS_ZOHO; pagina++) {
+    const rl = await fetchConTimeout(`${base}/tickets?limit=100&from=${pagina * 100}&sortBy=-createdTime&include=contacts`, { headers });
+    if (!rl.ok) throw new Error(`Zoho Desk respondió HTTP ${rl.status} (sin permiso de búsqueda y el listado también falló)`);
+    const items = (await rl.json()).data || [];
+    for (const t of items) if (String(t.email || t.contact?.email || '').toLowerCase() === correo) hallados.push(t);
+    if (items.length < 100) break;
+  }
+  return { tickets: hallados.slice(0, TOPE_TICKETS_ZOHO_POR_COTIZACION), via: 'listado-reciente' };
+}
+
+async function manejarCotizacionZoho(req, res, sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const cotizacionId = Number(req.query.cotizacionId);
+    if (!cotizacionId) return res.status(400).json({ error: 'Falta cotizacionId' });
+    const { ZOHO_ORG_ID, ZOHO_DC, ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN } = process.env;
+    if (!ZOHO_ORG_ID || !ZOHO_CLIENT_ID || !ZOHO_CLIENT_SECRET || !ZOHO_REFRESH_TOKEN) {
+      return res.status(200).json({ configurado: false, tickets: [], hilos: [] });
+    }
+    const sql = await getSql();
+    await asegurarTablaCotizaciones(sql);
+    const { rows } = await sql`SELECT numero, cliente_email FROM bsale_cotizaciones WHERE id = ${cotizacionId};`;
+    if (!rows[0]) return res.status(404).json({ error: 'Cotización no encontrada' });
+    const correo = String(rows[0].cliente_email || '').trim().toLowerCase();
+    if (!correo) return res.status(200).json({ configurado: true, sinCorreo: true, tickets: [], hilos: [] });
+
+    const dc = ZOHO_DC || 'com';
+    const accessToken = await obtenerAccessTokenZoho();
+    const headers = { orgId: ZOHO_ORG_ID, Authorization: `Zoho-oauthtoken ${accessToken}` };
+    const { tickets, via } = await buscarTicketsZohoPorCorreo(correo, headers, dc);
+
+    // los hilos de cada ticket se piden en paralelo; si uno falla no se pierde el resto
+    const datos = (await Promise.all(tickets.map(async (ticket) => {
+      try {
+        const r = await fetchConTimeout(`https://desk.zoho.${dc}/api/v1/tickets/${ticket.id}/conversations?limit=50`, { headers });
+        if (r.status === 204) return { ticket, conversaciones: [] };
+        if (!r.ok) return null;
+        return { ticket, conversaciones: (await r.json()).data || [] };
+      } catch (_) { return null; }
+    }))).filter(Boolean);
+
+    const comunicacion = armarComunicacionZoho(datos, rows[0].numero);
+    return res.status(200).json({
+      configurado: true, correo, via,
+      ticketsSinLeer: tickets.length - datos.length,
+      ...comunicacion,
+    });
+  } catch (err) {
+    return res.status(200).json({ configurado: true, error: 'No se pudo consultar Zoho Desk', detail: String(err.message || err), tickets: [], hilos: [] });
   }
 }
 
