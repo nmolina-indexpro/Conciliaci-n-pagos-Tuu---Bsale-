@@ -13,7 +13,7 @@ import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, ase
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
-import { calcularControlEjecutivos, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
+import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
@@ -11943,7 +11943,40 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
     const ayerStr = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
     const qDesde = esFecha(req.query.desde) ? req.query.desde : ayerStr;
     const qHasta = esFecha(req.query.hasta) ? req.query.hasta : ayerStr;
-    const ejecutivoClave = /^(u\d+|nv|sa)$/.test(String(req.query.ejecutivo || '')) ? String(req.query.ejecutivo) : null;
+    const ejecutivoClave = /^(u\d+|nv|sa|n:[a-z0-9]+)$/.test(String(req.query.ejecutivo || '')) ? String(req.query.ejecutivo) : null;
+    // Atribución por firma en el texto ("soy Nathalia de Indexstore.cl"): ACTIVADA por defecto, se puede apagar con ?firmas=0.
+    const usarFirmas = String(req.query.firmas ?? '1') !== '0';
+
+    // Ejecutivos conocidos: usuarios activos + roster del reporte (aunque no tengan usuario en el ERP).
+    const { rows: usuariosActivos } = await sql`SELECT id, nombre, email FROM usuarios WHERE activo = true ORDER BY nombre ASC;`;
+    const roster = [];
+    const nombresPseudo = new Map(); // clave 'n:<nombre>' -> nombre visible, para quien está en el roster pero no tiene usuario
+    const ejecutivosFirma = [];      // [{clave, nombres}] para detectar la firma en el texto
+    const primerNombre = n => normalizarTexto(String(n || '').trim().split(/\s+/)[0] || '');
+    const repeticiones = new Map();
+    for (const u of usuariosActivos) { const pn = primerNombre(u.nombre); repeticiones.set(pn, (repeticiones.get(pn) || 0) + 1); }
+    for (const u of usuariosActivos) {
+      const pn = primerNombre(u.nombre);
+      // Si dos usuarios comparten el primer nombre, la firma sería ambigua: no se usa para ese nombre.
+      if (pn.length >= 3 && repeticiones.get(pn) === 1) ejecutivosFirma.push({ clave: claveUsuario(u.id), nombres: [pn] });
+    }
+    for (const nombreCorto of WHATSAPP_EJECUTIVOS_REPORTE) {
+      const emailConocido = WHATSAPP_VENDEDORES_EMAIL[nombreCorto];
+      const u = (emailConocido && usuariosActivos.find(x => (x.email || '').toLowerCase() === emailConocido))
+        || usuariosActivos.find(x => normalizarTexto(x.nombre || '').includes(normalizarTexto(nombreCorto)));
+      const alias = normalizarTexto(nombreCorto);
+      if (u) {
+        if (!roster.includes(claveUsuario(u.id))) roster.push(claveUsuario(u.id));
+        const e = ejecutivosFirma.find(x => x.clave === claveUsuario(u.id));
+        if (e && !e.nombres.includes(alias)) e.nombres.push(alias);
+        else if (!e) ejecutivosFirma.push({ clave: claveUsuario(u.id), nombres: [alias] });
+      } else {
+        const clave = 'n:' + alias.replace(/[^a-z0-9]/g, '');
+        nombresPseudo.set(clave, nombreCorto);
+        if (!roster.includes(clave)) roster.push(clave);
+        ejecutivosFirma.push({ clave, nombres: [alias] });
+      }
+    }
 
     const { rows: rangoRows } = await sql.query(
       `SELECT ($1::date)::timestamp AT TIME ZONE 'America/Santiago' AS desde_ts,
@@ -11963,6 +11996,7 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
     const { rows: msgRows } = await sql.query(
       `SELECT m.id, c.contacto_id, m.conversacion_id, c.responsable_id, m.marca_tiempo, m.direccion, m.origen,
               m.autor_usuario_id,
+              CASE WHEN m.direccion = 'out' THEN m.contenido_texto END AS texto,
               aud.usuario_id AS auditoria_usuario_id
        FROM whatsapp_mensajes m
        JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id
@@ -11989,10 +12023,12 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
       return {
         id: r.id, contactoId: r.contacto_id, conversacionId: r.conversacion_id, responsableId: r.responsable_id,
         t: new Date(r.marca_tiempo).getTime(), dir: r.direccion === 'out' ? 'out' : 'in',
-        autorId,
+        autorId, autorClave: null, texto: r.texto || null,
         origenAutor: autorId ? (r.autor_usuario_id ? 'erp' : 'auditoria_erp') : null,
       };
     });
+    // Salientes sin autor verificado: se intenta la firma del propio texto (probable, no verificada).
+    const atribuidosPorFirma = usarFirmas ? aplicarFirmas(mensajes, ejecutivosFirma) : 0;
 
     // 2) Historial anterior al período, solo de los contactos con actividad en él.
     const contactoIds = [...new Set(mensajes.map(m => m.contactoId))];
@@ -12076,24 +12112,18 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
     });
 
     // 6) Nombres: usuarios, contactos y roster de ejecutivos.
-    const { rows: usuariosActivos } = await sql`SELECT id, nombre, email FROM usuarios WHERE activo = true ORDER BY nombre ASC;`;
     const { rows: todosUsuarios } = await sql`SELECT id, nombre FROM usuarios;`;
     const nombreUsuario = new Map(todosUsuarios.map(u => [u.id, u.nombre]));
-    const roster = [];
-    for (const nombreCorto of WHATSAPP_EJECUTIVOS_REPORTE) {
-      const emailConocido = WHATSAPP_VENDEDORES_EMAIL[nombreCorto];
-      const u = (emailConocido && usuariosActivos.find(x => (x.email || '').toLowerCase() === emailConocido))
-        || usuariosActivos.find(x => normalizarTexto(x.nombre || '').includes(normalizarTexto(nombreCorto)));
-      if (u && !roster.includes(claveUsuario(u.id))) roster.push(claveUsuario(u.id));
-    }
     const nombreClave = clave => clave === CLAVE_NO_VERIFICADO ? 'Autor no verificado'
       : clave === CLAVE_SIN_ASIGNAR ? 'Sin asignar'
+      : clave.startsWith('n:') ? (nombresPseudo.get(clave) || clave.slice(2))
       : (nombreUsuario.get(Number(clave.slice(1))) || 'Usuario ' + clave.slice(1));
+    const esEjecutivo = clave => clave !== CLAVE_NO_VERIFICADO && clave !== CLAVE_SIN_ASIGNAR;
 
     // Filas: el roster siempre visible (aunque tenga 0), más quien tenga actividad, más las dos filas especiales.
     const filasPorClave = new Map(resultado.filas.map(f => [f.clave, f]));
     const vacia = clave => ({ clave, recibidas: 0, atendidas: 0, sinRespuesta: 0, nuevosProactivos: 0, intentos: 0, clientes: 0, respondieron: 0, ventanasAbiertas: 0, pctRespondieron: null, primeraRespuestaMedianaSeg: null });
-    const clavesFilas = [...new Set([...roster, ...resultado.filas.filter(f => f.clave.startsWith('u')).map(f => f.clave)])];
+    const clavesFilas = [...new Set([...roster, ...resultado.filas.filter(f => esEjecutivo(f.clave)).map(f => f.clave)])];
     clavesFilas.sort((a, b) => nombreClave(a).localeCompare(nombreClave(b), 'es'));
     clavesFilas.push(CLAVE_SIN_ASIGNAR, CLAVE_NO_VERIFICADO);
     const filas = clavesFilas
@@ -12134,7 +12164,8 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
     const autoria = {
       salientesEnPeriodo: salientes.length,
       conAutorVerificado: salientes.filter(m => m.autorId).length,
-      sinAutorVerificado: salientes.filter(m => !m.autorId).length,
+      porFirma: salientes.filter(m => !m.autorId && m.autorClave).length,
+      sinAutorVerificado: salientes.filter(m => !m.autorId && !m.autorClave).length,
     };
 
     return res.status(200).json({
@@ -12143,8 +12174,9 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
         pausaRecontactoHoras: PAUSA_RECONTACTO_MS / 3600000,
         ventanaRespuestaHoras: VENTANA_RESPUESTA_MS / 3600000,
         horarioAtencionConfigurado: false,
+        atribucionPorFirma: usarFirmas,
       },
-      ejecutivosDisponibles: [...roster, ...resultado.filas.filter(f => f.clave.startsWith('u') && !roster.includes(f.clave)).map(f => f.clave)]
+      ejecutivosDisponibles: [...roster, ...resultado.filas.filter(f => esEjecutivo(f.clave) && !roster.includes(f.clave)).map(f => f.clave)]
         .map(c => ({ clave: c, nombre: nombreClave(c) })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
         .concat([{ clave: CLAVE_SIN_ASIGNAR, nombre: 'Sin asignar' }, { clave: CLAVE_NO_VERIFICADO, nombre: 'Autor no verificado' }]),
       filas, total: resultado.total,
