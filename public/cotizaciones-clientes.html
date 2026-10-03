@@ -379,6 +379,7 @@
     </div>
     <div class="cot-aviso-180" id="avisoCoberturaCot">📅 Trabajamos con los últimos 180 días sincronizados desde Bsale — no consulta Bsale en el momento.</div>
 
+    <div id="avisoCasillasCot"></div>
     <div id="statusCotizaciones"></div>
     <div id="syncCotizacionesWrap"></div>
 
@@ -640,6 +641,14 @@ function actualizarAvisoCoberturaCot(){
     aviso.textContent = `📅 Trabajamos con los últimos ${diasHistorialCot} días sincronizados desde Bsale — no consulta Bsale en el momento.`;
   }
 }
+// Aviso: vendedores cuya casilla de correo no se revisa => sus cotizaciones no cambian de estado solas.
+function renderAvisoCasillasCot(lista){
+  const el = $('avisoCasillasCot');
+  if (!el) return;
+  if (!lista.length) { el.innerHTML = ''; return; }
+  const items = lista.map(v => `<b>${escapeHtmlCot(v.nombre)}</b> (${fmtNum(v.abiertas)} abierta${v.abiertas === 1 ? '' : 's'} de ${fmtNum(v.cotizaciones)} en 60 días)`).join(', ');
+  el.innerHTML = `<div class="note-box" style="border-color:#F2D6A2;background:var(--amber-dim);margin-bottom:10px;">⚠ <b>Sin casilla de correo conectada:</b> ${items}. Los correos que envían y las respuestas de sus clientes <b>no se detectan solos</b>, así que sus cotizaciones se quedan en "Sin contactar" y los indicadores de seguimiento de ellos salen exagerados. Pídele a un administrador que conecte su casilla.</div>`;
+}
 async function cargarCotizaciones(){
   cotizacionesCargadas = true;
   const status = $('statusCotizaciones');
@@ -665,6 +674,7 @@ async function cargarCotizaciones(){
     }
     cotizaciones = res.cotizaciones || [];
     diasHistorialCot = res.diasHistorialSincronizado || 180;
+    renderAvisoCasillasCot(res.vendedoresSinCasilla || []);
     poblarSelectVendedoresCot();
     actualizarAvisoCoberturaCot();
     renderTablaCotizaciones();
@@ -1374,7 +1384,7 @@ function renderTablaCotizaciones(){
         const resumen = resumenClientesCotizacion[c.clienteId];
         const m = /^(.*) \((.*)\)$/.exec(c.clienteNombre || '');
         const nombre = m ? m[1] : (c.clienteNombre || 'Sin nombre');
-        const contacto = m ? m[2] : null;
+        const contacto = (m && m[2].trim().toLowerCase() !== m[1].trim().toLowerCase()) ? m[2] : null; // si el contacto es igual al nombre, no se repite
         const badgeVip = resumen && resumen.numCompras >= 2 ? ' 🔁' : '';
         return `<div class="celda-cliente-cot"><div class="nombre-cliente-cot">${escapeHtmlCot(nombre)}${badgeVip}</div>${contacto ? `<div class="contacto-cliente-cot">${escapeHtmlCot(contacto)}</div>` : ''}</div>`;
       } },
@@ -1480,7 +1490,13 @@ async function cargarFichaCotizacion(id){
     data._cotizacionId = id;
     fichaCotDetalleActual = data;
     const cActual = cotizaciones.find(x => x.id === id);
-    if (cActual) renderFichaLateralCot(cActual, data);
+    // Si el servidor completó el correo/teléfono desde los atributos de Bsale, la lista en memoria también se actualiza
+    // (así el enlace de WhatsApp, la búsqueda y las siguientes aperturas ya lo traen).
+    if (cActual) {
+      if (data.clienteEmail && !cActual.clienteEmail) cActual.clienteEmail = data.clienteEmail;
+      if (data.clienteTelefono && !cActual.clienteTelefono) cActual.clienteTelefono = data.clienteTelefono;
+      renderFichaLateralCot(cActual, data);
+    }
   }catch(err){
     if (miSolicitud !== fichaCotSolicitudActual) return;
   }
@@ -1524,7 +1540,7 @@ function abrirConversacionWhatsappDesdeCot(conversacionId){
 function renderFichaLateralCot(c, detalle){
   const m = /^(.*) \((.*)\)$/.exec(c.clienteNombre || '');
   const nombreCliente = m ? m[1] : (c.clienteNombre || 'Sin nombre');
-  const contacto = m ? m[2] : null;
+  const contacto = (m && m[2].trim().toLowerCase() !== m[1].trim().toLowerCase()) ? m[2] : null; // si el contacto es igual al nombre, no se repite
 
   const proximaHtml = (c.proximaAccionTexto || c.proximaAccionFecha)
     ? `<div class="proxima-accion-box">
@@ -1572,8 +1588,8 @@ function renderFichaLateralCot(c, detalle){
         <div class="ficha-cot-fila"><span>Documento</span><b>${docLinkHtml(c.numero, c.urlCotizacion)}${c.fecha ? ' · ' + fmtFechaCot(c.fecha) : ''}</b></div>
         <div class="ficha-cot-fila"><span>Cliente</span><b>${escapeHtmlCot(nombreCliente)}</b></div>
         ${contacto ? `<div class="ficha-cot-fila"><span>Contacto</span><b>${escapeHtmlCot(contacto)}</b></div>` : ''}
-        ${c.clienteTelefono ? `<div class="ficha-cot-fila"><span>Teléfono</span><b>${escapeHtmlCot(c.clienteTelefono)}</b></div>` : ''}
-        ${(detalle?.clienteEmail || c.clienteEmail) ? `<div class="ficha-cot-fila"><span>Correo</span><b style="word-break:break-all;"><a href="mailto:${escapeHtmlCot(detalle?.clienteEmail || c.clienteEmail)}" class="doc-link">${escapeHtmlCot(detalle?.clienteEmail || c.clienteEmail)}</a></b></div>` : ''}
+        ${(detalle?.clienteTelefono || c.clienteTelefono) ? `<div class="ficha-cot-fila"><span>Teléfono</span><b>${escapeHtmlCot(detalle?.clienteTelefono || c.clienteTelefono)}</b></div>` : (detalle ? '<div class="ficha-cot-fila"><span>Teléfono</span><b class="empty-note" style="padding:0;">Sin registro en Bsale</b></div>' : '')}
+        ${(detalle?.clienteEmail || c.clienteEmail) ? `<div class="ficha-cot-fila"><span>Correo</span><b style="word-break:break-all;"><a href="mailto:${escapeHtmlCot(detalle?.clienteEmail || c.clienteEmail)}" class="doc-link">${escapeHtmlCot(detalle?.clienteEmail || c.clienteEmail)}</a></b></div>` : (detalle ? '<div class="ficha-cot-fila"><span>Correo</span><b class="empty-note" style="padding:0;" title="Se revisó el campo Email y los atributos adicionales de la ficha del cliente en Bsale">Sin registro en Bsale</b></div>' : '')}
         <div class="ficha-cot-fila"><span>Monto</span><b>${fmtMoneda(c.monto)}</b></div>
         ${waHtml}
         ${llamHtml}
@@ -1658,7 +1674,7 @@ function renderDetalleItemsFicha(data){
 // Datos para sugerir el siguiente contacto (teléfono de la cotización y conversación de WhatsApp si existe).
 function contextoContactoFichaCot(detalle){
   const cot = cotizaciones.find(x => x.id === cotizacionSeleccionadaId);
-  return { telefono: cot?.clienteTelefono || '', conversacionWhatsappId: detalle?.conversacionesWhatsapp?.[0]?.id || null };
+  return { telefono: detalle?.clienteTelefono || cot?.clienteTelefono || '', conversacionWhatsappId: detalle?.conversacionesWhatsapp?.[0]?.id || null };
 }
 function renderNotasActividadFicha(detalle){
   const el = $('notasActividadFichaCot');

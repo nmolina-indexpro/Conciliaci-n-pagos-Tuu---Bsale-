@@ -13,7 +13,7 @@ import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, ase
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
-import { asignacionesPorVendedor } from '../lib/vendedores-cotizacion.js';
+import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
@@ -976,6 +976,23 @@ function desglosarCategoriasDocumento(doc) {
   return totales;
 }
 
+// Vendedores con cotizaciones recientes cuya casilla de correo NO se está revisando (no está en
+// CASILLAS_CORREO_VENDEDORES, o le falta la contraseña): sus correos enviados y las respuestas de sus clientes no se
+// detectan solos, así que sus cotizaciones quedan "Sin contactar" hasta que alguien cambie el estado a mano.
+async function vendedoresSinCasillaDeCorreo(sql) {
+  const { rows } = await sql`
+    SELECT vendedor_nombre AS nombre, COUNT(*)::int AS cotizaciones,
+           COUNT(*) FILTER (WHERE estado NOT IN ('facturada', 'perdida', 'mercado_publico'))::int AS abiertas
+    FROM bsale_cotizaciones
+    WHERE vendedor_nombre IS NOT NULL AND vendedor_nombre <> '' AND fecha >= CURRENT_DATE - INTERVAL '60 days'
+    GROUP BY vendedor_nombre ORDER BY COUNT(*) DESC;`;
+  const activas = CASILLAS_CORREO_VENDEDORES.filter(c => c.pass && c.vendedor);
+  return rows
+    .filter(r => !/^Usuario #/.test(r.nombre))
+    .filter(r => !activas.some(c => primerNombreCoincide(r.nombre, c.vendedor)))
+    .map(r => ({ nombre: r.nombre, cotizaciones: r.cotizaciones, abiertas: r.abiertas }));
+}
+
 async function manejarCotizacionesClientes(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -1071,6 +1088,7 @@ async function manejarCotizacionesClientes(req, res, sesion) {
       cotizaciones,
       estadosDisponibles: ESTADOS_COTIZACION,
       diasHistorialSincronizado: COTIZACIONES_DIAS_HISTORIAL,
+      vendedoresSinCasilla: await vendedoresSinCasillaDeCorreo(sql).catch(() => []),
       sync: {
         offsetActual: estado.offset_actual || 0,
         totalDocumentos: estado.total_documentos ?? null,
@@ -1262,7 +1280,24 @@ async function manejarCotizacionDetalle(req, res, sesion) {
 
     const { rows: cotRows } = await sql`SELECT id, cliente_id, cliente_nombre, cliente_email, cliente_telefono FROM bsale_cotizaciones WHERE id = ${cotizacionId};`;
     if (!cotRows[0]) return res.status(404).json({ error: 'Cotización no encontrada' });
-    const { cliente_id: clienteId, cliente_nombre: clienteNombre, cliente_email: clienteEmail, cliente_telefono: clienteTelefono } = cotRows[0];
+    let { cliente_id: clienteId, cliente_nombre: clienteNombre, cliente_email: clienteEmail, cliente_telefono: clienteTelefono } = cotRows[0];
+
+    // Si al cliente le falta el correo o el teléfono, se busca ahora en los atributos adicionales de su ficha de Bsale
+    // (el listado de documentos solo trae los campos estándar). Se registra la revisión: si no hay nada, no se repite
+    // la consulta durante una hora.
+    const tokenBsale = process.env.BSALE_ACCESS_TOKEN;
+    if (tokenBsale && clienteId && (!clienteEmail || !clienteTelefono)) {
+      try {
+        const { rows: rev } = await sql`SELECT 1 FROM bsale_clientes_contacto_revisado WHERE cliente_id = ${clienteId} AND revisado_en > now() - interval '1 hour';`;
+        if (rev.length === 0) {
+          const hallado = await completarContactoClienteDesdeBsale(sql, clienteId, tokenBsale);
+          if (!clienteEmail && hallado.email) clienteEmail = hallado.email;
+          if (!clienteTelefono && hallado.telefono) clienteTelefono = hallado.telefono;
+        }
+      } catch (err) {
+        console.warn('[cotizacion-detalle] no se pudo completar el contacto desde Bsale:', err.message);
+      }
+    }
 
     // Vínculo con WhatsApp (rediseño): NO existe ninguna asociación directa
     // guardada entre una cotización y una conversación -- se busca por
@@ -1339,7 +1374,7 @@ async function manejarCotizacionDetalle(req, res, sesion) {
       }
     }
 
-    return res.status(200).json({ clienteId, clienteNombre, clienteEmail, historialEstados, comentarios, resumenCompras, correos, conversacionesWhatsapp, llamadas, totalLlamadas });
+    return res.status(200).json({ clienteId, clienteNombre, clienteEmail, clienteTelefono, historialEstados, comentarios, resumenCompras, correos, conversacionesWhatsapp, llamadas, totalLlamadas });
   } catch (err) {
     return res.status(500).json({ error: 'Error leyendo el detalle de la cotización', detail: String(err) });
   }
@@ -1518,10 +1553,13 @@ async function manejarSyncCotizaciones(req, res, sesion) {
              SELECT * FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::text[], $5::text[], $6::numeric[], $7::date[], $8::text[], $9::int[], $10::text[], $11::timestamptz[], $12::text[])
              ON CONFLICT (id) DO UPDATE SET
                numero = EXCLUDED.numero, cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre,
-               cliente_telefono = EXCLUDED.cliente_telefono, monto = EXCLUDED.monto, fecha = EXCLUDED.fecha,
+               monto = EXCLUDED.monto, fecha = EXCLUDED.fecha,
                url_cotizacion = EXCLUDED.url_cotizacion, vendedor_id = EXCLUDED.vendedor_id,
                vendedor_nombre = EXCLUDED.vendedor_nombre, sincronizado_en = EXCLUDED.sincronizado_en,
-               cliente_email = EXCLUDED.cliente_email;`,
+               -- Correo y teléfono: el campo estándar de Bsale suele venir vacío aunque el dato exista (atributo
+               -- adicional de la ficha, o detectado en un correo real). Un valor vacío NUNCA pisa uno ya completado.
+               cliente_telefono = COALESCE(NULLIF(EXCLUDED.cliente_telefono, ''), bsale_cotizaciones.cliente_telefono, ''),
+               cliente_email = COALESCE(NULLIF(EXCLUDED.cliente_email, ''), bsale_cotizaciones.cliente_email, '');`,
             [
               cotizaciones.map(d => d.id),
               cotizaciones.map(d => d.number ? String(d.number) : ''),
@@ -1550,6 +1588,8 @@ async function manejarSyncCotizaciones(req, res, sesion) {
     if (pasadaListadoTerminada && !listadoYaTerminado) {
       try { await asignarResponsablesDeVendedor(sql, await obtenerUsuariosBsale(token)); }
       catch (err) { console.error('[sync-cotizaciones] asignación de responsables falló:', err); }
+      try { await completarEmailsDesdeAtributosBsale(sql); }
+      catch (err) { console.error('[sync-cotizaciones] completar correos desde Bsale falló:', err); }
     }
 
     if (!pasadaListadoTerminada) {
@@ -11306,39 +11346,61 @@ async function revisarCasillaCorreo(ImapFlow, casilla, clienteEmails, cotizacion
 // gastar el presupuesto de la función completa en una sola pasada si hay
 // muchos clientes sin email; los que queden pendientes se resuelven en la
 // próxima corrida del cron.
-const TOPE_CLIENTES_ATRIBUTOS_POR_PASADA = 30;
+// ================= Correo y teléfono del cliente desde los atributos de Bsale =================
+// Caso real (cotización #9754, Juan Roco): en Bsale el campo estándar "Email" del cliente estaba vacío, pero la
+// ficha SÍ tenía el correo como atributo adicional ("Correo electrónico"). El listado de documentos solo trae
+// los campos estándar, así que el ERP no lo veía. Se consulta /clients/{id}/attributes.json y se busca un atributo
+// cuyo nombre mencione correo/email (o teléfono/celular para el teléfono).
+const RE_ATRIBUTO_CORREO = /correo|e-?mail/i;
+const RE_ATRIBUTO_TELEFONO = /tel[eé]fono|celular|m[oó]vil|fono|whatsapp/i;
+function elegirContactoDeAtributos(items) {
+  const lista = Array.isArray(items) ? items : [];
+  const correo = lista.find(a => RE_ATRIBUTO_CORREO.test(a?.name || '') && typeof a?.value === 'string' && /@/.test(a.value)
+    && !CASILLAS_CORREO_SET.has(a.value.trim().toLowerCase()));
+  const tel = lista.find(a => RE_ATRIBUTO_TELEFONO.test(a?.name || '') && String(a?.value || '').replace(/\D/g, '').length >= 8);
+  return { email: correo ? correo.value.trim().toLowerCase() : '', telefono: tel ? String(tel.value).trim() : '' };
+}
+// Consulta un cliente y, si encuentra datos, los guarda en TODAS sus cotizaciones que los tengan vacíos.
+// Deja registro de la revisión (aunque no encuentre nada) para no repetir la consulta en cada carga.
+async function completarContactoClienteDesdeBsale(sql, clienteId, token) {
+  const r = await fetchConTimeout(`${BSALE_BASE}/clients/${clienteId}/attributes.json`, { headers: { access_token: token } }, 8000);
+  if (!r.ok) return { email: '', telefono: '', consultado: false };
+  const data = await r.json();
+  const { email, telefono } = elegirContactoDeAtributos(data.items);
+  if (email) await sql`UPDATE bsale_cotizaciones SET cliente_email = ${email} WHERE cliente_id = ${clienteId} AND (cliente_email IS NULL OR cliente_email = '');`;
+  if (telefono) await sql`UPDATE bsale_cotizaciones SET cliente_telefono = ${telefono} WHERE cliente_id = ${clienteId} AND (cliente_telefono IS NULL OR cliente_telefono = '');`;
+  await sql`
+    INSERT INTO bsale_clientes_contacto_revisado (cliente_id, revisado_en, encontro_email, encontro_telefono)
+    VALUES (${clienteId}, now(), ${!!email}, ${!!telefono})
+    ON CONFLICT (cliente_id) DO UPDATE SET revisado_en = now(), encontro_email = EXCLUDED.encontro_email, encontro_telefono = EXCLUDED.encontro_telefono;`;
+  return { email, telefono, consultado: true };
+}
+
+const TOPE_CLIENTES_ATRIBUTOS_POR_PASADA = 40;
 async function completarEmailsDesdeAtributosBsale(sql) {
   const token = process.env.BSALE_ACCESS_TOKEN;
   if (!token) return { revisados: 0, completados: 0 };
 
+  // Clientes sin correo, de la cotización más reciente a la más vieja, saltando los que ya se consultaron en los
+  // últimos 3 días (antes se tomaban 30 sin orden y podían ser siempre los mismos, así que otros nunca se revisaban).
   const { rows } = await sql`
-    SELECT DISTINCT cliente_id FROM bsale_cotizaciones
-    WHERE cliente_id IS NOT NULL AND (cliente_email IS NULL OR cliente_email = '')
+    SELECT c.cliente_id FROM bsale_cotizaciones c
+    LEFT JOIN bsale_clientes_contacto_revisado r ON r.cliente_id = c.cliente_id
+    WHERE c.cliente_id IS NOT NULL AND (c.cliente_email IS NULL OR c.cliente_email = '')
+      AND (r.cliente_id IS NULL OR r.revisado_en < now() - interval '3 days')
+    GROUP BY c.cliente_id, r.revisado_en
+    ORDER BY (MIN(r.cliente_id) IS NULL) DESC, MAX(c.fecha) DESC NULLS LAST
     LIMIT ${TOPE_CLIENTES_ATRIBUTOS_POR_PASADA};
   `;
-  // Las llamadas a Bsale son independientes entre sí -- se disparan en
-  // paralelo (mismo criterio que la paginación de otros reportes, ver
-  // CLAUDE.md) en vez de una por una, porque esperarlas en serie (hasta 30
-  // viajes de ida y vuelta) fue lo que hizo que la función completa se
-  // pasara del tiempo máximo (FUNCTION_INVOCATION_TIMEOUT) la primera vez
-  // que se probó en producción.
+  // Las llamadas a Bsale son independientes entre sí -- se disparan en paralelo (ver CLAUDE.md): esperarlas en serie
+  // fue lo que hizo que la función se pasara del tiempo máximo la primera vez que se probó en producción.
   let completados = 0;
   await Promise.all(rows.map(async ({ cliente_id }) => {
     try {
-      const r = await fetchConTimeout(`${BSALE_BASE}/clients/${cliente_id}/attributes.json`, { headers: { access_token: token } }, 10000);
-      if (!r.ok) return;
-      const data = await r.json();
-      const atributoCorreo = (data.items || []).find(a => /correo|email/i.test(a.name || '') && a.value && /@/.test(a.value));
-      if (!atributoCorreo) return;
-      const email = atributoCorreo.value.trim().toLowerCase();
-      await sql`
-        UPDATE bsale_cotizaciones SET cliente_email = ${email}
-        WHERE cliente_id = ${cliente_id} AND (cliente_email IS NULL OR cliente_email = '');
-      `;
-      completados++;
+      const { email } = await completarContactoClienteDesdeBsale(sql, cliente_id, token);
+      if (email) completados++;
     } catch (err) {
-      // Mejor esfuerzo -- un cliente puntual que falle (ej. Bsale caído un
-      // instante) no debe tumbar el resto de la revisión.
+      // Mejor esfuerzo -- un cliente puntual que falle no debe tumbar el resto de la revisión.
       console.warn('[completarEmailsDesdeAtributosBsale] error en cliente', cliente_id, err.message);
     }
   }));
