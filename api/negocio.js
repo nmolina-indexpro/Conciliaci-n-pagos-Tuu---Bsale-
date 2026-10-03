@@ -6260,62 +6260,82 @@ async function manejarWhatsappDashboard(req, res, sesion) {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
 
-    // La sesión de Postgres corre en GMT/UTC (confirmado con
-    // ?campo=zona del endpoint de diagnóstico), así que CURRENT_DATE y
-    // date_trunc('month', now()) sin más marcan el corte de "hoy"/"este
-    // mes" a la medianoche UTC -- en Chile (UTC-3/-4 según horario de
-    // verano) eso corta el día real 3-4 horas antes de tiempo. "zona"
-    // calcula el inicio del día/mes en hora de Chile (convierte a hora
-    // local, trunca, y vuelve a convertir a instante UTC real para poder
-    // compararlo contra iniciada_en, que es timestamptz). ult7/ult7_anterior
-    // no llevan este ajuste porque son una resta de duración fija desde el
-    // instante actual, no un corte de día calendario -- no dependen de
-    // huso horario.
-    const { rows } = await sql`
-      WITH zona AS (
-        SELECT
-          (date_trunc('day', now() AT TIME ZONE 'America/Santiago') AT TIME ZONE 'America/Santiago') AS inicio_hoy,
-          (date_trunc('month', now() AT TIME ZONE 'America/Santiago') AT TIME ZONE 'America/Santiago') AS inicio_mes
-      )
-      SELECT
-        COUNT(*) FILTER (WHERE iniciada_en >= zona.inicio_hoy) AS hoy,
-        COUNT(*) FILTER (WHERE iniciada_en >= now() - interval '7 days') AS ult7,
-        COUNT(*) FILTER (WHERE iniciada_en >= now() - interval '14 days' AND iniciada_en < now() - interval '7 days') AS ult7_anterior,
-        COUNT(*) FILTER (WHERE iniciada_en >= zona.inicio_mes) AS mes,
-        COUNT(*) FILTER (WHERE iniciada_en >= zona.inicio_mes - interval '1 month' AND iniciada_en < zona.inicio_mes) AS mes_anterior,
-        COUNT(DISTINCT contacto_id) FILTER (WHERE iniciada_en >= zona.inicio_mes) AS clientes_unicos_mes,
-        COUNT(DISTINCT contacto_id) FILTER (WHERE iniciada_en >= zona.inicio_mes - interval '1 month' AND iniciada_en < zona.inicio_mes) AS clientes_unicos_mes_anterior,
-        AVG(primera_respuesta_segundos) FILTER (WHERE primera_respuesta_segundos IS NOT NULL) AS promedio_respuesta_seg,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY primera_respuesta_segundos) FILTER (WHERE primera_respuesta_segundos IS NOT NULL) AS mediana_respuesta_seg,
-        COUNT(*) FILTER (WHERE primera_respuesta_segundos IS NOT NULL) AS con_respuesta,
-        COUNT(*) FILTER (WHERE primera_respuesta_segundos < 300) AS bajo_5min,
-        COUNT(*) FILTER (WHERE primera_respuesta_segundos >= 300 AND primera_respuesta_segundos <= 600) AS entre_5_10min,
-        COUNT(*) FILTER (WHERE primera_respuesta_segundos > 600) AS sobre_10min,
-        COUNT(*) FILTER (WHERE primera_respuesta_segundos IS NULL AND primer_mensaje_cliente_en IS NOT NULL) AS sin_respuesta,
-        COUNT(*) FILTER (WHERE intencion = 'compra') AS con_intencion_compra,
-        COUNT(*) FILTER (WHERE resultado = 'cotizacion') AS cotizaciones,
-        COUNT(*) FILTER (WHERE venta_detectada = true) AS ventas,
-        COALESCE(SUM(venta_monto) FILTER (WHERE venta_detectada = true), 0) AS monto_total_ventas,
-        COUNT(*) FILTER (WHERE requiere_seguimiento = true AND (seguimiento_estado IS NULL OR seguimiento_estado = 'pendiente')) AS requieren_seguimiento,
-        COUNT(*) AS total_conversaciones
-      FROM whatsapp_conversaciones, zona;
-    `;
+    // Rango de fechas (hora de Chile, "hasta" inclusivo) con ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD. Sin rango = todo el
+    // historial. La sesión de Postgres corre en UTC, así que los cortes de día se calculan en hora de Chile y se
+    // convierten a instante real para compararlos contra iniciada_en (timestamptz). La variación compara contra el
+    // período anterior de IGUAL duración (los N días justo antes de "desde").
+    const esFecha = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    let desde = esFecha(req.query.desde) ? req.query.desde : null;
+    let hasta = esFecha(req.query.hasta) ? req.query.hasta : null;
+    if ((desde && !hasta) || (!desde && hasta)) { desde = desde || hasta; hasta = hasta || desde; }
+    if (desde && hasta && desde > hasta) [desde, hasta] = [hasta, desde];
+    const conRango = !!(desde && hasta);
+
+    // Tiempo de primera respuesta REAL (si el valor guardado quedó vacío pero hubo respuesta, se recalcula desde los
+    // mensajes -- ver primeraRespuestaRealSQL).
+    const pr = primeraRespuestaRealSQL();
+    const { rows } = await sql.query(
+      `WITH zona AS (
+         SELECT (date_trunc('day', now() AT TIME ZONE 'America/Santiago') AT TIME ZONE 'America/Santiago') AS inicio_hoy
+       ),
+       rango AS (
+         SELECT
+           CASE WHEN $3::boolean THEN ($1::date)::timestamp AT TIME ZONE 'America/Santiago' ELSE '-infinity'::timestamptz END AS inicio,
+           CASE WHEN $3::boolean THEN (($2::date + 1))::timestamp AT TIME ZONE 'America/Santiago' ELSE 'infinity'::timestamptz END AS fin,
+           CASE WHEN $3::boolean THEN ($2::date - $1::date + 1) ELSE NULL END AS dias
+       ),
+       previo AS (
+         SELECT
+           CASE WHEN $3::boolean THEN (($1::date - (rango.dias)::int))::timestamp AT TIME ZONE 'America/Santiago' END AS inicio,
+           CASE WHEN $3::boolean THEN ($1::date)::timestamp AT TIME ZONE 'America/Santiago' END AS fin
+         FROM rango
+       ),
+       base AS (
+         SELECT c.*, ${pr} AS pr_seg
+         FROM whatsapp_conversaciones c, rango
+         WHERE c.iniciada_en >= rango.inicio AND c.iniciada_en < rango.fin
+       )
+       SELECT
+         (SELECT COUNT(*) FROM whatsapp_conversaciones c, zona WHERE c.iniciada_en >= zona.inicio_hoy) AS hoy,
+         (SELECT COUNT(*) FROM whatsapp_conversaciones c, previo WHERE previo.inicio IS NOT NULL AND c.iniciada_en >= previo.inicio AND c.iniciada_en < previo.fin) AS periodo_anterior,
+         (SELECT COUNT(DISTINCT c.contacto_id) FROM whatsapp_conversaciones c, previo WHERE previo.inicio IS NOT NULL AND c.iniciada_en >= previo.inicio AND c.iniciada_en < previo.fin) AS clientes_unicos_anterior,
+         (SELECT dias FROM rango) AS dias,
+         COUNT(*) AS total_conversaciones,
+         COUNT(DISTINCT contacto_id) AS clientes_unicos,
+         AVG(pr_seg) FILTER (WHERE pr_seg IS NOT NULL) AS promedio_respuesta_seg,
+         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY pr_seg) FILTER (WHERE pr_seg IS NOT NULL) AS mediana_respuesta_seg,
+         COUNT(*) FILTER (WHERE pr_seg IS NOT NULL) AS con_respuesta,
+         COUNT(*) FILTER (WHERE pr_seg < 300) AS bajo_5min,
+         COUNT(*) FILTER (WHERE pr_seg >= 300 AND pr_seg <= 600) AS entre_5_10min,
+         COUNT(*) FILTER (WHERE pr_seg > 600) AS sobre_10min,
+         COUNT(*) FILTER (WHERE pr_seg IS NULL AND primer_mensaje_cliente_en IS NOT NULL) AS sin_respuesta,
+         COUNT(*) FILTER (WHERE intencion = 'compra') AS con_intencion_compra,
+         COUNT(*) FILTER (WHERE resultado = 'cotizacion') AS cotizaciones,
+         COUNT(*) FILTER (WHERE venta_detectada = true) AS ventas,
+         COALESCE(SUM(venta_monto) FILTER (WHERE venta_detectada = true), 0) AS monto_total_ventas,
+         COUNT(*) FILTER (WHERE requiere_seguimiento = true AND (seguimiento_estado IS NULL OR seguimiento_estado = 'pendiente')) AS requieren_seguimiento
+       FROM base;`,
+      [desde, hasta, conRango]
+    );
     const r = rows[0] || {};
     const num = v => Number(v) || 0;
     const variacionPct = (actual, anterior) => {
+      if (!conRango) return null; // sin rango no hay período anterior con el que comparar
       anterior = num(anterior); actual = num(actual);
       if (anterior === 0) return actual === 0 ? null : Infinity;
       return Math.round(((actual - anterior) / anterior) * 1000) / 10;
     };
     const pct = (parte, total) => total > 0 ? Math.round((parte / total) * 1000) / 10 : 0;
     const conRespuesta = num(r.con_respuesta);
+    const dias = conRango ? num(r.dias) : null;
 
     return res.status(200).json({
+      rango: conRango ? { desde, hasta, dias } : null,
       conversaciones: {
         hoy: num(r.hoy),
-        ult7dias: num(r.ult7), ult7diasVariacion: variacionPct(r.ult7, r.ult7_anterior),
-        mes: num(r.mes), mesVariacion: variacionPct(r.mes, r.mes_anterior),
-        clientesUnicosMes: num(r.clientes_unicos_mes), clientesUnicosMesVariacion: variacionPct(r.clientes_unicos_mes, r.clientes_unicos_mes_anterior),
+        periodo: num(r.total_conversaciones), periodoVariacion: variacionPct(r.total_conversaciones, r.periodo_anterior),
+        clientesUnicos: num(r.clientes_unicos), clientesUnicosVariacion: variacionPct(r.clientes_unicos, r.clientes_unicos_anterior),
+        promedioDiario: dias ? Math.round(num(r.total_conversaciones) / dias * 10) / 10 : null,
       },
       atencion: {
         promedioSegundos: r.promedio_respuesta_seg != null ? Math.round(Number(r.promedio_respuesta_seg)) : null,

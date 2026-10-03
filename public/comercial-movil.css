@@ -152,6 +152,15 @@
   .tabs-modulo::-webkit-scrollbar{ display: none; }
   .tab-modulo{ padding: 11px 14px; min-height: 44px; }
 
+  /* ---------- Dashboard de WhatsApp: menú de fechas en grilla ---------- */
+  .dash-filtros{ display: grid !important; grid-template-columns: repeat(6, 1fr); gap: 8px; align-items: stretch; }
+  .dash-filtros > *{ min-width: 0; }
+  .dash-filtros .date-field{ grid-column: span 3; }
+  .dash-filtros .date-field input{ width: 100% !important; min-width: 0; }
+  .dash-filtros [data-dash-rango="hoy"], .dash-filtros [data-dash-rango="semana"], .dash-filtros [data-dash-rango="mes"]{ grid-column: span 2; }
+  .dash-filtros [data-dash-rango="mes_anterior"], .dash-filtros [data-dash-rango="limpiar"]{ grid-column: span 3; }
+  .dash-filtros .btn-compact{ padding: 8px 4px !important; }
+
   /* ---------- Pestañas de Oportunidades (Puntos Bsale / Indexpro) ---------- */
   .tabs-grandes{ flex-wrap: nowrap; }
   .tab-grande{ min-width: 0; text-align: center; }

@@ -353,15 +353,53 @@ function cambiarVistaModulo(vista){
 }
 
 // ================= DASHBOARD =================
+// Fechas del dashboard en hora de Chile (el servidor corta los días igual).
+function hoyChileDash(){ return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' }); }
+function addDiasDash(dateStr, dias){
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d)); dt.setUTCDate(dt.getUTCDate() + dias);
+  return dt.toISOString().slice(0, 10);
+}
+function fmtNum1(n){ return Number(n || 0).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }); }
 function initDashboard(){
   $('vistaDashboard').innerHTML = `
     <div class="seccion">
-      <div class="seccion-head"><div><h2>Resumen general</h2><div class="sub">Comparado con el período anterior donde aplica.</div></div></div>
+      <div class="seccion-head"><div><h2>Resumen general</h2><div class="sub" id="dashSubtitulo">Comparado con el período anterior de igual duración.</div></div></div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;" class="dash-filtros">
+        <div class="date-field"><label for="dashDesde">Desde</label><input type="date" id="dashDesde" onchange="dashCambioManual()"></div>
+        <div class="date-field"><label for="dashHasta">Hasta</label><input type="date" id="dashHasta" onchange="dashCambioManual()"></div>
+        <button class="btn-ghost btn-compact" data-dash-rango="hoy" onclick="setRangoRapidoDash('hoy')">Hoy</button>
+        <button class="btn-ghost btn-compact" data-dash-rango="semana" onclick="setRangoRapidoDash('semana')">Semana</button>
+        <button class="btn-ghost btn-compact" data-dash-rango="mes" onclick="setRangoRapidoDash('mes')">Mes actual</button>
+        <button class="btn-ghost btn-compact" data-dash-rango="mes_anterior" onclick="setRangoRapidoDash('mes_anterior')">Mes anterior</button>
+        <button class="btn-ghost btn-compact" data-dash-rango="limpiar" onclick="setRangoRapidoDash('limpiar')">✕ Limpiar</button>
+      </div>
+      <div class="sub" id="dashAviso" style="margin-bottom:14px;"></div>
       <div id="kpisConversaciones" class="grid" style="margin-bottom:18px;"></div>
       <div id="kpisAtencion" class="grid" style="margin-bottom:18px;"></div>
       <div id="kpisComercial" class="grid"></div>
     </div>
   `;
+  setRangoRapidoDash('mes'); // arranca en el mes actual, como Cotizaciones
+}
+function setRangoRapidoDash(tipo){
+  const hoy = hoyChileDash();
+  const [y, m] = hoy.split('-').map(Number);
+  const primeroMes = `${y}-${String(m).padStart(2, '0')}-01`;
+  let desde = '', hasta = '';
+  if (tipo === 'hoy') { desde = hoy; hasta = hoy; }
+  else if (tipo === 'semana') { desde = addDiasDash(hoy, -6); hasta = hoy; }
+  else if (tipo === 'mes') { desde = primeroMes; hasta = hoy; }
+  else if (tipo === 'mes_anterior') { hasta = addDiasDash(primeroMes, -1); desde = hasta.slice(0, 8) + '01'; }
+  // 'limpiar' deja ambos vacíos = todo el historial
+  $('dashDesde').value = desde; $('dashHasta').value = hasta;
+  document.querySelectorAll('[data-dash-rango]').forEach(b => b.classList.toggle('activo', b.dataset.dashRango === tipo));
+  cargarDashboard();
+}
+function dashCambioManual(){
+  document.querySelectorAll('[data-dash-rango]').forEach(b => b.classList.remove('activo'));
+  const d = $('dashDesde').value, h = $('dashHasta').value;
+  if (d && h && d > h) { $('dashAviso').textContent = '"Desde" no puede ser posterior a "Hasta".'; return; }
   cargarDashboard();
 }
 function cmpHtml(pct){
@@ -371,18 +409,34 @@ function cmpHtml(pct){
   const flecha = pct > 0 ? '▲' : pct < 0 ? '▼' : '—';
   return `<div class="cmp ${cls}">${flecha} ${pct > 0 ? '+' : ''}${pct}% vs. período anterior</div>`;
 }
+let dashPeticion = 0; // descarta respuestas viejas si el usuario cambia el rango rápido
 async function cargarDashboard(){
+  const desde = $('dashDesde')?.value || '', hasta = $('dashHasta')?.value || '';
+  if ((desde && hasta && desde > hasta) || (!desde) !== (!hasta)) {
+    // rango a medias: se espera a que estén las dos fechas (o ninguna)
+    if (!desde !== !hasta) { $('dashAviso').textContent = 'Elige las dos fechas (Desde y Hasta) o usa "Limpiar" para ver todo el historial.'; }
+    return;
+  }
+  const mia = ++dashPeticion;
+  $('dashAviso').textContent = 'Cargando...';
   try{
-    const res = await fetch('/api/negocio?recurso=whatsapp-dashboard');
+    const qs = desde && hasta ? `&desde=${desde}&hasta=${hasta}` : '';
+    const res = await fetch('/api/negocio?recurso=whatsapp-dashboard' + qs);
     const data = await res.json();
-    if (!res.ok || data.error) { $('kpisConversaciones').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar el dashboard.'}</p>`; return; }
+    if (mia !== dashPeticion) return;
+    if (!res.ok || data.error) { $('dashAviso').textContent = ''; $('kpisConversaciones').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar el dashboard.'}</p>`; return; }
     const c = data.conversaciones, a = data.atencion, com = data.comercial;
+    const r = data.rango;
+    $('dashAviso').textContent = r
+      ? `Mostrando conversaciones iniciadas del ${r.desde} al ${r.hasta} (${r.dias} día${r.dias === 1 ? '' : 's'}); la variación compara con ${r.dias === 1 ? 'el día anterior' : `los ${r.dias} días anteriores`}.`
+      : 'Mostrando todo el historial (sin comparación con un período anterior).';
+    $('dashSubtitulo').textContent = r ? 'Comparado con el período anterior de igual duración.' : 'Sin rango de fechas: se muestra todo el historial.';
 
     $('kpisConversaciones').innerHTML = `
       <div class="card"><div class="lbl">Conversaciones hoy</div><div class="big">${fmtNum(c.hoy)}</div></div>
-      <div class="card"><div class="lbl">Últimos 7 días</div><div class="big">${fmtNum(c.ult7dias)}</div>${cmpHtml(c.ult7diasVariacion)}</div>
-      <div class="card"><div class="lbl">Este mes</div><div class="big">${fmtNum(c.mes)}</div>${cmpHtml(c.mesVariacion)}</div>
-      <div class="card"><div class="lbl">Clientes únicos (mes)</div><div class="big">${fmtNum(c.clientesUnicosMes)}</div>${cmpHtml(c.clientesUnicosMesVariacion)}</div>
+      <div class="card"><div class="lbl">Conversaciones del período</div><div class="big">${fmtNum(c.periodo)}</div>${cmpHtml(c.periodoVariacion)}</div>
+      <div class="card"><div class="lbl">Clientes únicos del período</div><div class="big">${fmtNum(c.clientesUnicos)}</div>${cmpHtml(c.clientesUnicosVariacion)}</div>
+      <div class="card"><div class="lbl">Promedio por día</div><div class="big">${c.promedioDiario != null ? fmtNum1(c.promedioDiario) : '—'}</div></div>
     `;
     $('kpisAtencion').innerHTML = `
       <div class="card"><div class="lbl">Tiempo prom. 1ª respuesta</div><div class="big">${a.promedioSegundos != null ? fmtDuracion(a.promedioSegundos) : '—'}</div></div>
