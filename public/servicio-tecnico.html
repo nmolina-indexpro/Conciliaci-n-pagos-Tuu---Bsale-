@@ -111,6 +111,47 @@
   .chart-tick{font-family:'IBM Plex Mono',monospace;font-size:9.5px;fill:var(--muted);}
   .chart-bar{fill:var(--primary);}
   .chart-bar.actual{fill:var(--primary-dim);stroke:var(--primary);stroke-width:1;stroke-dasharray:2 2;}
+
+  /* ---- Tablero: las secciones se reparten en columnas para que quepan de un vistazo ---- */
+  .seccion{padding:18px 20px;margin-bottom:16px;}
+  .seccion-head{margin-bottom:12px;}
+  .seccion-head .sub{font-size:12px;}
+  .grid{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:16px;}
+  .fila-2{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;align-items:start;margin-bottom:16px;}
+  .fila-2.mitad{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .fila-2.solo{grid-template-columns:minmax(0,1fr);}
+  .fila-2 > .seccion{margin-bottom:0;}
+  .tabla-wrap.alta{max-height:330px;overflow:auto;}
+  /* la tarjeta de caídas es angosta: el detalle de cifras baja de línea en vez de salirse */
+  .alerta-caida{flex-wrap:wrap;}
+  .alerta-caida .cifras{white-space:normal;font-size:11.5px;}
+
+  /* ---- Soporte en Zoho Desk: 5 paneles en una cuadrícula de 12 columnas ---- */
+  .zd-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px;}
+  .zd-panel{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0;display:flex;flex-direction:column;}
+  .zd-4{grid-column:span 4;} .zd-3{grid-column:span 3;} .zd-5{grid-column:span 5;} .zd-7{grid-column:span 7;}
+  .zd-panel h3{font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0 0 8px;}
+  .zd-big{font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:600;line-height:1.1;color:var(--text);}
+  .zd-big small{font-size:13px;font-weight:500;color:var(--muted);margin-left:4px;}
+  .zd-nota{font-size:11.5px;color:var(--muted);margin-top:3px;}
+  .zd-barras{margin-top:10px;display:flex;flex-direction:column;gap:6px;}
+  .zd-barra{display:grid;grid-template-columns:minmax(70px,38%) 1fr 28px;align-items:center;gap:8px;font-size:12px;}
+  .zd-barra .pista{background:var(--line);border-radius:4px;height:9px;overflow:hidden;}
+  .zd-barra .relleno{display:block;height:100%;border-radius:4px;background:var(--blue);}
+  .zd-barra .relleno.amb{background:var(--amber);}
+  .zd-barra .nom{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .zd-barra .val{font-family:'IBM Plex Mono',monospace;text-align:right;font-weight:600;}
+  .zd-alerta{margin-top:10px;padding:8px 10px;border-radius:8px;background:var(--amber-dim);font-size:12px;color:var(--text);}
+  .zd-alerta.roja{background:var(--red-bg);}
+  .zd-leyenda{display:flex;gap:14px;font-size:11.5px;color:var(--muted);margin:2px 0 4px;flex-wrap:wrap;}
+  .zd-leyenda i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;}
+  .zd-scroll{max-height:250px;overflow:auto;margin-top:6px;}
+  .zd-panel table{font-size:12px;} .zd-panel td, .zd-panel th{padding:6px 8px;}
+  .zd-panel td.wrap{white-space:normal;}
+  #chartFlujo{width:100%;height:auto;display:block;}
+  @media (max-width:1250px){ .zd-4{grid-column:span 6;} .zd-3{grid-column:span 6;} .zd-5{grid-column:span 6;} .zd-7{grid-column:span 12;} }
+  @media (max-width:1100px){ .fila-2, .fila-2.mitad{grid-template-columns:minmax(0,1fr);} .grid{grid-template-columns:repeat(2,minmax(0,1fr));} }
+  @media (max-width:700px){ .zd-4,.zd-3,.zd-5,.zd-7{grid-column:span 12;} }
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -199,6 +240,22 @@
     <div class="card"><div class="lbl">Semestre actual vs. anterior</div><div class="big" id="kpiSemestre">—</div><div class="note" id="kpiSemestreNota"></div></div>
   </div>
 
+  <div class="seccion" id="seccionZoho">
+    <div class="seccion-head">
+      <div>
+        <h2>🎧 Soporte en Zoho Desk</h2>
+        <div class="sub" style="margin-bottom:0;" id="zdSub">Órdenes de servicio técnico: lo que está pendiente hoy y qué tan rápido se resuelve.</div>
+      </div>
+      <div class="seccion-head-acciones">
+        <span id="zdEstado" style="font-size:11.5px;color:var(--muted);"></span>
+        <button class="btn-ghost" id="btnZdActualizar" onclick="cargarZohoMetricas(true)" title="Volver a consultar Zoho Desk">🔄 Actualizar</button>
+        <button class="btn-toggle-seccion" id="toggle-seccionZoho" onclick="toggleSeccion('seccionZoho')" title="Minimizar">▾</button>
+      </div>
+    </div>
+    <div id="zdContenido"><p class="empty-note">Consultando Zoho Desk...</p></div>
+  </div>
+
+  <div class="fila-2" id="filaTendencia">
   <div class="seccion" id="seccionTendencia">
     <div class="seccion-head">
       <div>
@@ -209,7 +266,7 @@
         <button class="btn-toggle-seccion" id="toggle-seccionTendencia" onclick="toggleSeccion('seccionTendencia')" title="Minimizar">▾</button>
       </div>
     </div>
-    <svg id="chartTendencia" viewBox="0 0 1000 130"></svg>
+    <svg id="chartTendencia" viewBox="0 0 700 190"></svg>
   </div>
 
   <div class="seccion" id="seccionCaida" style="display:none;">
@@ -222,7 +279,8 @@
         <button class="btn-toggle-seccion" id="toggle-seccionCaida" onclick="toggleSeccion('seccionCaida')" title="Minimizar">▾</button>
       </div>
     </div>
-    <div id="wrapCaida"></div>
+    <div id="wrapCaida" class="tabla-wrap alta"></div>
+  </div>
   </div>
 
   <div class="seccion" id="seccionServiciosPorMes">
@@ -249,6 +307,7 @@
     <div id="syncStatus"></div>
   </div>
 
+  <div class="fila-2 mitad">
   <div class="seccion" id="seccionTecnico">
     <div class="seccion-head">
       <div>
@@ -273,6 +332,7 @@
       </div>
     </div>
     <div id="wrapClientesRecurrentes"><p class="empty-note">Cargando...</p></div>
+  </div>
   </div>
 
   <div class="seccion" id="seccionInsumos">
@@ -325,7 +385,7 @@ const mesActualKey = new Date().toISOString().slice(0, 7);
 // ---------- Minimizar secciones (pedido del usuario) ----------
 // Se guarda en localStorage -- es una preferencia de ESTE navegador, no un
 // dato que otros usuarios deban compartir (mismo criterio que analisis.html).
-const SECCIONES_COLAPSABLES = ['seccionTendencia', 'seccionCaida', 'seccionServiciosPorMes', 'seccionTecnico', 'seccionClientesRecurrentes', 'seccionInsumos'];
+const SECCIONES_COLAPSABLES = ['seccionZoho', 'seccionTendencia', 'seccionCaida', 'seccionServiciosPorMes', 'seccionTecnico', 'seccionClientesRecurrentes', 'seccionInsumos'];
 function toggleSeccion(id, forzarColapsada){
   const el = $(id);
   if(!el) return;
@@ -562,7 +622,10 @@ function renderKpis(data){
 function renderChart(data){
   const { meses, servicios } = data;
   const totales = meses.map(m => servicios.reduce((a, s) => a + (s.porMes[m]?.monto || 0), 0));
-  const W = 1000, H = 130, padL = 60, padR = 10, padT = 10, padB = 26;
+  // el gráfico toma el ancho real de su tarjeta (angosta junto a "Servicios en caída", ancha cuando está sola) y un alto fijo
+  const svg = $('chartTendencia');
+  const W = Math.max(480, Math.round(svg.parentElement.clientWidth - 40)), H = 170, padL = 56, padR = 10, padT = 10, padB = 26;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const max = Math.max(1, ...totales);
   const anchoBarra = innerW / meses.length;
@@ -605,8 +668,9 @@ function detectarServiciosEnCaida(data){
 function renderCaida(data){
   const caidas = detectarServiciosEnCaida(data);
   const seccion = $('seccionCaida');
-  if(caidas.length === 0){ seccion.style.display = 'none'; return; }
+  if(caidas.length === 0){ seccion.style.display = 'none'; $('filaTendencia').classList.add('solo'); return; }
   seccion.style.display = '';
+  $('filaTendencia').classList.remove('solo');
   $('wrapCaida').innerHTML = caidas.map(c => `
     <div class="alerta-caida">
       <span><b>${c.nombre}</b> <span class="sku-code">SKU: ${c.sku}</span></span>
@@ -630,7 +694,7 @@ function renderTecnico(data){
   }
   const totalMonto = filas.reduce((a, f) => a + f.monto, 0);
   $('wrapTecnico').innerHTML = `
-    <div class="tabla-wrap"><table>
+    <div class="tabla-wrap alta"><table>
       <thead><tr>
         <th>Técnico</th>
         <th class="mes ordenable" onclick="cambiarOrdenTecnico('cantidad')">Servicios${flechaTecnico('cantidad')}</th>
@@ -671,7 +735,7 @@ function renderClientesRecurrentes(data){
     return;
   }
   $('wrapClientesRecurrentes').innerHTML = `
-    <div class="tabla-wrap"><table>
+    <div class="tabla-wrap alta"><table>
       <thead><tr>
         <th>Cliente</th>
         <th class="mes ordenable" onclick="cambiarOrdenClientesRecTec('visitas')">Visitas${flechaClientesRecTec('visitas')}</th>
@@ -729,8 +793,8 @@ async function cargarServicios(){
     renderTabla(data);
     if(data.servicios.length){
       renderKpis(data);
+      renderCaida(data); // antes del gráfico: define si la tendencia comparte fila o ocupa todo el ancho
       renderChart(data);
-      renderCaida(data);
     }
     renderTecnico(data);
     renderClientesRecurrentes(data);
@@ -805,6 +869,7 @@ async function cargarSesionUsuario(){
       $('btnSincronizar').style.display = '';
     }
     cargarServicios();
+    cargarZohoMetricas();
     cargarInsumos(); // pedido del usuario: precargar solo, sin esperar el clic en "Actualizar"
   }catch(err){ /* silencioso */ }
 }
@@ -940,6 +1005,138 @@ function renderInsumos(){
     </table></div>
   `;
 }
+
+// ---------- Soporte en Zoho Desk (5 métricas) ----------
+// Los números los calcula el servidor (lib/zoho-metricas.js) a partir de los tickets del departamento de Servicio
+// Técnico; acá solo se dibujan. Cada panel responde una pregunta: ¿cuánto hay pendiente?, ¿entra más de lo que sale?,
+// ¿qué tan rápido se resuelve?, ¿a quién estamos dejando esperando?, ¿cómo está repartida la carga?
+const ZD_AZUL = 'var(--blue)', ZD_AMBAR = 'var(--amber)';
+function fmtDias(d){ return d == null ? '—' : String(d).replace('.', ','); }
+function fmtSemana(iso){ const [, m, d] = iso.split('-').map(Number); return `${d} ${MESES_CORTOS[m - 1]}`; }
+
+function zdBarrasHtml(filas, clase){
+  const max = Math.max(1, ...filas.map(f => f.valor));
+  return `<div class="zd-barras">${filas.map(f => `
+    <div class="zd-barra" title="${escapeHtml(f.nombre)}: ${f.valor}">
+      <span class="nom">${escapeHtml(f.nombre)}</span>
+      <span class="pista"><span class="relleno ${clase || ''}" style="width:${Math.max(3, Math.round(f.valor / max * 100))}%"></span></span>
+      <span class="val">${f.valor}</span>
+    </div>`).join('')}</div>`;
+}
+
+function zdPanelBacklog(m){
+  const b = m.backlog;
+  const estados = b.porEstado.length ? zdBarrasHtml(b.porEstado.map(e => ({ nombre: e.estado, valor: e.cantidad }))) : '<p class="empty-note">No hay órdenes abiertas.</p>';
+  const pr = b.porRetirar;
+  const alertaRetiro = pr.total
+    ? `<div class="zd-alerta ${pr.conAcopio ? 'roja' : ''}">📦 <b>${pr.total}</b> equipo${pr.total === 1 ? '' : 's'} listo${pr.total === 1 ? '' : 's'} por retirar${pr.conAcopio ? ` — <b>${pr.conAcopio}</b> con ${pr.diasAcopio}+ días (ya corre el cobro de acopio)` : ''}.${pr.masAntiguos[0] && pr.masAntiguos[0].dias != null ? ` El más antiguo lleva ${pr.masAntiguos[0].dias} días.` : ''}</div>`
+    : '';
+  return `<div class="zd-panel zd-4">
+    <h3>1 · Órdenes abiertas</h3>
+    <div class="zd-big">${fmtNum(b.total)}<small>abiertas</small></div>
+    <div class="zd-nota">${b.vencidos ? `<span class="arrow-down">${b.vencidos} con plazo vencido</span>` : 'Ninguna con plazo vencido'}</div>
+    ${estados}${alertaRetiro}
+  </div>`;
+}
+
+function zdPanelFlujo(m){
+  const f = m.flujo, sem = f.semanas;
+  const W = 520, H = 190, padL = 26, padR = 6, padT = 14, padB = 24;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const max = Math.max(1, ...sem.flatMap(s => [s.ingresados, s.cerrados]));
+  const grupo = innerW / sem.length, ancho = grupo * 0.32;
+  const barras = sem.map((s, i) => {
+    const x0 = padL + i * grupo + grupo * 0.14;
+    const alt = v => Math.max(v ? 2 : 0, v / max * innerH);
+    const hI = alt(s.ingresados), hC = alt(s.cerrados);
+    const esActual = i === sem.length - 1;
+    return `
+      <rect x="${x0.toFixed(1)}" y="${(padT + innerH - hI).toFixed(1)}" width="${ancho.toFixed(1)}" height="${hI.toFixed(1)}" rx="3" fill="${ZD_AZUL}"${esActual ? ' opacity=".55"' : ''}><title>Semana del ${fmtSemana(s.semana)}: ${s.ingresados} ingresadas</title></rect>
+      <rect x="${(x0 + ancho + 3).toFixed(1)}" y="${(padT + innerH - hC).toFixed(1)}" width="${ancho.toFixed(1)}" height="${hC.toFixed(1)}" rx="3" fill="${ZD_AMBAR}"${esActual ? ' opacity=".55"' : ''}><title>Semana del ${fmtSemana(s.semana)}: ${s.cerrados} cerradas</title></rect>
+      ${s.ingresados ? `<text class="chart-tick" x="${(x0 + ancho / 2).toFixed(1)}" y="${(padT + innerH - hI - 3).toFixed(1)}" text-anchor="middle">${s.ingresados}</text>` : ''}
+      ${s.cerrados ? `<text class="chart-tick" x="${(x0 + ancho * 1.5 + 3).toFixed(1)}" y="${(padT + innerH - hC - 3).toFixed(1)}" text-anchor="middle">${s.cerrados}</text>` : ''}
+      <text class="chart-tick" x="${(x0 + ancho + 1.5).toFixed(1)}" y="${H - 8}" text-anchor="middle">${fmtSemana(s.semana)}</text>`;
+  }).join('');
+  const dif = f.ingresados4 - f.cerrados4;
+  const lectura = dif > 0 ? `<span class="arrow-down">Entran ${dif} más de las que salen</span> (últimas 4 semanas)` : dif < 0 ? `<span class="arrow-up">Salen ${-dif} más de las que entran</span> (últimas 4 semanas)` : 'Entra lo mismo que sale (últimas 4 semanas)';
+  return `<div class="zd-panel zd-5">
+    <h3>2 · Ingresos vs. cierres por semana</h3>
+    <div class="zd-leyenda"><span><i style="background:${ZD_AZUL}"></i>Ingresadas (${f.ingresados4} en 4 sem.)</span><span><i style="background:${ZD_AMBAR}"></i>Cerradas (${f.cerrados4} en 4 sem.)</span></div>
+    <svg id="chartFlujo" viewBox="0 0 ${W} ${H}"><line x1="${padL}" y1="${padT + innerH}" x2="${W - padR}" y2="${padT + innerH}" stroke="var(--line)"></line>${barras}</svg>
+    <div class="zd-nota">${lectura}. La última semana está incompleta (más clara).</div>
+  </div>`;
+}
+
+function zdPanelResolucion(m){
+  const r = m.resolucion;
+  if(!r.cerrados) return `<div class="zd-panel zd-3"><h3>3 · Tiempo de resolución</h3><p class="empty-note">No hay órdenes cerradas en los últimos ${r.ventanaDias} días.</p></div>`;
+  return `<div class="zd-panel zd-3">
+    <h3>3 · Tiempo de resolución</h3>
+    <div class="zd-big">${fmtDias(r.promedio)}<small>días en promedio</small></div>
+    <div class="zd-nota">Mediana ${fmtDias(r.mediana)} días · <b>${r.pctEn3Dias}%</b> se cierra en 3 días o menos</div>
+    ${zdBarrasHtml(r.distribucion.map(d => ({ nombre: d.rango, valor: d.cantidad })), 'amb')}
+    <div class="zd-nota" style="margin-top:8px;">${fmtNum(r.cerrados)} órdenes cerradas en ${r.ventanaDias} días, de la creación al cierre en Zoho.</div>
+  </div>`;
+}
+
+function zdPanelEsperando(m){
+  const e = m.esperandoRespuesta;
+  const filas = e.lista.map(x => `
+    <tr>
+      <td class="wrap"><b>${escapeHtml(x.cliente)}</b><br><span class="sku-code">${x.url ? `<a href="${escapeHtml(x.url)}" target="_blank" rel="noopener noreferrer">#${escapeHtml(x.numero)}</a>` : '#' + escapeHtml(x.numero)} · ${escapeHtml(x.estado)}</span></td>
+      <td>${escapeHtml(x.agente)}</td>
+      <td class="mes amount ${x.dias >= 2 ? 'marca-peor' : ''}">${fmtDias(x.dias)} d</td>
+    </tr>`).join('');
+  return `<div class="zd-panel zd-7">
+    <h3>4 · Clientes esperando respuesta</h3>
+    <div class="zd-big">${fmtNum(e.total)}<small>${e.total === 1 ? 'cliente escribió y no le hemos respondido' : 'clientes escribieron y no les hemos respondido'}</small></div>
+    <div class="zd-nota">${e.masDeDosDias ? `<span class="arrow-down">${e.masDeDosDias} llevan 2+ días esperando</span>` : 'Ninguno lleva más de 2 días'} · se excluyen los equipos "Por retirar".</div>
+    ${e.total ? `<div class="zd-scroll"><table><thead><tr><th>Cliente / orden</th><th>Técnico</th><th class="mes">Espera</th></tr></thead><tbody>${filas}</tbody></table></div>` : '<p class="empty-note">Todos los mensajes de clientes tienen respuesta. 👌</p>'}
+  </div>`;
+}
+
+function zdPanelAgentes(m){
+  const a = m.porAgente;
+  const filas = a.map(x => `
+    <tr>
+      <td>${escapeHtml(x.agente)}</td>
+      <td class="mes amount">${fmtNum(x.abiertos)}</td>
+      <td class="mes amount">${fmtNum(x.cerrados30)}</td>
+      <td class="mes amount">${x.diasPromedio == null ? '—' : fmtDias(x.diasPromedio) + ' d'}</td>
+    </tr>`).join('');
+  return `<div class="zd-panel zd-5">
+    <h3>5 · Carga por técnico</h3>
+    ${a.length ? `<div class="zd-scroll" style="max-height:none;"><table><thead><tr><th>Técnico</th><th class="mes">Abiertas</th><th class="mes">Cerradas (30 d)</th><th class="mes">Resolución</th></tr></thead><tbody>${filas}</tbody></table></div>` : '<p class="empty-note">Sin datos de técnicos.</p>'}
+    <div class="zd-nota" style="margin-top:8px;">Según el técnico asignado en Zoho Desk. "Resolución" = promedio de las cerradas en los últimos 30 días.</div>
+  </div>`;
+}
+
+async function cargarZohoMetricas(forzar){
+  const cont = $('zdContenido'), btn = $('btnZdActualizar');
+  btn.disabled = true;
+  $('zdEstado').textContent = 'Consultando Zoho Desk...';
+  try{
+    const res = await fetch('/api/negocio?recurso=zoho-servicio-tecnico-metricas' + (forzar ? '&forzar=1' : ''));
+    const m = await res.json();
+    if(m.configurado === false){
+      cont.innerHTML = `<p class="empty-note">Zoho Desk no está conectado: en Vercel faltan las variables ${(m.faltan || []).map(escapeHtml).join(', ')}.</p>`;
+    } else if(m.error){
+      cont.innerHTML = `<p class="empty-note">${escapeHtml(m.error)}${m.detail ? ' (' + escapeHtml(m.detail) + ')' : ''}</p>`;
+    } else {
+      cont.innerHTML = `<div class="zd-grid">${zdPanelBacklog(m)}${zdPanelFlujo(m)}${zdPanelResolucion(m)}${zdPanelEsperando(m)}${zdPanelAgentes(m)}</div>`;
+      $('zdSub').textContent = `${m.departamentos.join(' + ')} — ${fmtNum(m.totalTicketsLeidos)} órdenes leídas (modificadas en los últimos ${m.ventanaDias} días).`;
+    }
+    $('zdEstado').textContent = m.generadoEn ? 'Actualizado ' + new Date(m.generadoEn).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : '';
+  }catch(err){
+    cont.innerHTML = `<p class="empty-note">No se pudo consultar Zoho Desk: ${escapeHtml(err.message)}</p>`;
+    $('zdEstado').textContent = '';
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+let _tRedimension = null;
+window.addEventListener('resize', () => { clearTimeout(_tRedimension); _tRedimension = setTimeout(() => { if(ultimosDatos && ultimosDatos.servicios.length) renderChart(ultimosDatos); }, 200); });
 
 cargarSesionUsuario();
 </script>

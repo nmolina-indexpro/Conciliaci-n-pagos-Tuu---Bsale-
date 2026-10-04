@@ -15,7 +15,8 @@ import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../l
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
 import { armarComunicacionZoho, filasCorreosDesdeZoho, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
-import { seleccionarPorRecontactar, armarCorreoRecontacto, ESTADOS_A_RECONTACTAR } from '../lib/cotizaciones-recontacto.js';
+import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
+import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR } from '../lib/cotizaciones-recontacto.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
@@ -140,6 +141,7 @@ export default async function handler(req, res) {
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
   if (recurso === 'cotizacion-correo-contenido') return manejarCotizacionCorreoContenido(req, res, sesion);
   if (recurso === 'cotizacion-zoho') return manejarCotizacionZoho(req, res, sesion);
+  if (recurso === 'zoho-servicio-tecnico-metricas') return manejarZohoServicioTecnicoMetricas(req, res, sesion);
   if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
   if (recurso === 'calendario-pagos-importar') return manejarCalendarioPagosImportar(req, res, sesion);
   if (recurso === 'saldo-bci') return manejarSaldoBci(req, res, sesion);
@@ -4879,6 +4881,55 @@ async function buscarTicketsZohoPorCorreo(correo, headers, dc) {
     if (items.length < 100) break;
   }
   return { tickets: hallados.slice(0, TOPE_TICKETS_ZOHO_POR_COTIZACION), via: 'listado-reciente' };
+}
+
+// Métricas del departamento de Servicio Técnico en Zoho Desk (página Servicio Técnico). Se leen los tickets modificados
+// en los últimos 120 días (los abiertos viejos también aparecen porque cada gestión los vuelve a "modificar") y el
+// cálculo vive en lib/zoho-metricas.js. Resultado en memoria 5 minutos (cada instancia), ?forzar=1 lo salta.
+const PAGINAS_METRICAS_ZOHO = 10;
+const DIAS_METRICAS_ZOHO = 120;
+let cacheMetricasZoho = null;
+async function manejarZohoServicioTecnicoMetricas(req, res, _sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const { ZOHO_ORG_ID, ZOHO_DC, ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN } = process.env;
+    const faltan = Object.entries({ ZOHO_ORG_ID, ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN }).filter(([, v]) => !v).map(([k]) => k);
+    if (faltan.length) return res.status(200).json({ configurado: false, faltan });
+    if (!req.query.forzar && cacheMetricasZoho && Date.now() - cacheMetricasZoho.ts < 5 * 60000) return res.status(200).json(cacheMetricasZoho.data);
+
+    const dc = ZOHO_DC || 'com';
+    const accessToken = await obtenerAccessTokenZoho();
+    const headers = { orgId: ZOHO_ORG_ID, Authorization: `Zoho-oauthtoken ${accessToken}` };
+    const base = `https://desk.zoho.${dc}/api/v1`;
+
+    // Departamentos de servicio técnico (por nombre, solo los activos). Si no se pueden leer, se avisa: mezclar
+    // los tickets de ventas con los de servicio técnico haría mentir a todas las métricas.
+    const rd = await fetchConTimeout(`${base}/departments`, { headers });
+    if (!rd.ok) return res.status(200).json({ configurado: true, error: `No se pudieron leer los departamentos de Zoho (HTTP ${rd.status}). Falta el permiso Desk.basic.READ.` });
+    const departamentos = ((await rd.json()).data || []).filter(d => d.isEnabled !== false && /t[eé]cnic/i.test(d.name || ''));
+    if (!departamentos.length) return res.status(200).json({ configurado: true, error: 'No se encontró ningún departamento de servicio técnico activo en Zoho Desk.' });
+
+    const ahora = new Date();
+    const desde = new Date(ahora.getTime() - DIAS_METRICAS_ZOHO * 86400000);
+    const tickets = [];
+    for (const dep of departamentos) {
+      for (let pagina = 0; pagina < PAGINAS_METRICAS_ZOHO; pagina++) {
+        const r = await fetchConTimeout(`${base}/tickets?departmentId=${dep.id}&limit=100&from=${pagina * 100}&sortBy=-modifiedTime&include=contacts,assignee`, { headers });
+        if (r.status === 204) break;
+        if (!r.ok) throw new Error(`Zoho Desk respondió HTTP ${r.status} al listar tickets`);
+        const items = (await r.json()).data || [];
+        tickets.push(...items);
+        if (items.length < 100) break;
+        const ultima = items[items.length - 1];
+        if (new Date(ultima.modifiedTime || ultima.createdTime || 0) < desde) break;
+      }
+    }
+    const data = { configurado: true, departamentos: departamentos.map(d => d.name), ventanaDias: DIAS_METRICAS_ZOHO, ...calcularMetricasTickets(tickets, ahora) };
+    cacheMetricasZoho = { ts: Date.now(), data };
+    return res.status(200).json(data);
+  } catch (err) {
+    return res.status(200).json({ configurado: true, error: 'No se pudo consultar Zoho Desk', detail: String(err.message || err) });
+  }
 }
 
 // Los mensajes de Zoho se guardan en cotizaciones_correos (casilla "Zoho Desk"), igual que los correos detectados por
