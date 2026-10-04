@@ -2951,6 +2951,31 @@ function categoriaServicio(nombre) {
   return 'Otro';
 }
 
+// "Instalación gratuita de pantalla" se cobra $0: cuenta como servicio hecho, pero distorsiona el ticket promedio,
+// así que se deja fuera de ese cálculo (pedido del usuario). Mismo criterio en SQL (SQL_GRATIS_PANTALLA) y en JS.
+const SQL_GRATIS_PANTALLA = "(COALESCE(nombre, '') ~* 'gratu[ií]t' AND COALESCE(nombre, '') ~* 'pantalla')";
+function esInstalacionGratuitaPantalla(nombre) {
+  return /gratu[ií]t/i.test(nombre || '') && /pantalla/i.test(nombre || '');
+}
+const RE_DIA_SERVICIOS = /^\d{4}-\d{2}-\d{2}$/;
+// Totales de un período (fechas YYYY-MM-DD, ambas incluidas): servicios, monto, documentos y la base del ticket promedio.
+async function totalesServiciosPeriodo(sql, desde, hasta) {
+  const { rows } = await sql.query(
+    `SELECT COUNT(DISTINCT documento_id)::int AS documentos,
+            COALESCE(SUM(cantidad), 0)::numeric AS cantidad, COALESCE(SUM(monto), 0)::numeric AS monto,
+            COALESCE(SUM(cantidad) FILTER (WHERE NOT ${SQL_GRATIS_PANTALLA}), 0)::numeric AS cantidad_ticket,
+            COALESCE(SUM(monto) FILTER (WHERE NOT ${SQL_GRATIS_PANTALLA}), 0)::numeric AS monto_ticket
+     FROM bsale_servicios_ventas
+     WHERE fecha BETWEEN $1::date AND $2::date
+       AND COALESCE(nombre, '') !~* 'soporte\\s*inform[aá]tico'
+       AND sku != ALL($3::text[]);`,
+    [desde, hasta, [...SKUS_SERVICIO_EXCLUIDOS]]
+  );
+  const r = rows[0] || {};
+  const cantidad = Number(r.cantidad) || 0, monto = Number(r.monto) || 0, cantidadTicket = Number(r.cantidad_ticket) || 0, montoTicket = Number(r.monto_ticket) || 0;
+  return { documentos: r.documentos || 0, cantidad, monto, cantidadTicket, montoTicket, ticketPromedio: cantidadTicket > 0 ? montoTicket / cantidadTicket : 0 };
+}
+
 async function manejarServiciosPorMes(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
@@ -2972,11 +2997,21 @@ async function manejarServiciosPorMes(req, res, sesion) {
     const mapaPorSku = new Map();
     for (const r of rows) {
       if (SKUS_SERVICIO_EXCLUIDOS.has(r.sku)) continue;
-      if (!mapaPorSku.has(r.sku)) mapaPorSku.set(r.sku, { sku: r.sku, nombre: r.nombre, categoria: categoriaServicio(r.nombre), porMes: {} });
+      if (!mapaPorSku.has(r.sku)) mapaPorSku.set(r.sku, { sku: r.sku, nombre: r.nombre, categoria: categoriaServicio(r.nombre), sinTicket: esInstalacionGratuitaPantalla(r.nombre), porMes: {} });
       const mesKey = new Date(r.mes).toISOString().slice(0, 7); // YYYY-MM
       mapaPorSku.get(r.sku).porMes[mesKey] = { cantidad: Number(r.cantidad), monto: Number(r.monto) };
     }
     const servicios = [...mapaPorSku.values()].sort((a, b) => (a.nombre || a.sku || '').localeCompare(b.nombre || b.sku || ''));
+
+    // Filtro de fechas de la página (?desde=&hasta=, y ?desdeAnt=&hastaAnt= para comparar contra el período anterior
+    // equivalente que calcula la página). Sin filtro, todo queda como antes (12 meses completos).
+    const { desde, hasta, desdeAnt, hastaAnt } = req.query;
+    const filtro = RE_DIA_SERVICIOS.test(desde || '') && RE_DIA_SERVICIOS.test(hasta || '') && desde <= hasta;
+    const comparar = filtro && RE_DIA_SERVICIOS.test(desdeAnt || '') && RE_DIA_SERVICIOS.test(hastaAnt || '') && desdeAnt <= hastaAnt;
+    const periodo = filtro ? {
+      desde, hasta, actual: await totalesServiciosPeriodo(sql, desde, hasta),
+      anterior: comparar ? { desde: desdeAnt, hasta: hastaAnt, ...(await totalesServiciosPeriodo(sql, desdeAnt, hastaAnt)) } : null,
+    } : null;
 
     // Ranking por técnico (pedido del usuario) -- requiere vendedor_id, que
     // solo empieza a llenarse desde la sincronización que agregó estas
@@ -2990,9 +3025,10 @@ async function manejarServiciosPorMes(req, res, sesion) {
        WHERE vendedor_id IS NOT NULL
          AND COALESCE(nombre, '') !~* 'soporte\\s*inform[aá]tico'
          AND sku != ALL($1::text[])
+         AND ($2::date IS NULL OR fecha >= $2::date) AND ($3::date IS NULL OR fecha <= $3::date)
        GROUP BY vendedor_id
        ORDER BY monto DESC;`,
-      [[...SKUS_SERVICIO_EXCLUIDOS]]
+      [[...SKUS_SERVICIO_EXCLUIDOS], filtro ? desde : null, filtro ? hasta : null]
     );
     const porTecnico = filasTecnico.map(r => ({
       vendedorId: r.vendedor_id, nombre: r.nombre, cantidad: Number(r.cantidad), monto: Number(r.monto), documentos: r.documentos,
@@ -3020,7 +3056,7 @@ async function manejarServiciosPorMes(req, res, sesion) {
     }));
 
     return res.status(200).json({
-      meses, servicios, porTecnico, clientesRecurrentes,
+      meses, servicios, porTecnico, clientesRecurrentes, periodo,
       ultimaSincronizacion: estado.ultima_pasada_completa_en || null,
       sincronizando: !!(estado.total_documentos != null && estado.offset_actual < estado.total_documentos),
     });
@@ -4885,17 +4921,27 @@ async function buscarTicketsZohoPorCorreo(correo, headers, dc) {
 
 // Métricas del departamento de Servicio Técnico en Zoho Desk (página Servicio Técnico). Se leen los tickets modificados
 // en los últimos 120 días (los abiertos viejos también aparecen porque cada gestión los vuelve a "modificar") y el
-// cálculo vive en lib/zoho-metricas.js. Resultado en memoria 5 minutos (cada instancia), ?forzar=1 lo salta.
+// cálculo vive en lib/zoho-metricas.js. Los tickets quedan en memoria 5 minutos (cada instancia; ?forzar=1 lo salta) y
+// el cálculo se rehace en cada consulta, porque el filtro de fechas (?desde=&hasta=) solo cambia lo que se mide.
 const PAGINAS_METRICAS_ZOHO = 10;
 const DIAS_METRICAS_ZOHO = 120;
-let cacheMetricasZoho = null;
+let cacheMetricasZoho = null; // { ts, desdeLectura, departamentos, tickets }
 async function manejarZohoServicioTecnicoMetricas(req, res, _sesion) {
   try {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     const { ZOHO_ORG_ID, ZOHO_DC, ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN } = process.env;
     const faltan = Object.entries({ ZOHO_ORG_ID, ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN }).filter(([, v]) => !v).map(([k]) => k);
     if (faltan.length) return res.status(200).json({ configurado: false, faltan });
-    if (!req.query.forzar && cacheMetricasZoho && Date.now() - cacheMetricasZoho.ts < 5 * 60000) return res.status(200).json(cacheMetricasZoho.data);
+    const RE_DIA = /^\d{4}-\d{2}-\d{2}$/;
+    const periodo = (RE_DIA.test(req.query.desde || '') && RE_DIA.test(req.query.hasta || '')) ? { desde: req.query.desde, hasta: req.query.hasta } : {};
+    // si el período empieza antes de lo que cubre la lectura normal, se lee más atrás (no más de 400 días)
+    const ahora = new Date();
+    let desde = new Date(ahora.getTime() - DIAS_METRICAS_ZOHO * 86400000);
+    if (periodo.desde) { const pd = new Date(periodo.desde + 'T00:00:00Z'); pd.setUTCDate(pd.getUTCDate() - 2); if (pd < desde) desde = new Date(Math.max(pd.getTime(), ahora.getTime() - 400 * 86400000)); }
+    const respuesta = c => ({ configurado: true, departamentos: c.departamentos, ventanaDias: DIAS_METRICAS_ZOHO, ...calcularMetricasTickets(c.tickets, ahora, periodo) });
+    if (!req.query.forzar && cacheMetricasZoho && Date.now() - cacheMetricasZoho.ts < 5 * 60000 && cacheMetricasZoho.desdeLectura <= desde.getTime()) {
+      return res.status(200).json(respuesta(cacheMetricasZoho));
+    }
 
     const dc = ZOHO_DC || 'com';
     const accessToken = await obtenerAccessTokenZoho();
@@ -4909,8 +4955,6 @@ async function manejarZohoServicioTecnicoMetricas(req, res, _sesion) {
     const departamentos = ((await rd.json()).data || []).filter(d => d.isEnabled !== false && /t[eé]cnic/i.test(d.name || ''));
     if (!departamentos.length) return res.status(200).json({ configurado: true, error: 'No se encontró ningún departamento de servicio técnico activo en Zoho Desk.' });
 
-    const ahora = new Date();
-    const desde = new Date(ahora.getTime() - DIAS_METRICAS_ZOHO * 86400000);
     const tickets = [];
     for (const dep of departamentos) {
       for (let pagina = 0; pagina < PAGINAS_METRICAS_ZOHO; pagina++) {
@@ -4924,9 +4968,8 @@ async function manejarZohoServicioTecnicoMetricas(req, res, _sesion) {
         if (new Date(ultima.modifiedTime || ultima.createdTime || 0) < desde) break;
       }
     }
-    const data = { configurado: true, departamentos: departamentos.map(d => d.name), ventanaDias: DIAS_METRICAS_ZOHO, ...calcularMetricasTickets(tickets, ahora) };
-    cacheMetricasZoho = { ts: Date.now(), data };
-    return res.status(200).json(data);
+    cacheMetricasZoho = { ts: Date.now(), desdeLectura: desde.getTime(), departamentos: departamentos.map(d => d.name), tickets };
+    return res.status(200).json(respuesta(cacheMetricasZoho));
   } catch (err) {
     return res.status(200).json({ configurado: true, error: 'No se pudo consultar Zoho Desk', detail: String(err.message || err) });
   }

@@ -122,6 +122,14 @@
   .fila-2.solo{grid-template-columns:minmax(0,1fr);}
   .fila-2 > .seccion{margin-bottom:0;}
   .tabla-wrap.alta{max-height:330px;overflow:auto;}
+  .btn-compact{font-size:11px;padding:4px 9px;}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .date-field{display:flex;align-items:center;gap:5px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  .date-field input{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:6px 9px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);}
+  .filtro-rango-fechas{display:flex;align-items:center;gap:7px;}
+  .toolbar-fechas{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .toolbar-fechas .periodo-txt{font-size:12px;color:var(--muted);margin-left:6px;}
   /* la tarjeta de caídas es angosta: el detalle de cifras baja de línea en vez de salirse */
   .alerta-caida{flex-wrap:wrap;}
   .alerta-caida .cifras{white-space:normal;font-size:11.5px;}
@@ -233,10 +241,23 @@
   <h1>🔧 Servicio Técnico</h1>
   <div class="sub">Servicios vendidos en Bsale (reparaciones, instalaciones, diagnósticos, etc.), desglosados por mes -- ventas reales (boletas/facturas, sin cotizaciones ni notas de crédito) de los últimos 12 meses.</div>
 
+  <div class="toolbar-fechas">
+    <div class="filtro-rango-fechas">
+      <div class="date-field"><label for="stDesde">Desde</label><input type="date" id="stDesde" onchange="cambioManualFechasST()"></div>
+      <div class="date-field"><label for="stHasta">Hasta</label><input type="date" id="stHasta" onchange="cambioManualFechasST()"></div>
+    </div>
+    <button class="btn-ghost btn-compact" id="btnStHoy" onclick="setRangoRapidoST('hoy')">Hoy</button>
+    <button class="btn-ghost btn-compact" id="btnStSemana" onclick="setRangoRapidoST('semana')">Semana</button>
+    <button class="btn-ghost btn-compact" id="btnStMes" onclick="setRangoRapidoST('mes')">Mes actual</button>
+    <button class="btn-ghost btn-compact" id="btnStMesAnterior" onclick="setRangoRapidoST('mes_anterior')">Mes anterior</button>
+    <button class="btn-ghost btn-compact" onclick="limpiarRangoST()">✕ Limpiar</button>
+    <span class="periodo-txt" id="stPeriodoTxt"></span>
+  </div>
+
   <div class="grid" id="kpiWrap">
-    <div class="card"><div class="lbl">Servicios este mes</div><div class="big" id="kpiCantidadMes">—</div><div class="note" id="kpiCantidadMesVar"></div></div>
-    <div class="card"><div class="lbl">Monto este mes</div><div class="big" id="kpiMontoMes">—</div><div class="note" id="kpiMontoMesVar"></div></div>
-    <div class="card"><div class="lbl">Ticket promedio (mes)</div><div class="big" id="kpiTicketProm">—</div><div class="note">monto ÷ cantidad, mes actual</div></div>
+    <div class="card"><div class="lbl" id="kpiLblCantidad">Servicios este mes</div><div class="big" id="kpiCantidadMes">—</div><div class="note" id="kpiCantidadMesVar"></div></div>
+    <div class="card"><div class="lbl" id="kpiLblMonto">Monto este mes</div><div class="big" id="kpiMontoMes">—</div><div class="note" id="kpiMontoMesVar"></div></div>
+    <div class="card"><div class="lbl" id="kpiLblTicket">Ticket promedio (mes)</div><div class="big" id="kpiTicketProm">—</div><div class="note" id="kpiTicketNota">monto ÷ cantidad, sin instalación gratuita de pantalla</div></div>
     <div class="card"><div class="lbl">Semestre actual vs. anterior</div><div class="big" id="kpiSemestre">—</div><div class="note" id="kpiSemestreNota"></div></div>
   </div>
 
@@ -312,7 +333,7 @@
     <div class="seccion-head">
       <div>
         <h2>🧑‍🔧 Servicios por técnico</h2>
-        <div class="sub" style="margin-bottom:0;">Acumulado de los últimos 12 meses retenidos. Requiere haber corrido "Sincronizar con Bsale" después de esta actualización -- documentos sincronizados antes no tienen técnico guardado.</div>
+        <div class="sub" style="margin-bottom:0;" id="subTecnico">Acumulado de los últimos 12 meses retenidos. Requiere haber corrido "Sincronizar con Bsale" después de esta actualización -- documentos sincronizados antes no tienen técnico guardado.</div>
       </div>
       <div class="seccion-head-acciones">
         <button class="btn-toggle-seccion" id="toggle-seccionTecnico" onclick="toggleSeccion('seccionTecnico')" title="Minimizar">▾</button>
@@ -467,6 +488,7 @@ function iconoOrden(clave){
 // del mismo servicio. Siempre en $ (no cambia con el toggle Cantidad/Monto,
 // no tendría sentido un "ticket promedio" en unidades).
 function ticketPromedio(s, meses){
+  if(s.sinTicket) return null; // instalación gratuita de pantalla: no entra al ticket promedio
   let montoTotal = 0, cantidadTotal = 0;
   for(const m of meses){
     const v = s.porMes[m];
@@ -546,7 +568,7 @@ function renderTabla(data){
         <td class="servicio">${s.nombre || s.sku}<br><span class="sku-code">SKU: ${s.sku} · ${s.categoria || 'Otro'}</span></td>
         ${celdas}
         <td class="mes amount"><b>${fmtValor(acumuladoAnio(s, meses))}</b></td>
-        <td class="mes amount pegado-derecha">${fmtMoneda(ticketPromedio(s, meses))}</td>
+        <td class="mes amount pegado-derecha">${ticketPromedio(s, meses) === null ? '—' : fmtMoneda(ticketPromedio(s, meses))}</td>
       </tr>`;
   }).join('');
 
@@ -560,8 +582,9 @@ function renderTabla(data){
     return `<td class="mes amount">${fmtValor(actual)}${delta}</td>`;
   }).join('');
   const totalAcumulado = totalesPorMes.reduce((a, b) => a + b, 0);
-  const cantidadTotalFila = meses.reduce((acc, m) => acc + serviciosFiltrados.reduce((a, s) => a + (s.porMes[m]?.cantidad || 0), 0), 0);
-  const montoTotalFila = meses.reduce((acc, m) => acc + serviciosFiltrados.reduce((a, s) => a + (s.porMes[m]?.monto || 0), 0), 0);
+  const conTicket = serviciosFiltrados.filter(s => !s.sinTicket);
+  const cantidadTotalFila = meses.reduce((acc, m) => acc + conTicket.reduce((a, s) => a + (s.porMes[m]?.cantidad || 0), 0), 0);
+  const montoTotalFila = meses.reduce((acc, m) => acc + conTicket.reduce((a, s) => a + (s.porMes[m]?.monto || 0), 0), 0);
   const ticketPromTotal = cantidadTotalFila > 0 ? montoTotalFila / cantidadTotalFila : 0;
 
   $('wrapTabla').innerHTML = `
@@ -592,31 +615,55 @@ function notaVariacionHtml(pct, sufijo){
 
 function renderKpis(data){
   const { meses, servicios } = data;
-  const idxActual = meses.indexOf(mesActualKey);
-  const mesRef = idxActual >= 0 ? idxActual : meses.length - 1;
-  const mesRefKey = meses[mesRef];
-  const mesAntKey = mesAnteriorKey(meses, mesRef);
-
-  const cantidadMes = servicios.reduce((a, s) => a + (s.porMes[mesRefKey]?.cantidad || 0), 0);
-  const montoMes = servicios.reduce((a, s) => a + (s.porMes[mesRefKey]?.monto || 0), 0);
-  const cantidadAnt = mesAntKey ? servicios.reduce((a, s) => a + (s.porMes[mesAntKey]?.cantidad || 0), 0) : 0;
-  const montoAnt = mesAntKey ? servicios.reduce((a, s) => a + (s.porMes[mesAntKey]?.monto || 0), 0) : 0;
-
-  $('kpiCantidadMes').textContent = fmtNum(cantidadMes);
-  $('kpiCantidadMesVar').innerHTML = mesAntKey ? notaVariacionHtml(pctVariacion(cantidadMes, cantidadAnt), 'vs. mes anterior') : 'sin mes anterior para comparar';
-  $('kpiMontoMes').textContent = fmtMoneda(montoMes);
-  $('kpiMontoMesVar').innerHTML = mesAntKey ? notaVariacionHtml(pctVariacion(montoMes, montoAnt), 'vs. mes anterior') : 'sin mes anterior para comparar';
-  $('kpiTicketProm').textContent = fmtMoneda(cantidadMes > 0 ? montoMes / cantidadMes : 0);
+  const p = data.periodo;
+  if(p){
+    // Con filtro de fechas: el período elegido contra el período anterior equivalente (los mismos días del mes anterior,
+    // o el tramo de igual largo justo antes).
+    const act = p.actual, ant = p.anterior;
+    const vs = ant ? `vs. ${fmtRangoCorto(ant.desde, ant.hasta)}` : fmtRangoCorto(p.desde, p.hasta);
+    $('kpiLblCantidad').textContent = 'Servicios del período';
+    $('kpiLblMonto').textContent = 'Monto del período';
+    $('kpiLblTicket').textContent = 'Ticket promedio (período)';
+    $('kpiCantidadMes').textContent = fmtNum(act.cantidad);
+    $('kpiCantidadMesVar').innerHTML = ant ? notaVariacionHtml(pctVariacion(act.cantidad, ant.cantidad), vs) : vs;
+    $('kpiMontoMes').textContent = fmtMoneda(act.monto);
+    $('kpiMontoMesVar').innerHTML = ant ? notaVariacionHtml(pctVariacion(act.monto, ant.monto), vs) : vs;
+    $('kpiTicketProm').textContent = fmtMoneda(act.ticketPromedio);
+    $('kpiTicketNota').innerHTML = (ant ? notaVariacionHtml(pctVariacion(act.ticketPromedio, ant.ticketPromedio), vs) + ' · ' : '') + 'sin instalación gratuita de pantalla';
+  } else {
+    // Sin filtro: mes en curso (parcial) contra el mes anterior completo, como antes.
+    const idxActual = meses.indexOf(mesActualKey);
+    const mesRef = idxActual >= 0 ? idxActual : meses.length - 1;
+    const mesRefKey = meses[mesRef];
+    const mesAntKey = mesAnteriorKey(meses, mesRef);
+    const cantidadMes = servicios.reduce((a, s) => a + (s.porMes[mesRefKey]?.cantidad || 0), 0);
+    const montoMes = servicios.reduce((a, s) => a + (s.porMes[mesRefKey]?.monto || 0), 0);
+    const cantidadAnt = mesAntKey ? servicios.reduce((a, s) => a + (s.porMes[mesAntKey]?.cantidad || 0), 0) : 0;
+    const montoAnt = mesAntKey ? servicios.reduce((a, s) => a + (s.porMes[mesAntKey]?.monto || 0), 0) : 0;
+    const conTicket = servicios.filter(s => !s.sinTicket);
+    const cantidadTicket = conTicket.reduce((a, s) => a + (s.porMes[mesRefKey]?.cantidad || 0), 0);
+    const montoTicket = conTicket.reduce((a, s) => a + (s.porMes[mesRefKey]?.monto || 0), 0);
+    $('kpiLblCantidad').textContent = 'Servicios este mes';
+    $('kpiLblMonto').textContent = 'Monto este mes';
+    $('kpiLblTicket').textContent = 'Ticket promedio (mes)';
+    $('kpiCantidadMes').textContent = fmtNum(cantidadMes);
+    $('kpiCantidadMesVar').innerHTML = mesAntKey ? notaVariacionHtml(pctVariacion(cantidadMes, cantidadAnt), 'vs. mes anterior completo') : 'sin mes anterior para comparar';
+    $('kpiMontoMes').textContent = fmtMoneda(montoMes);
+    $('kpiMontoMesVar').innerHTML = mesAntKey ? notaVariacionHtml(pctVariacion(montoMes, montoAnt), 'vs. mes anterior completo') : 'sin mes anterior para comparar';
+    $('kpiTicketProm').textContent = fmtMoneda(cantidadTicket > 0 ? montoTicket / cantidadTicket : 0);
+    $('kpiTicketNota').textContent = 'monto ÷ cantidad, sin instalación gratuita de pantalla';
+  }
 
   // Semestre actual vs. anterior DENTRO de los 12 meses retenidos (no es un
   // año calendario completo -- la sincronización solo guarda los últimos
   // 365 días, lo de antes se borra -- ver DELETE en manejarSyncServiciosTecnico).
+  // No depende del filtro de fechas.
   const primerSemestre = meses.slice(0, 6);
   const segundoSemestre = meses.slice(6, 12);
   const montoPrimero = primerSemestre.reduce((acc, m) => acc + servicios.reduce((a, s) => a + (s.porMes[m]?.monto || 0), 0), 0);
   const montoSegundo = segundoSemestre.reduce((acc, m) => acc + servicios.reduce((a, s) => a + (s.porMes[m]?.monto || 0), 0), 0);
   $('kpiSemestre').textContent = fmtMoneda(montoSegundo);
-  $('kpiSemestreNota').innerHTML = notaVariacionHtml(pctVariacion(montoSegundo, montoPrimero), `vs. ${fmtMoneda(montoPrimero)} de los 6 meses previos`);
+  $('kpiSemestreNota').innerHTML = notaVariacionHtml(pctVariacion(montoSegundo, montoPrimero), `vs. ${fmtMoneda(montoPrimero)} de los 6 meses previos · no depende del filtro`);
 }
 
 function renderChart(data){
@@ -775,7 +822,7 @@ function exportarCsvServicios(){
       ...meses.map(m => s.porMes[m]?.cantidad || 0),
       meses.reduce((a, m) => a + (s.porMes[m]?.cantidad || 0), 0),
       meses.reduce((a, m) => a + (s.porMes[m]?.monto || 0), 0),
-      Math.round(ticketPromedio(s, meses)),
+      ticketPromedio(s, meses) === null ? '' : Math.round(ticketPromedio(s, meses)),
     ]);
   }
   descargarCsv(filas, `servicio-tecnico-${new Date().toISOString().slice(0, 10)}.csv`);
@@ -783,7 +830,7 @@ function exportarCsvServicios(){
 
 async function cargarServicios(){
   try{
-    const res = await fetch('/api/negocio?recurso=servicios-por-mes');
+    const res = await fetch('/api/negocio?recurso=servicios-por-mes' + paramsFiltroST(true));
     const data = await res.json();
     if(!res.ok || data.error){
       $('wrapTabla').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar Servicio Técnico.'}</p>`;
@@ -798,6 +845,8 @@ async function cargarServicios(){
     }
     renderTecnico(data);
     renderClientesRecurrentes(data);
+    $('stPeriodoTxt').textContent = data.periodo ? `Período: ${fmtRangoCorto(data.periodo.desde, data.periodo.hasta)}${data.periodo.anterior ? ' · se compara con ' + fmtRangoCorto(data.periodo.anterior.desde, data.periodo.anterior.hasta) : ''}` : 'Sin filtro: últimos 12 meses';
+    $('subTecnico').textContent = data.periodo ? `Servicios vendidos del ${fmtRangoCorto(data.periodo.desde, data.periodo.hasta)}. Requiere haber corrido "Sincronizar con Bsale" -- documentos sincronizados antes no tienen técnico guardado.` : 'Acumulado de los últimos 12 meses retenidos. Requiere haber corrido "Sincronizar con Bsale" después de esta actualización -- documentos sincronizados antes no tienen técnico guardado.';
     if(data.ultimaSincronizacion){
       $('syncStatus').className = '';
       $('syncStatus').textContent = `Última sincronización completa: ${new Date(data.ultimaSincronizacion).toLocaleString('es-CL')}.`;
@@ -868,6 +917,8 @@ async function cargarSesionUsuario(){
       if(nav) nav.style.display = '';
       $('btnSincronizar').style.display = '';
     }
+    // por defecto, el mes actual (igual que Cotizaciones); se fija el rango sin recargar dos veces
+    $('stDesde').value = firstDayOfMonthStrST(hoyStrST); $('stHasta').value = lastDayOfMonthStrST(hoyStrST); marcarAtajoST('mes');
     cargarServicios();
     cargarZohoMetricas();
     cargarInsumos(); // pedido del usuario: precargar solo, sin esperar el clic en "Actualizar"
@@ -1006,6 +1057,73 @@ function renderInsumos(){
   `;
 }
 
+// ---------- Filtro de fechas (mismo esquema que Cotizaciones: Desde/Hasta + atajos) ----------
+// Afecta a los 4 indicadores de arriba (con su comparación contra el período anterior equivalente), al ranking por
+// técnico, y a lo que Zoho mide "en el período" (tiempo de resolución y cerradas por técnico). La tabla mensual, la
+// tendencia y los clientes recurrentes siguen mirando los 12 meses completos: son series en el tiempo por definición.
+function fechaChileStr(d){ return d.toLocaleDateString('en-CA', { timeZone: 'America/Santiago' }); }
+const hoyStrST = fechaChileStr(new Date());
+function addDaysStrST(str, n){ const d = new Date(str + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+function firstDayOfMonthStrST(str){ return str.slice(0, 8) + '01'; }
+function lastDayOfMonthStrST(str){ const [a, m] = str.split('-').map(Number); return new Date(Date.UTC(a, m, 0)).toISOString().slice(0, 10); }
+function diasEntreStrST(desde, hasta){ return Math.round((new Date(hasta + 'T00:00:00Z') - new Date(desde + 'T00:00:00Z')) / 86400000); }
+function fmtDiaCorto(str){ const [, m, d] = str.split('-').map(Number); return `${d} ${MESES_CORTOS[m - 1]}`; }
+function fmtRangoCorto(desde, hasta){ return desde === hasta ? fmtDiaCorto(desde) : `${fmtDiaCorto(desde)} – ${fmtDiaCorto(hasta)}`; }
+
+// Período efectivo: el "Hasta" nunca pasa de hoy (un mes en curso solo tiene los días que ya ocurrieron).
+function rangoEfectivoST(){
+  const desde = $('stDesde').value, hasta = $('stHasta').value;
+  if(!desde || !hasta || desde > hasta) return null;
+  return { desde, hasta: hasta > hoyStrST ? hoyStrST : hasta };
+}
+// Período anterior equivalente: si el rango parte el día 1 de un mes, se compara contra los mismos días del mes
+// anterior (1–4 oct contra 1–4 sep, no contra el final de septiembre); si no, contra el tramo inmediatamente
+// anterior de igual largo.
+function periodoAnteriorST(desde, hasta){
+  if(desde > hasta) return null;
+  const dias = diasEntreStrST(desde, hasta) + 1;
+  if(desde.endsWith('-01')){
+    const ultimoMesAnterior = addDaysStrST(desde, -1);
+    const primeroMesAnterior = firstDayOfMonthStrST(ultimoMesAnterior);
+    const finCandidato = addDaysStrST(primeroMesAnterior, dias - 1);
+    return { desde: primeroMesAnterior, hasta: finCandidato > ultimoMesAnterior ? ultimoMesAnterior : finCandidato };
+  }
+  const nuevaHasta = addDaysStrST(desde, -1);
+  return { desde: addDaysStrST(nuevaHasta, -(dias - 1)), hasta: nuevaHasta };
+}
+let temporizadorFiltroST = null;
+function aplicarFiltroFechasST(){
+  clearTimeout(temporizadorFiltroST);
+  temporizadorFiltroST = setTimeout(() => { cargarServicios(); cargarZohoMetricas(); }, 250);
+}
+function setRangoRapidoST(tipo){
+  if(tipo === 'hoy'){ $('stDesde').value = hoyStrST; $('stHasta').value = hoyStrST; }
+  else if(tipo === 'semana'){ $('stDesde').value = addDaysStrST(hoyStrST, -6); $('stHasta').value = hoyStrST; }
+  else if(tipo === 'mes_anterior'){
+    const ultimo = addDaysStrST(firstDayOfMonthStrST(hoyStrST), -1);
+    $('stDesde').value = firstDayOfMonthStrST(ultimo); $('stHasta').value = ultimo;
+  } else { $('stDesde').value = firstDayOfMonthStrST(hoyStrST); $('stHasta').value = lastDayOfMonthStrST(hoyStrST); }
+  marcarAtajoST(tipo);
+  aplicarFiltroFechasST();
+}
+function marcarAtajoST(tipo){
+  [['hoy','btnStHoy'],['semana','btnStSemana'],['mes','btnStMes'],['mes_anterior','btnStMesAnterior']].forEach(([t, id]) => $(id).classList.toggle('active', t === tipo));
+}
+function limpiarRangoST(){
+  $('stDesde').value = ''; $('stHasta').value = '';
+  marcarAtajoST(null);
+  aplicarFiltroFechasST();
+}
+function cambioManualFechasST(){ marcarAtajoST(null); aplicarFiltroFechasST(); }
+// Parámetros que se mandan al servidor (vacío si no hay filtro)
+function paramsFiltroST(conAnterior){
+  const r = rangoEfectivoST();
+  if(!r) return '';
+  let q = `&desde=${r.desde}&hasta=${r.hasta}`;
+  if(conAnterior){ const a = periodoAnteriorST(r.desde, r.hasta); if(a) q += `&desdeAnt=${a.desde}&hastaAnt=${a.hasta}`; }
+  return q;
+}
+
 // ---------- Soporte en Zoho Desk (5 métricas) ----------
 // Los números los calcula el servidor (lib/zoho-metricas.js) a partir de los tickets del departamento de Servicio
 // Técnico; acá solo se dibujan. Cada panel responde una pregunta: ¿cuánto hay pendiente?, ¿entra más de lo que sale?,
@@ -1069,13 +1187,13 @@ function zdPanelFlujo(m){
 
 function zdPanelResolucion(m){
   const r = m.resolucion;
-  if(!r.cerrados) return `<div class="zd-panel zd-3"><h3>3 · Tiempo de resolución</h3><p class="empty-note">No hay órdenes cerradas en los últimos ${r.ventanaDias} días.</p></div>`;
+  if(!r.cerrados) return `<div class="zd-panel zd-3"><h3>3 · Tiempo de resolución</h3><p class="empty-note">No hay órdenes cerradas ${r.periodo ? 'del ' + fmtRangoCorto(r.periodo.desde, r.periodo.hasta) : 'en los últimos ' + r.ventanaDias + ' días'}.</p></div>`;
   return `<div class="zd-panel zd-3">
     <h3>3 · Tiempo de resolución</h3>
     <div class="zd-big">${fmtDias(r.promedio)}<small>días en promedio</small></div>
     <div class="zd-nota">Mediana ${fmtDias(r.mediana)} días · <b>${r.pctEn3Dias}%</b> se cierra en 3 días o menos</div>
     ${zdBarrasHtml(r.distribucion.map(d => ({ nombre: d.rango, valor: d.cantidad })), 'amb')}
-    <div class="zd-nota" style="margin-top:8px;">${fmtNum(r.cerrados)} órdenes cerradas en ${r.ventanaDias} días, de la creación al cierre en Zoho.</div>
+    <div class="zd-nota" style="margin-top:8px;">${fmtNum(r.cerrados)} órdenes cerradas ${r.periodo ? 'del ' + fmtRangoCorto(r.periodo.desde, r.periodo.hasta) : 'en ' + r.ventanaDias + ' días'}, de la creación al cierre en Zoho.</div>
   </div>`;
 }
 
@@ -1101,13 +1219,13 @@ function zdPanelAgentes(m){
     <tr>
       <td>${escapeHtml(x.agente)}</td>
       <td class="mes amount">${fmtNum(x.abiertos)}</td>
-      <td class="mes amount">${fmtNum(x.cerrados30)}</td>
+      <td class="mes amount">${fmtNum(x.cerradosPeriodo)}</td>
       <td class="mes amount">${x.diasPromedio == null ? '—' : fmtDias(x.diasPromedio) + ' d'}</td>
     </tr>`).join('');
   return `<div class="zd-panel zd-5">
     <h3>5 · Carga por técnico</h3>
-    ${a.length ? `<div class="zd-scroll" style="max-height:none;"><table><thead><tr><th>Técnico</th><th class="mes">Abiertas</th><th class="mes">Cerradas (30 d)</th><th class="mes">Resolución</th></tr></thead><tbody>${filas}</tbody></table></div>` : '<p class="empty-note">Sin datos de técnicos.</p>'}
-    <div class="zd-nota" style="margin-top:8px;">Según el técnico asignado en Zoho Desk. "Resolución" = promedio de las cerradas en los últimos 30 días.</div>
+    ${a.length ? `<div class="zd-scroll" style="max-height:none;"><table><thead><tr><th>Técnico</th><th class="mes">Abiertas</th><th class="mes">Cerradas${m.periodo ? '' : ' (30 d)'}</th><th class="mes">Resolución</th></tr></thead><tbody>${filas}</tbody></table></div>` : '<p class="empty-note">Sin datos de técnicos.</p>'}
+    <div class="zd-nota" style="margin-top:8px;">Según el técnico asignado en Zoho Desk. "Resolución" = promedio de las cerradas ${m.periodo ? 'en el período elegido' : 'en los últimos 30 días'}.</div>
   </div>`;
 }
 
@@ -1116,7 +1234,7 @@ async function cargarZohoMetricas(forzar){
   btn.disabled = true;
   $('zdEstado').textContent = 'Consultando Zoho Desk...';
   try{
-    const res = await fetch('/api/negocio?recurso=zoho-servicio-tecnico-metricas' + (forzar ? '&forzar=1' : ''));
+    const res = await fetch('/api/negocio?recurso=zoho-servicio-tecnico-metricas' + (forzar ? '&forzar=1' : '') + paramsFiltroST(false));
     const m = await res.json();
     if(m.configurado === false){
       cont.innerHTML = `<p class="empty-note">Zoho Desk no está conectado: en Vercel faltan las variables ${(m.faltan || []).map(escapeHtml).join(', ')}.</p>`;
