@@ -35,6 +35,14 @@
       "schedule": "0 12 * * *"
     },
     {
+      "path": "/api/negocio?recurso=cotizaciones-zoho-sync",
+      "schedule": "15 12 * * *"
+    },
+    {
+      "path": "/api/negocio?recurso=cotizaciones-recontactar-diario",
+      "schedule": "10 13 * * 1-5"
+    },
+    {
       "path": "/api/negocio?recurso=cotizaciones-correos-analizar-respuestas",
       "schedule": "30 12 * * *"
     },

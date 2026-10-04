@@ -14,7 +14,8 @@ import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
-import { armarComunicacionZoho } from '../lib/zoho-cotizaciones.js';
+import { armarComunicacionZoho, filasCorreosDesdeZoho, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
+import { seleccionarPorRecontactar, armarCorreoRecontacto, ESTADOS_A_RECONTACTAR } from '../lib/cotizaciones-recontacto.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
@@ -86,6 +87,8 @@ export default async function handler(req, res) {
   // de Cotizaciones -- mismo patrón que los de arriba. Ver vercel.json y
   // middleware.ts (esCotizacionesCorreosSyncPublico).
   if (req.query.recurso === 'cotizaciones-correos-sync') return manejarCotizacionesCorreosSync(req, res);
+  if (req.query.recurso === 'cotizaciones-zoho-sync') return manejarCotizacionesZohoSync(req, res);
+  if (req.query.recurso === 'cotizaciones-recontactar-diario') return manejarCotizacionesRecontactarDiario(req, res);
   if (req.query.recurso === 'cotizaciones-correos-analizar-respuestas') return manejarCotizacionesCorreosAnalizarRespuestas(req, res);
   if (req.query.recurso === 'whatsapp-ejecutivos-notificar-diario') return manejarWhatsappEjecutivosNotificarDiario(req, res);
   // Píxel de seguimiento de apertura de los correos de IndexScale -- lo
@@ -1346,7 +1349,7 @@ async function manejarCotizacionDetalle(req, res, sesion) {
     // y también correspondencia de OTRA cotización del mismo cliente).
     const { rows: correosRows } = await sql`
       SELECT id, direccion, casilla, asunto, fecha, contenido_texto, visto, resumen_ia FROM cotizaciones_correos
-      WHERE cotizacion_id = ${cotizacionId} OR (cliente_email IS NOT NULL AND cliente_email = ${clienteEmail})
+      WHERE casilla <> ${CASILLA_ZOHO} AND (cotizacion_id = ${cotizacionId} OR (cliente_email IS NOT NULL AND cliente_email = ${clienteEmail}))
       ORDER BY fecha DESC LIMIT 50;
     `;
     const correos = correosRows.map(r => ({ id: r.id, direccion: r.direccion, casilla: r.casilla, asunto: r.asunto, fecha: r.fecha, contenidoTexto: r.contenido_texto || null, visto: !!r.visto, resumenIa: r.resumen_ia || null }));
@@ -4565,6 +4568,49 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
   }
 }
 
+// Resumen diario "Cotizaciones por recontactar hoy" (opción C elegida por el usuario): lista, por responsable, las
+// cotizaciones con 7+ días sin respuesta del cliente. Destinatarios: ver
+// TIPOS_NOTIFICACION['cotizaciones-recontactar-diario'] / página Usuarios (por ahora solo nmolina@indexstore.cl).
+// Con ?probar=1 (y el mismo secreto del cron) manda el correo aunque la notificación esté inactiva o no toque hoy.
+async function manejarCotizacionesRecontactarDiario(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    await asegurarTablaCotizaciones(sql);
+    await asegurarTablaCotizacionesContactos(sql);
+    await asegurarTablaCotizacionesCorreos(sql);
+    const probar = req.query.probar === '1';
+    if (!probar && !(await notificacionDebeEnviarse(sql, 'cotizaciones-recontactar-diario'))) {
+      return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    }
+    const { rows } = await sql`
+      SELECT c.id, c.numero, c.cliente_nombre, c.monto, c.fecha, c.estado, c.actualizado_en, c.vendedor_nombre, ug.nombre AS responsable,
+             (SELECT MAX(x.fecha) FROM (
+                SELECT fecha FROM bsale_cotizaciones_contactos WHERE cotizacion_id = c.id
+                UNION ALL
+                SELECT fecha FROM cotizaciones_correos WHERE direccion = 'saliente' AND (cotizacion_id = c.id OR (cliente_email IS NOT NULL AND cliente_email <> '' AND cliente_email = c.cliente_email))
+              ) x) AS ultimo_contacto,
+             (SELECT MAX(fecha) FROM cotizaciones_correos WHERE direccion = 'entrante' AND (cotizacion_id = c.id OR (cliente_email IS NOT NULL AND cliente_email <> '' AND cliente_email = c.cliente_email))) AS ultimo_entrante
+      FROM bsale_cotizaciones c
+      LEFT JOIN usuarios ug ON ug.id = c.responsable_gestion_id
+      WHERE c.estado = ANY(${ESTADOS_A_RECONTACTAR});`;
+    const items = seleccionarPorRecontactar(rows);
+    if (items.length === 0) return res.status(200).json({ ok: true, enviado: false, motivo: 'no hay cotizaciones por recontactar hoy', revisadas: rows.length });
+
+    const { asunto, html } = armarCorreoRecontacto(items, { urlBase: URL_BASE_APP });
+    const destinatarios = await obtenerSuscriptoresEmail(sql, 'cotizaciones-recontactar-diario');
+    const envios = [];
+    for (const para of destinatarios) envios.push({ para, ...(await enviarCorreo({ para, asunto: probar ? `[PRUEBA] ${asunto}` : asunto, html })) });
+    if (envios.length > 0 && !probar) await marcarNotificacionEnviada(sql, 'cotizaciones-recontactar-diario');
+    return res.status(200).json({ ok: true, enviado: envios.length > 0, cotizaciones: items.length, envios });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error generando o enviando el resumen de cotizaciones por recontactar', detail: String(err.message || err) });
+  }
+}
+
 const ESTADOS_ANALISIS = ['sin_contactar', 'contactado', 'fidelizado'];
 
 async function manejarAnalisisClientes(req, res, sesion) {
@@ -4835,6 +4881,98 @@ async function buscarTicketsZohoPorCorreo(correo, headers, dc) {
   return { tickets: hallados.slice(0, TOPE_TICKETS_ZOHO_POR_COTIZACION), via: 'listado-reciente' };
 }
 
+// Los mensajes de Zoho se guardan en cotizaciones_correos (casilla "Zoho Desk"), igual que los correos detectados por
+// IMAP: así cuentan solos en "último contacto", en los estados automáticos (cotización enviada / cliente respondió) y
+// en Rendimiento, sin código aparte. Se marcan vistos y analizados: ya traen su texto y no hay nada que leer por IMAP.
+async function guardarFilasZoho(sql, filas) {
+  for (const f of filas) {
+    await sql`
+      INSERT INTO cotizaciones_correos (casilla, message_id, direccion, cliente_email, cotizacion_id, asunto, fecha, contenido_texto, visto, analizado_ia)
+      VALUES (${CASILLA_ZOHO}, ${f.messageId}, ${f.direccion}, ${f.clienteEmail}, ${f.cotizacionId}, ${f.asunto}, ${f.fecha}, ${f.contenido}, true, true)
+      ON CONFLICT (casilla, message_id) DO UPDATE SET
+        cotizacion_id = COALESCE(EXCLUDED.cotizacion_id, cotizaciones_correos.cotizacion_id),
+        asunto = EXCLUDED.asunto, contenido_texto = EXCLUDED.contenido_texto;`;
+  }
+  return filas.length;
+}
+
+async function leerConversacionesZoho(ticket, headers, dc) {
+  try {
+    const r = await fetchConTimeout(`https://desk.zoho.${dc}/api/v1/tickets/${ticket.id}/conversations?limit=50`, { headers });
+    if (r.status === 204) return { ticket, conversaciones: [] };
+    if (!r.ok) return null;
+    return { ticket, conversaciones: (await r.json()).data || [] };
+  } catch (_) { return null; }
+}
+
+const TOPE_TICKETS_ZOHO_POR_PASADA = 60;
+const PAGINAS_SYNC_TICKETS_ZOHO = 6;
+// Sincronización diaria: trae los tickets modificados en los últimos `dias` días, se queda con los de clientes que
+// tienen cotizaciones (por correo) y guarda sus mensajes. No necesita el permiso de búsqueda de Zoho.
+async function sincronizarZohoCotizaciones(sql, dias) {
+  const { ZOHO_ORG_ID, ZOHO_DC } = process.env;
+  const dc = ZOHO_DC || 'com';
+  const { rows: cots } = await sql`
+    SELECT id, numero, lower(cliente_email) AS email FROM bsale_cotizaciones
+    WHERE cliente_email IS NOT NULL AND cliente_email <> '' AND fecha >= CURRENT_DATE - INTERVAL '120 days';`;
+  const porCorreo = new Map();
+  for (const c of cots) { if (!porCorreo.has(c.email)) porCorreo.set(c.email, []); porCorreo.get(c.email).push({ id: c.id, numero: c.numero }); }
+  if (porCorreo.size === 0) return { ticketsRevisados: 0, ticketsDeClientes: 0, mensajes: 0 };
+
+  const accessToken = await obtenerAccessTokenZoho();
+  const headers = { orgId: ZOHO_ORG_ID, Authorization: `Zoho-oauthtoken ${accessToken}` };
+  const desde = new Date(Date.now() - dias * 86400000);
+  const delosClientes = [];
+  let revisados = 0;
+  for (let pagina = 0; pagina < PAGINAS_SYNC_TICKETS_ZOHO; pagina++) {
+    const r = await fetchConTimeout(`https://desk.zoho.${dc}/api/v1/tickets?limit=100&from=${pagina * 100}&sortBy=-modifiedTime&include=contacts`, { headers });
+    if (r.status === 204) break;
+    if (!r.ok) throw new Error(`Zoho Desk respondió HTTP ${r.status} al listar tickets`);
+    const items = (await r.json()).data || [];
+    revisados += items.length;
+    for (const t of items) {
+      const correo = String(t.email || t.contact?.email || '').trim().toLowerCase();
+      if (correo && porCorreo.has(correo) && new Date(t.modifiedTime || t.createdTime || 0) >= desde) delosClientes.push({ ticket: t, correo });
+    }
+    if (items.length < 100) break;
+    const ultima = items[items.length - 1];
+    if (new Date(ultima.modifiedTime || ultima.createdTime || 0) < desde) break;
+  }
+  const lote = delosClientes.slice(0, TOPE_TICKETS_ZOHO_POR_PASADA);
+  const datos = [];
+  for (let i = 0; i < lote.length; i += 6) {
+    const parte = await Promise.all(lote.slice(i, i + 6).map(async x => { const d = await leerConversacionesZoho(x.ticket, headers, dc); return d ? { ...d, correo: x.correo } : null; }));
+    datos.push(...parte.filter(Boolean));
+  }
+  let mensajes = 0;
+  const correos = [...new Set(datos.map(d => d.correo))];
+  for (const correo of correos) {
+    const filas = filasCorreosDesdeZoho(datos.filter(d => d.correo === correo), porCorreo.get(correo), correo);
+    mensajes += await guardarFilasZoho(sql, filas);
+  }
+  return { ticketsRevisados: revisados, ticketsDeClientes: delosClientes.length, ticketsLeidos: datos.length, mensajes };
+}
+
+async function manejarCotizacionesZohoSync(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const { ZOHO_ORG_ID, ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN } = process.env;
+    if (!ZOHO_ORG_ID || !ZOHO_CLIENT_ID || !ZOHO_CLIENT_SECRET || !ZOHO_REFRESH_TOKEN) return res.status(200).json({ ok: false, motivo: 'Zoho Desk no está configurado en el servidor' });
+    const sql = await getSql();
+    await asegurarTablaCotizaciones(sql);
+    await asegurarTablaCotizacionesCorreos(sql);
+    const diasQuery = parseInt(req.query.dias, 10);
+    const dias = (Number.isFinite(diasQuery) && diasQuery > 0) ? Math.min(diasQuery, 90) : 7;
+    const resultado = await sincronizarZohoCotizaciones(sql, dias);
+    const estadosActualizados = await aplicarEstadosPorCorreoCotizaciones(sql);
+    return res.status(200).json({ ok: true, diasRevisados: dias, ...resultado, estadosActualizados });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error sincronizando Zoho Desk', detail: String(err.message || err) });
+  }
+}
+
 async function manejarCotizacionZoho(req, res, sesion) {
   try {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -4857,14 +4995,15 @@ async function manejarCotizacionZoho(req, res, sesion) {
     const { tickets, via } = await buscarTicketsZohoPorCorreo(correo, headers, dc);
 
     // los hilos de cada ticket se piden en paralelo; si uno falla no se pierde el resto
-    const datos = (await Promise.all(tickets.map(async (ticket) => {
-      try {
-        const r = await fetchConTimeout(`https://desk.zoho.${dc}/api/v1/tickets/${ticket.id}/conversations?limit=50`, { headers });
-        if (r.status === 204) return { ticket, conversaciones: [] };
-        if (!r.ok) return null;
-        return { ticket, conversaciones: (await r.json()).data || [] };
-      } catch (_) { return null; }
-    }))).filter(Boolean);
+    const datos = (await Promise.all(tickets.map(ticket => leerConversacionesZoho(ticket, headers, dc)))).filter(Boolean);
+
+    // lo leído se guarda: así la ficha deja al día el último contacto y los estados sin esperar al cron
+    try {
+      await asegurarTablaCotizacionesCorreos(sql);
+      const { rows: delCorreo } = await sql`SELECT id, numero FROM bsale_cotizaciones WHERE lower(cliente_email) = ${correo};`;
+      await guardarFilasZoho(sql, filasCorreosDesdeZoho(datos, delCorreo, correo));
+      await aplicarEstadosPorCorreoCotizaciones(sql);
+    } catch (err) { console.warn('[cotizacion-zoho] no se pudo guardar la comunicación:', err.message); }
 
     const comunicacion = armarComunicacionZoho(datos, rows[0].numero);
     return res.status(200).json({

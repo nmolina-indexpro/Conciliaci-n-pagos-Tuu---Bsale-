@@ -1686,7 +1686,8 @@ function renderNotasActividadFicha(detalle){
     ${historialHtml ? `<h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:2px 0 6px;">Cambios de estado</h4>${historialHtml}` : ''}
     <h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:10px 0 6px;">Correos</h4>
     <div id="correosFichaCotWrap">${renderCorreosFichaHtml(detalle.correos, detalle.clienteEmail, contextoContactoFichaCot(detalle))}</div>
-    <div id="zohoFichaCotWrap">${detalle.clienteEmail ? '<p class="empty-note">Buscando tickets de servicio técnico (Zoho Desk)…</p>' : ''}</div>
+    <h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:10px 0 6px;">Servicio técnico (Zoho Desk)</h4>
+    <div id="zohoFichaCotWrap">${detalle.clienteEmail ? '<p class="empty-note">Buscando tickets de servicio técnico…</p>' : '<p class="empty-note">Sin correo del cliente en Bsale: los tickets de Zoho Desk se cruzan por correo, así que no se pueden buscar.</p>'}</div>
     <h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:10px 0 6px;">Comentarios</h4>
     <div id="comentariosFichaCotWrap">${renderComentariosFichaHtml(detalle.comentarios)}</div>
     <textarea id="nuevoComentarioFichaCot" placeholder="Escribe un comentario nuevo..." style="width:100%;margin-top:8px;min-height:50px;padding:8px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:12.5px;resize:vertical;box-sizing:border-box;"></textarea>
@@ -1716,9 +1717,9 @@ async function cargarZohoFichaCot(cotizacionId){
   }
 }
 function renderZohoFichaHtml(d){
-  const titulo = '<h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:10px 0 6px;">Servicio técnico (Zoho Desk)</h4>';
-  if (!d || d.configurado === false) return '';
-  if (d.sinCorreo) return '';
+  const titulo = ''; // el título ya está fijo sobre este bloque
+  if (!d || d.configurado === false) return '<p class="empty-note">Zoho Desk todavía no está conectado en el servidor.</p>';
+  if (d.sinCorreo) return '<p class="empty-note">Sin correo del cliente en Bsale: no se pueden buscar sus tickets.</p>';
   if (d.error) return `${titulo}<p class="empty-note">No se pudo consultar Zoho Desk ahora (${escapeHtmlCot(d.detail || d.error)}).</p>`;
   if (!d.tickets || !d.tickets.length) return `${titulo}<p class="empty-note">No hay tickets de Zoho Desk con el correo ${escapeHtmlCot(d.correo || '')}.</p>`;
   const r = d.resumen || {};
