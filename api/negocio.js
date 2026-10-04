@@ -4979,9 +4979,8 @@ async function manejarCotizacionZoho(req, res, sesion) {
     const cotizacionId = Number(req.query.cotizacionId);
     if (!cotizacionId) return res.status(400).json({ error: 'Falta cotizacionId' });
     const { ZOHO_ORG_ID, ZOHO_DC, ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN } = process.env;
-    if (!ZOHO_ORG_ID || !ZOHO_CLIENT_ID || !ZOHO_CLIENT_SECRET || !ZOHO_REFRESH_TOKEN) {
-      return res.status(200).json({ configurado: false, tickets: [], hilos: [] });
-    }
+    const faltan = Object.entries({ ZOHO_ORG_ID, ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN }).filter(([, v]) => !v).map(([k]) => k);
+    if (faltan.length) return res.status(200).json({ configurado: false, faltan, tickets: [], hilos: [] });
     const sql = await getSql();
     await asegurarTablaCotizaciones(sql);
     const { rows } = await sql`SELECT numero, cliente_email FROM bsale_cotizaciones WHERE id = ${cotizacionId};`;

@@ -1718,7 +1718,7 @@ async function cargarZohoFichaCot(cotizacionId){
 }
 function renderZohoFichaHtml(d){
   const titulo = ''; // el título ya está fijo sobre este bloque
-  if (!d || d.configurado === false) return '<p class="empty-note">Zoho Desk todavía no está conectado en el servidor.</p>';
+  if (!d || d.configurado === false) return `<p class="empty-note">Zoho Desk no está conectado: en Vercel faltan las variables ${(d && d.faltan ? d.faltan : ['ZOHO_*']).map(escapeHtmlCot).join(', ')}.</p>`;
   if (d.sinCorreo) return '<p class="empty-note">Sin correo del cliente en Bsale: no se pueden buscar sus tickets.</p>';
   if (d.error) return `${titulo}<p class="empty-note">No se pudo consultar Zoho Desk ahora (${escapeHtmlCot(d.detail || d.error)}).</p>`;
   if (!d.tickets || !d.tickets.length) return `${titulo}<p class="empty-note">No hay tickets de Zoho Desk con el correo ${escapeHtmlCot(d.correo || '')}.</p>`;
