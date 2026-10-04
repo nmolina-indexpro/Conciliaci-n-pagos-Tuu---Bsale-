@@ -4928,8 +4928,37 @@ async function buscarTicketsZohoPorCorreo(correo, headers, dc) {
 // que empiezan con "ST" (ST - Ingreso con retiro inmediato). Los desactivados (La Florida, Externo, etc.) quedan fuera.
 const DEPARTAMENTO_SERVICIO_TECNICO_REGEX = /t[eé]cnic|^\s*ST\b/i;
 const PAGINAS_METRICAS_ZOHO = 10;
+const PAGINAS_METRICAS_ZOHO_TODOS = 20; // sin filtro de departamento hay muchos más tickets (ventas, NAS, post-venta...)
+const PRESUPUESTO_MS_METRICAS_ZOHO = 42000; // la función tiene 60 s: si la lectura se alarga, se corta y se avisa
 const DIAS_METRICAS_ZOHO = 120;
-let cacheMetricasZoho = null; // { ts, desdeLectura, departamentos, tickets }
+// Caché en memoria por instancia: lista de departamentos (30 min) y tickets por selección (5 min).
+let cacheDepartamentosZoho = null; // { ts, lista }
+const cacheTicketsZoho = new Map(); // clave de selección -> { ts, desdeLectura, tickets, cubreDesde, incompleto }
+
+// Lee tickets de Zoho ordenados del más recién modificado al más viejo, hasta cubrir `desde` (o agotar páginas/tiempo).
+// `departmentId` null = todos los departamentos. Zoho numera "from" desde 1; se dedupe por id por si una página se solapa.
+async function leerTicketsZohoMetricas({ base, headers, departmentId, paginas, desde, limiteTiempo }) {
+  const porId = new Map();
+  let cubreDesde = null, incompleto = false;
+  for (let pagina = 0; pagina < paginas; pagina++) {
+    if (Date.now() > limiteTiempo) { incompleto = true; break; }
+    const filtro = departmentId ? `departmentId=${departmentId}&` : '';
+    const r = await fetchConTimeout(`${base}/tickets?${filtro}limit=100&from=${pagina * 100 + 1}&sortBy=-modifiedTime&include=contacts,assignee`, { headers });
+    if (r.status === 204) { cubreDesde = desde.toISOString(); break; }
+    if (!r.ok) throw new Error(`Zoho Desk respondió HTTP ${r.status} al listar tickets`);
+    const items = (await r.json()).data || [];
+    for (const t of items) porId.set(t.id, t);
+    const ultima = items[items.length - 1];
+    const fechaUltima = ultima ? new Date(ultima.modifiedTime || ultima.createdTime || 0) : null;
+    if (fechaUltima) cubreDesde = fechaUltima.toISOString();
+    if (items.length < 100 || (fechaUltima && fechaUltima < desde)) { cubreDesde = desde.toISOString(); break; }
+    if (pagina === paginas - 1) incompleto = true;
+  }
+  return { tickets: [...porId.values()], cubreDesde, incompleto };
+}
+
+// Selección de departamentos (?deptos=): 'tecnico' (por defecto: los de servicio técnico activos), 'todos' (sin filtro)
+// o una lista de ids separados por coma.
 async function manejarZohoServicioTecnicoMetricas(req, res, _sesion) {
   try {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -4942,39 +4971,68 @@ async function manejarZohoServicioTecnicoMetricas(req, res, _sesion) {
     const ahora = new Date();
     let desde = new Date(ahora.getTime() - DIAS_METRICAS_ZOHO * 86400000);
     if (periodo.desde) { const pd = new Date(periodo.desde + 'T00:00:00Z'); pd.setUTCDate(pd.getUTCDate() - 2); if (pd < desde) desde = new Date(Math.max(pd.getTime(), ahora.getTime() - 400 * 86400000)); }
-    const respuesta = c => ({ configurado: true, departamentos: c.departamentos, ventanaDias: DIAS_METRICAS_ZOHO, ...calcularMetricasTickets(c.tickets, ahora, periodo) });
-    if (!req.query.forzar && cacheMetricasZoho && Date.now() - cacheMetricasZoho.ts < 5 * 60000 && cacheMetricasZoho.desdeLectura <= desde.getTime()) {
-      return res.status(200).json(respuesta(cacheMetricasZoho));
-    }
 
     const dc = ZOHO_DC || 'com';
-    const accessToken = await obtenerAccessTokenZoho();
-    const headers = { orgId: ZOHO_ORG_ID, Authorization: `Zoho-oauthtoken ${accessToken}` };
     const base = `https://desk.zoho.${dc}/api/v1`;
+    let headers = null;
+    const obtenerHeaders = async () => {
+      if (!headers) headers = { orgId: ZOHO_ORG_ID, Authorization: `Zoho-oauthtoken ${await obtenerAccessTokenZoho()}` };
+      return headers;
+    };
 
-    // Departamentos de servicio técnico (por nombre, solo los activos). Si no se pueden leer, se avisa: mezclar
-    // los tickets de ventas con los de servicio técnico haría mentir a todas las métricas.
-    // limit=100: sin él Zoho devuelve solo los primeros 10 departamentos y los más nuevos (ST, NAS) quedaban fuera
-    const rd = await fetchConTimeout(`${base}/departments?limit=100`, { headers });
-    if (!rd.ok) return res.status(200).json({ configurado: true, error: `No se pudieron leer los departamentos de Zoho (HTTP ${rd.status}). Falta el permiso Desk.basic.READ.` });
-    const departamentos = ((await rd.json()).data || []).filter(d => d.isEnabled !== false && DEPARTAMENTO_SERVICIO_TECNICO_REGEX.test(d.name || ''));
-    if (!departamentos.length) return res.status(200).json({ configurado: true, error: 'No se encontró ningún departamento de servicio técnico activo en Zoho Desk.' });
+    // Lista de departamentos. limit=100: sin él Zoho devuelve solo los primeros 10 y los más nuevos (ST, NAS) quedaban fuera.
+    if (req.query.forzar || !cacheDepartamentosZoho || Date.now() - cacheDepartamentosZoho.ts > 30 * 60000) {
+      const rd = await fetchConTimeout(`${base}/departments?limit=100`, { headers: await obtenerHeaders() });
+      if (!rd.ok) return res.status(200).json({ configurado: true, error: `No se pudieron leer los departamentos de Zoho (HTTP ${rd.status}). Falta el permiso Desk.basic.READ.` });
+      cacheDepartamentosZoho = { ts: Date.now(), lista: ((await rd.json()).data || []).map(d => ({ id: String(d.id), name: d.name || '', activo: d.isEnabled !== false })) };
+    }
+    const todos = cacheDepartamentosZoho.lista;
+    const tecnicos = todos.filter(d => d.activo && DEPARTAMENTO_SERVICIO_TECNICO_REGEX.test(d.name));
+    const opciones = {
+      tecnico: tecnicos.map(d => d.id),
+      activos: todos.filter(d => d.activo).map(d => ({ id: d.id, name: d.name })).sort((a, b) => a.name.localeCompare(b.name, 'es')),
+    };
 
-    const tickets = [];
-    for (const dep of departamentos) {
-      for (let pagina = 0; pagina < PAGINAS_METRICAS_ZOHO; pagina++) {
-        const r = await fetchConTimeout(`${base}/tickets?departmentId=${dep.id}&limit=100&from=${pagina * 100}&sortBy=-modifiedTime&include=contacts,assignee`, { headers });
-        if (r.status === 204) break;
-        if (!r.ok) throw new Error(`Zoho Desk respondió HTTP ${r.status} al listar tickets`);
-        const items = (await r.json()).data || [];
-        tickets.push(...items);
-        if (items.length < 100) break;
-        const ultima = items[items.length - 1];
-        if (new Date(ultima.modifiedTime || ultima.createdTime || 0) < desde) break;
+    // Resolución de la selección: lista de ids a leer (null = sin filtro, todos los departamentos)
+    const seleccion = String(req.query.deptos || 'tecnico');
+    let ids, etiqueta;
+    if (seleccion === 'todos') { ids = null; etiqueta = ['Todos los departamentos']; }
+    else if (seleccion === 'tecnico') {
+      ids = tecnicos.map(d => d.id); etiqueta = tecnicos.map(d => d.name);
+      if (!ids.length) return res.status(200).json({ configurado: true, error: 'No se encontró ningún departamento de servicio técnico activo en Zoho Desk.', departamentosDisponibles: opciones.activos });
+    } else {
+      ids = seleccion.split(',').map(x => x.trim()).filter(x => /^\d+$/.test(x) && todos.some(d => d.id === x));
+      if (!ids.length) return res.status(200).json({ configurado: true, error: 'El departamento elegido no existe en Zoho Desk.', departamentosDisponibles: opciones.activos });
+      etiqueta = ids.map(i => todos.find(d => d.id === i).name);
+    }
+    const clave = ids ? [...ids].sort().join(',') : 'todos';
+
+    const respuesta = c => ({
+      configurado: true, departamentos: etiqueta, seleccion: ids ? (seleccion === 'tecnico' ? 'tecnico' : ids.join(',')) : 'todos',
+      departamentosDisponibles: opciones.activos, ventanaDias: DIAS_METRICAS_ZOHO,
+      cubreDesde: c.cubreDesde, incompleto: c.incompleto,
+      ...calcularMetricasTickets(c.tickets, ahora, periodo),
+    });
+    const enCache = cacheTicketsZoho.get(clave);
+    if (!req.query.forzar && enCache && Date.now() - enCache.ts < 5 * 60000 && enCache.desdeLectura <= desde.getTime()) return res.status(200).json(respuesta(enCache));
+
+    const hdrs = await obtenerHeaders();
+    const limiteTiempo = Date.now() + PRESUPUESTO_MS_METRICAS_ZOHO;
+    let tickets = [], cubreDesde = null, incompleto = false;
+    if (ids === null) {
+      ({ tickets, cubreDesde, incompleto } = await leerTicketsZohoMetricas({ base, headers: hdrs, departmentId: null, paginas: PAGINAS_METRICAS_ZOHO_TODOS, desde, limiteTiempo }));
+    } else {
+      for (const id of ids) {
+        const r = await leerTicketsZohoMetricas({ base, headers: hdrs, departmentId: id, paginas: PAGINAS_METRICAS_ZOHO, desde, limiteTiempo });
+        tickets.push(...r.tickets);
+        incompleto = incompleto || r.incompleto;
+        if (r.cubreDesde && (!cubreDesde || r.cubreDesde > cubreDesde)) cubreDesde = r.cubreDesde; // el tramo que cubren TODOS
       }
     }
-    cacheMetricasZoho = { ts: Date.now(), desdeLectura: desde.getTime(), departamentos: departamentos.map(d => d.name), tickets };
-    return res.status(200).json(respuesta(cacheMetricasZoho));
+    const nuevo = { ts: Date.now(), desdeLectura: desde.getTime(), tickets, cubreDesde, incompleto };
+    cacheTicketsZoho.set(clave, nuevo);
+    if (cacheTicketsZoho.size > 12) cacheTicketsZoho.delete(cacheTicketsZoho.keys().next().value);
+    return res.status(200).json(respuesta(nuevo));
   } catch (err) {
     return res.status(200).json({ configurado: true, error: 'No se pudo consultar Zoho Desk', detail: String(err.message || err) });
   }

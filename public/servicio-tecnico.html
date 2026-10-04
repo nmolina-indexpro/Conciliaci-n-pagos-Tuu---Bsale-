@@ -135,6 +135,7 @@
   .alerta-caida .cifras{white-space:normal;font-size:11.5px;}
 
   /* ---- Soporte en Zoho Desk: 5 paneles en una cuadrícula de 12 columnas ---- */
+  #zdDepto{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:6px 9px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);max-width:260px;}
   .zd-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px;}
   .zd-panel{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0;display:flex;flex-direction:column;}
   .zd-4{grid-column:span 4;} .zd-3{grid-column:span 3;} .zd-5{grid-column:span 5;} .zd-7{grid-column:span 7;}
@@ -268,6 +269,11 @@
         <div class="sub" style="margin-bottom:0;" id="zdSub">Órdenes de servicio técnico: lo que está pendiente hoy y qué tan rápido se resuelve.</div>
       </div>
       <div class="seccion-head-acciones">
+        <label for="zdDepto" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600;">Departamento</label>
+        <select id="zdDepto" onchange="cambiarDeptoZoho()" title="Qué departamento de Zoho Desk analizar">
+          <option value="tecnico">Servicio técnico</option>
+          <option value="todos">Todos los departamentos</option>
+        </select>
         <span id="zdEstado" style="font-size:11.5px;color:var(--muted);"></span>
         <button class="btn-ghost" id="btnZdActualizar" onclick="cargarZohoMetricas(true)" title="Volver a consultar Zoho Desk">🔄 Actualizar</button>
         <button class="btn-toggle-seccion" id="toggle-seccionZoho" onclick="toggleSeccion('seccionZoho')" title="Minimizar">▾</button>
@@ -919,6 +925,7 @@ async function cargarSesionUsuario(){
     }
     // por defecto, el mes actual (igual que Cotizaciones); se fija el rango sin recargar dos veces
     $('stDesde').value = firstDayOfMonthStrST(hoyStrST); $('stHasta').value = lastDayOfMonthStrST(hoyStrST); marcarAtajoST('mes');
+    $('zdDepto').value = ['tecnico', 'todos'].includes(deptoZohoElegido()) ? deptoZohoElegido() : 'tecnico';
     cargarServicios();
     cargarZohoMetricas();
     cargarInsumos(); // pedido del usuario: precargar solo, sin esperar el clic en "Actualizar"
@@ -1229,20 +1236,42 @@ function zdPanelAgentes(m){
   </div>`;
 }
 
+// Departamento elegido: 'tecnico' (por defecto), 'todos' o el id de un departamento. Se recuerda en este navegador.
+function deptoZohoElegido(){
+  let v = 'tecnico';
+  try{ v = localStorage.getItem('servicioTecnicoDeptoZoho') || 'tecnico'; }catch(err){ /* privado/bloqueado */ }
+  return v;
+}
+function cambiarDeptoZoho(){
+  try{ localStorage.setItem('servicioTecnicoDeptoZoho', $('zdDepto').value); }catch(err){ /* privado/bloqueado */ }
+  cargarZohoMetricas();
+}
+// Llena el selector con los departamentos activos que informa el servidor y deja marcada la selección actual.
+function poblarSelectorDeptoZoho(m){
+  const sel = $('zdDepto');
+  const actual = deptoZohoElegido();
+  const opciones = [['tecnico', 'Servicio técnico'], ['todos', 'Todos los departamentos']].concat((m.departamentosDisponibles || []).map(d => [d.id, d.name]));
+  sel.innerHTML = opciones.map(([v, t]) => `<option value="${escapeHtml(v)}">${escapeHtml(t)}</option>`).join('');
+  sel.value = opciones.some(([v]) => v === actual) ? actual : 'tecnico';
+}
+
 async function cargarZohoMetricas(forzar){
   const cont = $('zdContenido'), btn = $('btnZdActualizar');
   btn.disabled = true;
   $('zdEstado').textContent = 'Consultando Zoho Desk...';
   try{
-    const res = await fetch('/api/negocio?recurso=zoho-servicio-tecnico-metricas' + (forzar ? '&forzar=1' : '') + paramsFiltroST(false));
+    const res = await fetch('/api/negocio?recurso=zoho-servicio-tecnico-metricas&deptos=' + encodeURIComponent(deptoZohoElegido()) + (forzar ? '&forzar=1' : '') + paramsFiltroST(false));
     const m = await res.json();
     if(m.configurado === false){
       cont.innerHTML = `<p class="empty-note">Zoho Desk no está conectado: en Vercel faltan las variables ${(m.faltan || []).map(escapeHtml).join(', ')}.</p>`;
     } else if(m.error){
       cont.innerHTML = `<p class="empty-note">${escapeHtml(m.error)}${m.detail ? ' (' + escapeHtml(m.detail) + ')' : ''}</p>`;
+      if(m.departamentosDisponibles){ poblarSelectorDeptoZoho(m); if($('zdDepto').value === 'tecnico' && deptoZohoElegido() !== 'tecnico'){ try{ localStorage.removeItem('servicioTecnicoDeptoZoho'); }catch(err){ /* privado */ } } }
     } else {
+      poblarSelectorDeptoZoho(m);
       cont.innerHTML = `<div class="zd-grid">${zdPanelBacklog(m)}${zdPanelFlujo(m)}${zdPanelResolucion(m)}${zdPanelEsperando(m)}${zdPanelAgentes(m)}</div>`;
-      $('zdSub').textContent = `${m.departamentos.join(' + ')} — ${fmtNum(m.totalTicketsLeidos)} órdenes leídas (modificadas en los últimos ${m.ventanaDias} días).`;
+      const parcial = m.incompleto && m.cubreDesde ? ` · Lectura parcial: solo llega hasta el ${new Date(m.cubreDesde).toLocaleDateString('es-CL')}; lo anterior no está incluido.` : '';
+      $('zdSub').textContent = `${m.departamentos.join(' + ')} — ${fmtNum(m.totalTicketsLeidos)} tickets leídos (modificados en los últimos ${m.ventanaDias} días).${parcial}`;
     }
     $('zdEstado').textContent = m.generadoEn ? 'Actualizado ' + new Date(m.generadoEn).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : '';
   }catch(err){
