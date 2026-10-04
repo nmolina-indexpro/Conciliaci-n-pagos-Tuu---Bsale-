@@ -4924,6 +4924,9 @@ async function buscarTicketsZohoPorCorreo(correo, headers, dc) {
 // en los últimos 120 días (los abiertos viejos también aparecen porque cada gestión los vuelve a "modificar") y el
 // cálculo vive en lib/zoho-metricas.js. Los tickets quedan en memoria 5 minutos (cada instancia; ?forzar=1 lo salta) y
 // el cálculo se rehace en cada consulta, porque el filtro de fechas (?desde=&hasta=) solo cambia lo que se mide.
+// Departamentos activos que cuentan como servicio técnico: los que dicen "técnico/tecnico" (S.Técnico - Casa Matriz) y los
+// que empiezan con "ST" (ST - Ingreso con retiro inmediato). Los desactivados (La Florida, Externo, etc.) quedan fuera.
+const DEPARTAMENTO_SERVICIO_TECNICO_REGEX = /t[eé]cnic|^\s*ST\b/i;
 const PAGINAS_METRICAS_ZOHO = 10;
 const DIAS_METRICAS_ZOHO = 120;
 let cacheMetricasZoho = null; // { ts, desdeLectura, departamentos, tickets }
@@ -4951,9 +4954,10 @@ async function manejarZohoServicioTecnicoMetricas(req, res, _sesion) {
 
     // Departamentos de servicio técnico (por nombre, solo los activos). Si no se pueden leer, se avisa: mezclar
     // los tickets de ventas con los de servicio técnico haría mentir a todas las métricas.
-    const rd = await fetchConTimeout(`${base}/departments`, { headers });
+    // limit=100: sin él Zoho devuelve solo los primeros 10 departamentos y los más nuevos (ST, NAS) quedaban fuera
+    const rd = await fetchConTimeout(`${base}/departments?limit=100`, { headers });
     if (!rd.ok) return res.status(200).json({ configurado: true, error: `No se pudieron leer los departamentos de Zoho (HTTP ${rd.status}). Falta el permiso Desk.basic.READ.` });
-    const departamentos = ((await rd.json()).data || []).filter(d => d.isEnabled !== false && /t[eé]cnic/i.test(d.name || ''));
+    const departamentos = ((await rd.json()).data || []).filter(d => d.isEnabled !== false && DEPARTAMENTO_SERVICIO_TECNICO_REGEX.test(d.name || ''));
     if (!departamentos.length) return res.status(200).json({ configurado: true, error: 'No se encontró ningún departamento de servicio técnico activo en Zoho Desk.' });
 
     const tickets = [];
