@@ -141,6 +141,7 @@ export default async function handler(req, res) {
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
   if (recurso === 'cotizacion-correo-contenido') return manejarCotizacionCorreoContenido(req, res, sesion);
   if (recurso === 'cotizacion-zoho') return manejarCotizacionZoho(req, res, sesion);
+  if (recurso === 'shopify-urls-sku') return manejarShopifyUrlsSku(req, res, sesion);
   if (recurso === 'zoho-servicio-tecnico-metricas') return manejarZohoServicioTecnicoMetricas(req, res, sesion);
   if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
   if (recurso === 'calendario-pagos-importar') return manejarCalendarioPagosImportar(req, res, sesion);
@@ -7680,6 +7681,49 @@ async function obtenerAccesoShopify() {
 // filtro de colección, a diferencia de manejarAgotados) solo necesita
 // read_products, que sí está concedido y es justo lo que ya usa
 // buscarProductoShopify más abajo.
+// URL de la ficha de cada SKU en Shopify (tienda y admin), para la columna "Shopify" de Productos estancados.
+// Consulta liviana: solo id, estado, onlineStoreUrl y los SKU de cada producto (no título ni precio). El catálogo
+// completo tarda varios segundos, así que se guarda 30 minutos en memoria (por instancia); ?forzar=1 lo salta.
+// onlineStoreUrl viene vacío cuando el producto está en borrador/archivado o sin canal de tienda online: en ese caso
+// la página muestra solo el enlace al admin.
+let cacheUrlsShopify = null; // { ts, urls }
+async function manejarShopifyUrlsSku(req, res, _sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    if (!req.query.forzar && cacheUrlsShopify && Date.now() - cacheUrlsShopify.ts < 30 * 60000) return res.status(200).json({ urls: cacheUrlsShopify.urls, cache: true });
+    const acceso = await obtenerAccesoShopify();
+    if (!acceso) return res.status(200).json({ error: 'Shopify no está configurado en el servidor (SHOPIFY_STORE_DOMAIN / SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET)', urls: {} });
+    const { domain, accessToken } = acceso;
+    const query = `
+      query($cursor: String) {
+        products(first: 100, after: $cursor) {
+          edges { node { id status onlineStoreUrl variants(first: 100) { edges { node { sku } } } } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }`;
+    const urls = {};
+    let cursor = null;
+    for (let pagina = 0; pagina < 60; pagina++) { // tope de seguridad: ~6.000 productos
+      const body = await shopifyGraphQLConReintento(domain, accessToken, query, { cursor });
+      const conexion = body.data?.products;
+      if (!conexion) break;
+      for (const { node: p } of conexion.edges) {
+        const idNumerico = p.id.split('/').pop();
+        for (const { node: v } of (p.variants?.edges || [])) {
+          if (!v.sku) continue;
+          urls[v.sku] = { url: p.onlineStoreUrl || null, adminUrl: `https://${domain}/admin/products/${idNumerico}`, status: (p.status || '').toLowerCase() };
+        }
+      }
+      if (!conexion.pageInfo.hasNextPage) break;
+      cursor = conexion.pageInfo.endCursor;
+    }
+    cacheUrlsShopify = { ts: Date.now(), urls };
+    return res.status(200).json({ urls });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo consultar Shopify', detail: String(err.message || err), urls: {} });
+  }
+}
+
 async function obtenerEstadoShopifyPorSku() {
   const acceso = await obtenerAccesoShopify();
   if (!acceso) return null;

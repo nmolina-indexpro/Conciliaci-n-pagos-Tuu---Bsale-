@@ -238,6 +238,7 @@ async function cargarSesionUsuario(){
       $('btnSincronizar').style.display = '';
     }
     cargarVentasBaja();
+    cargarUrlsShopify(); // aparte: el catálogo de Shopify tarda, la tabla se repinta cuando llega
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){
@@ -321,6 +322,34 @@ function ordenarVentasBaja(col){
   if(ordenVentasBaja === col) ordenVentasBajaAsc = !ordenVentasBajaAsc;
   else { ordenVentasBaja = col; ordenVentasBajaAsc = false; }
   renderVentasBaja();
+}
+
+// ---------- URL de Shopify por SKU ----------
+// Se pide aparte (el catálogo de Shopify tarda) y la tabla se vuelve a pintar cuando llega: mientras tanto la columna
+// dice "cargando". Cada SKU muestra el enlace a su página en la tienda; si el producto no está publicado (borrador o
+// archivado), solo el enlace al admin de Shopify, y si el SKU no existe en Shopify, "Sin ficha".
+let urlsShopifyPorSku = null; // null = todavía cargando; {} = sin datos
+let errorShopifyUrls = '';
+function celdaShopify(sku){
+  if(urlsShopifyPorSku === null) return '<span class="empty-note">cargando…</span>';
+  const e = urlsShopifyPorSku[sku];
+  if(!e) return `<span class="empty-note" title="${escapeHtml(errorShopifyUrls || 'Este SKU no existe en Shopify')}">${errorShopifyUrls ? 'No disponible' : 'Sin ficha'}</span>`;
+  const tienda = e.url ? `<a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(e.url)}">🔗 Ver en tienda</a>` : '';
+  const admin = `<a href="${escapeHtml(e.adminUrl)}" target="_blank" rel="noopener noreferrer" class="empty-note" style="font-size:11px;" title="Abrir en el admin de Shopify">${e.url ? 'admin' : (e.status && e.status !== 'active' ? 'No publicado (' + escapeHtml(e.status) + ') · admin' : 'Sin página pública · admin')}</a>`;
+  return `<div style="display:flex;flex-direction:column;gap:2px;">${tienda}${admin}</div>`;
+}
+async function cargarUrlsShopify(){
+  try{
+    const res = await fetch('/api/negocio?recurso=shopify-urls-sku');
+    const data = await res.json();
+    urlsShopifyPorSku = data.urls || {};
+    errorShopifyUrls = data.error ? (data.detail ? data.error + ': ' + data.detail : data.error) : '';
+  }catch(err){
+    urlsShopifyPorSku = {};
+    errorShopifyUrls = 'No se pudo consultar Shopify: ' + err.message;
+  }
+  if(typeof renderVentasBaja === 'function' && ventasBajaActual && ventasBajaActual.length) renderVentasBaja();
+  if(typeof renderResultadosBusqueda === 'function' && resultadosBusqueda && resultadosBusqueda.length) renderResultadosBusqueda(resultadosBusqueda.length);
 }
 
 async function cargarVentasBaja(){
@@ -649,7 +678,7 @@ function renderVentasBaja(){
   $('wrapVentasBaja').innerHTML = `
     <div class="tabla-wrap"><table>
       <thead><tr>
-        <th>SKU</th><th>Producto</th>
+        <th>SKU</th><th>Producto</th><th>Shopify</th>
         <th class="ordenable amount" onclick="ordenarVentasBaja('stock')">Stock actual${marca('stock')}</th>
         <th class="ordenable amount" onclick="ordenarVentasBaja('dias')">Días sin venta${marca('dias')}</th>
         <th class="ordenable amount" onclick="ordenarVentasBaja('anio')">Ventas último año (unid.)${marca('anio')}</th>
@@ -665,6 +694,7 @@ function renderVentasBaja(){
           <tr>
             <td><span class="sku-code">${escapeHtml(p.sku)}</span></td>
             <td>${p.categoria && CATEGORIA_VENTA_BAJA_LABEL[p.categoria] ? `<div class="empty-note" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px;">${CATEGORIA_VENTA_BAJA_LABEL[p.categoria]}</div>` : ''}${escapeHtml(p.nombre || p.sku)}</td>
+            <td>${celdaShopify(p.sku)}</td>
             <td class="amount">${fmtNum(p.stockActual)}</td>
             <td class="amount">${celdaDias(p)}</td>
             <td class="amount">${fmtNum(p.cantidadAnio)}</td>
@@ -733,7 +763,7 @@ function renderResultadosBusqueda(totalCoincidencias){
     <div class="sub" style="margin:10px 0 8px;">${fmtNum(resultadosBusqueda.length)}${totalCoincidencias > resultadosBusqueda.length ? ` de ${fmtNum(totalCoincidencias)}` : ''} producto(s) encontrado(s) -- no necesariamente estancados, para poder marcarlos igual.</div>
     <div class="tabla-wrap"><table>
       <thead><tr>
-        <th>SKU</th><th>Producto</th><th class="amount">Stock actual</th>
+        <th>SKU</th><th>Producto</th><th>Shopify</th><th class="amount">Stock actual</th>
         ${esAdmin ? `<th class="amount">Costo total stock</th>` : ''}
         <th>Acciones</th>
       </tr></thead>
@@ -742,6 +772,7 @@ function renderResultadosBusqueda(totalCoincidencias){
           <tr>
             <td><span class="sku-code">${escapeHtml(p.sku)}</span></td>
             <td>${p.categoria && CATEGORIA_VENTA_BAJA_LABEL[p.categoria] ? `<div class="empty-note" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px;">${CATEGORIA_VENTA_BAJA_LABEL[p.categoria]}</div>` : ''}${escapeHtml(p.nombre || p.sku)}</td>
+            <td>${celdaShopify(p.sku)}</td>
             <td class="amount">${fmtNum(p.stockActual)}</td>
             ${esAdmin ? (p.costoTotal != null ? `<td class="amount">${fmtMoneda(p.costoTotal)}</td>` : '<td class="amount empty-note">—</td>') : ''}
             <td style="min-width:190px;">
