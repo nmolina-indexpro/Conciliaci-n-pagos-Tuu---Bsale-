@@ -176,13 +176,13 @@ export default async function handler(req, res) {
         // no se pudo mandar, es la única forma de que el admin la tenga
         // para avisarle al usuario por otro medio (mismo criterio que la
         // creación de cuenta).
-        // Brevo "aceptó" el correo no significa que llegó: se espera unos segundos y se le pregunta a Brevo qué pasó con
+        // Brevo "aceptó" el correo no significa que llegó: se espera unos 7 segundos (Brevo tarda en registrar los eventos) y se le pregunta a Brevo qué pasó con
         // ESTE envío (entregado, rebotado, bloqueado, diferido...), para que el admin lo vea al tiro y no tenga que
         // adivinar. Mejor esfuerzo: si la consulta falla, igual se responde el envío.
         let entrega = null;
         if (correoResultado.enviado && correoResultado.messageId) {
           try {
-            await new Promise(r => setTimeout(r, 4000));
+            await new Promise(r => setTimeout(r, 7000));
             entrega = resumirEntregaBrevo(await consultarEventosBrevo(usuario.email, correoResultado.messageId));
           } catch (err) { entrega = { estado: 'desconocida', texto: 'No se pudo consultar a Brevo el estado de la entrega (' + String(err.message || err) + ').' }; }
         }
