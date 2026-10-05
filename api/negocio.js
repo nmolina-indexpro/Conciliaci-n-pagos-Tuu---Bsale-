@@ -7356,8 +7356,17 @@ async function manejarWhatsappClientes(req, res, sesion) {
     const ordenCampo = ORDEN_CLIENTES_WHATSAPP[req.query.orden] || 'ct.ultima_conversacion_en';
     const ordenDir = req.query.ordenAsc === '1' ? 'ASC' : 'DESC';
 
-    const cond = q ? `WHERE ct.nombre ILIKE $1 OR ct.telefono ILIKE $1` : '';
-    const params = q ? [`%${q}%`] : [];
+    // Filtros: búsqueda (nombre, teléfono o correo del cliente de Bsale vinculado), recurrencia y ventas. "Recurrente" = 2 o más
+    // conversaciones. "Con ventas" = alguna conversación con venta confirmada o vinculada a un documento de Bsale/Shopify.
+    const CONV_VENDIDA = `(cv.venta_detectada = true OR (cv.bsale_documento_numero IS NOT NULL AND cv.bsale_documento_numero <> ''))`;
+    const condiciones = [];
+    const params = [];
+    if (q) { params.push(`%${q}%`); condiciones.push(`(ct.nombre ILIKE $${params.length} OR ct.telefono ILIKE $${params.length} OR EXISTS (SELECT 1 FROM bsale_clientes_puntos bq WHERE bq.telefono_normalizado <> '' AND bq.telefono_normalizado = right(regexp_replace(coalesce(ct.telefono, ''), '[^0-9]', '', 'g'), 9) AND bq.email ILIKE $${params.length}))`); }
+    if (req.query.recurrencia === 'recurrentes') condiciones.push('ct.total_conversaciones >= 2');
+    else if (req.query.recurrencia === 'nuevos') condiciones.push('ct.total_conversaciones < 2');
+    if (req.query.ventas === 'con') condiciones.push(`EXISTS (SELECT 1 FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id AND ${CONV_VENDIDA})`);
+    else if (req.query.ventas === 'sin') condiciones.push(`NOT EXISTS (SELECT 1 FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id AND ${CONV_VENDIDA})`);
+    const cond = condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '';
 
     const { rows: totalRows } = await sql.query(`SELECT COUNT(*)::int AS n FROM whatsapp_contactos ct ${cond};`, params);
     const total = totalRows[0]?.n || 0;
@@ -7365,15 +7374,19 @@ async function manejarWhatsappClientes(req, res, sesion) {
     const { rows } = await sql.query(
       `SELECT
          ct.id, ct.nombre, ct.telefono, ct.primera_conversacion_en, ct.ultima_conversacion_en, ct.total_conversaciones,
-         (SELECT COUNT(*)::int FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id AND cv.venta_detectada = true) AS num_ventas,
-         (SELECT COALESCE(SUM(venta_monto),0) FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id AND cv.venta_detectada = true) AS total_comprado,
+         (SELECT COUNT(*)::int FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id AND ${CONV_VENDIDA}) AS num_ventas,
+         (SELECT COALESCE(SUM(COALESCE(cv.venta_monto, cv.bsale_documento_monto, 0)),0) FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id AND ${CONV_VENDIDA}) AS total_comprado,
+         (SELECT array_agg(t.n ORDER BY t.cnt DESC, t.n) FROM (
+            SELECT COALESCE(us.nombre, cv.vendedor_detectado) AS n, COUNT(*) AS cnt
+            FROM whatsapp_conversaciones cv LEFT JOIN usuarios us ON us.id = cv.responsable_id
+            WHERE cv.contacto_id = ct.id AND COALESCE(us.nombre, cv.vendedor_detectado) IS NOT NULL GROUP BY 1) t) AS atendido_por,
          (SELECT array_agg(DISTINCT producto) FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id AND producto IS NOT NULL) AS productos_consultados,
          (SELECT intencion FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id ORDER BY iniciada_en DESC LIMIT 1) AS ultima_intencion,
          (SELECT estado FROM whatsapp_conversaciones cv WHERE cv.contacto_id = ct.id ORDER BY iniciada_en DESC LIMIT 1) AS ultimo_estado,
-         bcli.id AS bsale_cliente_id, bcli.nombre AS bsale_cliente_nombre
+         bcli.id AS bsale_cliente_id, bcli.nombre AS bsale_cliente_nombre, bcli.email AS correo
        FROM whatsapp_contactos ct
        LEFT JOIN LATERAL (
-         SELECT bp.id, bp.nombre FROM bsale_clientes_puntos bp
+         SELECT bp.id, bp.nombre, bp.email FROM bsale_clientes_puntos bp
          WHERE bp.telefono_normalizado <> '' AND bp.telefono_normalizado = right(regexp_replace(coalesce(ct.telefono, ''), '[^0-9]', '', 'g'), 9)
          LIMIT 1
        ) bcli ON true
@@ -7395,6 +7408,8 @@ async function manejarWhatsappClientes(req, res, sesion) {
         estado: r.ultimo_estado,
         bsaleClienteId: r.bsale_cliente_id,
         bsaleClienteNombre: r.bsale_cliente_nombre,
+        correo: r.correo || null,
+        atendidoPor: r.atendido_por || [],
       })),
       total, page, pageSize, totalPaginas: Math.max(1, Math.ceil(total / pageSize)),
     });

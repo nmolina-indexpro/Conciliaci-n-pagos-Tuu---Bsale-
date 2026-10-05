@@ -313,7 +313,7 @@ async function cargarSesionUsuario(){
       cambiarVistaModulo('conversaciones');
       seleccionarConversacionBandeja(Number(idDesdeUrl));
     } else {
-      cambiarVistaModulo('dashboard');
+      cambiarVistaModulo('conversaciones'); // la página abre en la bandeja de conversaciones
     }
   }catch(err){ /* silencioso */ }
 }
@@ -356,7 +356,6 @@ function cambiarVistaModulo(vista){
     vistasCargadas.add(vista);
     if (vista === 'dashboard') initDashboard();
     if (vista === 'conversaciones') initConversaciones();
-    if (vista === 'seguimientos') initSeguimientos();
     if (vista === 'clientes') initClientes();
     if (vista === 'analitica') initAnalitica();
   }
@@ -635,7 +634,6 @@ function filtrarSinAsignar(){
 // El indicador de seguimientos (hoy/vencidos) manda directo a la pestaña
 // "Seguimientos" de este mismo módulo -- ya existe esa vista dedicada, no
 // hace falta duplicar su lógica acá.
-function irASeguimientosHoy(){ cambiarVistaModulo('seguimientos'); }
 
 // Chip visible arriba cuando se llega filtrado por un motivo de pérdida
 // (ver irAConversacionesConMotivo, en Analítica) -- sin esto el filtro
@@ -682,7 +680,6 @@ function renderListaIndicadores(contadores){
   const c = contadores || {};
   $('listaIndicadores').innerHTML = `
     <div class="indicador-chip rojo" onclick="cambiarTabBandeja('pendientes')" title="Conversaciones sin ninguna respuesta todavía"><span class="num">${fmtNum(c.pendientes)}</span><span class="lbl-ind">Sin responder</span></div>
-    <div class="indicador-chip ambar" onclick="irASeguimientosHoy()" title="Seguimientos programados para hoy o ya vencidos"><span class="num">${fmtNum(c.seguimientosHoyOVencidos)}</span><span class="lbl-ind">Seguim. hoy/vencidos</span></div>
     <div class="indicador-chip gris" onclick="filtrarSinAsignar()" title="Conversaciones sin responsable asignado"><span class="num">${fmtNum(c.sinAsignar)}</span><span class="lbl-ind">Sin asignar</span></div>
   `;
 }
@@ -1478,97 +1475,11 @@ async function analizarConversacionIA(conversacionId){
   }
 }
 
-// ================= SEGUIMIENTOS =================
-let seguimientosActuales = [];
-let sortColSeg = 'fecha';
-let sortAscSeg = false;
-function flechaSeg(col){ return sortColSeg === col ? (sortAscSeg ? ' ▲' : ' ▼') : ''; }
-function cambiarOrdenSeguimientos(col){
-  if(sortColSeg === col) sortAscSeg = !sortAscSeg;
-  else { sortColSeg = col; sortAscSeg = false; }
-  renderTheadSeguimientos();
-  renderTablaSeguimientos();
-}
-const CAMPO_ORDEN_SEGUIMIENTOS = {
-  fecha: s => s.fecha ? new Date(s.fecha).getTime() : 0,
-  probabilidadCompra: s => s.probabilidadCompra || 0,
-  seguimientoEn: s => s.seguimientoEn ? new Date(s.seguimientoEn).getTime() : 0,
-  seguimientoEstado: s => s.seguimientoEstado || '',
-};
-function renderTheadSeguimientos(){
-  $('theadSeguimientos').innerHTML = `
-    <th>Cliente</th><th>Teléfono</th><th>Producto</th>
-    <th class="ordenable" onclick="cambiarOrdenSeguimientos('fecha')">Última conversación${flechaSeg('fecha')}</th>
-    <th>Motivo</th>
-    <th class="ordenable" onclick="cambiarOrdenSeguimientos('probabilidadCompra')">Prob. compra${flechaSeg('probabilidadCompra')}</th>
-    <th class="ordenable" onclick="cambiarOrdenSeguimientos('seguimientoEn')">Fecha sugerida${flechaSeg('seguimientoEn')}</th>
-    <th>Responsable</th>
-    <th class="ordenable" onclick="cambiarOrdenSeguimientos('seguimientoEstado')">Estado${flechaSeg('seguimientoEstado')}</th>
-  `;
-}
-function initSeguimientos(){
-  $('vistaSeguimientos').innerHTML = `
-    <div class="seccion">
-      <div class="seccion-head">
-        <div><h2>Seguimientos</h2><div class="sub">Conversaciones marcadas como "requiere seguimiento".</div></div>
-        <select id="fSeguimientoEstado" onchange="cargarSeguimientos()" style="width:180px;">
-          <option value="">Todos los estados</option>
-          <option value="pendiente">Pendiente</option><option value="contactado">Contactado</option>
-          <option value="venta">Venta</option><option value="cerrado">Cerrado</option><option value="no_interesado">No interesado</option>
-        </select>
-      </div>
-      <div class="tabla-wrap">
-        <table>
-          <thead><tr id="theadSeguimientos"></tr></thead>
-          <tbody id="tablaSeguimientos"><tr><td colspan="9" class="empty-note">Cargando…</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-  `;
-  renderTheadSeguimientos();
-  cargarSeguimientos();
-}
-function renderTablaSeguimientos(){
-  if (!seguimientosActuales.length) { $('tablaSeguimientos').innerHTML = '<tr><td colspan="9" class="empty-note">No hay seguimientos pendientes.</td></tr>'; return; }
-  const campo = CAMPO_ORDEN_SEGUIMIENTOS[sortColSeg];
-  const lista = [...seguimientosActuales].sort((a, b) => {
-    const av = campo(a), bv = campo(b);
-    if (av < bv) return sortAscSeg ? -1 : 1;
-    if (av > bv) return sortAscSeg ? 1 : -1;
-    return 0;
-  });
-  $('tablaSeguimientos').innerHTML = lista.map(s => `
-    <tr class="fila-clic" onclick="abrirConversacion(${s.id})">
-      <td>${escapeHtml(s.clienteNombre || 'Sin nombre')}</td>
-      <td>${escapeHtml(s.clienteTelefono || '—')}</td>
-      <td>${escapeHtml(s.marca ? s.marca + (s.modelo ? ' ' + s.modelo : '') : (s.producto ? CATEGORIA_LABEL[s.producto]||s.producto : '—'))}</td>
-      <td>${fmtFechaHora(s.fecha)}</td>
-      <td>${s.motivoPerdida ? (MOTIVO_PERDIDA_LABEL[s.motivoPerdida]||s.motivoPerdida) : (s.resultado ? RESULTADO_LABEL[s.resultado]||s.resultado : '—')}</td>
-      <td>${semaforoHtml(s.probabilidadCompra)}</td>
-      <td>${s.seguimientoEn ? fmtFecha(s.seguimientoEn) : '—'}</td>
-      <td>${responsableCellHtml(s)}</td>
-      <td><span class="badge ${SEGUIMIENTO_ESTADO_BADGE[s.seguimientoEstado] || 'b-gris'}">${SEGUIMIENTO_ESTADO_LABEL[s.seguimientoEstado] || s.seguimientoEstado}</span></td>
-    </tr>
-  `).join('');
-}
-async function cargarSeguimientos(){
-  const estado = $('fSeguimientoEstado').value;
-  try{
-    const res = await fetch('/api/negocio?recurso=whatsapp-seguimientos' + (estado ? '&estado=' + estado : ''));
-    const data = await res.json();
-    if (!res.ok || data.error) { $('tablaSeguimientos').innerHTML = `<tr><td colspan="9" class="empty-note">${data.error || 'Error al cargar.'}</td></tr>`; return; }
-    seguimientosActuales = data.seguimientos;
-    renderTablaSeguimientos();
-  }catch(err){
-    $('tablaSeguimientos').innerHTML = `<tr><td colspan="9" class="empty-note">Error: ${escapeHtml(err.message)}</td></tr>`;
-  }
-}
-
 // ================= CLIENTES =================
 // orden/ordenAsc viajan al backend (la tabla pagina server-side, así que
 // no alcanza con reordenar solo las filas ya traídas) -- ver
 // ORDEN_CLIENTES_WHATSAPP en negocio.js para la whitelist de columnas.
-let clientesState = { page: 1, pageSize: 25, q: '', orden: 'ultimaConversacion', ordenAsc: false };
+let clientesState = { page: 1, pageSize: 25, q: '', orden: 'ultimaConversacion', ordenAsc: false, recurrencia: '', ventas: '' };
 function flechaClientes(col){ return clientesState.orden === col ? (clientesState.ordenAsc ? ' ▲' : ' ▼') : ''; }
 function cambiarOrdenClientes(col){
   if(clientesState.orden === col) clientesState.ordenAsc = !clientesState.ordenAsc;
@@ -1579,7 +1490,7 @@ function cambiarOrdenClientes(col){
 }
 function renderTheadClientes(){
   $('theadClientes').innerHTML = `
-    <th>Cliente</th><th>Teléfono</th>
+    <th>Cliente</th><th>Teléfono</th><th>Correo</th><th>Atendido por</th>
     <th class="ordenable" onclick="cambiarOrdenClientes('primeraConversacion')">1ª conversación${flechaClientes('primeraConversacion')}</th>
     <th class="ordenable" onclick="cambiarOrdenClientes('ultimaConversacion')">Última conversación${flechaClientes('ultimaConversacion')}</th>
     <th class="ordenable" onclick="cambiarOrdenClientes('numConversaciones')">Nº conversaciones${flechaClientes('numConversaciones')}</th>
@@ -1594,11 +1505,20 @@ function initClientes(){
   $('vistaClientes').innerHTML = `
     <div class="seccion">
       <div class="seccion-head"><div><h2>Clientes</h2><div class="sub">Clientes únicos que han escrito por WhatsApp (no conversaciones individuales).</div></div></div>
-      <div class="buscador-wrap" style="margin-bottom:12px;"><span class="icono-buscar">🔍</span><input type="text" id="buscadorClientes" placeholder="Buscar por nombre o teléfono..."></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+        <div class="buscador-wrap" style="margin:0;flex:1 1 280px;max-width:420px;"><span class="icono-buscar">🔍</span><input type="text" id="buscadorClientes" placeholder="Buscar por nombre, teléfono o correo..."></div>
+        <select id="filtroRecurrenciaClientes" onchange="cambiarFiltroClientes()" title="Recurrentes: clientes con 2 o más conversaciones">
+          <option value="">Conversaciones: todos</option><option value="recurrentes">Recurrentes (2 o más)</option><option value="nuevos">Nuevos (1 conversación)</option>
+        </select>
+        <select id="filtroVentasClientes" onchange="cambiarFiltroClientes()" title="Ventas confirmadas o vinculadas a un documento de Bsale/Shopify">
+          <option value="">Ventas: todos</option><option value="con">Con ventas</option><option value="sin">Sin ventas</option>
+        </select>
+        <button class="btn-ghost btn-compact" onclick="limpiarFiltrosClientes()">✕ Limpiar</button>
+      </div>
       <div class="tabla-wrap">
         <table>
           <thead><tr id="theadClientes"></tr></thead>
-          <tbody id="tablaClientes"><tr><td colspan="10" class="empty-note">Cargando…</td></tr></tbody>
+          <tbody id="tablaClientes"><tr><td colspan="12" class="empty-note">Cargando…</td></tr></tbody>
         </table>
       </div>
       <div id="paginacionClientes" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12.5px;color:var(--muted);"></div>
@@ -1608,20 +1528,39 @@ function initClientes(){
   $('buscadorClientes').addEventListener('input', debounce(() => { clientesState.q = $('buscadorClientes').value.trim(); clientesState.page = 1; cargarClientes(); }, 350));
   cargarClientes();
 }
+function cambiarFiltroClientes(){
+  clientesState.recurrencia = $('filtroRecurrenciaClientes').value;
+  clientesState.ventas = $('filtroVentasClientes').value;
+  clientesState.page = 1;
+  cargarClientes();
+}
+function limpiarFiltrosClientes(){
+  $('filtroRecurrenciaClientes').value = ''; $('filtroVentasClientes').value = ''; $('buscadorClientes').value = '';
+  clientesState.recurrencia = ''; clientesState.ventas = ''; clientesState.q = ''; clientesState.page = 1;
+  cargarClientes();
+}
+function atendidoPorHtml(lista){
+  const nombres = lista || [];
+  if(!nombres.length) return '<span class="empty-note">—</span>';
+  const resto = nombres.length > 2 ? ` <span class="badge b-gris" title="${escapeHtml(nombres.join(', '))}">+${nombres.length - 2}</span>` : '';
+  return escapeHtml(nombres.slice(0, 2).join(', ')) + resto;
+}
 async function cargarClientes(){
-  const params = new URLSearchParams({ page: clientesState.page, pageSize: clientesState.pageSize, q: clientesState.q, orden: clientesState.orden, ordenAsc: clientesState.ordenAsc ? '1' : '0' });
+  const params = new URLSearchParams({ page: clientesState.page, pageSize: clientesState.pageSize, q: clientesState.q, orden: clientesState.orden, ordenAsc: clientesState.ordenAsc ? '1' : '0', recurrencia: clientesState.recurrencia, ventas: clientesState.ventas });
   try{
     const res = await fetch('/api/negocio?recurso=whatsapp-clientes&' + params.toString());
     const data = await res.json();
-    if (!res.ok || data.error) { $('tablaClientes').innerHTML = `<tr><td colspan="10" class="empty-note">${data.error || 'Error al cargar.'}</td></tr>`; return; }
-    if (!data.clientes.length) { $('tablaClientes').innerHTML = '<tr><td colspan="10" class="empty-note">No hay clientes que calcen con la búsqueda.</td></tr>'; return; }
+    if (!res.ok || data.error) { $('tablaClientes').innerHTML = `<tr><td colspan="12" class="empty-note">${data.error || 'Error al cargar.'}</td></tr>`; return; }
+    if (!data.clientes.length) { $('tablaClientes').innerHTML = '<tr><td colspan="12" class="empty-note">No hay clientes que calcen con la búsqueda y los filtros.</td></tr>'; $('paginacionClientes').innerHTML = ''; return; }
     $('tablaClientes').innerHTML = data.clientes.map(c => `
       <tr class="fila-clic" onclick="abrirCliente(${c.id})">
         <td>${escapeHtml(c.nombre || 'Sin nombre')}${c.bsaleClienteId ? ' <span class="badge b-verde" title="Cliente Bsale: ' + escapeHtml(c.bsaleClienteNombre) + '">✓ Bsale</span>' : ''}</td>
-        <td>${escapeHtml(c.telefono || '—')}</td>
+        <td>${enlaceWhatsappTelefono(c.telefono)}</td>
+        <td>${c.correo ? `<a href="mailto:${escapeHtml(c.correo)}" onclick="event.stopPropagation()">${escapeHtml(c.correo)}</a>` : '<span class="empty-note">—</span>'}</td>
+        <td>${atendidoPorHtml(c.atendidoPor)}</td>
         <td>${fmtFecha(c.primeraConversacion)}</td>
         <td>${fmtFecha(c.ultimaConversacion)}</td>
-        <td>${fmtNum(c.numConversaciones)}${c.numConversaciones > 2 ? ' <span class="badge b-azul">Recurrente</span>' : ''}</td>
+        <td>${fmtNum(c.numConversaciones)}${c.numConversaciones >= 2 ? ' <span class="badge b-azul">Recurrente</span>' : ''}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml((c.productosConsultados||[]).map(p => CATEGORIA_LABEL[p]||p).join(', ') || '—')}</td>
         <td>${fmtNum(c.numVentas)}${c.numVentas > 1 ? ' <span class="badge b-verde">Recompra</span>' : ''}</td>
         <td class="amount">${fmtMoneda(c.totalComprado)}</td>
@@ -1637,7 +1576,7 @@ async function cargarClientes(){
       </span>
     `;
   }catch(err){
-    $('tablaClientes').innerHTML = `<tr><td colspan="10" class="empty-note">Error: ${escapeHtml(err.message)}</td></tr>`;
+    $('tablaClientes').innerHTML = `<tr><td colspan="12" class="empty-note">Error: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 function irPaginaClientes(p){ clientesState.page = p; cargarClientes(); }
