@@ -299,6 +299,7 @@
 </div>
 <div class="toast" id="toast"></div>
 
+<script src="navegacion-historial.js"></script>
 <script src="restriccion-usuario.js"></script>
 <script src="menu-herramientas.js"></script>
 <script>
@@ -383,6 +384,11 @@ async function cargarSesion(){
     cargarUsuarios();
     const inicial = (location.hash || '').replace('#', '');
     if(['usuarios', 'perfiles', 'notificaciones'].includes(inicial)) cambiarTab(inicial, true);
+    // Atrás/Adelante recorren las pestañas por las que se pasó, antes de salir de la página
+    Nav.iniciar({
+      dimensiones: { tab: { actual: () => (document.querySelector('.tab.activa') || {}).dataset.tab || 'usuarios', aplicar: v => cambiarTab(v, true) } },
+      envolver: ['cambiarTab'],
+    });
   }catch(err){
     location.href = '/login.html';
   }
@@ -395,7 +401,6 @@ function cambiarTab(tab, sinHash){
   if(usuarioActual && usuarioActual.rol !== 'admin' && tab !== 'usuarios') tab = 'usuarios';
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('activa', b.dataset.tab === tab));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('activa', p.id === 'panel-' + tab));
-  if(!sinHash) history.replaceState(null, '', '#' + tab);
   cerrarMenuFila();
 }
 

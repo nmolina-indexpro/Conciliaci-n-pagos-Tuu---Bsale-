@@ -862,5 +862,13 @@ function renderGaAudiencia(d){
 
 cargarSesionUsuario();
 </script>
+<script src="navegacion-historial.js"></script>
+<script>
+// Atrás/Adelante entre las secciones de Google Analytics
+Nav.iniciar({
+  dimensiones: { seccion: { actual: () => gaTabActiva, aplicar: v => cambiarTabGA(v) } },
+  envolver: ['cambiarTabGA'],
+});
+</script>
 </body>
 </html>

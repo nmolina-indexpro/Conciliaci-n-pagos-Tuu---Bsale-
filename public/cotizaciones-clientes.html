@@ -2010,5 +2010,16 @@ async function cargarSesionUsuario(){
   cargarUsuariosActivosCot();
 })();
 </script>
+<script src="navegacion-historial.js"></script>
+<script>
+// Atrás/Adelante: pestaña Gestión/Rendimiento y ficha de cotización abierta
+Nav.iniciar({
+  dimensiones: {
+    subvista: { actual: () => ((document.querySelector('#tabsSubCot .tab-sub-cot.activo') || {}).dataset || {}).subvista || 'gestion', aplicar: v => cambiarSubVistaCot(v) },
+    ficha: { actual: () => cotizacionSeleccionadaId, aplicar: v => { if(v) seleccionarCotizacion(v); else cerrarFichaLateralCot(); }, reemplazar: true },
+  },
+  envolver: ['cambiarSubVistaCot', 'seleccionarCotizacion', 'cerrarFichaLateralCot'],
+});
+</script>
 </body>
 </html>

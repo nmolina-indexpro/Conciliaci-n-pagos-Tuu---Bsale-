@@ -780,5 +780,13 @@ function renderVistaAnterior(ejecutivos, sinAsignar){
 cargarSesionUsuario();
 setRangoRapidoEjec('ayer');
 </script>
+<script src="navegacion-historial.js"></script>
+<script>
+// Atrás cierra la ventana de detalle en vez de salir de la página
+Nav.iniciar({
+  dimensiones: { detalle: { actual: () => (detalleEstado ? { clave: detalleEstado.clave, indicador: detalleEstado.indicador } : null), aplicar: v => { if(v) abrirDetalle(v.clave, v.indicador); else cerrarDetalle(); }, reemplazar: true } },
+  envolver: ['abrirDetalle', 'cerrarDetalle'],
+});
+</script>
 </body>
 </html>

@@ -415,7 +415,17 @@
 <script src="comercial-movil.js"></script>
 <script src="clientes-whatsapp.js"></script>
 <script src="whatsapp-motivos.js"></script>
+<script src="navegacion-historial.js"></script>
 <script>
+// Atrás/Adelante: pestaña del módulo, conversación abierta y panel de análisis de un motivo
+Nav.iniciar({
+  dimensiones: {
+    vista: { actual: () => ((document.querySelector('.tab-modulo.activo') || {}).dataset || {}).vista || 'dashboard', aplicar: v => cambiarVistaModulo(v) },
+    conversacion: { actual: () => ($('modalConversacion').classList.contains('abierto') ? conversacionAbiertaId : null), aplicar: v => { if(v) abrirConversacion(v, null); else cerrarModalConversacion(); }, reemplazar: true },
+    motivo: { actual: () => { const p = document.getElementById('panelMotivo'); return p && p.classList.contains('abierto') ? motivoPanel.motivo : null; }, aplicar: v => { if(v) abrirPanelMotivo(v); else cerrarPanelMotivo(); } },
+  },
+  envolver: ['cambiarVistaModulo', 'abrirConversacion', 'cerrarModalConversacion', 'abrirPanelMotivo', 'cerrarPanelMotivo'],
+});
 cargarSesionUsuario();
 </script>
 </body>
