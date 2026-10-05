@@ -15,12 +15,13 @@
     --red:#DC2626; --red-bg:#FCE8E8;
     --green:#15803D; --green-bg:#E3F6E8;
     --amber:#B45309; --amber-bg:#FEF3E0;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
     --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
   }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:24px 32px 50px 32px;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:18px 28px 36px 28px;-webkit-font-smoothing:antialiased;}
   .wrap{max-width:none;margin:0;}
-  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:16px;gap:16px;}
   .logo{height:42px;display:block;justify-self:start;}
   .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
   .page-nav::-webkit-scrollbar{display:none;}
@@ -32,40 +33,128 @@
   .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;}
   .btn-logout:hover{border-color:var(--red);color:var(--red);}
 
-  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:22px;margin:0 0 20px;}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;box-shadow:var(--shadow);margin-bottom:24px;}
-  label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;display:block;margin-bottom:5px;}
-  input,select{padding:9px 12px;border:1.5px solid var(--line);border-radius:9px;font-size:13.5px;font-family:inherit;background:var(--bg);color:var(--text);}
+  /* ---- Controles base ---- */
+  label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;display:block;margin-bottom:4px;}
+  input,select{padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--text);}
   input:focus,select:focus{outline:none;border-color:var(--primary);}
-  .fila-form{display:flex;gap:14px;flex-wrap:wrap;align-items:end;}
-  .campo{display:flex;flex-direction:column;}
-  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 20px;cursor:pointer;}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;}
+  button:disabled{opacity:.45;cursor:not-allowed;}
   .btn-primary{background:var(--primary);color:#fff;}
-  .btn-primary:hover{background:var(--primary-dark);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
   .btn-ghost{background:var(--surface);border:1.5px solid var(--line);color:var(--muted);}
+  .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
   .btn-danger{background:var(--red-bg);color:var(--red);}
-  table{width:100%;border-collapse:collapse;font-size:13px;}
+  .btn-sm{padding:5px 10px;font-size:11.5px;}
+  .empty-note{color:var(--muted);font-size:12.5px;}
+  .error-box{background:var(--red-bg);color:var(--red);border-radius:8px;padding:8px 12px;font-size:12.5px;margin-bottom:10px;}
+  .aviso-box{background:var(--amber-bg);color:var(--amber);border-radius:8px;padding:8px 12px;font-size:12.5px;margin-bottom:10px;}
+
+  /* ---- Cabecera de la página: título + pestañas + acción principal ---- */
+  .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:14px;}
+  .page-head h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:20px;margin:0 0 8px;}
+  .tabs{display:flex;gap:2px;}
+  .tab{background:none;border:none;border-bottom:2.5px solid transparent;border-radius:0;padding:8px 14px;color:var(--muted);font-size:13px;display:flex;align-items:center;gap:7px;}
+  .tab:hover{color:var(--text);}
+  .tab.activa{color:var(--primary);border-bottom-color:var(--primary);}
+  .tab .cuenta{background:var(--surface-2);color:var(--muted);border-radius:999px;font-size:10.5px;padding:1px 7px;}
+  .tab.activa .cuenta{background:var(--primary-dim);color:var(--primary);}
+  .panel{display:none;}
+  .panel.activa{display:block;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);}
+
+  /* ---- Usuarios ---- */
+  .resumen{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+  .chip-res{background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 11px;font-size:12px;color:var(--muted);}
+  .chip-res b{color:var(--text);font-family:'IBM Plex Mono',monospace;margin-right:3px;}
+  .barra{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+  .barra .buscar{flex:1 1 220px;max-width:340px;}
+  .barra .espacio{flex:1;}
   .tabla-wrap{overflow-x:auto;}
-  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:0.4px;padding:10px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:0.4px;padding:8px 10px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;}
   th.ordenable{cursor:pointer;user-select:none;}
   th.ordenable:hover{color:var(--primary);}
-  td{padding:10px;border-bottom:1px solid var(--line);}
-  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;}
+  td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  tbody tr:hover{background:#FAFBF7;}
+  tr.inactivo td{opacity:.62;}
+  .persona{display:flex;align-items:center;gap:10px;min-width:210px;}
+  .avatar{width:30px;height:30px;border-radius:50%;background:var(--primary-dim);color:var(--primary);font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11.5px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .avatar.admin{background:var(--primary);color:#fff;}
+  .persona .nombre{font-weight:600;font-size:13px;line-height:1.2;}
+  .persona .correo{color:var(--muted);font-size:11.5px;}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:2px 9px;border-radius:999px;font-weight:700;white-space:nowrap;}
   .badge.admin{background:var(--primary-dim);color:var(--primary);}
   .badge.usuario{background:var(--surface-2);color:var(--muted);}
-  .badge.activo{background:var(--green-bg);color:var(--green);}
   .badge.inactivo{background:var(--red-bg);color:var(--red);}
   .badge.pendiente{background:var(--amber-bg);color:var(--amber);}
-  .empty-note{color:var(--muted);font-size:12.5px;}
-  .error-box{background:var(--red-bg);color:var(--red);border-radius:9px;padding:10px 14px;font-size:13px;margin-bottom:16px;}
-  .acciones{display:flex;gap:6px;flex-wrap:wrap;}
-  .acciones button{padding:6px 12px;font-size:11.5px;}
-  .checks-paginas{display:flex;flex-wrap:wrap;gap:8px 14px;padding:10px 0;}
-  .checks-paginas label{display:flex;align-items:center;gap:5px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);margin-bottom:0;}
-  .checks-paginas input{padding:0;}
-  .fila-perfil{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;}
-  .fila-perfil-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;}
-  .fila-perfil-head b{font-size:13.5px;}
+  .badge.vigente{background:var(--blue-bg);color:var(--blue);}
+  select.perfil-sel{padding:4px 8px;font-size:12px;max-width:170px;}
+  .switch{position:relative;display:inline-block;width:34px;height:19px;margin:0;vertical-align:middle;}
+  .switch input{opacity:0;width:0;height:0;position:absolute;}
+  .switch .pista{position:absolute;inset:0;background:#CBD2C6;border-radius:999px;transition:.15s;cursor:pointer;}
+  .switch .pista::before{content:'';position:absolute;width:15px;height:15px;left:2px;top:2px;background:#fff;border-radius:50%;transition:.15s;box-shadow:0 1px 2px rgba(0,0,0,.25);}
+  .switch input:checked + .pista{background:var(--primary);}
+  .switch input:checked + .pista::before{transform:translateX(15px);}
+  .switch input:disabled + .pista{opacity:.5;cursor:not-allowed;}
+  .btn-menu{background:none;border:1.5px solid transparent;color:var(--muted);padding:3px 9px;font-size:16px;line-height:1;border-radius:8px;}
+  .btn-menu:hover{background:var(--surface-2);border-color:var(--line);color:var(--text);}
+  .menu-flotante{position:fixed;z-index:60;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 28px rgba(31,42,36,.18);padding:5px;min-width:230px;display:none;}
+  .menu-flotante button{display:flex;width:100%;text-align:left;background:none;color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;font-weight:500;font-size:12.5px;padding:7px 10px;border-radius:7px;gap:8px;align-items:center;}
+  .menu-flotante button:hover{background:var(--surface-2);}
+  .menu-flotante button.peligro{color:var(--red);}
+  .menu-flotante button.peligro:hover{background:var(--red-bg);}
+  .menu-flotante hr{border:none;border-top:1px solid var(--line);margin:4px 2px;}
+
+  /* ---- Perfiles: lista a la izquierda, páginas agrupadas a la derecha ---- */
+  .perfiles-grid{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start;}
+  .lista-perfiles{padding:8px;}
+  .item-perfil{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:13px;padding:8px 10px;border-radius:8px;margin-bottom:2px;}
+  .item-perfil:hover{background:var(--surface-2);}
+  .item-perfil.activa{background:var(--primary-dim);color:var(--primary);}
+  .item-perfil small{color:var(--muted);font-weight:500;font-size:11px;}
+  .item-perfil.nuevo{color:var(--primary);border:1.5px dashed var(--primary);margin-top:6px;justify-content:center;}
+  .detalle-perfil{padding:14px 16px;}
+  .detalle-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+  .detalle-head h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0;}
+  .detalle-head .espacio{flex:1;}
+  .grupos{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;}
+  .grupo{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--bg);}
+  .grupo-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;}
+  .grupo-head .todo{font-weight:600;font-size:10.5px;color:var(--primary);cursor:pointer;background:none;border:none;padding:0;}
+  .chk{display:flex;align-items:center;gap:7px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);margin:0;padding:2.5px 0;cursor:pointer;}
+  .chk input{padding:0;margin:0;accent-color:var(--primary);}
+  .nota-perfil{font-size:11.5px;color:var(--muted);margin-top:10px;}
+
+  /* ---- Notificaciones: una fila por alerta, en columnas ---- */
+  td.notif-nombre{min-width:220px;}
+  td.notif-nombre b{display:block;font-size:13px;line-height:1.25;}
+  td.notif-nombre small{color:var(--muted);font-size:11px;}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center;}
+  .chip{display:inline-flex;align-items:center;gap:4px;background:var(--surface-2);border-radius:999px;padding:2px 4px 2px 10px;font-size:11.5px;}
+  .chip button{background:none;color:var(--muted);padding:0 6px;font-size:14px;line-height:1.1;border-radius:999px;}
+  .chip button:hover{background:var(--red-bg);color:var(--red);}
+  select.agregar{padding:3px 8px;font-size:11.5px;border-style:dashed;color:var(--primary);max-width:150px;}
+  .frec{display:flex;gap:5px;align-items:center;flex-wrap:wrap;}
+  .frec select{padding:4px 8px;font-size:12px;}
+
+  /* ---- Ventana (modal) y aviso breve ---- */
+  .modal-fondo{position:fixed;inset:0;background:rgba(20,28,24,.45);display:none;align-items:center;justify-content:center;z-index:80;padding:16px;}
+  .modal-fondo.abierto{display:flex;}
+  .modal{background:var(--surface);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.25);width:min(560px,100%);max-height:92vh;overflow:auto;padding:18px 20px;}
+  .modal h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0 0 12px;}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;}
+  .form-grid .ancho{grid-column:1 / -1;}
+  .form-grid input,.form-grid select{width:100%;}
+  .modal .pie{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
+  .ayuda{font-size:11px;color:var(--muted);margin-top:3px;font-weight:400;text-transform:none;letter-spacing:0;}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%) translateY(20px);background:#1F2A24;color:#fff;padding:9px 16px;border-radius:9px;font-size:12.5px;opacity:0;pointer-events:none;transition:.2s;z-index:100;}
+  .toast.visible{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  @media (max-width:900px){
+    body{padding:14px 12px 30px 12px;}
+    .perfiles-grid{grid-template-columns:minmax(0,1fr);}
+    .form-grid{grid-template-columns:minmax(0,1fr);}
+  }
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -143,63 +232,86 @@
     <div class="user-box" id="userBox"></div>
   </header>
 
-  <h1>Mantenedor de usuarios</h1>
+  <div class="page-head">
+    <div>
+      <h1>Administración de accesos</h1>
+      <div class="tabs" id="tabs">
+        <button class="tab activa" data-tab="usuarios" onclick="cambiarTab('usuarios')">👤 Usuarios <span class="cuenta" id="cuentaUsuarios">0</span></button>
+        <button class="tab" data-tab="perfiles" id="tabPerfiles" onclick="cambiarTab('perfiles')" style="display:none;">🛡️ Perfiles de acceso <span class="cuenta" id="cuentaPerfiles">0</span></button>
+        <button class="tab" data-tab="notificaciones" id="tabNotificaciones" onclick="cambiarTab('notificaciones')" style="display:none;">🔔 Notificaciones <span class="cuenta" id="cuentaNotificaciones">0</span></button>
+      </div>
+    </div>
+  </div>
   <div id="avisoAcceso"></div>
 
-  <div class="card" id="formCard">
+  <!-- ===================== Usuarios ===================== -->
+  <section class="panel activa" id="panel-usuarios">
+    <div class="resumen" id="resumenUsuarios"></div>
+    <div class="barra">
+      <input type="search" class="buscar" id="buscarUsuario" placeholder="Buscar por nombre o correo..." oninput="renderTabla()">
+      <select id="filtroEstado" onchange="renderTabla()"><option value="">Estado: todos</option><option value="activo">Activos</option><option value="inactivo">Inactivos</option></select>
+      <select id="filtroRol" onchange="renderTabla()"><option value="">Rol: todos</option><option value="admin">Administradores</option><option value="usuario">Usuarios</option></select>
+      <select id="filtroPerfil" onchange="renderTabla()"><option value="">Perfil: todos</option></select>
+      <span class="espacio"></span>
+      <button class="btn-primary" id="btnNuevoUsuario" onclick="abrirModalUsuario()">+ Nuevo usuario</button>
+    </div>
+    <div class="card"><div id="tablaWrap"><p class="empty-note" style="padding:14px;">Cargando...</p></div></div>
+  </section>
+
+  <!-- ===================== Perfiles ===================== -->
+  <section class="panel" id="panel-perfiles">
+    <div class="sub empty-note" style="margin-bottom:10px;">Un perfil define qué páginas puede ver una persona. Se asigna desde la pestaña Usuarios. "Reportar un error" y "Usuarios" quedan siempre aparte (soporte y rol de administrador).</div>
+    <div class="perfiles-grid">
+      <div class="card lista-perfiles" id="listaPerfiles"></div>
+      <div class="card detalle-perfil" id="detallePerfil"></div>
+    </div>
+  </section>
+
+  <!-- ===================== Notificaciones ===================== -->
+  <section class="panel" id="panel-notificaciones">
+    <div class="sub empty-note" style="margin-bottom:10px;">Quién recibe cada aviso automático y cada cuánto. La hora exacta de envío la fija el servidor; aquí solo se decide si corresponde mandarlo hoy.</div>
+    <div class="card"><div class="tabla-wrap" id="wrapNotificaciones"><p class="empty-note" style="padding:14px;">Cargando...</p></div></div>
+  </section>
+</div>
+
+<!-- Menú de acciones de una fila (flotante, para que no lo recorte la tabla) -->
+<div class="menu-flotante" id="menuFila"></div>
+
+<!-- Nuevo usuario -->
+<div class="modal-fondo" id="modalUsuario" onclick="if(event.target===this) cerrarModalUsuario()">
+  <div class="modal">
+    <h2>Nuevo usuario</h2>
     <div id="errorForm"></div>
-    <div class="fila-form">
-      <div class="campo"><label>Email</label><input type="email" id="fEmail" style="width:220px;"></div>
-      <div class="campo"><label>Nombre</label><input type="text" id="fNombre" style="width:180px;"></div>
-      <div class="campo"><label>Contraseña</label><input type="password" id="fPassword" style="width:160px;" placeholder="mín. 8 caracteres"></div>
-      <div class="campo"><label>Rol</label>
-        <select id="fRol">
-          <option value="usuario">Usuario</option>
-          <option value="admin">Administrador</option>
-        </select>
+    <div class="form-grid">
+      <div class="ancho"><label for="fEmail">Correo</label><input type="email" id="fEmail" placeholder="nombre@indexstore.cl" autocomplete="off"></div>
+      <div><label for="fNombre">Nombre</label><input type="text" id="fNombre" autocomplete="off"></div>
+      <div><label for="fPassword">Contraseña</label>
+        <div style="display:flex;gap:6px;"><input type="text" id="fPassword" placeholder="mín. 8 caracteres" autocomplete="off"><button type="button" class="btn-ghost btn-sm" onclick="generarPassword()" title="Generar una contraseña segura">🎲</button></div>
       </div>
-      <div class="campo">
-        <label>Duración temporal (min)</label>
-        <input type="number" id="fExpira" style="width:110px;" placeholder="vacío = sin límite" min="1" value="">
-      </div>
-      <div class="campo">
-        <label>Perfil de acceso</label>
-        <select id="fPerfil" style="width:180px;">
-          <option value="">Sin restricción (todas)</option>
-        </select>
-      </div>
-      <button class="btn-primary" onclick="crearUsuario()">+ Crear usuario</button>
+      <div><label for="fRol">Rol</label><select id="fRol"><option value="usuario">Usuario</option><option value="admin">Administrador</option></select></div>
+      <div><label for="fPerfil">Perfil de acceso</label><select id="fPerfil"><option value="">Sin restricción (todas las páginas)</option></select></div>
+      <div class="ancho"><label for="fExpira">Duración temporal (minutos, opcional)</label><input type="number" id="fExpira" min="1" placeholder="vacío = cuenta permanente">
+        <div class="ayuda">El reloj arranca en el primer ingreso, no al crear la cuenta. Ej: 180 = 3 horas desde que entra por primera vez.</div></div>
     </div>
-    <small style="color:var(--muted);display:block;margin-top:10px;">Con "Duración temporal" puesta, el reloj arranca en el primer login exitoso (no al crear la cuenta). Ej: 180 min = 3 horas desde que la persona entra por primera vez. Vacío = cuenta permanente. "Perfil de acceso" limita qué páginas puede ver — se define abajo.</small>
-  </div>
-
-  <div class="card" id="perfilesCard" style="display:none;">
-    <h1 style="font-size:15px;margin-bottom:4px;">Perfiles de acceso</h1>
-    <div class="sub" style="margin-bottom:14px;">Define qué páginas puede ver cada perfil. Se asigna a un usuario desde el formulario de arriba o la tabla de abajo. "Reportar un error" y "Usuarios" siempre quedan aparte (soporte y rol de administrador).</div>
-    <div id="errorPerfil"></div>
-    <div class="fila-form" style="align-items:start;margin-bottom:18px;">
-      <div class="campo"><label>Nombre del perfil</label><input type="text" id="fPerfilNombre" style="width:200px;" placeholder="Ej: Vendedor"></div>
-      <div id="checksNuevoPerfil" class="checks-paginas"></div>
-      <button class="btn-primary" onclick="crearPerfil()">+ Crear perfil</button>
-    </div>
-    <div id="wrapPerfiles"><p class="empty-note">Cargando...</p></div>
-  </div>
-
-  <div class="card" id="notificacionesCard" style="display:none;">
-    <h1 style="font-size:15px;margin-bottom:4px;">Notificaciones por correo</h1>
-    <div class="sub" style="margin-bottom:14px;">Administra quién recibe cada notificación automática del sistema y con qué frecuencia. La hora exacta de envío no se puede cambiar desde aquí — depende de la tarea programada en el servidor; esto solo decide si corresponde mandarla hoy.</div>
-    <div id="wrapNotificaciones"><p class="empty-note">Cargando...</p></div>
-  </div>
-
-  <div class="card">
-    <div id="tablaWrap"><p class="empty-note">Cargando...</p></div>
+    <div class="ayuda" style="margin-top:10px;">Se le envía un correo con el usuario y la contraseña.</div>
+    <div class="pie"><button class="btn-ghost" onclick="cerrarModalUsuario()">Cancelar</button><button class="btn-primary" id="btnCrearUsuario" onclick="crearUsuario()">Crear usuario</button></div>
   </div>
 </div>
+<div class="toast" id="toast"></div>
 
 <script src="restriccion-usuario.js"></script>
 <script src="menu-herramientas.js"></script>
 <script>
 const $ = id => document.getElementById(id);
+function esc(t){
+  return String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+let toastTimer = null;
+function toast(msg){
+  const el = $('toast'); el.textContent = msg; el.classList.add('visible');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('visible'), 2600);
+}
+
 let usuarioActual = null;
 let listaUsuarios = [];
 let listaPerfiles = [];
@@ -211,145 +323,210 @@ const PAGINAS_LABELS = {
   'compras.html': 'Compras',
   'alertas-stock.html': 'Alertas de Stock',
   'productos-en-transito.html': 'Productos en tránsito',
-  'oportunidades-comerciales.html': 'Oportunidades (Puntos Bsale, Indexpro)',
-  'cotizaciones-clientes.html': 'Cotizaciones y ventas',
+  'oportunidades-comerciales.html': 'Ventas (Puntos Bsale, Indexpro)',
+  'cotizaciones-clientes.html': 'Cotizaciones',
   'compra-agil.html': 'Compra Ágil',
   'metas-de-venta.html': 'Metas de venta',
   'llamadas.html': 'Llamadas (Fono IP)',
+  'clientes-whatsapp.html': 'WhatsApp',
   'sitio-web.html': 'Sitio Web',
   'eficiencia-tickets.html': 'Tickets',
   'analisis.html': 'Análisis',
   'productos-estancados.html': 'Productos estancados',
   'google-analytics.html': 'Google Analytics',
-  'clientes-whatsapp.html': 'Clientes WhatsApp',
+  'productos-nuevos.html': 'Productos nuevos',
+  'ejecutivos-whatsapp.html': 'Ejecutivos WhatsApp',
+  'servicio-tecnico.html': 'Servicio Técnico',
+  'identificacion-modelos.html': 'Identificación de modelos',
   'guia-uso.html': 'Guía de uso',
 };
+// Mismos grupos que el menú superior: así el perfil se lee igual que la navegación.
+const GRUPOS_PAGINAS = [
+  ['General', ['home.html', 'guia-uso.html']],
+  ['Finanzas', ['index.html', 'conciliacion.html']],
+  ['Compras', ['compras.html', 'alertas-stock.html', 'productos-en-transito.html']],
+  ['Comercial', ['oportunidades-comerciales.html', 'cotizaciones-clientes.html', 'compra-agil.html', 'metas-de-venta.html', 'clientes-whatsapp.html', 'llamadas.html']],
+  ['Soporte', ['eficiencia-tickets.html']],
+  ['Servicio técnico', ['servicio-tecnico.html', 'identificacion-modelos.html']],
+  ['Análisis', ['analisis.html', 'productos-estancados.html', 'google-analytics.html', 'productos-nuevos.html', 'sitio-web.html', 'ejecutivos-whatsapp.html']],
+];
+function gruposDePaginas(){
+  const usadas = new Set();
+  const grupos = GRUPOS_PAGINAS.map(([nombre, paginas]) => {
+    const presentes = paginas.filter(p => paginasDisponibles.includes(p));
+    presentes.forEach(p => usadas.add(p));
+    return [nombre, presentes];
+  }).filter(([, paginas]) => paginas.length);
+  const otras = paginasDisponibles.filter(p => !usadas.has(p));
+  if(otras.length) grupos.push(['Otras', otras]);
+  return grupos;
+}
 
+// ---------------- Sesión y pestañas ----------------
 async function cargarSesion(){
   try{
     const res = await fetch('/api/auth-session');
     if(!res.ok){ location.href = '/login.html'; return; }
     usuarioActual = await res.json();
-    $('userBox').innerHTML = `<span>Conectado como <b>${usuarioActual.nombre || usuarioActual.email}</b> (${usuarioActual.rol})</span>`;
+    $('userBox').innerHTML = `<span>Conectado como <b>${esc(usuarioActual.nombre || usuarioActual.email)}</b> (${esc(usuarioActual.rol)})</span>`;
     aplicarRestriccionesUsuario(usuarioActual.rol);
     aplicarRestriccionPaginas(usuarioActual.paginas);
 
     if(usuarioActual.rol !== 'admin'){
-      $('formCard').style.display = 'none';
-      $('avisoAcceso').innerHTML = `<div class="error-box">Esta página es solo para administradores. Puedes ver tu propia cuenta abajo, pero no puedes crear ni editar usuarios.</div>`;
+      $('btnNuevoUsuario').style.display = 'none';
+      $('avisoAcceso').innerHTML = `<div class="error-box">Esta página es solo para administradores. Puedes ver tu propia cuenta, pero no crear ni editar usuarios.</div>`;
     } else {
-      $('perfilesCard').style.display = '';
-      await cargarPerfiles();
-      $('notificacionesCard').style.display = '';
-      await cargarNotificaciones();
+      $('tabPerfiles').style.display = '';
+      $('tabNotificaciones').style.display = '';
+      await Promise.all([cargarPerfiles(), cargarNotificaciones()]);
     }
     cargarUsuarios();
+    const inicial = (location.hash || '').replace('#', '');
+    if(['usuarios', 'perfiles', 'notificaciones'].includes(inicial)) cambiarTab(inicial, true);
   }catch(err){
     location.href = '/login.html';
   }
 }
-
 async function cerrarSesion(){
   await fetch('/api/auth-session', { method: 'DELETE' });
   location.href = '/login.html';
 }
+function cambiarTab(tab, sinHash){
+  if(usuarioActual && usuarioActual.rol !== 'admin' && tab !== 'usuarios') tab = 'usuarios';
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('activa', b.dataset.tab === tab));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('activa', p.id === 'panel-' + tab));
+  if(!sinHash) history.replaceState(null, '', '#' + tab);
+  cerrarMenuFila();
+}
 
 // ---------------- Perfiles de acceso ----------------
-function renderChecksPaginas(idPrefix, marcadas){
-  return paginasDisponibles.map(p => `
-    <label><input type="checkbox" id="${idPrefix}_${p}" value="${p}" ${marcadas.includes(p)?'checked':''}> ${PAGINAS_LABELS[p] || p}</label>
-  `).join('');
-}
-function paginasMarcadasDe(idPrefix){
-  return paginasDisponibles.filter(p => $(`${idPrefix}_${p}`)?.checked);
-}
+let perfilSel = null; // { id: número|null (nuevo), nombre, paginas: Set, original: 'a,b,c' }
+const claveSet = s => [...s].sort().join(',');
 
 async function cargarPerfiles(){
   try{
     const res = await fetch('/api/usuarios?recurso=perfiles');
     const data = await res.json();
-    if(!res.ok){ $('wrapPerfiles').innerHTML = `<p class="empty-note">${data.error}</p>`; return; }
+    if(!res.ok){ $('listaPerfiles').innerHTML = `<p class="empty-note">${esc(data.error)}</p>`; return; }
     listaPerfiles = data.perfiles || [];
     paginasDisponibles = data.paginasDisponibles || [];
-    $('checksNuevoPerfil').innerHTML = renderChecksPaginas('nuevo', []);
+    $('cuentaPerfiles').textContent = listaPerfiles.length;
+    // se mantiene la selección si el perfil sigue existiendo
+    const idActual = perfilSel && perfilSel.id;
+    const existente = idActual ? listaPerfiles.find(p => p.id === idActual) : null;
+    if(existente) perfilSel = { id: existente.id, nombre: existente.nombre, paginas: new Set(existente.paginas || []), original: claveSet(existente.paginas || []) };
+    else if(!(perfilSel && perfilSel.id === null)) perfilSel = listaPerfiles[0] ? { id: listaPerfiles[0].id, nombre: listaPerfiles[0].nombre, paginas: new Set(listaPerfiles[0].paginas || []), original: claveSet(listaPerfiles[0].paginas || []) } : null;
     renderPerfiles();
-    renderSelectPerfilNuevo();
+    renderFiltroPerfil();
     renderTabla(); // por si ya había usuarios cargados, para mostrar su perfil
   }catch(err){
-    $('wrapPerfiles').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+    $('listaPerfiles').innerHTML = `<p class="empty-note">Error: ${esc(err.message)}</p>`;
   }
 }
-
-function renderSelectPerfilNuevo(){
-  const sel = $('fPerfil');
-  const actual = sel.value;
-  sel.innerHTML = `<option value="">Sin restricción (todas)</option>` +
-    listaPerfiles.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('');
-  sel.value = actual;
+function seleccionarPerfil(id){
+  const p = listaPerfiles.find(x => x.id === id);
+  if(!p) return;
+  perfilSel = { id: p.id, nombre: p.nombre, paginas: new Set(p.paginas || []), original: claveSet(p.paginas || []) };
+  renderPerfiles();
 }
-
+function nuevoPerfil(){
+  perfilSel = { id: null, nombre: '', paginas: new Set(), original: '' };
+  renderPerfiles();
+  setTimeout(() => { const i = $('fPerfilNombre'); if(i) i.focus(); }, 0);
+}
 function renderPerfiles(){
-  if(listaPerfiles.length === 0){
-    $('wrapPerfiles').innerHTML = `<p class="empty-note">Sin perfiles todavía — mientras tanto, todos los usuarios ven todas las páginas.</p>`;
+  $('listaPerfiles').innerHTML = listaPerfiles.map(p => `
+    <button class="item-perfil ${perfilSel && perfilSel.id === p.id ? 'activa' : ''}" onclick="seleccionarPerfil(${p.id})">
+      <span>${esc(p.nombre)}</span><small>${p.usuarios_asignados} usuario${p.usuarios_asignados === 1 ? '' : 's'} · ${(p.paginas || []).length} págs.</small>
+    </button>`).join('') +
+    `<button class="item-perfil nuevo ${perfilSel && perfilSel.id === null ? 'activa' : ''}" onclick="nuevoPerfil()">+ Nuevo perfil</button>`;
+  renderDetallePerfil();
+}
+function renderDetallePerfil(){
+  const cont = $('detallePerfil');
+  if(!perfilSel){
+    cont.innerHTML = `<p class="empty-note">Todavía no hay perfiles — mientras tanto, todos los usuarios ven todas las páginas. Crea el primero con "+ Nuevo perfil".</p>`;
     return;
   }
-  $('wrapPerfiles').innerHTML = listaPerfiles.map(p => `
-    <div class="fila-perfil">
-      <div class="fila-perfil-head">
-        <b>${p.nombre}</b>
-        <span class="empty-note">${p.usuarios_asignados} usuario(s) con este perfil</span>
-      </div>
-      <div class="checks-paginas" id="checksPerfil_${p.id}">${renderChecksPaginas('perfil'+p.id, p.paginas||[])}</div>
-      <div class="acciones">
-        <button class="btn-primary" onclick="guardarPaginasPerfil(${p.id})">Guardar páginas</button>
-        <button class="btn-danger" onclick="eliminarPerfil(${p.id})">Eliminar perfil</button>
-      </div>
+  const esNuevo = perfilSel.id === null;
+  const actual = listaPerfiles.find(p => p.id === perfilSel.id);
+  const sucio = claveSet(perfilSel.paginas) !== perfilSel.original || esNuevo;
+  const total = paginasDisponibles.length;
+  const grupos = gruposDePaginas().map(([nombre, paginas]) => {
+    const marcadas = paginas.filter(p => perfilSel.paginas.has(p)).length;
+    return `
+    <div class="grupo">
+      <div class="grupo-head"><span>${esc(nombre)} <span style="color:var(--muted);font-weight:500;">${marcadas}/${paginas.length}</span></span>
+        <button class="todo" onclick="marcarGrupo('${esc(nombre)}', ${marcadas === paginas.length ? 'false' : 'true'})">${marcadas === paginas.length ? 'Ninguna' : 'Todas'}</button></div>
+      ${paginas.map(p => `<label class="chk"><input type="checkbox" ${perfilSel.paginas.has(p) ? 'checked' : ''} onchange="marcarPagina('${p}', this.checked)"> ${esc(PAGINAS_LABELS[p] || p)}</label>`).join('')}
+    </div>`;
+  }).join('');
+  cont.innerHTML = `
+    <div id="errorPerfil"></div>
+    <div class="detalle-head">
+      ${esNuevo
+        ? `<div style="min-width:220px;"><label for="fPerfilNombre">Nombre del perfil</label><input type="text" id="fPerfilNombre" style="width:100%;" placeholder="Ej: Vendedor" value="${esc(perfilSel.nombre)}" oninput="perfilSel.nombre=this.value; actualizarBotonPerfil()"></div>`
+        : `<h2>${esc(perfilSel.nombre)}</h2><span class="empty-note">${actual ? actual.usuarios_asignados : 0} usuario(s) con este perfil</span>`}
+      <span class="espacio"></span>
+      <span class="empty-note" id="contadorPerfil">${perfilSel.paginas.size} de ${total} páginas</span>
+      <button class="btn-primary" id="btnGuardarPerfil" onclick="guardarPerfil()" ${sucio ? '' : 'disabled'}>${esNuevo ? 'Crear perfil' : 'Guardar cambios'}</button>
+      ${esNuevo ? `<button class="btn-ghost" onclick="cancelarNuevoPerfil()">Cancelar</button>` : `<button class="btn-danger" onclick="eliminarPerfil(${perfilSel.id})">Eliminar</button>`}
     </div>
-  `).join('');
+    <div class="grupos">${grupos}</div>
+    <div class="nota-perfil">Una persona con este perfil solo ve las páginas marcadas. Sin perfil, ve todas.</div>`;
+  actualizarBotonPerfil();
 }
-
-async function crearPerfil(){
-  const errorEl = $('errorPerfil');
-  errorEl.innerHTML = '';
-  const nombre = $('fPerfilNombre').value.trim();
-  if(!nombre){ errorEl.innerHTML = `<div class="error-box">Ponle un nombre al perfil.</div>`; return; }
-  const paginas = paginasMarcadasDe('nuevo');
+function actualizarBotonPerfil(){
+  const btn = $('btnGuardarPerfil'); if(!btn || !perfilSel) return;
+  const esNuevo = perfilSel.id === null;
+  btn.disabled = esNuevo ? !perfilSel.nombre.trim() : claveSet(perfilSel.paginas) === perfilSel.original;
+}
+function marcarPagina(pagina, marcada){
+  if(marcada) perfilSel.paginas.add(pagina); else perfilSel.paginas.delete(pagina);
+  renderDetallePerfil();
+}
+function marcarGrupo(nombre, marcar){
+  const grupo = gruposDePaginas().find(([n]) => n === nombre);
+  if(!grupo) return;
+  grupo[1].forEach(p => { if(marcar) perfilSel.paginas.add(p); else perfilSel.paginas.delete(p); });
+  renderDetallePerfil();
+}
+function cancelarNuevoPerfil(){
+  perfilSel = listaPerfiles[0] ? { id: listaPerfiles[0].id, nombre: listaPerfiles[0].nombre, paginas: new Set(listaPerfiles[0].paginas || []), original: claveSet(listaPerfiles[0].paginas || []) } : null;
+  renderPerfiles();
+}
+async function guardarPerfil(){
+  if(!perfilSel) return;
+  const errorEl = $('errorPerfil'); errorEl.innerHTML = '';
+  const paginas = paginasDisponibles.filter(p => perfilSel.paginas.has(p));
+  const esNuevo = perfilSel.id === null;
+  const nombre = (perfilSel.nombre || '').trim();
+  if(esNuevo && !nombre){ errorEl.innerHTML = `<div class="error-box">Ponle un nombre al perfil.</div>`; return; }
   try{
     const res = await fetch('/api/usuarios?recurso=perfiles', {
-      method: 'POST', headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ nombre, paginas })
+      method: esNuevo ? 'POST' : 'PUT', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify(esNuevo ? { nombre, paginas } : { id: perfilSel.id, paginas })
     });
     const data = await res.json();
-    if(!res.ok){ errorEl.innerHTML = `<div class="error-box">${data.error}</div>`; return; }
-    $('fPerfilNombre').value = '';
-    cargarPerfiles();
+    if(!res.ok){ errorEl.innerHTML = `<div class="error-box">${esc(data.error)}</div>`; return; }
+    toast(esNuevo ? 'Perfil creado' : 'Perfil guardado');
+    if(esNuevo) perfilSel = null; // al recargar queda seleccionado el primero; se busca el nuevo por nombre
+    await cargarPerfiles();
+    if(esNuevo){ const creado = listaPerfiles.find(p => p.nombre === nombre); if(creado) seleccionarPerfil(creado.id); }
   }catch(err){
-    errorEl.innerHTML = `<div class="error-box">Error: ${err.message}</div>`;
+    errorEl.innerHTML = `<div class="error-box">Error: ${esc(err.message)}</div>`;
   }
 }
-
-async function guardarPaginasPerfil(id){
-  const paginas = paginasMarcadasDe('perfil'+id);
-  try{
-    const res = await fetch('/api/usuarios?recurso=perfiles', {
-      method: 'PUT', headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ id, paginas })
-    });
-    const data = await res.json();
-    if(!res.ok){ alert(data.error); return; }
-    cargarPerfiles();
-  }catch(err){
-    alert('Error: ' + err.message);
-  }
-}
-
 async function eliminarPerfil(id){
   if(!confirm('¿Eliminar este perfil? Los usuarios que lo tenían quedan sin restricción (ven todas las páginas).')) return;
   try{
     const res = await fetch(`/api/usuarios?recurso=perfiles&id=${id}`, { method: 'DELETE' });
     const data = await res.json();
     if(!res.ok){ alert(data.error); return; }
+    toast('Perfil eliminado');
+    perfilSel = null;
     cargarPerfiles();
+    cargarUsuarios();
   }catch(err){
     alert('Error: ' + err.message);
   }
@@ -364,70 +541,65 @@ async function cargarNotificaciones(){
   try{
     const res = await fetch('/api/usuarios?recurso=notificaciones');
     const data = await res.json();
-    if(!res.ok){ $('wrapNotificaciones').innerHTML = `<p class="empty-note">${data.error}</p>`; return; }
+    if(!res.ok){ $('wrapNotificaciones').innerHTML = `<p class="empty-note" style="padding:14px;">${esc(data.error)}</p>`; return; }
     listaNotificaciones = data.tipos || [];
     usuariosDisponiblesNotif = data.usuariosDisponibles || [];
+    $('cuentaNotificaciones').textContent = listaNotificaciones.length;
     renderNotificaciones();
   }catch(err){
-    $('wrapNotificaciones').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+    $('wrapNotificaciones').innerHTML = `<p class="empty-note" style="padding:14px;">Error: ${esc(err.message)}</p>`;
   }
 }
-
+function haceTiempo(iso){
+  if(!iso) return null;
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if(min < 1) return 'justo ahora';
+  if(min < 60) return `hace ${min} min`;
+  const h = Math.round(min / 60);
+  if(h < 24) return `hace ${h} h`;
+  const d = Math.round(h / 24);
+  if(d < 30) return `hace ${d} día${d === 1 ? '' : 's'}`;
+  return new Date(iso).toLocaleDateString('es-CL');
+}
 function renderNotificaciones(){
   if(listaNotificaciones.length === 0){
-    $('wrapNotificaciones').innerHTML = `<p class="empty-note">No hay notificaciones configurables todavía.</p>`;
+    $('wrapNotificaciones').innerHTML = `<p class="empty-note" style="padding:14px;">No hay notificaciones configurables todavía.</p>`;
     return;
   }
-  $('wrapNotificaciones').innerHTML = listaNotificaciones.map(n => {
-    const disponibles = usuariosDisponiblesNotif.filter(u => !n.suscriptores.some(s => s.id === u.id));
-    const ultimoEnvio = n.ultimoEnvioEn ? new Date(n.ultimoEnvioEn).toLocaleString('es-CL') : null;
-    return `
-    <div class="fila-perfil">
-      <div class="fila-perfil-head">
-        <b>${n.nombre}</b>
-        <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:600;font-size:12px;margin:0;">
-          <input type="checkbox" ${n.activa ? 'checked' : ''} onchange="cambiarActivaNotificacion('${n.tipo}', this.checked)"> Activa
-        </label>
-      </div>
-      <div class="empty-note" style="margin-bottom:10px;">${ultimoEnvio ? 'Último envío: ' + ultimoEnvio : 'Sin envíos registrados todavía.'}</div>
-      <div class="fila-form" style="margin-bottom:12px;">
-        <div class="campo">
-          <label>Frecuencia</label>
-          <select id="frecuencia_${n.tipo}" onchange="cambiarFrecuenciaNotificacion('${n.tipo}')">
-            <option value="diaria" ${n.frecuencia === 'diaria' ? 'selected' : ''}>Diaria</option>
-            <option value="semanal" ${n.frecuencia === 'semanal' ? 'selected' : ''}>Semanal</option>
-          </select>
-        </div>
-        <div class="campo" id="diaSemanaWrap_${n.tipo}" style="${n.frecuencia === 'semanal' ? '' : 'display:none;'}">
-          <label>Día</label>
-          <select id="diaSemana_${n.tipo}" onchange="cambiarFrecuenciaNotificacion('${n.tipo}')">
-            ${DIAS_SEMANA.map((d,i) => `<option value="${i}" ${n.diaSemana === i ? 'selected' : ''}>${d}</option>`).join('')}
-          </select>
-        </div>
-      </div>
-      <div class="checks-paginas" style="margin-bottom:10px;">
-        ${n.suscriptores.length === 0 ? '<span class="empty-note">Sin destinatarios — nadie recibirá este correo.</span>' : n.suscriptores.map(s => `
-          <span style="display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);border-radius:999px;padding:4px 6px 4px 12px;font-size:12px;">
-            ${s.nombre}${s.activo === false ? ' (inactivo)' : ''}
-            <button class="btn-danger" style="padding:2px 8px;font-size:11px;border-radius:999px;" onclick="quitarSuscriptorNotificacion('${n.tipo}', ${s.id})">×</button>
-          </span>
-        `).join('')}
-      </div>
-      <div class="fila-form">
-        <div class="campo">
-          <label>Agregar destinatario</label>
-          <select id="agregar_${n.tipo}" style="width:220px;">
-            <option value="">Elegir usuario...</option>
-            ${disponibles.map(u => `<option value="${u.id}">${u.nombre} (${u.email})</option>`).join('')}
-          </select>
-        </div>
-        <button class="btn-primary" onclick="agregarSuscriptorNotificacion('${n.tipo}')">+ Agregar</button>
-      </div>
-    </div>
-  `;
-  }).join('');
+  $('wrapNotificaciones').innerHTML = `
+    <table>
+      <thead><tr><th>Notificación</th><th>Activa</th><th>Frecuencia</th><th style="width:38%;">Destinatarios</th><th>Último envío</th></tr></thead>
+      <tbody>
+      ${listaNotificaciones.map(n => {
+        const disponibles = usuariosDisponiblesNotif.filter(u => !n.suscriptores.some(s => s.id === u.id));
+        const ultimo = haceTiempo(n.ultimoEnvioEn);
+        return `
+        <tr class="${n.activa ? '' : 'inactivo'}">
+          <td class="notif-nombre"><b>${esc(n.nombre)}</b></td>
+          <td><label class="switch"><input type="checkbox" ${n.activa ? 'checked' : ''} onchange="cambiarActivaNotificacion('${n.tipo}', this.checked)"><span class="pista"></span></label></td>
+          <td><div class="frec">
+            <select id="frecuencia_${n.tipo}" onchange="cambiarFrecuenciaNotificacion('${n.tipo}')">
+              <option value="diaria" ${n.frecuencia === 'diaria' ? 'selected' : ''}>Diaria</option>
+              <option value="semanal" ${n.frecuencia === 'semanal' ? 'selected' : ''}>Semanal</option>
+            </select>
+            <select id="diaSemana_${n.tipo}" onchange="cambiarFrecuenciaNotificacion('${n.tipo}')" style="${n.frecuencia === 'semanal' ? '' : 'display:none;'}">
+              ${DIAS_SEMANA.map((d, i) => `<option value="${i}" ${n.diaSemana === i ? 'selected' : ''}>${d}</option>`).join('')}
+            </select>
+          </div></td>
+          <td><div class="chips">
+            ${n.suscriptores.length === 0 ? '<span class="empty-note" title="Nadie recibirá este correo">Sin destinatarios</span>' : n.suscriptores.map(s => `
+              <span class="chip" title="${esc(s.email || '')}">${esc(s.nombre)}${s.activo === false ? ' (inactivo)' : ''}<button title="Quitar" onclick="quitarSuscriptorNotificacion('${n.tipo}', ${s.id})">×</button></span>`).join('')}
+            <select class="agregar" onchange="agregarSuscriptorNotificacion('${n.tipo}', this.value)">
+              <option value="">+ Agregar</option>
+              ${disponibles.map(u => `<option value="${u.id}">${esc(u.nombre)} (${esc(u.email)})</option>`).join('')}
+            </select>
+          </div></td>
+          <td class="empty-note" title="${n.ultimoEnvioEn ? esc(new Date(n.ultimoEnvioEn).toLocaleString('es-CL')) : ''}">${ultimo || 'Sin envíos'}</td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>`;
 }
-
 async function guardarNotificacion(tipo, cambios){
   try{
     const res = await fetch('/api/usuarios?recurso=notificaciones', {
@@ -436,33 +608,28 @@ async function guardarNotificacion(tipo, cambios){
     });
     const data = await res.json();
     if(!res.ok){ alert(data.error); return; }
+    toast('Guardado');
     cargarNotificaciones();
   }catch(err){
     alert('Error: ' + err.message);
   }
 }
-
-function cambiarActivaNotificacion(tipo, activa){
-  guardarNotificacion(tipo, { activa });
-}
-
+function cambiarActivaNotificacion(tipo, activa){ guardarNotificacion(tipo, { activa }); }
 function cambiarFrecuenciaNotificacion(tipo){
   const frecuencia = $(`frecuencia_${tipo}`).value;
-  $(`diaSemanaWrap_${tipo}`).style.display = frecuencia === 'semanal' ? '' : 'none';
+  $(`diaSemana_${tipo}`).style.display = frecuencia === 'semanal' ? '' : 'none';
   const diaSemana = Number($(`diaSemana_${tipo}`).value);
   guardarNotificacion(tipo, { frecuencia, diaSemana });
 }
-
-function agregarSuscriptorNotificacion(tipo){
-  const usuarioId = $(`agregar_${tipo}`).value;
+function agregarSuscriptorNotificacion(tipo, usuarioId){
   if(!usuarioId) return;
   guardarNotificacion(tipo, { agregarUsuarioId: usuarioId });
 }
-
 function quitarSuscriptorNotificacion(tipo, usuarioId){
   guardarNotificacion(tipo, { quitarUsuarioId: usuarioId });
 }
 
+// ---------------- Usuarios ----------------
 async function cambiarPerfilUsuario(id, perfilId){
   try{
     const res = await fetch('/api/usuarios', {
@@ -471,27 +638,36 @@ async function cambiarPerfilUsuario(id, perfilId){
     });
     const data = await res.json();
     if(!res.ok){ alert(data.error); cargarUsuarios(); return; }
+    toast('Perfil actualizado');
     cargarUsuarios();
+    cargarPerfiles(); // actualiza el conteo de usuarios por perfil
   }catch(err){
     alert('Error: ' + err.message);
   }
 }
-
 async function cargarUsuarios(){
   try{
     const res = await fetch('/api/usuarios');
     const data = await res.json();
     if(!res.ok){
-      $('tablaWrap').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar la lista de usuarios.'}</p>`;
+      $('tablaWrap').innerHTML = `<p class="empty-note" style="padding:14px;">${esc(data.error || 'No se pudo cargar la lista de usuarios.')}</p>`;
       return;
     }
     listaUsuarios = data.usuarios || [];
+    $('cuentaUsuarios').textContent = listaUsuarios.length;
     renderTabla();
   }catch(err){
-    $('tablaWrap').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+    $('tablaWrap').innerHTML = `<p class="empty-note" style="padding:14px;">Error: ${esc(err.message)}</p>`;
   }
 }
-
+function renderFiltroPerfil(){
+  const sel = $('filtroPerfil'); const actual = sel.value;
+  sel.innerHTML = `<option value="">Perfil: todos</option><option value="__ninguno">Sin perfil</option>` + listaPerfiles.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('');
+  sel.value = actual;
+  const nuevo = $('fPerfil'); const act2 = nuevo.value;
+  nuevo.innerHTML = `<option value="">Sin restricción (todas las páginas)</option>` + listaPerfiles.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('');
+  nuevo.value = act2;
+}
 function formatoFechaHora(iso){
   return new Date(iso).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
@@ -500,22 +676,22 @@ function formatoDuracion(minutos){
   if(minutos > 60) return `${Math.floor(minutos/60)}h ${minutos%60}min`;
   return `${minutos} min`;
 }
-
 function badgeExpiracion(u){
   if(u.expira_en){
     const vencida = new Date(u.expira_en).getTime() <= Date.now();
     const texto = formatoFechaHora(u.expira_en);
-    return vencida
-      ? `<span class="badge inactivo">Expiró ${texto}</span>`
-      : `<span class="badge admin">Vence ${texto}</span>`;
+    return vencida ? `<span class="badge inactivo">Expiró ${texto}</span>` : `<span class="badge vigente">Vence ${texto}</span>`;
   }
-  if(u.expira_minutos){
-    return `<span class="badge pendiente">Pendiente: ${formatoDuracion(u.expira_minutos)} desde 1er login</span>`;
-  }
+  if(u.expira_minutos) return `<span class="badge pendiente" title="El reloj parte en su primer ingreso">${formatoDuracion(u.expira_minutos)} desde 1er ingreso</span>`;
   return `<span class="empty-note">—</span>`;
 }
+function iniciales(u){
+  const base = (u.nombre && u.nombre !== u.email ? u.nombre : (u.email || '').split('@')[0]).trim();
+  const partes = base.split(/[\s._-]+/).filter(Boolean);
+  return ((partes[0] || '?')[0] + (partes[1] ? partes[1][0] : '')).toUpperCase();
+}
 
-let sortColUsuarios = 'email';
+let sortColUsuarios = 'nombre';
 let sortAscUsuarios = true;
 function flechaUsuarios(col){ return sortColUsuarios === col ? (sortAscUsuarios ? ' ▲' : ' ▼') : ''; }
 function cambiarOrdenUsuarios(col){
@@ -524,70 +700,143 @@ function cambiarOrdenUsuarios(col){
   renderTabla();
 }
 const VALOR_ORDEN_USUARIOS = {
-  email: u => u.email || '',
-  nombre: u => u.nombre || '',
+  nombre: u => (u.nombre && u.nombre !== u.email ? u.nombre : u.email) || '',
   rol: u => u.rol || '',
   activo: u => u.activo ? 1 : 0,
   expira_en: u => u.expira_en || '',
   ultimo_login: u => u.ultimo_login || '',
   created_at: u => u.created_at || '',
 };
+function renderResumen(){
+  const activos = listaUsuarios.filter(u => u.activo).length;
+  const admins = listaUsuarios.filter(u => u.rol === 'admin').length;
+  const temporales = listaUsuarios.filter(u => u.expira_en || u.expira_minutos).length;
+  const nunca = listaUsuarios.filter(u => !u.ultimo_login).length;
+  $('resumenUsuarios').innerHTML = `
+    <span class="chip-res"><b>${listaUsuarios.length}</b>usuarios</span>
+    <span class="chip-res"><b>${activos}</b>activos</span>
+    <span class="chip-res"><b>${admins}</b>administradores</span>
+    ${temporales ? `<span class="chip-res"><b>${temporales}</b>temporales</span>` : ''}
+    ${nunca ? `<span class="chip-res" title="Cuentas que nunca han ingresado"><b>${nunca}</b>sin ingresar aún</span>` : ''}`;
+}
+function usuariosFiltrados(){
+  const q = ($('buscarUsuario').value || '').trim().toLowerCase();
+  const estado = $('filtroEstado').value, rol = $('filtroRol').value, perfil = $('filtroPerfil').value;
+  return listaUsuarios.filter(u => {
+    if(q && !((u.email || '').toLowerCase().includes(q) || (u.nombre || '').toLowerCase().includes(q))) return false;
+    if(estado === 'activo' && !u.activo) return false;
+    if(estado === 'inactivo' && u.activo) return false;
+    if(rol && u.rol !== rol) return false;
+    if(perfil === '__ninguno' && u.perfil_id) return false;
+    if(perfil && perfil !== '__ninguno' && String(u.perfil_id) !== perfil) return false;
+    return true;
+  });
+}
 function renderTabla(){
+  renderResumen();
   if(listaUsuarios.length === 0){
-    $('tablaWrap').innerHTML = `<p class="empty-note">Sin usuarios todavía.</p>`;
+    $('tablaWrap').innerHTML = `<p class="empty-note" style="padding:14px;">Sin usuarios todavía.</p>`;
     return;
   }
   const esAdmin = usuarioActual?.rol === 'admin';
-  const valorU = VALOR_ORDEN_USUARIOS[sortColUsuarios];
-  const usuariosOrdenados = [...listaUsuarios].sort((a, b) => {
+  const valorU = VALOR_ORDEN_USUARIOS[sortColUsuarios] || VALOR_ORDEN_USUARIOS.nombre;
+  const filas = usuariosFiltrados().sort((a, b) => {
     const av = valorU(a), bv = valorU(b);
-    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    const cmp = typeof av === 'string' ? av.localeCompare(bv, 'es') : av - bv;
     return sortAscUsuarios ? cmp : -cmp;
   });
+  if(!filas.length){
+    $('tablaWrap').innerHTML = `<p class="empty-note" style="padding:14px;">Ningún usuario coincide con los filtros.</p>`;
+    return;
+  }
   $('tablaWrap').innerHTML = `
     <div class="tabla-wrap"><table>
       <thead><tr>
-        <th class="ordenable" onclick="cambiarOrdenUsuarios('email')">Email${flechaUsuarios('email')}</th>
-        <th class="ordenable" onclick="cambiarOrdenUsuarios('nombre')">Nombre${flechaUsuarios('nombre')}</th>
+        <th class="ordenable" onclick="cambiarOrdenUsuarios('nombre')">Usuario${flechaUsuarios('nombre')}</th>
         <th class="ordenable" onclick="cambiarOrdenUsuarios('rol')">Rol${flechaUsuarios('rol')}</th>
         <th>Perfil de acceso</th>
-        <th class="ordenable" onclick="cambiarOrdenUsuarios('activo')">Estado${flechaUsuarios('activo')}</th>
-        <th class="ordenable" onclick="cambiarOrdenUsuarios('expira_en')">Expira${flechaUsuarios('expira_en')}</th>
+        <th class="ordenable" onclick="cambiarOrdenUsuarios('activo')">Activo${flechaUsuarios('activo')}</th>
         <th class="ordenable" onclick="cambiarOrdenUsuarios('ultimo_login')">Último ingreso${flechaUsuarios('ultimo_login')}</th>
+        <th class="ordenable" onclick="cambiarOrdenUsuarios('expira_en')">Expira${flechaUsuarios('expira_en')}</th>
         <th class="ordenable" onclick="cambiarOrdenUsuarios('created_at')">Creado${flechaUsuarios('created_at')}</th>
-        ${esAdmin?'<th>Acciones</th>':''}
+        ${esAdmin ? '<th></th>' : ''}
       </tr></thead>
       <tbody>
-        ${usuariosOrdenados.map(u => `
-          <tr>
-            <td>${u.email}</td>
-            <td>${u.nombre||'—'}</td>
-            <td><span class="badge ${u.rol}">${u.rol==='admin'?'Administrador':'Usuario'}</span></td>
-            <td>${u.rol==='admin' ? '<span class="empty-note">Sin restricción (admin)</span>' : (esAdmin
-              ? `<select class="selectPerfilUsuario" onchange="cambiarPerfilUsuario(${u.id}, this.value)">
+        ${filas.map(u => {
+          const soyYo = usuarioActual && usuarioActual.email === u.email;
+          const nombreMostrado = u.nombre && u.nombre !== u.email ? u.nombre : (u.email || '').split('@')[0];
+          return `
+          <tr class="${u.activo ? '' : 'inactivo'}">
+            <td><div class="persona">
+              <div class="avatar ${u.rol === 'admin' ? 'admin' : ''}">${esc(iniciales(u))}</div>
+              <div><div class="nombre">${esc(nombreMostrado)}${soyYo ? ' <span class="empty-note">(tú)</span>' : ''}</div><div class="correo">${esc(u.email)}</div></div>
+            </div></td>
+            <td><span class="badge ${u.rol}">${u.rol === 'admin' ? 'Administrador' : 'Usuario'}</span></td>
+            <td>${u.rol === 'admin' ? '<span class="empty-note">Todas (admin)</span>' : (esAdmin
+              ? `<select class="perfil-sel" onchange="cambiarPerfilUsuario(${u.id}, this.value)">
                    <option value="">Sin restricción</option>
-                   ${listaPerfiles.map(p=>`<option value="${p.id}" ${u.perfil_id===p.id?'selected':''}>${p.nombre}</option>`).join('')}
+                   ${listaPerfiles.map(p => `<option value="${p.id}" ${u.perfil_id === p.id ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}
                  </select>`
-              : (u.perfil_nombre || '<span class="empty-note">Sin restricción</span>'))}</td>
-            <td><span class="badge ${u.activo?'activo':'inactivo'}">${u.activo?'Activo':'Inactivo'}</span></td>
+              : (esc(u.perfil_nombre) || '<span class="empty-note">Sin restricción</span>'))}</td>
+            <td>${esAdmin
+              ? `<label class="switch" title="${soyYo ? 'No puedes desactivar tu propia cuenta' : (u.activo ? 'Desactivar' : 'Activar')}"><input type="checkbox" ${u.activo ? 'checked' : ''} ${soyYo ? 'disabled' : ''} onchange="toggleActivo(${u.id}, this.checked)"><span class="pista"></span></label>`
+              : `<span class="badge ${u.activo ? 'vigente' : 'inactivo'}">${u.activo ? 'Activo' : 'Inactivo'}</span>`}</td>
+            <td title="${u.ultimo_login ? esc(new Date(u.ultimo_login).toLocaleString('es-CL')) : ''}">${u.ultimo_login ? haceTiempo(u.ultimo_login) : '<span class="empty-note">Nunca</span>'}</td>
             <td>${badgeExpiracion(u)}</td>
-            <td>${u.ultimo_login ? formatoFechaHora(u.ultimo_login) : '<span class="empty-note">Nunca</span>'}</td>
-            <td>${(u.created_at||'').slice(0,10)}</td>
-            ${esAdmin?`<td class="acciones">
-              <button class="btn-ghost" onclick="toggleRol(${u.id}, '${u.rol}')">${u.rol==='admin'?'Quitar admin':'Hacer admin'}</button>
-              <button class="btn-ghost" onclick="toggleActivo(${u.id}, ${u.activo})">${u.activo?'Desactivar':'Activar'}</button>
-              <button class="btn-ghost" onclick="resetPassword(${u.id})">Cambiar contraseña</button>
-              <button class="btn-ghost" onclick="reenviarNotificacion(${u.id}, '${u.email}')">📧 Reenviar notificación</button>
-              <button class="btn-ghost" onclick="extenderExpiracion(${u.id})">${u.expira_en?'Extender expiración':'Forzar expiración ahora'}</button>
-              ${(u.expira_en||u.expira_minutos)?`<button class="btn-ghost" onclick="quitarExpiracion(${u.id})">Quitar expiración</button>`:''}
-              <button class="btn-danger" onclick="eliminarUsuario(${u.id})">Eliminar</button>
-            </td>`:''}
-          </tr>`).join('')}
+            <td class="empty-note">${esc((u.created_at || '').slice(0, 10))}</td>
+            ${esAdmin ? `<td style="text-align:right;"><button class="btn-menu" title="Más acciones" onclick="abrirMenuFila(event, ${u.id})">⋯</button></td>` : ''}
+          </tr>`;
+        }).join('')}
       </tbody>
-    </table></div>
-  `;
+    </table></div>`;
 }
 
+// ---- Menú de acciones por fila ----
+function abrirMenuFila(ev, id){
+  ev.stopPropagation();
+  const u = listaUsuarios.find(x => x.id === id);
+  if(!u) return;
+  const soyYo = usuarioActual && usuarioActual.email === u.email;
+  const menu = $('menuFila');
+  if(menu.dataset.abiertoPara === String(id) && menu.style.display === 'block'){ cerrarMenuFila(); return; }
+  const items = [
+    `<button onclick="resetPassword(${u.id})">🔑 Cambiar contraseña</button>`,
+    `<button onclick="reenviarNotificacion(${u.id}, '${esc(u.email)}')">📧 Reenviar datos de acceso por correo</button>`,
+    `<hr>`,
+    soyYo ? '' : `<button onclick="toggleRol(${u.id}, '${u.rol}')">${u.rol === 'admin' ? '⬇️ Quitar rol de administrador' : '⬆️ Hacer administrador'}</button>`,
+    `<button onclick="extenderExpiracion(${u.id})">${u.expira_en ? '⏱️ Extender expiración' : '⏱️ Forzar expiración (X minutos desde ahora)'}</button>`,
+    (u.expira_en || u.expira_minutos) ? `<button onclick="quitarExpiracion(${u.id})">♾️ Quitar expiración (permanente)</button>` : '',
+    `<hr>`,
+    soyYo ? '' : `<button class="peligro" onclick="eliminarUsuario(${u.id})">🗑️ Eliminar usuario</button>`,
+  ].filter(Boolean).join('');
+  menu.innerHTML = items;
+  menu.dataset.abiertoPara = String(id);
+  menu.style.display = 'block';
+  const r = ev.currentTarget.getBoundingClientRect();
+  const alto = menu.offsetHeight, ancho = menu.offsetWidth;
+  let top = r.bottom + 4; if(top + alto > window.innerHeight - 8) top = Math.max(8, r.top - alto - 4);
+  let left = r.right - ancho; if(left < 8) left = 8;
+  menu.style.top = top + 'px'; menu.style.left = left + 'px';
+}
+function cerrarMenuFila(){ const m = $('menuFila'); m.style.display = 'none'; m.dataset.abiertoPara = ''; }
+document.addEventListener('click', e => { if(!e.target.closest('#menuFila')) cerrarMenuFila(); else if(e.target.closest('#menuFila button')) cerrarMenuFila(); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape'){ cerrarMenuFila(); cerrarModalUsuario(); } });
+window.addEventListener('scroll', cerrarMenuFila, true);
+window.addEventListener('resize', cerrarMenuFila);
+
+// ---- Nuevo usuario (ventana) ----
+function abrirModalUsuario(){
+  $('errorForm').innerHTML = '';
+  renderFiltroPerfil();
+  $('modalUsuario').classList.add('abierto');
+  setTimeout(() => $('fEmail').focus(), 0);
+}
+function cerrarModalUsuario(){ $('modalUsuario').classList.remove('abierto'); }
+function generarPassword(){
+  const alfabeto = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint32Array(12); crypto.getRandomValues(bytes);
+  $('fPassword').value = [...bytes].map(b => alfabeto[b % alfabeto.length]).join('');
+}
 async function crearUsuario(){
   const errorEl = $('errorForm');
   errorEl.innerHTML = '';
@@ -598,9 +847,8 @@ async function crearUsuario(){
   const expiraInput = $('fExpira').value.trim();
   const expiraMinutos = expiraInput ? parseInt(expiraInput, 10) : undefined;
   const perfilId = $('fPerfil').value || undefined;
-
-  if(!email || !password){ errorEl.innerHTML = `<div class="error-box">Email y contraseña son obligatorios.</div>`; return; }
-
+  if(!email || !password){ errorEl.innerHTML = `<div class="error-box">Correo y contraseña son obligatorios.</div>`; return; }
+  const btn = $('btnCrearUsuario'); btn.disabled = true;
   try{
     const res = await fetch('/api/usuarios', {
       method: 'POST',
@@ -608,38 +856,41 @@ async function crearUsuario(){
       body: JSON.stringify({ email, nombre, password, rol, ...(expiraMinutos ? { expiraMinutos } : {}), ...(perfilId ? { perfilId } : {}) })
     });
     const data = await res.json();
-    if(!res.ok){ errorEl.innerHTML = `<div class="error-box">${data.error}</div>`; return; }
+    if(!res.ok){ errorEl.innerHTML = `<div class="error-box">${esc(data.error)}</div>`; return; }
     if(data.correo && !data.correo.enviado){
-      errorEl.innerHTML = `<div class="error-box" style="background:var(--amber-dim,#FDF0DC);color:var(--amber,#D97706);">Usuario creado, pero no se pudo enviar el correo de bienvenida (${data.correo.motivo}). Avísale la contraseña por otro medio.</div>`;
+      alert(`Usuario creado, pero no se pudo enviar el correo de bienvenida (${data.correo.motivo}).\n\nAvísale la contraseña por otro medio: ${password}`);
+    } else {
+      toast('Usuario creado y correo enviado');
     }
     $('fEmail').value = ''; $('fNombre').value = ''; $('fPassword').value = ''; $('fRol').value = 'usuario'; $('fExpira').value = ''; $('fPerfil').value = '';
+    cerrarModalUsuario();
     cargarUsuarios();
+    cargarPerfiles();
   }catch(err){
-    errorEl.innerHTML = `<div class="error-box">Error: ${err.message}</div>`;
+    errorEl.innerHTML = `<div class="error-box">Error: ${esc(err.message)}</div>`;
+  }finally{
+    btn.disabled = false;
   }
 }
 
 async function toggleRol(id, rolActual){
   const nuevoRol = rolActual === 'admin' ? 'usuario' : 'admin';
-  await actualizarUsuario(id, { rol: nuevoRol });
+  await actualizarUsuario(id, { rol: nuevoRol }, nuevoRol === 'admin' ? 'Ahora es administrador' : 'Ya no es administrador');
 }
-async function toggleActivo(id, activoActual){
-  await actualizarUsuario(id, { activo: !activoActual });
+async function toggleActivo(id, nuevoActivo){
+  await actualizarUsuario(id, { activo: !!nuevoActivo }, nuevoActivo ? 'Usuario activado' : 'Usuario desactivado');
 }
 async function resetPassword(id){
   const nueva = prompt('Nueva contraseña (mínimo 8 caracteres):');
   if(!nueva) return;
-  await actualizarUsuario(id, { password: nueva });
+  await actualizarUsuario(id, { password: nueva }, 'Contraseña cambiada');
 }
-// Genera una contraseña nueva (la anterior deja de funcionar) y la manda
-// por correo con el mismo formato del correo de bienvenida -- para una
-// cuenta que nunca hizo su primer login y quizás perdió el correo
-// original, o cualquier usuario que necesite recuperar acceso. No usa
-// actualizarUsuario() porque acá sí importa mostrarle al admin si el
-// correo se pudo mandar -- si falla, es la única forma de que tenga la
+// Genera una contraseña nueva (la anterior deja de funcionar) y la manda por correo con el mismo formato del correo
+// de bienvenida. Acá sí importa mostrarle al admin si el correo llegó -- si no, es la única forma de que tenga la
 // contraseña nueva para avisarle al usuario por otro medio.
 async function reenviarNotificacion(id, email){
-  if(!confirm(`¿Reenviar notificación de acceso a ${email}? Se generará una contraseña nueva y la anterior dejará de funcionar.`)) return;
+  if(!confirm(`¿Reenviar los datos de acceso a ${email}? Se generará una contraseña nueva y la anterior dejará de funcionar.`)) return;
+  toast('Enviando… (puede tardar unos segundos)');
   try{
     const res = await fetch('/api/usuarios', {
       method: 'PUT',
@@ -651,7 +902,6 @@ async function reenviarNotificacion(id, email){
     if(data.correo?.enviado){
       const e = data.entrega;
       if(e && (e.estado === 'rechazado' || e.estado === 'diferido')){
-        // el correo no llegó: la contraseña nueva ya reemplazó a la anterior, así que se muestra para avisarla por otro medio
         alert(`Brevo aceptó el correo a ${email}, pero NO llegó.\n\n${e.texto}\n\nLa contraseña nueva es: ${data.nuevaPassword}\nCompártela con ${email} por otro medio.`);
       } else {
         alert(`Correo enviado a ${email}.${e ? '\n\n' + e.texto : ''}\n\nSi no lo recibe, usa "Cambiar contraseña" para fijar una y avisársela directamente.`);
@@ -665,17 +915,17 @@ async function reenviarNotificacion(id, email){
   }
 }
 async function extenderExpiracion(id){
-  const minutos = prompt('¿La cuenta deja de funcionar en cuántos minutos desde AHORA? (esto activa/extiende de inmediato, sin esperar un login)', '30');
+  const minutos = prompt('¿La cuenta deja de funcionar en cuántos minutos desde AHORA? (esto activa/extiende de inmediato, sin esperar un ingreso)', '30');
   if(!minutos) return;
   const valor = parseInt(minutos, 10);
   if(!valor || valor <= 0){ alert('Ingresa un número de minutos válido.'); return; }
-  await actualizarUsuario(id, { expiraMinutos: valor });
+  await actualizarUsuario(id, { expiraMinutos: valor }, 'Expiración actualizada');
 }
 async function quitarExpiracion(id){
   if(!confirm('¿Quitar la expiración de esta cuenta? Quedará activa de forma permanente.')) return;
-  await actualizarUsuario(id, { quitarExpiracion: true });
+  await actualizarUsuario(id, { quitarExpiracion: true }, 'Cuenta permanente');
 }
-async function actualizarUsuario(id, cambios){
+async function actualizarUsuario(id, cambios, mensajeOk){
   try{
     const res = await fetch('/api/usuarios', {
       method: 'PUT',
@@ -683,7 +933,8 @@ async function actualizarUsuario(id, cambios){
       body: JSON.stringify({ id, ...cambios })
     });
     const data = await res.json();
-    if(!res.ok){ alert(data.error); return; }
+    if(!res.ok){ alert(data.error); cargarUsuarios(); return; }
+    if(mensajeOk) toast(mensajeOk);
     cargarUsuarios();
   }catch(err){
     alert('Error: ' + err.message);
@@ -695,7 +946,9 @@ async function eliminarUsuario(id){
     const res = await fetch(`/api/usuarios?id=${id}`, { method: 'DELETE' });
     const data = await res.json();
     if(!res.ok){ alert(data.error); return; }
+    toast('Usuario eliminado');
     cargarUsuarios();
+    cargarPerfiles();
   }catch(err){
     alert('Error: ' + err.message);
   }
