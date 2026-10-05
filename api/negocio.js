@@ -16,6 +16,7 @@ import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
 import { armarComunicacionZoho, filasCorreosDesdeZoho, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
+import { sqlOfertaLateral, PARAMS_OFERTA, mejorNivelOferta, esOfertaEntregada, esOfertaCompleta, resumirConversionComercial } from '../lib/whatsapp-oferta.js';
 import { analizarCategoria as analizarCategoriaWhatsapp, CATEGORIAS_ANALIZABLES, analizarMotivo as analizarMotivoWhatsapp, MOTIVOS_ANALIZABLES, esCierreCordial, debeReclasificarPorCierre, RESULTADOS_DEBILES_CIERRE, MOTIVOS_DEBILES_CIERRE } from '../lib/whatsapp-motivos.js';
 import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR } from '../lib/cotizaciones-recontacto.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
@@ -7351,7 +7352,7 @@ async function manejarWhatsappClientes(req, res, sesion) {
 
     const q = (req.query.q || '').trim();
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const pageSize = Math.min(100, Math.max(10, parseInt(req.query.pageSize, 10) || 25));
+    const pageSize = Math.min(500, Math.max(10, parseInt(req.query.pageSize, 10) || 25));
     const offset = (page - 1) * pageSize;
     const ordenCampo = ORDEN_CLIENTES_WHATSAPP[req.query.orden] || 'ct.ultima_conversacion_en';
     const ordenDir = req.query.ordenAsc === '1' ? 'ASC' : 'DESC';
@@ -9254,7 +9255,7 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
     }
   });
 
-  const systemPrompt = `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Prioridad para los campos marca/modelo: (1) si el cliente ESCRIBE el modelo en el texto de algún mensaje de la conversación, usa eso -- es la fuente más confiable, por encima de cualquier foto. (2) Si el cliente no escribe el modelo pero manda una foto de la etiqueta/sticker pegada en la carcasa o la base del equipo, léela para identificarlo. (3) Si manda las dos cosas (un modelo escrito Y una foto), el modelo que el cliente escribió manda -- usa la foto solo para completar marca/modelo si el texto no los menciona, no para contradecir lo que el cliente ya escribió. Estas etiquetas suelen traer VARIOS códigos distintos -- usa el que sea el modelo comercial del producto (el que identifica al equipo específico que compraría alguien, ej. "24-dd0092la" en un HP All-in-One, o "15-ef2xxx" en un notebook), y NO el "Regulatory model number"/"Model reglamentario" (un código interno de certificación FCC/IC que no corresponde al modelo real, ej. "TPC-0089-24"), ni el número de serie ("Serial No."/"S/N"), ni el PPID. Series/líneas reales de notebooks por marca (el modelo real casi siempre empieza con una de estas seguida de un número de generación, ej. "IdeaPad Gaming 3 15IMH05"): ${Object.entries(WHATSAPP_SERIES_NOTEBOOK).map(([marca, series]) => `${marca}: ${series.join(', ')}`).join(' | ')}. Esta lista es SOLO para que reconozcas si un texto que sí leíste en la imagen es una serie real -- NUNCA la uses para adivinar o suponer una serie "típica" o "probable" según el contexto (ej. NO asumas "Legion" solo porque el cliente pidió un notebook gamer; eso sería inventar, aunque sea una suposición razonable). El modelo/marca solo se registran si están literalmente escritos y legibles en la foto o en el texto del cliente -- transcribe exactamente lo que dice la etiqueta, letra por letra, no lo que te parezca más probable. Si el único código visible en la etiqueta NO corresponde a ninguna serie conocida (puede ser la capacidad de la batería en Wh, un part number, un código regulatorio, etc.) Y no hay otro texto de serie legible en la misma foto, deja el campo modelo vacío en vez de adivinar. A veces el mensaje del usuario incluye primero un bloque de "Contexto" con datos de una conversación anterior del mismo cliente (las conversaciones se cortan automáticamente tras 24h sin actividad, así que un seguimiento corto como "gracias por la info" puede quedar en una conversación separada sin mencionar el producto de nuevo) -- úsalo solo si la conversación actual es claramente ese seguimiento, nunca si trata de algo distinto. Regla de cierre: si el último mensaje del cliente es un agradecimiento o confirmación corta ("ok", "gracias", "Oka.. gracias", "perfecto", "listo", 👍), interprétalo como que la respuesta llegó y la duda quedó aclarada: la conversación terminó bien, el cliente NO dejó de responder. Si el tema era una consulta de información, garantía, postventa o servicio técnico, usa resultado "consulta_resuelta" y no completes motivo_perdida. Solo si en esa conversación el negocio le dijo algo que implica no poder vender (no hay stock, no vendemos esa marca, el precio) mantén ese motivo concreto. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`;
+  const systemPrompt = `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Prioridad para los campos marca/modelo: (1) si el cliente ESCRIBE el modelo en el texto de algún mensaje de la conversación, usa eso -- es la fuente más confiable, por encima de cualquier foto. (2) Si el cliente no escribe el modelo pero manda una foto de la etiqueta/sticker pegada en la carcasa o la base del equipo, léela para identificarlo. (3) Si manda las dos cosas (un modelo escrito Y una foto), el modelo que el cliente escribió manda -- usa la foto solo para completar marca/modelo si el texto no los menciona, no para contradecir lo que el cliente ya escribió. Estas etiquetas suelen traer VARIOS códigos distintos -- usa el que sea el modelo comercial del producto (el que identifica al equipo específico que compraría alguien, ej. "24-dd0092la" en un HP All-in-One, o "15-ef2xxx" en un notebook), y NO el "Regulatory model number"/"Model reglamentario" (un código interno de certificación FCC/IC que no corresponde al modelo real, ej. "TPC-0089-24"), ni el número de serie ("Serial No."/"S/N"), ni el PPID. Series/líneas reales de notebooks por marca (el modelo real casi siempre empieza con una de estas seguida de un número de generación, ej. "IdeaPad Gaming 3 15IMH05"): ${Object.entries(WHATSAPP_SERIES_NOTEBOOK).map(([marca, series]) => `${marca}: ${series.join(', ')}`).join(' | ')}. Esta lista es SOLO para que reconozcas si un texto que sí leíste en la imagen es una serie real -- NUNCA la uses para adivinar o suponer una serie "típica" o "probable" según el contexto (ej. NO asumas "Legion" solo porque el cliente pidió un notebook gamer; eso sería inventar, aunque sea una suposición razonable). El modelo/marca solo se registran si están literalmente escritos y legibles en la foto o en el texto del cliente -- transcribe exactamente lo que dice la etiqueta, letra por letra, no lo que te parezca más probable. Si el único código visible en la etiqueta NO corresponde a ninguna serie conocida (puede ser la capacidad de la batería en Wh, un part number, un código regulatorio, etc.) Y no hay otro texto de serie legible en la misma foto, deja el campo modelo vacío en vez de adivinar. A veces el mensaje del usuario incluye primero un bloque de "Contexto" con datos de una conversación anterior del mismo cliente (las conversaciones se cortan automáticamente tras 24h sin actividad, así que un seguimiento corto como "gracias por la info" puede quedar en una conversación separada sin mencionar el producto de nuevo) -- úsalo solo si la conversación actual es claramente ese seguimiento, nunca si trata de algo distinto. Regla de oferta: si el negocio le envió al cliente una oferta completa (producto disponible, precio, enlace al producto, condiciones como garantía o instalación, y dirección u horarios), eso ya es una conversión comercial: usa resultado \"cotizacion\" (oferta entregada, el cliente evalúa) y NO \"cliente_no_responde\" ni una pérdida, aunque el cliente no haya vuelto a escribir -- IndexStore vende productos técnicos de forma conversacional y el cliente puede decidir después. Regla de cierre: si el último mensaje del cliente es un agradecimiento o confirmación corta ("ok", "gracias", "Oka.. gracias", "perfecto", "listo", 👍), interprétalo como que la respuesta llegó y la duda quedó aclarada: la conversación terminó bien, el cliente NO dejó de responder. Si el tema era una consulta de información, garantía, postventa o servicio técnico, usa resultado "consulta_resuelta" y no completes motivo_perdida. Solo si en esa conversación el negocio le dijo algo que implica no poder vender (no hay stock, no vendemos esa marca, el precio) mantén ese motivo concreto. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`;
 
   // Gemini primero (mismo trabajo a una fracción del costo de Claude, ver
   // conversación con el usuario), Claude de respaldo si Gemini falla por
@@ -9286,6 +9287,12 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   const categoria = WHATSAPP_CATEGORIAS.includes(a.categoria) ? a.categoria : null;
   let resultado = WHATSAPP_RESULTADOS.includes(a.resultado) ? a.resultado : null;
   let motivoPerdida = Object.keys(WHATSAPP_MOTIVOS_PERDIDA_LABEL).includes(a.motivo_perdida) ? a.motivo_perdida : null;
+  // Oferta completa entregada ("disponible + precio + enlace + condiciones + dirección"): es una cotización en curso, no una pérdida.
+  if (['cliente_no_responde', 'otro'].includes(resultado) && (!motivoPerdida || ['cliente_no_responde', 'sin_seguimiento', 'otro'].includes(motivoPerdida))
+      && esOfertaCompleta(mejorNivelOferta(mensajes.filter(m => m.direccion === 'out' && m.tipo === 'texto').map(m => m.contenido_texto)))) {
+    resultado = 'cotizacion';
+    motivoPerdida = null;
+  }
   // Cierre cordial ("ok", "gracias"): la respuesta llegó y la duda quedó aclarada -> no es un cliente que dejó de responder.
   {
     const delCliente = mensajes.filter(m => m.direccion === 'in');
@@ -10342,7 +10349,7 @@ async function manejarWhatsappMotivoDetalle(req, res, _sesion) {
     const cobertura = { total: cobRows[0].total, conRespuesta: cobRows[0].con_respuesta, conApp: cobRows[0].con_app };
     // Conversaciones cuyo último mensaje del cliente fue un cierre cordial ("ok", "gracias"): se tratan como resueltas y salen del análisis
     // (solo para motivos "débiles": una razón concreta como precio o sin stock se respeta aunque el cliente haya dicho gracias).
-    let excluidasPorCierre = 0;
+    let excluidasPorCierre = 0, excluidasPorOferta = 0;
     let convsAnalizar = convs, mensajesAnalizar = mensajes;
     if (MOTIVOS_DEBILES_CIERRE.includes(motivo)) {
       const ultimoPorConv = new Map(), entrantesPorConv = new Map();
@@ -10350,11 +10357,17 @@ async function manejarWhatsappMotivoDetalle(req, res, _sesion) {
       const cerradas = new Set(convs.filter(c => (entrantesPorConv.get(c.id) || 0) >= 2 && esCierreCordial(ultimoPorConv.get(c.id))).map(c => c.id));
       excluidasPorCierre = cerradas.size;
       if (cerradas.size) { convsAnalizar = convs.filter(c => !cerradas.has(c.id)); mensajesAnalizar = mensajes.filter(m => !cerradas.has(m.conversacion_id)); }
+      // Oferta completa entregada (disponible + precio + enlace + condiciones/dirección): es una conversión comercial, no una pérdida.
+      const salientesPorConv = new Map();
+      for (const m of mensajesAnalizar) if (m.direccion === 'out') { if (!salientesPorConv.has(m.conversacion_id)) salientesPorConv.set(m.conversacion_id, []); salientesPorConv.get(m.conversacion_id).push(m.contenido_texto); }
+      const conOfertaIds = new Set(convsAnalizar.filter(c => esOfertaCompleta(mejorNivelOferta(salientesPorConv.get(c.id)))).map(c => c.id));
+      excluidasPorOferta = conOfertaIds.size;
+      if (conOfertaIds.size) { convsAnalizar = convsAnalizar.filter(c => !conOfertaIds.has(c.id)); mensajesAnalizar = mensajesAnalizar.filter(m => !conOfertaIds.has(m.conversacion_id)); }
     }
     const analisis = analizarMotivoWhatsapp({ motivo, conversaciones: convsAnalizar, mensajes: mensajesAnalizar, ahora: new Date(), referenciaVentas, cobertura });
     return res.status(200).json({
       motivo, etiqueta: WHATSAPP_MOTIVOS_PERDIDA_LABEL[motivo] || motivo, desde, hasta, base, totalSegunInicio,
-      truncado: convs.length >= TOPE_CONVERSACIONES_MOTIVO, excluidasPorCierre, ...analisis,
+      truncado: convs.length >= TOPE_CONVERSACIONES_MOTIVO, excluidasPorCierre, excluidasPorOferta, ...analisis,
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error analizando el motivo de pérdida', detail: String(err.message || err) });
@@ -10384,7 +10397,28 @@ async function manejarWhatsappReclasificarCierres(req, res, sesion) {
        ORDER BY c.iniciada_en DESC LIMIT 20000;`
     );
     const candidatas = rows.filter(r => debeReclasificarPorCierre({ resultado: r.resultado, motivo_perdida: r.motivo_perdida, ultimoTextoCliente: r.ultimo_texto, mensajesCliente: r.mensajes_cliente }));
+    // Segunda regla: si el negocio le entregó una OFERTA COMPLETA (disponible + precio + enlace + condiciones/dirección) y la conversación
+    // quedó como "cliente dejó de responder" u "otro", no es una pérdida: es una cotización entregada, con el cliente evaluando.
+    const { rows: conOferta } = await sql.query(
+      `SELECT c.id, c.resultado, c.motivo_perdida, ct.nombre AS cliente
+       FROM whatsapp_conversaciones c
+       JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+       ${sqlOfertaLateral(1)}
+       WHERE c.venta_detectada = false AND c.resultado IN ('cliente_no_responde', 'otro') AND COALESCE(c.motivo_perdida, 'cliente_no_responde') IN ('cliente_no_responde', 'sin_seguimiento', 'otro')
+         AND NOT ('resultado' = ANY(c.campos_editados_manualmente)) AND NOT ('motivo_perdida' = ANY(c.campos_editados_manualmente))
+         AND ofe.oferta_completa = true
+       ORDER BY c.iniciada_en DESC LIMIT 20000;`,
+      PARAMS_OFERTA()
+    );
+    const idsCierre = new Set(candidatas.map(c => c.id));
+    const idsOferta = conOferta.map(c => c.id).filter(id => !idsCierre.has(id));
+    const ofertasInfo = { candidatas: idsOferta.length, actualizadas: 0, ejemplos: conOferta.filter(c => !idsCierre.has(c.id)).slice(0, 10).map(c => ({ id: c.id, cliente: c.cliente, estabaComo: c.motivo_perdida || c.resultado })) };
     let actualizadas = 0;
+    if (aplicar && idsOferta.length) {
+      await sql.query(`UPDATE whatsapp_conversaciones SET resultado = 'cotizacion', motivo_perdida = NULL, updated_at = now() WHERE id = ANY($1::int[]);`, [idsOferta]);
+      await sql.query(`UPDATE whatsapp_analisis_ia SET resultado = 'cotizacion', motivo_perdida = NULL, updated_at = now() WHERE conversacion_id = ANY($1::int[]);`, [idsOferta]);
+      ofertasInfo.actualizadas = idsOferta.length;
+    }
     if (aplicar && candidatas.length) {
       const ids = candidatas.map(c => c.id);
       await sql.query(`UPDATE whatsapp_conversaciones SET resultado = 'consulta_resuelta', motivo_perdida = NULL, updated_at = now() WHERE id = ANY($1::int[]);`, [ids]);
@@ -10394,6 +10428,7 @@ async function manejarWhatsappReclasificarCierres(req, res, sesion) {
     return res.status(200).json({
       aplicado: aplicar, revisadas: rows.length, candidatas: candidatas.length, actualizadas,
       ejemplos: candidatas.slice(0, 15).map(c => ({ id: c.id, cliente: c.cliente, ultimoMensaje: c.ultimo_texto, estabaComo: c.motivo_perdida || c.resultado })),
+      ofertas: ofertasInfo,
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error reclasificando conversaciones', detail: String(err.message || err) });
@@ -10699,6 +10734,25 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       [desde, hasta]
     );
 
+    // Conversión comercial (otra mirada al embudo): para IndexStore la venta es conversacional, y haberle entregado al cliente una
+    // OFERTA (producto disponible + precio + enlace + condiciones + dónde atendemos) ya es una conversión -- puede decidir después
+    // o comparar con otro proveedor. Se detecta en los mensajes del negocio con los mismos patrones en JS y SQL (lib/whatsapp-oferta.js).
+    const { rows: ofertaRows } = await sql.query(
+      `SELECT c.intencion, COALESCE(c.categoria, 'sin_categoria') AS categoria,
+              (c.venta_detectada OR (c.bsale_documento_numero IS NOT NULL AND c.bsale_documento_numero <> '')) AS vendida,
+              ofe.oferta_completa, ofe.oferta_cotizada,
+              EXTRACT(EPOCH FROM (ofe.oferta_en - COALESCE(c.primer_mensaje_cliente_en, c.iniciada_en))) / 60 AS minutos_a_oferta,
+              EXISTS (SELECT 1 FROM whatsapp_mensajes mo WHERE mo.conversacion_id = c.id AND mo.direccion = 'out') AS con_salida
+       FROM whatsapp_conversaciones c ${sqlOfertaLateral(3)}
+       WHERE c.iniciada_en >= $1 AND c.iniciada_en < $2 AND c.cantidad_mensajes > 0;`,
+      [desde, hasta, ...PARAMS_OFERTA()]
+    );
+    const conversionComercial = resumirConversionComercial(ofertaRows.map(r => ({
+      intencion: r.intencion, categoria: r.categoria, vendida: !!r.vendida,
+      oferta: r.oferta_completa ? 'completa' : (r.oferta_cotizada ? 'cotizada' : null), minutosAOferta: r.minutos_a_oferta != null ? Number(r.minutos_a_oferta) : null,
+    })));
+    conversionComercial.pctConRespuestaRegistrada = ofertaRows.length ? Math.round((ofertaRows.filter(r => r.con_salida).length / ofertaRows.length) * 1000) / 10 : null;
+
     const cantidadOrigenShopify = origenVentaTotalRows[0]?.cantidad || 0;
     const fuentes = fuenteRows.map(r => ({ tipo: r.tipo, cantidad: r.cantidad, ventas: r.ventas }));
     if (cantidadOrigenShopify > 0) fuentes.push({ tipo: 'shopify_journey', cantidad: cantidadOrigenShopify, ventas: cantidadOrigenShopify });
@@ -10725,6 +10779,7 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       rankingModelos: modelosRows.map(r => ({ modelo: r.modelo, consultas: r.consultas })),
       resultados: resultadosRows.map(r => ({ resultado: r.resultado, cantidad: r.n })),
       embudo: embudoRows[0] || { conversaciones: 0, intencion_compra: 0, cotizacion: 0, venta: 0 },
+      conversionComercial,
       embudoBsale: embudoBsaleRows[0]
         ? { conversaciones: embudoBsaleRows[0].conversaciones, vinculadas: embudoBsaleRows[0].vinculadas, ventaEnPeriodo: embudoBsaleRows[0].venta_en_periodo }
         : { conversaciones: 0, vinculadas: 0, ventaEnPeriodo: 0 },

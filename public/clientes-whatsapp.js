@@ -1479,7 +1479,7 @@ async function analizarConversacionIA(conversacionId){
 // orden/ordenAsc viajan al backend (la tabla pagina server-side, así que
 // no alcanza con reordenar solo las filas ya traídas) -- ver
 // ORDEN_CLIENTES_WHATSAPP en negocio.js para la whitelist de columnas.
-let clientesState = { page: 1, pageSize: 25, q: '', orden: 'ultimaConversacion', ordenAsc: false, recurrencia: '', ventas: '' };
+let clientesState = { page: 1, pageSize: 500, q: '', orden: 'ultimaConversacion', ordenAsc: false, recurrencia: '', ventas: '' };
 function flechaClientes(col){ return clientesState.orden === col ? (clientesState.ordenAsc ? ' ▲' : ' ▼') : ''; }
 function cambiarOrdenClientes(col){
   if(clientesState.orden === col) clientesState.ordenAsc = !clientesState.ordenAsc;
@@ -1678,6 +1678,11 @@ function initAnalitica(){
       <div id="chartEmbudoBsale" style="margin-top:12px;"></div>
     </div>
     <div class="seccion">
+      <h2>Conversión comercial: ofertas entregadas</h2>
+      <div class="sub">En IndexStore la venta es conversacional, así que entregarle al cliente una <b>oferta</b> (producto disponible + precio + enlace + condiciones + dónde atendemos) ya cuenta como conversión: el cliente puede decidir después o comparar con otro proveedor, pero la oportunidad quedó planteada. Se detecta en lo que escribe el negocio, no depende de la IA.</div>
+      <div id="chartConversionComercial" style="margin-top:12px;"></div>
+    </div>
+    <div class="seccion">
       <h2>Motivos de pérdida</h2>
       <div class="sub" style="margin-bottom:10px;">Haz clic en un motivo para ver esas conversaciones, o en "📊 Analizar" para el detalle: qué se repite, palabras clave, cuándo dejó de responder el cliente y qué hacer.</div>
       <div class="tabla-wrap"><table>
@@ -1759,6 +1764,7 @@ async function cargarAnalitica(){
     renderChartCategorias(data.distribucionCategoria);
     renderChartEmbudo(data.embudo);
     renderChartEmbudoBsale(data.embudoBsale);
+    renderConversionComercial(data.conversionComercial);
     renderFuentes(data.fuentes, data.fuentesDetalle);
     renderTablaMotivos(data.motivosPerdida);
     renderTablaProductos(data.rankingProductos);
@@ -2309,3 +2315,33 @@ async function buscarVentasBsaleEnLote(){
   finally{ btn.disabled = false; btn.textContent = '🧾 Buscar ventas (Bsale/Shopify)'; }
 }
 
+
+// ================= Conversión comercial: ofertas entregadas =================
+// Para IndexStore la venta es conversacional: entregarle al cliente una OFERTA (producto disponible + precio + enlace + condiciones
+// + dónde atendemos) ya es una conversión. Se detecta en los mensajes del negocio; no depende del análisis de la IA.
+function renderConversionComercial(cc){
+  const el = $('chartConversionComercial');
+  if(!el) return;
+  if(!cc || !cc.conversaciones){ el.innerHTML = '<p class="empty-note">Sin conversaciones con mensajes en este período.</p>'; return; }
+  const tarjeta = (lbl, big, nota, clase) => `<div class="card ${clase || ''}"><div class="lbl">${lbl}</div><div class="big">${big}</div>${nota ? `<div class="cmp flat">${nota}</div>` : ''}</div>`;
+  const aviso = (cc.pctConRespuestaRegistrada != null && cc.pctConRespuestaRegistrada < 70)
+    ? `<div class="note-box" style="margin-bottom:12px;background:var(--amber-dim);padding:9px 12px;border-radius:9px;font-size:12px;">⚠ Solo el <b>${cc.pctConRespuestaRegistrada}%</b> de las conversaciones tiene alguna respuesta nuestra registrada en el ERP (lo que se contesta desde el celular no llega si la coexistencia de WhatsApp no está activa). Las ofertas enviadas desde el celular <b>no se ven aquí</b>: las cifras de oferta son un mínimo.</div>` : '';
+  const min = cc.medianaMinutosAOferta;
+  const tiempo = min == null ? '—' : (min < 90 ? `${Math.round(min)} min` : (min < 2880 ? `${Math.round(min / 60 * 10) / 10} h` : `${Math.round(min / 1440)} días`));
+  const tabla = cc.porCategoria.map(c => `
+    <tr><td>${escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria)}</td><td class="num">${fmtNum(c.conversaciones)}</td><td class="num">${fmtNum(c.ofertas)}</td><td class="num">${c.pctOferta}%</td><td class="num">${fmtNum(c.completas)}</td><td class="num">${fmtNum(c.ventas)}</td><td class="num">${c.conversion}%</td>
+    <td><button class="btn-ghost btn-compact" onclick="abrirPanelCategoria('${escapeHtml(c.categoria)}')">📊 Analizar</button></td></tr>`).join('');
+  el.innerHTML = `${aviso}
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:14px;">
+      ${tarjeta('Ofertas entregadas', fmtNum(cc.ofertas), `precio + producto disponible o enlace`, 'destacada')}
+      ${tarjeta('Ofertas completas', fmtNum(cc.ofertasCompletas), 'con condiciones y dónde atendemos')}
+      ${tarjeta('Oferta sobre intención de compra', cc.pctOfertaSobreIntencion + '%', `${fmtNum(cc.conIntencionCompra)} conversaciones con intención`)}
+      ${tarjeta('Ofertas que terminaron en venta', cc.conversionDeOfertas + '%', `${fmtNum(cc.ventasConOferta)} de ${fmtNum(cc.ventas)} ventas tuvieron oferta`)}
+      ${tarjeta('Intención sin oferta', fmtNum(cc.intencionSinOferta), 'oportunidades todavía sin atender')}
+      ${tarjeta('Tiempo hasta la oferta', tiempo, 'mediana desde el primer mensaje')}
+    </div>
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Categoría</th><th>Conversaciones</th><th>Ofertas</th><th>% con oferta</th><th>Completas</th><th>Ventas</th><th>Conversión</th><th></th></tr></thead>
+      <tbody>${tabla}</tbody>
+    </table></div>`;
+}

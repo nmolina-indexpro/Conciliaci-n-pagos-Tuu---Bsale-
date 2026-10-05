@@ -153,6 +153,7 @@ function renderPanelMotivo(d){
   const sinDato = q.confiable === false;
   if(sinDato) notas.push(`<b>⚠ Cuidado con las cifras que dependen de nuestras respuestas.</b> Solo el <b>${q.pct}%</b> de las ${fmtNum(q.total)} conversaciones del período tiene alguna respuesta del negocio registrada en el ERP${q.conApp ? ` (${fmtNum(q.conApp)} desde la app del celular)` : ''}. Lo que se contesta desde el celular no llega al ERP si la <i>coexistencia</i> de WhatsApp no está activa, así que "sin respuesta", "quién habló último", "tras qué mensaje se cortó" y los tiempos de respuesta pueden mostrar problemas que no existen. Es confiable lo que piden los clientes, sus palabras y de dónde vienen.`);
   if(d.base === 'ultimo_cliente' && d.totalSegunInicio !== d.total) notas.push(`La tabla de motivos cuenta <b>${d.totalSegunInicio}</b> porque ubica cada conversación por su fecha de inicio; acá hay <b>${d.total}</b> porque se ubican por la fecha en que el cliente dejó de responder.`);
+  if(d.excluidasPorOferta) notas.push(`Se dejaron fuera <b>${fmtNum(d.excluidasPorOferta)}</b> conversaciones a las que ya se les entregó una <b>oferta completa</b> (producto disponible, precio, enlace, condiciones y dirección): son una conversión comercial, no una pérdida. Usa "✅ Reclasificar cierres y ofertas" para actualizar la tabla de motivos.`);
   if(d.excluidasPorCierre) notas.push(`Se dejaron fuera <b>${fmtNum(d.excluidasPorCierre)}</b> conversaciones cuyo último mensaje del cliente fue un cierre cordial ("ok", "gracias"): se consideran <b>resueltas</b>, no pérdidas. Si la tabla de motivos todavía las cuenta, usa "✅ Reclasificar cierres" para actualizarla.`);
   if(d.truncado) notas.push('Hay más conversaciones que el máximo analizado; se muestran las más recientes.');
   const kpis = `<div class="pm-kpis">
@@ -303,12 +304,14 @@ async function reclasificarCierres(){
   try{
     const vista = await fetch('/api/negocio?recurso=whatsapp-reclasificar-cierres').then(r => r.json());
     if(vista.error){ alert(vista.error + (vista.detail ? ' (' + vista.detail + ')' : '')); return; }
-    if(!vista.candidatas){ alert('No hay conversaciones para reclasificar: revisé ' + fmtNum(vista.revisadas) + ' y ninguna terminó con un cierre cordial.'); return; }
-    const ejemplos = vista.ejemplos.slice(0, 8).map(e => '• #' + e.id + ' ' + (e.cliente || 'Sin nombre') + ': "' + e.ultimoMensaje + '"').join('\n');
-    if(!confirm('Encontré ' + fmtNum(vista.candidatas) + ' conversaciones que quedaron como "Cliente dejó de responder" (u "Otro") pero cuyo último mensaje del cliente fue un cierre cordial. Pasarían a "Consulta resuelta" y dejarían de contar como pérdida.\n\nEjemplos:\n' + ejemplos + '\n\n¿Aplicar el cambio?')) return;
+    const nOfertas = (vista.ofertas && vista.ofertas.candidatas) || 0;
+    if(!vista.candidatas && !nOfertas){ alert('No hay conversaciones para reclasificar: revisé ' + fmtNum(vista.revisadas) + ' y ninguna terminó con un cierre cordial ni tenía una oferta completa entregada.'); return; }
+    const ejemplos = vista.ejemplos.slice(0, 6).map(e => '• #' + e.id + ' ' + (e.cliente || 'Sin nombre') + ': "' + e.ultimoMensaje + '"').join('\n');
+    const ejemplosOf = (vista.ofertas && vista.ofertas.ejemplos || []).slice(0, 6).map(e => '• #' + e.id + ' ' + (e.cliente || 'Sin nombre')).join('\n');
+    if(!confirm((vista.candidatas ? vista.candidatas + ' conversaciones terminaron con un cierre cordial ("ok", "gracias") y quedaron como "Cliente dejó de responder": pasarían a "Consulta resuelta".\n' + ejemplos + '\n\n' : '') + (nOfertas ? nOfertas + ' conversaciones recibieron una OFERTA COMPLETA (disponible + precio + enlace + condiciones + dirección) y quedaron como pérdida: pasarían a "Cotización" (oferta entregada, el cliente evalúa).\n' + ejemplosOf + '\n\n' : '') + '¿Aplicar los cambios?')) return;
     const r = await fetch('/api/negocio?recurso=whatsapp-reclasificar-cierres', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ aplicar: true }) }).then(x => x.json());
     if(r.error){ alert(r.error); return; }
-    alert('Listo: ' + fmtNum(r.actualizadas) + ' conversaciones pasaron a "Consulta resuelta".');
+    alert('Listo: ' + fmtNum(r.actualizadas) + ' pasaron a "Consulta resuelta" y ' + fmtNum((r.ofertas && r.ofertas.actualizadas) || 0) + ' a "Cotización" (oferta entregada).');
     if(typeof cargarAnalitica === 'function' && document.getElementById('analiticaDesde')) cargarAnalitica();
   }catch(err){ alert('Error: ' + err.message); }
   finally{ if(btn) btn.disabled = false; }
@@ -357,7 +360,7 @@ function renderPanelCategoria(d){
     ${tarjetaPm('Conversaciones', fmtNum(s.total), `${fmtNum(s.conIntencionCompra)} con intención de compra`)}
     ${tarjetaPm('Ventas', fmtNum(s.ventas), `${s.conversion}% de conversión`)}
     ${tarjetaPm('Perdidas', fmtNum(s.perdidas), `${s.pctPerdidas}% de las conversaciones`)}
-    ${tarjetaPm('Cotización en curso', fmtNum(s.cotizaciones), 'todavía abiertas')}
+    ${tarjetaPm('Ofertas entregadas', fmtNum(s.ofertas), `${fmtNum(s.ofertasCompletas)} completas · ${fmtNum(s.intencionSinOferta)} con intención sin oferta`)}
     ${tarjetaPm('Consultas resueltas', fmtNum(s.resueltas), 'terminaron con "ok / gracias"')}
   </div>`;
   const reco = seccionPm('💡 Qué hacer', `<div class="pm-reco">${d.recomendaciones.map(r => `<div><b>${escapeHtml(r.titulo)}</b>${escapeHtml(r.texto)}</div>`).join('')}</div>`, 'Calculado con las cifras de este panel; sirven de punto de partida, no son una orden.');
