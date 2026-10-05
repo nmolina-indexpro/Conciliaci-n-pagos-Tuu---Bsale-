@@ -16,6 +16,7 @@ import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
 import { armarComunicacionZoho, filasCorreosDesdeZoho, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
+import { analizarMotivo as analizarMotivoWhatsapp, MOTIVOS_ANALIZABLES } from '../lib/whatsapp-motivos.js';
 import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR } from '../lib/cotizaciones-recontacto.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
@@ -203,6 +204,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-actualizar-ventas-bsale') return manejarWhatsappActualizarVentasBsale(req, res, sesion);
   if (recurso === 'whatsapp-recategorizar') return manejarWhatsappRecategorizar(req, res, sesion);
   if (recurso === 'whatsapp-analitica') return manejarWhatsappAnalitica(req, res, sesion);
+  if (recurso === 'whatsapp-motivo-detalle') return manejarWhatsappMotivoDetalle(req, res, sesion);
   if (recurso === 'whatsapp-analitica-ejecutivos') return manejarWhatsappAnaliticaEjecutivos(req, res, sesion);
   if (recurso === 'whatsapp-control-ejecutivos') return manejarWhatsappControlEjecutivos(req, res, sesion);
   if (recurso === 'whatsapp-recontacto-motivo') return manejarWhatsappRecontactoMotivo(req, res, sesion);
@@ -10218,6 +10220,94 @@ async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios, ejecutivos, sinAsignar });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen diario de ejecutivos de WhatsApp', detail: String(err) });
+  }
+}
+
+// Detalle de UN motivo de pérdida (panel lateral de "Motivos de pérdida" en Clientes WhatsApp). Mismo criterio de
+// "conversación perdida" que la tabla de motivos de manejarWhatsappAnalitica. Por defecto el período se mide por la
+// fecha en que el cliente dejó de responder (su último mensaje); con ?base=inicio se usa la fecha de inicio de la
+// conversación, que es la que usa la tabla. Los mensajes se leen para sacar palabras, frases, dominios y señales de precio.
+const TOPE_CONVERSACIONES_MOTIVO = 1500;
+const TOPE_MENSAJES_MOTIVO = 30000;
+async function manejarWhatsappMotivoDetalle(req, res, _sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const motivo = String(req.query.motivo || '');
+    if (!MOTIVOS_ANALIZABLES.includes(motivo)) return res.status(400).json({ error: 'Motivo no analizable' });
+    const RE_DIA = /^\d{4}-\d{2}-\d{2}$/;
+    const desde = String(req.query.desde || ''), hasta = String(req.query.hasta || '');
+    if (!RE_DIA.test(desde) || !RE_DIA.test(hasta) || desde > hasta) return res.status(400).json({ error: 'Rango de fechas inválido' });
+    const base = req.query.base === 'inicio' ? 'inicio' : 'ultimo_cliente';
+
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const columnaFecha = base === 'inicio' ? 'iniciada_en' : 'COALESCE(ultimo_cliente_en, iniciada_en)';
+    const consulta = `
+      WITH base AS (
+        SELECT c.id, c.iniciada_en, c.producto, c.marca, c.modelo, c.categoria, c.cantidad_mensajes,
+               c.primer_mensaje_cliente_en AS primer_cliente_en, ${primeraRespuestaRealSQL()} AS primera_respuesta_segundos,
+               c.fuente_tipo, c.fuente_titulo, c.fuente_utm_source AS utm_source, c.fuente_utm_campaign AS utm_campana,
+               NULLIF(c.bsale_documento_numero, '') AS bsale_doc, c.vendedor_detectado AS vendedor, u.nombre AS responsable,
+               ct.nombre AS contacto_nombre, ct.telefono, a.problema_cliente AS problema, a.especificaciones,
+               (SELECT MAX(m.marca_tiempo) FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'in') AS ultimo_cliente_en,
+               (SELECT MAX(m.marca_tiempo) FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'out') AS ultimo_negocio_en
+        FROM whatsapp_conversaciones c
+        JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+        LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+        LEFT JOIN usuarios u ON u.id = c.responsable_id
+        WHERE COALESCE(c.motivo_perdida, c.resultado, 'otro') = $1 AND c.venta_detectada = false
+          AND c.resultado IS NOT NULL AND c.resultado NOT IN ('cotizacion', 'seguimiento')
+      )
+      SELECT * FROM base
+      WHERE ${columnaFecha} >= ($2::date)::timestamp AT TIME ZONE 'America/Santiago'
+        AND ${columnaFecha} < (($3::date + 1))::timestamp AT TIME ZONE 'America/Santiago'
+      ORDER BY ${columnaFecha} DESC
+      LIMIT ${TOPE_CONVERSACIONES_MOTIVO};`;
+    const { rows: convs } = await sql.query(consulta, [motivo, desde, hasta]);
+
+    let mensajes = [];
+    if (convs.length) {
+      const { rows } = await sql.query(
+        `SELECT conversacion_id, marca_tiempo, direccion, contenido_texto FROM whatsapp_mensajes
+         WHERE conversacion_id = ANY($1::int[]) AND contenido_texto IS NOT NULL AND contenido_texto <> ''
+         ORDER BY conversacion_id, marca_tiempo LIMIT ${TOPE_MENSAJES_MOTIVO};`,
+        [convs.map(c => c.id)]
+      );
+      mensajes = rows;
+    }
+
+    // Referencia de velocidad: primera respuesta de las conversaciones del mismo período que terminaron en venta
+    let referenciaVentas = [];
+    if (motivo === 'respuesta_lenta' || motivo === 'compro_en_otro_lugar') {
+      const { rows } = await sql.query(
+        `SELECT ${primeraRespuestaRealSQL()} AS s FROM whatsapp_conversaciones c
+         WHERE (c.venta_detectada OR (c.bsale_documento_numero IS NOT NULL AND c.bsale_documento_numero <> ''))
+           AND c.iniciada_en >= ($1::date)::timestamp AT TIME ZONE 'America/Santiago'
+           AND c.iniciada_en < (($2::date + 1))::timestamp AT TIME ZONE 'America/Santiago' LIMIT 800;`,
+        [desde, hasta]
+      );
+      referenciaVentas = rows.map(r => r.s).filter(v => v != null);
+    }
+
+    // Cuántas hay según la fecha de inicio (la que usa la tabla de motivos), para explicar diferencias de conteo
+    let totalSegunInicio = convs.length;
+    if (base !== 'inicio') {
+      const { rows } = await sql.query(
+        `SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones
+         WHERE COALESCE(motivo_perdida, resultado, 'otro') = $1 AND venta_detectada = false AND resultado IS NOT NULL AND resultado NOT IN ('cotizacion', 'seguimiento')
+           AND iniciada_en >= ($2::date)::timestamp AT TIME ZONE 'America/Santiago' AND iniciada_en < (($3::date + 1))::timestamp AT TIME ZONE 'America/Santiago';`,
+        [motivo, desde, hasta]
+      );
+      totalSegunInicio = rows[0].n;
+    }
+
+    const analisis = analizarMotivoWhatsapp({ motivo, conversaciones: convs, mensajes, ahora: new Date(), referenciaVentas });
+    return res.status(200).json({
+      motivo, etiqueta: WHATSAPP_MOTIVOS_PERDIDA_LABEL[motivo] || motivo, desde, hasta, base, totalSegunInicio,
+      truncado: convs.length >= TOPE_CONVERSACIONES_MOTIVO, ...analisis,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error analizando el motivo de pérdida', detail: String(err.message || err) });
   }
 }
 

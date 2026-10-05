@@ -1730,7 +1730,7 @@ function initAnalitica(){
     </div>
     <div class="seccion">
       <h2>Motivos de pérdida</h2>
-      <div class="sub" style="margin-bottom:10px;">Haz clic en un motivo para ver esas conversaciones.</div>
+      <div class="sub" style="margin-bottom:10px;">Haz clic en un motivo para ver esas conversaciones, o en "📊 Analizar" para el detalle: qué se repite, palabras clave, cuándo dejó de responder el cliente y qué hacer.</div>
       <div class="tabla-wrap"><table>
         <thead><tr id="theadMotivos"></tr></thead>
         <tbody id="tablaMotivos"></tbody>
@@ -1959,7 +1959,7 @@ function renderTbodyMotivos(){
     <tr class="fila-clic" onclick="irAConversacionesConMotivo('${escapeHtml(m.motivo)}')">
       <td>${escapeHtml(m.etiqueta)}</td><td>${fmtNum(m.cantidad)}</td><td>${m.porcentaje}%</td>
       <td style="max-width:340px;font-size:12px;color:var(--muted);">${escapeHtml(MOTIVO_PERDIDA_RECOMENDACION[m.motivo] || 'Sin recomendación definida para este motivo.')}</td>
-      <td><button class="btn-ghost btn-compact" onclick="event.stopPropagation(); irAConversacionesConMotivo('${escapeHtml(m.motivo)}')">👁️ Ver conversaciones</button></td>
+      <td style="white-space:nowrap;">${MOTIVOS_ANALIZABLES_UI.includes(m.motivo) ? `<button class="btn-primary btn-compact" title="Qué se repite, palabras clave, cuándo dejó de responder el cliente y qué hacer" onclick="event.stopPropagation(); abrirPanelMotivo('${escapeHtml(m.motivo)}')">📊 Analizar</button> ` : ''}<button class="btn-ghost btn-compact" onclick="event.stopPropagation(); irAConversacionesConMotivo('${escapeHtml(m.motivo)}')">👁️ Ver conversaciones</button></td>
     </tr>
   `).join('');
 }
