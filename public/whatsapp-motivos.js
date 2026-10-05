@@ -6,6 +6,15 @@ const MOTIVOS_ANALIZABLES_UI = ['producto_no_disponible', 'compro_en_otro_lugar'
 let motivoPanel = null;      // { motivo, base, datos }
 let cargandoPanelMotivo = 0; // para ignorar respuestas viejas si el usuario cambia rápido
 
+// Teléfono como enlace al chat de WhatsApp, en otra pestaña (Chile: 9 dígitos se completan con el 56)
+function enlaceTelefonoPm(telefono){
+  const texto = String(telefono || '').trim();
+  if(!texto) return '';
+  let dig = texto.replace(/\D/g, '');
+  if(dig.length < 8) return escapeHtml(texto);
+  if(dig.length === 9) dig = '56' + dig;
+  return `<a href="https://wa.me/${dig}" target="_blank" rel="noopener noreferrer" title="Abrir el chat en WhatsApp">${escapeHtml(texto)} ↗</a>`;
+}
 function fmtMin(seg){
   if(seg == null) return '—';
   if(seg < 90) return `${Math.round(seg)} s`;
@@ -144,6 +153,7 @@ function renderPanelMotivo(d){
   const sinDato = q.confiable === false;
   if(sinDato) notas.push(`<b>⚠ Cuidado con las cifras que dependen de nuestras respuestas.</b> Solo el <b>${q.pct}%</b> de las ${fmtNum(q.total)} conversaciones del período tiene alguna respuesta del negocio registrada en el ERP${q.conApp ? ` (${fmtNum(q.conApp)} desde la app del celular)` : ''}. Lo que se contesta desde el celular no llega al ERP si la <i>coexistencia</i> de WhatsApp no está activa, así que "sin respuesta", "quién habló último", "tras qué mensaje se cortó" y los tiempos de respuesta pueden mostrar problemas que no existen. Es confiable lo que piden los clientes, sus palabras y de dónde vienen.`);
   if(d.base === 'ultimo_cliente' && d.totalSegunInicio !== d.total) notas.push(`La tabla de motivos cuenta <b>${d.totalSegunInicio}</b> porque ubica cada conversación por su fecha de inicio; acá hay <b>${d.total}</b> porque se ubican por la fecha en que el cliente dejó de responder.`);
+  if(d.excluidasPorCierre) notas.push(`Se dejaron fuera <b>${fmtNum(d.excluidasPorCierre)}</b> conversaciones cuyo último mensaje del cliente fue un cierre cordial ("ok", "gracias"): se consideran <b>resueltas</b>, no pérdidas. Si la tabla de motivos todavía las cuenta, usa "✅ Reclasificar cierres" para actualizarla.`);
   if(d.truncado) notas.push('Hay más conversaciones que el máximo analizado; se muestran las más recientes.');
   const kpis = `<div class="pm-kpis">
     ${tarjetaPm('Conversaciones perdidas', fmtNum(d.total), `por "${escapeHtml(d.etiqueta)}"`)}
@@ -186,7 +196,7 @@ function renderPanelMotivo(d){
     ${d.fuentes.map(f => `<tr><td>${escapeHtml(f.fuente)}</td><td>${escapeHtml(f.detalle || '—')}</td><td class="num">${f.n}</td><td class="num">${f.pct}%</td></tr>`).join('')}</tbody></table>`,
     d.motivo === 'producto_no_disponible' ? 'Si una campaña de Google Ads concentra estas conversaciones, ahí van primero las palabras negativas.' : '');
   const lista = seccionPm('💬 Conversaciones', `<div class="pm-scroll"><table class="pm-tabla"><thead><tr><th>Cliente</th><th>Producto</th><th>Primer mensaje</th><th>Último mensaje del cliente</th></tr></thead><tbody>
-    ${d.conversaciones.map(x => `<tr><td>${escapeHtml(x.cliente || '—')}<div class="pm-ej">${escapeHtml(x.telefono)}</div></td><td>${escapeHtml(x.producto || '—')}</td><td class="pm-ej">${escapeHtml(x.primerMensaje)}</td><td>${x.ultimoCliente ? escapeHtml(new Date(x.ultimoCliente).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })) : '—'}</td></tr>`).join('')}</tbody></table></div>`,
+    ${d.conversaciones.map(x => `<tr><td>${escapeHtml(x.cliente || '—')}<div class="pm-ej">${enlaceTelefonoPm(x.telefono)}</div></td><td>${escapeHtml(x.producto || '—')}</td><td class="pm-ej">${escapeHtml(x.primerMensaje)}</td><td>${x.ultimoCliente ? escapeHtml(new Date(x.ultimoCliente).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })) : '—'}</td></tr>`).join('')}</tbody></table></div>`,
     `Las ${Math.min(80, d.total)} más recientes. Para abrir una conversación usa "Ver conversaciones".`);
 
   $('panelMotivo').innerHTML = cabecera + `<div class="pm-cuerpo">${notas.map(n => `<div class="pm-nota">${n}</div>`).join('')}${kpis}${reco}${espec}${repite}${cuando}${terminos}${fuentes}${lista}</div>`;
@@ -240,7 +250,7 @@ function renderEspecificoPm(d){
       </div>`, 'El horario de atención es un supuesto para medir "fuera de horario"; ajústalo con el equipo si es otro.');
   }
   if(e.tipo === 'precio'){
-    const filas = e.recontactables.map(x => `<tr><td>${escapeHtml(x.cliente || '—')}</td><td>${escapeHtml(x.telefono)}</td><td>${escapeHtml(x.producto || '—')}</td><td class="num">${x.diasSinResponder != null ? x.diasSinResponder + ' d' : '—'}</td></tr>`).join('');
+    const filas = e.recontactables.map(x => `<tr><td>${escapeHtml(x.cliente || '—')}</td><td>${enlaceTelefonoPm(x.telefono)}</td><td>${escapeHtml(x.producto || '—')}</td><td class="num">${x.diasSinResponder != null ? x.diasSinResponder + ' d' : '—'}</td></tr>`).join('');
     return seccionPm('💲 Precio: qué dicen los clientes', `
       <div class="pm-grid2">
         <div><h4>Señales en los mensajes</h4>${barrasHtml(e.senales.map(x => ({ etiqueta: x.senal, n: x.conversaciones, pct: x.pct })))}
@@ -284,4 +294,22 @@ function descargarNegativasPm(){
 function descargarRecontactoPm(){
   const d = motivoPanel && motivoPanel.datos; if(!d || !d.especifico || !d.especifico.recontactables) return;
   csvPm([['Cliente', 'Teléfono', 'Producto', 'Días sin responder'], ...d.especifico.recontactables.map(x => [x.cliente, x.telefono, x.producto, x.diasSinResponder ?? ''])], `recontacto-precio-${d.desde}_${d.hasta}.csv`);
+}
+
+// ---- Reclasificar cierres cordiales ("ok", "gracias") como consulta resuelta ----
+async function reclasificarCierres(){
+  const btn = document.getElementById('btnReclasificarCierres');
+  if(btn) btn.disabled = true;
+  try{
+    const vista = await fetch('/api/negocio?recurso=whatsapp-reclasificar-cierres').then(r => r.json());
+    if(vista.error){ alert(vista.error + (vista.detail ? ' (' + vista.detail + ')' : '')); return; }
+    if(!vista.candidatas){ alert('No hay conversaciones para reclasificar: revisé ' + fmtNum(vista.revisadas) + ' y ninguna terminó con un cierre cordial.'); return; }
+    const ejemplos = vista.ejemplos.slice(0, 8).map(e => '• #' + e.id + ' ' + (e.cliente || 'Sin nombre') + ': "' + e.ultimoMensaje + '"').join('\n');
+    if(!confirm('Encontré ' + fmtNum(vista.candidatas) + ' conversaciones que quedaron como "Cliente dejó de responder" (u "Otro") pero cuyo último mensaje del cliente fue un cierre cordial. Pasarían a "Consulta resuelta" y dejarían de contar como pérdida.\n\nEjemplos:\n' + ejemplos + '\n\n¿Aplicar el cambio?')) return;
+    const r = await fetch('/api/negocio?recurso=whatsapp-reclasificar-cierres', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ aplicar: true }) }).then(x => x.json());
+    if(r.error){ alert(r.error); return; }
+    alert('Listo: ' + fmtNum(r.actualizadas) + ' conversaciones pasaron a "Consulta resuelta".');
+    if(typeof cargarAnalitica === 'function' && document.getElementById('analiticaDesde')) cargarAnalitica();
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ if(btn) btn.disabled = false; }
 }

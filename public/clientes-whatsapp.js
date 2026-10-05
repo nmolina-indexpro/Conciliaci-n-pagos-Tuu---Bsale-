@@ -16,7 +16,7 @@ const ESTADO_BADGE = {
 };
 const RESULTADO_LABEL = {
   venta: 'Venta', cotizacion: 'Cotización', seguimiento: 'Seguimiento', sin_stock: 'Sin stock',
-  cliente_no_responde: 'Cliente dejó de responder', no_interesado: 'No interesado', otro: 'Otro',
+  cliente_no_responde: 'Cliente dejó de responder', no_interesado: 'No interesado', consulta_resuelta: 'Consulta resuelta', otro: 'Otro',
 };
 const INTENCION_LABEL = {
   compra: 'Compra', consulta: 'Consulta', postventa: 'Postventa',
@@ -270,7 +270,7 @@ function badgeEstado(estado){
 }
 function badgeResultado(resultado){
   if (!resultado) return '<span class="badge b-gris">—</span>';
-  const clase = resultado === 'venta' ? 'b-verde' : (resultado === 'cotizacion' || resultado === 'seguimiento') ? 'b-azul' : 'b-rojo';
+  const clase = (resultado === 'venta' || resultado === 'consulta_resuelta') ? 'b-verde' : (resultado === 'cotizacion' || resultado === 'seguimiento') ? 'b-azul' : 'b-rojo';
   return `<span class="badge ${clase}">${RESULTADO_LABEL[resultado] || resultado}</span>`;
 }
 // Alertas visuales (punto 27)
@@ -334,6 +334,16 @@ function opcionesResponsable(seleccionadoId, incluirTodos){
     out += `<option value="${u.id}" ${Number(seleccionadoId) === u.id ? 'selected' : ''}>${escapeHtml(u.nombre)}</option>`;
   }
   return out;
+}
+
+// Teléfono como enlace al chat de WhatsApp (se abre en otra pestaña). Chile: un número de 9 dígitos se completa con el 56.
+function enlaceWhatsappTelefono(telefono){
+  const texto = String(telefono || '').trim();
+  if(!texto) return '—';
+  let d = texto.replace(/\D/g, '');
+  if(d.length < 8) return escapeHtml(texto);
+  if(d.length === 9) d = '56' + d;
+  return `<a href="https://wa.me/${d}" target="_blank" rel="noopener noreferrer" title="Abrir el chat en WhatsApp" onclick="event.stopPropagation()">${escapeHtml(texto)} ↗</a>`;
 }
 
 const vistasCargadas = new Set();
@@ -589,7 +599,7 @@ function WHATSAPP_INTENCIONES_OPT(){ return WHATSAPP_INTENCIONES.map(i => `<opti
 function WHATSAPP_CATEGORIAS_OPT(){ return WHATSAPP_CATEGORIAS.map(c => `<option value="${c}">${CATEGORIA_LABEL[c]}</option>`).join(''); }
 
 const WHATSAPP_ESTADOS = ['nueva', 'abierta', 'esperando_cliente', 'seguimiento', 'cerrada', 'sin_respuesta'];
-const WHATSAPP_RESULTADOS = ['venta', 'cotizacion', 'seguimiento', 'sin_stock', 'cliente_no_responde', 'no_interesado', 'otro'];
+const WHATSAPP_RESULTADOS = ['venta', 'cotizacion', 'seguimiento', 'sin_stock', 'cliente_no_responde', 'no_interesado', 'consulta_resuelta', 'otro'];
 const WHATSAPP_INTENCIONES = ['compra', 'consulta', 'postventa', 'servicio_tecnico', 'garantia', 'seguimiento'];
 const WHATSAPP_CATEGORIAS = ['pantalla', 'cargador', 'bateria', 'servicio_tecnico', 'repuestos', 'cotizacion', 'compatibilidad', 'garantia', 'estado_pedido', 'postventa', 'otra'];
 
@@ -1008,7 +1018,7 @@ function renderFichaBandeja(data){
       <div class="ficha-grupo">
         <h3>👤 Cliente</h3>
         <div class="ficha-fila"><span>Nombre</span><b>${escapeHtml(ct?.nombre || 'Sin nombre')}</b></div>
-        <div class="ficha-fila"><span>Teléfono</span><b>${escapeHtml(ct?.telefono || '—')}</b></div>
+        <div class="ficha-fila"><span>Teléfono</span><b>${enlaceWhatsappTelefono(ct?.telefono)}</b></div>
         <div class="ficha-fila"><span>1ª conversación</span><b>${fmtFecha(ct?.primeraConversacionEn)}</b></div>
         <div class="ficha-fila"><span>Última conversación</span><b>${fmtFecha(ct?.ultimaConversacionEn)}</b></div>
         ${fichaBsaleHtml(data.clienteBsale)}
@@ -1349,7 +1359,7 @@ function renderDetalleConversacion(data){
         <div class="ficha-grupo">
           <h3>👤 Cliente</h3>
           <div class="ficha-fila"><span>Nombre</span><b>${escapeHtml(ct?.nombre || 'Sin nombre')}</b></div>
-          <div class="ficha-fila"><span>Teléfono</span><b>${escapeHtml(ct?.telefono || '—')}</b></div>
+          <div class="ficha-fila"><span>Teléfono</span><b>${enlaceWhatsappTelefono(ct?.telefono)}</b></div>
           <div class="ficha-fila"><span>Primera conversación</span><b>${fmtFecha(ct?.primeraConversacionEn)}</b></div>
           <div class="ficha-fila"><span>Última conversación</span><b>${fmtFecha(ct?.ultimaConversacionEn)}</b></div>
           <div class="ficha-fila"><span>Total conversaciones</span><b>${fmtNum(ct?.totalConversaciones)}</b></div>
@@ -1644,7 +1654,7 @@ async function abrirCliente(id){
     $('modalClienteTitulo').textContent = cl.nombre || 'Sin nombre';
     $('modalClienteBody').innerHTML = `
       <div class="ficha-grupo">
-        <div class="ficha-fila"><span>Teléfono</span><b>${escapeHtml(cl.telefono || '—')}</b></div>
+        <div class="ficha-fila"><span>Teléfono</span><b>${enlaceWhatsappTelefono(cl.telefono)}</b></div>
         <div class="ficha-fila"><span>Primera conversación</span><b>${fmtFecha(cl.primeraConversacion)}</b></div>
         <div class="ficha-fila"><span>Última conversación</span><b>${fmtFecha(cl.ultimaConversacion)}</b></div>
         <div class="ficha-fila"><span>Total conversaciones</span><b>${fmtNum(cl.totalConversaciones)}</b></div>

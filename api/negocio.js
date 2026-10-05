@@ -16,7 +16,7 @@ import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
 import { armarComunicacionZoho, filasCorreosDesdeZoho, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
-import { analizarMotivo as analizarMotivoWhatsapp, MOTIVOS_ANALIZABLES } from '../lib/whatsapp-motivos.js';
+import { analizarMotivo as analizarMotivoWhatsapp, MOTIVOS_ANALIZABLES, esCierreCordial, debeReclasificarPorCierre, RESULTADOS_DEBILES_CIERRE, MOTIVOS_DEBILES_CIERRE } from '../lib/whatsapp-motivos.js';
 import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR } from '../lib/cotizaciones-recontacto.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
@@ -205,6 +205,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-recategorizar') return manejarWhatsappRecategorizar(req, res, sesion);
   if (recurso === 'whatsapp-analitica') return manejarWhatsappAnalitica(req, res, sesion);
   if (recurso === 'whatsapp-motivo-detalle') return manejarWhatsappMotivoDetalle(req, res, sesion);
+  if (recurso === 'whatsapp-reclasificar-cierres') return manejarWhatsappReclasificarCierres(req, res, sesion);
   if (recurso === 'whatsapp-analitica-ejecutivos') return manejarWhatsappAnaliticaEjecutivos(req, res, sesion);
   if (recurso === 'whatsapp-control-ejecutivos') return manejarWhatsappControlEjecutivos(req, res, sesion);
   if (recurso === 'whatsapp-recontacto-motivo') return manejarWhatsappRecontactoMotivo(req, res, sesion);
@@ -6077,7 +6078,7 @@ async function manejarIndexscaleVerificarSitios(req, res, sesion) {
 //   WHATSAPP_APP_SECRET     App Secret de la app de Meta -> firma
 //                           X-Hub-Signature-256 de cada POST.
 const WHATSAPP_ESTADOS = ['nueva', 'abierta', 'esperando_cliente', 'seguimiento', 'cerrada', 'sin_respuesta'];
-const WHATSAPP_RESULTADOS = ['venta', 'cotizacion', 'seguimiento', 'sin_stock', 'cliente_no_responde', 'no_interesado', 'otro'];
+const WHATSAPP_RESULTADOS = ['venta', 'cotizacion', 'seguimiento', 'sin_stock', 'cliente_no_responde', 'no_interesado', 'consulta_resuelta', 'otro'];
 const WHATSAPP_SEGUIMIENTO_ESTADOS = ['pendiente', 'contactado', 'venta', 'cerrado', 'no_interesado'];
 const WHATSAPP_INTENCIONES = ['compra', 'consulta', 'postventa', 'servicio_tecnico', 'garantia', 'seguimiento'];
 const WHATSAPP_MOTIVOS_PERDIDA_LABEL = {
@@ -6919,7 +6920,7 @@ function armarFiltrosConversacionesWhatsapp(query, sesion) {
   if (query.motivoPerdida) {
     cond.push(`COALESCE(c.motivo_perdida, c.resultado, 'otro') = ${p(query.motivoPerdida)}`);
     cond.push(`c.venta_detectada = false`);
-    cond.push(`c.resultado IS NOT NULL AND c.resultado NOT IN ('cotizacion','seguimiento')`);
+    cond.push(`c.resultado IS NOT NULL AND c.resultado NOT IN ('cotizacion','seguimiento','consulta_resuelta')`);
   }
 
   if (query.venta === 'con_venta') cond.push(`c.venta_detectada = true`);
@@ -8900,8 +8901,8 @@ const WHATSAPP_ANALISIS_TOOL = {
       problema_cliente: { type: 'string', description: 'Problema o necesidad concreta del cliente, en sus palabras. Breve -- máximo ~15 palabras, telegráfico, no una oración completa.' },
       especificaciones: { type: 'string', description: 'Detalles técnicos específicos que el cliente o el negocio mencionan y que distinguen el producto exacto de otros similares. Dos casos particularmente importantes: (1) en cargadores, potencia/voltaje/amperaje/tipo de conector (ej. "65W USB-C", "20V 3.25A"); (2) en pantallas, el TIPO DE EQUIPO -- "All in One" (PC de escritorio todo-en-uno) es un producto completamente distinto a una pantalla de notebook, aunque sea la misma marca, así que si el cliente dice "All in One", "todo en uno", "PC de escritorio" o similar, regístralo tal cual acá (ej. "All in One"). También aplica a otros casos: "táctil", "Full HD", "Macbook" vs notebook normal, etc. Cadena vacía si no se menciona ningún detalle así.' },
       probabilidad_compra: { type: 'integer', description: 'Probabilidad de 0 a 100 de que esta conversación termine en una venta, según el interés mostrado.' },
-      resultado: { type: 'string', enum: WHATSAPP_RESULTADOS, description: 'En qué terminó (o va quedando) la conversación: "venta" si se confirmó una compra; "cotizacion" si se envió un precio y el cliente todavía está evaluando; "seguimiento" si sigue en curso y hay que seguir contactando; "sin_stock" si no había stock de lo pedido; "cliente_no_responde" si el negocio respondió pero el cliente dejó de escribir; "no_interesado" si el cliente dijo explícitamente que no le interesa o desistió. Usa "otro" SOLO si de verdad ninguna de esas aplica (ej. conversación de otro tema, saludo sin seguimiento, mensaje de prueba) -- no lo uses solo porque la conversación es corta o ambigua si igual se puede inferir uno de los resultados de arriba.' },
-      motivo_perdida: { type: 'string', enum: Object.keys(WHATSAPP_MOTIVOS_PERDIDA_LABEL), description: 'OBLIGATORIO completar este campo (no lo omitas) cada vez que "resultado" sea distinto de "venta", "cotizacion" y "seguimiento" -- es decir, siempre que la conversación no haya sido una venta ni siga en curso. Usa la razón más específica posible según lo que digan los mensajes o lo que tú mismo hayas notado: si el cliente dice que ya compró o va a comprar en otro lado / la competencia, usa "compro_en_otro_lugar"; si el negocio nunca respondió o respondió muy tarde, usa "respuesta_lenta"; si el negocio respondió pero nunca volvió a contactar al cliente para cerrar, usa "sin_seguimiento"; si el cliente dejó de responder sin motivo claro, "cliente_no_responde"; si fue por precio, "precio"; si fue por falta de stock, "sin_stock"; si el producto no era compatible con su equipo, "producto_incompatible"; si el negocio directamente NO vende/trabaja ese producto o marca (ej. el cliente pide una batería Toshiba y el negocio no trabaja esa marca, y se le recomienda buscar en Aliexpress o Mercado Libre), usa "producto_no_disponible" -- distinto de "producto_incompatible", que es cuando SÍ se vende ese tipo de producto pero el específico no calza con el equipo del cliente; "producto_no_disponible" es cuando ni siquiera se trabaja esa línea/marca. Usa "otro" solo si de verdad ninguna de esas aplica -- pero AÚN ASÍ complétalo con "otro" en vez de omitirlo, para dejar registro de que se revisó (omitir el campo debe reservarse solo para cuando "resultado" sea "venta", "cotizacion" o "seguimiento").' },
+      resultado: { type: 'string', enum: WHATSAPP_RESULTADOS, description: 'En qué terminó (o va quedando) la conversación: "venta" si se confirmó una compra; "cotizacion" si se envió un precio y el cliente todavía está evaluando; "seguimiento" si sigue en curso y hay que seguir contactando; "sin_stock" si no había stock de lo pedido; "consulta_resuelta" si el negocio respondió y el cliente cerró con un agradecimiento o confirmación corta ("ok", "gracias", "Oka.. gracias", "perfecto", 👍) -- la duda quedó aclarada y la conversación terminó bien (típico en garantía, postventa, servicio técnico o preguntas de información): NO es una pérdida; "cliente_no_responde" SOLO si el último mensaje de la conversación es del negocio y el cliente nunca contestó; "no_interesado" si el cliente dijo explícitamente que no le interesa o desistió. Usa "otro" SOLO si de verdad ninguna de esas aplica (ej. conversación de otro tema, saludo sin seguimiento, mensaje de prueba) -- no lo uses solo porque la conversación es corta o ambigua si igual se puede inferir uno de los resultados de arriba.' },
+      motivo_perdida: { type: 'string', enum: Object.keys(WHATSAPP_MOTIVOS_PERDIDA_LABEL), description: 'OBLIGATORIO completar este campo (no lo omitas) cada vez que "resultado" sea distinto de "venta", "cotizacion", "seguimiento" y "consulta_resuelta" (si es "consulta_resuelta" déjalo vacío: no hay pérdida) -- es decir, siempre que la conversación no haya sido una venta ni siga en curso. Usa la razón más específica posible según lo que digan los mensajes o lo que tú mismo hayas notado: si el cliente dice que ya compró o va a comprar en otro lado / la competencia, usa "compro_en_otro_lugar"; si el negocio nunca respondió o respondió muy tarde, usa "respuesta_lenta"; si el negocio respondió pero nunca volvió a contactar al cliente para cerrar, usa "sin_seguimiento"; si el cliente dejó de responder sin motivo claro, "cliente_no_responde"; si fue por precio, "precio"; si fue por falta de stock, "sin_stock"; si el producto no era compatible con su equipo, "producto_incompatible"; si el negocio directamente NO vende/trabaja ese producto o marca (ej. el cliente pide una batería Toshiba y el negocio no trabaja esa marca, y se le recomienda buscar en Aliexpress o Mercado Libre), usa "producto_no_disponible" -- distinto de "producto_incompatible", que es cuando SÍ se vende ese tipo de producto pero el específico no calza con el equipo del cliente; "producto_no_disponible" es cuando ni siquiera se trabaja esa línea/marca. Usa "otro" solo si de verdad ninguna de esas aplica -- pero AÚN ASÍ complétalo con "otro" en vez de omitirlo, para dejar registro de que se revisó (omitir el campo debe reservarse solo para cuando "resultado" sea "venta", "cotizacion" o "seguimiento").' },
       sentimiento: { type: 'string', enum: ['positivo', 'neutro', 'negativo'], description: 'Tono general del cliente en la conversación.' },
       calidad_atencion_score: { type: 'integer', description: 'De 0 a 100, qué tan buena fue la atención del negocio (rapidez, claridad, resolución). Si el negocio todavía no ha respondido nada, usar 0.' },
       requiere_seguimiento: { type: 'boolean', description: 'Si esta conversación debería seguirse contactando (ej. cotización enviada sin respuesta, cliente evaluando).' },
@@ -9237,7 +9238,7 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
     }
   });
 
-  const systemPrompt = `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Prioridad para los campos marca/modelo: (1) si el cliente ESCRIBE el modelo en el texto de algún mensaje de la conversación, usa eso -- es la fuente más confiable, por encima de cualquier foto. (2) Si el cliente no escribe el modelo pero manda una foto de la etiqueta/sticker pegada en la carcasa o la base del equipo, léela para identificarlo. (3) Si manda las dos cosas (un modelo escrito Y una foto), el modelo que el cliente escribió manda -- usa la foto solo para completar marca/modelo si el texto no los menciona, no para contradecir lo que el cliente ya escribió. Estas etiquetas suelen traer VARIOS códigos distintos -- usa el que sea el modelo comercial del producto (el que identifica al equipo específico que compraría alguien, ej. "24-dd0092la" en un HP All-in-One, o "15-ef2xxx" en un notebook), y NO el "Regulatory model number"/"Model reglamentario" (un código interno de certificación FCC/IC que no corresponde al modelo real, ej. "TPC-0089-24"), ni el número de serie ("Serial No."/"S/N"), ni el PPID. Series/líneas reales de notebooks por marca (el modelo real casi siempre empieza con una de estas seguida de un número de generación, ej. "IdeaPad Gaming 3 15IMH05"): ${Object.entries(WHATSAPP_SERIES_NOTEBOOK).map(([marca, series]) => `${marca}: ${series.join(', ')}`).join(' | ')}. Esta lista es SOLO para que reconozcas si un texto que sí leíste en la imagen es una serie real -- NUNCA la uses para adivinar o suponer una serie "típica" o "probable" según el contexto (ej. NO asumas "Legion" solo porque el cliente pidió un notebook gamer; eso sería inventar, aunque sea una suposición razonable). El modelo/marca solo se registran si están literalmente escritos y legibles en la foto o en el texto del cliente -- transcribe exactamente lo que dice la etiqueta, letra por letra, no lo que te parezca más probable. Si el único código visible en la etiqueta NO corresponde a ninguna serie conocida (puede ser la capacidad de la batería en Wh, un part number, un código regulatorio, etc.) Y no hay otro texto de serie legible en la misma foto, deja el campo modelo vacío en vez de adivinar. A veces el mensaje del usuario incluye primero un bloque de "Contexto" con datos de una conversación anterior del mismo cliente (las conversaciones se cortan automáticamente tras 24h sin actividad, así que un seguimiento corto como "gracias por la info" puede quedar en una conversación separada sin mencionar el producto de nuevo) -- úsalo solo si la conversación actual es claramente ese seguimiento, nunca si trata de algo distinto. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`;
+  const systemPrompt = `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Prioridad para los campos marca/modelo: (1) si el cliente ESCRIBE el modelo en el texto de algún mensaje de la conversación, usa eso -- es la fuente más confiable, por encima de cualquier foto. (2) Si el cliente no escribe el modelo pero manda una foto de la etiqueta/sticker pegada en la carcasa o la base del equipo, léela para identificarlo. (3) Si manda las dos cosas (un modelo escrito Y una foto), el modelo que el cliente escribió manda -- usa la foto solo para completar marca/modelo si el texto no los menciona, no para contradecir lo que el cliente ya escribió. Estas etiquetas suelen traer VARIOS códigos distintos -- usa el que sea el modelo comercial del producto (el que identifica al equipo específico que compraría alguien, ej. "24-dd0092la" en un HP All-in-One, o "15-ef2xxx" en un notebook), y NO el "Regulatory model number"/"Model reglamentario" (un código interno de certificación FCC/IC que no corresponde al modelo real, ej. "TPC-0089-24"), ni el número de serie ("Serial No."/"S/N"), ni el PPID. Series/líneas reales de notebooks por marca (el modelo real casi siempre empieza con una de estas seguida de un número de generación, ej. "IdeaPad Gaming 3 15IMH05"): ${Object.entries(WHATSAPP_SERIES_NOTEBOOK).map(([marca, series]) => `${marca}: ${series.join(', ')}`).join(' | ')}. Esta lista es SOLO para que reconozcas si un texto que sí leíste en la imagen es una serie real -- NUNCA la uses para adivinar o suponer una serie "típica" o "probable" según el contexto (ej. NO asumas "Legion" solo porque el cliente pidió un notebook gamer; eso sería inventar, aunque sea una suposición razonable). El modelo/marca solo se registran si están literalmente escritos y legibles en la foto o en el texto del cliente -- transcribe exactamente lo que dice la etiqueta, letra por letra, no lo que te parezca más probable. Si el único código visible en la etiqueta NO corresponde a ninguna serie conocida (puede ser la capacidad de la batería en Wh, un part number, un código regulatorio, etc.) Y no hay otro texto de serie legible en la misma foto, deja el campo modelo vacío en vez de adivinar. A veces el mensaje del usuario incluye primero un bloque de "Contexto" con datos de una conversación anterior del mismo cliente (las conversaciones se cortan automáticamente tras 24h sin actividad, así que un seguimiento corto como "gracias por la info" puede quedar en una conversación separada sin mencionar el producto de nuevo) -- úsalo solo si la conversación actual es claramente ese seguimiento, nunca si trata de algo distinto. Regla de cierre: si el último mensaje del cliente es un agradecimiento o confirmación corta ("ok", "gracias", "Oka.. gracias", "perfecto", "listo", 👍), interprétalo como que la respuesta llegó y la duda quedó aclarada: la conversación terminó bien, el cliente NO dejó de responder. Si el tema era una consulta de información, garantía, postventa o servicio técnico, usa resultado "consulta_resuelta" y no completes motivo_perdida. Solo si en esa conversación el negocio le dijo algo que implica no poder vender (no hay stock, no vendemos esa marca, el precio) mantén ese motivo concreto. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`;
 
   // Gemini primero (mismo trabajo a una fracción del costo de Claude, ver
   // conversación con el usuario), Claude de respaldo si Gemini falla por
@@ -9267,8 +9268,17 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   const limpiar = (v) => (v && String(v).trim()) ? String(v).trim() : null;
   const intencion = WHATSAPP_INTENCIONES.includes(a.intencion) ? a.intencion : null;
   const categoria = WHATSAPP_CATEGORIAS.includes(a.categoria) ? a.categoria : null;
-  const resultado = WHATSAPP_RESULTADOS.includes(a.resultado) ? a.resultado : null;
-  const motivoPerdida = Object.keys(WHATSAPP_MOTIVOS_PERDIDA_LABEL).includes(a.motivo_perdida) ? a.motivo_perdida : null;
+  let resultado = WHATSAPP_RESULTADOS.includes(a.resultado) ? a.resultado : null;
+  let motivoPerdida = Object.keys(WHATSAPP_MOTIVOS_PERDIDA_LABEL).includes(a.motivo_perdida) ? a.motivo_perdida : null;
+  // Cierre cordial ("ok", "gracias"): la respuesta llegó y la duda quedó aclarada -> no es un cliente que dejó de responder.
+  {
+    const delCliente = mensajes.filter(m => m.direccion === 'in');
+    const ultimoCliente = delCliente[delCliente.length - 1];
+    if (ultimoCliente && ultimoCliente.tipo === 'texto' && debeReclasificarPorCierre({ resultado, motivo_perdida: motivoPerdida, ultimoTextoCliente: ultimoCliente.contenido_texto, mensajesCliente: delCliente.length })) {
+      resultado = 'consulta_resuelta';
+      motivoPerdida = null;
+    }
+  }
   const producto = limpiar(a.producto);
   const marca = limpiar(a.marca);
   const modelo = limpiar(a.modelo);
@@ -10256,7 +10266,7 @@ async function manejarWhatsappMotivoDetalle(req, res, _sesion) {
         LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
         LEFT JOIN usuarios u ON u.id = c.responsable_id
         WHERE COALESCE(c.motivo_perdida, c.resultado, 'otro') = $1 AND c.venta_detectada = false
-          AND c.resultado IS NOT NULL AND c.resultado NOT IN ('cotizacion', 'seguimiento')
+          AND c.resultado IS NOT NULL AND c.resultado NOT IN ('cotizacion', 'seguimiento', 'consulta_resuelta')
       )
       SELECT * FROM base
       WHERE ${columnaFecha} >= ($2::date)::timestamp AT TIME ZONE 'America/Santiago'
@@ -10294,7 +10304,7 @@ async function manejarWhatsappMotivoDetalle(req, res, _sesion) {
     if (base !== 'inicio') {
       const { rows } = await sql.query(
         `SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones
-         WHERE COALESCE(motivo_perdida, resultado, 'otro') = $1 AND venta_detectada = false AND resultado IS NOT NULL AND resultado NOT IN ('cotizacion', 'seguimiento')
+         WHERE COALESCE(motivo_perdida, resultado, 'otro') = $1 AND venta_detectada = false AND resultado IS NOT NULL AND resultado NOT IN ('cotizacion', 'seguimiento', 'consulta_resuelta')
            AND iniciada_en >= ($2::date)::timestamp AT TIME ZONE 'America/Santiago' AND iniciada_en < (($3::date + 1))::timestamp AT TIME ZONE 'America/Santiago';`,
         [motivo, desde, hasta]
       );
@@ -10314,13 +10324,63 @@ async function manejarWhatsappMotivoDetalle(req, res, _sesion) {
       [desde, hasta]
     );
     const cobertura = { total: cobRows[0].total, conRespuesta: cobRows[0].con_respuesta, conApp: cobRows[0].con_app };
-    const analisis = analizarMotivoWhatsapp({ motivo, conversaciones: convs, mensajes, ahora: new Date(), referenciaVentas, cobertura });
+    // Conversaciones cuyo último mensaje del cliente fue un cierre cordial ("ok", "gracias"): se tratan como resueltas y salen del análisis
+    // (solo para motivos "débiles": una razón concreta como precio o sin stock se respeta aunque el cliente haya dicho gracias).
+    let excluidasPorCierre = 0;
+    let convsAnalizar = convs, mensajesAnalizar = mensajes;
+    if (MOTIVOS_DEBILES_CIERRE.includes(motivo)) {
+      const ultimoPorConv = new Map(), entrantesPorConv = new Map();
+      for (const m of mensajes) if (m.direccion === 'in') { ultimoPorConv.set(m.conversacion_id, m.contenido_texto); entrantesPorConv.set(m.conversacion_id, (entrantesPorConv.get(m.conversacion_id) || 0) + 1); }
+      const cerradas = new Set(convs.filter(c => (entrantesPorConv.get(c.id) || 0) >= 2 && esCierreCordial(ultimoPorConv.get(c.id))).map(c => c.id));
+      excluidasPorCierre = cerradas.size;
+      if (cerradas.size) { convsAnalizar = convs.filter(c => !cerradas.has(c.id)); mensajesAnalizar = mensajes.filter(m => !cerradas.has(m.conversacion_id)); }
+    }
+    const analisis = analizarMotivoWhatsapp({ motivo, conversaciones: convsAnalizar, mensajes: mensajesAnalizar, ahora: new Date(), referenciaVentas, cobertura });
     return res.status(200).json({
       motivo, etiqueta: WHATSAPP_MOTIVOS_PERDIDA_LABEL[motivo] || motivo, desde, hasta, base, totalSegunInicio,
-      truncado: convs.length >= TOPE_CONVERSACIONES_MOTIVO, ...analisis,
+      truncado: convs.length >= TOPE_CONVERSACIONES_MOTIVO, excluidasPorCierre, ...analisis,
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error analizando el motivo de pérdida', detail: String(err.message || err) });
+  }
+}
+
+// Reclasifica conversaciones que el análisis dejó como "el cliente dejó de responder" (u "otro") cuando en realidad el último
+// mensaje del cliente fue un cierre cordial ("ok", "gracias", "Oka.. gracias", 👍): la respuesta llegó y la duda quedó
+// aclarada, así que pasan a "Consulta resuelta" y dejan de contar como pérdida. Solo toca causas débiles; una razón concreta
+// (precio, sin stock, producto que no vendemos...) se respeta, y nunca pisa lo que una persona editó a mano.
+// GET = vista previa (no cambia nada); POST con { aplicar: true } = aplica. Solo administradores.
+async function manejarWhatsappReclasificarCierres(req, res, sesion) {
+  try {
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede reclasificar conversaciones' });
+    if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const aplicar = req.method === 'POST' && req.body && req.body.aplicar === true;
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const { rows } = await sql.query(
+      `SELECT c.id, c.resultado, c.motivo_perdida, ct.nombre AS cliente, u.texto AS ultimo_texto, ent.n AS mensajes_cliente
+       FROM whatsapp_conversaciones c
+       JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+       JOIN LATERAL (SELECT contenido_texto AS texto FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'in' AND m.contenido_texto IS NOT NULL ORDER BY m.marca_tiempo DESC LIMIT 1) u ON true
+       JOIN LATERAL (SELECT COUNT(*)::int AS n FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'in') ent ON true
+       WHERE c.venta_detectada = false AND c.resultado IN ('cliente_no_responde', 'otro')
+         AND NOT ('resultado' = ANY(c.campos_editados_manualmente)) AND NOT ('motivo_perdida' = ANY(c.campos_editados_manualmente))
+       ORDER BY c.iniciada_en DESC LIMIT 20000;`
+    );
+    const candidatas = rows.filter(r => debeReclasificarPorCierre({ resultado: r.resultado, motivo_perdida: r.motivo_perdida, ultimoTextoCliente: r.ultimo_texto, mensajesCliente: r.mensajes_cliente }));
+    let actualizadas = 0;
+    if (aplicar && candidatas.length) {
+      const ids = candidatas.map(c => c.id);
+      await sql.query(`UPDATE whatsapp_conversaciones SET resultado = 'consulta_resuelta', motivo_perdida = NULL, updated_at = now() WHERE id = ANY($1::int[]);`, [ids]);
+      await sql.query(`UPDATE whatsapp_analisis_ia SET resultado = 'consulta_resuelta', motivo_perdida = NULL, updated_at = now() WHERE conversacion_id = ANY($1::int[]);`, [ids]);
+      actualizadas = ids.length;
+    }
+    return res.status(200).json({
+      aplicado: aplicar, revisadas: rows.length, candidatas: candidatas.length, actualizadas,
+      ejemplos: candidatas.slice(0, 15).map(c => ({ id: c.id, cliente: c.cliente, ultimoMensaje: c.ultimo_texto, estabaComo: c.motivo_perdida || c.resultado })),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error reclasificando conversaciones', detail: String(err.message || err) });
   }
 }
 
@@ -10396,7 +10456,7 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       `SELECT COALESCE(motivo_perdida, resultado, 'otro') AS motivo, COUNT(*)::int AS n
        FROM whatsapp_conversaciones
        WHERE iniciada_en >= $1 AND iniciada_en < $2 AND venta_detectada = false
-         AND resultado IS NOT NULL AND resultado NOT IN ('cotizacion','seguimiento')
+         AND resultado IS NOT NULL AND resultado NOT IN ('cotizacion','seguimiento','consulta_resuelta')
        GROUP BY motivo ORDER BY n DESC;`,
       [desde, hasta]
     );
