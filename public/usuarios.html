@@ -649,7 +649,13 @@ async function reenviarNotificacion(id, email){
     const data = await res.json();
     if(!res.ok){ alert(data.error); return; }
     if(data.correo?.enviado){
-      alert(`Correo enviado a ${email} con los nuevos datos de acceso.`);
+      const e = data.entrega;
+      if(e && (e.estado === 'rechazado' || e.estado === 'diferido')){
+        // el correo no llegó: la contraseña nueva ya reemplazó a la anterior, así que se muestra para avisarla por otro medio
+        alert(`Brevo aceptó el correo a ${email}, pero NO llegó.\n\n${e.texto}\n\nLa contraseña nueva es: ${data.nuevaPassword}\nCompártela con ${email} por otro medio.`);
+      } else {
+        alert(`Correo enviado a ${email}.${e ? '\n\n' + e.texto : ''}\n\nSi no lo recibe, usa "Cambiar contraseña" para fijar una y avisársela directamente.`);
+      }
     } else {
       alert(`No se pudo enviar el correo (${data.correo?.motivo || 'error desconocido'}).\n\nLa contraseña nueva es: ${data.nuevaPassword}\nCompártela con ${email} por otro medio.`);
     }

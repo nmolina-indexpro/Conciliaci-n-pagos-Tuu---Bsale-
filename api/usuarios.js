@@ -5,7 +5,7 @@
 import crypto from 'crypto';
 import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles, asegurarTablaNotificaciones } from '../lib/db.js';
 import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
-import { enviarCorreo } from '../lib/mailer.js';
+import { enviarCorreo, consultarEventosBrevo, resumirEntregaBrevo } from '../lib/mailer.js';
 import { TIPOS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto } from '../lib/notificaciones.js';
 import { paginasEfectivas, paginasParaGuardar } from '../lib/paginas-perfil.js';
 
@@ -176,7 +176,17 @@ export default async function handler(req, res) {
         // no se pudo mandar, es la única forma de que el admin la tenga
         // para avisarle al usuario por otro medio (mismo criterio que la
         // creación de cuenta).
-        return res.status(200).json({ ok: true, correo: correoResultado, nuevaPassword });
+        // Brevo "aceptó" el correo no significa que llegó: se espera unos segundos y se le pregunta a Brevo qué pasó con
+        // ESTE envío (entregado, rebotado, bloqueado, diferido...), para que el admin lo vea al tiro y no tenga que
+        // adivinar. Mejor esfuerzo: si la consulta falla, igual se responde el envío.
+        let entrega = null;
+        if (correoResultado.enviado && correoResultado.messageId) {
+          try {
+            await new Promise(r => setTimeout(r, 4000));
+            entrega = resumirEntregaBrevo(await consultarEventosBrevo(usuario.email, correoResultado.messageId));
+          } catch (err) { entrega = { estado: 'desconocida', texto: 'No se pudo consultar a Brevo el estado de la entrega (' + String(err.message || err) + ').' }; }
+        }
+        return res.status(200).json({ ok: true, correo: correoResultado, nuevaPassword, entrega });
       }
 
       if (password) {
