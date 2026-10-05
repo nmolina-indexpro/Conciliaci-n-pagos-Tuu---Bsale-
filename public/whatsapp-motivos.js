@@ -153,7 +153,7 @@ function renderPanelMotivo(d){
   const sinDato = q.confiable === false;
   if(sinDato) notas.push(`<b>⚠ Cuidado con las cifras que dependen de nuestras respuestas.</b> Solo el <b>${q.pct}%</b> de las ${fmtNum(q.total)} conversaciones del período tiene alguna respuesta del negocio registrada en el ERP${q.conApp ? ` (${fmtNum(q.conApp)} desde la app del celular)` : ''}. Lo que se contesta desde el celular no llega al ERP si la <i>coexistencia</i> de WhatsApp no está activa, así que "sin respuesta", "quién habló último", "tras qué mensaje se cortó" y los tiempos de respuesta pueden mostrar problemas que no existen. Es confiable lo que piden los clientes, sus palabras y de dónde vienen.`);
   if(d.base === 'ultimo_cliente' && d.totalSegunInicio !== d.total) notas.push(`La tabla de motivos cuenta <b>${d.totalSegunInicio}</b> porque ubica cada conversación por su fecha de inicio; acá hay <b>${d.total}</b> porque se ubican por la fecha en que el cliente dejó de responder.`);
-  if(d.excluidasPorOferta) notas.push(`Se dejaron fuera <b>${fmtNum(d.excluidasPorOferta)}</b> conversaciones a las que ya se les entregó una <b>oferta completa</b> (producto disponible, precio, enlace, condiciones y dirección): son una conversión comercial, no una pérdida. Usa "✅ Reclasificar cierres y ofertas" para actualizar la tabla de motivos.`);
+  if(d.excluidasPorOferta) notas.push(`Se dejaron fuera <b>${fmtNum(d.excluidasPorOferta)}</b> conversaciones a las que ya se les envió el <b>enlace del producto o una oferta</b> (precio, disponibilidad, condiciones, dirección): son una conversión (intención de venta), no una pérdida. Usa "✅ Reclasificar cierres y ofertas" para actualizar la tabla de motivos.`);
   if(d.excluidasPorCierre) notas.push(`Se dejaron fuera <b>${fmtNum(d.excluidasPorCierre)}</b> conversaciones cuyo último mensaje del cliente fue un cierre cordial ("ok", "gracias"): se consideran <b>resueltas</b>, no pérdidas. Si la tabla de motivos todavía las cuenta, usa "✅ Reclasificar cierres" para actualizarla.`);
   if(d.truncado) notas.push('Hay más conversaciones que el máximo analizado; se muestran las más recientes.');
   const kpis = `<div class="pm-kpis">
@@ -244,7 +244,7 @@ function renderEspecificoPm(d){
         ${tarjetaPm('Empezaron fuera de horario', e.fueraDeHorario.pct + '%', `supuesto: lun–vie ${e.fueraDeHorario.horario.semana[0]}–${e.fueraDeHorario.horario.semana[1]} h, sáb ${e.fueraDeHorario.horario.sabado[0]}–${e.fueraDeHorario.horario.sabado[1]} h`)}
       </div>
       <div class="pm-grid2">
-        <div><h4>Cuánto tardó la primera respuesta</h4>${barrasHtml(e.distribucion.map(x => ({ etiqueta: x.rango, n: x.n })))}</div>
+        <div><h4>Cuánto tardó la primera respuesta</h4>${barrasHtml((sinDato ? e.distribucion.filter(x => x.rango !== 'Sin respuesta registrada') : e.distribucion).map(x => ({ etiqueta: x.rango, n: x.n })))}${sinDato ? `<div class="pm-sub" style="margin-top:6px;">Sin respuesta registrada en el ERP (no necesariamente sin responder): <b>${fmtNum(e.nuncaRespondidas)}</b>.</div>` : ''}</div>
         <div><h4>Hora en que escribió el cliente (Chile)</h4>${histogramaHtml(e.porHora.map(x => ({ eti: x.hora % 3 === 0 ? x.hora : '', n: x.n, h: x.hora })), v => (v.h != null ? v.h + ' h' : ''))}
           <h4>Día de la semana</h4>${histogramaHtml(e.porDiaSemana.map(x => ({ eti: x.dia, n: x.n })), v => v.eti)}</div>
         <div><h4>Por responsable</h4><table class="pm-tabla"><thead><tr><th>Responsable</th><th>Conv.</th><th>Mediana</th></tr></thead><tbody>${e.porResponsable.map(x => `<tr><td>${escapeHtml(x.nombre)}</td><td class="num">${x.n}</td><td class="num">${fmtMin(x.medianaSeg)}</td></tr>`).join('')}</tbody></table></div>
@@ -305,13 +305,13 @@ async function reclasificarCierres(){
     const vista = await fetch('/api/negocio?recurso=whatsapp-reclasificar-cierres').then(r => r.json());
     if(vista.error){ alert(vista.error + (vista.detail ? ' (' + vista.detail + ')' : '')); return; }
     const nOfertas = (vista.ofertas && vista.ofertas.candidatas) || 0;
-    if(!vista.candidatas && !nOfertas){ alert('No hay conversaciones para reclasificar: revisé ' + fmtNum(vista.revisadas) + ' y ninguna terminó con un cierre cordial ni tenía una oferta completa entregada.'); return; }
+    if(!vista.candidatas && !nOfertas){ alert('No hay conversaciones para reclasificar: revisé ' + fmtNum(vista.revisadas) + ' y ninguna terminó con un cierre cordial ni tenía un enlace u oferta enviada.'); return; }
     const ejemplos = vista.ejemplos.slice(0, 6).map(e => '• #' + e.id + ' ' + (e.cliente || 'Sin nombre') + ': "' + e.ultimoMensaje + '"').join('\n');
     const ejemplosOf = (vista.ofertas && vista.ofertas.ejemplos || []).slice(0, 6).map(e => '• #' + e.id + ' ' + (e.cliente || 'Sin nombre')).join('\n');
-    if(!confirm((vista.candidatas ? vista.candidatas + ' conversaciones terminaron con un cierre cordial ("ok", "gracias") y quedaron como "Cliente dejó de responder": pasarían a "Consulta resuelta".\n' + ejemplos + '\n\n' : '') + (nOfertas ? nOfertas + ' conversaciones recibieron una OFERTA COMPLETA (disponible + precio + enlace + condiciones + dirección) y quedaron como pérdida: pasarían a "Cotización" (oferta entregada, el cliente evalúa).\n' + ejemplosOf + '\n\n' : '') + '¿Aplicar los cambios?')) return;
+    if(!confirm((vista.candidatas ? vista.candidatas + ' conversaciones terminaron con un cierre cordial ("ok", "gracias") y quedaron como "Cliente dejó de responder": pasarían a "Consulta resuelta".\n' + ejemplos + '\n\n' : '') + (nOfertas ? nOfertas + ' conversaciones recibieron el ENLACE del producto o una OFERTA (precio, disponibilidad, condiciones, dirección) y quedaron como pérdida: pasarían a "Cotización" (conversión: se le envió el enlace u oferta y el cliente evalúa).\n' + ejemplosOf + '\n\n' : '') + '¿Aplicar los cambios?')) return;
     const r = await fetch('/api/negocio?recurso=whatsapp-reclasificar-cierres', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ aplicar: true }) }).then(x => x.json());
     if(r.error){ alert(r.error); return; }
-    alert('Listo: ' + fmtNum(r.actualizadas) + ' pasaron a "Consulta resuelta" y ' + fmtNum((r.ofertas && r.ofertas.actualizadas) || 0) + ' a "Cotización" (oferta entregada).');
+    alert('Listo: ' + fmtNum(r.actualizadas) + ' pasaron a "Consulta resuelta" y ' + fmtNum((r.ofertas && r.ofertas.actualizadas) || 0) + ' a "Cotización" (conversión).');
     if(typeof cargarAnalitica === 'function' && document.getElementById('analiticaDesde')) cargarAnalitica();
   }catch(err){ alert('Error: ' + err.message); }
   finally{ if(btn) btn.disabled = false; }
@@ -358,9 +358,11 @@ function renderPanelCategoria(d){
   if(d.truncado) notas.push('Hay más conversaciones que el máximo analizado; se muestran las más recientes.');
   const kpis = `<div class="pm-kpis">
     ${tarjetaPm('Conversaciones', fmtNum(s.total), `${fmtNum(s.conIntencionCompra)} con intención de compra`)}
-    ${tarjetaPm('Ventas', fmtNum(s.ventas), `${s.conversion}% de conversión`)}
-    ${tarjetaPm('Perdidas', fmtNum(s.perdidas), `${s.pctPerdidas}% de las conversaciones`)}
-    ${tarjetaPm('Ofertas entregadas', fmtNum(s.ofertas), `${fmtNum(s.ofertasCompletas)} completas · ${fmtNum(s.intencionSinOferta)} con intención sin oferta`)}
+    ${tarjetaPm('Conversiones', fmtNum(s.conversiones), `${s.pctConversion}% de las conversaciones · enlace u oferta enviada`)}
+    ${tarjetaPm('Conversión sobre intención de compra', s.pctConversionIntencion + '%', `${fmtNum(s.intencionSinConversion)} con intención sin enlace ni oferta`)}
+    ${tarjetaPm('Con ficha completa', fmtNum(s.ofertasCompletas), `${fmtNum(s.soloEnlace)} solo con el enlace`)}
+    ${tarjetaPm('Perdidas', fmtNum(s.perdidas), `${s.pctPerdidas}% · con razón concreta o sin conversión`)}
+    ${tarjetaPm('Ventas registradas', fmtNum(s.ventas), 'confirmadas o vinculadas a Bsale (se registran pocas)')}
     ${tarjetaPm('Consultas resueltas', fmtNum(s.resueltas), 'terminaron con "ok / gracias"')}
   </div>`;
   const reco = seccionPm('💡 Qué hacer', `<div class="pm-reco">${d.recomendaciones.map(r => `<div><b>${escapeHtml(r.titulo)}</b>${escapeHtml(r.texto)}</div>`).join('')}</div>`, 'Calculado con las cifras de este panel; sirven de punto de partida, no son una orden.');
@@ -374,13 +376,31 @@ function renderPanelCategoria(d){
       <div><h4>Productos</h4>${barrasHtml(c.productos.map(x => ({ etiqueta: x.nombre, n: x.n, pct: x.pct })))}<h4>Especificaciones</h4>${barrasHtml(c.especificaciones.map(x => ({ etiqueta: x.nombre, n: x.n, pct: x.pct })), { vacio: 'Sin especificaciones registradas.' })}</div>
       <div><h4>Necesidad del cliente</h4>${barrasHtml(c.problemas.map(x => ({ etiqueta: x.nombre, n: x.n, pct: x.pct })), { vacio: 'Sin un "problema del cliente" registrado.' })}</div>
     </div>`, 'Salen de los campos que completa la IA al analizar cada conversación.');
-  const sinVenta = d.demandaSinVenta.length ? seccionPm('🧲 Se consulta y no se vende', `<table class="pm-tabla"><thead><tr><th>Producto · marca · modelo</th><th>Consultas</th><th>Ventas</th></tr></thead><tbody>${d.demandaSinVenta.map(x => `<tr><td>${escapeHtml(x.etiqueta)}</td><td class="num">${x.n}</td><td class="num">${x.ventas}</td></tr>`).join('')}</tbody></table>`, 'Combinaciones con 3 o más consultas y ninguna venta en el período: revisa stock, precio y publicación.') : '';
+  const sinVenta = d.demandaSinVenta.length ? seccionPm('🧲 Se consulta y no se convierte', `<table class="pm-tabla"><thead><tr><th>Producto · marca · modelo</th><th>Consultas</th><th>Conversiones</th></tr></thead><tbody>${d.demandaSinVenta.map(x => `<tr><td>${escapeHtml(x.etiqueta)}</td><td class="num">${x.n}</td><td class="num">${x.conversiones}</td></tr>`).join('')}</tbody></table>`, 'Combinaciones con 3 o más consultas a las que no se les envió enlace ni oferta: revisa stock, precio y publicación.') : '';
   const demanda = seccionPm('🕒 Cuándo escriben los clientes', `<div class="pm-grid2"><div><h4>Día de la semana</h4>${histogramaHtml(d.demanda.porDiaSemana.map(x => ({ eti: x.dia, n: x.n })), v => v.eti)}</div><div><h4>Hora del día (Chile)</h4>${histogramaHtml(d.demanda.porHora.map(x => ({ eti: x.hora % 3 === 0 ? x.hora : '', n: x.n, h: x.hora })), v => (v.h != null ? v.h + ' h' : ''))}</div></div>`, 'Hora del primer mensaje del cliente.');
-  const fuentes = seccionPm('🧭 De dónde vienen y cuánto convierten', `<table class="pm-tabla"><thead><tr><th>Fuente</th><th>Campaña / anuncio / página</th><th>Conv.</th><th>%</th><th>Ventas</th><th>Conversión</th></tr></thead><tbody>${d.fuentes.map(f => `<tr><td>${escapeHtml(f.fuente)}</td><td>${escapeHtml(f.detalle || '—')}</td><td class="num">${f.n}</td><td class="num">${f.pct}%</td><td class="num">${f.ventas}</td><td class="num">${f.conversion}%</td></tr>`).join('')}</tbody></table>`);
+  const fuentes = seccionPm('🧭 De dónde vienen y cuánto convierten', `<table class="pm-tabla"><thead><tr><th>Fuente</th><th>Campaña / anuncio / página</th><th>Conv.</th><th>%</th><th>Conversiones</th><th>% convertidas</th></tr></thead><tbody>${d.fuentes.map(f => `<tr><td>${escapeHtml(f.fuente)}</td><td>${escapeHtml(f.detalle || '—')}</td><td class="num">${f.n}</td><td class="num">${f.pct}%</td><td class="num">${f.conversiones}</td><td class="num">${f.conversion}%</td></tr>`).join('')}</tbody></table>`, 'Conversión = se le envió el enlace del producto o una oferta (intención de venta), no la venta confirmada.');
   const terminos = seccionPm('🔤 Palabras y frases más repetidas por los clientes', `<div class="pm-grid2"><div><h4>Palabras</h4>${tablaTerminosPm(d.terminos.palabras)}</div><div><h4>Frases de dos palabras</h4>${tablaTerminosPm(d.terminos.frases)}</div></div>`, 'Se cuenta una vez por conversación. Útil para ideas de palabras clave y de palabras negativas en Google Ads.');
-  const respuesta = seccionPm('⏱️ Primera respuesta', `<div class="pm-grid2"><div>${barrasHtml(d.respuesta.distribucion.map(x => ({ etiqueta: x.rango, n: x.n })))}</div><div><div class="pm-sub">Mediana: <b>${fmtMin(d.respuesta.medianaSeg)}</b> · el 10% más lento: <b>${fmtMin(d.respuesta.p90Seg)}</b> · sin respuesta registrada: <b>${fmtNum(d.respuesta.sinRespuestaRegistrada)}</b>${q.confiable === false ? ' <span class="pm-badge no">dato incompleto</span>' : ''}</div></div></div>`);
+  const respuesta = seccionRespuestaCategoriaPm(d, q);
   const lista = seccionPm('💬 Conversaciones', `<div class="pm-scroll"><table class="pm-tabla"><thead><tr><th>Cliente</th><th>Producto</th><th>Primer mensaje</th><th>Resultado</th></tr></thead><tbody>
     ${d.conversaciones.map(x => `<tr><td>${escapeHtml(x.cliente || '—')}<div class="pm-ej">${enlaceTelefonoPm(x.telefono)}</div></td><td>${escapeHtml(x.producto || '—')}</td><td class="pm-ej">${escapeHtml(x.primerMensaje)}</td><td>${badgeResultadoPm(x.resultado)}</td></tr>`).join('')}</tbody></table></div>`, `Las ${Math.min(80, d.total)} más recientes.`);
   $('panelMotivo').innerHTML = cabecera + `<div class="pm-cuerpo">${notas.map(n => `<div class="pm-nota">${n}</div>`).join('')}${kpis}${reco}${embudo}${motivos}${repite}${sinVenta}${demanda}${fuentes}${terminos}${respuesta}${lista}</div>`;
 }
 function pctPm(n, total){ return total > 0 ? Math.round(n / total * 1000) / 10 : 0; }
+
+// Primera respuesta de una categoría. El ERP solo ve lo que el negocio responde desde el propio ERP o la API: lo que se contesta
+// desde el celular no aparece. Por eso "sin respuesta registrada" NO es "nunca se respondió", y cuando casi todo está sin registro la
+// barra se separa del resto (si no, tapa la distribución real) y se explica con indicios.
+function seccionRespuestaCategoriaPm(d, q){
+  const r = d.respuesta;
+  const sinDato = q.confiable === false;
+  const conRegistro = r.distribucion.filter(x => x.rango !== 'Sin respuesta registrada');
+  const totalConRegistro = conRegistro.reduce((a, x) => a + x.n, 0);
+  const pctSin = r.total ? Math.round(r.sinSalida / r.total * 1000) / 10 : 0;
+  const barras = barrasHtml((sinDato ? conRegistro : r.distribucion).map(x => ({ etiqueta: x.rango, n: x.n })));
+  const resumen = `Mediana: <b>${fmtMin(r.medianaSeg)}</b> · el 10% más lento: <b>${fmtMin(r.p90Seg)}</b>${sinDato ? ' <span class="pm-badge no">solo respuestas registradas</span>' : ''}`;
+  const explicacion = r.sinSalida
+    ? `<div class="pm-nota" style="margin-top:10px;"><b>${fmtNum(r.sinSalida)} de ${fmtNum(r.total)} conversaciones (${pctSin}%) no tienen ninguna respuesta del negocio registrada en el ERP.</b> No significa que no se atendieron: lo que se responde desde el celular no llega al ERP, y el ERP no puede distinguir una conversación respondida por el celular de una que no se respondió. ${r.conIndicios ? `En <b>${fmtNum(r.conIndicios)}</b> de ellas el cliente cerró con un "ok / gracias" después de varios mensajes, señal clara de que sí lo atendieron.` : ''}${sinDato ? ' Los tiempos de arriba corresponden solo a las ' + fmtNum(totalConRegistro) + ' que sí tienen respuesta registrada.' : ''}</div>`
+    : '';
+  return seccionPm('⏱️ Primera respuesta', `<div class="pm-grid2"><div>${barras}</div><div><div class="pm-sub">${resumen}</div></div></div>${explicacion}`,
+    sinDato ? 'Solo se muestran las conversaciones con respuesta registrada. Para medir el 100% hay que activar la coexistencia de WhatsApp (que las respuestas del celular lleguen al ERP).' : '');
+}

@@ -1678,8 +1678,8 @@ function initAnalitica(){
       <div id="chartEmbudoBsale" style="margin-top:12px;"></div>
     </div>
     <div class="seccion">
-      <h2>Conversión comercial: ofertas entregadas</h2>
-      <div class="sub">En IndexStore la venta es conversacional, así que entregarle al cliente una <b>oferta</b> (producto disponible + precio + enlace + condiciones + dónde atendemos) ya cuenta como conversión: el cliente puede decidir después o comparar con otro proveedor, pero la oportunidad quedó planteada. Se detecta en lo que escribe el negocio, no depende de la IA.</div>
+      <h2>Conversiones: intención de venta</h2>
+      <div class="sub">En IndexStore una <b>conversión es una intención de venta</b>: le enviamos al cliente el <b>enlace del producto</b> y/o una oferta (precio, disponibilidad, condiciones, dónde atendemos). La venta es conversacional y de confianza: el cliente puede decidir después o comparar con otro proveedor, pero la oportunidad quedó planteada. La venta confirmada es solo la etapa final y se registra poco. Se detecta en lo que escribe el negocio, no depende de la IA.</div>
       <div id="chartConversionComercial" style="margin-top:12px;"></div>
     </div>
     <div class="seccion">
@@ -2325,23 +2325,23 @@ function renderConversionComercial(cc){
   if(!cc || !cc.conversaciones){ el.innerHTML = '<p class="empty-note">Sin conversaciones con mensajes en este período.</p>'; return; }
   const tarjeta = (lbl, big, nota, clase) => `<div class="card ${clase || ''}"><div class="lbl">${lbl}</div><div class="big">${big}</div>${nota ? `<div class="cmp flat">${nota}</div>` : ''}</div>`;
   const aviso = (cc.pctConRespuestaRegistrada != null && cc.pctConRespuestaRegistrada < 70)
-    ? `<div class="note-box" style="margin-bottom:12px;background:var(--amber-dim);padding:9px 12px;border-radius:9px;font-size:12px;">⚠ Solo el <b>${cc.pctConRespuestaRegistrada}%</b> de las conversaciones tiene alguna respuesta nuestra registrada en el ERP (lo que se contesta desde el celular no llega si la coexistencia de WhatsApp no está activa). Las ofertas enviadas desde el celular <b>no se ven aquí</b>: las cifras de oferta son un mínimo.</div>` : '';
+    ? `<div class="note-box" style="margin-bottom:12px;background:var(--amber-dim);padding:9px 12px;border-radius:9px;font-size:12px;">⚠ Solo el <b>${cc.pctConRespuestaRegistrada}%</b> de las conversaciones tiene alguna respuesta nuestra registrada en el ERP (lo que se contesta desde el celular no llega si la coexistencia de WhatsApp no está activa). Los enlaces y ofertas enviados desde el celular <b>no se ven aquí</b>: las cifras de conversión son un mínimo.</div>` : '';
   const min = cc.medianaMinutosAOferta;
   const tiempo = min == null ? '—' : (min < 90 ? `${Math.round(min)} min` : (min < 2880 ? `${Math.round(min / 60 * 10) / 10} h` : `${Math.round(min / 1440)} días`));
   const tabla = cc.porCategoria.map(c => `
-    <tr><td>${escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria)}</td><td class="num">${fmtNum(c.conversaciones)}</td><td class="num">${fmtNum(c.ofertas)}</td><td class="num">${c.pctOferta}%</td><td class="num">${fmtNum(c.completas)}</td><td class="num">${fmtNum(c.ventas)}</td><td class="num">${c.conversion}%</td>
+    <tr><td>${escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria)}</td><td class="num">${fmtNum(c.conversaciones)}</td><td class="num">${fmtNum(c.conversiones)}</td><td class="num">${c.pctConversion}%</td><td class="num">${fmtNum(c.completas)}</td><td class="num">${fmtNum(c.ventas)}</td>
     <td><button class="btn-ghost btn-compact" onclick="abrirPanelCategoria('${escapeHtml(c.categoria)}')">📊 Analizar</button></td></tr>`).join('');
   el.innerHTML = `${aviso}
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:14px;">
-      ${tarjeta('Ofertas entregadas', fmtNum(cc.ofertas), `precio + producto disponible o enlace`, 'destacada')}
-      ${tarjeta('Ofertas completas', fmtNum(cc.ofertasCompletas), 'con condiciones y dónde atendemos')}
-      ${tarjeta('Oferta sobre intención de compra', cc.pctOfertaSobreIntencion + '%', `${fmtNum(cc.conIntencionCompra)} conversaciones con intención`)}
-      ${tarjeta('Ofertas que terminaron en venta', cc.conversionDeOfertas + '%', `${fmtNum(cc.ventasConOferta)} de ${fmtNum(cc.ventas)} ventas tuvieron oferta`)}
-      ${tarjeta('Intención sin oferta', fmtNum(cc.intencionSinOferta), 'oportunidades todavía sin atender')}
-      ${tarjeta('Tiempo hasta la oferta', tiempo, 'mediana desde el primer mensaje')}
+      ${tarjeta('Conversiones', fmtNum(cc.conversiones), `${cc.pctConversionSobreConversaciones}% de ${fmtNum(cc.conversaciones)} conversaciones`, 'destacada')}
+      ${tarjeta('Conversión sobre intención de compra', cc.pctConversionSobreIntencion + '%', `${fmtNum(cc.conIntencionCompra)} conversaciones con intención`)}
+      ${tarjeta('Con ficha completa', fmtNum(cc.ofertasCompletas), `precio, condiciones y dónde atendemos · ${fmtNum(cc.soloEnlace)} solo con el enlace`)}
+      ${tarjeta('Intención sin enlace ni oferta', fmtNum(cc.intencionSinConversion), 'oportunidades todavía sin atender')}
+      ${tarjeta('Tiempo hasta el enlace u oferta', tiempo, 'mediana desde el primer mensaje')}
+      ${tarjeta('Ventas registradas', fmtNum(cc.ventas), `${fmtNum(cc.ventasConConversion)} tuvieron conversión · se registran pocas`)}
     </div>
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Categoría</th><th>Conversaciones</th><th>Ofertas</th><th>% con oferta</th><th>Completas</th><th>Ventas</th><th>Conversión</th><th></th></tr></thead>
+      <thead><tr><th>Categoría</th><th>Conversaciones</th><th>Conversiones</th><th>% convertidas</th><th>Ficha completa</th><th>Ventas registradas</th><th></th></tr></thead>
       <tbody>${tabla}</tbody>
     </table></div>`;
 }
