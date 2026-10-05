@@ -2273,6 +2273,15 @@ function renderTabla(){
   `;
 }
 
+// Proveedor de la última compra del SKU tal como se lee en Bsale ('COIMCO', 'LaptopCenter'...) -> nombre para el documento.
+// Los dos proveedores habituales salen con su nombre normal; cualquier otro se deja tal cual, y vacío si no hay compra.
+function nombreProveedorUltimaCompra(proveedor){
+  if(!proveedor) return '';
+  if(/coimco/i.test(proveedor)) return 'Coimco';
+  if(/laptop\s*center/i.test(proveedor)) return 'Laptop Center';
+  return proveedor;
+}
+
 function descargarRecomendacion(){
   if(!ultimaRecomendacion || ultimaRecomendacion.dentroPresupuesto.length === 0){
     alert('Primero presiona "Calcular recomendación" (con al menos un SKU dentro del presupuesto).');
@@ -2291,6 +2300,8 @@ function descargarRecomendacion(){
     'Vendidas (período)': s.unidadesVendidas,
     'Stock actual': s.stockActual,
     'Sugerencia a comprar': s[ultimaRecomendacion.campoSugerencia],
+    'Proveedor última compra': nombreProveedorUltimaCompra(s.proveedor),
+    'Último costo ingresado': s.ultimoCosto ?? '',
     'Margen $': s.margenUnitario ?? '',
     'Margen %': s.margenPorcentaje ?? '',
     'Estrella': s.esEstrella ? 'Sí' : '',
@@ -2302,7 +2313,7 @@ function descargarRecomendacion(){
   ];
 
   const hoja = XLSX.utils.json_to_sheet(filas);
-  hoja['!cols'] = [{wch:14},{wch:38},{wch:10},{wch:10},{wch:10},{wch:10},{wch:16},{wch:16},{wch:12},{wch:18},{wch:12},{wch:12},{wch:10}];
+  hoja['!cols'] = [{wch:14},{wch:38},{wch:10},{wch:10},{wch:10},{wch:10},{wch:16},{wch:16},{wch:12},{wch:18},{wch:22},{wch:20},{wch:12},{wch:12},{wch:10}];
   const libro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(libro, hoja, `Recomendacion ${horizonte}d`);
 
