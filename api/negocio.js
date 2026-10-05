@@ -10301,7 +10301,20 @@ async function manejarWhatsappMotivoDetalle(req, res, _sesion) {
       totalSegunInicio = rows[0].n;
     }
 
-    const analisis = analizarMotivoWhatsapp({ motivo, conversaciones: convs, mensajes, ahora: new Date(), referenciaVentas });
+    // Cobertura de respuestas del negocio en TODAS las conversaciones del período (no solo las perdidas): si casi ninguna tiene
+    // una respuesta registrada, "sin respuesta nuestra" es un hueco de datos y no un hecho.
+    const { rows: cobRows } = await sql.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'out'))::int AS con_respuesta,
+              COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'out' AND m.origen = 'app'))::int AS con_app
+       FROM whatsapp_conversaciones c
+       WHERE c.cantidad_mensajes > 0
+         AND c.iniciada_en >= ($1::date)::timestamp AT TIME ZONE 'America/Santiago'
+         AND c.iniciada_en < (($2::date + 1))::timestamp AT TIME ZONE 'America/Santiago';`,
+      [desde, hasta]
+    );
+    const cobertura = { total: cobRows[0].total, conRespuesta: cobRows[0].con_respuesta, conApp: cobRows[0].con_app };
+    const analisis = analizarMotivoWhatsapp({ motivo, conversaciones: convs, mensajes, ahora: new Date(), referenciaVentas, cobertura });
     return res.status(200).json({
       motivo, etiqueta: WHATSAPP_MOTIVOS_PERDIDA_LABEL[motivo] || motivo, desde, hasta, base, totalSegunInicio,
       truncado: convs.length >= TOPE_CONVERSACIONES_MOTIVO, ...analisis,

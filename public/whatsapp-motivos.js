@@ -140,13 +140,20 @@ function renderPanelMotivo(d){
     return;
   }
   const notas = [];
+  const q = d.calidad || {};
+  const sinDato = q.confiable === false;
+  if(sinDato) notas.push(`<b>⚠ Cuidado con las cifras que dependen de nuestras respuestas.</b> Solo el <b>${q.pct}%</b> de las ${fmtNum(q.total)} conversaciones del período tiene alguna respuesta del negocio registrada en el ERP${q.conApp ? ` (${fmtNum(q.conApp)} desde la app del celular)` : ''}. Lo que se contesta desde el celular no llega al ERP si la <i>coexistencia</i> de WhatsApp no está activa, así que "sin respuesta", "quién habló último", "tras qué mensaje se cortó" y los tiempos de respuesta pueden mostrar problemas que no existen. Es confiable lo que piden los clientes, sus palabras y de dónde vienen.`);
   if(d.base === 'ultimo_cliente' && d.totalSegunInicio !== d.total) notas.push(`La tabla de motivos cuenta <b>${d.totalSegunInicio}</b> porque ubica cada conversación por su fecha de inicio; acá hay <b>${d.total}</b> porque se ubican por la fecha en que el cliente dejó de responder.`);
   if(d.truncado) notas.push('Hay más conversaciones que el máximo analizado; se muestran las más recientes.');
   const kpis = `<div class="pm-kpis">
     ${tarjetaPm('Conversaciones perdidas', fmtNum(d.total), `por "${escapeHtml(d.etiqueta)}"`)}
     ${tarjetaPm('Compraron después', fmtNum(d.resumen.recuperadas), 'con venta en Bsale (por teléfono)')}
-    ${tarjetaPm('Sin ninguna respuesta nuestra', fmtNum(d.resumen.sinRespuestaNuestra), 'el negocio nunca escribió')}
-    ${tarjetaPm('Habló último el negocio', s.ultimoMensajeDe.pctNegocio + '%', 'el cliente dejó de responder')}
+    ${sinDato
+      ? tarjetaPm('Sin respuesta registrada en el ERP', fmtNum(d.resumen.sinRespuestaNuestra), 'no significa que no se respondió: ver aviso')
+      : tarjetaPm('Sin ninguna respuesta nuestra', fmtNum(d.resumen.sinRespuestaNuestra), 'el negocio nunca escribió')}
+    ${sinDato
+      ? tarjetaPm('Respuestas registradas', (q.pct != null ? q.pct : 0) + '%', `de las ${fmtNum(q.total)} conversaciones del período`)
+      : tarjetaPm('Habló último el negocio', s.ultimoMensajeDe.pctNegocio + '%', 'el cliente dejó de responder')}
     ${tarjetaPm('Mensajes por conversación', d.resumen.medianaMensajes != null ? String(d.resumen.medianaMensajes) : '—', 'mediana')}
   </div>`;
   const reco = seccionPm('💡 Qué hacer', `<div class="pm-reco">${d.recomendaciones.map(r => `<div><b>${escapeHtml(r.titulo)}</b>${escapeHtml(r.texto)}</div>`).join('')}</div>`, 'Calculado con las cifras de este panel; sirven de punto de partida, no son una orden.');
@@ -162,7 +169,7 @@ function renderPanelMotivo(d){
   const espec = renderEspecificoPm(d);
   const cuando = seccionPm('⏱️ Cuándo dejó de responder el cliente', `
     <div class="pm-grid2">
-      <div><h4>Quién habló último</h4>${barrasHtml([{ etiqueta: 'El negocio (el cliente dejó de responder)', n: s.ultimoMensajeDe.negocio, pct: s.ultimoMensajeDe.pctNegocio }, { etiqueta: 'El cliente (nadie le contestó)', n: s.ultimoMensajeDe.cliente, pct: s.ultimoMensajeDe.pctCliente, color: 'var(--red,#DC2626)' }])}
+      <div><h4>Quién habló último ${sinDato ? '<span class="pm-badge no">dato incompleto</span>' : ''}</h4>${barrasHtml([{ etiqueta: 'El negocio (el cliente dejó de responder)', n: s.ultimoMensajeDe.negocio, pct: s.ultimoMensajeDe.pctNegocio }, { etiqueta: sinDato ? 'El cliente (sin respuesta registrada)' : 'El cliente (nadie le contestó)', n: s.ultimoMensajeDe.cliente, pct: s.ultimoMensajeDe.pctCliente, color: 'var(--red,#DC2626)' }])}
         <h4>Tras qué mensaje nuestro se cortó</h4>${barrasHtml(s.tras.map(t => ({ etiqueta: t.etiqueta, n: t.n, pct: t.pct })), { vacio: 'No hay conversaciones en las que haya hablado último el negocio.' })}</div>
       <div><h4>Hace cuánto fue el último mensaje del cliente</h4>${barrasHtml(s.antiguedad.map(a => ({ etiqueta: a.rango, n: a.n })))}
         <div class="pm-sub" style="margin-top:8px;">Duración típica de la conversación: <b>${s.duracionMedianaMin != null ? (s.duracionMedianaMin < 90 ? Math.round(s.duracionMedianaMin) + ' min' : Math.round(s.duracionMedianaMin / 60) + ' h') : '—'}</b> (primer a último mensaje).</div></div>
@@ -193,6 +200,7 @@ function tablaTerminosPm(lista){
 
 function renderEspecificoPm(d){
   const e = d.especifico;
+  const sinDato = (d.calidad || {}).confiable === false; // faltan las respuestas del negocio en el ERP
   if(!e) return '';
   if(e.tipo === 'negativas'){
     const filas = e.candidatas.map(c => `<tr><td>${escapeHtml(c.termino)} ${c.esMarca ? '<span class="pm-badge no">marca que no vendemos</span>' : ''}</td><td class="num">${c.conversaciones}</td><td class="num">${c.pct}%</td><td class="pm-ej">${escapeHtml(c.ejemplo)}</td></tr>`).join('');
@@ -212,7 +220,7 @@ function renderEspecificoPm(d){
       <div class="pm-grid2">
         <div><h4>Sitios que compartió el cliente</h4>${e.dominios.length ? `<table class="pm-tabla"><thead><tr><th>Dominio</th><th>Conv.</th><th>Ejemplo</th></tr></thead><tbody>${e.dominios.map(x => `<tr><td>${escapeHtml(x.dominio)}</td><td class="num">${x.conversaciones}</td><td class="pm-ej">${escapeHtml(x.ejemplo)}</td></tr>`).join('')}</tbody></table>` : '<p class="empty-note">Ningún cliente compartió un enlace en estas conversaciones.</p>'}</div>
         <div><h4>Competidores nombrados</h4>${barrasHtml(e.competidores.map(x => ({ etiqueta: x.nombre, n: x.conversaciones, pct: x.pct })), { vacio: 'No se nombró a ninguna tienda conocida.' })}
-          <h4>¿Fue la velocidad?</h4><div class="pm-sub">Primera respuesta en estas conversaciones: <b>${fmtMin(r.medianaSeg)}</b> · en las que terminaron en venta: <b>${fmtMin(r.referenciaVentas.medianaSeg)}</b>${r.nuncaRespondidas ? ` · ${r.nuncaRespondidas} sin respuesta` : ''}.</div></div>
+          <h4>¿Fue la velocidad? ${sinDato ? '<span class="pm-badge no">dato incompleto</span>' : ''}</h4><div class="pm-sub">Primera respuesta en estas conversaciones: <b>${fmtMin(r.medianaSeg)}</b> · en las que terminaron en venta: <b>${fmtMin(r.referenciaVentas.medianaSeg)}</b>${r.nuncaRespondidas ? ` · ${r.nuncaRespondidas} sin respuesta` : ''}.</div></div>
       </div>`, 'Se buscan enlaces y nombres de tiendas en lo que escribió el cliente.');
   }
   if(e.tipo === 'respuesta'){
@@ -221,7 +229,7 @@ function renderEspecificoPm(d){
       <div class="pm-kpis">
         ${tarjetaPm('Mediana primera respuesta', fmtMin(e.medianaSeg), ref.medianaSeg != null ? `en las ventas: ${fmtMin(ref.medianaSeg)}` : '')}
         ${tarjetaPm('El 10% más lento', fmtMin(e.p90Seg), 'p90')}
-        ${tarjetaPm('Nunca se respondió', fmtNum(e.nuncaRespondidas), '')}
+        ${tarjetaPm(sinDato ? 'Sin respuesta registrada' : 'Nunca se respondió', fmtNum(e.nuncaRespondidas), sinDato ? 'puede haberse respondido desde el celular' : '')}
         ${tarjetaPm('Empezaron fuera de horario', e.fueraDeHorario.pct + '%', `supuesto: lun–vie ${e.fueraDeHorario.horario.semana[0]}–${e.fueraDeHorario.horario.semana[1]} h, sáb ${e.fueraDeHorario.horario.sabado[0]}–${e.fueraDeHorario.horario.sabado[1]} h`)}
       </div>
       <div class="pm-grid2">
