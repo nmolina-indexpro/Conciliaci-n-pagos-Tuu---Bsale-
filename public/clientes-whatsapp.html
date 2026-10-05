@@ -423,9 +423,9 @@ Nav.iniciar({
   dimensiones: {
     vista: { actual: () => ((document.querySelector('.tab-modulo.activo') || {}).dataset || {}).vista || 'dashboard', aplicar: v => cambiarVistaModulo(v) },
     conversacion: { actual: () => ($('modalConversacion').classList.contains('abierto') ? conversacionAbiertaId : null), aplicar: v => { if(v) abrirConversacion(v, null); else cerrarModalConversacion(); }, reemplazar: true },
-    motivo: { actual: () => { const p = document.getElementById('panelMotivo'); return p && p.classList.contains('abierto') ? motivoPanel.motivo : null; }, aplicar: v => { if(v) abrirPanelMotivo(v); else cerrarPanelMotivo(); } },
+    motivo: { actual: () => { const p = document.getElementById('panelMotivo'); if(!(p && p.classList.contains('abierto'))) return null; return motivoPanel.tipo === 'categoria' ? 'categoria:' + motivoPanel.categoria : 'motivo:' + motivoPanel.motivo; }, aplicar: v => { if(!v) cerrarPanelMotivo(); else if(v.startsWith('categoria:')) abrirPanelCategoria(v.slice(10)); else abrirPanelMotivo(v.replace(/^motivo:/, '')); } },
   },
-  envolver: ['cambiarVistaModulo', 'abrirConversacion', 'cerrarModalConversacion', 'abrirPanelMotivo', 'cerrarPanelMotivo'],
+  envolver: ['cambiarVistaModulo', 'abrirConversacion', 'cerrarModalConversacion', 'abrirPanelMotivo', 'abrirPanelCategoria', 'cerrarPanelMotivo'],
 });
 cargarSesionUsuario();
 </script>

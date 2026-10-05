@@ -1909,6 +1909,7 @@ function renderChartCategorias(dist){
       <div class="nombre">${CATEGORIA_LABEL[d.categoria] || d.categoria}</div>
       <div class="pista"><div class="relleno" style="width:${(d.cantidad/max)*100}%;"></div></div>
       <div class="valor">${fmtNum(d.cantidad)}</div>
+      <button class="btn-ghost btn-compact" style="flex-shrink:0;" title="Embudo, por qué se pierde, qué se consulta, fuentes, palabras y horarios de esta categoría" onclick="abrirPanelCategoria('${escapeHtml(d.categoria)}')">📊 Analizar</button>
     </div>
   `).join('');
 }

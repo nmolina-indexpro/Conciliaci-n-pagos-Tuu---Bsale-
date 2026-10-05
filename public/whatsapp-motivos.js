@@ -103,7 +103,7 @@ function asegurarEstilosPanelMotivo(){
 
 function abrirPanelMotivo(motivo){
   asegurarEstilosPanelMotivo();
-  motivoPanel = { motivo, base: 'ultimo_cliente', datos: null };
+  motivoPanel = { tipo: 'motivo', motivo, categoria: null, base: 'ultimo_cliente', datos: null };
   $('fondoPanelMotivo').classList.add('abierto'); $('panelMotivo').classList.add('abierto');
   cargarPanelMotivo();
 }
@@ -313,3 +313,71 @@ async function reclasificarCierres(){
   }catch(err){ alert('Error: ' + err.message); }
   finally{ if(btn) btn.disabled = false; }
 }
+
+// ================= Análisis de una CATEGORÍA consultada (mismo panel lateral) =================
+// Se abre desde el botón "📊 Analizar" de cada fila de "Categorías consultadas". Comparte el panel de los motivos de pérdida.
+function abrirPanelCategoria(categoria){
+  asegurarEstilosPanelMotivo();
+  motivoPanel = { tipo: 'categoria', categoria, base: null, motivo: null, datos: null };
+  $('fondoPanelMotivo').classList.add('abierto'); $('panelMotivo').classList.add('abierto');
+  cargarPanelCategoria();
+}
+async function cargarPanelCategoria(){
+  const { categoria } = motivoPanel;
+  const desde = $('analiticaDesde').value, hasta = $('analiticaHasta').value;
+  const etiqueta = CATEGORIA_LABEL[categoria] || categoria;
+  const yo = ++cargandoPanelMotivo;
+  $('panelMotivo').innerHTML = `<div class="pm-head"><h2>📊 ${escapeHtml(etiqueta)}</h2><span class="pm-esp"></span><button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo()">✕ Cerrar</button></div><div class="pm-cuerpo"><div class="pm-cargando">Analizando las conversaciones de esta categoría…</div></div>`;
+  try{
+    const res = await fetch(`/api/negocio?recurso=whatsapp-categoria-detalle&categoria=${encodeURIComponent(categoria)}&desde=${desde}&hasta=${hasta}`);
+    const d = await res.json();
+    if(yo !== cargandoPanelMotivo) return;
+    if(!res.ok || d.error){ $('panelMotivo').querySelector('.pm-cuerpo').innerHTML = `<p class="empty-note">${escapeHtml(d.error || 'No se pudo analizar esta categoría.')}${d.detail ? ' (' + escapeHtml(d.detail) + ')' : ''}</p>`; return; }
+    motivoPanel.datos = d;
+    renderPanelCategoria(d);
+  }catch(err){
+    if(yo === cargandoPanelMotivo) $('panelMotivo').querySelector('.pm-cuerpo').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+function badgeResultadoPm(r){
+  if(r === 'venta') return '<span class="pm-badge ok">venta</span>';
+  if(r === 'consulta_resuelta') return '<span class="pm-badge ok">resuelta</span>';
+  if(r === 'cotizacion' || r === 'seguimiento') return '<span class="pm-badge">en curso</span>';
+  return r ? '<span class="pm-badge no">perdida</span>' : '';
+}
+function renderPanelCategoria(d){
+  const etiqueta = CATEGORIA_LABEL[d.categoria] || d.categoria;
+  const s = d.resumen, c = d.comun, q = d.calidad || {};
+  const cabecera = `<div class="pm-head"><h2>📊 ${escapeHtml(etiqueta)}</h2><span class="empty-note">${escapeHtml(d.desde)} al ${escapeHtml(d.hasta)}</span><span class="pm-esp"></span><button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo()">✕ Cerrar</button></div>`;
+  if(d.total === 0){ $('panelMotivo').innerHTML = cabecera + '<div class="pm-cuerpo"><p class="empty-note">No hay conversaciones de esta categoría en el período elegido.</p></div>'; return; }
+  const notas = [];
+  if(q.confiable === false) notas.push(`<b>⚠ Los tiempos de respuesta no son confiables.</b> Solo el <b>${q.pct}%</b> de las ${fmtNum(q.total)} conversaciones del período tiene alguna respuesta del negocio registrada en el ERP (lo que se contesta desde el celular no llega si la coexistencia de WhatsApp no está activa). Es confiable lo que piden los clientes, de dónde vienen y cuánto se vende.`);
+  if(d.truncado) notas.push('Hay más conversaciones que el máximo analizado; se muestran las más recientes.');
+  const kpis = `<div class="pm-kpis">
+    ${tarjetaPm('Conversaciones', fmtNum(s.total), `${fmtNum(s.conIntencionCompra)} con intención de compra`)}
+    ${tarjetaPm('Ventas', fmtNum(s.ventas), `${s.conversion}% de conversión`)}
+    ${tarjetaPm('Perdidas', fmtNum(s.perdidas), `${s.pctPerdidas}% de las conversaciones`)}
+    ${tarjetaPm('Cotización en curso', fmtNum(s.cotizaciones), 'todavía abiertas')}
+    ${tarjetaPm('Consultas resueltas', fmtNum(s.resueltas), 'terminaron con "ok / gracias"')}
+  </div>`;
+  const reco = seccionPm('💡 Qué hacer', `<div class="pm-reco">${d.recomendaciones.map(r => `<div><b>${escapeHtml(r.titulo)}</b>${escapeHtml(r.texto)}</div>`).join('')}</div>`, 'Calculado con las cifras de este panel; sirven de punto de partida, no son una orden.');
+  const embudo = seccionPm('🔻 Embudo de esta categoría', barrasHtml(d.embudo.map((e, i) => ({ etiqueta: e.etapa, n: e.n, pct: i > 0 ? pctPm(e.n, d.embudo[0].n) : null }))));
+  const motivos = seccionPm('🚫 Por qué se pierden', d.motivosPerdida.length ? `<table class="pm-tabla"><thead><tr><th>Motivo</th><th>Conv.</th><th>%</th><th></th></tr></thead><tbody>${d.motivosPerdida.map(m => `<tr><td>${escapeHtml(m.etiqueta)}</td><td class="num">${m.n}</td><td class="num">${m.pct}%</td><td>${MOTIVOS_ANALIZABLES_UI.includes(m.motivo) ? `<button class="btn-ghost btn-compact" onclick="abrirPanelMotivo('${escapeHtml(m.motivo)}')">📊 Analizar este motivo</button>` : ''}</td></tr>`).join('')}</tbody></table>` : '<p class="empty-note">No hay conversaciones perdidas en esta categoría.</p>',
+    'El análisis de cada motivo abre el detalle general (todas las categorías) del período.');
+  const repite = seccionPm('🔁 Qué se consulta', `
+    <div class="pm-grid2">
+      <div><h4>Producto · marca · modelo</h4>${barrasHtml(c.combinaciones.map(x => ({ etiqueta: x.etiqueta, n: x.n, pct: x.pct })), { vacio: 'La IA no detectó producto o marca.' })}</div>
+      <div><h4>Marcas</h4>${barrasHtml(c.marcas.map(x => ({ etiqueta: x.nombre, n: x.n, pct: x.pct })))}<h4>Modelos</h4>${barrasHtml(c.modelos.map(x => ({ etiqueta: x.nombre, n: x.n, pct: x.pct })))}</div>
+      <div><h4>Productos</h4>${barrasHtml(c.productos.map(x => ({ etiqueta: x.nombre, n: x.n, pct: x.pct })))}<h4>Especificaciones</h4>${barrasHtml(c.especificaciones.map(x => ({ etiqueta: x.nombre, n: x.n, pct: x.pct })), { vacio: 'Sin especificaciones registradas.' })}</div>
+      <div><h4>Necesidad del cliente</h4>${barrasHtml(c.problemas.map(x => ({ etiqueta: x.nombre, n: x.n, pct: x.pct })), { vacio: 'Sin un "problema del cliente" registrado.' })}</div>
+    </div>`, 'Salen de los campos que completa la IA al analizar cada conversación.');
+  const sinVenta = d.demandaSinVenta.length ? seccionPm('🧲 Se consulta y no se vende', `<table class="pm-tabla"><thead><tr><th>Producto · marca · modelo</th><th>Consultas</th><th>Ventas</th></tr></thead><tbody>${d.demandaSinVenta.map(x => `<tr><td>${escapeHtml(x.etiqueta)}</td><td class="num">${x.n}</td><td class="num">${x.ventas}</td></tr>`).join('')}</tbody></table>`, 'Combinaciones con 3 o más consultas y ninguna venta en el período: revisa stock, precio y publicación.') : '';
+  const demanda = seccionPm('🕒 Cuándo escriben los clientes', `<div class="pm-grid2"><div><h4>Día de la semana</h4>${histogramaHtml(d.demanda.porDiaSemana.map(x => ({ eti: x.dia, n: x.n })), v => v.eti)}</div><div><h4>Hora del día (Chile)</h4>${histogramaHtml(d.demanda.porHora.map(x => ({ eti: x.hora % 3 === 0 ? x.hora : '', n: x.n, h: x.hora })), v => (v.h != null ? v.h + ' h' : ''))}</div></div>`, 'Hora del primer mensaje del cliente.');
+  const fuentes = seccionPm('🧭 De dónde vienen y cuánto convierten', `<table class="pm-tabla"><thead><tr><th>Fuente</th><th>Campaña / anuncio / página</th><th>Conv.</th><th>%</th><th>Ventas</th><th>Conversión</th></tr></thead><tbody>${d.fuentes.map(f => `<tr><td>${escapeHtml(f.fuente)}</td><td>${escapeHtml(f.detalle || '—')}</td><td class="num">${f.n}</td><td class="num">${f.pct}%</td><td class="num">${f.ventas}</td><td class="num">${f.conversion}%</td></tr>`).join('')}</tbody></table>`);
+  const terminos = seccionPm('🔤 Palabras y frases más repetidas por los clientes', `<div class="pm-grid2"><div><h4>Palabras</h4>${tablaTerminosPm(d.terminos.palabras)}</div><div><h4>Frases de dos palabras</h4>${tablaTerminosPm(d.terminos.frases)}</div></div>`, 'Se cuenta una vez por conversación. Útil para ideas de palabras clave y de palabras negativas en Google Ads.');
+  const respuesta = seccionPm('⏱️ Primera respuesta', `<div class="pm-grid2"><div>${barrasHtml(d.respuesta.distribucion.map(x => ({ etiqueta: x.rango, n: x.n })))}</div><div><div class="pm-sub">Mediana: <b>${fmtMin(d.respuesta.medianaSeg)}</b> · el 10% más lento: <b>${fmtMin(d.respuesta.p90Seg)}</b> · sin respuesta registrada: <b>${fmtNum(d.respuesta.sinRespuestaRegistrada)}</b>${q.confiable === false ? ' <span class="pm-badge no">dato incompleto</span>' : ''}</div></div></div>`);
+  const lista = seccionPm('💬 Conversaciones', `<div class="pm-scroll"><table class="pm-tabla"><thead><tr><th>Cliente</th><th>Producto</th><th>Primer mensaje</th><th>Resultado</th></tr></thead><tbody>
+    ${d.conversaciones.map(x => `<tr><td>${escapeHtml(x.cliente || '—')}<div class="pm-ej">${enlaceTelefonoPm(x.telefono)}</div></td><td>${escapeHtml(x.producto || '—')}</td><td class="pm-ej">${escapeHtml(x.primerMensaje)}</td><td>${badgeResultadoPm(x.resultado)}</td></tr>`).join('')}</tbody></table></div>`, `Las ${Math.min(80, d.total)} más recientes.`);
+  $('panelMotivo').innerHTML = cabecera + `<div class="pm-cuerpo">${notas.map(n => `<div class="pm-nota">${n}</div>`).join('')}${kpis}${reco}${embudo}${motivos}${repite}${sinVenta}${demanda}${fuentes}${terminos}${respuesta}${lista}</div>`;
+}
+function pctPm(n, total){ return total > 0 ? Math.round(n / total * 1000) / 10 : 0; }

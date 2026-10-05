@@ -16,7 +16,7 @@ import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
 import { armarComunicacionZoho, filasCorreosDesdeZoho, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
-import { analizarMotivo as analizarMotivoWhatsapp, MOTIVOS_ANALIZABLES, esCierreCordial, debeReclasificarPorCierre, RESULTADOS_DEBILES_CIERRE, MOTIVOS_DEBILES_CIERRE } from '../lib/whatsapp-motivos.js';
+import { analizarCategoria as analizarCategoriaWhatsapp, CATEGORIAS_ANALIZABLES, analizarMotivo as analizarMotivoWhatsapp, MOTIVOS_ANALIZABLES, esCierreCordial, debeReclasificarPorCierre, RESULTADOS_DEBILES_CIERRE, MOTIVOS_DEBILES_CIERRE } from '../lib/whatsapp-motivos.js';
 import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR } from '../lib/cotizaciones-recontacto.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
@@ -205,6 +205,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-recategorizar') return manejarWhatsappRecategorizar(req, res, sesion);
   if (recurso === 'whatsapp-analitica') return manejarWhatsappAnalitica(req, res, sesion);
   if (recurso === 'whatsapp-motivo-detalle') return manejarWhatsappMotivoDetalle(req, res, sesion);
+  if (recurso === 'whatsapp-categoria-detalle') return manejarWhatsappCategoriaDetalle(req, res, sesion);
   if (recurso === 'whatsapp-reclasificar-cierres') return manejarWhatsappReclasificarCierres(req, res, sesion);
   if (recurso === 'whatsapp-analitica-ejecutivos') return manejarWhatsappAnaliticaEjecutivos(req, res, sesion);
   if (recurso === 'whatsapp-control-ejecutivos') return manejarWhatsappControlEjecutivos(req, res, sesion);
@@ -10381,6 +10382,62 @@ async function manejarWhatsappReclasificarCierres(req, res, sesion) {
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error reclasificando conversaciones', detail: String(err.message || err) });
+  }
+}
+
+// Detalle de UNA categoría consultada (panel lateral de "Categorías consultadas" en Clientes WhatsApp): todas las conversaciones
+// de esa categoría del período (por fecha de inicio, igual que el gráfico), con embudo, motivos de pérdida, qué se consulta,
+// palabras, fuentes con su conversión y demanda por día/hora.
+async function manejarWhatsappCategoriaDetalle(req, res, _sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const categoria = String(req.query.categoria || '');
+    if (!CATEGORIAS_ANALIZABLES.includes(categoria)) return res.status(400).json({ error: 'Categoría no analizable' });
+    const RE_DIA = /^\d{4}-\d{2}-\d{2}$/;
+    const desde = String(req.query.desde || ''), hasta = String(req.query.hasta || '');
+    if (!RE_DIA.test(desde) || !RE_DIA.test(hasta) || desde > hasta) return res.status(400).json({ error: 'Rango de fechas inválido' });
+
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const rango = `c.iniciada_en >= ($2::date)::timestamp AT TIME ZONE 'America/Santiago' AND c.iniciada_en < (($3::date + 1))::timestamp AT TIME ZONE 'America/Santiago'`;
+    const { rows: convs } = await sql.query(
+      `SELECT c.id, c.iniciada_en, c.producto, c.marca, c.modelo, c.categoria, c.intencion, c.resultado,
+              COALESCE(c.motivo_perdida, c.resultado) AS motivo,
+              (c.venta_detectada OR (c.bsale_documento_numero IS NOT NULL AND c.bsale_documento_numero <> '')) AS vendida,
+              c.primer_mensaje_cliente_en AS primer_cliente_en, ${primeraRespuestaRealSQL()} AS primera_respuesta_segundos,
+              c.fuente_tipo, c.fuente_titulo, c.fuente_utm_source AS utm_source, c.fuente_utm_campaign AS utm_campana,
+              c.vendedor_detectado AS vendedor, u.nombre AS responsable, ct.nombre AS contacto_nombre, ct.telefono,
+              a.problema_cliente AS problema, a.especificaciones
+       FROM whatsapp_conversaciones c
+       JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+       LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id
+       LEFT JOIN usuarios u ON u.id = c.responsable_id
+       WHERE COALESCE(c.categoria, 'sin_categoria') = $1 AND ${rango}
+       ORDER BY c.iniciada_en DESC LIMIT ${TOPE_CONVERSACIONES_MOTIVO};`,
+      [categoria, desde, hasta]
+    );
+    let mensajes = [];
+    if (convs.length) {
+      const { rows } = await sql.query(
+        `SELECT conversacion_id, marca_tiempo, direccion, contenido_texto FROM whatsapp_mensajes
+         WHERE conversacion_id = ANY($1::int[]) AND contenido_texto IS NOT NULL AND contenido_texto <> ''
+         ORDER BY conversacion_id, marca_tiempo LIMIT ${TOPE_MENSAJES_MOTIVO};`,
+        [convs.map(c => c.id)]
+      );
+      mensajes = rows;
+    }
+    const { rows: cobRows } = await sql.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'out'))::int AS con_respuesta,
+              COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'out' AND m.origen = 'app'))::int AS con_app
+       FROM whatsapp_conversaciones c WHERE c.cantidad_mensajes > 0 AND ${rango.replace(/\$2/g, () => '$1').replace(/\$3/g, () => '$2')};`,
+      [desde, hasta]
+    );
+    const cobertura = { total: cobRows[0].total, conRespuesta: cobRows[0].con_respuesta, conApp: cobRows[0].con_app };
+    const analisis = analizarCategoriaWhatsapp({ categoria, conversaciones: convs, mensajes, ahora: new Date(), cobertura, etiquetasMotivo: WHATSAPP_MOTIVOS_PERDIDA_LABEL });
+    return res.status(200).json({ categoria, desde, hasta, truncado: convs.length >= TOPE_CONVERSACIONES_MOTIVO, ...analisis });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error analizando la categoría', detail: String(err.message || err) });
   }
 }
 
