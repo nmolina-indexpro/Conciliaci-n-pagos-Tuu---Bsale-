@@ -2336,7 +2336,7 @@ function histogramaHorario(horas){
   const mañana = franja(6, 12), tarde = franja(12, 18), noche = franja(18, 24), madrugada = franja(0, 6);
   const dato = (lbl, n) => `<span style="margin-right:14px;"><b>${lbl}</b> ${fmtNum(n)} <small style="color:var(--muted);">(${pctF(n)}%)</small></span>`;
   return `<div style="font-size:12px;margin-bottom:8px;"><b>${fmtNum(total)}</b> conversaciones · hora de mayor demanda: <b>${pico}:00 h</b> (${pctF(horas[pico])}%)</div>
-    ${histogramaHtml(horas.map((n, h) => ({ eti: h % 3 === 0 ? h : '', n, h })), v => `${v.h}:00 h`)}
+    ${histogramaHtml(horas.map((n, h) => ({ eti: h % 3 === 0 ? h : '', n, h })), v => `${v.h}:00 h`, true)}
     <div style="font-size:11.5px;margin-top:8px;color:var(--text);">${dato('Madrugada 0–6 h', madrugada)}${dato('Mañana 6–12 h', mañana)}${dato('Tarde 12–18 h', tarde)}${dato('Noche 18–24 h', noche)}</div>`;
 }
 function renderHorarios(h){

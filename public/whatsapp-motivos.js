@@ -33,10 +33,11 @@ function barrasHtml(filas, { vacio = 'Sin datos', color = 'var(--primary)' } = {
       <span class="pm-val">${f.n}${f.pct != null ? ` <small>${f.pct}%</small>` : ''}</span>
     </div>`).join('')}</div>`;
 }
-function histogramaHtml(valores, etiquetaDe){
+function histogramaHtml(valores, etiquetaDe, conValor){
   const max = Math.max(1, ...valores.map(v => v.n));
-  return `<div class="pm-histo">${valores.map(v => `
-    <div class="pm-col" title="${escapeHtml(etiquetaDe(v))}: ${v.n}"><span class="pm-col-barra" style="height:${Math.round(v.n / max * 100)}%;"></span><span class="pm-col-eti">${escapeHtml(String(v.eti))}</span></div>`).join('')}</div>`;
+  // conValor: muestra la cantidad sobre cada barra (las horas sin conversaciones no llevan número)
+  return `<div class="pm-histo${conValor ? ' pm-histo-val' : ''}">${valores.map(v => `
+    <div class="pm-col" title="${escapeHtml(etiquetaDe(v))}: ${v.n}"><span class="pm-col-barra" style="height:${Math.round(v.n / max * 100)}%;">${conValor && v.n ? `<span class="pm-col-val">${fmtNum(v.n)}</span>` : ''}</span><span class="pm-col-eti">${escapeHtml(String(v.eti))}</span></div>`).join('')}</div>`;
 }
 function tarjetaPm(titulo, valor, nota){
   return `<div class="pm-kpi"><div class="pm-kpi-lbl">${escapeHtml(titulo)}</div><div class="pm-kpi-val">${valor}</div>${nota ? `<div class="pm-kpi-nota">${nota}</div>` : ''}</div>`;
@@ -79,6 +80,9 @@ function asegurarEstilosPanelMotivo(){
     .pm-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0;}
     .pm-col-barra{width:100%;background:var(--primary);border-radius:3px 3px 0 0;min-height:1px;display:block;}
     .pm-col-eti{font-size:9.5px;color:var(--muted);margin-top:3px;}
+    .pm-histo-val{height:130px;padding-top:18px;}
+    .pm-histo-val .pm-col-barra{position:relative;}
+    .pm-col-val{position:absolute;bottom:100%;left:-4px;right:-4px;text-align:center;font-size:9.5px;font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--text);line-height:1.3;white-space:nowrap;}
     .pm-reco{display:flex;flex-direction:column;gap:8px;}
     .pm-reco div{background:var(--primary-dim);border-radius:9px;padding:9px 12px;font-size:12.5px;}
     .pm-reco b{display:block;margin-bottom:2px;font-size:12px;color:var(--primary-dark);}
