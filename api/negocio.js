@@ -10753,6 +10753,23 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
     })));
     conversionComercial.pctConRespuestaRegistrada = ofertaRows.length ? Math.round((ofertaRows.filter(r => r.con_salida).length / ofertaRows.length) * 1000) / 10 : null;
 
+    // Horarios en que escriben los clientes (hora de Chile del primer mensaje del cliente), en general y por categoría.
+    const { rows: horaRows } = await sql.query(
+      `SELECT COALESCE(categoria, 'sin_categoria') AS categoria,
+              EXTRACT(HOUR FROM (COALESCE(primer_mensaje_cliente_en, iniciada_en) AT TIME ZONE 'America/Santiago'))::int AS hora,
+              COUNT(*)::int AS n
+       FROM whatsapp_conversaciones
+       WHERE iniciada_en >= $1 AND iniciada_en < $2
+       GROUP BY 1, 2;`,
+      [desde, hasta]
+    );
+    const horarios = { general: Array(24).fill(0), porCategoria: {} };
+    for (const r of horaRows) {
+      if (r.hora == null || r.hora < 0 || r.hora > 23) continue;
+      horarios.general[r.hora] += r.n;
+      (horarios.porCategoria[r.categoria] ||= Array(24).fill(0))[r.hora] += r.n;
+    }
+
     const cantidadOrigenShopify = origenVentaTotalRows[0]?.cantidad || 0;
     const fuentes = fuenteRows.map(r => ({ tipo: r.tipo, cantidad: r.cantidad, ventas: r.ventas }));
     if (cantidadOrigenShopify > 0) fuentes.push({ tipo: 'shopify_journey', cantidad: cantidadOrigenShopify, ventas: cantidadOrigenShopify });
@@ -10780,6 +10797,7 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
       resultados: resultadosRows.map(r => ({ resultado: r.resultado, cantidad: r.n })),
       embudo: embudoRows[0] || { conversaciones: 0, intencion_compra: 0, cotizacion: 0, venta: 0 },
       conversionComercial,
+      horarios,
       embudoBsale: embudoBsaleRows[0]
         ? { conversaciones: embudoBsaleRows[0].conversaciones, vinculadas: embudoBsaleRows[0].vinculadas, ventaEnPeriodo: embudoBsaleRows[0].venta_en_periodo }
         : { conversaciones: 0, vinculadas: 0, ventaEnPeriodo: 0 },

@@ -153,7 +153,7 @@ function renderPanelMotivo(d){
   const sinDato = q.confiable === false;
   if(sinDato) notas.push(`<b>⚠ Cuidado con las cifras que dependen de nuestras respuestas.</b> Solo el <b>${q.pct}%</b> de las ${fmtNum(q.total)} conversaciones del período tiene alguna respuesta del negocio registrada en el ERP${q.conApp ? ` (${fmtNum(q.conApp)} desde la app del celular)` : ''}. Lo que se contesta desde el celular no llega al ERP si la <i>coexistencia</i> de WhatsApp no está activa, así que "sin respuesta", "quién habló último", "tras qué mensaje se cortó" y los tiempos de respuesta pueden mostrar problemas que no existen. Es confiable lo que piden los clientes, sus palabras y de dónde vienen.`);
   if(d.base === 'ultimo_cliente' && d.totalSegunInicio !== d.total) notas.push(`La tabla de motivos cuenta <b>${d.totalSegunInicio}</b> porque ubica cada conversación por su fecha de inicio; acá hay <b>${d.total}</b> porque se ubican por la fecha en que el cliente dejó de responder.`);
-  if(d.excluidasPorOferta) notas.push(`Se dejaron fuera <b>${fmtNum(d.excluidasPorOferta)}</b> conversaciones a las que ya se les envió el <b>enlace del producto o una oferta</b> (precio, disponibilidad, condiciones, dirección): son una conversión (intención de venta), no una pérdida. Usa "✅ Reclasificar cierres y ofertas" para actualizar la tabla de motivos.`);
+  if(d.excluidasPorOferta) notas.push(`Se dejaron fuera <b>${fmtNum(d.excluidasPorOferta)}</b> conversaciones a las que ya se les envió el <b>enlace del producto o una oferta</b> (precio, disponibilidad, condiciones, dirección): son una conversión (intención de venta), no una pérdida. Usa "✅ Reclasificar cierres y conversiones" para actualizar la tabla de motivos.`);
   if(d.excluidasPorCierre) notas.push(`Se dejaron fuera <b>${fmtNum(d.excluidasPorCierre)}</b> conversaciones cuyo último mensaje del cliente fue un cierre cordial ("ok", "gracias"): se consideran <b>resueltas</b>, no pérdidas. Si la tabla de motivos todavía las cuenta, usa "✅ Reclasificar cierres" para actualizarla.`);
   if(d.truncado) notas.push('Hay más conversaciones que el máximo analizado; se muestran las más recientes.');
   const kpis = `<div class="pm-kpis">
@@ -357,9 +357,9 @@ function renderPanelCategoria(d){
   if(q.confiable === false) notas.push(`<b>⚠ Los tiempos de respuesta no son confiables.</b> Solo el <b>${q.pct}%</b> de las ${fmtNum(q.total)} conversaciones del período tiene alguna respuesta del negocio registrada en el ERP (lo que se contesta desde el celular no llega si la coexistencia de WhatsApp no está activa). Es confiable lo que piden los clientes, de dónde vienen y cuánto se vende.`);
   if(d.truncado) notas.push('Hay más conversaciones que el máximo analizado; se muestran las más recientes.');
   const kpis = `<div class="pm-kpis">
-    ${tarjetaPm('Conversaciones', fmtNum(s.total), `${fmtNum(s.conIntencionCompra)} con intención de compra`)}
-    ${tarjetaPm('Conversiones', fmtNum(s.conversiones), `${s.pctConversion}% de las conversaciones · enlace u oferta enviada`)}
-    ${tarjetaPm('Conversión sobre intención de compra', s.pctConversionIntencion + '%', `${fmtNum(s.intencionSinConversion)} con intención sin enlace ni oferta`)}
+    ${tarjetaPm('Conversaciones', fmtNum(s.total), `${fmtNum(s.conIntencionCompra)} en que el cliente pidió comprar o cotizar`)}
+    ${tarjetaPm('Cotización enviada', fmtNum(s.conversiones), `${s.pctConversion}% de las conversaciones · intención de venta (enlace u oferta)`)}
+    ${tarjetaPm('Pidieron comprar sin cotización', fmtNum(s.intencionSinConversion), `de ${fmtNum(s.conIntencionCompra)} que pidieron comprar o cotizar`)}
     ${tarjetaPm('Con ficha completa', fmtNum(s.ofertasCompletas), `${fmtNum(s.soloEnlace)} solo con el enlace`)}
     ${tarjetaPm('Perdidas', fmtNum(s.perdidas), `${s.pctPerdidas}% · con razón concreta o sin conversión`)}
     ${tarjetaPm('Ventas registradas', fmtNum(s.ventas), 'confirmadas o vinculadas a Bsale (se registran pocas)')}

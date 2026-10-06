@@ -1657,6 +1657,11 @@ function initAnalitica(){
       <div class="sub">Conversaciones, clientes únicos y ventas.</div>
       <div id="chartSerie"></div>
     </div>
+    <div class="seccion">
+      <h2>Horarios de los mensajes</h2>
+      <div class="sub">Hora de Chile en que el cliente escribió por primera vez, una vez por conversación. Primero el general del período; abajo puedes ver el horario de cada categoría principal.</div>
+      <div id="chartHorarios" style="margin-top:12px;"></div>
+    </div>
     <div class="grid" style="grid-template-columns:1fr 1fr;">
       <div class="seccion">
         <h2>Categorías consultadas</h2>
@@ -1765,6 +1770,7 @@ async function cargarAnalitica(){
     renderChartEmbudo(data.embudo);
     renderChartEmbudoBsale(data.embudoBsale);
     renderConversionComercial(data.conversionComercial);
+    renderHorarios(data.horarios);
     renderFuentes(data.fuentes, data.fuentesDetalle);
     renderTablaMotivos(data.motivosPerdida);
     renderTablaProductos(data.rankingProductos);
@@ -2317,6 +2323,45 @@ async function buscarVentasBsaleEnLote(){
 
 
 // ================= Conversión comercial: ofertas entregadas =================
+// Horarios en que escriben los clientes: primero el general; después, por categoría principal (chips).
+const HORARIO_CATEGORIAS = ['pantalla', 'cargador', 'bateria', 'servicio_tecnico'];
+let horariosActuales = null;
+let categoriaHorario = HORARIO_CATEGORIAS[0];
+function histogramaHorario(horas){
+  const total = horas.reduce((a, n) => a + n, 0);
+  if(!total) return '<p class="empty-note">Sin conversaciones en este período.</p>';
+  const pico = horas.reduce((mejor, n, h) => (n > horas[mejor] ? h : mejor), 0);
+  const franja = (d, h) => horas.slice(d, h).reduce((a, n) => a + n, 0);
+  const pctF = n => Math.round(n / total * 1000) / 10;
+  const mañana = franja(6, 12), tarde = franja(12, 18), noche = franja(18, 24), madrugada = franja(0, 6);
+  const dato = (lbl, n) => `<span style="margin-right:14px;"><b>${lbl}</b> ${fmtNum(n)} <small style="color:var(--muted);">(${pctF(n)}%)</small></span>`;
+  return `<div style="font-size:12px;margin-bottom:8px;"><b>${fmtNum(total)}</b> conversaciones · hora de mayor demanda: <b>${pico}:00 h</b> (${pctF(horas[pico])}%)</div>
+    ${histogramaHtml(horas.map((n, h) => ({ eti: h % 3 === 0 ? h : '', n, h })), v => `${v.h}:00 h`)}
+    <div style="font-size:11.5px;margin-top:8px;color:var(--text);">${dato('Madrugada 0–6 h', madrugada)}${dato('Mañana 6–12 h', mañana)}${dato('Tarde 12–18 h', tarde)}${dato('Noche 18–24 h', noche)}</div>`;
+}
+function renderHorarios(h){
+  const el = $('chartHorarios');
+  if(!el) return;
+  horariosActuales = h || null;
+  if(!h){ el.innerHTML = '<p class="empty-note">Sin datos de horarios en este período.</p>'; return; }
+  asegurarEstilosPanelMotivo();
+  el.innerHTML = `
+    <h3 style="margin:0 0 6px;font-size:13px;">🕒 General (todas las categorías)</h3>
+    ${histogramaHorario(h.general)}
+    <h3 style="margin:18px 0 8px;font-size:13px;">🗂️ Horario por categoría</h3>
+    <div id="chipsHorario" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;"></div>
+    <div id="chartHorarioCategoria"></div>`;
+  renderHorarioCategoria();
+}
+function elegirCategoriaHorario(cat){ categoriaHorario = cat; renderHorarioCategoria(); }
+function renderHorarioCategoria(){
+  const porCat = (horariosActuales && horariosActuales.porCategoria) || {};
+  $('chipsHorario').innerHTML = HORARIO_CATEGORIAS.map(cat => {
+    const n = (porCat[cat] || []).reduce((a, x) => a + x, 0);
+    return `<button class="btn-ghost btn-compact ${cat === categoriaHorario ? 'activo' : ''}" onclick="elegirCategoriaHorario('${cat}')">${escapeHtml(CATEGORIA_LABEL[cat] || cat)} <small>(${fmtNum(n)})</small></button>`;
+  }).join('');
+  $('chartHorarioCategoria').innerHTML = histogramaHorario(porCat[categoriaHorario] || Array(24).fill(0));
+}
 // Para IndexStore la venta es conversacional: entregarle al cliente una OFERTA (producto disponible + precio + enlace + condiciones
 // + dónde atendemos) ya es una conversión. Se detecta en los mensajes del negocio; no depende del análisis de la IA.
 function renderConversionComercial(cc){
@@ -2333,10 +2378,9 @@ function renderConversionComercial(cc){
     <td><button class="btn-ghost btn-compact" onclick="abrirPanelCategoria('${escapeHtml(c.categoria)}')">📊 Analizar</button></td></tr>`).join('');
   el.innerHTML = `${aviso}
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:14px;">
-      ${tarjeta('Conversiones', fmtNum(cc.conversiones), `${cc.pctConversionSobreConversaciones}% de ${fmtNum(cc.conversaciones)} conversaciones`, 'destacada')}
-      ${tarjeta('Conversión sobre intención de compra', cc.pctConversionSobreIntencion + '%', `${fmtNum(cc.conIntencionCompra)} conversaciones con intención`)}
+      ${tarjeta('Cotizaciones enviadas', fmtNum(cc.conversiones), `${cc.pctConversionSobreConversaciones}% de ${fmtNum(cc.conversaciones)} conversaciones · intención de venta`, 'destacada')}
       ${tarjeta('Con ficha completa', fmtNum(cc.ofertasCompletas), `precio, condiciones y dónde atendemos · ${fmtNum(cc.soloEnlace)} solo con el enlace`)}
-      ${tarjeta('Intención sin enlace ni oferta', fmtNum(cc.intencionSinConversion), 'oportunidades todavía sin atender')}
+      ${tarjeta('Pidieron comprar sin cotización', fmtNum(cc.intencionSinConversion), `de ${fmtNum(cc.conIntencionCompra)} que pidieron comprar o cotizar`)}
       ${tarjeta('Tiempo hasta el enlace u oferta', tiempo, 'mediana desde el primer mensaje')}
       ${tarjeta('Ventas registradas', fmtNum(cc.ventas), `${fmtNum(cc.ventasConConversion)} tuvieron conversión · se registran pocas`)}
     </div>
