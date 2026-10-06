@@ -485,6 +485,9 @@ let detalleBandejaActual = null;
 let composerModoActual = {}; // {[conversacionId]: 'responder'|'nota'}
 const borradoresComposer = {}; // {[conversacionId+':'+modo]: texto} -- sobrevive a cambios de vista/ficha mientras la pestaña siga abierta
 let sugerenciaIaActual = null; // {conversacionId, texto} -- se descarta al cambiar de conversación
+let botModo = null; // modo del bot nocturno ('sombra' | 'apagado' | null si no se pudo leer)
+let botBorradorActual = null; // borrador pendiente del bot para la conversación abierta
+const botInsertado = {}; // {[conversacionId]: {id}} -- borrador del bot insertado en el compositor, para registrar cómo salió
 
 function initConversaciones(){
   $('vistaConversaciones').innerHTML = `
@@ -495,6 +498,7 @@ function initConversaciones(){
       </div>
       <div style="display:flex;align-items:center;gap:8px;">
         <select id="selVistaTablaRapida" style="display:none;font-size:12px;" onchange="cambiarTabBandeja(this.value)"></select>
+        <button class="btn-ghost btn-compact" id="btnBotNocturno" onclick="abrirPanelBot()" title="Bot que redacta respuestas fuera del horario de atención (modo sombra: tú revisas y envías)">🤖 Bot nocturno</button>
         <button class="btn-ghost btn-compact" id="btnToggleFiltrosConv" onclick="toggleFiltrosConv()">🔎 Filtros</button>
       </div>
     </div>
@@ -782,6 +786,7 @@ async function cargarDetalleBandeja(id, opts){
     const data = await res.json();
     if (!res.ok || data.error) { $('panelChat').innerHTML = `<div class="sin-seleccion">${escapeHtml(data.error || 'No se pudo cargar.')}</div>`; return; }
     detalleBandejaActual = data;
+    await cargarBorradorBot(id);
     renderChatBandeja(data, opts || {});
     renderFichaBandeja(data);
     const idx = (convState.ultimaData || []).findIndex(c => c.id === id);
@@ -847,6 +852,7 @@ function renderChatBandeja(data, opts){
              <button class="btn-ghost btn-compact" disabled title="Los adjuntos de salida todavía no están disponibles en este sistema -- solo se reciben, no se envían">📎 Adjuntar</button>
              <button class="btn-ghost btn-compact" disabled title="Las respuestas rápidas todavía no están disponibles en este sistema">💬 Respuestas rápidas</button>
              <button class="btn-ghost btn-compact" onclick="pedirSugerenciaIA(${c.id})" id="btnSugerirIA${c.id}">✨ Sugerir respuesta</button>
+             ${botModo && botModo !== 'apagado' ? `<button class="btn-ghost btn-compact" onclick="prepararRespuestaBot(${c.id}, false)" id="btnBot${c.id}" title="El bot busca el producto en el catálogo (precio, stock, enlace) y redacta la respuesta">🤖 Preparar con bot</button>` : ''}
            </div>`
         : `<div class="composer-cerrado">🔒 Pasaron más de 24h desde el último mensaje del cliente — WhatsApp ya no permite texto libre acá (se necesita una plantilla pre-aprobada, no disponible todavía). La nota interna sigue disponible en la otra pestaña.</div>`);
 
@@ -869,6 +875,7 @@ function renderChatBandeja(data, opts){
     </div>
     ${alerta ? `<div class="chat-alerta-pendiente">${alerta.icono} ${escapeHtml(alerta.texto)}</div>` : ''}
     <div class="chat-hilo-wrap" id="chatHiloWrap">${hilo}</div>
+    ${botBorradorHtml(c.id)}
     ${sugerenciaHtml}
     <div class="chat-composer-wrap">
       <div class="composer-tabs">
@@ -915,6 +922,7 @@ async function accionComposerBandeja(id){
     const data = await res.json();
     if (!res.ok || data.error) { alert(data.error || 'No se pudo completar la acción.'); return; }
     borradoresComposer[id + ':' + modo] = '';
+    if(modo !== 'nota' && botInsertado[id]){ registrarEnvioBot(id, texto); }
     await cargarDetalleBandeja(id, { forzarScroll: true });
     cargarConversaciones();
   }catch(err){ alert('Error: ' + err.message); }
@@ -976,6 +984,77 @@ function insertarSugerenciaIA(id){
   sugerenciaIaActual = null;
   if (detalleBandejaActual) renderChatBandeja(detalleBandejaActual, {});
   const el = $('composerBandeja' + id); if (el) el.focus();
+}
+// ---- Bot nocturno (modo sombra): el borrador queda guardado, el ejecutivo lo inserta, lo edita y lo envía como cualquier respuesta ----
+async function cargarBorradorBot(id){
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-bot-borrador&conversacionId=' + id);
+    const d = await res.json();
+    if(res.ok && !d.error){ botModo = d.modo; botBorradorActual = d.borrador || null; return; }
+  }catch(err){ /* sin bot: la bandeja funciona igual */ }
+  botModo = null; botBorradorActual = null;
+}
+function botBorradorHtml(convId){
+  const b = botBorradorActual;
+  if(!b || b.conversacionId !== convId) return '';
+  const conf = { alta: ['b-verde', 'Confianza alta'], media: ['b-ambar', 'Confianza media'], baja: ['b-rojo', 'Confianza baja'] }[b.confianza] || ['b-gris', b.confianza || ''];
+  const productos = (b.productos || []).slice(0, 5).map(p => `<li>${escapeHtml(p.titulo)} — ${p.precio != null ? '$' + fmtNum(p.precio) : 'sin precio'} · stock: ${escapeHtml(String(p.stock))}${p.publicado ? '' : ' · <b>no publicado</b>'}</li>`).join('');
+  return `
+    <div class="chat-ia-sugerencia chat-bot-borrador ${b.escalar ? 'escala' : ''}">
+      <div class="txt">
+        <b>🤖 Bot nocturno — borrador, revisa antes de enviar</b>
+        <div style="margin:4px 0 6px;display:flex;gap:6px;flex-wrap:wrap;"><span class="badge ${conf[0]}">${conf[1]}</span>${b.escalar ? '<span class="badge b-rojo">👤 Requiere ejecutivo</span>' : ''}</div>
+        <div style="white-space:pre-wrap;">${escapeHtml(b.texto)}</div>
+        ${b.resumen ? `<div class="sub" style="margin-top:6px;font-size:11.5px;">📝 ${escapeHtml(b.resumen)}</div>` : ''}
+        ${b.motivo ? `<div class="sub" style="margin-top:4px;font-size:11.5px;color:var(--red);">⚠ ${escapeHtml(b.motivo)}</div>` : ''}
+        ${productos ? `<details style="margin-top:6px;font-size:11.5px;"><summary>Productos que consultó en el catálogo</summary><ul style="margin:4px 0 0 16px;padding:0;">${productos}</ul></details>` : ''}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">
+        <button class="btn-primary btn-compact" onclick="insertarBorradorBot(${convId})">Insertar</button>
+        <button class="btn-ghost btn-compact" onclick="prepararRespuestaBot(${convId}, true)" title="Pedirle al bot una nueva versión">↻ Regenerar</button>
+        <button class="btn-ghost btn-compact" onclick="descartarBorradorBot(${convId})">Descartar</button>
+      </div>
+    </div>`;
+}
+function actualizarEstadoBot(id, accion, textoFinal){
+  fetch('/api/negocio?recurso=whatsapp-bot-estado', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, accion, textoFinal }) }).catch(() => {});
+}
+async function prepararRespuestaBot(convId, forzar){
+  const btn = $('btnBot' + convId);
+  if(btn){ btn.disabled = true; btn.textContent = '🤖 Pensando…'; }
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-bot-generar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversacionId: convId, forzar: !!forzar }) });
+    const d = await res.json();
+    if(!res.ok || d.error){ alert(d.error || 'No se pudo preparar la respuesta.'); return; }
+    botBorradorActual = d.borrador;
+    if(detalleBandejaActual && detalleBandejaActual.conversacion.id === convId) renderChatBandeja(detalleBandejaActual, {});
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ const b = $('btnBot' + convId); if(b){ b.disabled = false; b.textContent = '🤖 Preparar con bot'; } }
+}
+function insertarBorradorBot(convId){
+  const b = botBorradorActual;
+  if(!b || b.conversacionId !== convId) return;
+  composerModoActual[convId] = 'responder';
+  borradoresComposer[convId + ':responder'] = b.texto;
+  botInsertado[convId] = { id: b.id };
+  actualizarEstadoBot(b.id, 'insertado');
+  botBorradorActual = null;
+  if(detalleBandejaActual) renderChatBandeja(detalleBandejaActual, {});
+  const el = $('composerBandeja' + convId); if(el) el.focus();
+}
+function descartarBorradorBot(convId){
+  const b = botBorradorActual;
+  if(!b || b.conversacionId !== convId) return;
+  actualizarEstadoBot(b.id, 'descartado');
+  botBorradorActual = null;
+  if(detalleBandejaActual) renderChatBandeja(detalleBandejaActual, {});
+}
+// Al enviar lo que salió del bot, se guarda el texto final: sirve para medir cuántos borradores salen tal cual y cuántos editados.
+function registrarEnvioBot(convId, textoFinal){
+  const reg = botInsertado[convId];
+  if(!reg) return;
+  actualizarEstadoBot(reg.id, 'enviado', textoFinal);
+  delete botInsertado[convId];
 }
 function descartarSugerenciaIA(){
   sugerenciaIaActual = null;

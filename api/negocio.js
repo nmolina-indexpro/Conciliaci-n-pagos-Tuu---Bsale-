@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot } from '../lib/db.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
@@ -22,6 +22,7 @@ import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR 
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
+import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
@@ -193,6 +194,12 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-enviar-mensaje') return manejarWhatsappEnviarMensaje(req, res, sesion);
   if (recurso === 'whatsapp-nota-interna') return manejarWhatsappNotaInterna(req, res, sesion);
   if (recurso === 'whatsapp-sugerir-respuesta') return manejarWhatsappSugerirRespuesta(req, res, sesion);
+  if (recurso === 'whatsapp-bot-config') return manejarWhatsappBotConfig(req, res, sesion);
+  if (recurso === 'whatsapp-bot-resumen') return manejarWhatsappBotResumen(req, res, sesion);
+  if (recurso === 'whatsapp-bot-generar') return manejarWhatsappBotGenerar(req, res, sesion);
+  if (recurso === 'whatsapp-bot-borrador') return manejarWhatsappBotBorrador(req, res, sesion);
+  if (recurso === 'whatsapp-bot-estado') return manejarWhatsappBotEstado(req, res, sesion);
+  if (recurso === 'whatsapp-bot-lote') return manejarWhatsappBotLote(req, res, sesion);
   if (recurso === 'whatsapp-analizar') return manejarWhatsappAnalizar(req, res, sesion);
   if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
   if (recurso === 'whatsapp-reanalizar-desactualizadas') return manejarWhatsappReanalizarDesactualizadas(req, res, sesion);
@@ -7326,6 +7333,329 @@ async function manejarWhatsappSugerirRespuesta(req, res, sesion) {
     return res.status(200).json({ ok: true, borrador: resultado.borrador });
   } catch (err) {
     return res.status(500).json({ error: 'Error al generar la sugerencia de respuesta', detail: String(err) });
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// BOT DE WHATSAPP FUERA DE HORARIO -- fase 1: MODO SOMBRA.
+// La IA redacta un borrador (con precio, stock y enlace reales del catálogo) y lo deja guardado para que el ejecutivo lo revise en
+// Conversaciones. NUNCA envía nada sola: el único camino de envío sigue siendo manejarWhatsappEnviarMensaje, manual.
+// Instrucciones, horarios y revisión de la propuesta: lib/whatsapp-bot.js.
+// ══════════════════════════════════════════════════════════════════════
+const modeloBot = () => (process.env.WHATSAPP_BOT_MODEL || 'claude-sonnet-5-5').trim();
+
+async function leerConfigBot(sql) {
+  await asegurarTablaWhatsappBot(sql);
+  const { rows } = await sql`SELECT modo, horario, conocimiento, actualizado_por, actualizado_en FROM whatsapp_bot_config WHERE id = 1;`;
+  const r = rows[0] || {};
+  let horario = HORARIO_BOT_DEFECTO;
+  try { if (r.horario) horario = validarHorario(r.horario); } catch { /* horario guardado inválido: se usa el de por defecto */ }
+  return {
+    modo: MODOS_BOT.includes(r.modo) ? r.modo : 'sombra',
+    horario,
+    conocimiento: String(r.conocimiento || '').trim() || CONOCIMIENTO_DEFECTO,
+    conocimientoPersonalizado: !!String(r.conocimiento || '').trim(),
+    actualizadoPor: r.actualizado_por || null, actualizadoEn: r.actualizado_en || null,
+  };
+}
+
+// Stock de un SKU en Bsale (suma de las sucursales). null = sin dato (la IA lo informa como "el ejecutivo confirma").
+async function stockBsaleDeSku(sku) {
+  const token = (process.env.BSALE_ACCESS_TOKEN || '').trim();
+  if (!token || !sku) return null;
+  try {
+    const r = await fetchConTimeout(`https://api.bsale.io/v1/stocks.json?code=${encodeURIComponent(sku)}&expand=variant&limit=50`, { headers: { access_token: token } }, 8000);
+    if (!r.ok) return null;
+    const j = await r.json();
+    // Solo cuentan las filas de ESE SKU: si el filtro por código no se respetara, devolvería stock de otros productos.
+    const filas = (j.items || []).filter(s => String(s.variant?.code || '').trim() === String(sku).trim());
+    if (!filas.length) return null;
+    return filas.reduce((a, s) => a + Number(s.quantityAvailable ?? s.quantity ?? 0), 0);
+  } catch { return null; }
+}
+
+// Herramienta buscar_productos: catálogo de Shopify (título, precio, enlace) + stock de Bsale por SKU.
+async function buscarProductosBot(consulta) {
+  const palabras = palabrasBuscables(String(consulta || '').replace(/["*\\]/g, ' ').slice(0, 120)).slice(0, 8);
+  if (!palabras.length) return { productos: [], aviso: 'La consulta está vacía.' };
+  let acceso = null;
+  try { acceso = await obtenerAccesoShopify(); } catch { /* sigue abajo */ }
+  if (!acceso) return { productos: [], aviso: 'El catálogo no está disponible ahora: no afirmes precio ni disponibilidad y escala.' };
+  const query = `query($q: String!) { products(first: 6, query: $q) { edges { node { title status onlineStoreUrl variants(first: 3) { edges { node { sku price title } } } } } } }`;
+  const buscar = async ps => {
+    const body = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, query, { q: ps.map(p => `title:*${p}*`).join(' AND ') });
+    return (body.data?.products?.edges || []).map(e => e.node);
+  };
+  let nodos;
+  try {
+    nodos = await buscar(palabras);
+    if (!nodos.length && palabras.length > 3) nodos = await buscar(palabras.slice(0, 3));
+  } catch (err) {
+    return { productos: [], aviso: 'Falló la búsqueda en el catálogo: no afirmes precio ni disponibilidad y escala.' };
+  }
+  const productos = await Promise.all(nodos.slice(0, 5).map(async n => {
+    const v = n.variants?.edges?.[0]?.node || {};
+    const publicado = n.status === 'ACTIVE' && !!n.onlineStoreUrl;
+    const stock = await stockBsaleDeSku(v.sku);
+    return {
+      titulo: n.title, sku: v.sku || null, precio: v.price != null ? Math.round(Number(v.price)) : null,
+      variantes: n.variants?.edges?.length || 1, publicado, url: publicado ? n.onlineStoreUrl : null,
+      stock: stock == null ? 'sin dato' : stock,
+    };
+  }));
+  return { productos, aviso: productos.length ? null : 'No se encontró ningún producto con esas palabras.' };
+}
+
+const DTO_BORRADOR_BOT = b => ({
+  id: b.id, conversacionId: b.conversacion_id, texto: b.texto, confianza: b.confianza, escalar: !!b.escalar, motivo: b.motivo_escalamiento || '',
+  resumen: b.resumen || '', alertas: b.alertas || [], productos: b.productos || [], estado: b.estado, origen: b.origen, creadoEn: b.creado_en,
+});
+
+async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quien = 'sistema', forzar = false, limiteMs = 45000 } = {}) {
+  const inicio = Date.now();
+  const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim();
+  if (!apiKey) return { ok: false, motivo: 'sin_api_key' };
+  const cfg = await leerConfigBot(sql);
+  if (cfg.modo === 'apagado') return { ok: false, motivo: 'bot_apagado' };
+
+  const { rows: msgsDesc } = await sql`
+    SELECT id, direccion, tipo, contenido_texto, marca_tiempo FROM whatsapp_mensajes
+    WHERE conversacion_id = ${conversacionId} ORDER BY marca_tiempo DESC LIMIT 20;`;
+  if (!msgsDesc.length) return { ok: false, motivo: 'sin_mensajes' };
+  const msgs = [...msgsDesc].reverse();
+  const ultimo = msgs[msgs.length - 1];
+  if (ultimo.direccion !== 'in' && !forzar) return { ok: false, motivo: 'ya_respondida' };
+
+  if (!forzar) {
+    const { rows: previo } = await sql`SELECT * FROM whatsapp_bot_borradores WHERE conversacion_id = ${conversacionId} AND mensaje_cliente_id = ${ultimo.id} AND estado = 'pendiente' ORDER BY creado_en DESC LIMIT 1;`;
+    if (previo[0]) return { ok: true, borrador: DTO_BORRADOR_BOT(previo[0]), reutilizado: true };
+  }
+
+  const { rows: convRows } = await sql`
+    SELECT c.categoria, c.producto, c.marca, c.modelo, a.resumen, a.problema_cliente, a.especificaciones
+    FROM whatsapp_conversaciones c LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id WHERE c.id = ${conversacionId};`;
+  const conv = convRows[0] || {};
+  const { rows: usados } = await sql`SELECT 1 FROM whatsapp_bot_borradores WHERE conversacion_id = ${conversacionId} AND estado IN ('enviado_igual', 'enviado_editado') LIMIT 1;`;
+
+  // Ejemplos reales de ficha completa del equipo en la misma categoría: el bot imita el estilo, no copia precios (lo revisa revisarPropuesta).
+  const ejemplos = [];
+  if (conv.categoria) {
+    const { rows: salientes } = await sql`
+      SELECT m.contenido_texto FROM whatsapp_mensajes m JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id
+      WHERE c.categoria = ${conv.categoria} AND m.direccion = 'out' AND m.contenido_texto IS NOT NULL AND length(m.contenido_texto) > 150
+        AND m.marca_tiempo > now() - interval '120 days' ORDER BY m.marca_tiempo DESC LIMIT 80;`;
+    for (const s of salientes) {
+      if (ejemplos.length >= 2) break;
+      if (esOfertaCompleta(mejorNivelOferta([s.contenido_texto])) && !ejemplos.includes(s.contenido_texto)) ejemplos.push(String(s.contenido_texto).slice(0, 900));
+    }
+  }
+
+  const system = construirSystemBot({ conocimiento: cfg.conocimiento, horario: cfg.horario, primeraRespuestaBot: !usados.length, ejemplos });
+  const hilo = msgs.map(m => `${m.direccion === 'in' ? 'Cliente' : 'IndexStore'}: ${m.tipo === 'texto' || m.tipo === 'text' ? (m.contenido_texto || '') : `[${m.tipo}${m.contenido_texto ? ': ' + m.contenido_texto : ''}]`}`).join('\n');
+  const datosIA = [conv.categoria && `categoría ${conv.categoria}`, conv.producto && `producto ${conv.producto}`, conv.marca && `marca ${conv.marca}`, conv.modelo && `modelo ${conv.modelo}`, conv.especificaciones && `especificaciones ${conv.especificaciones}`].filter(Boolean).join(', ');
+  const prompt = `${conv.resumen ? `Resumen previo de la conversación: ${conv.resumen}\n` : ''}${datosIA ? `Datos detectados por el análisis automático (pueden estar equivocados; confirma con el cliente): ${datosIA}\n` : ''}\nConversación (lo más reciente al final):\n${hilo}\n\nEscribe la respuesta al último mensaje del cliente.`;
+
+  const mensajesIA = [{ role: 'user', content: prompt }];
+  const productosVistos = [];
+  let tokensIn = 0, tokensOut = 0, propuesta = null;
+  for (let ronda = 0; ronda < 5 && !propuesta; ronda++) {
+    const restante = limiteMs - (Date.now() - inicio);
+    if (restante < 8000) throw new Error('Se acabó el tiempo antes de terminar la respuesta.');
+    const r = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: modeloBot(), max_tokens: 1200, system, tools: HERRAMIENTAS_BOT, tool_choice: { type: 'any' }, messages: mensajesIA }),
+    }, Math.min(30000, restante));
+    if (!r.ok) throw new Error(`Anthropic HTTP ${r.status}: ${(await r.text().catch(() => '')).slice(0, 300)}`);
+    const d = await r.json();
+    tokensIn += d.usage?.input_tokens || 0; tokensOut += d.usage?.output_tokens || 0;
+    const usos = (d.content || []).filter(b => b.type === 'tool_use');
+    const final = usos.find(u => u.name === 'proponer_respuesta');
+    if (final) { propuesta = final.input || {}; break; }
+    if (!usos.length) break;
+    mensajesIA.push({ role: 'assistant', content: d.content });
+    const resultados = [];
+    for (const u of usos) {
+      if (u.name === 'buscar_productos') {
+        const out = await buscarProductosBot(u.input?.consulta);
+        productosVistos.push(...out.productos);
+        resultados.push({ type: 'tool_result', tool_use_id: u.id, content: JSON.stringify(out) });
+      } else resultados.push({ type: 'tool_result', tool_use_id: u.id, content: 'Herramienta desconocida.', is_error: true });
+    }
+    mensajesIA.push({ role: 'user', content: resultados });
+  }
+  if (!propuesta) throw new Error('La IA no entregó una propuesta de respuesta.');
+
+  const p = normalizarPropuesta(propuesta, { productos: productosVistos, conocimiento: cfg.conocimiento });
+  await sql`UPDATE whatsapp_bot_borradores SET estado = 'reemplazado' WHERE conversacion_id = ${conversacionId} AND estado = 'pendiente';`;
+  const { rows } = await sql`
+    INSERT INTO whatsapp_bot_borradores (conversacion_id, mensaje_cliente_id, mensaje_cliente_en, texto, confianza, escalar, motivo_escalamiento, resumen, alertas, productos, modelo_ia, tokens_entrada, tokens_salida, origen, creado_por)
+    VALUES (${conversacionId}, ${ultimo.direccion === 'in' ? ultimo.id : null}, ${ultimo.direccion === 'in' ? ultimo.marca_tiempo : null}, ${p.texto}, ${p.confianza}, ${p.escalar}, ${p.motivo || null}, ${p.resumen || null},
+            ${JSON.stringify(p.alertas)}::jsonb, ${JSON.stringify(productosVistos.slice(0, 10))}::jsonb, ${modeloBot()}, ${tokensIn}, ${tokensOut}, ${origen}, ${quien})
+    RETURNING *;`;
+  return { ok: true, borrador: DTO_BORRADOR_BOT(rows[0]) };
+}
+
+const MENSAJES_ERROR_BOT = {
+  sin_api_key: 'Falta la ANTHROPIC_API_KEY en el servidor.',
+  bot_apagado: 'El bot está apagado. Actívalo en 🤖 Bot nocturno.',
+  sin_mensajes: 'Esta conversación todavía no tiene mensajes.',
+  ya_respondida: 'El último mensaje de esta conversación ya es del negocio: no hay nada que responder.',
+};
+
+async function manejarWhatsappBotGenerar(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const conversacionId = Number(req.body?.conversacionId);
+  if (!conversacionId) return res.status(400).json({ error: 'Falta conversacionId' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const r = await generarBorradorBot(sql, conversacionId, { origen: 'manual', quien: sesion.nombre || sesion.email || 'usuario', forzar: req.body?.forzar === true });
+    if (!r.ok) return res.status(200).json({ error: MENSAJES_ERROR_BOT[r.motivo] || 'No se pudo preparar la respuesta.' });
+    return res.status(200).json({ ok: true, borrador: r.borrador, reutilizado: !!r.reutilizado });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error preparando la respuesta del bot', detail: String(err) });
+  }
+}
+
+// Borrador pendiente de una conversación (lo consulta Conversaciones al abrirla) + modo actual del bot.
+async function manejarWhatsappBotBorrador(req, res, _sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const conversacionId = Number(req.query.conversacionId);
+  if (!conversacionId) return res.status(400).json({ error: 'Falta conversacionId' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const cfg = await leerConfigBot(sql);
+    const { rows } = await sql`SELECT * FROM whatsapp_bot_borradores WHERE conversacion_id = ${conversacionId} AND estado = 'pendiente' ORDER BY creado_en DESC LIMIT 1;`;
+    return res.status(200).json({ modo: cfg.modo, borrador: rows[0] ? DTO_BORRADOR_BOT(rows[0]) : null });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error leyendo el borrador del bot', detail: String(err) });
+  }
+}
+
+// El ejecutivo decide qué hacer con el borrador: insertarlo en el compositor, descartarlo o (tras enviar) registrar el texto final
+// para medir cuántas veces salió tal cual y cuántas editado.
+async function manejarWhatsappBotEstado(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const id = Number(req.body?.id);
+  const accion = String(req.body?.accion || '');
+  if (!id || !['insertado', 'descartado', 'enviado'].includes(accion)) return res.status(400).json({ error: 'Falta id o acción válida' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsappBot(sql);
+    const { rows } = await sql`SELECT id, texto FROM whatsapp_bot_borradores WHERE id = ${id};`;
+    if (!rows[0]) return res.status(404).json({ error: 'Borrador no encontrado' });
+    const textoFinal = String(req.body?.textoFinal || '').trim().slice(0, 2000);
+    const estado = accion === 'enviado' ? (mismoTexto(textoFinal, rows[0].texto) ? 'enviado_igual' : 'enviado_editado') : accion;
+    await sql`UPDATE whatsapp_bot_borradores SET estado = ${estado}, texto_final = ${accion === 'enviado' ? textoFinal : null}, resuelto_por = ${sesion.nombre || sesion.email || null}, resuelto_en = now() WHERE id = ${id};`;
+    return res.status(200).json({ ok: true, estado });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error actualizando el borrador', detail: String(err) });
+  }
+}
+
+// Conversaciones cuyo último mensaje es del cliente, llegó dentro del horario del bot, en las últimas 24 h y sin borrador todavía.
+async function candidatosLoteBot(sql, horario, omitir = []) {
+  const { rows } = await sql.query(
+    `SELECT c.id, ult.id AS mensaje_id, ult.marca_tiempo
+     FROM whatsapp_conversaciones c
+     JOIN LATERAL (SELECT id, direccion, marca_tiempo FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id ORDER BY marca_tiempo DESC LIMIT 1) ult ON true
+     WHERE ult.direccion = 'in' AND ult.marca_tiempo > now() - interval '24 hours'
+       AND NOT EXISTS (SELECT 1 FROM whatsapp_bot_borradores b WHERE b.conversacion_id = c.id AND b.mensaje_cliente_id = ult.id)
+       AND NOT (c.id = ANY($1::int[]))
+     ORDER BY ult.marca_tiempo ASC LIMIT 300;`,
+    [omitir.map(Number).filter(Number.isInteger)]
+  );
+  return rows.filter(r => dentroDeHorarioBot(new Date(r.marca_tiempo), horario));
+}
+
+// Prepara borradores en tandas (cada llamada procesa los que alcance en ~40 s; el navegador repite hasta terminar y muestra el %).
+async function manejarWhatsappBotLote(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const cfg = await leerConfigBot(sql);
+    if (cfg.modo === 'apagado') return res.status(200).json({ error: MENSAJES_ERROR_BOT.bot_apagado });
+    if (!(process.env.ANTHROPIC_API_KEY || '').trim()) return res.status(200).json({ error: MENSAJES_ERROR_BOT.sin_api_key });
+    const omitir = Array.isArray(req.body?.omitir) ? req.body.omitir : [];
+    const candidatos = await candidatosLoteBot(sql, cfg.horario, omitir);
+    const inicio = Date.now();
+    const procesadas = [], errores = [];
+    for (const c of candidatos) {
+      if (Date.now() - inicio > 28000) break; // una conversación puede tardar hasta ~25 s: deja margen bajo el tope de 60 s
+      try {
+        const r = await generarBorradorBot(sql, c.id, { origen: 'lote', quien: sesion.nombre || sesion.email || 'usuario', limiteMs: 28000 });
+        if (r.ok) procesadas.push(c.id); else errores.push({ id: c.id, error: MENSAJES_ERROR_BOT[r.motivo] || r.motivo });
+      } catch (err) { errores.push({ id: c.id, error: String(err.message || err).slice(0, 200) }); }
+    }
+    return res.status(200).json({ ok: true, totalAntes: candidatos.length, procesadas, errores, pendientes: Math.max(0, candidatos.length - procesadas.length - errores.length) });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error preparando las respuestas de la noche', detail: String(err) });
+  }
+}
+
+async function manejarWhatsappBotConfig(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    if (req.method === 'POST') {
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede cambiar la configuración del bot.' });
+      const { modo, horario, conocimiento } = req.body || {};
+      if (!MODOS_BOT.includes(modo)) return res.status(400).json({ error: 'Modo inválido.' });
+      let horarioOk;
+      try { horarioOk = validarHorario(horario); } catch (e) { return res.status(400).json({ error: e.message }); }
+      const texto = String(conocimiento || '').trim();
+      if (texto.length < 20 || texto.length > 8000) return res.status(400).json({ error: 'La base de conocimiento debe tener entre 20 y 8000 caracteres.' });
+      await asegurarTablaWhatsappBot(sql);
+      await sql`UPDATE whatsapp_bot_config SET modo = ${modo}, horario = ${JSON.stringify(horarioOk)}::jsonb, conocimiento = ${texto}, actualizado_por = ${sesion.nombre || sesion.email || null}, actualizado_en = now() WHERE id = 1;`;
+    } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const cfg = await leerConfigBot(sql);
+    return res.status(200).json({
+      ...cfg, esAdmin: sesion.rol === 'admin', apiKeyConfigurada: !!(process.env.ANTHROPIC_API_KEY || '').trim(), modelo: modeloBot(),
+      ahoraAtiendeBot: dentroDeHorarioBot(new Date(), cfg.horario), huecos: huecosDelHorario(cfg.horario),
+      conocimientoDefecto: CONOCIMIENTO_DEFECTO, horarioDefecto: HORARIO_BOT_DEFECTO,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error con la configuración del bot', detail: String(err) });
+  }
+}
+
+async function manejarWhatsappBotResumen(req, res, _sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const cfg = await leerConfigBot(sql);
+    const dias = Math.min(180, Math.max(1, parseInt(req.query.dias, 10) || 30));
+    const { rows } = await sql.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE estado = 'enviado_igual')::int AS enviado_igual,
+              COUNT(*) FILTER (WHERE estado = 'enviado_editado')::int AS enviado_editado,
+              COUNT(*) FILTER (WHERE estado = 'descartado')::int AS descartado,
+              COUNT(*) FILTER (WHERE estado = 'insertado')::int AS insertado,
+              COUNT(*) FILTER (WHERE estado = 'pendiente')::int AS pendiente,
+              COUNT(*) FILTER (WHERE escalar)::int AS escalados,
+              COUNT(*) FILTER (WHERE confianza = 'alta')::int AS alta,
+              COUNT(*) FILTER (WHERE confianza = 'media')::int AS media,
+              COUNT(*) FILTER (WHERE confianza = 'baja')::int AS baja,
+              COALESCE(AVG(tokens_entrada), 0)::int AS tokens_entrada_prom, COALESCE(AVG(tokens_salida), 0)::int AS tokens_salida_prom,
+              COALESCE(SUM(tokens_entrada), 0)::int AS tokens_entrada_total, COALESCE(SUM(tokens_salida), 0)::int AS tokens_salida_total
+       FROM whatsapp_bot_borradores WHERE creado_en >= now() - make_interval(days => $1::int) AND estado <> 'reemplazado';`,
+      [dias]
+    );
+    const r = rows[0];
+    const candidatos = await candidatosLoteBot(sql, cfg.horario);
+    const decididos = r.enviado_igual + r.enviado_editado + r.descartado;
+    return res.status(200).json({
+      dias, ...r, porPreparar: candidatos.length,
+      pctUsadosTalCual: decididos ? Math.round((r.enviado_igual / decididos) * 1000) / 10 : null,
+      pctUsadosEditados: decididos ? Math.round((r.enviado_editado / decididos) * 1000) / 10 : null,
+      pctDescartados: decididos ? Math.round((r.descartado / decididos) * 1000) / 10 : null,
+      decididos,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error calculando el resumen del bot', detail: String(err) });
   }
 }
 
