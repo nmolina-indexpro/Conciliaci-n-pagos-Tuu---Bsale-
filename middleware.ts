@@ -108,7 +108,7 @@ function esIndexscalePixelPublico(pathname, searchParams) {
 // completa. La seguridad real la hace la clave BUSCADOR_IA_KEY (header
 // x-api-key) dentro del propio handler.
 function esBuscadorIaRegistrarPublico(pathname, searchParams) {
-  return pathname === '/api/negocio' && ['buscador-ia-registrar', 'buscador-ia-evento'].includes(searchParams.get('recurso'));
+  return pathname === '/api/negocio' && ['buscador-ia-registrar', 'buscador-ia-evento', 'buscador-ia-ranking'].includes(searchParams.get('recurso'));
 }
 
 // Recuperación de contraseña (ver recuperar-password.html /

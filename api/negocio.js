@@ -108,6 +108,7 @@ export default async function handler(req, res) {
   // dentro del handler. Ver también middleware.ts (esBuscadorIaRegistrarPublico).
   if (req.query.recurso === 'buscador-ia-registrar') return manejarBuscadorIaRegistrar(req, res);
   if (req.query.recurso === 'buscador-ia-evento') return manejarBuscadorIaEvento(req, res);
+  if (req.query.recurso === 'buscador-ia-ranking') return manejarBuscadorIaRanking(req, res);
   // Recuperación de contraseña (ver recuperar-password.html /
   // reset-password.html): por definición corre SIN sesión -- quien la usa
   // es justamente alguien que no puede entrar. La seguridad real la hace el
@@ -13497,6 +13498,33 @@ async function manejarBuscadorIaEvento(req, res) {
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(200).json({ error: 'No se pudo guardar el evento: ' + err.message });
+  }
+}
+
+// Ranking de ventas para el Buscador IA: el Worker manda los SKU de una colección y recibe cuántas unidades se vendieron de cada uno
+// en los últimos 180 días (Bsale, bsale_ventas_sku), para mostrar "los más vendidos" de verdad. Mismo esquema de seguridad que el
+// registro: clave en x-api-key, sin sesión. Solo devuelve unidades por SKU (nada de clientes ni montos).
+async function manejarBuscadorIaRanking(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const claveEsperada = process.env.BUSCADOR_IA_KEY;
+  if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
+  if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) return res.status(401).json({ error: 'Clave inválida' });
+  const skus = Array.isArray(req.body?.skus)
+    ? [...new Set(req.body.skus.map(s => String(s ?? '').trim()).filter(s => s && s.length <= 60))].slice(0, 300)
+    : [];
+  if (!skus.length) return res.status(400).json({ error: 'Faltan SKU' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaVentasSku(sql);
+    const { rows } = await sql.query(
+      `SELECT sku, SUM(cantidad)::int AS unidades FROM bsale_ventas_sku
+       WHERE sku = ANY($1::text[]) AND fecha >= (CURRENT_DATE - 180) GROUP BY sku`,
+      [skus],
+    );
+    return res.status(200).json({ ok: true, dias: 180, ventas: Object.fromEntries(rows.filter(r => r.unidades > 0).map(r => [r.sku, r.unidades])) });
+  } catch (e) {
+    // Sin ranking el Worker sigue con el orden de la colección: nunca debe romper la búsqueda.
+    return res.status(200).json({ ventas: {}, error: 'No se pudo leer el ranking: ' + e.message });
   }
 }
 
