@@ -147,7 +147,9 @@ async function prepararLoteBot(){
       prog.textContent = total ? `${pct}% — ${fmtNum(hechas + errores.length)} de ${fmtNum(total)} conversaciones revisadas` : 'No hay conversaciones por preparar.';
       if(d.pendientes === 0 || (d.procesadas.length === 0 && d.errores.length === 0)) break;
     }
-    det.innerHTML = `Listo: <b>${fmtNum(hechas)}</b> borradores preparados${errores.length ? `; <b>${errores.length}</b> con error (${escapeHtml(errores.slice(0, 3).map(e => '#' + e.id + ': ' + e.error).join(' · '))})` : ''}. Ábrelos en Conversaciones.`;
+    const motivos = [...new Set(errores.map(e => e.error))].slice(0, 3);
+    if(hechas === 0 && errores.length) det.innerHTML = `<b style="color:var(--red);">No se preparó ninguno.</b> ${escapeHtml(motivos.join(' · '))}`;
+    else det.innerHTML = `Listo: <b>${fmtNum(hechas)}</b> borradores preparados${errores.length ? `; <b>${errores.length}</b> con error (${escapeHtml(motivos.join(' · '))})` : ''}. Ábrelos en Conversaciones.`;
   }catch(err){ det.textContent = 'Error: ' + err.message; }
   finally{
     botPanel.ejecutando = false;

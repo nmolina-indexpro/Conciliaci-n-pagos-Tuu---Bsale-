@@ -7465,7 +7465,11 @@ async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quie
       method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({ model: modeloBot(), max_tokens: 1200, system, tools: HERRAMIENTAS_BOT, tool_choice: { type: 'any' }, messages: mensajesIA }),
     }, Math.min(30000, restante));
-    if (!r.ok) throw new Error(`Anthropic HTTP ${r.status}: ${(await r.text().catch(() => '')).slice(0, 300)}`);
+    if (!r.ok) {
+      const cuerpo = (await r.text().catch(() => '')).slice(0, 300);
+      if (/credit balance is too low/i.test(cuerpo)) throw new Error('La cuenta de Anthropic no tiene saldo: recarga en console.anthropic.com (Plans & Billing) y vuelve a intentar.');
+      throw new Error(`Anthropic HTTP ${r.status}: ${cuerpo}`);
+    }
     const d = await r.json();
     tokensIn += d.usage?.input_tokens || 0; tokensOut += d.usage?.output_tokens || 0;
     const usos = (d.content || []).filter(b => b.type === 'tool_use');
