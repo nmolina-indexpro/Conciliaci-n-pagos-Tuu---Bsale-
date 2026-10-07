@@ -45,7 +45,7 @@ function renderPanelBot(){
   const dis = admin ? '' : 'disabled';
   const modoBadge = c.modo === 'apagado' ? '<span class="pm-badge no">apagado</span>' : '<span class="pm-badge ok">modo sombra</span>';
   const avisos = [];
-  if(!c.apiKeyConfigurada) avisos.push('<b>Falta la ANTHROPIC_API_KEY</b> en el servidor: sin ella el bot no puede redactar.');
+  if(!c.apiKeyConfigurada) avisos.push('<b>Falta la GEMINI_API_KEY</b> en el servidor: sin ella el bot no puede redactar.');
   if(!admin) avisos.push('Solo un administrador puede cambiar la configuración. Tú puedes preparar respuestas y ver el rendimiento.');
   const nota = avisos.length ? `<div class="pm-nota">${avisos.join('<br>')}</div>` : '';
   const kpis = r ? `<div class="pm-kpis">

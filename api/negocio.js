@@ -3980,7 +3980,7 @@ async function manejarComparadorCotizacionManual(req, res, sesion) {
   }
 }
 
-// Herramienta forzada para que Claude transcriba una lista de precios/stock
+// Herramienta forzada para que Gemini transcriba una lista de precios/stock
 // de un proveedor -- mismo mecanismo (tool_choice forzado) que
 // WHATSAPP_ANALISIS_TOOL/ejecutarAnalisisIA más abajo en este archivo.
 const COMPARADOR_EXTRACCION_TOOL = {
@@ -4010,11 +4010,10 @@ const COMPARADOR_EXTRACCION_TOOL = {
   },
 };
 
-// Gemini primero, Claude de respaldo -- mismo criterio y mismos helpers
+// Solo Gemini (todas las IA del sistema usan Gemini) -- mismo criterio y mismos helpers
 // genéricos (convertirSchemaAGemini/mapearContenidoAGemini/fetchConTimeout)
 // que ya usa el Análisis IA de WhatsApp (ver ejecutarAnalisisIA más abajo
-// en este archivo): pedido del usuario tras quedarse sin saldo de
-// Anthropic. COMPARADOR_EXTRACCION_TOOL sigue siendo la única fuente de
+// en este archivo). COMPARADOR_EXTRACCION_TOOL sigue siendo la única fuente de
 // verdad del schema -- convertirSchemaAGemini solo lo traduce al formato
 // que exige Gemini (OpenAPI en mayúsculas).
 const COMPARADOR_EXTRACCION_TOOL_GEMINI = {
@@ -4044,39 +4043,13 @@ async function llamarGeminiExtraccionCotizacion(contenido) {
   );
   if (!respuesta.ok) {
     const texto = await respuesta.text().catch(() => '');
-    throw new Error(`Gemini HTTP ${respuesta.status}: ${texto.slice(0, 300)}`);
+    throw errorGemini(respuesta.status, texto);
   }
   const dataIA = await respuesta.json();
   const partes = dataIA.candidates?.[0]?.content?.parts || [];
   const llamada = partes.find(p => p.functionCall);
   if (!llamada) throw new Error('Gemini no devolvió datos estructurados');
   return llamada.functionCall.args?.items || [];
-}
-
-async function llamarClaudeExtraccionCotizacion(contenido) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('sin_anthropic_api_key');
-  const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2048,
-      system: COMPARADOR_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: contenido }],
-      tools: [COMPARADOR_EXTRACCION_TOOL],
-      tool_choice: { type: 'tool', name: 'registrar_cotizacion' },
-    }),
-  }, 45000);
-
-  if (!respuestaIA.ok) {
-    const texto = await respuestaIA.text().catch(() => '');
-    throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
-  }
-  const dataIA = await respuestaIA.json();
-  const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
-  if (!bloqueHerramienta) throw new Error('La IA no devolvió datos estructurados');
-  return bloqueHerramienta.input.items || [];
 }
 
 async function manejarComparadorCotizacionImagen(req, res, sesion) {
@@ -4088,8 +4061,8 @@ async function manejarComparadorCotizacionImagen(req, res, sesion) {
     if (!coincidenciaImagen) return res.status(400).json({ error: 'Falta una imagen válida' });
     const [, mediaType, base64Data] = coincidenciaImagen;
 
-    if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
-      return res.status(200).json({ error: 'Ni GEMINI_API_KEY ni ANTHROPIC_API_KEY están configuradas en el servidor' });
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(200).json({ error: 'GEMINI_API_KEY no está configurada en el servidor' });
     }
 
     const sql = await getSql();
@@ -4102,19 +4075,8 @@ async function manejarComparadorCotizacionImagen(req, res, sesion) {
       { type: 'text', text: 'Transcribe todas las filas de productos con precio y stock visibles en esta imagen.' },
     ];
 
-    let itemsExtraidos, proveedorUsado;
-    try {
-      itemsExtraidos = await llamarGeminiExtraccionCotizacion(contenido);
-      proveedorUsado = 'gemini';
-    } catch (errGemini) {
-      console.warn('[comparadorCotizacionImagen] Gemini falló, reintentando con Claude:', errGemini.message);
-      try {
-        itemsExtraidos = await llamarClaudeExtraccionCotizacion(contenido);
-        proveedorUsado = 'claude (respaldo)';
-      } catch (errClaude) {
-        throw new Error(`Gemini: ${errGemini.message} | Claude (respaldo): ${errClaude.message}`);
-      }
-    }
+    const itemsExtraidos = await llamarGeminiExtraccionCotizacion(contenido);
+    const proveedorUsado = 'gemini';
     console.log(`[comparadorCotizacionImagen] solicitud ${solicitudId} extraída con ${proveedorUsado}`);
     if (itemsExtraidos.length === 0) return res.status(200).json({ error: 'No se detectó ningún producto en la imagen' });
 
@@ -6312,7 +6274,7 @@ async function manejarWhatsappWebhook(req, res) {
     // webhook (rara vez toca más de una conversación distinta a la vez),
     // pero si alguna vez llegara un lote grande, esto evita que la función
     // se pase del límite de duración (60s, ver vercel.json) encadenando
-    // demasiadas llamadas a Anthropic una tras otra.
+    // demasiadas llamadas a la IA una tras otra.
     let analisisRestantes = 5;
     for (const conversacionId of conversacionesTocadas) {
       if (analisisRestantes-- <= 0) break;
@@ -7332,7 +7294,7 @@ async function manejarWhatsappSugerirRespuesta(req, res, sesion) {
     const resultado = await generarSugerenciaRespuesta(sql, conversacionId);
     if (!resultado.ok) {
       const mensajes = {
-        sin_api_key: 'No hay ninguna API de IA configurada en el servidor (GEMINI_API_KEY o ANTHROPIC_API_KEY).',
+        sin_api_key: 'GEMINI_API_KEY no está configurada en el servidor.',
         sin_mensajes: 'Esta conversación todavía no tiene mensajes para sugerir una respuesta.',
       };
       return res.status(200).json({ error: mensajes[resultado.motivo] || 'No se pudo generar una sugerencia.' });
@@ -7349,7 +7311,8 @@ async function manejarWhatsappSugerirRespuesta(req, res, sesion) {
 // Conversaciones. NUNCA envía nada sola: el único camino de envío sigue siendo manejarWhatsappEnviarMensaje, manual.
 // Instrucciones, horarios y revisión de la propuesta: lib/whatsapp-bot.js.
 // ══════════════════════════════════════════════════════════════════════
-const modeloBot = () => (process.env.WHATSAPP_BOT_MODEL || 'claude-sonnet-5-5').trim();
+const modeloBot = () => (process.env.WHATSAPP_BOT_MODEL || GEMINI_MODEL_ANALISIS).trim();
+const HERRAMIENTAS_BOT_GEMINI = HERRAMIENTAS_BOT.map(t => ({ name: t.name, description: t.description, parameters: convertirSchemaAGemini(t.input_schema) }));
 
 async function leerConfigBot(sql) {
   await asegurarTablaWhatsappBot(sql);
@@ -7420,7 +7383,7 @@ const DTO_BORRADOR_BOT = b => ({
 
 async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quien = 'sistema', forzar = false, limiteMs = 45000 } = {}) {
   const inicio = Date.now();
-  const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim();
+  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey) return { ok: false, motivo: 'sin_api_key' };
   const cfg = await leerConfigBot(sql);
   if (cfg.modo === 'apagado') return { ok: false, motivo: 'bot_apagado' };
@@ -7462,37 +7425,44 @@ async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quie
   const datosIA = [conv.categoria && `categoría ${conv.categoria}`, conv.producto && `producto ${conv.producto}`, conv.marca && `marca ${conv.marca}`, conv.modelo && `modelo ${conv.modelo}`, conv.especificaciones && `especificaciones ${conv.especificaciones}`].filter(Boolean).join(', ');
   const prompt = `${conv.resumen ? `Resumen previo de la conversación: ${conv.resumen}\n` : ''}${datosIA ? `Datos detectados por el análisis automático (pueden estar equivocados; confirma con el cliente): ${datosIA}\n` : ''}\nConversación (lo más reciente al final):\n${hilo}\n\nEscribe la respuesta al último mensaje del cliente.`;
 
-  const mensajesIA = [{ role: 'user', content: prompt }];
+  // Conversación con Gemini (function calling): el modelo puede pedir buscar_productos varias veces y termina con proponer_respuesta.
+  // El contenido que devuelve el modelo se reenvía tal cual (incluye las "thought signatures" que exigen los modelos Gemini 3).
+  const contenidos = [{ role: 'user', parts: [{ text: prompt }] }];
   const productosVistos = [];
   let tokensIn = 0, tokensOut = 0, propuesta = null;
   for (let ronda = 0; ronda < 5 && !propuesta; ronda++) {
     const restante = limiteMs - (Date.now() - inicio);
     if (restante < 8000) throw new Error('Se acabó el tiempo antes de terminar la respuesta.');
-    const r = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
-      method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: modeloBot(), max_tokens: 1200, system, tools: HERRAMIENTAS_BOT, tool_choice: { type: 'any' }, messages: mensajesIA }),
+    const r = await fetchConTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${modeloBot()}:generateContent`, {
+      method: 'POST', headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: system }] },
+        contents: contenidos,
+        tools: [{ function_declarations: HERRAMIENTAS_BOT_GEMINI }],
+        tool_config: { function_calling_config: { mode: 'ANY' } },
+        generationConfig: { maxOutputTokens: 4096 },
+      }),
     }, Math.min(30000, restante));
-    if (!r.ok) {
-      const cuerpo = (await r.text().catch(() => '')).slice(0, 300);
-      if (/credit balance is too low/i.test(cuerpo)) throw new Error('La cuenta de Anthropic no tiene saldo: recarga en console.anthropic.com (Plans & Billing) y vuelve a intentar.');
-      throw new Error(`Anthropic HTTP ${r.status}: ${cuerpo}`);
-    }
+    if (!r.ok) throw errorGemini(r.status, await r.text().catch(() => ''));
     const d = await r.json();
-    tokensIn += d.usage?.input_tokens || 0; tokensOut += d.usage?.output_tokens || 0;
-    const usos = (d.content || []).filter(b => b.type === 'tool_use');
-    const final = usos.find(u => u.name === 'proponer_respuesta');
-    if (final) { propuesta = final.input || {}; break; }
-    if (!usos.length) break;
-    mensajesIA.push({ role: 'assistant', content: d.content });
-    const resultados = [];
-    for (const u of usos) {
-      if (u.name === 'buscar_productos') {
-        const out = await buscarProductosBot(u.input?.consulta);
+    tokensIn += d.usageMetadata?.promptTokenCount || 0;
+    tokensOut += (d.usageMetadata?.candidatesTokenCount || 0) + (d.usageMetadata?.thoughtsTokenCount || 0);
+    const contenidoModelo = d.candidates?.[0]?.content;
+    const llamadas = (contenidoModelo?.parts || []).filter(p => p.functionCall);
+    const final = llamadas.find(p => p.functionCall.name === 'proponer_respuesta');
+    if (final) { propuesta = final.functionCall.args || {}; break; }
+    if (!llamadas.length) break;
+    contenidos.push(contenidoModelo);
+    const respuestas = [];
+    for (const p of llamadas) {
+      const { name, args } = p.functionCall;
+      if (name === 'buscar_productos') {
+        const out = await buscarProductosBot(args?.consulta);
         productosVistos.push(...out.productos);
-        resultados.push({ type: 'tool_result', tool_use_id: u.id, content: JSON.stringify(out) });
-      } else resultados.push({ type: 'tool_result', tool_use_id: u.id, content: 'Herramienta desconocida.', is_error: true });
+        respuestas.push({ functionResponse: { name, response: out } });
+      } else respuestas.push({ functionResponse: { name, response: { error: 'Herramienta desconocida.' } } });
     }
-    mensajesIA.push({ role: 'user', content: resultados });
+    contenidos.push({ role: 'user', parts: respuestas });
   }
   if (!propuesta) throw new Error('La IA no entregó una propuesta de respuesta.');
 
@@ -7507,7 +7477,7 @@ async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quie
 }
 
 const MENSAJES_ERROR_BOT = {
-  sin_api_key: 'Falta la ANTHROPIC_API_KEY en el servidor.',
+  sin_api_key: 'Falta la GEMINI_API_KEY en el servidor.',
   bot_apagado: 'El bot está apagado. Actívalo en 🤖 Bot nocturno.',
   sin_mensajes: 'Esta conversación todavía no tiene mensajes.',
   ya_respondida: 'El último mensaje de esta conversación ya es del negocio: no hay nada que responder.',
@@ -7588,7 +7558,7 @@ async function manejarWhatsappBotLote(req, res, sesion) {
     await asegurarTablaWhatsapp(sql);
     const cfg = await leerConfigBot(sql);
     if (cfg.modo === 'apagado') return res.status(200).json({ error: MENSAJES_ERROR_BOT.bot_apagado });
-    if (!(process.env.ANTHROPIC_API_KEY || '').trim()) return res.status(200).json({ error: MENSAJES_ERROR_BOT.sin_api_key });
+    if (!(process.env.GEMINI_API_KEY || '').trim()) return res.status(200).json({ error: MENSAJES_ERROR_BOT.sin_api_key });
     const omitir = Array.isArray(req.body?.omitir) ? req.body.omitir : [];
     const candidatos = await candidatosLoteBot(sql, cfg.horario, omitir);
     const inicio = Date.now();
@@ -7623,7 +7593,7 @@ async function manejarWhatsappBotConfig(req, res, sesion) {
     } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     const cfg = await leerConfigBot(sql);
     return res.status(200).json({
-      ...cfg, esAdmin: sesion.rol === 'admin', apiKeyConfigurada: !!(process.env.ANTHROPIC_API_KEY || '').trim(), modelo: modeloBot(),
+      ...cfg, esAdmin: sesion.rol === 'admin', apiKeyConfigurada: !!(process.env.GEMINI_API_KEY || '').trim(), modelo: modeloBot(),
       ahoraAtiendeBot: dentroDeHorarioBot(new Date(), cfg.horario), huecos: huecosDelHorario(cfg.horario),
       conocimientoDefecto: CONOCIMIENTO_DEFECTO, horarioDefecto: HORARIO_BOT_DEFECTO,
     });
@@ -7970,10 +7940,10 @@ async function manejarWhatsappEnviarMensaje(req, res, sesion) {
 
 // ---- Análisis con IA (punto 13 del pedido: la tabla whatsapp_analisis_ia
 // quedó preparada para esto -- este es el proceso que la llena) ----
-// Usa la API de mensajes de Claude (Anthropic) con "tool use" forzado
+// Usa la API de Gemini con function calling forzado
 // (tool_choice) para obtener JSON estructurado y validado por esquema, en
 // vez de pedirle JSON en texto libre y parsearlo a mano -- más confiable.
-// Requiere ANTHROPIC_API_KEY; sin ella, error controlado (mismo patrón
+// Requiere GEMINI_API_KEY; sin ella, error controlado (mismo patrón
 // que el resto de integraciones externas de este archivo).
 // Palabra clave en español que debería aparecer en el título de Shopify
 // para cada categoría -- sirve tanto para armar la búsqueda como para
@@ -9270,10 +9240,9 @@ const WHATSAPP_ANALISIS_TOOL = {
   },
 };
 
-// ---- Gemini como proveedor principal del Análisis IA (Claude queda de
-// respaldo) -- pedido del usuario: mismo trabajo (lee fotos, clasifica la
-// conversación) a una fracción del costo de Claude Haiku 4.5. Mismo prompt
-// del sistema y misma herramienta que ya usa Claude -- se REUTILIZAN, no
+// ---- Gemini, único proveedor de IA del sistema (lee fotos, clasifica la
+// conversación). El prompt del sistema y la herramienta se definen una
+// sola vez y -- se REUTILIZAN, no
 // se duplican: WHATSAPP_ANALISIS_TOOL sigue siendo la única fuente de
 // verdad de los campos/descripciones, solo se traduce su forma al formato
 // que exige la API de Gemini (OpenAPI en mayúsculas, no JSON Schema).
@@ -9314,6 +9283,15 @@ function mapearContenidoAGemini(contenido) {
 }
 
 const GEMINI_MODEL_ANALISIS = 'gemini-3.1-flash-lite';
+// Cuando Gemini rechaza por cuota, saldo o facturación (la cuenta de Google AI Studio tiene su propio saldo prepago), el mensaje crudo
+// de la API no ayuda a quien usa el ERP: se traduce a qué hacer.
+function errorGemini(status, cuerpo) {
+  const t = String(cuerpo || '').slice(0, 300);
+  if (status === 429 || /RESOURCE_EXHAUSTED|quota|billing|prepayment|credit/i.test(t)) {
+    return new Error('La cuenta de Gemini no tiene cupo o saldo: revisa Facturación en Google AI Studio (aistudio.google.com) y vuelve a intentar.');
+  }
+  return new Error(`Gemini HTTP ${status}: ${t}`);
+}
 // tool_config.mode:"ANY" obliga a Gemini a devolver la función (no texto
 // libre) -- equivalente a tool_choice:{type:'tool',...} de Anthropic, que
 // es justo la garantía de la que depende todo lo que lee "a" río abajo.
@@ -9337,7 +9315,7 @@ async function llamarGeminiAnalisis(systemPrompt, contenido) {
   );
   if (!respuesta.ok) {
     const texto = await respuesta.text().catch(() => '');
-    throw new Error(`Gemini HTTP ${respuesta.status}: ${texto.slice(0, 300)}`);
+    throw errorGemini(respuesta.status, texto);
   }
   const dataIA = await respuesta.json();
   const partes = dataIA.candidates?.[0]?.content?.parts || [];
@@ -9346,37 +9324,8 @@ async function llamarGeminiAnalisis(systemPrompt, contenido) {
   return llamada.functionCall.args || {};
 }
 
-// Mismo llamado que antes a la API de Anthropic, solo que ahora vive en su
-// propia función para poder usarse como respaldo de Gemini (ver
-// ejecutarAnalisisIA) en vez de ser el único camino.
-async function llamarClaudeAnalisis(systemPrompt, contenido) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('sin_anthropic_api_key');
-  const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: contenido }],
-      tools: [WHATSAPP_ANALISIS_TOOL],
-      tool_choice: { type: 'tool', name: 'registrar_analisis' },
-    }),
-  }, 30000);
-
-  if (!respuestaIA.ok) {
-    const texto = await respuestaIA.text().catch(() => '');
-    throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
-  }
-  const dataIA = await respuestaIA.json();
-  const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
-  if (!bloqueHerramienta) throw new Error('La IA no devolvió un análisis estructurado');
-  return bloqueHerramienta.input || {};
-}
-
-// ---- Sugerencia de respuesta (rediseño bandeja) -- mismo patrón Gemini-
-// primero/Claude-de-respaldo que el Análisis IA, pero sin "tool use"
+// ---- Sugerencia de respuesta (rediseño bandeja) -- misma IA (Gemini)
+// que el Análisis IA, pero sin "tool use"
 // forzado: acá solo hace falta texto libre corto, no un JSON estructurado.
 // Nunca escribe en la base ni manda nada a WhatsApp -- devuelve el
 // borrador para que manejarWhatsappSugerirRespuesta lo entregue al
@@ -9400,35 +9349,15 @@ async function llamarGeminiTexto(systemPrompt, prompt) {
   );
   if (!respuesta.ok) {
     const texto = await respuesta.text().catch(() => '');
-    throw new Error(`Gemini HTTP ${respuesta.status}: ${texto.slice(0, 300)}`);
+    throw errorGemini(respuesta.status, texto);
   }
   const dataIA = await respuesta.json();
   const texto = (dataIA.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
   if (!texto) throw new Error('Gemini no devolvió texto');
   return texto;
 }
-async function llamarClaudeTexto(systemPrompt, prompt) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('sin_anthropic_api_key');
-  const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001', max_tokens: 300, system: systemPrompt,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  }, 20000);
-  if (!respuestaIA.ok) {
-    const texto = await respuestaIA.text().catch(() => '');
-    throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
-  }
-  const dataIA = await respuestaIA.json();
-  const bloque = (dataIA.content || []).find(b => b.type === 'text');
-  if (!bloque?.text) throw new Error('Claude no devolvió texto');
-  return bloque.text.trim();
-}
 async function generarSugerenciaRespuesta(sql, conversacionId) {
-  if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) return { ok: false, motivo: 'sin_api_key' };
+  if (!process.env.GEMINI_API_KEY) return { ok: false, motivo: 'sin_api_key' };
   const { rows: mensajes } = await sql`
     SELECT direccion, tipo, contenido_texto, marca_tiempo FROM whatsapp_mensajes
     WHERE conversacion_id = ${conversacionId} ORDER BY marca_tiempo DESC LIMIT 12;
@@ -9442,18 +9371,8 @@ async function generarSugerenciaRespuesta(sql, conversacionId) {
   const hilo = mensajes.map(m => `${m.direccion === 'in' ? 'Cliente' : 'IndexStore'}: ${m.tipo === 'texto' ? (m.contenido_texto || '') : `[${m.tipo}]`}`).join('\n');
   const prompt = `${resumenTexto}Últimos mensajes de la conversación:\n${hilo}\n\nEscribe el borrador de respuesta para el vendedor.`;
 
-  let texto, proveedorUsado;
-  try {
-    texto = await llamarGeminiTexto(systemPrompt, prompt);
-    proveedorUsado = 'gemini';
-  } catch (errGemini) {
-    try {
-      texto = await llamarClaudeTexto(systemPrompt, prompt);
-      proveedorUsado = 'claude (respaldo)';
-    } catch (errClaude) {
-      throw new Error(`Gemini: ${errGemini.message} | Claude (respaldo): ${errClaude.message}`);
-    }
-  }
+  const texto = await llamarGeminiTexto(systemPrompt, prompt);
+  const proveedorUsado = 'gemini';
   console.log(`[generarSugerenciaRespuesta] conversación ${conversacionId} sugerida con ${proveedorUsado}`);
   return { ok: true, borrador: texto };
 }
@@ -9466,10 +9385,8 @@ async function generarSugerenciaRespuesta(sql, conversacionId) {
 // conversación inexistente) -- errores de verdad (Anthropic caído, etc.)
 // sí se propagan, que el llamador decida cómo mostrarlos.
 async function ejecutarAnalisisIA(sql, conversacionId, quien) {
-  // Gemini primero, Claude de respaldo (ver llamarGeminiAnalisis/
-  // llamarClaudeAnalisis más arriba) -- basta con que exista UNA de las dos
-  // keys para intentar el análisis.
-  if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) return { ok: false, motivo: 'sin_api_key' };
+  // Se usa Gemini (ver llamarGeminiAnalisis más arriba): hace falta GEMINI_API_KEY.
+  if (!process.env.GEMINI_API_KEY) return { ok: false, motivo: 'sin_api_key' };
 
   const { rows: mensajes } = await sql`
     SELECT direccion, tipo, contenido_texto, media_url, marca_tiempo FROM whatsapp_mensajes
@@ -9598,29 +9515,9 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
 
   const systemPrompt = `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Prioridad para los campos marca/modelo: (1) si el cliente ESCRIBE el modelo en el texto de algún mensaje de la conversación, usa eso -- es la fuente más confiable, por encima de cualquier foto. (2) Si el cliente no escribe el modelo pero manda una foto de la etiqueta/sticker pegada en la carcasa o la base del equipo, léela para identificarlo. (3) Si manda las dos cosas (un modelo escrito Y una foto), el modelo que el cliente escribió manda -- usa la foto solo para completar marca/modelo si el texto no los menciona, no para contradecir lo que el cliente ya escribió. Estas etiquetas suelen traer VARIOS códigos distintos -- usa el que sea el modelo comercial del producto (el que identifica al equipo específico que compraría alguien, ej. "24-dd0092la" en un HP All-in-One, o "15-ef2xxx" en un notebook), y NO el "Regulatory model number"/"Model reglamentario" (un código interno de certificación FCC/IC que no corresponde al modelo real, ej. "TPC-0089-24"), ni el número de serie ("Serial No."/"S/N"), ni el PPID. Series/líneas reales de notebooks por marca (el modelo real casi siempre empieza con una de estas seguida de un número de generación, ej. "IdeaPad Gaming 3 15IMH05"): ${Object.entries(WHATSAPP_SERIES_NOTEBOOK).map(([marca, series]) => `${marca}: ${series.join(', ')}`).join(' | ')}. Esta lista es SOLO para que reconozcas si un texto que sí leíste en la imagen es una serie real -- NUNCA la uses para adivinar o suponer una serie "típica" o "probable" según el contexto (ej. NO asumas "Legion" solo porque el cliente pidió un notebook gamer; eso sería inventar, aunque sea una suposición razonable). El modelo/marca solo se registran si están literalmente escritos y legibles en la foto o en el texto del cliente -- transcribe exactamente lo que dice la etiqueta, letra por letra, no lo que te parezca más probable. Si el único código visible en la etiqueta NO corresponde a ninguna serie conocida (puede ser la capacidad de la batería en Wh, un part number, un código regulatorio, etc.) Y no hay otro texto de serie legible en la misma foto, deja el campo modelo vacío en vez de adivinar. A veces el mensaje del usuario incluye primero un bloque de "Contexto" con datos de una conversación anterior del mismo cliente (las conversaciones se cortan automáticamente tras 24h sin actividad, así que un seguimiento corto como "gracias por la info" puede quedar en una conversación separada sin mencionar el producto de nuevo) -- úsalo solo si la conversación actual es claramente ese seguimiento, nunca si trata de algo distinto. Regla de conversión: en IndexStore una conversión es una intención de venta: el negocio le envió al cliente el enlace del producto y/o una oferta (producto disponible, precio, condiciones como garantía o instalación, dirección u horarios). Eso es una conversión comercial: usa resultado \"cotizacion\" (el cliente evalúa) y NO \"cliente_no_responde\" ni una pérdida, aunque el cliente no haya vuelto a escribir -- IndexStore vende productos técnicos de forma conversacional y de confianza, y el cliente puede decidir después o comparar con otro proveedor. Regla de cierre: si el último mensaje del cliente es un agradecimiento o confirmación corta ("ok", "gracias", "Oka.. gracias", "perfecto", "listo", 👍), interprétalo como que la respuesta llegó y la duda quedó aclarada: la conversación terminó bien, el cliente NO dejó de responder. Si el tema era una consulta de información, garantía, postventa o servicio técnico, usa resultado "consulta_resuelta" y no completes motivo_perdida. Solo si en esa conversación el negocio le dijo algo que implica no poder vender (no hay stock, no vendemos esa marca, el precio) mantén ese motivo concreto. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`;
 
-  // Gemini primero (mismo trabajo a una fracción del costo de Claude, ver
-  // conversación con el usuario), Claude de respaldo si Gemini falla por
-  // lo que sea (todavía sin GEMINI_API_KEY configurada, error de red, no
-  // devolvió la función esperada) -- así no se cae el análisis completo
-  // mientras se termina de migrar. Se loguea cuál de los dos respondió,
-  // para poder confirmar en producción que Gemini está funcionando antes
-  // de sacar a Claude del todo.
-  let a, proveedorUsado;
-  try {
-    a = await llamarGeminiAnalisis(systemPrompt, contenido);
-    proveedorUsado = 'gemini';
-  } catch (errGemini) {
-    console.warn('[ejecutarAnalisisIA] Gemini falló, reintentando con Claude:', errGemini.message);
-    try {
-      a = await llamarClaudeAnalisis(systemPrompt, contenido);
-      proveedorUsado = 'claude (respaldo)';
-    } catch (errClaude) {
-      // Se incluye el motivo de Gemini en el error final -- si no, un
-      // fallo de Claude (ej. sin saldo) tapa por qué Gemini no respondió
-      // primero, que es el dato que hace falta para diagnosticar.
-      throw new Error(`Gemini: ${errGemini.message} | Claude (respaldo): ${errClaude.message}`);
-    }
-  }
+  // Gemini es el único proveedor: si falla (sin saldo, error de red, no devolvió la función esperada) el error sube tal cual.
+  const a = await llamarGeminiAnalisis(systemPrompt, contenido);
+  const proveedorUsado = 'gemini';
   console.log(`[ejecutarAnalisisIA] conversación ${conversacionId} analizada con ${proveedorUsado}`);
 
   const limpiar = (v) => (v && String(v).trim()) ? String(v).trim() : null;
@@ -9773,7 +9670,7 @@ async function manejarWhatsappAnalizar(req, res, sesion) {
     const resultado = await ejecutarAnalisisIA(sql, conversacionId, sesion.nombre || sesion.email);
     if (!resultado.ok) {
       const mensajesError = {
-        sin_api_key: 'ANTHROPIC_API_KEY no está configurada en el servidor',
+        sin_api_key: 'GEMINI_API_KEY no está configurada en el servidor',
         sin_mensajes: 'Esta conversación no tiene mensajes para analizar',
         no_encontrada: 'Conversación no encontrada',
       };
@@ -9791,7 +9688,7 @@ async function manejarWhatsappAnalizar(req, res, sesion) {
 // para mensajes NUEVOS que llegan después de que esa función quedó
 // desplegada; conversaciones que ya existían antes se quedan sin analizar
 // para siempre a menos que alguien las abra y le dé "Analizar con IA" una
-// por una, o corra esto. Admin-only (golpea la API de Claude repetidas
+// por una, o corra esto. Admin-only (golpea la API de Gemini repetidas
 // veces). Resumible como el resto de sincronizaciones del proyecto: tope
 // de 15 por llamada para no arriesgar el límite de duración de la
 // función, el frontend la vuelve a llamar hasta que completo=true.
@@ -9918,7 +9815,7 @@ async function manejarWhatsappReanalizarDesactualizadas(req, res, sesion) {
 // solo utm_campaign) es válida y nunca iba a dejar de calzar esa condición.
 // Se reexaminan los mensajes ya guardados (no llama a Bsale/Meta/Google de
 // nuevo) para reclasificar bien -- no usa la IA, así que no tiene costo de
-// API ni necesita ANTHROPIC_API_KEY. Se corre una vez a mano (no hay botón
+// API ni necesita GEMINI_API_KEY. Se corre una vez a mano (no hay botón
 // en la UI para esto), en lotes por si hay muchas filas.
 async function manejarWhatsappBackfillFuente(req, res, sesion) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -10033,7 +9930,7 @@ async function manejarWhatsappBackfillJourney(req, res, sesion) {
   }
 }
 
-// Vuelve a correr el Análisis IA completo (Claude, con costo real de API)
+// Vuelve a correr el Análisis IA completo (Gemini, con costo real de API)
 // sobre TODAS las conversaciones que ya tienen un análisis previo, para
 // que apliquen mejoras hechas al prompt/tool después de ese análisis --
 // el caso concreto que motivó esto: categoria='otra' quedaba pegada en
@@ -10292,9 +10189,9 @@ async function manejarWhatsappReanalizarProductoNoDisponible(req, res, sesion) {
 }
 
 // Actualiza SOLO el link de Shopify de conversaciones que ya tienen
-// Análisis IA -- sin volver a llamar a Claude. Sirve para corregir en
+// Análisis IA -- sin volver a llamar a la IA. Sirve para corregir en
 // lote matches viejos (guardados con una versión anterior de
-// buscarProductoShopify) sin gastar de nuevo en la API de Anthropic; solo
+// buscarProductoShopify) sin gastar de nuevo en la API de Gemini; solo
 // consume la API de Shopify. Admin-only. Paginado por offset explícito
 // (no por "WHERE shopify IS NULL") a propósito: se quiere poder
 // refrescar TODAS las conversaciones, incluidas las que ya tienen un
@@ -11716,7 +11613,7 @@ async function manejarSyncCompraAgil(req, res, sesion) {
 // sacarle una foto al equipo (la etiqueta de modelo, o el equipo mismo) y
 // que la IA lea la marca y el modelo por él -- mismos proveedores y mismo
 // patrón que el Análisis IA de WhatsApp más arriba en este archivo (Gemini
-// primero, Claude de respaldo; se reutilizan tal cual convertirSchemaAGemini/
+// (solo Gemini); se reutilizan tal cual convertirSchemaAGemini/
 // mapearContenidoAGemini/fetchConTimeout/GEMINI_MODEL_ANALISIS ya definidos
 // más arriba). El nivel de complejidad del cambio de pantalla (1 a 4) lo
 // decide SIEMPRE el técnico a mano, tanto si escribió el modelo como si lo
@@ -11760,38 +11657,13 @@ async function llamarGeminiModeloPantalla(contenido) {
   );
   if (!respuesta.ok) {
     const texto = await respuesta.text().catch(() => '');
-    throw new Error(`Gemini HTTP ${respuesta.status}: ${texto.slice(0, 300)}`);
+    throw errorGemini(respuesta.status, texto);
   }
   const dataIA = await respuesta.json();
   const partes = dataIA.candidates?.[0]?.content?.parts || [];
   const llamada = partes.find(p => p.functionCall);
   if (!llamada) throw new Error('Gemini no devolvió un resultado estructurado');
   return llamada.functionCall.args || {};
-}
-
-async function llamarClaudeModeloPantalla(contenido) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('sin_anthropic_api_key');
-  const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
-      system: PROMPT_MODELO_PANTALLA,
-      messages: [{ role: 'user', content: contenido }],
-      tools: [MODELO_PANTALLA_TOOL],
-      tool_choice: { type: 'tool', name: MODELO_PANTALLA_TOOL.name },
-    }),
-  }, 30000);
-  if (!respuestaIA.ok) {
-    const texto = await respuestaIA.text().catch(() => '');
-    throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
-  }
-  const dataIA = await respuestaIA.json();
-  const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
-  if (!bloqueHerramienta) throw new Error('La IA no devolvió un resultado estructurado');
-  return bloqueHerramienta.input || {};
 }
 
 async function manejarIdentificacionModeloFoto(req, res, sesion) {
@@ -11802,8 +11674,8 @@ async function manejarIdentificacionModeloFoto(req, res, sesion) {
     if (!coincidencia) return res.status(400).json({ error: 'Falta una imagen válida' });
     const [, mediaType, base64Data] = coincidencia;
 
-    if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
-      return res.status(200).json({ error: 'Ni GEMINI_API_KEY ni ANTHROPIC_API_KEY están configuradas en el servidor' });
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(200).json({ error: 'GEMINI_API_KEY no está configurada en el servidor' });
     }
 
     const contenido = [
@@ -11811,19 +11683,8 @@ async function manejarIdentificacionModeloFoto(req, res, sesion) {
       { type: 'text', text: 'Identifica la marca y el modelo del equipo en esta foto.' },
     ];
 
-    let resultado, proveedorUsado;
-    try {
-      resultado = await llamarGeminiModeloPantalla(contenido);
-      proveedorUsado = 'gemini';
-    } catch (errGemini) {
-      console.warn('[identificacionModeloFoto] Gemini falló, reintentando con Claude:', errGemini.message);
-      try {
-        resultado = await llamarClaudeModeloPantalla(contenido);
-        proveedorUsado = 'claude (respaldo)';
-      } catch (errClaude) {
-        throw new Error(`Gemini: ${errGemini.message} | Claude (respaldo): ${errClaude.message}`);
-      }
-    }
+    const resultado = await llamarGeminiModeloPantalla(contenido);
+    const proveedorUsado = 'gemini';
     console.log(`[identificacionModeloFoto] detectado con ${proveedorUsado}`);
     return res.status(200).json({
       marca: String(resultado.marca || '').trim(),
@@ -12623,30 +12484,38 @@ const CORREO_RESPUESTA_ANALISIS_TOOL = {
     required: ['resumen', 'estado_sugerido'],
   },
 };
-async function llamarClaudeAnalisisRespuestaCorreo(textoCorreo) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('sin_anthropic_api_key');
-  const respuestaIA = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
-      system: 'Eres un analista comercial de IndexStore (venta de repuestos y servicio técnico de notebooks en Chile). Se te muestra la respuesta de un cliente a una cotización que le mandamos por correo -- puede incluir firmas, citas del correo original, o texto repetido, ignóralo y concéntrate en lo que el cliente realmente dice.',
-      messages: [{ role: 'user', content: textoCorreo }],
-      tools: [CORREO_RESPUESTA_ANALISIS_TOOL],
-      tool_choice: { type: 'tool', name: 'registrar_analisis_respuesta' },
-    }),
-  }, 30000);
-
-  if (!respuestaIA.ok) {
-    const texto = await respuestaIA.text().catch(() => '');
-    throw new Error(`Anthropic HTTP ${respuestaIA.status}: ${texto.slice(0, 300)}`);
+const SYSTEM_PROMPT_RESPUESTA_CORREO = 'Eres un analista comercial de IndexStore (venta de repuestos y servicio técnico de notebooks en Chile). Se te muestra la respuesta de un cliente a una cotización que le mandamos por correo -- puede incluir firmas, citas del correo original, o texto repetido, ignóralo y concéntrate en lo que el cliente realmente dice.';
+const CORREO_RESPUESTA_ANALISIS_TOOL_GEMINI = {
+  name: CORREO_RESPUESTA_ANALISIS_TOOL.name,
+  description: CORREO_RESPUESTA_ANALISIS_TOOL.description,
+  parameters: convertirSchemaAGemini(CORREO_RESPUESTA_ANALISIS_TOOL.input_schema),
+};
+async function llamarGeminiAnalisisRespuestaCorreo(textoCorreo) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('sin_gemini_api_key');
+  const respuesta = await fetchConTimeout(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ANALISIS}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: SYSTEM_PROMPT_RESPUESTA_CORREO }] },
+        contents: [{ role: 'user', parts: [{ text: textoCorreo }] }],
+        tools: [{ function_declarations: [CORREO_RESPUESTA_ANALISIS_TOOL_GEMINI] }],
+        tool_config: { function_calling_config: { mode: 'ANY', allowed_function_names: [CORREO_RESPUESTA_ANALISIS_TOOL_GEMINI.name] } },
+        generationConfig: { maxOutputTokens: 1024 },
+      }),
+    },
+    30000
+  );
+  if (!respuesta.ok) {
+    const texto = await respuesta.text().catch(() => '');
+    throw errorGemini(respuesta.status, texto);
   }
-  const dataIA = await respuestaIA.json();
-  const bloqueHerramienta = (dataIA.content || []).find(b => b.type === 'tool_use');
-  if (!bloqueHerramienta) throw new Error('La IA no devolvió un análisis estructurado');
-  return bloqueHerramienta.input || {};
+  const data = await respuesta.json();
+  const llamada = (data.candidates?.[0]?.content?.parts || []).find(p => p.functionCall);
+  if (!llamada) throw new Error('Gemini no devolvió un análisis estructurado');
+  return llamada.functionCall.args || {};
 }
 
 // Corre una sola vez por correo (ver analizado_ia) -- la llama tanto
@@ -12657,11 +12526,11 @@ async function llamarClaudeAnalisisRespuestaCorreo(textoCorreo) {
 // etc.) -- el llamador decide si eso importa o no.
 async function analizarRespuestaCorreo(sql, correoId, direccion, cotizacionId, contenidoTexto) {
   if (direccion !== 'entrante' || !cotizacionId || !contenidoTexto) return { ok: false, motivo: 'no_aplica' };
-  if (!process.env.ANTHROPIC_API_KEY) return { ok: false, motivo: 'sin_api_key' };
+  if (!process.env.GEMINI_API_KEY) return { ok: false, motivo: 'sin_api_key' };
 
   let analisis;
   try {
-    analisis = await llamarClaudeAnalisisRespuestaCorreo(contenidoTexto);
+    analisis = await llamarGeminiAnalisisRespuestaCorreo(contenidoTexto);
   } catch (err) {
     console.warn('[analizarRespuestaCorreo] error consultando la IA', correoId, err.message);
     return { ok: false, motivo: 'error_ia' };
@@ -13476,45 +13345,16 @@ async function llamarGeminiMotivoRecontacto(prompt) {
   );
   if (!respuesta.ok) {
     const texto = await respuesta.text().catch(() => '');
-    throw new Error(`Gemini HTTP ${respuesta.status}: ${texto.slice(0, 300)}`);
+    throw errorGemini(respuesta.status, texto);
   }
   const data = await respuesta.json();
   const llamada = (data.candidates?.[0]?.content?.parts || []).find(p => p.functionCall);
   if (!llamada) throw new Error('Gemini no devolvió una clasificación estructurada');
   return llamada.functionCall.args || {};
 }
-async function llamarClaudeMotivoRecontacto(prompt) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('sin_anthropic_api_key');
-  const respuesta = await fetchConTimeout('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001', max_tokens: 300, system: SYSTEM_PROMPT_MOTIVO_RECONTACTO,
-      messages: [{ role: 'user', content: prompt }],
-      tools: [WHATSAPP_MOTIVO_RECONTACTO_TOOL], tool_choice: { type: 'tool', name: WHATSAPP_MOTIVO_RECONTACTO_TOOL.name },
-    }),
-  }, 20000);
-  if (!respuesta.ok) {
-    const texto = await respuesta.text().catch(() => '');
-    throw new Error(`Anthropic HTTP ${respuesta.status}: ${texto.slice(0, 300)}`);
-  }
-  const data = await respuesta.json();
-  const bloque = (data.content || []).find(b => b.type === 'tool_use');
-  if (!bloque) throw new Error('Claude no devolvió una clasificación estructurada');
-  return bloque.input || {};
-}
-// Gemini primero, Claude de respaldo (mismo patrón que el Análisis IA de conversaciones).
+// Clasificación con Gemini (único proveedor de IA del sistema).
 async function clasificarMotivoRecontactoIA(prompt) {
-  let crudo;
-  if (process.env.GEMINI_API_KEY) {
-    try { crudo = await llamarGeminiMotivoRecontacto(prompt); }
-    catch (err) {
-      if (!process.env.ANTHROPIC_API_KEY) throw err;
-      console.error('[motivo-recontacto-ia] Gemini falló, se usa Claude de respaldo:', err.message);
-    }
-  }
-  if (!crudo) crudo = await llamarClaudeMotivoRecontacto(prompt);
+  const crudo = await llamarGeminiMotivoRecontacto(prompt);
   const confianza = Math.max(0, Math.min(100, Math.round(Number(crudo.confianza) || 0)));
   let motivo = MOTIVOS_RECONTACTO_IA.includes(crudo.motivo) ? crudo.motivo : 'sin_clasificar';
   // Con poca confianza no se propone un motivo: queda revisado pero "sin clasificar".
@@ -13528,7 +13368,7 @@ async function clasificarMotivoRecontactoIA(prompt) {
 async function manejarWhatsappRecontactoClasificarIA(req, res, sesion) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede clasificar con IA' });
-  if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) return res.status(200).json({ error: 'Falta configurar GEMINI_API_KEY o ANTHROPIC_API_KEY en el servidor' });
+  if (!process.env.GEMINI_API_KEY) return res.status(200).json({ error: 'Falta configurar GEMINI_API_KEY en el servidor' });
   try {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);

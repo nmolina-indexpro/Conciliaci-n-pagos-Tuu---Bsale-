@@ -2338,12 +2338,12 @@ async function reanalizarOtra(modo = 'otra'){
 }
 
 // Solo actualiza el link de Shopify de conversaciones que YA tienen
-// Análisis IA (sin volver a llamar a Claude, mucho más barato) -- sirve
+// Análisis IA (sin volver a llamar a la IA, mucho más barato) -- sirve
 // para corregir en lote matches viejos guardados con una versión anterior
 // de la búsqueda, o para conversaciones que se analizaron antes de tener
 // Shopify configurado.
 async function actualizarShopifyEnLote(){
-  if (!confirm('¿Actualizar el link de Shopify de todas las conversaciones ya analizadas? No vuelve a usar la API de Claude, solo consulta Shopify.')) return;
+  if (!confirm('¿Actualizar el link de Shopify de todas las conversaciones ya analizadas? No vuelve a usar la IA, solo consulta Shopify.')) return;
   const btn = $('btnActualizarShopify');
   btn.disabled = true;
   let offset = 0, totalActualizadas = 0, total = 0;
