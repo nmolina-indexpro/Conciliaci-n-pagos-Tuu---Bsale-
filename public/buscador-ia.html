@@ -88,9 +88,7 @@
   .paginacion{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;color:var(--muted);gap:10px;}
   .importar-acciones{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;}
 
-  .kpis-bia{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px;}
-  @media (max-width:1100px){.kpis-bia{grid-template-columns:repeat(3,1fr);}}
-  @media (max-width:640px){.kpis-bia{grid-template-columns:repeat(2,1fr);}}
+  .kpis-bia{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:20px;}
   .dos-col{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
   @media (max-width:1000px){.dos-col{grid-template-columns:1fr;}}
   .badge.rojo{background:var(--red-bg);color:var(--red);}
@@ -223,6 +221,9 @@
     <div class="seccion">
       <div class="seccion-head"><div><h2>Productos más recomendados</h2><div class="sub">Los que más aparecen en las respuestas.</div></div></div>
       <div class="tabla-wrap"><table id="tProductos"></table></div>
+      <h2 style="margin-top:18px;">Productos más tocados</h2>
+      <div class="sub">Los que los clientes abrieron desde los resultados.</div>
+      <div class="tabla-wrap"><table id="tTocados"></table></div>
     </div>
     <div class="seccion">
       <div class="seccion-head"><div><h2>Búsquedas por día</h2><div class="sub">En rojo, las que no tuvieron resultado.</div></div></div>
@@ -302,6 +303,9 @@ function pintar(d){
     ['Con error', fmtNum(r.con_error), 'Gemini no respondió a tiempo'],
     ['Tiempo típico', seg(r.ms_mediana), `promedio ${seg(r.ms_promedio)} (sin caché)`],
     ['Desde caché', pct(r.desde_cache, r.total), 'respuesta inmediata'],
+    ['Con clic', pct((d.clics||{}).busquedas_con_clic, r.medibles), `${fmtNum((d.clics||{}).busquedas_con_clic)} de ${fmtNum(r.medibles)} búsquedas medibles`],
+    ['A WhatsApp', fmtNum((d.clics||{}).busquedas_con_whatsapp), `${fmtNum((d.clics||{}).sin_resultado_a_whatsapp)} venían de una búsqueda sin resultado`],
+    ['Por foto', fmtNum(r.fotos), pct(r.fotos, r.total) + ' de las búsquedas'],
   ].map(k => `<div class="kpi"><div class="lbl">${k[0]}</div><div class="big">${k[1]}</div><div class="nota">${k[2]}</div></div>`).join('');
 
   tabla($('tSinResultado'), [
@@ -322,6 +326,11 @@ function pintar(d){
     { t:'Veces', cls:'amount', f: x => fmtNum(x.veces) },
   ], d.productos || [], 'Sin datos todavía.');
 
+  tabla($('tTocados'), [
+    { t:'Producto', f: x => `<a href="https://www.indexstore.cl/products/${encodeURIComponent(x.handle)}" target="_blank" rel="noopener">${esc(x.handle)}</a>` },
+    { t:'Clics', cls:'amount', f: x => fmtNum(x.clics) },
+  ], d.tocados || [], 'Todavía no hay clics registrados.');
+
   const max = Math.max(1, ...(d.porDia || []).map(x => x.total));
   $('porDia').innerHTML = (d.porDia || []).length ? (d.porDia).map(x => {
     const ok = x.total - x.sin_resultado;
@@ -332,7 +341,7 @@ function pintar(d){
 
   tabla($('tRecientes'), [
     { t:'Fecha', f: x => fmtFechaHora(x.creado_en) },
-    { t:'Búsqueda', f: x => esc(x.consulta) },
+    { t:'Búsqueda', f: x => (x.tipo === 'foto' ? '<span class="badge azul">foto</span> ' : '') + esc(x.consulta) },
     { t:'Resultado', f: x => x.error ? '<span class="badge rojo">Error</span>' : (x.sin_resultado ? '<span class="badge ambar">Sin resultado</span>' : `<span class="badge verde">${x.n_productos} producto${x.n_productos === 1 ? '' : 's'}</span>`) },
     { t:'Tiempo', cls:'amount', f: x => x.desde_cache ? '<span class="badge gris">caché</span>' : seg(x.ms) },
   ], d.recientes || [], 'Sin búsquedas en el período.');

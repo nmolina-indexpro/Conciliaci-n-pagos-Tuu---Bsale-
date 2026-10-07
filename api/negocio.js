@@ -10,7 +10,7 @@
 // ?recurso=zoho-tickets.
 
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
-import { validarRegistro as validarRegistroBuscadorIa, claveValida as claveBuscadorIaValida } from '../lib/buscador-ia.js';
+import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, claveValida as claveBuscadorIaValida } from '../lib/buscador-ia.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
@@ -107,6 +107,7 @@ export default async function handler(req, res) {
   // La seguridad real la hace la clave BUSCADOR_IA_KEY (header x-api-key)
   // dentro del handler. Ver también middleware.ts (esBuscadorIaRegistrarPublico).
   if (req.query.recurso === 'buscador-ia-registrar') return manejarBuscadorIaRegistrar(req, res);
+  if (req.query.recurso === 'buscador-ia-evento') return manejarBuscadorIaEvento(req, res);
   // Recuperación de contraseña (ver recuperar-password.html /
   // reset-password.html): por definición corre SIN sesión -- quien la usa
   // es justamente alguien que no puede entrar. La seguridad real la hace el
@@ -13449,9 +13450,9 @@ async function manejarBuscadorIaRegistrar(req, res) {
     await asegurarTablaBuscadorIa(sql);
     await sql.query(
       `INSERT INTO buscador_ia_consultas
-         (consulta, consulta_norm, respuesta, productos, n_productos, sin_resultado, error, ms, desde_cache)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)`,
-      [f.consulta, f.consulta_norm, f.respuesta, JSON.stringify(f.productos), f.n_productos, f.sin_resultado, f.error, f.ms, f.desde_cache],
+         (consulta, consulta_norm, respuesta, productos, n_productos, sin_resultado, error, ms, desde_cache, sid, tipo)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11)`,
+      [f.consulta, f.consulta_norm, f.respuesta, JSON.stringify(f.productos), f.n_productos, f.sin_resultado, f.error, f.ms, f.desde_cache, f.sid, f.tipo],
     );
     // Limpieza por antigüedad: en vez de un cron propio (el plan Hobby limita
     // los cron jobs) se aprovecha 1 de cada ~50 registros.
@@ -13460,10 +13461,40 @@ async function manejarBuscadorIaRegistrar(req, res) {
         `DELETE FROM buscador_ia_consultas WHERE creado_en < now() - make_interval(days => $1)`,
         [BUSCADOR_IA_RETENCION_DIAS],
       );
+      await sql.query(
+        `DELETE FROM buscador_ia_eventos WHERE creado_en < now() - make_interval(days => $1)`,
+        [BUSCADOR_IA_RETENCION_DIAS],
+      );
     }
     return res.status(200).json({ ok: true });
   } catch (e) {
     return res.status(200).json({ error: 'No se pudo guardar la búsqueda: ' + e.message });
+  }
+}
+
+// Recibe un clic del cliente sobre el resultado de una búsqueda (tarjeta de
+// producto, WhatsApp, ejemplo o pregunta guiada) desde el Worker de Cloudflare.
+// Mismo esquema de seguridad que el registro: clave en x-api-key, sin sesión.
+async function manejarBuscadorIaEvento(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const claveEsperada = process.env.BUSCADOR_IA_KEY;
+  if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
+  if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) {
+    return res.status(401).json({ error: 'Clave inválida' });
+  }
+  const validado = validarEventoBuscadorIa(req.body);
+  if (!validado.ok) return res.status(400).json({ error: validado.error });
+  const e = validado.fila;
+  try {
+    const sql = await getSql();
+    await asegurarTablaBuscadorIa(sql);
+    await sql.query(
+      `INSERT INTO buscador_ia_eventos (sid, tipo, handle) VALUES ($1, $2, $3)`,
+      [e.sid, e.tipo, e.handle],
+    );
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo guardar el evento: ' + err.message });
   }
 }
 
@@ -13485,9 +13516,13 @@ async function manejarBuscadorIa(req, res, sesion) {
     const rango = `(creado_en AT TIME ZONE 'America/Santiago')::date BETWEEN $1::date AND $2::date`;
     const p = [desde, hasta];
 
-    const [resumen, porDia, top, sinResultado, productos, recientes] = await Promise.all([
+    const rangoC = rango.replace(/creado_en/g, 'c.creado_en');
+    const rangoE = rango.replace(/creado_en/g, 'e.creado_en');
+    const [resumen, porDia, top, sinResultado, productos, recientes, eventos, tocados] = await Promise.all([
       sql.query(
         `SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE tipo = 'foto')::int AS fotos,
+                count(sid)::int AS medibles,
                 count(*) FILTER (WHERE sin_resultado)::int AS sin_resultado,
                 count(*) FILTER (WHERE error IS NOT NULL)::int AS con_error,
                 count(*) FILTER (WHERE desde_cache)::int AS desde_cache,
@@ -13519,8 +13554,30 @@ async function manejarBuscadorIa(req, res, sesion) {
          WHERE ${rango.replace(/creado_en/g, 'c.creado_en')}
          GROUP BY 1 ORDER BY veces DESC LIMIT 20`, p),
       sql.query(
-        `SELECT id, creado_en, consulta, respuesta, n_productos, sin_resultado, error, ms, desde_cache
+        `SELECT id, creado_en, consulta, respuesta, n_productos, sin_resultado, error, ms, desde_cache, tipo
          FROM buscador_ia_consultas WHERE ${rango} ORDER BY creado_en DESC LIMIT 60`, p),
+      // Clics: cuántas búsquedas terminaron en una tarjeta o en WhatsApp (se
+      // cuenta por búsqueda, no por clic, para que 3 clics seguidos no
+      // inflen el porcentaje) y cuántos clics hubo de cada tipo.
+      sql.query(
+        `SELECT
+           (SELECT count(DISTINCT c.sid)::int FROM buscador_ia_consultas c
+             JOIN buscador_ia_eventos e ON e.sid = c.sid AND e.tipo IN ('tarjeta', 'whatsapp')
+             WHERE ${rangoC}) AS busquedas_con_clic,
+           (SELECT count(DISTINCT c.sid)::int FROM buscador_ia_consultas c
+             JOIN buscador_ia_eventos e ON e.sid = c.sid AND e.tipo = 'whatsapp'
+             WHERE ${rangoC}) AS busquedas_con_whatsapp,
+           (SELECT count(DISTINCT c.sid)::int FROM buscador_ia_consultas c
+             JOIN buscador_ia_eventos e ON e.sid = c.sid AND e.tipo = 'whatsapp'
+             WHERE ${rangoC} AND c.sin_resultado) AS sin_resultado_a_whatsapp,
+           (SELECT count(*)::int FROM buscador_ia_eventos e WHERE ${rangoE} AND e.tipo = 'tarjeta') AS clics_tarjeta,
+           (SELECT count(*)::int FROM buscador_ia_eventos e WHERE ${rangoE} AND e.tipo = 'whatsapp') AS clics_whatsapp,
+           (SELECT count(*)::int FROM buscador_ia_eventos e WHERE ${rangoE} AND e.tipo = 'ejemplo') AS clics_ejemplo,
+           (SELECT count(*)::int FROM buscador_ia_eventos e WHERE ${rangoE} AND e.tipo = 'pregunta') AS clics_pregunta`, p),
+      sql.query(
+        `SELECT e.handle, count(*)::int AS clics
+         FROM buscador_ia_eventos e WHERE ${rangoE} AND e.tipo = 'tarjeta' AND e.handle IS NOT NULL
+         GROUP BY e.handle ORDER BY clics DESC LIMIT 15`, p),
     ]);
 
     return res.status(200).json({
@@ -13532,6 +13589,8 @@ async function manejarBuscadorIa(req, res, sesion) {
       sinResultado: sinResultado.rows,
       productos: productos.rows,
       recientes: recientes.rows,
+      clics: eventos.rows[0],
+      tocados: tocados.rows,
     });
   } catch (e) {
     return res.status(200).json({ error: 'No se pudo leer el buscador: ' + e.message });
