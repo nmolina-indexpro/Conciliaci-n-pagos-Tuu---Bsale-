@@ -100,6 +100,8 @@
   .dia-barra .no{background:var(--red);}
   .dia-n{text-align:right;font-family:'IBM Plex Mono',monospace;}
   .seccion a{color:var(--primary-dark);}
+  .visitante{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted);}
+  .desde{font-size:11.5px;color:var(--muted);}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -187,6 +189,13 @@
     <div class="filtros" style="margin-bottom:0;">
       <div class="date-field"><label for="fDesde">Desde</label><input type="date" id="fDesde"></div>
       <div class="date-field"><label for="fHasta">Hasta</label><input type="date" id="fHasta"></div>
+      <div class="date-field"><label for="fOrigen">Origen</label>
+        <select id="fOrigen" title="Filtra TODA la página según si la búsqueda parece de una persona o de un bot">
+          <option value="todo">Todas</option>
+          <option value="personas">Solo personas probables</option>
+          <option value="bots">Solo bots y automatizadas</option>
+        </select>
+      </div>
       <button type="button" class="btn-ghost btn-compact" data-rango="7">7 días</button>
       <button type="button" class="btn-ghost btn-compact active" data-rango="30">30 días</button>
       <button type="button" class="btn-ghost btn-compact" data-rango="90">90 días</button>
@@ -196,7 +205,8 @@
 
   <div id="status"></div>
   <div class="note-box" id="notaPrivacidad">
-    No se guarda la IP ni datos personales: los teléfonos, correos y RUT que alguien escriba en la caja se tachan antes de guardar. Las búsquedas se borran solas pasados <b id="retDias">180</b> días.
+    No se guarda la IP ni datos personales: los teléfonos, correos y RUT que alguien escriba en la caja se tachan antes de guardar. Para distinguir personas de bots solo se guarda una huella irreversible que cambia cada día (no sirve para identificar a nadie ni para seguirlo de un día a otro), el país, el proveedor de internet y el tipo de navegador. Las búsquedas se borran solas pasados <b id="retDias">180</b> días.
+    <br><b>Persona probable</b> = navegador real, red residencial o móvil y ritmo normal. <b>Bot</b> = herramienta, script o rastreador. <b>Automatizado</b> = sale de un centro de datos o hace <b id="umbralRafaga">8</b> o más búsquedas en 5 minutos. Es una probabilidad, no una certeza.
   </div>
 
   <div class="kpis-bia" id="kpis"></div>
@@ -296,7 +306,11 @@ function tabla(el, cols, filas, vacio){
 function pintar(d){
   datos = d;
   const r = d.resumen || {};
+  const o = d.origen || { visitantes: 0, porOrigen: { persona: { visitantes: 0, busquedas: 0 }, bot: { visitantes: 0, busquedas: 0 }, automatizado: { visitantes: 0, busquedas: 0 } }, busquedasSinOrigen: 0 };
+  const po = o.porOrigen;
+  const conOrigen = po.persona.busquedas + po.bot.busquedas + po.automatizado.busquedas;
   $('retDias').textContent = d.retencionDias || 180;
+  if(o.umbralRafaga) $('umbralRafaga').textContent = o.umbralRafaga;
   $('kpis').innerHTML = [
     ['Búsquedas', fmtNum(r.total), `${fmtNum(r.consultas_distintas)} textos distintos`],
     ['Sin resultado', pct(r.sin_resultado, r.total), `${fmtNum(r.sin_resultado)} búsquedas`],
@@ -306,6 +320,8 @@ function pintar(d){
     ['Con clic', pct((d.clics||{}).busquedas_con_clic, r.medibles), `${fmtNum((d.clics||{}).busquedas_con_clic)} de ${fmtNum(r.medibles)} búsquedas medibles`],
     ['A WhatsApp', fmtNum((d.clics||{}).busquedas_con_whatsapp), `${fmtNum((d.clics||{}).sin_resultado_a_whatsapp)} venían de una búsqueda sin resultado`],
     ['Por foto', fmtNum(r.fotos), pct(r.fotos, r.total) + ' de las búsquedas'],
+    ['Visitantes', fmtNum(o.visitantes), `${fmtNum(po.persona.visitantes)} personas probables · ${fmtNum(po.bot.visitantes + po.automatizado.visitantes)} bots o automatizados`],
+    ['Búsquedas de personas', pct(po.persona.busquedas, conOrigen), `${fmtNum(po.persona.busquedas)} de ${fmtNum(conOrigen)} con origen conocido${o.busquedasSinOrigen ? ` · ${fmtNum(o.busquedasSinOrigen)} anteriores sin dato` : ''}`],
   ].map(k => `<div class="kpi"><div class="lbl">${k[0]}</div><div class="big">${k[1]}</div><div class="nota">${k[2]}</div></div>`).join('');
 
   tabla($('tSinResultado'), [
@@ -343,6 +359,12 @@ function pintar(d){
     { t:'Fecha', f: x => fmtFechaHora(x.creado_en) },
     { t:'Búsqueda', f: x => (x.tipo === 'foto' ? '<span class="badge azul">foto</span> ' : '') + esc(x.consulta) },
     { t:'Resultado', f: x => x.error ? '<span class="badge rojo">Error</span>' : (x.sin_resultado ? '<span class="badge ambar">Sin resultado</span>' : `<span class="badge verde">${x.n_productos} producto${x.n_productos === 1 ? '' : 's'}</span>`) },
+    { t:'Origen', f: x => {
+        const cls = { persona: 'verde', bot: 'rojo', automatizado: 'ambar', sin_datos: 'gris' }[x.origen] || 'gris';
+        const etiqueta = (o.etiquetas || {})[x.origen] || x.origen;
+        return `<span class="badge ${cls}" title="${esc((x.origen_motivos || []).join(' · '))}">${esc(etiqueta)}</span>` + (x.visitante ? ` <span class="visitante" title="Mismo código = mismo visitante ese día">#${esc(x.visitante)}</span>` : '');
+      } },
+    { t:'Desde', f: x => x.pais || x.asn_org || x.ua_resumen ? `<span class="desde">${esc([x.pais, x.asn_org, x.ua_resumen].filter(Boolean).join(' · '))}</span>` : '—' },
     { t:'Tiempo', cls:'amount', f: x => x.desde_cache ? '<span class="badge gris">caché</span>' : seg(x.ms) },
   ], d.recientes || [], 'Sin búsquedas en el período.');
 }
@@ -351,7 +373,7 @@ async function cargar(){
   $('status').className = ''; $('status').textContent = 'Cargando…';
   $('btnActualizar').disabled = true;
   try{
-    const res = await fetch(`/api/negocio?recurso=buscador-ia&desde=${$('fDesde').value}&hasta=${$('fHasta').value}`);
+    const res = await fetch(`/api/negocio?recurso=buscador-ia&desde=${$('fDesde').value}&hasta=${$('fHasta').value}&origen=${$('fOrigen').value}`);
     const d = await res.json();
     if(d.error){ $('status').className = 'err'; $('status').textContent = d.error; return; }
     $('status').textContent = '';
@@ -377,6 +399,7 @@ function descargarCsv(){
 
 document.querySelectorAll('[data-rango]').forEach(b => b.addEventListener('click', () => { setRango(Number(b.dataset.rango)); cargar(); }));
 $('btnActualizar').addEventListener('click', cargar);
+$('fOrigen').addEventListener('change', cargar);
 $('btnCsv').addEventListener('click', descargarCsv);
 setRango(30);
 cargarSesionUsuario();

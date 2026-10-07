@@ -10,7 +10,7 @@
 // ?recurso=zoho-tickets.
 
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
-import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, claveValida as claveBuscadorIaValida } from '../lib/buscador-ia.js';
+import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
@@ -13450,9 +13450,11 @@ async function manejarBuscadorIaRegistrar(req, res) {
     await asegurarTablaBuscadorIa(sql);
     await sql.query(
       `INSERT INTO buscador_ia_consultas
-         (consulta, consulta_norm, respuesta, productos, n_productos, sin_resultado, error, ms, desde_cache, sid, tipo)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11)`,
-      [f.consulta, f.consulta_norm, f.respuesta, JSON.stringify(f.productos), f.n_productos, f.sin_resultado, f.error, f.ms, f.desde_cache, f.sid, f.tipo],
+         (consulta, consulta_norm, respuesta, productos, n_productos, sin_resultado, error, ms, desde_cache, sid, tipo,
+          vid, pais, asn, asn_org, ua_tipo, ua_resumen, centro_datos)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+      [f.consulta, f.consulta_norm, f.respuesta, JSON.stringify(f.productos), f.n_productos, f.sin_resultado, f.error, f.ms, f.desde_cache, f.sid, f.tipo,
+       f.vid, f.pais, f.asn, f.asn_org, f.ua_tipo, f.ua_resumen, f.centro_datos],
     );
     // Limpieza por antigüedad: en vez de un cron propio (el plan Hobby limita
     // los cron jobs) se aprovecha 1 de cada ~50 registros.
@@ -13513,12 +13515,39 @@ async function manejarBuscadorIa(req, res, sesion) {
     const hace30 = new Date(Date.now() - 29 * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
     const desde = esFecha(req.query.desde) ? req.query.desde : hace30;
     const hasta = esFecha(req.query.hasta) ? req.query.hasta : hoy;
-    const rango = `(creado_en AT TIME ZONE 'America/Santiago')::date BETWEEN $1::date AND $2::date`;
+    const rangoFecha = `(creado_en AT TIME ZONE 'America/Santiago')::date BETWEEN $1::date AND $2::date`;
     const p = [desde, hasta];
 
-    const rangoC = rango.replace(/creado_en/g, 'c.creado_en');
-    const rangoE = rango.replace(/creado_en/g, 'e.creado_en');
-    const [resumen, porDia, top, sinResultado, productos, recientes, eventos, tocados] = await Promise.all([
+    // ¿Persona o bot? Una fila por visitante (huella diaria) con su mayor ráfaga de búsquedas en 5 minutos; se clasifica acá.
+    // Es una probabilidad, no una certeza: ver clasificarVisitante en lib/buscador-ia.js.
+    const { rows: visRows } = await sql.query(
+      `WITH base AS (
+         SELECT vid, creado_en, ua_tipo, centro_datos,
+                count(*) OVER (PARTITION BY vid ORDER BY creado_en RANGE BETWEEN INTERVAL '5 minutes' PRECEDING AND CURRENT ROW) AS en_5min
+         FROM buscador_ia_consultas WHERE ${rangoFecha} AND vid IS NOT NULL)
+       SELECT vid, count(*)::int AS n, max(en_5min)::int AS rafaga_max, bool_or(centro_datos) AS centro_datos,
+              (array_agg(ua_tipo ORDER BY creado_en DESC))[1] AS ua_tipo
+       FROM base GROUP BY vid`, p);
+    const veredicto = new Map();
+    const vidsNoPersona = [];
+    const porOrigen = { persona: { visitantes: 0, busquedas: 0 }, bot: { visitantes: 0, busquedas: 0 }, automatizado: { visitantes: 0, busquedas: 0 } };
+    for (const v of visRows) {
+      const c = clasificarVisitante(v);
+      veredicto.set(v.vid, c);
+      porOrigen[c.origen].visitantes++; porOrigen[c.origen].busquedas += v.n;
+      if (c.origen !== 'persona') vidsNoPersona.push(v.vid);
+    }
+
+    // Filtro opcional de toda la página: solo personas probables, o solo bots/automatizados. Las búsquedas anteriores al registro
+    // del origen (sin vid) cuentan como "personas" en el filtro de personas, para no esconder el historial.
+    const origen = ['personas', 'bots'].includes(req.query.origen) ? req.query.origen : 'todo';
+    const pF = origen === 'todo' ? p : [...p, vidsNoPersona];
+    const condVid = alias => (origen === 'personas' ? ` AND (${alias}vid IS NULL OR NOT (${alias}vid = ANY($3::text[])))` : origen === 'bots' ? ` AND (${alias}vid = ANY($3::text[]))` : '');
+    const rango = rangoFecha + condVid('');
+    const rangoC = rangoFecha.replace(/creado_en/g, 'c.creado_en') + condVid('c.');
+    const rangoE = rangoFecha.replace(/creado_en/g, 'e.creado_en')
+      + (origen === 'todo' ? '' : ` AND e.sid IN (SELECT x.sid FROM buscador_ia_consultas x WHERE x.sid IS NOT NULL${condVid('x.')})`);
+    const [resumen, porDia, top, sinResultado, productos, recientes, eventos, tocados, sinOrigen] = await Promise.all([
       sql.query(
         `SELECT count(*)::int AS total,
                 count(*) FILTER (WHERE tipo = 'foto')::int AS fotos,
@@ -13529,12 +13558,12 @@ async function manejarBuscadorIa(req, res, sesion) {
                 count(DISTINCT consulta_norm)::int AS consultas_distintas,
                 round(avg(ms) FILTER (WHERE error IS NULL AND NOT desde_cache))::int AS ms_promedio,
                 round((percentile_cont(0.5) WITHIN GROUP (ORDER BY ms) FILTER (WHERE error IS NULL AND NOT desde_cache))::numeric)::int AS ms_mediana
-         FROM buscador_ia_consultas WHERE ${rango}`, p),
+         FROM buscador_ia_consultas WHERE ${rango}`, pF),
       sql.query(
         `SELECT to_char((creado_en AT TIME ZONE 'America/Santiago')::date, 'YYYY-MM-DD') AS dia,
                 count(*)::int AS total,
                 count(*) FILTER (WHERE sin_resultado)::int AS sin_resultado
-         FROM buscador_ia_consultas WHERE ${rango} GROUP BY 1 ORDER BY 1`, p),
+         FROM buscador_ia_consultas WHERE ${rango} GROUP BY 1 ORDER BY 1`, pF),
       sql.query(
         `SELECT consulta_norm, (array_agg(consulta ORDER BY creado_en DESC))[1] AS ejemplo,
                 count(*)::int AS veces,
@@ -13542,20 +13571,21 @@ async function manejarBuscadorIa(req, res, sesion) {
                 round(avg(n_productos), 1)::float AS productos_promedio,
                 max(creado_en) AS ultima
          FROM buscador_ia_consultas WHERE ${rango} AND error IS NULL
-         GROUP BY consulta_norm ORDER BY veces DESC, ultima DESC LIMIT 40`, p),
+         GROUP BY consulta_norm ORDER BY veces DESC, ultima DESC LIMIT 40`, pF),
       sql.query(
         `SELECT consulta_norm, (array_agg(consulta ORDER BY creado_en DESC))[1] AS ejemplo,
                 count(*)::int AS veces, max(creado_en) AS ultima
          FROM buscador_ia_consultas WHERE ${rango} AND sin_resultado
-         GROUP BY consulta_norm ORDER BY veces DESC, ultima DESC LIMIT 40`, p),
+         GROUP BY consulta_norm ORDER BY veces DESC, ultima DESC LIMIT 40`, pF),
       sql.query(
         `SELECT prod->>'handle' AS handle, max(prod->>'title') AS titulo, count(*)::int AS veces
          FROM buscador_ia_consultas c, jsonb_array_elements(c.productos) AS prod
-         WHERE ${rango.replace(/creado_en/g, 'c.creado_en')}
-         GROUP BY 1 ORDER BY veces DESC LIMIT 20`, p),
+         WHERE ${rangoC}
+         GROUP BY 1 ORDER BY veces DESC LIMIT 20`, pF),
       sql.query(
-        `SELECT id, creado_en, consulta, respuesta, n_productos, sin_resultado, error, ms, desde_cache, tipo
-         FROM buscador_ia_consultas WHERE ${rango} ORDER BY creado_en DESC LIMIT 60`, p),
+        `SELECT id, creado_en, consulta, respuesta, n_productos, sin_resultado, error, ms, desde_cache, tipo,
+                vid, pais, asn_org, ua_tipo, ua_resumen, centro_datos
+         FROM buscador_ia_consultas WHERE ${rango} ORDER BY creado_en DESC LIMIT 60`, pF),
       // Clics: cuántas búsquedas terminaron en una tarjeta o en WhatsApp (se
       // cuenta por búsqueda, no por clic, para que 3 clics seguidos no
       // inflen el porcentaje) y cuántos clics hubo de cada tipo.
@@ -13573,11 +13603,12 @@ async function manejarBuscadorIa(req, res, sesion) {
            (SELECT count(*)::int FROM buscador_ia_eventos e WHERE ${rangoE} AND e.tipo = 'tarjeta') AS clics_tarjeta,
            (SELECT count(*)::int FROM buscador_ia_eventos e WHERE ${rangoE} AND e.tipo = 'whatsapp') AS clics_whatsapp,
            (SELECT count(*)::int FROM buscador_ia_eventos e WHERE ${rangoE} AND e.tipo = 'ejemplo') AS clics_ejemplo,
-           (SELECT count(*)::int FROM buscador_ia_eventos e WHERE ${rangoE} AND e.tipo = 'pregunta') AS clics_pregunta`, p),
+           (SELECT count(*)::int FROM buscador_ia_eventos e WHERE ${rangoE} AND e.tipo = 'pregunta') AS clics_pregunta`, pF),
       sql.query(
         `SELECT e.handle, count(*)::int AS clics
          FROM buscador_ia_eventos e WHERE ${rangoE} AND e.tipo = 'tarjeta' AND e.handle IS NOT NULL
-         GROUP BY e.handle ORDER BY clics DESC LIMIT 15`, p),
+         GROUP BY e.handle ORDER BY clics DESC LIMIT 15`, pF),
+      sql.query(`SELECT count(*)::int AS n FROM buscador_ia_consultas WHERE ${rangoFecha} AND vid IS NULL`, p),
     ]);
 
     return res.status(200).json({
@@ -13588,9 +13619,17 @@ async function manejarBuscadorIa(req, res, sesion) {
       top: top.rows,
       sinResultado: sinResultado.rows,
       productos: productos.rows,
-      recientes: recientes.rows,
+      // vid completo no sale del servidor: solo un código corto para ver cuándo dos búsquedas son del mismo visitante.
+      recientes: recientes.rows.map(({ vid, ...r }) => {
+        const c = veredicto.get(vid) || clasificarVisitante({ vid: null });
+        return { ...r, visitante: vid ? vid.slice(0, 6) : null, origen: c.origen, origen_motivos: c.motivos };
+      }),
       clics: eventos.rows[0],
       tocados: tocados.rows,
+      origen: {
+        filtro: origen, etiquetas: ORIGEN_ETIQUETA, umbralRafaga: UMBRAL_RAFAGA,
+        visitantes: visRows.length, porOrigen, busquedasSinOrigen: sinOrigen.rows[0].n,
+      },
     });
   } catch (e) {
     return res.status(200).json({ error: 'No se pudo leer el buscador: ' + e.message });
