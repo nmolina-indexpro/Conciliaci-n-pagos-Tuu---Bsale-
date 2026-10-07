@@ -101,6 +101,16 @@ function esIndexscalePixelPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'indexscale-pixel';
 }
 
+// El registro de búsquedas del Buscador con IA del home de indexstore.cl
+// (ver manejarBuscadorIaRegistrar en api/negocio.js) lo llama el Worker de
+// Cloudflare, sin cookie de sesión -> mismo motivo y mismo patrón que los de
+// arriba. Se distingue por el query param puntual, no se exime la ruta
+// completa. La seguridad real la hace la clave BUSCADOR_IA_KEY (header
+// x-api-key) dentro del propio handler.
+function esBuscadorIaRegistrarPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'buscador-ia-registrar';
+}
+
 // Recuperación de contraseña (ver recuperar-password.html /
 // reset-password.html y manejarAuthRecuperarPassword /
 // manejarAuthResetearPassword en api/negocio.js) -- por definición corre
@@ -170,6 +180,7 @@ export default async function middleware(req) {
     esCotizacionesCorreosAnalizarRespuestasPublico(pathname, url.searchParams) ||
     esWhatsappEjecutivosNotificarDiarioPublico(pathname, url.searchParams) ||
     esIndexscalePixelPublico(pathname, url.searchParams) ||
+    esBuscadorIaRegistrarPublico(pathname, url.searchParams) ||
     esAuthRecuperarPasswordPublico(pathname, url.searchParams) ||
     esAuthResetearPasswordPublico(pathname, url.searchParams)
   ) return; // deja pasar sin exigir sesión

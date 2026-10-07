@@ -9,7 +9,8 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
+import { validarRegistro as validarRegistroBuscadorIa, claveValida as claveBuscadorIaValida } from '../lib/buscador-ia.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
@@ -101,6 +102,11 @@ export default async function handler(req, res) {
   // por fila (?t=), no algo ligado a sesión. Ver middleware.ts
   // (esIndexscalePixelPublico).
   if (req.query.recurso === 'indexscale-pixel') return manejarIndexscalePixel(req, res);
+  // Registro de búsquedas del Buscador con IA del home de indexstore.cl: lo
+  // llama el Worker de Cloudflare (no un navegador), sin cookie de sesión.
+  // La seguridad real la hace la clave BUSCADOR_IA_KEY (header x-api-key)
+  // dentro del handler. Ver también middleware.ts (esBuscadorIaRegistrarPublico).
+  if (req.query.recurso === 'buscador-ia-registrar') return manejarBuscadorIaRegistrar(req, res);
   // Recuperación de contraseña (ver recuperar-password.html /
   // reset-password.html): por definición corre SIN sesión -- quien la usa
   // es justamente alguien que no puede entrar. La seguridad real la hace el
@@ -140,6 +146,7 @@ export default async function handler(req, res) {
   if (recurso === 'llamadas') return manejarLlamadas(req, res, sesion);
   if (recurso === 'llamadas-importar') return manejarLlamadasImportar(req, res, sesion);
   if (recurso === 'llamadas-anexo') return manejarLlamadasAnexo(req, res, sesion);
+  if (recurso === 'buscador-ia') return manejarBuscadorIa(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
   if (recurso === 'cotizacion-correo-contenido') return manejarCotizacionCorreoContenido(req, res, sesion);
@@ -13576,5 +13583,117 @@ async function manejarWhatsappRecontactoClasificarIA(req, res, sesion) {
     return res.status(200).json({ total, clasificados, errores, restantes, completo: restantes === 0 || (lote.length > 0 && errores === lote.length), todoFallo: lote.length > 0 && errores === lote.length });
   } catch (err) {
     return res.status(500).json({ error: 'Error clasificando los recontactos con IA', detail: String(err) });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Buscador con IA del home de indexstore.cl
+// ---------------------------------------------------------------------------
+
+// Recibe cada búsqueda desde el Worker de Cloudflare y la guarda en
+// buscador_ia_consultas. Corre SIN sesión (lo llama el Worker): se protege con
+// la clave BUSCADOR_IA_KEY en el header x-api-key. Los datos personales se
+// tachan en lib/buscador-ia.js antes de guardar y no se guarda la IP.
+async function manejarBuscadorIaRegistrar(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const claveEsperada = process.env.BUSCADOR_IA_KEY;
+  if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
+  if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) {
+    return res.status(401).json({ error: 'Clave inválida' });
+  }
+  const validado = validarRegistroBuscadorIa(req.body);
+  if (!validado.ok) return res.status(400).json({ error: validado.error });
+  const f = validado.fila;
+  try {
+    const sql = await getSql();
+    await asegurarTablaBuscadorIa(sql);
+    await sql.query(
+      `INSERT INTO buscador_ia_consultas
+         (consulta, consulta_norm, respuesta, productos, n_productos, sin_resultado, error, ms, desde_cache)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)`,
+      [f.consulta, f.consulta_norm, f.respuesta, JSON.stringify(f.productos), f.n_productos, f.sin_resultado, f.error, f.ms, f.desde_cache],
+    );
+    // Limpieza por antigüedad: en vez de un cron propio (el plan Hobby limita
+    // los cron jobs) se aprovecha 1 de cada ~50 registros.
+    if (Math.random() < 0.02) {
+      await sql.query(
+        `DELETE FROM buscador_ia_consultas WHERE creado_en < now() - make_interval(days => $1)`,
+        [BUSCADOR_IA_RETENCION_DIAS],
+      );
+    }
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo guardar la búsqueda: ' + e.message });
+  }
+}
+
+// Resumen para la página buscador-ia.html: qué buscan los clientes, qué no
+// encontraron (demanda no cubierta o agotada), cuánto tarda y qué productos
+// recomienda más. ?desde= y ?hasta= (YYYY-MM-DD, hora de Chile; por defecto
+// últimos 30 días).
+async function manejarBuscadorIa(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaBuscadorIa(sql);
+
+    const esFecha = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const hace30 = new Date(Date.now() - 29 * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const desde = esFecha(req.query.desde) ? req.query.desde : hace30;
+    const hasta = esFecha(req.query.hasta) ? req.query.hasta : hoy;
+    const rango = `(creado_en AT TIME ZONE 'America/Santiago')::date BETWEEN $1::date AND $2::date`;
+    const p = [desde, hasta];
+
+    const [resumen, porDia, top, sinResultado, productos, recientes] = await Promise.all([
+      sql.query(
+        `SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE sin_resultado)::int AS sin_resultado,
+                count(*) FILTER (WHERE error IS NOT NULL)::int AS con_error,
+                count(*) FILTER (WHERE desde_cache)::int AS desde_cache,
+                count(DISTINCT consulta_norm)::int AS consultas_distintas,
+                round(avg(ms) FILTER (WHERE error IS NULL AND NOT desde_cache))::int AS ms_promedio,
+                round((percentile_cont(0.5) WITHIN GROUP (ORDER BY ms) FILTER (WHERE error IS NULL AND NOT desde_cache))::numeric)::int AS ms_mediana
+         FROM buscador_ia_consultas WHERE ${rango}`, p),
+      sql.query(
+        `SELECT to_char((creado_en AT TIME ZONE 'America/Santiago')::date, 'YYYY-MM-DD') AS dia,
+                count(*)::int AS total,
+                count(*) FILTER (WHERE sin_resultado)::int AS sin_resultado
+         FROM buscador_ia_consultas WHERE ${rango} GROUP BY 1 ORDER BY 1`, p),
+      sql.query(
+        `SELECT consulta_norm, (array_agg(consulta ORDER BY creado_en DESC))[1] AS ejemplo,
+                count(*)::int AS veces,
+                count(*) FILTER (WHERE sin_resultado)::int AS veces_sin_resultado,
+                round(avg(n_productos), 1)::float AS productos_promedio,
+                max(creado_en) AS ultima
+         FROM buscador_ia_consultas WHERE ${rango} AND error IS NULL
+         GROUP BY consulta_norm ORDER BY veces DESC, ultima DESC LIMIT 40`, p),
+      sql.query(
+        `SELECT consulta_norm, (array_agg(consulta ORDER BY creado_en DESC))[1] AS ejemplo,
+                count(*)::int AS veces, max(creado_en) AS ultima
+         FROM buscador_ia_consultas WHERE ${rango} AND sin_resultado
+         GROUP BY consulta_norm ORDER BY veces DESC, ultima DESC LIMIT 40`, p),
+      sql.query(
+        `SELECT prod->>'handle' AS handle, max(prod->>'title') AS titulo, count(*)::int AS veces
+         FROM buscador_ia_consultas c, jsonb_array_elements(c.productos) AS prod
+         WHERE ${rango.replace(/creado_en/g, 'c.creado_en')}
+         GROUP BY 1 ORDER BY veces DESC LIMIT 20`, p),
+      sql.query(
+        `SELECT id, creado_en, consulta, respuesta, n_productos, sin_resultado, error, ms, desde_cache
+         FROM buscador_ia_consultas WHERE ${rango} ORDER BY creado_en DESC LIMIT 60`, p),
+    ]);
+
+    return res.status(200).json({
+      desde, hasta,
+      retencionDias: BUSCADOR_IA_RETENCION_DIAS,
+      resumen: resumen.rows[0],
+      porDia: porDia.rows,
+      top: top.rows,
+      sinResultado: sinResultado.rows,
+      productos: productos.rows,
+      recientes: recientes.rows,
+    });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo leer el buscador: ' + e.message });
   }
 }
