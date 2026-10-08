@@ -203,7 +203,7 @@
     <div class="seccion-head">
       <div>
         <h2>📦 Cotizador de envío en la ficha de producto</h2>
-        <div class="sub">Cuántas personas calculan el costo de envío antes de comprar, desde qué comunas y cuánto les sale. Se cuenta por persona (huella anónima diaria), no por cálculo: la ficha recalcula sola cuando el cliente pasa a otro producto o cambia la cantidad, y eso no suma. Solo personas probables (navegador real, fuera de centros de datos); las pruebas del equipo hechas desde un navegador también cuentan.</div>
+        <div class="sub">Cuántas personas calculan el costo de envío antes de comprar, desde qué comunas y cuánto les sale. Se cuenta por persona (huella anónima diaria), no por cálculo: la ficha recalcula sola cuando el cliente pasa a otro producto o cambia la cantidad, y eso no suma. "Agregaron al carro" y "Compraron" son personas que cotizaron y, el mismo día, hicieron eso (lo informa el píxel de Shopify; si no está instalado quedan en 0). Solo personas probables (navegador real, fuera de centros de datos); las pruebas del equipo hechas desde un navegador también cuentan.</div>
       </div>
       <div class="envio-periodo">
         <button type="button" class="btn-ghost btn-compact" data-envio-dias="7" onclick="cargarEnvioEstimado(7)">7 días</button>
@@ -319,10 +319,13 @@ async function cargarEnvioEstimado(dias){
     }
     estado.style.display = 'none'; contenido.style.display = '';
     const nombre = c => (d.regiones || {})[c] || c;
+    const em = d.embudo || {};
     $('envioKpis').innerHTML = [
       ['Personas', fmtNum(r.personas), `${fmtNum(r.bots)} bots o servidores, aparte`],
       ['Eligieron una comuna', fmtNum(r.eligieron), `${envioPct(r.eligieron, r.personas)} de las personas; el resto solo vio la comuna recordada`],
       ['Cálculos', fmtNum(r.calculos_personas), `${fmtNum(r.calculos_automaticos)} automáticos (otro producto o cantidad)`],
+      ['Agregaron al carro', fmtNum(em.carro), `${envioPct(em.carro, r.personas)} de las personas · ${fmtNum(em.carro_eligieron)} de las que eligieron comuna`],
+      ['Compraron', fmtNum(em.compra), `${envioPct(em.compra, r.personas)} de las personas · ${envioClp(em.monto)} vendidos`],
       ['Comunas distintas', fmtNum(r.comunas), ''],
       ['Fuera de la RM', envioPct(r.fuera_rm, r.pares), `${fmtNum(r.fuera_rm)} de ${fmtNum(r.pares)} (persona + comuna)`],
       ['Envío más barato', envioClp(r.desde_mediana), `mediana · fuera de la RM ${envioClp(r.desde_mediana_regiones)}`],

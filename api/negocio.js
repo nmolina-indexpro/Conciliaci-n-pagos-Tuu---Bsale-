@@ -9,8 +9,8 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
-import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
+import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, validarEmbudo as validarEmbudoBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
@@ -111,6 +111,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'buscador-ia-evento') return manejarBuscadorIaEvento(req, res);
   if (req.query.recurso === 'buscador-ia-ranking') return manejarBuscadorIaRanking(req, res);
   if (req.query.recurso === 'buscador-ia-envio') return manejarBuscadorIaEnvio(req, res);
+  if (req.query.recurso === 'buscador-ia-embudo') return manejarBuscadorIaEmbudo(req, res);
   // Recuperación de contraseña (ver recuperar-password.html /
   // reset-password.html): por definición corre SIN sesión -- quien la usa
   // es justamente alguien que no puede entrar. La seguridad real la hace el
@@ -13740,6 +13741,36 @@ async function manejarBuscadorIaEnvio(req, res) {
   }
 }
 
+// Evento del embudo del cotizador: "carro" o "compra" de una persona identificada por la huella diaria (vid). Llega del Worker
+// (que lo recibe del píxel de Shopify). Solo se guarda si esa misma huella cotizó envío en las últimas 48 h: así los eventos de
+// gente que nunca usó el cotizador (o de quien llame al Worker sin haberlo usado) no entran a la tabla.
+async function manejarBuscadorIaEmbudo(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const claveEsperada = process.env.BUSCADOR_IA_KEY;
+  if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
+  if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) return res.status(401).json({ error: 'Clave inválida' });
+  const validado = validarEmbudoBuscadorIa(req.body);
+  if (!validado.ok) return res.status(400).json({ error: validado.error });
+  const f = validado.fila;
+  try {
+    const sql = await getSql();
+    await asegurarTablaEnvioConsultas(sql);
+    await asegurarTablaEnvioEmbudo(sql);
+    const r = await sql.query(
+      `INSERT INTO envio_embudo (vid, tipo, valor)
+       SELECT $1::text, $2::text, $3::int
+       WHERE EXISTS (SELECT 1 FROM envio_consultas WHERE vid = $1::text AND creado_en > now() - interval '48 hours')`,
+      [f.vid, f.tipo, f.valor],
+    );
+    if (Math.random() < 0.02) {
+      await sql.query(`DELETE FROM envio_embudo WHERE creado_en < now() - make_interval(days => $1)`, [BUSCADOR_IA_RETENCION_DIAS]);
+    }
+    return res.status(200).json({ ok: true, guardado: (r.rowCount ?? 0) > 0 });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo guardar el evento: ' + e.message });
+  }
+}
+
 // Resumen para la página Sitio Web: cuánta gente usa el cotizador, desde qué comunas
 // y cuánto les sale el envío. SE CUENTA POR PERSONA, no por cálculo: la ficha vuelve a
 // calcular sola cuando el cliente pasa de un producto a otro (comuna recordada) o cambia
@@ -13755,6 +13786,7 @@ async function manejarEnvioEstimado(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaEnvioConsultas(sql);
+    await asegurarTablaEnvioEmbudo(sql);
 
     const esFecha = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
     const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
@@ -13775,7 +13807,7 @@ async function manejarEnvioEstimado(req, res, sesion) {
         ORDER BY ${quien}, region, comuna, creado_en DESC
       )`;
 
-    const [resumen, porDia, comunas, regiones, recientes] = await Promise.all([
+    const [resumen, porDia, comunas, regiones, recientes, embudo] = await Promise.all([
       sql.query(
         `${base}
          SELECT
@@ -13811,6 +13843,20 @@ async function manejarEnvioEstimado(req, res, sesion) {
         `${base}
          SELECT creado_en, region, comuna, cantidad, desde, n_opciones, modo, desde_cache, es_persona AS persona
          FROM base ORDER BY creado_en DESC LIMIT 40`, p),
+      // Embudo: de las personas que cotizaron, cuántas agregaron al carro y cuántas compraron ESE MISMO DÍA (la huella cambia cada día).
+      sql.query(
+        `${base}, dia_persona AS (
+           SELECT DISTINCT vid, (creado_en AT TIME ZONE 'America/Santiago')::date AS dia FROM base WHERE es_persona AND vid IS NOT NULL
+         ), ev AS (
+           SELECT e.vid, e.tipo, e.valor FROM envio_embudo e
+           JOIN dia_persona d ON d.vid = e.vid AND d.dia = (e.creado_en AT TIME ZONE 'America/Santiago')::date
+         )
+         SELECT
+           (SELECT count(DISTINCT vid)::int FROM ev WHERE tipo = 'carro') AS carro,
+           (SELECT count(DISTINCT vid)::int FROM ev WHERE tipo = 'compra') AS compra,
+           (SELECT COALESCE(sum(valor), 0)::float8 FROM ev WHERE tipo = 'compra') AS monto,
+           (SELECT count(DISTINCT vid)::int FROM ev WHERE tipo = 'carro' AND vid IN (SELECT vid FROM base WHERE modo = 'manual')) AS carro_eligieron,
+           (SELECT count(DISTINCT vid)::int FROM ev WHERE tipo = 'compra' AND vid IN (SELECT vid FROM base WHERE modo = 'manual')) AS compra_eligieron`, p),
     ]);
 
     return res.status(200).json({
@@ -13822,6 +13868,7 @@ async function manejarEnvioEstimado(req, res, sesion) {
       comunas: comunas.rows,
       porRegion: regiones.rows,
       recientes: recientes.rows,
+      embudo: embudo.rows[0],
     });
   } catch (e) {
     return res.status(200).json({ error: 'No se pudo leer el cotizador de envío: ' + e.message });
