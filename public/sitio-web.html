@@ -84,6 +84,28 @@
   .badge.riesgo{background:var(--amber);color:#fff;}
   th.sortable{cursor:pointer;user-select:none;}
   th.sortable:hover{color:var(--primary);}
+  /* Cotizador de envío */
+  .envio-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:0 0 18px;}
+  .envio-kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+  .envio-kpi .lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+  .envio-kpi .big{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:700;margin-top:3px;}
+  .envio-kpi .nota{font-size:11px;color:var(--muted);margin-top:2px;}
+  .envio-dos{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:22px;margin-bottom:6px;}
+  @media (max-width:900px){.envio-dos{grid-template-columns:minmax(0,1fr);}}
+  .envio-sub{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;margin:0 0 8px;}
+  .envio-dia{display:grid;grid-template-columns:46px 1fr 34px;align-items:center;gap:10px;font-size:12px;padding:2px 0;}
+  .envio-dia .f{color:var(--muted);font-family:'IBM Plex Mono',monospace;}
+  .envio-dia .barra{height:11px;background:var(--surface-2);border-radius:6px;overflow:hidden;}
+  .envio-dia .barra i{display:block;height:100%;background:var(--primary);}
+  .envio-dia .n{text-align:right;font-family:'IBM Plex Mono',monospace;}
+  .envio-periodo{display:flex;gap:6px;align-items:center;}
+  .envio-periodo .btn-ghost.active{background:var(--primary-dim);border-color:var(--primary);color:var(--primary-dark);}
+  .envio-tabla{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .envio-tabla th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;font-size:10px;padding:8px;border-bottom:2px solid var(--line);}
+  .envio-tabla td{padding:8px;border-bottom:1px solid var(--line);}
+  .envio-tabla .num{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .envio-tabla th.num{text-align:right;}
+  .envio-det summary{cursor:pointer;font-size:12.5px;color:var(--primary-dark);font-weight:600;margin-top:14px;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -177,6 +199,40 @@
   <div id="status"></div>
   <div id="avisoWrap"></div>
 
+  <div class="seccion" id="seccionEnvio">
+    <div class="seccion-head">
+      <div>
+        <h2>📦 Cotizador de envío en la ficha de producto</h2>
+        <div class="sub">Cuánta gente calcula el costo de envío antes de comprar, desde qué comunas y cuánto les sale. Se cuentan solo personas probables (navegador real, fuera de centros de datos); las pruebas del equipo hechas desde un navegador también cuentan.</div>
+      </div>
+      <div class="envio-periodo">
+        <button type="button" class="btn-ghost btn-compact" data-envio-dias="7" onclick="cargarEnvioEstimado(7)">7 días</button>
+        <button type="button" class="btn-ghost btn-compact active" data-envio-dias="30" onclick="cargarEnvioEstimado(30)">30 días</button>
+        <button type="button" class="btn-ghost btn-compact" data-envio-dias="90" onclick="cargarEnvioEstimado(90)">90 días</button>
+      </div>
+    </div>
+    <div id="envioEstado" class="empty-note">Cargando…</div>
+    <div id="envioContenido" style="display:none;">
+      <div class="envio-kpis" id="envioKpis"></div>
+      <div class="envio-dos">
+        <div>
+          <p class="envio-sub">Comunas que más consultan</p>
+          <div class="tabla-wrap"><table class="envio-tabla" id="envioComunas"></table></div>
+        </div>
+        <div>
+          <p class="envio-sub">Por región</p>
+          <div class="tabla-wrap"><table class="envio-tabla" id="envioRegiones"></table></div>
+          <p class="envio-sub" style="margin-top:18px;">Consultas por día</p>
+          <div id="envioPorDia"></div>
+        </div>
+      </div>
+      <details class="envio-det">
+        <summary>Ver los últimos cálculos</summary>
+        <div class="tabla-wrap"><table class="envio-tabla" id="envioRecientes"></table></div>
+      </details>
+    </div>
+  </div>
+
   <div class="seccion">
     <div class="seccion-head">
       <div>
@@ -234,6 +290,73 @@
 <script>
 const $ = id => document.getElementById(id);
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+
+// ---------- Cotizador de envío (ficha de producto) ----------
+let envioDias = 30;
+function envioEsc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function envioClp(n){ return n == null ? '—' : '$' + Math.round(n).toLocaleString('es-CL'); }
+function envioPct(a, b){ return b ? Math.round(a / b * 100) + '%' : '—'; }
+function envioTabla(el, cols, filas, vacio){
+  if(!filas.length){ el.innerHTML = `<tbody><tr><td class="empty-note">${envioEsc(vacio)}</td></tr></tbody>`; return; }
+  el.innerHTML = '<thead><tr>' + cols.map(c => `<th class="${c.cls||''}">${envioEsc(c.t)}</th>`).join('') + '</tr></thead><tbody>' +
+    filas.map(f => '<tr>' + cols.map(c => `<td class="${c.cls||''}">${c.f(f)}</td>`).join('') + '</tr>').join('') + '</tbody>';
+}
+async function cargarEnvioEstimado(dias){
+  if(dias) envioDias = dias;
+  document.querySelectorAll('[data-envio-dias]').forEach(b => b.classList.toggle('active', Number(b.dataset.envioDias) === envioDias));
+  const estado = $('envioEstado'), contenido = $('envioContenido');
+  estado.className = 'empty-note'; estado.textContent = 'Cargando…'; estado.style.display = '';
+  try{
+    const fin = new Date().toLocaleDateString('en-CA', { timeZone:'America/Santiago' });
+    const ini = new Date(Date.now() - (envioDias - 1) * 86400000).toLocaleDateString('en-CA', { timeZone:'America/Santiago' });
+    const res = await fetch(`/api/negocio?recurso=envio-estimado&desde=${ini}&hasta=${fin}`);
+    const d = await res.json();
+    if(d.error){ estado.className = 'note-box err'; estado.textContent = d.error; contenido.style.display = 'none'; return; }
+    const r = d.resumen || {};
+    if(!r.total){
+      estado.textContent = 'Todavía no hay cálculos registrados en este período. Aparecen cuando los clientes usan el cotizador en la ficha de producto.';
+      contenido.style.display = 'none'; return;
+    }
+    estado.style.display = 'none'; contenido.style.display = '';
+    const nombre = c => (d.regiones || {})[c] || c;
+    $('envioKpis').innerHTML = [
+      ['Consultas', fmtNum(r.personas), `${fmtNum(r.bots)} de bots o servidores, aparte`],
+      ['Visitantes', fmtNum(r.visitantes), 'personas distintas (huella diaria)'],
+      ['Comunas distintas', fmtNum(r.comunas), ''],
+      ['Fuera de la RM', envioPct(r.fuera_rm, r.personas), `${fmtNum(r.fuera_rm)} de ${fmtNum(r.personas)} consultas`],
+      ['Envío más barato', envioClp(r.desde_mediana), `mediana · fuera de la RM ${envioClp(r.desde_mediana_regiones)}`],
+      ['Envío desde $5.000', envioPct(r.desde_5000, r.personas), 'consultas con la opción más barata sobre $5.000'],
+      ['Sin tarifas', fmtNum(r.sin_tarifas), r.sin_tarifas ? 'comunas sin opciones: conviene revisarlas' : 'ninguna'],
+    ].map(k => `<div class="envio-kpi"><div class="lbl">${k[0]}</div><div class="big">${k[1]}</div><div class="nota">${k[2]}</div></div>`).join('');
+
+    envioTabla($('envioComunas'), [
+      { t:'Comuna', f: x => envioEsc(x.comuna) },
+      { t:'Región', f: x => envioEsc(nombre(x.region)) },
+      { t:'Consultas', cls:'num', f: x => fmtNum(x.veces) },
+      { t:'Visitantes', cls:'num', f: x => fmtNum(x.visitantes) },
+      { t:'Envío más barato', cls:'num', f: x => envioClp(x.desde) },
+    ], d.comunas || [], 'Sin datos.');
+    envioTabla($('envioRegiones'), [
+      { t:'Región', f: x => envioEsc(nombre(x.region)) },
+      { t:'Consultas', cls:'num', f: x => fmtNum(x.veces) },
+      { t:'Envío más barato', cls:'num', f: x => envioClp(x.desde) },
+    ], d.porRegion || [], 'Sin datos.');
+    const max = Math.max(1, ...(d.porDia || []).map(x => x.total));
+    $('envioPorDia').innerHTML = (d.porDia || []).map(x =>
+      `<div class="envio-dia"><span class="f">${envioEsc(x.dia.slice(5).split('-').reverse().join('/'))}</span><span class="barra"><i style="width:${x.total / max * 100}%"></i></span><span class="n">${fmtNum(x.total)}</span></div>`
+    ).join('') || '<div class="empty-note">Sin datos.</div>';
+    envioTabla($('envioRecientes'), [
+      { t:'Fecha', f: x => new Date(x.creado_en).toLocaleString('es-CL', { timeZone:'America/Santiago', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false }) },
+      { t:'Comuna', f: x => envioEsc(x.comuna) },
+      { t:'Región', f: x => envioEsc(nombre(x.region)) },
+      { t:'Cant.', cls:'num', f: x => fmtNum(x.cantidad) },
+      { t:'Envío más barato', cls:'num', f: x => x.n_opciones ? envioClp(x.desde) : 'sin tarifas' },
+      { t:'Origen', f: x => x.persona ? 'Persona probable' : 'Bot o servidor' },
+    ], d.recientes || [], 'Sin datos.');
+  }catch(e){
+    estado.className = 'note-box err'; estado.textContent = 'No se pudo cargar el cotizador de envío: ' + e.message; contenido.style.display = 'none';
+  }
+}
 function debounce(fn, ms){
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
@@ -1111,6 +1234,7 @@ async function cerrarSesion(){
 
 cargar();
 promesaModelosCompatIniciales = cargarModelosCompat();
+cargarEnvioEstimado();
 cargarSesionUsuario();
 
 // Autocompletado sin botón: apenas hay marca y modelo escritos, busca sola

@@ -9,8 +9,8 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
-import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
+import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
@@ -110,6 +110,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'buscador-ia-registrar') return manejarBuscadorIaRegistrar(req, res);
   if (req.query.recurso === 'buscador-ia-evento') return manejarBuscadorIaEvento(req, res);
   if (req.query.recurso === 'buscador-ia-ranking') return manejarBuscadorIaRanking(req, res);
+  if (req.query.recurso === 'buscador-ia-envio') return manejarBuscadorIaEnvio(req, res);
   // Recuperación de contraseña (ver recuperar-password.html /
   // reset-password.html): por definición corre SIN sesión -- quien la usa
   // es justamente alguien que no puede entrar. La seguridad real la hace el
@@ -150,6 +151,7 @@ export default async function handler(req, res) {
   if (recurso === 'llamadas-importar') return manejarLlamadasImportar(req, res, sesion);
   if (recurso === 'llamadas-anexo') return manejarLlamadasAnexo(req, res, sesion);
   if (recurso === 'buscador-ia') return manejarBuscadorIa(req, res, sesion);
+  if (recurso === 'envio-estimado') return manejarEnvioEstimado(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
   if (recurso === 'cotizacion-correo-contenido') return manejarCotizacionCorreoContenido(req, res, sesion);
@@ -13702,5 +13704,104 @@ async function manejarBuscadorIa(req, res, sesion) {
     });
   } catch (e) {
     return res.status(200).json({ error: 'No se pudo leer el buscador: ' + e.message });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cotizador de envío de la ficha de producto
+// ---------------------------------------------------------------------------
+
+// Recibe cada cálculo del cotizador desde el Worker de Cloudflare: comuna elegida,
+// costo de la opción más barata y huella anónima del visitante. Mismo esquema de
+// seguridad que el registro de búsquedas: clave en x-api-key, sin sesión.
+async function manejarBuscadorIaEnvio(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const claveEsperada = process.env.BUSCADOR_IA_KEY;
+  if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
+  if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) return res.status(401).json({ error: 'Clave inválida' });
+  const validado = validarEnvioBuscadorIa(req.body);
+  if (!validado.ok) return res.status(400).json({ error: validado.error });
+  const f = validado.fila;
+  try {
+    const sql = await getSql();
+    await asegurarTablaEnvioConsultas(sql);
+    await sql.query(
+      `INSERT INTO envio_consultas (region, comuna, variante, cantidad, desde, n_opciones, desde_cache, vid, pais, ua_tipo, centro_datos)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [f.region, f.comuna, f.variante, f.cantidad, f.desde, f.n_opciones, f.desde_cache, f.vid, f.pais, f.ua_tipo, f.centro_datos],
+    );
+    // Limpieza por antigüedad, igual que en las búsquedas: sin cron propio.
+    if (Math.random() < 0.02) {
+      await sql.query(`DELETE FROM envio_consultas WHERE creado_en < now() - make_interval(days => $1)`, [BUSCADOR_IA_RETENCION_DIAS]);
+    }
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo guardar el cálculo: ' + e.message });
+  }
+}
+
+// Resumen para la página Sitio Web: cuánta gente usa el cotizador, desde qué comunas
+// y cuánto les sale el envío. Todo se cuenta sobre "personas probables" (navegador real
+// y red que no es un centro de datos); los bots se informan aparte. ?desde= y ?hasta=
+// (YYYY-MM-DD, hora de Chile; por defecto últimos 30 días).
+async function manejarEnvioEstimado(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaEnvioConsultas(sql);
+
+    const esFecha = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const hace30 = new Date(Date.now() - 29 * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const desde = esFecha(req.query.desde) ? req.query.desde : hace30;
+    const hasta = esFecha(req.query.hasta) ? req.query.hasta : hoy;
+    const rango = `(creado_en AT TIME ZONE 'America/Santiago')::date BETWEEN $1::date AND $2::date`;
+    const persona = `ua_tipo = 'navegador' AND COALESCE(centro_datos, false) = false`;
+    const p = [desde, hasta];
+
+    const [resumen, porDia, comunas, regiones, recientes] = await Promise.all([
+      sql.query(
+        `SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE ${persona})::int AS personas,
+                count(*) FILTER (WHERE NOT (${persona}))::int AS bots,
+                count(DISTINCT vid) FILTER (WHERE ${persona} AND vid IS NOT NULL)::int AS visitantes,
+                count(DISTINCT (region, comuna)) FILTER (WHERE ${persona})::int AS comunas,
+                count(*) FILTER (WHERE ${persona} AND region <> 'RM')::int AS fuera_rm,
+                count(*) FILTER (WHERE ${persona} AND desde_cache)::int AS desde_cache,
+                count(*) FILTER (WHERE ${persona} AND n_opciones = 0)::int AS sin_tarifas,
+                count(*) FILTER (WHERE ${persona} AND desde >= 5000)::int AS desde_5000,
+                round((percentile_cont(0.5) WITHIN GROUP (ORDER BY desde) FILTER (WHERE ${persona} AND desde IS NOT NULL))::numeric)::int AS desde_mediana,
+                round((percentile_cont(0.5) WITHIN GROUP (ORDER BY desde) FILTER (WHERE ${persona} AND desde IS NOT NULL AND region <> 'RM'))::numeric)::int AS desde_mediana_regiones
+         FROM envio_consultas WHERE ${rango}`, p),
+      sql.query(
+        `SELECT to_char((creado_en AT TIME ZONE 'America/Santiago')::date, 'YYYY-MM-DD') AS dia, count(*)::int AS total
+         FROM envio_consultas WHERE ${rango} AND ${persona} GROUP BY 1 ORDER BY 1`, p),
+      sql.query(
+        `SELECT region, comuna, count(*)::int AS veces, count(DISTINCT vid)::int AS visitantes,
+                round((percentile_cont(0.5) WITHIN GROUP (ORDER BY desde))::numeric)::int AS desde
+         FROM envio_consultas WHERE ${rango} AND ${persona}
+         GROUP BY region, comuna ORDER BY veces DESC, comuna LIMIT 25`, p),
+      sql.query(
+        `SELECT region, count(*)::int AS veces,
+                round((percentile_cont(0.5) WITHIN GROUP (ORDER BY desde))::numeric)::int AS desde
+         FROM envio_consultas WHERE ${rango} AND ${persona}
+         GROUP BY region ORDER BY veces DESC`, p),
+      sql.query(
+        `SELECT creado_en, region, comuna, cantidad, desde, n_opciones, desde_cache, (${persona}) AS persona
+         FROM envio_consultas WHERE ${rango} ORDER BY creado_en DESC LIMIT 40`, p),
+    ]);
+
+    return res.status(200).json({
+      desde, hasta,
+      retencionDias: BUSCADOR_IA_RETENCION_DIAS,
+      regiones: REGIONES_ENVIO,
+      resumen: resumen.rows[0],
+      porDia: porDia.rows,
+      comunas: comunas.rows,
+      porRegion: regiones.rows,
+      recientes: recientes.rows,
+    });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo leer el cotizador de envío: ' + e.message });
   }
 }
