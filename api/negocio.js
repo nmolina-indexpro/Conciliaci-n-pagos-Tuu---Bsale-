@@ -13726,9 +13726,9 @@ async function manejarBuscadorIaEnvio(req, res) {
     const sql = await getSql();
     await asegurarTablaEnvioConsultas(sql);
     await sql.query(
-      `INSERT INTO envio_consultas (region, comuna, variante, cantidad, desde, n_opciones, desde_cache, vid, pais, ua_tipo, centro_datos)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [f.region, f.comuna, f.variante, f.cantidad, f.desde, f.n_opciones, f.desde_cache, f.vid, f.pais, f.ua_tipo, f.centro_datos],
+      `INSERT INTO envio_consultas (region, comuna, variante, cantidad, desde, n_opciones, desde_cache, vid, pais, ua_tipo, centro_datos, modo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [f.region, f.comuna, f.variante, f.cantidad, f.desde, f.n_opciones, f.desde_cache, f.vid, f.pais, f.ua_tipo, f.centro_datos, f.modo],
     );
     // Limpieza por antigüedad, igual que en las búsquedas: sin cron propio.
     if (Math.random() < 0.02) {
@@ -13741,9 +13741,15 @@ async function manejarBuscadorIaEnvio(req, res) {
 }
 
 // Resumen para la página Sitio Web: cuánta gente usa el cotizador, desde qué comunas
-// y cuánto les sale el envío. Todo se cuenta sobre "personas probables" (navegador real
-// y red que no es un centro de datos); los bots se informan aparte. ?desde= y ?hasta=
-// (YYYY-MM-DD, hora de Chile; por defecto últimos 30 días).
+// y cuánto les sale el envío. SE CUENTA POR PERSONA, no por cálculo: la ficha vuelve a
+// calcular sola cuando el cliente pasa de un producto a otro (comuna recordada) o cambia
+// la cantidad, y eso no es "uso" nuevo. Reglas:
+//  - Persona = huella anónima del visitante (cambia cada día: quien vuelve otro día cuenta otra vez).
+//  - Solo personas probables (navegador real, fuera de centros de datos); los bots se informan aparte.
+//  - "Eligieron una comuna" = personas que la escogieron a propósito (modo 'manual').
+//  - Comunas, regiones y precios se calculan sobre pares persona+comuna: una persona que mira
+//    la misma comuna en 10 productos pesa una vez.
+// ?desde= y ?hasta= (YYYY-MM-DD, hora de Chile; por defecto últimos 30 días).
 async function manejarEnvioEstimado(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
@@ -13755,40 +13761,56 @@ async function manejarEnvioEstimado(req, res, sesion) {
     const hace30 = new Date(Date.now() - 29 * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
     const desde = esFecha(req.query.desde) ? req.query.desde : hace30;
     const hasta = esFecha(req.query.hasta) ? req.query.hasta : hoy;
-    const rango = `(creado_en AT TIME ZONE 'America/Santiago')::date BETWEEN $1::date AND $2::date`;
-    const persona = `ua_tipo = 'navegador' AND COALESCE(centro_datos, false) = false`;
     const p = [desde, hasta];
+    const quien = `COALESCE(vid, id::text)`;
+    const medianaDesde = `round((percentile_cont(0.5) WITHIN GROUP (ORDER BY desde))::numeric)::int`;
+    const base = `
+      WITH base AS (
+        SELECT *, (ua_tipo = 'navegador' AND COALESCE(centro_datos, false) = false) AS es_persona
+        FROM envio_consultas
+        WHERE (creado_en AT TIME ZONE 'America/Santiago')::date BETWEEN $1::date AND $2::date
+      ), pares AS (
+        SELECT DISTINCT ON (${quien}, region, comuna) ${quien} AS persona_id, region, comuna, desde, n_opciones
+        FROM base WHERE es_persona
+        ORDER BY ${quien}, region, comuna, creado_en DESC
+      )`;
 
     const [resumen, porDia, comunas, regiones, recientes] = await Promise.all([
       sql.query(
-        `SELECT count(*)::int AS total,
-                count(*) FILTER (WHERE ${persona})::int AS personas,
-                count(*) FILTER (WHERE NOT (${persona}))::int AS bots,
-                count(DISTINCT vid) FILTER (WHERE ${persona} AND vid IS NOT NULL)::int AS visitantes,
-                count(DISTINCT (region, comuna)) FILTER (WHERE ${persona})::int AS comunas,
-                count(*) FILTER (WHERE ${persona} AND region <> 'RM')::int AS fuera_rm,
-                count(*) FILTER (WHERE ${persona} AND desde_cache)::int AS desde_cache,
-                count(*) FILTER (WHERE ${persona} AND n_opciones = 0)::int AS sin_tarifas,
-                count(*) FILTER (WHERE ${persona} AND desde >= 5000)::int AS desde_5000,
-                round((percentile_cont(0.5) WITHIN GROUP (ORDER BY desde) FILTER (WHERE ${persona} AND desde IS NOT NULL))::numeric)::int AS desde_mediana,
-                round((percentile_cont(0.5) WITHIN GROUP (ORDER BY desde) FILTER (WHERE ${persona} AND desde IS NOT NULL AND region <> 'RM'))::numeric)::int AS desde_mediana_regiones
-         FROM envio_consultas WHERE ${rango}`, p),
+        `${base}
+         SELECT
+           (SELECT count(*)::int FROM base) AS calculos_total,
+           (SELECT count(*)::int FROM base WHERE es_persona) AS calculos_personas,
+           (SELECT count(*)::int FROM base WHERE es_persona AND modo IS NOT NULL AND modo <> 'manual') AS calculos_automaticos,
+           (SELECT count(*)::int FROM base WHERE NOT es_persona) AS calculos_bots,
+           (SELECT count(DISTINCT ${quien})::int FROM base WHERE NOT es_persona) AS bots,
+           (SELECT count(DISTINCT ${quien})::int FROM base WHERE es_persona) AS personas,
+           (SELECT count(DISTINCT ${quien})::int FROM base WHERE es_persona AND modo = 'manual') AS eligieron,
+           (SELECT count(*)::int FROM pares) AS pares,
+           (SELECT count(DISTINCT (region, comuna))::int FROM pares) AS comunas,
+           (SELECT count(*)::int FROM pares WHERE region <> 'RM') AS fuera_rm,
+           (SELECT count(*)::int FROM pares WHERE n_opciones = 0) AS sin_tarifas,
+           (SELECT count(*)::int FROM pares WHERE desde >= 5000) AS desde_5000,
+           (SELECT ${medianaDesde} FROM pares WHERE desde IS NOT NULL) AS desde_mediana,
+           (SELECT ${medianaDesde} FROM pares WHERE desde IS NOT NULL AND region <> 'RM') AS desde_mediana_regiones`, p),
       sql.query(
-        `SELECT to_char((creado_en AT TIME ZONE 'America/Santiago')::date, 'YYYY-MM-DD') AS dia, count(*)::int AS total
-         FROM envio_consultas WHERE ${rango} AND ${persona} GROUP BY 1 ORDER BY 1`, p),
+        `${base}
+         SELECT to_char((creado_en AT TIME ZONE 'America/Santiago')::date, 'YYYY-MM-DD') AS dia,
+                count(DISTINCT ${quien})::int AS total
+         FROM base WHERE es_persona GROUP BY 1 ORDER BY 1`, p),
       sql.query(
-        `SELECT region, comuna, count(*)::int AS veces, count(DISTINCT vid)::int AS visitantes,
-                round((percentile_cont(0.5) WITHIN GROUP (ORDER BY desde))::numeric)::int AS desde
-         FROM envio_consultas WHERE ${rango} AND ${persona}
-         GROUP BY region, comuna ORDER BY veces DESC, comuna LIMIT 25`, p),
+        `${base}
+         SELECT region, comuna, count(*)::int AS personas, ${medianaDesde} AS desde,
+                (SELECT count(*)::int FROM base b WHERE b.es_persona AND b.region = pares.region AND b.comuna = pares.comuna) AS calculos
+         FROM pares GROUP BY region, comuna ORDER BY personas DESC, comuna LIMIT 25`, p),
       sql.query(
-        `SELECT region, count(*)::int AS veces,
-                round((percentile_cont(0.5) WITHIN GROUP (ORDER BY desde))::numeric)::int AS desde
-         FROM envio_consultas WHERE ${rango} AND ${persona}
-         GROUP BY region ORDER BY veces DESC`, p),
+        `${base}
+         SELECT region, count(*)::int AS personas, ${medianaDesde} AS desde
+         FROM pares GROUP BY region ORDER BY personas DESC`, p),
       sql.query(
-        `SELECT creado_en, region, comuna, cantidad, desde, n_opciones, desde_cache, (${persona}) AS persona
-         FROM envio_consultas WHERE ${rango} ORDER BY creado_en DESC LIMIT 40`, p),
+        `${base}
+         SELECT creado_en, region, comuna, cantidad, desde, n_opciones, modo, desde_cache, es_persona AS persona
+         FROM base ORDER BY creado_en DESC LIMIT 40`, p),
     ]);
 
     return res.status(200).json({

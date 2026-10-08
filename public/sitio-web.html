@@ -203,7 +203,7 @@
     <div class="seccion-head">
       <div>
         <h2>📦 Cotizador de envío en la ficha de producto</h2>
-        <div class="sub">Cuánta gente calcula el costo de envío antes de comprar, desde qué comunas y cuánto les sale. Se cuentan solo personas probables (navegador real, fuera de centros de datos); las pruebas del equipo hechas desde un navegador también cuentan.</div>
+        <div class="sub">Cuántas personas calculan el costo de envío antes de comprar, desde qué comunas y cuánto les sale. Se cuenta por persona (huella anónima diaria), no por cálculo: la ficha recalcula sola cuando el cliente pasa a otro producto o cambia la cantidad, y eso no suma. Solo personas probables (navegador real, fuera de centros de datos); las pruebas del equipo hechas desde un navegador también cuentan.</div>
       </div>
       <div class="envio-periodo">
         <button type="button" class="btn-ghost btn-compact" data-envio-dias="7" onclick="cargarEnvioEstimado(7)">7 días</button>
@@ -216,13 +216,13 @@
       <div class="envio-kpis" id="envioKpis"></div>
       <div class="envio-dos">
         <div>
-          <p class="envio-sub">Comunas que más consultan</p>
+          <p class="envio-sub">Comunas con más personas</p>
           <div class="tabla-wrap"><table class="envio-tabla" id="envioComunas"></table></div>
         </div>
         <div>
           <p class="envio-sub">Por región</p>
           <div class="tabla-wrap"><table class="envio-tabla" id="envioRegiones"></table></div>
-          <p class="envio-sub" style="margin-top:18px;">Consultas por día</p>
+          <p class="envio-sub" style="margin-top:18px;">Personas por día</p>
           <div id="envioPorDia"></div>
         </div>
       </div>
@@ -313,32 +313,33 @@ async function cargarEnvioEstimado(dias){
     const d = await res.json();
     if(d.error){ estado.className = 'note-box err'; estado.textContent = d.error; contenido.style.display = 'none'; return; }
     const r = d.resumen || {};
-    if(!r.total){
+    if(!r.calculos_total){
       estado.textContent = 'Todavía no hay cálculos registrados en este período. Aparecen cuando los clientes usan el cotizador en la ficha de producto.';
       contenido.style.display = 'none'; return;
     }
     estado.style.display = 'none'; contenido.style.display = '';
     const nombre = c => (d.regiones || {})[c] || c;
     $('envioKpis').innerHTML = [
-      ['Consultas', fmtNum(r.personas), `${fmtNum(r.bots)} de bots o servidores, aparte`],
-      ['Visitantes', fmtNum(r.visitantes), 'personas distintas (huella diaria)'],
+      ['Personas', fmtNum(r.personas), `${fmtNum(r.bots)} bots o servidores, aparte`],
+      ['Eligieron una comuna', fmtNum(r.eligieron), `${envioPct(r.eligieron, r.personas)} de las personas; el resto solo vio la comuna recordada`],
+      ['Cálculos', fmtNum(r.calculos_personas), `${fmtNum(r.calculos_automaticos)} automáticos (otro producto o cantidad)`],
       ['Comunas distintas', fmtNum(r.comunas), ''],
-      ['Fuera de la RM', envioPct(r.fuera_rm, r.personas), `${fmtNum(r.fuera_rm)} de ${fmtNum(r.personas)} consultas`],
+      ['Fuera de la RM', envioPct(r.fuera_rm, r.pares), `${fmtNum(r.fuera_rm)} de ${fmtNum(r.pares)} (persona + comuna)`],
       ['Envío más barato', envioClp(r.desde_mediana), `mediana · fuera de la RM ${envioClp(r.desde_mediana_regiones)}`],
-      ['Envío desde $5.000', envioPct(r.desde_5000, r.personas), 'consultas con la opción más barata sobre $5.000'],
+      ['Envío desde $5.000', envioPct(r.desde_5000, r.pares), 'con la opción más barata sobre $5.000'],
       ['Sin tarifas', fmtNum(r.sin_tarifas), r.sin_tarifas ? 'comunas sin opciones: conviene revisarlas' : 'ninguna'],
     ].map(k => `<div class="envio-kpi"><div class="lbl">${k[0]}</div><div class="big">${k[1]}</div><div class="nota">${k[2]}</div></div>`).join('');
 
     envioTabla($('envioComunas'), [
       { t:'Comuna', f: x => envioEsc(x.comuna) },
       { t:'Región', f: x => envioEsc(nombre(x.region)) },
-      { t:'Consultas', cls:'num', f: x => fmtNum(x.veces) },
-      { t:'Visitantes', cls:'num', f: x => fmtNum(x.visitantes) },
+      { t:'Personas', cls:'num', f: x => fmtNum(x.personas) },
+      { t:'Cálculos', cls:'num', f: x => fmtNum(x.calculos) },
       { t:'Envío más barato', cls:'num', f: x => envioClp(x.desde) },
     ], d.comunas || [], 'Sin datos.');
     envioTabla($('envioRegiones'), [
       { t:'Región', f: x => envioEsc(nombre(x.region)) },
-      { t:'Consultas', cls:'num', f: x => fmtNum(x.veces) },
+      { t:'Personas', cls:'num', f: x => fmtNum(x.personas) },
       { t:'Envío más barato', cls:'num', f: x => envioClp(x.desde) },
     ], d.porRegion || [], 'Sin datos.');
     const max = Math.max(1, ...(d.porDia || []).map(x => x.total));
@@ -351,6 +352,7 @@ async function cargarEnvioEstimado(dias){
       { t:'Región', f: x => envioEsc(nombre(x.region)) },
       { t:'Cant.', cls:'num', f: x => fmtNum(x.cantidad) },
       { t:'Envío más barato', cls:'num', f: x => x.n_opciones ? envioClp(x.desde) : 'sin tarifas' },
+      { t:'Modo', f: x => ({ manual:'Eligió', recordada:'Recordada', cambio:'Cambió cantidad' })[x.modo] || '—' },
       { t:'Origen', f: x => x.persona ? 'Persona probable' : 'Bot o servidor' },
     ], d.recientes || [], 'Sin datos.');
   }catch(e){
