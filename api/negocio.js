@@ -12,7 +12,7 @@
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, asegurarTablaDescuentosWeb, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
 import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, validarEmbudo as validarEmbudoBuscadorIa, validarDescuentoEvento as validarDescuentoEventoBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
-import { normalizarConfig as normalizarConfigDW, analizarProducto as analizarProductoDW, permisosShopify as permisosShopifyDW, listarProductos as listarProductosDW, aplicarEtiquetas as aplicarEtiquetasDW, estadoWebhook as estadoWebhookDW, registrarWebhook as registrarWebhookDW, costosBsale as costosBsaleDW, resultadosPedidos as resultadosPedidosDW, claveAviso as claveAvisoDW, tieneCambios as tieneCambiosDW } from '../lib/descuentos-web.js';
+import { normalizarConfig as normalizarConfigDW, analizarProducto as analizarProductoDW, permisosShopify as permisosShopifyDW, listarProductos as listarProductosDW, aplicarEtiquetas as aplicarEtiquetasDW, estadoWebhook as estadoWebhookDW, registrarWebhook as registrarWebhookDW, costosBsale as costosBsaleDW, resultadosPedidos as resultadosPedidosDW, claveAviso as claveAvisoDW, tieneCambios as tieneCambiosDW, estadoDescuentos as estadoDescuentosDW, crearDescuentoFuncion as crearDescuentoFuncionDW } from '../lib/descuentos-web.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
@@ -13957,6 +13957,12 @@ async function manejarDescuentosWeb(req, res, sesion) {
         const r = await descuentosWebSincronizar(gql, sql, cfg, { aplicar: true, usuario: sesion.nombre || sesion.email, motivo: 'manual' });
         return res.status(200).json({ ok: true, cambios: r.cambios.length, errores: r.resultados.filter(x => !x.ok), resultados: r.resultados });
       }
+      if (accion === 'crear-descuento-funcion') {
+        const estado = await estadoDescuentosDW(gql, cfg);
+        if (estado.descuentos.some(d => d.tipo === 'funcion' && d.estado === 'ACTIVE')) return res.status(200).json({ error: 'Ya existe un descuento por función activo' });
+        const id = await crearDescuentoFuncionDW(gql);
+        return res.status(200).json({ ok: true, id });
+      }
       if (accion === 'registrar-aviso') {
         const url = descuentosWebUrlAviso(req);
         const id = await registrarWebhookDW(gql, url);
@@ -13989,12 +13995,14 @@ async function manejarDescuentosWeb(req, res, sesion) {
       });
     } catch (e) { errorProductos = e.message; }
 
+    let descuentosShopify = null;
+    try { descuentosShopify = await estadoDescuentosDW(gql, cfg); } catch {}
     let aviso = { registrado: false, id: null, otros: 0 };
     try { aviso = await estadoWebhookDW(gql, descuentosWebUrlAviso(req)); } catch {}
 
     const { rows: bitacora } = await sql.query(`SELECT creado_en, usuario, motivo, productos, cambios, errores FROM descuentos_web_log ORDER BY id DESC LIMIT 15`);
     return res.status(200).json({
-      config: cfg, esAdmin, permisos, aviso, productos, errorProductos, bitacora,
+      config: cfg, esAdmin, permisos, aviso, productos, errorProductos, bitacora, descuentosShopify,
       resumen: {
         productos: productos.length,
         con_cambios: productos.filter(tieneCambiosDW).length,
