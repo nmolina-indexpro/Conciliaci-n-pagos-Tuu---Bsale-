@@ -535,24 +535,38 @@ async function cargarResultados(){
 
 function pintarPasos(){
   const c = D.config, p = D.permisos, ds = D.descuentosShopify || { funcion: {}, descuentos: [] };
-  const marca = ok => ok === null ? '<span class="badge gris">Sin datos</span>' : (ok ? '<span class="badge verde">Listo</span>' : '<span class="badge ambar">Pendiente</span>');
-  const permisosOk = p.write_products && p.write_discounts;
-  const faltan = [!p.write_products ? '"Escribir productos" (write_products)' : null, !p.write_discounts ? '"Escribir descuentos" (write_discounts)' : null].filter(Boolean);
+  const marca = ok => ok === null ? '<span class="badge gris">Revisar</span>' : (ok ? '<span class="badge verde">Listo</span>' : '<span class="badge ambar">Pendiente</span>');
   const fn = ds.funcion || {};
   const activos = (ds.descuentos || []).filter(d => d.estado === 'ACTIVE');
   const funcionActiva = activos.some(d => d.tipo === 'funcion');
   const nativosActivos = activos.filter(d => d.tipo === 'nativo');
+  // Dos formas de cobrar: descuento automático nativo de Shopify (cuenta todos los cargadores del carro juntos, es lo que está en uso)
+  // o función por producto (opcional, exige 3 o 5 unidades del mismo producto). Los pasos siguen a la que esté en uso.
+  const modoFuncion = Boolean(fn.publicada || funcionActiva);
+  const permisosOk = modoFuncion ? (p.write_products && p.write_discounts) : p.write_products;
+  const faltan = [!p.write_products ? '"Escribir productos" (write_products)' : null, modoFuncion && !p.write_discounts ? '"Escribir descuentos" (write_discounts)' : null].filter(Boolean);
+  const tag = t => '<code>' + esc(c.prefijo_etiqueta + t.cantidad) + '</code>';
+  const colecciones = c.tramos.map(t => '<li>Colección automatizada <b>"Descuento volumen ' + t.cantidad + '"</b>: la etiqueta del producto es igual a ' + tag(t) + '.</li>').join('');
+  const nativos = c.tramos.map(t => '<li><b>"' + esc(c.prefijo_titulo) + ' ' + t.cantidad + '+ cargadores (' + t.porcentaje + '%)"</b>: automático, ' + t.porcentaje + '% sobre la colección "Descuento volumen ' + t.cantidad + '", cantidad mínima de artículos ' + t.cantidad + ', sin combinaciones.</li>').join('');
   const puedeCrear = D.esAdmin && permisosOk && fn.publicada && !funcionActiva;
-  const pasos = [
-    [permisosOk, 'Permisos de la conexión con Shopify', permisosOk ? 'La conexión puede escribir productos y descuentos.' : 'Falta ' + faltan.join(' y ') + ' en la app API - Conciliación (Shopify, dev.shopify.com, Versiones, Ámbitos de acceso; publica la versión y acéptala en Configuración, Apps).'],
-    [fn.publicada === undefined ? null : fn.publicada, 'Función de descuento publicada', fn.publicada ? 'La función "' + esc(fn.titulo || '') + '" está publicada en la app.' : 'Cobra el descuento producto por producto (3 o 5 unidades del MISMO producto). Se publica una sola vez con Shopify CLI en la app API - Conciliación: <code>npm install -g @shopify/cli</code>, luego <code>shopify app config link</code>, <code>shopify app generate extension</code> (plantilla Discount, JavaScript, nombre <code>descuento-volumen</code>), pegar los 2 archivos de la guía y <code>shopify app deploy</code>. ' + (fn.error ? '<div class="desde">No se pudo consultar: ' + esc(fn.error) + '</div>' : '')],
-    [funcionActiva, 'Descuento por cantidad creado', funcionActiva ? 'Activo: "' + esc(activos.find(d => d.tipo === 'funcion').titulo) + '". No se combina con otros descuentos.' : 'Crea el descuento automático que usa la función, sin combinaciones. ' + (D.esAdmin ? '<button type="button" class="btn-ghost btn-compact" id="btnCrearFuncion" ' + (puedeCrear ? '' : 'disabled') + '>Crear descuento por cantidad</button>' : '') + (puedeCrear ? '' : '<div class="desde">Se habilita cuando la función está publicada y la conexión tiene permiso de descuentos.</div>')],
-    [nativosActivos.length === 0, 'Descuentos antiguos desactivados', nativosActivos.length === 0 ? 'No hay descuentos "' + esc(c.prefijo_titulo) + '..." nativos activos.' : 'Siguen activos y cuentan todos los cargadores del carro juntos: ' + nativosActivos.map(d => '<b>' + esc(d.titulo) + '</b>').join(', ') + '. Desactívalos en Shopify (Descuentos) cuando el de función esté activo, para que no se duplique ni se cobre distinto.'],
+  const comunes = [
+    [permisosOk, 'Permisos de la conexión con Shopify', permisosOk ? 'La conexión puede ' + (modoFuncion ? 'escribir productos y descuentos.' : 'escribir productos.') : 'Falta ' + faltan.join(' y ') + ' en la app API - Conciliación (dev.shopify.com, Versiones, Ámbitos de acceso; publica la versión y acéptala en Configuración, Apps).'],
+  ];
+  const cola = [
     [D.aviso.registrado, 'Aviso de stock de Shopify', D.aviso.registrado ? 'Registrado: cada cambio de stock revisa los tramos de cada producto.' : 'Sin esto el ERP solo revisa una vez al día. ' + (D.esAdmin && p.ok ? '<button type="button" class="btn-ghost btn-compact" id="btnAviso">Registrar aviso de stock</button>' : '')],
     [c.activo, 'Revisión automática', c.activo ? 'Activa.' : 'Apagada: los cambios solo se aplican con el botón. Actívala en "Reglas" cuando los descuentos estén probados.'],
   ];
+  const medio = modoFuncion ? [
+    [fn.publicada, 'Función de descuento publicada', fn.publicada ? 'La función "' + esc(fn.titulo || '') + '" está publicada en la app.' : 'Pendiente de publicar con Shopify CLI.'],
+    [funcionActiva, 'Descuento por cantidad creado', funcionActiva ? 'Activo: "' + esc(activos.find(d => d.tipo === 'funcion').titulo) + '". Cobra por producto y no se combina con otros descuentos.' : 'Crea el descuento automático que usa la función, sin combinaciones. ' + (D.esAdmin ? '<button type="button" class="btn-ghost btn-compact" id="btnCrearFuncion" ' + (puedeCrear ? '' : 'disabled') + '>Crear descuento por cantidad</button>' : '')],
+    [nativosActivos.length === 0, 'Descuentos antiguos desactivados', nativosActivos.length === 0 ? 'No hay descuentos nativos "' + esc(c.prefijo_titulo) + '..." activos.' : 'Siguen activos y cuentan todos los cargadores del carro juntos: ' + nativosActivos.map(d => '<b>' + esc(d.titulo) + '</b>').join(', ') + '. Desactívalos en Shopify (Descuentos) para que no se dupliquen.'],
+  ] : [
+    [null, 'Colecciones automáticas en Shopify', 'Productos, Colecciones, Crear colección, Automatizada:<ul>' + colecciones + '</ul>Se llenan solas cuando el ERP pone las etiquetas.'],
+    [nativosActivos.length >= c.tramos.length, 'Descuentos automáticos en Shopify', 'Descuentos, Crear descuento, Automático, importe de descuento sobre productos. El nombre debe empezar con "' + esc(c.prefijo_titulo) + '" para medirlos aquí.<ul>' + nativos + '</ul><span class="desde">Descuento agrupado: la cantidad mínima cuenta las unidades de todos los cargadores con tramo que haya en el carro (2 de uno y 1 de otro suman 3). Para exigirlo por producto existe una función de Shopify (opcional, ver la guía de la función).</span>'],
+  ];
+  const pasos = comunes.concat(medio, cola);
   $('pasos').innerHTML = pasos.map((x, i) => `<div class="paso"><div class="paso-n">${i + 1}</div><div class="paso-t"><b>${x[1]}</b> ${marca(x[0])}<div class="desde" style="font-size:12.5px;color:var(--text);margin-top:4px;">${x[2]}</div></div></div>`).join('') +
-    '<div class="desde" style="margin-top:8px;">El ERP deja en cada producto sus tramos según el stock (metacampo descuentos.tramos) y la etiqueta descuento-vol-N. La función y la ficha del cliente leen esos datos; las colecciones automáticas ya no hacen falta.</div>';
+    '<div class="desde" style="margin-top:8px;">El ERP deja en cada producto la etiqueta descuento-vol-N y sus tramos según el stock (metacampo descuentos.tramos); la ficha del cliente lee esos datos.</div>';
   const bA = $('btnAviso');
   if(bA) bA.addEventListener('click', async () => {
     bA.disabled = true; bA.textContent = 'Registrando…';
