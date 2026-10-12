@@ -116,6 +116,13 @@
   .paso ul{margin:6px 0 4px;padding-left:18px;}
   .paso li{margin:3px 0;}
   code{font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--surface-2);padding:1px 6px;border-radius:5px;}
+  .oculta{display:none !important;}
+  .seccion.min > :not(.seccion-head){display:none;}
+  .seccion.min .seccion-head{margin-bottom:0;}
+  .btn-min{background:var(--surface-2);color:var(--muted);border:1.5px solid var(--line);padding:6px 11px;font-size:12px;border-radius:8px;white-space:nowrap;}
+  .btn-min:hover{border-color:var(--primary);color:var(--primary);}
+  .ver-todos{margin-top:10px;}
+  .motivo{max-width:200px;white-space:normal;text-align:right;margin-left:auto;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -305,6 +312,45 @@ async function cerrarSesion(){
 let D = null;       // respuesta principal
 let diasRes = 30;
 
+// Cada módulo se puede minimizar (se recuerda) y las listas largas muestran 3 filas con un botón "Ver todos".
+const LIMITE_FILAS = 3;
+const filasAbiertas = {};
+function limitar(id, selector){
+  const cont = $(id); if(!cont) return;
+  const filas = [...cont.querySelectorAll(selector)];
+  const destino = cont.closest('.tabla-wrap') || cont;
+  const viejo = destino.parentElement.querySelector('.ver-todos[data-para="' + id + '"]');
+  if(viejo) viejo.remove();
+  if(filas.length <= LIMITE_FILAS){ filas.forEach(f => f.classList.remove('oculta')); return; }
+  const abierto = !!filasAbiertas[id];
+  filas.forEach((f, i) => f.classList.toggle('oculta', !abierto && i >= LIMITE_FILAS));
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'btn-ghost btn-compact ver-todos'; b.dataset.para = id;
+  b.textContent = abierto ? 'Ver menos' : 'Ver todos (' + filas.length + ')';
+  b.addEventListener('click', () => { filasAbiertas[id] = !filasAbiertas[id]; limitar(id, selector); });
+  destino.insertAdjacentElement('afterend', b);
+}
+function limitarTodo(){
+  limitar('tProductos', 'tbody tr');
+  limitar('tBitacora', 'tbody tr');
+  limitar('tTramos', 'tbody tr');
+  limitar('porDia', '.dia');
+}
+function iniciarMinimizar(){
+  document.querySelectorAll('.seccion').forEach(sec => {
+    const head = sec.querySelector('.seccion-head'); if(!head) return;
+    const titulo = (head.querySelector('h2') || {}).textContent || '';
+    const clave = 'dw_min_' + titulo;
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn-min';
+    const poner = min => { sec.classList.toggle('min', min); b.textContent = min ? '▸ Expandir' : '▾ Minimizar'; b.setAttribute('aria-expanded', String(!min)); };
+    let guardado = false; try { guardado = localStorage.getItem(clave) === '1'; } catch(e){}
+    poner(guardado);
+    b.addEventListener('click', () => { const min = !sec.classList.contains('min'); poner(min); try { localStorage.setItem(clave, min ? '1' : '0'); } catch(e){} });
+    head.appendChild(b);
+  });
+}
+
 async function api(opciones, query){
   const res = await fetch('/api/negocio?recurso=descuentos-web' + (query || ''), opciones);
   const j = await res.json().catch(() => ({ error: 'Respuesta inválida del servidor' }));
@@ -322,7 +368,7 @@ async function cargar(){
     if(j.error){ st.className = 'err'; st.textContent = j.error; return; }
     D = j;
     st.textContent = '';
-    pintarAvisos(); pintarKpis(); pintarReglas(); pintarProductos(); pintarPasos(); pintarBitacora();
+    pintarAvisos(); pintarKpis(); pintarReglas(); pintarProductos(); pintarPasos(); pintarBitacora(); limitarTodo();
   }catch(e){ st.className = 'err'; st.textContent = 'No se pudo cargar: ' + e.message; }
   finally{ $('btnActualizar').disabled = false; }
   cargarResultados();
@@ -391,10 +437,12 @@ function pintarProductos(){
   $('prefijoEtq').textContent = c.prefijo_etiqueta + '…';
   const head = ['Producto', 'Stock', 'Precio', 'Costo neto', 'Se ofrece', 'Etiquetas', 'Margen sin desc.']
     .concat(c.tramos.map(t => `Margen ${t.cantidad} u. (${t.porcentaje}%)`)).concat(['Desc. máximo']);
-  const filas = D.productos.map(p => {
-    const costo = p.costo_origen === 'Bsale'
-      ? `<span class="amount">${clp(p.costo)}</span><div class="desde">Bsale</div>`
-      : `<input class="inp-costo" data-sku="${esc(p.sku || '')}" type="number" min="1" placeholder="costo" value="${p.costo ?? ''}" ${D.esAdmin && p.sku ? '' : 'disabled'}><div class="desde">${p.costo_origen === 'manual' ? 'a mano' : 'sin dato'}</div>`;
+  const conCambio = p => (p.agregar.length || p.quitar.length || p.meta_cambio) ? 0 : 1;
+  const filas = [...D.productos].sort((a, b) => conCambio(a) - conCambio(b)).map(p => {
+    const esBsale = String(p.costo_origen || '').startsWith('Bsale');
+    const costo = esBsale
+      ? `<span class="amount">${clp(p.costo)}</span><div class="desde motivo">${esc(p.costo_origen)}</div>`
+      : `<input class="inp-costo" data-sku="${esc(p.sku || '')}" type="number" min="1" placeholder="costo" value="${p.costo ?? ''}" ${D.esAdmin && p.sku ? '' : 'disabled'}><div class="desde motivo">${p.costo_origen === 'manual' ? 'a mano' : esc(p.costo_motivo || 'sin dato')}</div>`;
     const ofrece = p.ofrecidos.length ? p.ofrecidos.map(t => `<span class="badge verde">${t.cantidad} u. · ${t.porcentaje}%</span>`).join(' ') : '<span class="badge gris">Ninguno</span>';
     const cambios = [].concat(p.agregar.map(t => `<span class="badge azul">+ ${esc(t)}</span>`), p.quitar.map(t => `<span class="badge rojo">− ${esc(t)}</span>`), p.meta_cambio ? [`<span class="badge azul">actualizar ficha</span>`] : []);
     const hoy = p.tags.filter(t => t.toLowerCase().startsWith(c.prefijo_etiqueta.toLowerCase()));
@@ -454,6 +502,7 @@ async function cargarResultados(){
     r.porTramo.map(t => `<tr><td>${esc(t.titulo)}</td><td class="amount">${fmtNum(t.pedidos)}</td><td class="amount">${fmtNum(t.unidades)}</td><td class="amount">${clp(t.descuento)}</td></tr>`).join('') + '</tbody>';
   const max = Math.max(1, ...r.porDia.map(x => x.unidades));
   $('porDia').innerHTML = r.porDia.map(x => `<div class="dia"><span class="dia-f">${esc(x.dia.slice(5).split('-').reverse().join('/'))}</span><span class="dia-barra"><i class="ok" style="width:${x.unidades / max * 100}%"></i></span><span class="dia-n">${fmtNum(x.unidades)}</span></div>`).join('');
+  limitarTodo();
   if(r.truncado) $('resEstado').insertAdjacentHTML('afterend', '<div class="desde">Hay más pedidos que los revisados; las cifras pueden quedar cortas. Prueba con 30 días.</div>');
 }
 
@@ -490,6 +539,7 @@ $('btnGuardarReglas').addEventListener('click', () => guardarReglas());
 $('btnAplicar').addEventListener('click', aplicar);
 document.querySelectorAll('[data-dias]').forEach(b => b.addEventListener('click', () => { diasRes = Number(b.dataset.dias); cargarResultados(); }));
 cargarSesionUsuario();
+iniciarMinimizar();
 cargar();
 </script>
 </body>

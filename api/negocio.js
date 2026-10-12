@@ -13856,11 +13856,13 @@ async function manejarDescuentosWeb(req, res, sesion) {
     let productos = [], errorProductos = null;
     try {
       const lista = await listarProductosDW(gql, cfg);
-      const costosBsaleMap = await costosBsaleDW(lista.map(p => p.sku), (process.env.BSALE_ACCESS_TOKEN || '').trim());
+      const { costos: costosBsaleMap, motivos: motivosCosto } = await costosBsaleDW(lista.map(p => p.sku), (process.env.BSALE_ACCESS_TOKEN || '').trim());
       productos = lista.map(p => {
-        const manual = p.sku ? cfg.costos_manual[p.sku] : null;
-        const costo = costosBsaleMap[p.sku] ?? manual ?? null;
-        return analizarProductoDW({ ...p, costo, costo_origen: costosBsaleMap[p.sku] ? 'Bsale' : (manual ? 'manual' : null) }, cfg);
+        const manual = p.sku ? cfg.costos_manual[p.sku] : null; // lo que se escribe a mano manda sobre Bsale
+        const bsale = p.sku ? costosBsaleMap[p.sku] : null;
+        const costo = manual ?? bsale?.costo ?? null;
+        const costo_origen = manual ? 'manual' : (bsale ? bsale.origen : null);
+        return analizarProductoDW({ ...p, costo, costo_origen, costo_motivo: costo == null ? (p.sku ? motivosCosto[p.sku] || null : 'El producto no tiene SKU en Shopify') : null }, cfg);
       });
     } catch (e) { errorProductos = e.message; }
 
