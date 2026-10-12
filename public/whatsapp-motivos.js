@@ -21,7 +21,11 @@ function enlaceTelefonoPm(telefono, conversacionId){
 // Cierra el panel de análisis y abre esa conversación en la bandeja de Conversaciones (la misma pantalla de siempre).
 function verConversacionEnErp(id){
   if(!id) return;
-  cerrarPanelMotivo();
+  // El panel se cierra a mano (sin pasar por cerrarPanelMotivo): esa función está envuelta por el historial del navegador y, al cerrar
+  // lo recién abierto, dispara un history.back() asíncrono que devolvía la pantalla a Analítica después de abrir la conversación.
+  const fondo = document.getElementById('fondoPanelMotivo'), panel = document.getElementById('panelMotivo');
+  if(fondo) fondo.classList.remove('abierto');
+  if(panel) panel.classList.remove('abierto');
   if(typeof cambiarVistaModulo === 'function') cambiarVistaModulo('conversaciones');
   if(typeof convState !== 'undefined' && convState.vistaUI !== 'bandeja' && typeof cambiarVistaConv === 'function') cambiarVistaConv('bandeja');
   if(typeof seleccionarConversacionBandeja === 'function') seleccionarConversacionBandeja(Number(id));
