@@ -283,6 +283,7 @@
 <script src="restriccion-usuario.js"></script>
 <script src="menu-herramientas.js"></script>
 <script src="comercial-movil.js"></script>
+<script src="tablas-ordenables.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
@@ -534,6 +535,8 @@ function pintarBitacora(){
       : '<tr><td colspan="6" class="empty-note">Todavía no se ha cambiado nada.</td></tr>') + '</tbody>';
 }
 
+// al ordenar una tabla se vuelve a aplicar el límite de 3 filas con "Ver todos"
+document.addEventListener('tabla-ordenada', () => limitarTodo());
 $('btnActualizar').addEventListener('click', cargar);
 $('btnGuardarReglas').addEventListener('click', () => guardarReglas());
 $('btnAplicar').addEventListener('click', aplicar);
