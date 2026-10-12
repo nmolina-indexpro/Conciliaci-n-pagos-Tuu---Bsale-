@@ -2,6 +2,8 @@
 // de A a Z en textos; un segundo clic invierte). Sirve para CUALQUIER tabla de una página: basta con incluir
 //   <script src="tablas-ordenables.js"></script>
 // Funciona también con tablas que la página vuelve a dibujar (se vuelve a activar solo).
+// Las tablas cuyos encabezados ya traen onclick (orden propio de la página) se dejan tal cual.
+// Las filas de total (clase *total* o primera celda "Total") y las de celda combinada no se mueven.
 // Para excluir una tabla: <table data-sin-orden>. Para excluir una columna: <th data-sin-orden>.
 // Si la página oculta filas (por ejemplo "Ver todos"), escucha el evento "tabla-ordenada" para volver a aplicarlo.
 (function () {
@@ -42,10 +44,17 @@
     return { tipo: 'txt', v: t.toLowerCase() };
   }
 
+  function esFilaFija(r) {
+    if (r.cells[0] && r.cells[0].colSpan > 1) return true;
+    if (/(^|[\s-])total([\s-]|$)/i.test(r.className)) return true;
+    return /^total/i.test((r.cells[0] ? r.cells[0].textContent : '').trim());
+  }
+
   function ordenar(tabla, idx, th) {
     var cuerpo = tabla.tBodies[0];
     if (!cuerpo) return;
-    var filas = Array.prototype.slice.call(cuerpo.rows).filter(function (r) { return r.cells.length > idx && !(r.cells[0] && r.cells[0].colSpan > 1); });
+    // las filas de total, de aviso (celda combinada) o sin esa columna no se mueven: quedan al final
+    var filas = Array.prototype.slice.call(cuerpo.rows).filter(function (r) { return r.cells.length > idx && !esFilaFija(r); });
     var sueltas = Array.prototype.slice.call(cuerpo.rows).filter(function (r) { return filas.indexOf(r) < 0; });
     if (filas.length < 2) return;
     var datos = filas.map(function (r, i) { return { r: r, i: i, x: valor(r.cells[idx]) }; });
@@ -71,6 +80,8 @@
 
   function activar(tabla) {
     if (tabla.hasAttribute('data-sin-orden') || !tabla.tHead || !tabla.tHead.rows.length) return;
+    // si la página ya ordena esa tabla a su manera (encabezados con onclick), se respeta y no se toca
+    if (tabla.tHead.querySelector('th[onclick]')) return;
     var ths = tabla.tHead.rows[0].cells;
     Array.prototype.forEach.call(ths, function (th) {
       if (th.classList.contains('ord-th') || th.hasAttribute('data-sin-orden') || !th.textContent.trim()) return;
