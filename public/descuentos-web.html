@@ -533,6 +533,7 @@ async function cargarResultados(){
   if(r?.truncado) $('resEstado').insertAdjacentHTML('afterend', '<div class="desde">Hay más pedidos que los revisados; las cifras pueden quedar cortas. Prueba con 30 días.</div>');
 }
 
+function numeroTramo(t){ const m = String(t).match(/(\d+)/); return m ? Number(m[1]) : null; }
 function pintarPasos(){
   const c = D.config, p = D.permisos, ds = D.descuentosShopify || { funcion: {}, descuentos: [] };
   const marca = ok => ok === null ? '<span class="badge gris">Revisar</span>' : (ok ? '<span class="badge verde">Listo</span>' : '<span class="badge ambar">Pendiente</span>');
@@ -546,7 +547,12 @@ function pintarPasos(){
   const permisosOk = modoFuncion ? (p.write_products && p.write_discounts) : p.write_products;
   const faltan = [!p.write_products ? '"Escribir productos" (write_products)' : null, modoFuncion && !p.write_discounts ? '"Escribir descuentos" (write_discounts)' : null].filter(Boolean);
   const tag = t => '<code>' + esc(c.prefijo_etiqueta + t.cantidad) + '</code>';
-  const colecciones = c.tramos.map(t => '<li>Colección automatizada <b>"Descuento volumen ' + t.cantidad + '"</b>: la etiqueta del producto es igual a ' + tag(t) + '.</li>').join('');
+  const coleccionesTxt = c.tramos.map(t => '<li>Colección automatizada <b>"Descuento volumen ' + t.cantidad + '"</b>: la etiqueta del producto es igual a ' + tag(t) + '.</li>').join('');
+  const colecciones_ = Object.fromEntries((ds.colecciones || []).map(x => [numeroTramo(x.titulo), x]));
+  const coleccionesOk = ds.errorColecciones ? null : c.tramos.every(t => colecciones_[t.cantidad]);
+  // sin permiso para leer descuentos no se puede saber si existen: se avisa en vez de marcarlos como pendientes
+  const sinPermisoDescuentos = Boolean(ds.errorDescuentos);
+  const avisoPermiso = '<b>No se puede verificar:</b> a la app le falta el permiso "Leer descuentos" (read_discounts). El descuento puede estar bien creado; revisa Shopify, Descuentos. Para que el ERP lo verifique, agrega ese permiso en dev.shopify.com (Versiones, Ámbitos de acceso), publica la versión y acéptala en Configuración, Apps. '
   const nativos = c.tramos.map(t => '<li><b>"' + esc(c.prefijo_titulo) + ' ' + t.cantidad + '+ cargadores (' + t.porcentaje + '%)"</b>: automático, ' + t.porcentaje + '% sobre la colección "Descuento volumen ' + t.cantidad + '", cantidad mínima de artículos ' + t.cantidad + ', sin combinaciones.</li>').join('');
   const puedeCrear = D.esAdmin && permisosOk && fn.publicada && !funcionActiva;
   const comunes = [
@@ -559,10 +565,10 @@ function pintarPasos(){
   const medio = modoFuncion ? [
     [fn.publicada, 'Función de descuento publicada', fn.publicada ? 'La función "' + esc(fn.titulo || '') + '" está publicada en la app.' : 'Pendiente de publicar con Shopify CLI.'],
     [funcionActiva, 'Descuento por cantidad creado', funcionActiva ? 'Activo: "' + esc(activos.find(d => d.tipo === 'funcion').titulo) + '". Cobra por producto y no se combina con otros descuentos.' : 'Crea el descuento automático que usa la función, sin combinaciones. ' + (D.esAdmin ? '<button type="button" class="btn-ghost btn-compact" id="btnCrearFuncion" ' + (puedeCrear ? '' : 'disabled') + '>Crear descuento por cantidad</button>' : '')],
-    [nativosActivos.length === 0, 'Descuentos antiguos desactivados', nativosActivos.length === 0 ? 'No hay descuentos nativos "' + esc(c.prefijo_titulo) + '..." activos.' : 'Siguen activos y cuentan todos los cargadores del carro juntos: ' + nativosActivos.map(d => '<b>' + esc(d.titulo) + '</b>').join(', ') + '. Desactívalos en Shopify (Descuentos) para que no se dupliquen.'],
+    [sinPermisoDescuentos ? null : nativosActivos.length === 0, 'Descuentos antiguos desactivados', sinPermisoDescuentos ? avisoPermiso : nativosActivos.length === 0 ? 'No hay descuentos nativos "' + esc(c.prefijo_titulo) + '..." activos.' : 'Siguen activos y cuentan todos los cargadores del carro juntos: ' + nativosActivos.map(d => '<b>' + esc(d.titulo) + '</b>').join(', ') + '. Desactívalos en Shopify (Descuentos) para que no se dupliquen.'],
   ] : [
-    [null, 'Colecciones automáticas en Shopify', 'Productos, Colecciones, Crear colección, Automatizada:<ul>' + colecciones + '</ul>Se llenan solas cuando el ERP pone las etiquetas.'],
-    [nativosActivos.length >= c.tramos.length, 'Descuentos automáticos en Shopify', 'Descuentos, Crear descuento, Automático, importe de descuento sobre productos. El nombre debe empezar con "' + esc(c.prefijo_titulo) + '" para medirlos aquí.<ul>' + nativos + '</ul><span class="desde">Descuento agrupado: la cantidad mínima cuenta las unidades de todos los cargadores con tramo que haya en el carro (2 de uno y 1 de otro suman 3). Para exigirlo por producto existe una función de Shopify (opcional, ver la guía de la función).</span>'],
+    [coleccionesOk, 'Colecciones automáticas en Shopify', (ds.errorColecciones ? '<b>No se pudo verificar</b> (' + esc(ds.errorColecciones) + '). ' : (coleccionesOk ? 'Encontradas: ' + c.tramos.map(t => '"Descuento volumen ' + t.cantidad + '" (' + (colecciones_[t.cantidad].productos ?? '?') + ' productos)').join(', ') + '. ' : 'Faltan: ' + c.tramos.filter(t => !colecciones_[t.cantidad]).map(t => '"Descuento volumen ' + t.cantidad + '"').join(', ') + '. ')) + 'Productos, Colecciones, Crear colección, Automatizada:<ul>' + coleccionesTxt + '</ul>Se llenan solas cuando el ERP pone las etiquetas.'],
+    [sinPermisoDescuentos ? null : nativosActivos.length >= c.tramos.length, 'Descuentos automáticos en Shopify', (sinPermisoDescuentos ? avisoPermiso : (nativosActivos.length >= c.tramos.length ? 'Activos: ' + nativosActivos.map(d => '<b>' + esc(d.titulo) + '</b>').join(', ') + '. ' : 'Faltan descuentos activos con este nombre. ')) + 'Descuentos, Crear descuento, Automático, importe de descuento sobre productos. El nombre debe empezar con "' + esc(c.prefijo_titulo) + '" para medirlos aquí.<ul>' + nativos + '</ul><span class="desde">Descuento agrupado: la cantidad mínima cuenta las unidades de todos los cargadores con tramo que haya en el carro (2 de uno y 1 de otro suman 3). Para exigirlo por producto existe una función de Shopify (opcional, ver la guía de la función).</span>'],
   ];
   const pasos = comunes.concat(medio, cola);
   $('pasos').innerHTML = pasos.map((x, i) => `<div class="paso"><div class="paso-n">${i + 1}</div><div class="paso-t"><b>${x[1]}</b> ${marca(x[0])}<div class="desde" style="font-size:12.5px;color:var(--text);margin-top:4px;">${x[2]}</div></div></div>`).join('') +
