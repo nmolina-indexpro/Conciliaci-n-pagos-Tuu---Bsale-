@@ -251,7 +251,7 @@
     <div class="seccion-head">
       <div>
         <h2>Resultados</h2>
-        <div class="sub">Sale de los pedidos de la tienda: solo cuenta lo vendido con los descuentos automáticos cuyo nombre empieza con "Volumen".</div>
+        <div class="sub">Lo medido en la ficha (quién vio los tramos, hizo clic y agregó al carro) y lo vendido en los pedidos de la tienda con los descuentos automáticos cuyo nombre empieza con "Volumen".</div>
       </div>
       <div class="filtros" style="margin:0;">
         <button type="button" class="btn-ghost btn-compact" data-dias="30">30 días</button>
@@ -262,7 +262,7 @@
     <div id="resContenido" style="display:none;">
       <div class="kpis-bia" id="resKpis"></div>
       <div class="dos-col">
-        <div><h2>Por tramo</h2><div class="tabla-wrap"><table id="tTramos"></table></div></div>
+        <div><h2>Por tramo</h2><div class="tabla-wrap"><table id="tTramos"></table></div><div class="desde" id="tTramosNota" style="margin-top:8px;"></div></div>
         <div><h2>Unidades por día</h2><div id="porDia"></div></div>
       </div>
     </div>
@@ -483,28 +483,54 @@ async function aplicar(){
 
 async function cargarResultados(){
   document.querySelectorAll('[data-dias]').forEach(b => b.classList.toggle('active', Number(b.dataset.dias) === diasRes));
-  const est = $('resEstado'); est.style.display = ''; est.textContent = 'Cargando pedidos de la tienda…'; $('resContenido').style.display = 'none';
+  const est = $('resEstado'); est.className = 'empty-note'; est.style.display = ''; est.textContent = 'Cargando…'; $('resContenido').style.display = 'none';
   const j = await api(undefined, `&parte=resultados&dias=${diasRes}`);
   if(j.error){ est.className = 'note-box err'; est.textContent = j.error; return; }
-  est.className = 'empty-note';
-  const r = j.resultados;
-  if(!r.pedidos_con_descuento){
-    est.textContent = `Todavía no hay pedidos con descuento de volumen en los últimos ${diasRes} días (${fmtNum(r.pedidos_tienda)} pedidos revisados). Aparecen cuando los descuentos automáticos estén creados en Shopify y un cliente los use.`;
+  const r = j.resultados, it = j.interes;
+  const avisos = [];
+  if(j.errorResultados) avisos.push(`<div class="note-box err">No se pudieron leer los pedidos de la tienda: ${esc(j.errorResultados)}</div>`);
+  if(j.errorInteres) avisos.push(`<div class="note-box err">No se pudo leer lo medido en la ficha: ${esc(j.errorInteres)}</div>`);
+  const hayFicha = it && (it.vieron.veces || it.clics.veces || it.carro.veces);
+  const hayPedidos = r && r.pedidos_con_descuento;
+  if(!hayFicha && !hayPedidos){
+    est.className = avisos.length ? '' : 'empty-note';
+    est.innerHTML = avisos.join('') + `Todavía no hay datos de los últimos ${diasRes} días${r ? ` (${fmtNum(r.pedidos_tienda)} pedidos revisados)` : ''}. Aparecen cuando los clientes ven el bloque de descuentos en la ficha y compran con ellos.`;
     return;
   }
-  est.style.display = 'none'; $('resContenido').style.display = '';
-  $('resKpis').innerHTML = [
-    ['Pedidos con descuento', fmtNum(r.pedidos_con_descuento), `${Math.round(r.pedidos_con_descuento / Math.max(1, r.pedidos_tienda) * 100)}% de ${fmtNum(r.pedidos_tienda)} pedidos`],
-    ['Unidades', fmtNum(r.unidades), 'vendidas con descuento'],
-    ['Descuento entregado', clp(r.descuento), `${Math.round(r.descuento / Math.max(1, r.venta_bruta) * 100)}% del precio de lista`],
-    ['Venta neta', clp(r.venta_neta), `${clp(r.venta_bruta)} a precio de lista`],
-  ].map(k => `<div class="kpi"><div class="lbl">${k[0]}</div><div class="big">${k[1]}</div><div class="nota">${k[2]}</div></div>`).join('');
-  $('tTramos').innerHTML = `<thead><tr><th>Descuento</th><th class="amount">Pedidos</th><th class="amount">Unidades</th><th class="amount">Descuento</th></tr></thead><tbody>` +
-    r.porTramo.map(t => `<tr><td>${esc(t.titulo)}</td><td class="amount">${fmtNum(t.pedidos)}</td><td class="amount">${fmtNum(t.unidades)}</td><td class="amount">${clp(t.descuento)}</td></tr>`).join('') + '</tbody>';
-  const max = Math.max(1, ...r.porDia.map(x => x.unidades));
-  $('porDia').innerHTML = r.porDia.map(x => `<div class="dia"><span class="dia-f">${esc(x.dia.slice(5).split('-').reverse().join('/'))}</span><span class="dia-barra"><i class="ok" style="width:${x.unidades / max * 100}%"></i></span><span class="dia-n">${fmtNum(x.unidades)}</span></div>`).join('');
+  est.innerHTML = avisos.join(''); est.className = ''; est.style.display = avisos.length ? '' : 'none';
+  $('resContenido').style.display = '';
+  const k = [];
+  if(it){
+    const conTramo = it.carroPorTramo.filter(x => x.tramo > 0).reduce((s, x) => s + x.veces, 0);
+    k.push(['Vieron los tramos', fmtNum(it.vieron.personas), 'personas que llegaron al bloque en la ficha']);
+    k.push(['Clics en un tramo', fmtNum(it.clics.veces), `de ${fmtNum(it.clics.personas)} persona${it.clics.personas === 1 ? '' : 's'}`]);
+    k.push(['Agregaron al carro', fmtNum(it.carro.personas), `${fmtNum(it.carro.veces)} vez/veces · ${fmtNum(conTramo)} con la cantidad de un tramo`]);
+  }
+  if(r){
+    k.push(['Pedidos con descuento', fmtNum(r.pedidos_con_descuento), `${Math.round(r.pedidos_con_descuento / Math.max(1, r.pedidos_tienda) * 100)}% de ${fmtNum(r.pedidos_tienda)} pedidos`]);
+    k.push(['Unidades', fmtNum(r.unidades), 'vendidas con descuento']);
+    k.push(['Descuento entregado', clp(r.descuento), `${Math.round(r.descuento / Math.max(1, r.venta_bruta) * 100)}% del precio de lista`]);
+    k.push(['Venta neta', clp(r.venta_neta), `${clp(r.venta_bruta)} a precio de lista`]);
+  }
+  $('resKpis').innerHTML = k.map(x => `<div class="kpi"><div class="lbl">${x[0]}</div><div class="big">${x[1]}</div><div class="nota">${x[2]}</div></div>`).join('');
+
+  // Una fila por tramo: lo medido en la ficha (clics, carro) junto a lo vendido (pedidos, unidades, descuento)
+  const numeroDe = t => { const m = String(t).match(/(\d+)/); return m ? Number(m[1]) : null; };
+  const buscar = (lista, tramo) => (lista || []).find(x => x.tramo === tramo) || { veces: 0, personas: 0 };
+  const filas = D.config.tramos.map(t => {
+    const ped = (r?.porTramo || []).find(x => numeroDe(x.titulo) === t.cantidad) || { pedidos: 0, unidades: 0, descuento: 0 };
+    return { etq: `${t.cantidad} o más (${t.porcentaje}%)`, clic: buscar(it?.clicsPorTramo, t.cantidad), carro: buscar(it?.carroPorTramo, t.cantidad), ped };
+  });
+  filas.push({ etq: 'Sin llegar a un tramo', clic: { veces: 0, personas: 0 }, carro: buscar(it?.carroPorTramo, 0), ped: null });
+  $('tTramos').innerHTML = `<thead><tr><th>Tramo</th><th class="amount">Clics</th><th class="amount">Personas con clic</th><th class="amount">Agregaron al carro</th><th class="amount">Pedidos</th><th class="amount">Unidades</th><th class="amount">Descuento</th></tr></thead><tbody>` +
+    filas.map(f => `<tr><td>${esc(f.etq)}</td><td class="amount">${fmtNum(f.clic.veces)}</td><td class="amount">${fmtNum(f.clic.personas)}</td><td class="amount">${fmtNum(f.carro.personas)}</td><td class="amount">${f.ped ? fmtNum(f.ped.pedidos) : '—'}</td><td class="amount">${f.ped ? fmtNum(f.ped.unidades) : '—'}</td><td class="amount">${f.ped ? clp(f.ped.descuento) : '—'}</td></tr>`).join('') + '</tbody>';
+  $('tTramosNota').textContent = it ? `"Agregaron al carro" cuenta personas según el tramo que alcanzaba la cantidad al agregar. Los ${fmtNum(it.bots)} avisos de bots o servidores no se cuentan.` : '';
+
+  const dias = r?.porDia || [];
+  const max = Math.max(1, ...dias.map(x => x.unidades));
+  $('porDia').innerHTML = dias.length ? dias.map(x => `<div class="dia"><span class="dia-f">${esc(x.dia.slice(5).split('-').reverse().join('/'))}</span><span class="dia-barra"><i class="ok" style="width:${x.unidades / max * 100}%"></i></span><span class="dia-n">${fmtNum(x.unidades)}</span></div>`).join('') : '<div class="empty-note">Sin ventas con descuento todavía.</div>';
   limitarTodo();
-  if(r.truncado) $('resEstado').insertAdjacentHTML('afterend', '<div class="desde">Hay más pedidos que los revisados; las cifras pueden quedar cortas. Prueba con 30 días.</div>');
+  if(r?.truncado) $('resEstado').insertAdjacentHTML('afterend', '<div class="desde">Hay más pedidos que los revisados; las cifras pueden quedar cortas. Prueba con 30 días.</div>');
 }
 
 function pintarPasos(){

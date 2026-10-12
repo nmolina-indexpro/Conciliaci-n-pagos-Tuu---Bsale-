@@ -10,7 +10,7 @@
 // ?recurso=zoho-tickets.
 
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, asegurarTablaDescuentosWeb, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
-import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, validarEmbudo as validarEmbudoBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
+import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, validarEmbudo as validarEmbudoBuscadorIa, validarDescuentoEvento as validarDescuentoEventoBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { normalizarConfig as normalizarConfigDW, analizarProducto as analizarProductoDW, permisosShopify as permisosShopifyDW, listarProductos as listarProductosDW, aplicarEtiquetas as aplicarEtiquetasDW, estadoWebhook as estadoWebhookDW, registrarWebhook as registrarWebhookDW, costosBsale as costosBsaleDW, resultadosPedidos as resultadosPedidosDW, claveAviso as claveAvisoDW, tieneCambios as tieneCambiosDW } from '../lib/descuentos-web.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
@@ -114,6 +114,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'buscador-ia-ranking') return manejarBuscadorIaRanking(req, res);
   if (req.query.recurso === 'buscador-ia-envio') return manejarBuscadorIaEnvio(req, res);
   if (req.query.recurso === 'buscador-ia-embudo') return manejarBuscadorIaEmbudo(req, res);
+  if (req.query.recurso === 'buscador-ia-descuento') return manejarBuscadorIaDescuento(req, res);
   // Descuentos web: el aviso de stock de Shopify y la revisión diaria entran sin sesión (clave en la URL / CRON_SECRET, ver handler).
   if (req.query.recurso === 'descuentos-web-aviso') return manejarDescuentosWebAviso(req, res);
   if (req.query.recurso === 'descuentos-web-cron') return manejarDescuentosWebCron(req, res);
@@ -13844,6 +13845,56 @@ async function manejarBuscadorIaEmbudo(req, res) {
   }
 }
 
+// Evento de la ficha (lo manda el Worker): se vio el bloque de tramos, se hizo clic en un tramo o se agregó al carro. Misma seguridad
+// que el resto de lo que llama el Worker: clave en x-api-key, sin sesión.
+async function manejarBuscadorIaDescuento(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const claveEsperada = process.env.BUSCADOR_IA_KEY;
+  if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
+  if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) return res.status(401).json({ error: 'Clave inválida' });
+  const validado = validarDescuentoEventoBuscadorIa(req.body);
+  if (!validado.ok) return res.status(400).json({ error: validado.error });
+  const f = validado.fila;
+  try {
+    const sql = await getSql();
+    await asegurarTablaDescuentosWeb(sql);
+    await sql.query(
+      `INSERT INTO descuentos_web_eventos (tipo, tramo, cantidad, variante, vid, pais, ua_tipo, centro_datos) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [f.tipo, f.tramo, f.cantidad, f.variante, f.vid, f.pais, f.ua_tipo, f.centro_datos],
+    );
+    if (Math.random() < 0.02) {
+      await sql.query(`DELETE FROM descuentos_web_eventos WHERE creado_en < now() - make_interval(days => $1)`, [BUSCADOR_IA_RETENCION_DIAS]);
+    }
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo guardar el evento: ' + e.message });
+  }
+}
+
+// Interés en los descuentos, medido en la ficha: solo personas probables (navegador real, fuera de centros de datos);
+// los bots se informan aparte. Devuelve personas distintas (huella diaria) y veces (eventos).
+async function descuentosWebInteres(sql, dias) {
+  await asegurarTablaDescuentosWeb(sql);
+  const base = `WITH ev AS (
+      SELECT tipo, COALESCE(tramo, 0) AS tramo, vid, (ua_tipo = 'navegador' AND COALESCE(centro_datos, false) = false) AS es_persona
+      FROM descuentos_web_eventos WHERE creado_en >= now() - make_interval(days => $1))`;
+  const [porTramo, totales, bots] = await Promise.all([
+    sql.query(`${base} SELECT tipo, tramo, count(*)::int AS veces, count(DISTINCT vid)::int AS personas FROM ev WHERE es_persona GROUP BY 1, 2 ORDER BY 1, 2`, [dias]),
+    sql.query(`${base} SELECT tipo, count(*)::int AS veces, count(DISTINCT vid)::int AS personas FROM ev WHERE es_persona GROUP BY 1`, [dias]),
+    sql.query(`${base} SELECT count(*)::int AS eventos FROM ev WHERE NOT es_persona`, [dias]),
+  ]);
+  const tot = Object.fromEntries(totales.rows.map(r => [r.tipo, { veces: r.veces, personas: r.personas }]));
+  const vacio = { veces: 0, personas: 0 };
+  return {
+    vieron: tot.visto || vacio,
+    clics: tot.clic || vacio,
+    carro: tot.carro || vacio,
+    clicsPorTramo: porTramo.rows.filter(r => r.tipo === 'clic').map(r => ({ tramo: r.tramo, veces: r.veces, personas: r.personas })),
+    carroPorTramo: porTramo.rows.filter(r => r.tipo === 'carro').map(r => ({ tramo: r.tramo, veces: r.veces, personas: r.personas })),
+    bots: bots.rows[0]?.eventos || 0,
+  };
+}
+
 // ===================== DESCUENTOS WEB (inicio) =====================
 // Descuentos por volumen de la tienda (ver lib/descuentos-web.js). Página: public/descuentos-web.html.
 async function descuentosWebGql() {
@@ -13917,7 +13968,11 @@ async function manejarDescuentosWeb(req, res, sesion) {
 
     if (req.query.parte === 'resultados') {
       const dias = Math.min(180, Math.max(1, Math.round(Number(req.query.dias)) || 30));
-      return res.status(200).json({ resultados: await resultadosPedidosDW(gql, cfg, dias) });
+      // Lo medido en la ficha y lo vendido salen por separado: si Shopify falla, el interés igual se muestra (y al revés).
+      let resultados = null, errorResultados = null, interes = null, errorInteres = null;
+      try { resultados = await resultadosPedidosDW(gql, cfg, dias); } catch (e) { errorResultados = e.message; }
+      try { interes = await descuentosWebInteres(sql, dias); } catch (e) { errorInteres = e.message; }
+      return res.status(200).json({ resultados, errorResultados, interes, errorInteres });
     }
 
     const permisos = await permisosShopifyDW(gql);
