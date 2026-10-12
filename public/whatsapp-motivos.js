@@ -364,7 +364,7 @@ function renderPanelCategoria(d){
   if(d.truncado) notas.push('Hay más conversaciones que el máximo analizado; se muestran las más recientes.');
   const kpis = `<div class="pm-kpis">
     ${tarjetaPm('Conversaciones', fmtNum(s.total), `${fmtNum(s.conIntencionCompra)} en que el cliente pidió comprar o cotizar`)}
-    ${tarjetaPm('Cotización enviada', fmtNum(s.conversiones), `${s.pctConversion}% de las conversaciones · intención de venta (enlace u oferta)`)}
+    ${tarjetaPm('Cotizaciones', fmtNum(s.conversiones), `${s.pctConversion}% de las conversaciones · ${fmtNum(s.cotizacionesEnviadas)} enviadas · ${fmtNum(s.soloSolicitadas)} solo pedidas por el cliente`)}
     ${tarjetaPm('Pidieron comprar sin cotización', fmtNum(s.intencionSinConversion), `de ${fmtNum(s.conIntencionCompra)} que pidieron comprar o cotizar`)}
     ${tarjetaPm('Con ficha completa', fmtNum(s.ofertasCompletas), `${fmtNum(s.soloEnlace)} solo con el enlace`)}
     ${tarjetaPm('Perdidas', fmtNum(s.perdidas), `${s.pctPerdidas}% · con razón concreta o sin conversión`)}

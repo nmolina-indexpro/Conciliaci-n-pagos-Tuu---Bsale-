@@ -1762,8 +1762,8 @@ function initAnalitica(){
       <div id="chartEmbudoBsale" style="margin-top:12px;"></div>
     </div>
     <div class="seccion">
-      <h2>Conversiones: intención de venta</h2>
-      <div class="sub">En IndexStore una <b>conversión es una intención de venta</b>: le enviamos al cliente el <b>enlace del producto</b> y/o una oferta (precio, disponibilidad, condiciones, dónde atendemos). La venta es conversacional y de confianza: el cliente puede decidir después o comparar con otro proveedor, pero la oportunidad quedó planteada. La venta confirmada es solo la etapa final y se registra poco. Se detecta en lo que escribe el negocio, no depende de la IA.</div>
+      <h2>Cotizaciones: intención de venta</h2>
+      <div class="sub">En IndexStore la <b>intención de venta es la cotización</b>. Cuenta como cotización cuando le enviamos al cliente el <b>enlace del producto</b>, una oferta (precio, disponibilidad, condiciones, dónde atendemos) o una cotización formal (adjunta, con número o en PDF), <b>o cuando el cliente la pide por escrito</b> ("necesito una cotización", "quiero cotizar"): lo que se contesta desde el celular no llega al ERP, así que el pedido del cliente cuenta aunque no se vea la respuesta. La venta confirmada es solo la etapa final y se registra poco. Se detecta en el texto de los mensajes, no depende de la IA.</div>
       <div id="chartConversionComercial" style="margin-top:12px;"></div>
     </div>
     <div class="seccion">
@@ -2457,14 +2457,14 @@ function renderConversionComercial(cc){
     <td><button class="btn-ghost btn-compact" onclick="abrirPanelCategoria('${escapeHtml(c.categoria)}')">📊 Analizar</button></td></tr>`).join('');
   el.innerHTML = `${aviso}
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:14px;">
-      ${tarjeta('Cotizaciones enviadas', fmtNum(cc.conversiones), `${cc.pctConversionSobreConversaciones}% de ${fmtNum(cc.conversaciones)} conversaciones · intención de venta`, 'destacada')}
+      ${tarjeta('Cotizaciones', fmtNum(cc.conversiones), `${cc.pctConversionSobreConversaciones}% de ${fmtNum(cc.conversaciones)} conversaciones · ${fmtNum(cc.cotizacionesEnviadas)} enviadas · ${fmtNum(cc.soloSolicitadas)} solo pedidas por el cliente`, 'destacada')}
       ${tarjeta('Con ficha completa', fmtNum(cc.ofertasCompletas), `precio, condiciones y dónde atendemos · ${fmtNum(cc.soloEnlace)} solo con el enlace`)}
       ${tarjeta('Pidieron comprar sin cotización', fmtNum(cc.intencionSinConversion), `de ${fmtNum(cc.conIntencionCompra)} que pidieron comprar o cotizar`)}
       ${tarjeta('Tiempo hasta el enlace u oferta', tiempo, 'mediana desde el primer mensaje')}
       ${tarjeta('Ventas registradas', fmtNum(cc.ventas), `${fmtNum(cc.ventasConConversion)} tuvieron conversión · se registran pocas`)}
     </div>
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Categoría</th><th>Conversaciones</th><th>Conversiones</th><th>% convertidas</th><th>Ficha completa</th><th>Ventas registradas</th><th></th></tr></thead>
+      <thead><tr><th>Categoría</th><th>Conversaciones</th><th>Cotizaciones</th><th>% con cotización</th><th>Ficha completa</th><th>Ventas registradas</th><th></th></tr></thead>
       <tbody>${tabla}</tbody>
     </table></div>`;
 }

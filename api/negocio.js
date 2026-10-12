@@ -16,9 +16,10 @@ import { normalizarConfig as normalizarConfigDW, analizarProducto as analizarPro
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
-import { armarComunicacionZoho, filasCorreosDesdeZoho, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
+import { armarComunicacionZoho, filasCorreosDesdeZoho, ticketEnVentana, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
-import { sqlOfertaLateral, PARAMS_OFERTA, mejorNivelOferta, esConversion, esOfertaCompleta, nivelDesdeFilaSql, resumirConversionComercial } from '../lib/whatsapp-oferta.js';
+import { corregirCorreo } from '../lib/correos-corregidos.js';
+import { sqlOfertaLateral, PARAMS_OFERTA, sqlSolicitudLateral, PARAM_SOLICITUD, mejorNivelOferta, nivelConversacion, esConversion, esOfertaCompleta, nivelDesdeFilaSql, resumirConversionComercial } from '../lib/whatsapp-oferta.js';
 import { analizarCategoria as analizarCategoriaWhatsapp, CATEGORIAS_ANALIZABLES, analizarMotivo as analizarMotivoWhatsapp, MOTIVOS_ANALIZABLES, esCierreCordial, debeReclasificarPorCierre, RESULTADOS_DEBILES_CIERRE, MOTIVOS_DEBILES_CIERRE } from '../lib/whatsapp-motivos.js';
 import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR } from '../lib/cotizaciones-recontacto.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
@@ -1610,7 +1611,7 @@ async function manejarSyncCotizaciones(req, res, sesion) {
               cotizaciones.map(d => d.user?.id || null),
               cotizaciones.map(d => vendedoresPorId.get(d.user?.id) || (d.user?.id ? `Usuario #${d.user.id}` : '')),
               cotizaciones.map(() => new Date().toISOString()),
-              cotizaciones.map(d => (d.client?.email || '').trim()),
+              cotizaciones.map(d => corregirCorreo((d.client?.email || '').trim())),
             ]
           );
         }
@@ -5140,7 +5141,13 @@ async function manejarCotizacionZoho(req, res, sesion) {
     const dc = ZOHO_DC || 'com';
     const accessToken = await obtenerAccessTokenZoho();
     const headers = { orgId: ZOHO_ORG_ID, Authorization: `Zoho-oauthtoken ${accessToken}` };
-    const { tickets, via } = await buscarTicketsZohoPorCorreo(correo, headers, dc);
+    const { tickets: ticketsTodos, via } = await buscarTicketsZohoPorCorreo(correo, headers, dc);
+
+    // La ficha muestra solo el ÚLTIMO AÑO del cliente: los tickets sin movimiento desde entonces ni se leen (menos llamadas a Zoho
+    // y no se mezclan historiales viejos en el resumen ni en lo que se guarda).
+    const desde = new Date(Date.now() - 365 * 86400000).toISOString();
+    const tickets = ticketsTodos.filter(t => ticketEnVentana(t, desde));
+    const ticketsFueraDeVentana = ticketsTodos.length - tickets.length;
 
     // los hilos de cada ticket se piden en paralelo; si uno falla no se pierde el resto
     const datos = (await Promise.all(tickets.map(ticket => leerConversacionesZoho(ticket, headers, dc)))).filter(Boolean);
@@ -5153,11 +5160,12 @@ async function manejarCotizacionZoho(req, res, sesion) {
       await aplicarEstadosPorCorreoCotizaciones(sql);
     } catch (err) { console.warn('[cotizacion-zoho] no se pudo guardar la comunicación:', err.message); }
 
-    const comunicacion = armarComunicacionZoho(datos, rows[0].numero);
+    const comunicacion = armarComunicacionZoho(datos, rows[0].numero, { desde });
     return res.status(200).json({
       configurado: true, correo, via,
       ticketsSinLeer: tickets.length - datos.length,
       ...comunicacion,
+      ticketsOcultos: comunicacion.ticketsOcultos + ticketsFueraDeVentana,
     });
   } catch (err) {
     return res.status(200).json({ configurado: true, error: 'No se pudo consultar Zoho Desk', detail: String(err.message || err), tickets: [], hilos: [] });
@@ -7316,6 +7324,52 @@ async function manejarWhatsappSugerirRespuesta(req, res, sesion) {
   }
 }
 
+// Contenido de una conversación para las IA que redactan respuestas (sugerencia del ejecutivo y bot nocturno): los mensajes
+// recientes y las ÚLTIMAS FOTOS que mandó el cliente, adjuntas para que la IA las LEA (etiqueta del cargador o del notebook: marca,
+// modelo, número de parte, voltaje). Sin esto la IA solo veía "[imagen]" y le pedía al cliente la foto que ya había enviado.
+// Devuelve partes en el formato {type:'text'|'image'} que entiende mapearContenidoAGemini.
+async function armarContenidoConversacionParaIA(sql, conversacionId, { maxMensajes = 30, maxImagenes = 3 } = {}) {
+  const { rows: desc } = await sql`
+    SELECT id, direccion, tipo, contenido_texto, media_url, marca_tiempo FROM whatsapp_mensajes
+    WHERE conversacion_id = ${conversacionId} ORDER BY marca_tiempo DESC, id DESC LIMIT ${maxMensajes};`;
+  if (!desc.length) return null;
+  const mensajes = [...desc].reverse();
+  // las fotos más recientes del cliente (la etiqueta suele llegar al final, tras pedirla)
+  const indices = mensajes.map((m, i) => ({ m, i })).filter(({ m }) => m.direccion === 'in' && m.tipo === 'imagen' && m.media_url).slice(-maxImagenes).map(({ i }) => i);
+  const descargadas = new Map();
+  await Promise.all(indices.map(async i => { descargadas.set(i, await obtenerImagenWhatsapp(mensajes[i].media_url)); }));
+  const partes = [];
+  mensajes.forEach((m, i) => {
+    const quien = m.direccion === 'in' ? 'Cliente' : 'IndexStore';
+    const pie = m.contenido_texto ? ` (texto que la acompaña: "${m.contenido_texto}")` : '';
+    if (m.tipo === 'texto') { partes.push({ type: 'text', text: `${quien}: ${m.contenido_texto || ''}` }); return; }
+    if (m.tipo === 'imagen') {
+      const img = descargadas.get(i);
+      if (img) {
+        partes.push({ type: 'text', text: `${quien} envió esta imagen${pie}:` });
+        partes.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.base64 } });
+      } else {
+        partes.push({ type: 'text', text: `${quien} envió una imagen${pie}${m.direccion === 'in' ? ' (ya la recibimos; no se pudo abrir aquí, no se la pidas de nuevo: pídele al ejecutivo que la revise)' : ''}.` });
+      }
+      return;
+    }
+    partes.push({ type: 'text', text: `${quien} envió un ${m.tipo}${pie}${m.direccion === 'in' ? ' (ya lo recibimos; no se puede abrir aquí)' : ''}.` });
+  });
+  return {
+    mensajes, partes: fusionarTextosIA(partes),
+    imagenesCliente: mensajes.filter(m => m.direccion === 'in' && m.tipo === 'imagen').length,
+    imagenesLeidas: [...descargadas.values()].filter(Boolean).length,
+  };
+}
+// Une los textos seguidos en una sola parte (las imágenes cortan el texto): menos partes y un hilo más legible para el modelo.
+function fusionarTextosIA(partes) {
+  const fusion = [];
+  for (const p of partes) {
+    const ult = fusion[fusion.length - 1];
+    if (p.type === 'text' && ult && ult.type === 'text') ult.text += '\n' + p.text; else fusion.push({ ...p });
+  }
+  return fusion;
+}
 // ══════════════════════════════════════════════════════════════════════
 // BOT DE WHATSAPP FUERA DE HORARIO -- fase 1: MODO SOMBRA.
 // La IA redacta un borrador (con precio, stock y enlace reales del catálogo) y lo deja guardado para que el ejecutivo lo revise en
@@ -7432,13 +7486,14 @@ async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quie
   }
 
   const system = construirSystemBot({ conocimiento: cfg.conocimiento, horario: cfg.horario, primeraRespuestaBot: !usados.length, ejemplos });
-  const hilo = msgs.map(m => `${m.direccion === 'in' ? 'Cliente' : 'IndexStore'}: ${m.tipo === 'texto' || m.tipo === 'text' ? (m.contenido_texto || '') : `[${m.tipo}${m.contenido_texto ? ': ' + m.contenido_texto : ''}]`}`).join('\n');
+  const ctxIA = await armarContenidoConversacionParaIA(sql, conversacionId, { maxMensajes: 25, maxImagenes: 3 });
   const datosIA = [conv.categoria && `categoría ${conv.categoria}`, conv.producto && `producto ${conv.producto}`, conv.marca && `marca ${conv.marca}`, conv.modelo && `modelo ${conv.modelo}`, conv.especificaciones && `especificaciones ${conv.especificaciones}`].filter(Boolean).join(', ');
-  const prompt = `${conv.resumen ? `Resumen previo de la conversación: ${conv.resumen}\n` : ''}${datosIA ? `Datos detectados por el análisis automático (pueden estar equivocados; confirma con el cliente): ${datosIA}\n` : ''}\nConversación (lo más reciente al final):\n${hilo}\n\nEscribe la respuesta al último mensaje del cliente.`;
+  const encabezadoIA = `${conv.resumen ? `Resumen previo de la conversación: ${conv.resumen}\n` : ''}${datosIA ? `Datos detectados por el análisis automático (pueden estar equivocados; contrástalos con las fotos y con lo que dijo el cliente): ${datosIA}\n` : ''}${ctxIA && ctxIA.imagenesCliente ? `El cliente envió ${ctxIA.imagenesCliente} ${ctxIA.imagenesCliente === 1 ? 'imagen' : 'imágenes'}${ctxIA.imagenesLeidas ? ' y te adjunto las más recientes: léelas, no se las pidas de nuevo' : ' (no se pudieron abrir aquí; no se las pidas de nuevo, escala)'}.\n` : ''}\nConversación (lo más reciente al final):`;
+  const promptPartes = fusionarTextosIA([{ type: 'text', text: encabezadoIA }, ...(ctxIA ? ctxIA.partes : []), { type: 'text', text: '\nEscribe la respuesta al último mensaje del cliente.' }]);
 
   // Conversación con Gemini (function calling): el modelo puede pedir buscar_productos varias veces y termina con proponer_respuesta.
   // El contenido que devuelve el modelo se reenvía tal cual (incluye las "thought signatures" que exigen los modelos Gemini 3).
-  const contenidos = [{ role: 'user', parts: [{ text: prompt }] }];
+  const contenidos = [{ role: 'user', parts: mapearContenidoAGemini(promptPartes) }];
   const productosVistos = [];
   let tokensIn = 0, tokensOut = 0, propuesta = null;
   for (let ronda = 0; ronda < 5 && !propuesta; ronda++) {
@@ -9352,7 +9407,7 @@ async function llamarGeminiTexto(systemPrompt, prompt) {
       headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        contents: [{ role: 'user', parts: typeof prompt === 'string' ? [{ text: prompt }] : mapearContenidoAGemini(prompt) }],
         generationConfig: { maxOutputTokens: 300 },
       }),
     },
@@ -9369,22 +9424,31 @@ async function llamarGeminiTexto(systemPrompt, prompt) {
 }
 async function generarSugerenciaRespuesta(sql, conversacionId) {
   if (!process.env.GEMINI_API_KEY) return { ok: false, motivo: 'sin_api_key' };
-  const { rows: mensajes } = await sql`
-    SELECT direccion, tipo, contenido_texto, marca_tiempo FROM whatsapp_mensajes
-    WHERE conversacion_id = ${conversacionId} ORDER BY marca_tiempo DESC LIMIT 12;
-  `;
-  if (mensajes.length === 0) return { ok: false, motivo: 'sin_mensajes' };
-  mensajes.reverse();
-  const { rows: aiRows } = await sql`SELECT resumen FROM whatsapp_analisis_ia WHERE conversacion_id = ${conversacionId};`;
+  const ctx = await armarContenidoConversacionParaIA(sql, conversacionId, { maxMensajes: 30, maxImagenes: 3 });
+  if (!ctx) return { ok: false, motivo: 'sin_mensajes' };
+  const { rows: aiRows } = await sql`
+    SELECT a.resumen, c.categoria, c.producto, c.marca, c.modelo, a.especificaciones
+    FROM whatsapp_conversaciones c LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id WHERE c.id = ${conversacionId};`;
+  const a = aiRows[0] || {};
 
-  const systemPrompt = `Eres un asistente que AYUDA a un vendedor humano de IndexStore (tienda chilena de repuestos y servicio técnico de notebooks) a responder un chat de WhatsApp. Tu salida es solo un BORRADOR que el vendedor va a revisar antes de decidir si lo envía -- nunca se envía automáticamente, así que puedes y debes dejar huecos o preguntas si falta información. Escribe en español de Chile, tono cercano y profesional, breve (máximo 3-4 líneas). No inventes precios, stock, plazos de entrega ni datos técnicos que no estén en la conversación -- si el cliente pregunta algo así y no hay información suficiente, sugiere la pregunta o el paso que el vendedor debería dar para confirmarlo, en vez de inventar una respuesta. Responde SOLO con el texto del mensaje sugerido, sin comillas ni explicación aparte.`;
-  const resumenTexto = aiRows[0]?.resumen ? `Resumen de la conversación hasta ahora: ${aiRows[0].resumen}\n\n` : '';
-  const hilo = mensajes.map(m => `${m.direccion === 'in' ? 'Cliente' : 'IndexStore'}: ${m.tipo === 'texto' ? (m.contenido_texto || '') : `[${m.tipo}]`}`).join('\n');
-  const prompt = `${resumenTexto}Últimos mensajes de la conversación:\n${hilo}\n\nEscribe el borrador de respuesta para el vendedor.`;
+  const systemPrompt = `Eres un asistente que AYUDA a un vendedor humano de IndexStore (tienda chilena de repuestos y servicio técnico de notebooks) a responder un chat de WhatsApp. Tu salida es solo un BORRADOR que el vendedor va a revisar antes de decidir si lo envía -- nunca se envía automáticamente, así que puedes y debes dejar huecos o preguntas si falta información. Escribe en español de Chile, tono cercano y profesional, breve (máximo 3-4 líneas). No inventes precios, stock, plazos de entrega ni datos técnicos que no estén en la conversación -- si el cliente pregunta algo así y no hay información suficiente, sugiere la pregunta o el paso que el vendedor debería dar para confirmarlo, en vez de inventar una respuesta.
 
-  const texto = await llamarGeminiTexto(systemPrompt, prompt);
+LEE TODO ANTES DE PREGUNTAR: las fotos que el cliente ya envió vienen adjuntas en la conversación (etiquetas de cargador o notebook: marca, modelo, número de parte, voltaje, amperaje) y también hay datos que ya detectó el análisis automático. NUNCA le pidas al cliente algo que ya mandó o dijo (una foto, la etiqueta, el modelo, el voltaje): úsalo. Si una foto sí llegó pero no se alcanza a leer, dilo ("la foto de la etiqueta salió borrosa") y pide solo una más nítida de ese dato; si el cliente mandó un audio, video o documento que no puedes abrir, no se lo pidas otra vez: sugiere que el vendedor lo revise. Si entre lo que leíste y lo que dice el cliente hay una diferencia (ej. dice un modelo y la etiqueta muestra otro), señálala con amabilidad y pide confirmación.
+
+Responde SOLO con el texto del mensaje sugerido, sin comillas ni explicación aparte.`;
+  const datos = [a.categoria && `categoría ${a.categoria}`, a.producto && `producto ${a.producto}`, a.marca && `marca ${a.marca}`, a.modelo && `modelo ${a.modelo}`, a.especificaciones && `especificaciones ${a.especificaciones}`].filter(Boolean).join(', ');
+  const resumenTexto = a.resumen ? `Resumen de la conversación hasta ahora: ${a.resumen}\n` : '';
+  const datosTexto = datos ? `Datos que ya detectó el análisis automático (pueden estar equivocados; contrástalos con las fotos y lo que dijo el cliente): ${datos}\n` : '';
+  const adjuntas = !ctx.imagenesLeidas ? 'no se pudo abrir ninguna aquí' : ctx.imagenesLeidas === ctx.imagenesCliente ? 'te las adjunto' : `te adjunto las últimas ${ctx.imagenesLeidas}`;
+  const estadoFotos = ctx.imagenesCliente ? `El cliente envió ${ctx.imagenesCliente} ${ctx.imagenesCliente === 1 ? 'imagen' : 'imágenes'} en esta conversación: ${adjuntas}.\n` : '';
+  const partes = fusionarTextosIA([
+    { type: 'text', text: `${resumenTexto}${datosTexto}${estadoFotos}\nConversación (lo más reciente al final):` },
+    ...ctx.partes,
+    { type: 'text', text: '\nEscribe el borrador de respuesta para el vendedor.' },
+  ]);
+  const texto = await llamarGeminiTexto(systemPrompt, partes);
   const proveedorUsado = 'gemini';
-  console.log(`[generarSugerenciaRespuesta] conversación ${conversacionId} sugerida con ${proveedorUsado}`);
+  console.log(`[generarSugerenciaRespuesta] conversación ${conversacionId} sugerida con ${proveedorUsado} (${ctx.imagenesLeidas}/${ctx.imagenesCliente} fotos leídas)`);
   return { ok: true, borrador: texto };
 }
 
@@ -9524,7 +9588,7 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
     }
   });
 
-  const systemPrompt = `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Prioridad para los campos marca/modelo: (1) si el cliente ESCRIBE el modelo en el texto de algún mensaje de la conversación, usa eso -- es la fuente más confiable, por encima de cualquier foto. (2) Si el cliente no escribe el modelo pero manda una foto de la etiqueta/sticker pegada en la carcasa o la base del equipo, léela para identificarlo. (3) Si manda las dos cosas (un modelo escrito Y una foto), el modelo que el cliente escribió manda -- usa la foto solo para completar marca/modelo si el texto no los menciona, no para contradecir lo que el cliente ya escribió. Estas etiquetas suelen traer VARIOS códigos distintos -- usa el que sea el modelo comercial del producto (el que identifica al equipo específico que compraría alguien, ej. "24-dd0092la" en un HP All-in-One, o "15-ef2xxx" en un notebook), y NO el "Regulatory model number"/"Model reglamentario" (un código interno de certificación FCC/IC que no corresponde al modelo real, ej. "TPC-0089-24"), ni el número de serie ("Serial No."/"S/N"), ni el PPID. Series/líneas reales de notebooks por marca (el modelo real casi siempre empieza con una de estas seguida de un número de generación, ej. "IdeaPad Gaming 3 15IMH05"): ${Object.entries(WHATSAPP_SERIES_NOTEBOOK).map(([marca, series]) => `${marca}: ${series.join(', ')}`).join(' | ')}. Esta lista es SOLO para que reconozcas si un texto que sí leíste en la imagen es una serie real -- NUNCA la uses para adivinar o suponer una serie "típica" o "probable" según el contexto (ej. NO asumas "Legion" solo porque el cliente pidió un notebook gamer; eso sería inventar, aunque sea una suposición razonable). El modelo/marca solo se registran si están literalmente escritos y legibles en la foto o en el texto del cliente -- transcribe exactamente lo que dice la etiqueta, letra por letra, no lo que te parezca más probable. Si el único código visible en la etiqueta NO corresponde a ninguna serie conocida (puede ser la capacidad de la batería en Wh, un part number, un código regulatorio, etc.) Y no hay otro texto de serie legible en la misma foto, deja el campo modelo vacío en vez de adivinar. A veces el mensaje del usuario incluye primero un bloque de "Contexto" con datos de una conversación anterior del mismo cliente (las conversaciones se cortan automáticamente tras 24h sin actividad, así que un seguimiento corto como "gracias por la info" puede quedar en una conversación separada sin mencionar el producto de nuevo) -- úsalo solo si la conversación actual es claramente ese seguimiento, nunca si trata de algo distinto. Regla de conversión: en IndexStore una conversión es una intención de venta: el negocio le envió al cliente el enlace del producto y/o una oferta (producto disponible, precio, condiciones como garantía o instalación, dirección u horarios). Eso es una conversión comercial: usa resultado \"cotizacion\" (el cliente evalúa) y NO \"cliente_no_responde\" ni una pérdida, aunque el cliente no haya vuelto a escribir -- IndexStore vende productos técnicos de forma conversacional y de confianza, y el cliente puede decidir después o comparar con otro proveedor. Regla de venta concreta: si IndexStore le envió al cliente un enlace de reseña de Google (g.page/.../review) o el mensaje "Nos alegra saber que completaste tu compra en nuestra tienda", la compra YA se concretó: resultado "venta" (sin motivo de pérdida), aunque el cliente no haya escrito más ni diga cuánto pagó. Regla de cierre: si el último mensaje del cliente es un agradecimiento o confirmación corta ("ok", "gracias", "Oka.. gracias", "perfecto", "listo", 👍), interprétalo como que la respuesta llegó y la duda quedó aclarada: la conversación terminó bien, el cliente NO dejó de responder. Si el tema era una consulta de información, garantía, postventa o servicio técnico, usa resultado "consulta_resuelta" y no completes motivo_perdida. Solo si en esa conversación el negocio le dijo algo que implica no poder vender (no hay stock, no vendemos esa marca, el precio) mantén ese motivo concreto. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`;
+  const systemPrompt = `Eres un analista comercial de IndexStore, una tienda chilena de repuestos y servicio técnico de notebooks. El equipo de vendedores que atiende WhatsApp es: ${WHATSAPP_VENDEDORES.join(', ')} -- si alguno de ellos firma o es mencionado por nombre en un mensaje saliente (del negocio), regístralo en el campo "vendedor". Prioridad para los campos marca/modelo: (1) si el cliente ESCRIBE el modelo en el texto de algún mensaje de la conversación, usa eso -- es la fuente más confiable, por encima de cualquier foto. (2) Si el cliente no escribe el modelo pero manda una foto de la etiqueta/sticker pegada en la carcasa o la base del equipo, léela para identificarlo. (3) Si manda las dos cosas (un modelo escrito Y una foto), el modelo que el cliente escribió manda -- usa la foto solo para completar marca/modelo si el texto no los menciona, no para contradecir lo que el cliente ya escribió. Estas etiquetas suelen traer VARIOS códigos distintos -- usa el que sea el modelo comercial del producto (el que identifica al equipo específico que compraría alguien, ej. "24-dd0092la" en un HP All-in-One, o "15-ef2xxx" en un notebook), y NO el "Regulatory model number"/"Model reglamentario" (un código interno de certificación FCC/IC que no corresponde al modelo real, ej. "TPC-0089-24"), ni el número de serie ("Serial No."/"S/N"), ni el PPID. Series/líneas reales de notebooks por marca (el modelo real casi siempre empieza con una de estas seguida de un número de generación, ej. "IdeaPad Gaming 3 15IMH05"): ${Object.entries(WHATSAPP_SERIES_NOTEBOOK).map(([marca, series]) => `${marca}: ${series.join(', ')}`).join(' | ')}. Esta lista es SOLO para que reconozcas si un texto que sí leíste en la imagen es una serie real -- NUNCA la uses para adivinar o suponer una serie "típica" o "probable" según el contexto (ej. NO asumas "Legion" solo porque el cliente pidió un notebook gamer; eso sería inventar, aunque sea una suposición razonable). El modelo/marca solo se registran si están literalmente escritos y legibles en la foto o en el texto del cliente -- transcribe exactamente lo que dice la etiqueta, letra por letra, no lo que te parezca más probable. Si el único código visible en la etiqueta NO corresponde a ninguna serie conocida (puede ser la capacidad de la batería en Wh, un part number, un código regulatorio, etc.) Y no hay otro texto de serie legible en la misma foto, deja el campo modelo vacío en vez de adivinar. A veces el mensaje del usuario incluye primero un bloque de "Contexto" con datos de una conversación anterior del mismo cliente (las conversaciones se cortan automáticamente tras 24h sin actividad, así que un seguimiento corto como "gracias por la info" puede quedar en una conversación separada sin mencionar el producto de nuevo) -- úsalo solo si la conversación actual es claramente ese seguimiento, nunca si trata de algo distinto. Regla de conversión: en IndexStore una conversión es una intención de venta: el negocio le envió al cliente el enlace del producto y/o una oferta (producto disponible, precio, condiciones como garantía o instalación, dirección u horarios). Eso es una conversión comercial: usa resultado \"cotizacion\" (el cliente evalúa) y NO \"cliente_no_responde\" ni una pérdida, aunque el cliente no haya vuelto a escribir -- IndexStore vende productos técnicos de forma conversacional y de confianza, y el cliente puede decidir después o comparar con otro proveedor. Regla de venta concreta: si IndexStore le envió al cliente un enlace de reseña de Google (g.page/.../review) o el mensaje "Nos alegra saber que completaste tu compra en nuestra tienda", la compra YA se concretó: resultado "venta" (sin motivo de pérdida), aunque el cliente no haya escrito más ni diga cuánto pagó. Regla de cotización: si el cliente pide una cotización por escrito ("necesito una cotización", "quiero cotizar", "me envía un presupuesto"), o IndexStore le envía una cotización (adjunta, con número o en PDF), hay una cotización en curso: resultado "cotizacion", nunca "cliente_no_responde" ni "otro", aunque no se vea la respuesta (lo que se contesta desde el celular no llega al sistema). Regla de cierre: si el último mensaje del cliente es un agradecimiento o confirmación corta ("ok", "gracias", "Oka.. gracias", "perfecto", "listo", 👍), interprétalo como que la respuesta llegó y la duda quedó aclarada: la conversación terminó bien, el cliente NO dejó de responder. Si el tema era una consulta de información, garantía, postventa o servicio técnico, usa resultado "consulta_resuelta" y no completes motivo_perdida. Solo si en esa conversación el negocio le dijo algo que implica no poder vender (no hay stock, no vendemos esa marca, el precio) mantén ese motivo concreto. Analiza la conversación completa (incluidas las imágenes) y registra el análisis usando la herramienta registrar_analisis. Responde solo con la llamada a la herramienta, sin texto adicional. Si un campo de texto no aplica o no hay información suficiente, usa una cadena vacía en vez de inventar datos.`;
 
   // Gemini es el único proveedor: si falla (sin saldo, error de red, no devolvió la función esperada) el error sube tal cual.
   const a = await llamarGeminiAnalisis(systemPrompt, contenido);
@@ -9538,7 +9602,7 @@ async function ejecutarAnalisisIA(sql, conversacionId, quien) {
   let motivoPerdida = Object.keys(WHATSAPP_MOTIVOS_PERDIDA_LABEL).includes(a.motivo_perdida) ? a.motivo_perdida : null;
   // Conversión (enlace del producto u oferta enviada): es una cotización en curso, no una pérdida.
   if (['cliente_no_responde', 'otro'].includes(resultado) && (!motivoPerdida || ['cliente_no_responde', 'sin_seguimiento', 'otro'].includes(motivoPerdida))
-      && esConversion(mejorNivelOferta(mensajes.filter(m => m.direccion === 'out' && m.tipo === 'texto').map(m => m.contenido_texto)))) {
+      && esConversion(nivelConversacion(mensajes.filter(m => m.direccion === 'out' && m.tipo === 'texto').map(m => m.contenido_texto), mensajes.filter(m => m.direccion === 'in' && m.tipo === 'texto').map(m => m.contenido_texto)))) {
     resultado = 'cotizacion';
     motivoPerdida = null;
   }
@@ -10622,7 +10686,9 @@ async function manejarWhatsappMotivoDetalle(req, res, _sesion) {
       // Conversión (se le envió el enlace del producto o una oferta): es una intención de venta, no una pérdida.
       const salientesPorConv = new Map();
       for (const m of mensajesAnalizar) if (m.direccion === 'out') { if (!salientesPorConv.has(m.conversacion_id)) salientesPorConv.set(m.conversacion_id, []); salientesPorConv.get(m.conversacion_id).push(m.contenido_texto); }
-      const conOfertaIds = new Set(convsAnalizar.filter(c => esConversion(mejorNivelOferta(salientesPorConv.get(c.id)))).map(c => c.id));
+      const entrantesPorConvTxt = new Map();
+      for (const m of mensajesAnalizar) if (m.direccion === 'in') { if (!entrantesPorConvTxt.has(m.conversacion_id)) entrantesPorConvTxt.set(m.conversacion_id, []); entrantesPorConvTxt.get(m.conversacion_id).push(m.contenido_texto); }
+      const conOfertaIds = new Set(convsAnalizar.filter(c => esConversion(nivelConversacion(salientesPorConv.get(c.id), entrantesPorConvTxt.get(c.id)))).map(c => c.id));
       excluidasPorOferta = conOfertaIds.size;
       if (conOfertaIds.size) { convsAnalizar = convsAnalizar.filter(c => !conOfertaIds.has(c.id)); mensajesAnalizar = mensajesAnalizar.filter(m => !conOfertaIds.has(m.conversacion_id)); }
     }
@@ -10681,11 +10747,12 @@ async function manejarWhatsappReclasificarCierres(req, res, sesion) {
        FROM whatsapp_conversaciones c
        JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
        ${sqlOfertaLateral(1)}
+       ${sqlSolicitudLateral(8)}
        WHERE c.venta_detectada = false AND c.resultado IN ('cliente_no_responde', 'otro') AND COALESCE(c.motivo_perdida, 'cliente_no_responde') IN ('cliente_no_responde', 'sin_seguimiento', 'otro')
          AND NOT ('resultado' = ANY(c.campos_editados_manualmente)) AND NOT ('motivo_perdida' = ANY(c.campos_editados_manualmente))
-         AND (ofe.oferta_completa OR ofe.oferta_cotizada OR ofe.oferta_enlace)
+         AND (ofe.oferta_completa OR ofe.oferta_cotizada OR ofe.oferta_enlace OR ofe.oferta_cotizacion OR sol.solicito)
        ORDER BY c.iniciada_en DESC LIMIT 20000;`,
-      PARAMS_OFERTA()
+      [...PARAMS_OFERTA(), PARAM_SOLICITUD()]
     );
     const idsCierre = new Set(candidatas.map(c => c.id));
     const idsOferta = conOferta.map(c => c.id).filter(id => !idsCierre.has(id) && !idsResenaSet.has(id));
@@ -11029,12 +11096,12 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
     const { rows: ofertaRows } = await sql.query(
       `SELECT c.intencion, COALESCE(c.categoria, 'sin_categoria') AS categoria,
               (c.venta_detectada OR (c.bsale_documento_numero IS NOT NULL AND c.bsale_documento_numero <> '')) AS vendida,
-              ofe.oferta_completa, ofe.oferta_cotizada,
+              ofe.oferta_completa, ofe.oferta_cotizada, ofe.oferta_enlace, ofe.oferta_cotizacion, sol.solicito,
               EXTRACT(EPOCH FROM (ofe.oferta_en - COALESCE(c.primer_mensaje_cliente_en, c.iniciada_en))) / 60 AS minutos_a_oferta,
               EXISTS (SELECT 1 FROM whatsapp_mensajes mo WHERE mo.conversacion_id = c.id AND mo.direccion = 'out') AS con_salida
-       FROM whatsapp_conversaciones c ${sqlOfertaLateral(3)}
+       FROM whatsapp_conversaciones c ${sqlOfertaLateral(3)} ${sqlSolicitudLateral(10)}
        WHERE c.iniciada_en >= $1 AND c.iniciada_en < $2 AND c.cantidad_mensajes > 0;`,
-      [desde, hasta, ...PARAMS_OFERTA()]
+      [desde, hasta, ...PARAMS_OFERTA(), PARAM_SOLICITUD()]
     );
     const conversionComercial = resumirConversionComercial(ofertaRows.map(r => ({
       intencion: r.intencion, categoria: r.categoria, vendida: !!r.vendida,
@@ -12339,7 +12406,8 @@ async function completarContactoClienteDesdeBsale(sql, clienteId, token) {
   const r = await fetchConTimeout(`${BSALE_BASE}/clients/${clienteId}/attributes.json`, { headers: { access_token: token } }, 8000);
   if (!r.ok) return { email: '', telefono: '', consultado: false };
   const data = await r.json();
-  const { email, telefono } = elegirContactoDeAtributos(data.items);
+  const { email: emailBsale, telefono } = elegirContactoDeAtributos(data.items);
+  const email = corregirCorreo(emailBsale);
   if (email) await sql`UPDATE bsale_cotizaciones SET cliente_email = ${email} WHERE cliente_id = ${clienteId} AND (cliente_email IS NULL OR cliente_email = '');`;
   if (telefono) await sql`UPDATE bsale_cotizaciones SET cliente_telefono = ${telefono} WHERE cliente_id = ${clienteId} AND (cliente_telefono IS NULL OR cliente_telefono = '');`;
   await sql`

@@ -1723,10 +1723,12 @@ function renderZohoFichaHtml(d){
   if (!d || d.configurado === false) return `<p class="empty-note">Zoho Desk no está conectado: en Vercel faltan las variables ${(d && d.faltan ? d.faltan : ['ZOHO_*']).map(escapeHtmlCot).join(', ')}.</p>`;
   if (d.sinCorreo) return '<p class="empty-note">Sin correo del cliente en Bsale: no se pueden buscar sus tickets.</p>';
   if (d.error) return `${titulo}<p class="empty-note">No se pudo consultar Zoho Desk ahora (${escapeHtmlCot(d.detail || d.error)}).</p>`;
-  if (!d.tickets || !d.tickets.length) return `${titulo}<p class="empty-note">No hay tickets de Zoho Desk con el correo ${escapeHtmlCot(d.correo || '')}.</p>`;
+  const desdeTxt = d.desde ? new Date(d.desde).toLocaleDateString('es-CL') : '';
+  const ocultos = d.ticketsOcultos ? ` Hay ${d.ticketsOcultos} ticket${d.ticketsOcultos === 1 ? '' : 's'} más antiguo${d.ticketsOcultos === 1 ? '' : 's'} que no se muestra${d.ticketsOcultos === 1 ? '' : 'n'}.` : '';
+  if (!d.tickets || !d.tickets.length) return `${titulo}<p class="empty-note">No hay tickets de Zoho Desk del último año con el correo ${escapeHtmlCot(d.correo || '')}${desdeTxt ? ' (desde el ' + desdeTxt + ')' : ''}.${ocultos}</p>`;
   const r = d.resumen || {};
   const fecha = f => f ? new Date(f).toLocaleString('es-CL') : '—';
-  const alcance = d.basadoEnExactos ? 'tickets que citan esta cotización' : 'todos los tickets de este cliente (ninguno cita esta cotización)';
+  const alcance = d.basadoEnExactos ? 'tickets que citan esta cotización' : 'todos los tickets de este cliente del último año (ninguno cita esta cotización)';
   const pend = r.pendienteDeRespuesta ? '<span class="badge pend" style="margin-left:6px;">Cliente espera respuesta</span>' : '';
   const resumen = `<div class="proxima-accion-box" style="margin-bottom:6px;">📤 <b>${r.salientes || 0}</b> enviados por IndexStore · 📩 <b>${r.entrantes || 0}</b> recibidos del cliente${pend}<br><span class="comentario-meta">Último contacto: ${fecha(r.ultimoContacto)} · Calculado sobre ${alcance}</span></div>`;
   const tickets = d.tickets.map(t => `
@@ -1741,7 +1743,7 @@ function renderZohoFichaHtml(d){
       <span>${h.direccion === 'entrante' ? '📩 Cliente' : '📤 IndexStore'}: ${escapeHtmlCot(h.resumen || '(sin texto)')}${h.adjuntos ? ` 📎${h.adjuntos}` : ''}</span>
       <span class="comentario-meta">${fecha(h.fecha)} — ${escapeHtmlCot(h.autor || '')} — #${escapeHtmlCot(h.ticketNumero)}</span>
     </div>`).join('');
-  const aviso = d.ticketsSinLeer ? `<p class="empty-note">No se pudieron leer los mensajes de ${d.ticketsSinLeer} ticket(s).</p>` : '';
+  const aviso = (d.ticketsSinLeer ? `<p class="empty-note">No se pudieron leer los mensajes de ${d.ticketsSinLeer} ticket(s).</p>` : '') + `<p class="empty-note">Solo se muestra el último año${desdeTxt ? ' (desde el ' + desdeTxt + ')' : ''}.${ocultos}</p>`;
   return `${titulo}${resumen}${tickets}<div class="correos-sub" style="margin-top:8px;">Mensajes</div>${hilos || '<p class="empty-note">Los tickets no tienen mensajes públicos todavía.</p>'}${aviso}`;
 }
 // Teléfono para marcar / WhatsApp: deja solo dígitos y agrega el 56 de Chile si falta.
