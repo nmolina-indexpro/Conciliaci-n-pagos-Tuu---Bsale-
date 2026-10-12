@@ -7,13 +7,25 @@ let motivoPanel = null;      // { motivo, base, datos }
 let cargandoPanelMotivo = 0; // para ignorar respuestas viejas si el usuario cambia rápido
 
 // Teléfono como enlace al chat de WhatsApp, en otra pestaña (Chile: 9 dígitos se completan con el 56)
-function enlaceTelefonoPm(telefono){
+// El teléfono lleva a la CONVERSACIÓN dentro del ERP (si se conoce su id); la flecha ↗ al lado abre el chat en WhatsApp en otra pestaña.
+function enlaceTelefonoPm(telefono, conversacionId){
   const texto = String(telefono || '').trim();
   if(!texto) return '';
   let dig = texto.replace(/\D/g, '');
   if(dig.length < 8) return escapeHtml(texto);
   if(dig.length === 9) dig = '56' + dig;
-  return `<a href="https://wa.me/${dig}" target="_blank" rel="noopener noreferrer" title="Abrir el chat en WhatsApp">${escapeHtml(texto)} ↗</a>`;
+  const wa = `<a href="https://wa.me/${dig}" target="_blank" rel="noopener noreferrer" title="Abrir el chat en WhatsApp (otra pestaña)">↗</a>`;
+  if(!conversacionId) return `<a href="https://wa.me/${dig}" target="_blank" rel="noopener noreferrer" title="Abrir el chat en WhatsApp">${escapeHtml(texto)} ↗</a>`;
+  return `<a href="?abrirConversacion=${Number(conversacionId)}" onclick="verConversacionEnErp(${Number(conversacionId)}); return false;" title="Abrir la conversación #${Number(conversacionId)} en el ERP">${escapeHtml(texto)}</a> ${wa}`;
+}
+// Cierra el panel de análisis y abre esa conversación en la bandeja de Conversaciones (la misma pantalla de siempre).
+function verConversacionEnErp(id){
+  if(!id) return;
+  cerrarPanelMotivo();
+  if(typeof cambiarVistaModulo === 'function') cambiarVistaModulo('conversaciones');
+  if(typeof convState !== 'undefined' && convState.vistaUI !== 'bandeja' && typeof cambiarVistaConv === 'function') cambiarVistaConv('bandeja');
+  if(typeof seleccionarConversacionBandeja === 'function') seleccionarConversacionBandeja(Number(id));
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function fmtMin(seg){
   if(seg == null) return '—';
@@ -201,7 +213,7 @@ function renderPanelMotivo(d){
     ${d.fuentes.map(f => `<tr><td>${escapeHtml(f.fuente)}</td><td>${escapeHtml(f.detalle || '—')}</td><td class="num">${f.n}</td><td class="num">${f.pct}%</td></tr>`).join('')}</tbody></table>`,
     d.motivo === 'producto_no_disponible' ? 'Si una campaña de Google Ads concentra estas conversaciones, ahí van primero las palabras negativas.' : '');
   const lista = seccionPm('💬 Conversaciones', `<div class="pm-scroll"><table class="pm-tabla"><thead><tr><th>Cliente</th><th>Producto</th><th>Primer mensaje</th><th>Último mensaje del cliente</th></tr></thead><tbody>
-    ${d.conversaciones.map(x => `<tr><td>${escapeHtml(x.cliente || '—')}<div class="pm-ej">${enlaceTelefonoPm(x.telefono)}</div></td><td>${escapeHtml(x.producto || '—')}</td><td class="pm-ej">${escapeHtml(x.primerMensaje)}</td><td>${x.ultimoCliente ? escapeHtml(new Date(x.ultimoCliente).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })) : '—'}</td></tr>`).join('')}</tbody></table></div>`,
+    ${d.conversaciones.map(x => `<tr><td>${escapeHtml(x.cliente || '—')}<div class="pm-ej">${enlaceTelefonoPm(x.telefono, x.id)}</div></td><td>${escapeHtml(x.producto || '—')}</td><td class="pm-ej">${escapeHtml(x.primerMensaje)}</td><td>${x.ultimoCliente ? escapeHtml(new Date(x.ultimoCliente).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })) : '—'}</td></tr>`).join('')}</tbody></table></div>`,
     `Las ${Math.min(80, d.total)} más recientes. Para abrir una conversación usa "Ver conversaciones".`);
 
   $('panelMotivo').innerHTML = cabecera + `<div class="pm-cuerpo">${notas.map(n => `<div class="pm-nota">${n}</div>`).join('')}${kpis}${reco}${espec}${repite}${cuando}${terminos}${fuentes}${lista}</div>`;
@@ -255,7 +267,7 @@ function renderEspecificoPm(d){
       </div>`, 'El horario de atención es un supuesto para medir "fuera de horario"; ajústalo con el equipo si es otro.');
   }
   if(e.tipo === 'precio'){
-    const filas = e.recontactables.map(x => `<tr><td>${escapeHtml(x.cliente || '—')}</td><td>${enlaceTelefonoPm(x.telefono)}</td><td>${escapeHtml(x.producto || '—')}</td><td class="num">${x.diasSinResponder != null ? x.diasSinResponder + ' d' : '—'}</td></tr>`).join('');
+    const filas = e.recontactables.map(x => `<tr><td>${escapeHtml(x.cliente || '—')}</td><td>${enlaceTelefonoPm(x.telefono, x.id)}</td><td>${escapeHtml(x.producto || '—')}</td><td class="num">${x.diasSinResponder != null ? x.diasSinResponder + ' d' : '—'}</td></tr>`).join('');
     return seccionPm('💲 Precio: qué dicen los clientes', `
       <div class="pm-grid2">
         <div><h4>Señales en los mensajes</h4>${barrasHtml(e.senales.map(x => ({ etiqueta: x.senal, n: x.conversaciones, pct: x.pct })))}
@@ -388,7 +400,7 @@ function renderPanelCategoria(d){
   const terminos = seccionPm('🔤 Palabras y frases más repetidas por los clientes', `<div class="pm-grid2"><div><h4>Palabras</h4>${tablaTerminosPm(d.terminos.palabras)}</div><div><h4>Frases de dos palabras</h4>${tablaTerminosPm(d.terminos.frases)}</div></div>`, 'Se cuenta una vez por conversación. Útil para ideas de palabras clave y de palabras negativas en Google Ads.');
   const respuesta = seccionRespuestaCategoriaPm(d, q);
   const lista = seccionPm('💬 Conversaciones', `<div class="pm-scroll"><table class="pm-tabla"><thead><tr><th>Cliente</th><th>Producto</th><th>Primer mensaje</th><th>Resultado</th></tr></thead><tbody>
-    ${d.conversaciones.map(x => `<tr><td>${escapeHtml(x.cliente || '—')}<div class="pm-ej">${enlaceTelefonoPm(x.telefono)}</div></td><td>${escapeHtml(x.producto || '—')}</td><td class="pm-ej">${escapeHtml(x.primerMensaje)}</td><td>${badgeResultadoPm(x.resultado)}</td></tr>`).join('')}</tbody></table></div>`, `Las ${Math.min(80, d.total)} más recientes.`);
+    ${d.conversaciones.map(x => `<tr><td>${escapeHtml(x.cliente || '—')}<div class="pm-ej">${enlaceTelefonoPm(x.telefono, x.id)}</div></td><td>${escapeHtml(x.producto || '—')}</td><td class="pm-ej">${escapeHtml(x.primerMensaje)}</td><td>${badgeResultadoPm(x.resultado)}</td></tr>`).join('')}</tbody></table></div>`, `Las ${Math.min(80, d.total)} más recientes.`);
   $('panelMotivo').innerHTML = cabecera + `<div class="pm-cuerpo">${notas.map(n => `<div class="pm-nota">${n}</div>`).join('')}${kpis}${reco}${embudo}${motivos}${repite}${sinVenta}${demanda}${fuentes}${terminos}${respuesta}${lista}</div>`;
 }
 function pctPm(n, total){ return total > 0 ? Math.round(n / total * 1000) / 10 : 0; }
