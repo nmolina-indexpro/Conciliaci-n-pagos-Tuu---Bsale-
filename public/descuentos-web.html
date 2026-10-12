@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Descuentos web — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;letter-spacing:0.2px;margin:0 0 5px 0;}
+  h1 span{color:var(--primary);}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin:0 0 4px 0;}
+  .sub{color:var(--muted);font-size:13px;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  input[type="date"], select, textarea{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 10px;border-radius:9px;font-size:13px;}
+  textarea{width:100%;min-height:110px;font-family:'IBM Plex Mono',monospace;font-size:12px;resize:vertical;}
+  input:focus, select:focus, textarea:focus{outline:none;border-color:var(--primary);}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);border-color:var(--primary);color:var(--primary-dark);}
+  .btn-compact{padding:7px 12px;font-size:12px;}
+
+  .date-field{display:flex;align-items:center;gap:5px;}
+  .date-field label, .campo label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  .campo{display:flex;align-items:center;gap:5px;}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;}
+  .filtros{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px;}
+  .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);}
+  #status{font-size:12px;color:var(--muted);margin-bottom:10px;}
+  #status.err{color:var(--red);}
+
+  .kpis-llam{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+  @media (max-width:900px){.kpis-llam{grid-template-columns:repeat(2,1fr);}}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);}
+  .kpi .lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+  .kpi .big{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:700;margin-top:4px;}
+  .kpi .nota{font-size:11px;color:var(--muted);margin-top:3px;}
+
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+  .seccion-head > *{min-width:0;}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tabla-wrap{overflow-x:auto;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  th.amount, td.amount{text-align:right;}
+  td{padding:9px;border-bottom:1px solid var(--line);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .num-tel{font-family:'IBM Plex Mono',monospace;white-space:nowrap;}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;display:inline-block;}
+  .badge.verde{background:var(--green-bg);color:var(--green);}
+  .badge.gris{background:var(--surface-2);color:var(--muted);}
+  .badge.ambar{background:var(--amber-dim);color:var(--amber);}
+  .badge.azul{background:var(--blue-bg);color:var(--blue);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:14px;color:var(--text);}
+  .note-box.err{background:var(--red-bg);border-color:#F5B5B5;}
+  .note-box.ok{background:var(--green-bg);border-color:#B8E2C4;}
+  .paginacion{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;color:var(--muted);gap:10px;}
+  .importar-acciones{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;}
+
+  .kpis-bia{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:20px;}
+  .dos-col{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+  @media (max-width:1000px){.dos-col{grid-template-columns:1fr;}}
+  .badge.rojo{background:var(--red-bg);color:var(--red);}
+  .dia{display:grid;grid-template-columns:48px 1fr 44px;align-items:center;gap:10px;font-size:12px;padding:3px 0;}
+  .dia-f{color:var(--muted);font-family:'IBM Plex Mono',monospace;}
+  .dia-barra{display:flex;height:12px;background:var(--surface-2);border-radius:6px;overflow:hidden;}
+  .dia-barra i{display:block;height:100%;}
+  .dia-barra .ok{background:var(--primary);}
+  .dia-barra .no{background:var(--red);}
+  .dia-n{text-align:right;font-family:'IBM Plex Mono',monospace;}
+  .seccion a{color:var(--primary-dark);}
+  .visitante{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted);}
+  .desde{font-size:11.5px;color:var(--muted);}
+  .reglas-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:6px;}
+  .campo-r{display:flex;flex-direction:column;gap:4px;}
+  .campo-r label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
+  .campo-r input[type=number], .inp-costo{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'IBM Plex Mono',monospace;padding:8px 10px;border-radius:9px;font-size:13px;width:100%;}
+  .inp-costo{width:96px;text-align:right;padding:6px 8px;}
+  .campo-r input:focus, .inp-costo:focus{outline:none;border-color:var(--primary);}
+  .campo-r .chk{padding-top:8px;text-transform:none;letter-spacing:0;font-size:13px;}
+  .mut{color:var(--muted);}
+  .paso{display:grid;grid-template-columns:30px 1fr;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);}
+  .paso:last-child{border-bottom:none;}
+  .paso-n{width:26px;height:26px;border-radius:50%;background:var(--primary-dim);color:var(--primary-dark);font-weight:700;display:grid;place-items:center;font-size:13px;}
+  .paso ul{margin:6px 0 4px;padding-left:18px;}
+  .paso li{margin:3px 0;}
+  code{font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--surface-2);padding:1px 6px;border-radius:5px;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+<link rel="stylesheet" href="comercial-movil.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html">Compras</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+          <a href="sitio-web.html">Sitio Web</a>
+          <a href="buscador-ia.html">Buscador IA</a>
+          <a href="descuentos-web.html" class="active">Descuentos web</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+  <div class="toolbar">
+    <div>
+      <h1>Descuentos <span>web</span></h1>
+      <div class="sub">Descuentos por cantidad en indexstore.cl: qué tramos se ofrecen según el stock, cuánto margen queda y qué resultados traen.</div>
+    </div>
+    <div class="filtros" style="margin-bottom:0;">
+      <button type="button" class="btn-primary btn-compact" id="btnActualizar">Actualizar</button>
+    </div>
+  </div>
+
+  <div id="status"></div>
+  <div id="avisos"></div>
+
+  <div class="kpis-bia" id="kpis"></div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>Reglas</h2>
+        <div class="sub">Los tramos valen para todos los productos del grupo. Un tramo se ofrece solo si el stock cubre la cantidad que pide más la reserva.</div>
+      </div>
+      <span class="badge gris" id="grupoInfo"></span>
+    </div>
+    <div class="reglas-form" id="reglasForm"></div>
+    <div class="importar-acciones">
+      <button type="button" class="btn-primary btn-compact" id="btnGuardarReglas">Guardar reglas</button>
+      <span class="desde" id="reglasMsg"></span>
+    </div>
+  </div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>Productos y margen</h2>
+        <div class="sub">Productos reales del carro (los que tienen SKU de Bsale). El margen es sobre el precio neto, sin IVA, con el costo de Bsale. Si Bsale no entrega el costo, escríbelo a mano.</div>
+      </div>
+      <div class="filtros" style="margin:0;">
+        <button type="button" class="btn-primary btn-compact" id="btnAplicar" disabled>Aplicar cambios en Shopify</button>
+      </div>
+    </div>
+    <div class="tabla-wrap"><table id="tProductos"></table></div>
+    <div class="desde" style="margin-top:8px;">Etiquetas: el ERP solo agrega o quita las que empiezan con <b id="prefijoEtq"></b>. Nunca toca otras etiquetas.</div>
+  </div>
+
+  <div class="seccion">
+    <div class="seccion-head">
+      <div>
+        <h2>Resultados</h2>
+        <div class="sub">Sale de los pedidos de la tienda: solo cuenta lo vendido con los descuentos automáticos cuyo nombre empieza con "Volumen".</div>
+      </div>
+      <div class="filtros" style="margin:0;">
+        <button type="button" class="btn-ghost btn-compact" data-dias="30">30 días</button>
+        <button type="button" class="btn-ghost btn-compact" data-dias="90">90 días</button>
+      </div>
+    </div>
+    <div id="resEstado" class="empty-note">Cargando…</div>
+    <div id="resContenido" style="display:none;">
+      <div class="kpis-bia" id="resKpis"></div>
+      <div class="dos-col">
+        <div><h2>Por tramo</h2><div class="tabla-wrap"><table id="tTramos"></table></div></div>
+        <div><h2>Unidades por día</h2><div id="porDia"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="seccion">
+    <div class="seccion-head"><div><h2>Puesta en marcha</h2><div class="sub">Lo que debe estar listo en Shopify y en el ERP para que los descuentos funcionen solos.</div></div></div>
+    <div id="pasos"></div>
+  </div>
+
+  <div class="seccion">
+    <div class="seccion-head"><div><h2>Bitácora</h2><div class="sub">Cada vez que el ERP cambió etiquetas en Shopify.</div></div></div>
+    <div class="tabla-wrap"><table id="tBitacora"></table></div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script src="comercial-movil.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+function clp(n){ return n == null ? '—' : '$' + Math.round(n).toLocaleString('es-CL'); }
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtFechaHora(iso){
+  return new Date(iso).toLocaleString('es-CL', { timeZone:'America/Santiago', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false });
+}
+function pctTxt(n){ return n == null ? '—' : String(n).replace('.', ',') + '%'; }
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    $('userBox').innerHTML = `<span>Hola, <b>${esc(u.nombre || u.email)}</b></span>`;
+    if(u.rol === 'admin'){ const nav = $('navUsuarios'); if(nav) nav.style.display = ''; }
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+let D = null;       // respuesta principal
+let diasRes = 30;
+
+async function api(opciones, query){
+  const res = await fetch('/api/negocio?recurso=descuentos-web' + (query || ''), opciones);
+  const j = await res.json().catch(() => ({ error: 'Respuesta inválida del servidor' }));
+  if(!res.ok && !j.error) j.error = 'Error ' + res.status;
+  return j;
+}
+const post = body => api({ method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+
+async function cargar(){
+  const st = $('status');
+  st.className = ''; st.textContent = 'Consultando Shopify y Bsale…';
+  $('btnActualizar').disabled = true;
+  try{
+    const j = await api();
+    if(j.error){ st.className = 'err'; st.textContent = j.error; return; }
+    D = j;
+    st.textContent = '';
+    pintarAvisos(); pintarKpis(); pintarReglas(); pintarProductos(); pintarPasos(); pintarBitacora();
+  }catch(e){ st.className = 'err'; st.textContent = 'No se pudo cargar: ' + e.message; }
+  finally{ $('btnActualizar').disabled = false; }
+  cargarResultados();
+}
+
+function pintarAvisos(){
+  const a = [];
+  if(!D.permisos.ok) a.push(`<div class="note-box err"><b>Falta el permiso para cambiar etiquetas.</b> La conexión del ERP con Shopify no tiene "Escribir productos". Sin él se puede mirar todo, pero no aplicar cambios. ${D.permisos.error ? esc(D.permisos.error) : ''}</div>`);
+  if(D.errorProductos) a.push(`<div class="note-box err">No se pudieron leer los productos de Shopify: ${esc(D.errorProductos)}</div>`);
+  if(!D.esAdmin) a.push(`<div class="note-box">Solo un administrador puede cambiar las reglas o aplicar cambios. Tú puedes ver todo.</div>`);
+  $('avisos').innerHTML = a.join('');
+}
+
+function pintarKpis(){
+  const r = D.resumen, c = D.config;
+  const k = [
+    ['Revisión automática', c.activo ? 'Activa' : 'Apagada', c.activo ? (D.aviso.registrado ? 'sigue el stock en vivo + revisión diaria' : 'solo revisión diaria (falta el aviso de stock)') : 'los cambios se aplican con el botón'],
+    ['Productos del grupo', fmtNum(r.productos), `${fmtNum(r.con_tramos)} con algún tramo hoy`],
+    ['Cambios pendientes', fmtNum(r.con_cambios), r.con_cambios ? 'etiquetas por poner o quitar' : 'todo al día'],
+    ['Sin costo', fmtNum(r.sin_costo), r.sin_costo ? 'sin margen calculado' : 'todos con costo'],
+  ];
+  $('kpis').innerHTML = k.map(x => `<div class="kpi"><div class="lbl">${x[0]}</div><div class="big">${x[1]}</div><div class="nota">${x[2]}</div></div>`).join('');
+}
+
+function pintarReglas(){
+  const c = D.config, dis = D.esAdmin ? '' : 'disabled';
+  $('grupoInfo').textContent = `${c.tipo_producto} · etiqueta ${c.etiqueta_producto}`;
+  const tr = (i) => c.tramos[i] || { cantidad: '', porcentaje: '' };
+  const f = (id, lbl, val, extra) => `<div class="campo-r"><label for="${id}">${lbl}</label><input id="${id}" type="number" value="${esc(val)}" ${dis} ${extra || ''}></div>`;
+  $('reglasForm').innerHTML =
+    f('rCant1', 'Tramo 1: unidades', tr(0).cantidad, 'min="2" max="50"') + f('rPct1', 'Descuento %', tr(0).porcentaje, 'min="1" max="60"') +
+    f('rCant2', 'Tramo 2: unidades', tr(1).cantidad, 'min="2" max="50"') + f('rPct2', 'Descuento %', tr(1).porcentaje, 'min="1" max="60"') +
+    f('rReserva', 'Reserva de stock', c.reserva, 'min="0" max="10"') + f('rMargen', 'Margen mínimo %', c.margen_minimo, 'min="0" max="90"') +
+    `<div class="campo-r"><label for="rActivo">Revisión automática</label><label class="chk"><input id="rActivo" type="checkbox" ${c.activo ? 'checked' : ''} ${dis}> Activar</label></div>`;
+  $('btnGuardarReglas').disabled = !D.esAdmin;
+}
+
+function tramosDeFormulario(){
+  const t = [];
+  for(const i of [1, 2]){
+    const q = Number($('rCant' + i).value), p = Number($('rPct' + i).value);
+    if(q && p) t.push({ cantidad: q, porcentaje: p });
+  }
+  return t;
+}
+
+async function guardarReglas(extra){
+  const msg = $('reglasMsg');
+  msg.textContent = 'Guardando…';
+  const config = { tramos: tramosDeFormulario(), reserva: Number($('rReserva').value), margen_minimo: Number($('rMargen').value), activo: $('rActivo').checked, ...(extra || {}) };
+  const j = await post({ accion: 'guardar-config', config });
+  if(j.error){ msg.textContent = j.error; return false; }
+  msg.textContent = 'Guardado. Las etiquetas cambian cuando aprietes "Aplicar cambios en Shopify" (o solas, si activaste la revisión automática).';
+  await cargar();
+  return true;
+}
+
+function celdaMargen(m, minimo){
+  if(m.margen == null) return '<span class="mut">—</span>';
+  const cls = m.margen >= minimo ? 'verde' : (m.margen >= minimo - 5 ? 'ambar' : 'rojo');
+  return `<span class="badge ${cls}">${pctTxt(m.margen)}</span>`;
+}
+
+function pintarProductos(){
+  const c = D.config;
+  $('prefijoEtq').textContent = c.prefijo_etiqueta + '…';
+  const head = ['Producto', 'Stock', 'Precio', 'Costo neto', 'Se ofrece', 'Etiquetas', 'Margen sin desc.']
+    .concat(c.tramos.map(t => `Margen ${t.cantidad} u. (${t.porcentaje}%)`)).concat(['Desc. máximo']);
+  const filas = D.productos.map(p => {
+    const costo = p.costo_origen === 'Bsale'
+      ? `<span class="amount">${clp(p.costo)}</span><div class="desde">Bsale</div>`
+      : `<input class="inp-costo" data-sku="${esc(p.sku || '')}" type="number" min="1" placeholder="costo" value="${p.costo ?? ''}" ${D.esAdmin && p.sku ? '' : 'disabled'}><div class="desde">${p.costo_origen === 'manual' ? 'a mano' : 'sin dato'}</div>`;
+    const ofrece = p.ofrecidos.length ? p.ofrecidos.map(t => `<span class="badge verde">${t.cantidad} u. · ${t.porcentaje}%</span>`).join(' ') : '<span class="badge gris">Ninguno</span>';
+    const cambios = [].concat(p.agregar.map(t => `<span class="badge azul">+ ${esc(t)}</span>`), p.quitar.map(t => `<span class="badge rojo">− ${esc(t)}</span>`), p.meta_cambio ? [`<span class="badge azul">actualizar ficha</span>`] : []);
+    const hoy = p.tags.filter(t => t.toLowerCase().startsWith(c.prefijo_etiqueta.toLowerCase()));
+    const etq = (hoy.length ? hoy.map(t => `<span class="badge gris">${esc(t)}</span>`).join(' ') : '<span class="desde">sin etiquetas</span>') + (cambios.length ? `<div style="margin-top:4px;">${cambios.join(' ')}</div>` : '');
+    const marg = p.margenes.map(m => `<td class="amount">${celdaMargen(m, c.margen_minimo)}</td>`).join('');
+    const estado = p.activo ? '' : ` <span class="badge gris">${esc(p.estado)}</span>`;
+    return `<tr><td><b>${esc(p.titulo)}</b>${estado}<div class="desde">${esc(p.sku || 'sin SKU')}</div></td>
+      <td class="amount">${fmtNum(p.stock)}</td><td class="amount">${clp(p.precio)}</td><td class="amount">${costo}</td>
+      <td>${ofrece}</td><td>${etq}</td>${marg}<td class="amount">${p.descuento_maximo == null ? '—' : p.descuento_maximo + '%'}</td></tr>`;
+  }).join('');
+  $('tProductos').innerHTML = `<thead><tr>${head.map((h, i) => `<th class="${i >= 1 && i !== 4 && i !== 5 ? 'amount' : ''}">${esc(h)}</th>`).join('')}</tr></thead><tbody>${filas || `<tr><td colspan="${head.length}" class="empty-note">No hay productos del grupo en Shopify.</td></tr>`}</tbody>`;
+  const n = D.resumen.con_cambios;
+  const b = $('btnAplicar');
+  b.textContent = n ? `Aplicar ${n} cambio${n === 1 ? '' : 's'} en Shopify` : 'Todo al día';
+  b.disabled = !n || !D.esAdmin || !D.permisos.ok;
+  document.querySelectorAll('.inp-costo').forEach(inp => inp.addEventListener('change', async () => {
+    const sku = inp.dataset.sku; if(!sku) return;
+    const costos = { ...D.config.costos_manual };
+    if(Number(inp.value) > 0) costos[sku] = Number(inp.value); else delete costos[sku];
+    const j = await post({ accion: 'guardar-config', config: { costos_manual: costos } });
+    if(j.error){ $('status').className = 'err'; $('status').textContent = j.error; return; }
+    cargar();
+  }));
+}
+
+async function aplicar(){
+  const b = $('btnAplicar'); b.disabled = true; b.textContent = 'Aplicando…';
+  const j = await post({ accion: 'aplicar' });
+  const st = $('status');
+  if(j.error){ st.className = 'err'; st.textContent = j.error; }
+  else if(j.errores?.length){ st.className = 'err'; st.textContent = `Se aplicaron ${j.cambios - j.errores.length} de ${j.cambios}. Con error: ` + j.errores.map(e => `${e.titulo} (${e.error})`).join('; '); }
+  else { st.className = ''; st.textContent = `Listo: ${j.cambios} producto${j.cambios === 1 ? '' : 's'} actualizado${j.cambios === 1 ? '' : 's'} en Shopify.`; }
+  const msg = st.textContent, cls = st.className;
+  await cargar();
+  st.className = cls; st.textContent = msg;
+}
+
+async function cargarResultados(){
+  document.querySelectorAll('[data-dias]').forEach(b => b.classList.toggle('active', Number(b.dataset.dias) === diasRes));
+  const est = $('resEstado'); est.style.display = ''; est.textContent = 'Cargando pedidos de la tienda…'; $('resContenido').style.display = 'none';
+  const j = await api(undefined, `&parte=resultados&dias=${diasRes}`);
+  if(j.error){ est.className = 'note-box err'; est.textContent = j.error; return; }
+  est.className = 'empty-note';
+  const r = j.resultados;
+  if(!r.pedidos_con_descuento){
+    est.textContent = `Todavía no hay pedidos con descuento de volumen en los últimos ${diasRes} días (${fmtNum(r.pedidos_tienda)} pedidos revisados). Aparecen cuando los descuentos automáticos estén creados en Shopify y un cliente los use.`;
+    return;
+  }
+  est.style.display = 'none'; $('resContenido').style.display = '';
+  $('resKpis').innerHTML = [
+    ['Pedidos con descuento', fmtNum(r.pedidos_con_descuento), `${Math.round(r.pedidos_con_descuento / Math.max(1, r.pedidos_tienda) * 100)}% de ${fmtNum(r.pedidos_tienda)} pedidos`],
+    ['Unidades', fmtNum(r.unidades), 'vendidas con descuento'],
+    ['Descuento entregado', clp(r.descuento), `${Math.round(r.descuento / Math.max(1, r.venta_bruta) * 100)}% del precio de lista`],
+    ['Venta neta', clp(r.venta_neta), `${clp(r.venta_bruta)} a precio de lista`],
+  ].map(k => `<div class="kpi"><div class="lbl">${k[0]}</div><div class="big">${k[1]}</div><div class="nota">${k[2]}</div></div>`).join('');
+  $('tTramos').innerHTML = `<thead><tr><th>Descuento</th><th class="amount">Pedidos</th><th class="amount">Unidades</th><th class="amount">Descuento</th></tr></thead><tbody>` +
+    r.porTramo.map(t => `<tr><td>${esc(t.titulo)}</td><td class="amount">${fmtNum(t.pedidos)}</td><td class="amount">${fmtNum(t.unidades)}</td><td class="amount">${clp(t.descuento)}</td></tr>`).join('') + '</tbody>';
+  const max = Math.max(1, ...r.porDia.map(x => x.unidades));
+  $('porDia').innerHTML = r.porDia.map(x => `<div class="dia"><span class="dia-f">${esc(x.dia.slice(5).split('-').reverse().join('/'))}</span><span class="dia-barra"><i class="ok" style="width:${x.unidades / max * 100}%"></i></span><span class="dia-n">${fmtNum(x.unidades)}</span></div>`).join('');
+  if(r.truncado) $('resEstado').insertAdjacentHTML('afterend', '<div class="desde">Hay más pedidos que los revisados; las cifras pueden quedar cortas. Prueba con 30 días.</div>');
+}
+
+function pintarPasos(){
+  const c = D.config, p = D.permisos;
+  const marca = ok => ok ? '<span class="badge verde">Listo</span>' : '<span class="badge ambar">Pendiente</span>';
+  const tag = t => `<code>${esc(c.prefijo_etiqueta + t.cantidad)}</code>`;
+  const colecciones = c.tramos.map(t => `<li>Colección automatizada <b>"Descuento volumen ${t.cantidad}"</b> con la condición <i>La etiqueta del producto es igual a</i> ${tag(t)}.</li>`).join('');
+  const descuentos = c.tramos.map(t => `<li><b>"${esc(c.prefijo_titulo)} ${t.cantidad}+ cargadores (${t.porcentaje}%)"</b>: Automático → Importe de descuento sobre productos → ${t.porcentaje}% → Colecciones específicas: "Descuento volumen ${t.cantidad}" → Requisito: cantidad mínima de artículos ${t.cantidad}.</li>`).join('');
+  const pasos = [
+    [p.ok, 'Permiso de la conexión con Shopify', p.ok ? 'La conexión puede escribir productos' + (p.read_inventory ? ' y leer inventario.' : '.') : 'Falta "Escribir productos" en la app API - Conciliación (Shopify, Configuración, Apps).'],
+    [null, 'Colecciones automáticas en Shopify', `Productos → Colecciones → Crear colección → Automatizada:<ul>${colecciones}</ul>Se llenan solas cuando el ERP pone las etiquetas.`],
+    [null, 'Descuentos automáticos en Shopify', `Descuentos → Crear descuento → Automático. En "Combinaciones" desmarca todo, para que no se sume a nada. El nombre debe empezar con "${esc(c.prefijo_titulo)}" para medirlos aquí.<ul>${descuentos}</ul><span class="desde">La cantidad mínima cuenta las unidades de todos los productos de la colección que haya en el carro (2 de uno y 1 de otro suman 3).</span>`],
+    [D.aviso.registrado, 'Aviso de stock de Shopify', D.aviso.registrado ? 'Registrado: cada cambio de stock revisa las etiquetas.' : 'Sin esto el ERP solo revisa una vez al día. ' + (D.esAdmin && p.ok ? '<button type="button" class="btn-ghost btn-compact" id="btnAviso">Registrar aviso de stock</button>' : '')],
+    [c.activo, 'Revisión automática', c.activo ? 'Activa.' : 'Apagada: los cambios solo se aplican con el botón. Actívala en "Reglas" cuando los descuentos de Shopify estén probados.'],
+  ];
+  $('pasos').innerHTML = pasos.map((x, i) => `<div class="paso"><div class="paso-n">${i + 1}</div><div class="paso-t"><b>${x[1]}</b> ${x[0] === null ? '' : marca(x[0])}<div class="desde" style="font-size:12.5px;color:var(--text);margin-top:4px;">${x[2]}</div></div></div>`).join('');
+  const bA = $('btnAviso');
+  if(bA) bA.addEventListener('click', async () => {
+    bA.disabled = true; bA.textContent = 'Registrando…';
+    const j = await post({ accion: 'registrar-aviso' });
+    if(j.error){ $('status').className = 'err'; $('status').textContent = j.error; } else { cargar(); }
+  });
+}
+
+function pintarBitacora(){
+  $('tBitacora').innerHTML = `<thead><tr><th>Fecha</th><th>Origen</th><th>Quién</th><th class="amount">Productos</th><th class="amount">Cambios</th><th class="amount">Errores</th></tr></thead><tbody>` +
+    (D.bitacora.length ? D.bitacora.map(b => `<tr><td>${fmtFechaHora(b.creado_en)}</td><td>${esc(b.motivo || '')}</td><td>${esc(b.usuario || 'automático')}</td><td class="amount">${fmtNum(b.productos)}</td><td class="amount">${fmtNum(b.cambios)}</td><td class="amount">${b.errores ? `<span class="badge rojo">${b.errores}</span>` : '0'}</td></tr>`).join('')
+      : '<tr><td colspan="6" class="empty-note">Todavía no se ha cambiado nada.</td></tr>') + '</tbody>';
+}
+
+$('btnActualizar').addEventListener('click', cargar);
+$('btnGuardarReglas').addEventListener('click', () => guardarReglas());
+$('btnAplicar').addEventListener('click', aplicar);
+document.querySelectorAll('[data-dias]').forEach(b => b.addEventListener('click', () => { diasRes = Number(b.dataset.dias); cargarResultados(); }));
+cargarSesionUsuario();
+cargar();
+</script>
+</body>
+</html>

@@ -9,9 +9,10 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, asegurarTablaDescuentosWeb, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
 import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, validarEmbudo as validarEmbudoBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
+import { normalizarConfig as normalizarConfigDW, analizarProducto as analizarProductoDW, permisosShopify as permisosShopifyDW, listarProductos as listarProductosDW, aplicarEtiquetas as aplicarEtiquetasDW, estadoWebhook as estadoWebhookDW, registrarWebhook as registrarWebhookDW, costosBsale as costosBsaleDW, resultadosPedidos as resultadosPedidosDW, claveAviso as claveAvisoDW, tieneCambios as tieneCambiosDW } from '../lib/descuentos-web.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
@@ -112,6 +113,9 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'buscador-ia-ranking') return manejarBuscadorIaRanking(req, res);
   if (req.query.recurso === 'buscador-ia-envio') return manejarBuscadorIaEnvio(req, res);
   if (req.query.recurso === 'buscador-ia-embudo') return manejarBuscadorIaEmbudo(req, res);
+  // Descuentos web: el aviso de stock de Shopify y la revisión diaria entran sin sesión (clave en la URL / CRON_SECRET, ver handler).
+  if (req.query.recurso === 'descuentos-web-aviso') return manejarDescuentosWebAviso(req, res);
+  if (req.query.recurso === 'descuentos-web-cron') return manejarDescuentosWebCron(req, res);
   // Recuperación de contraseña (ver recuperar-password.html /
   // reset-password.html): por definición corre SIN sesión -- quien la usa
   // es justamente alguien que no puede entrar. La seguridad real la hace el
@@ -153,6 +157,7 @@ export default async function handler(req, res) {
   if (recurso === 'llamadas-anexo') return manejarLlamadasAnexo(req, res, sesion);
   if (recurso === 'buscador-ia') return manejarBuscadorIa(req, res, sesion);
   if (recurso === 'envio-estimado') return manejarEnvioEstimado(req, res, sesion);
+  if (recurso === 'descuentos-web') return manejarDescuentosWeb(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
   if (recurso === 'cotizacion-correo-contenido') return manejarCotizacionCorreoContenido(req, res, sesion);
@@ -13770,6 +13775,144 @@ async function manejarBuscadorIaEmbudo(req, res) {
     return res.status(200).json({ error: 'No se pudo guardar el evento: ' + e.message });
   }
 }
+
+// ===================== DESCUENTOS WEB (inicio) =====================
+// Descuentos por volumen de la tienda (ver lib/descuentos-web.js). Página: public/descuentos-web.html.
+async function descuentosWebGql() {
+  const acceso = await obtenerAccesoShopify();
+  if (!acceso) throw new Error('Faltan las credenciales de Shopify en el servidor (SHOPIFY_STORE_DOMAIN / CLIENT_ID / CLIENT_SECRET)');
+  return (query, variables) => shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, query, variables);
+}
+
+async function descuentosWebLeerConfig(sql) {
+  await asegurarTablaDescuentosWeb(sql);
+  const { rows } = await sql.query('SELECT config FROM descuentos_web_config WHERE id = 1');
+  return normalizarConfigDW(rows[0]?.config);
+}
+
+// Calcula (y si se pide, aplica) las etiquetas de cada producto según su stock. Deja registro de lo que cambió.
+async function descuentosWebSincronizar(gql, sql, cfg, { aplicar, usuario, motivo }) {
+  const productos = (await listarProductosDW(gql, cfg)).map(p => analizarProductoDW(p, cfg));
+  const cambios = productos.filter(tieneCambiosDW);
+  let resultados = [];
+  if (aplicar && cambios.length) {
+    resultados = await aplicarEtiquetasDW(gql, cambios);
+  }
+  // Se anota lo manual y lo que realmente cambió (las revisiones automáticas sin cambios no llenan la bitácora).
+  if (aplicar && (cambios.length || motivo === 'manual')) {
+    await sql.query(
+      `INSERT INTO descuentos_web_log (usuario, motivo, productos, cambios, errores, detalle) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [usuario || null, motivo || null, productos.length, cambios.length, resultados.filter(r => !r.ok).length, JSON.stringify(resultados.slice(0, 40))],
+    );
+  }
+  return { productos, cambios, resultados };
+}
+
+function descuentosWebUrlAviso(req) {
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const clave = claveAvisoDW(process.env.CRON_SECRET || process.env.AUTH_SECRET);
+  return `https://${host}/api/negocio?recurso=descuentos-web-aviso&k=${clave}`;
+}
+
+async function manejarDescuentosWeb(req, res, sesion) {
+  const esAdmin = sesion.rol === 'admin';
+  try {
+    const sql = await getSql();
+    const cfg = await descuentosWebLeerConfig(sql);
+    let gql;
+    try { gql = await descuentosWebGql(); } catch (e) { return res.status(200).json({ error: e.message }); }
+
+    if (req.method === 'POST') {
+      if (!esAdmin) return res.status(403).json({ error: 'Solo un administrador puede cambiar los descuentos' });
+      const accion = req.body?.accion;
+      if (accion === 'guardar-config') {
+        const nueva = normalizarConfigDW({ ...cfg, ...(req.body?.config || {}) });
+        await sql.query(
+          `INSERT INTO descuentos_web_config (id, config, actualizado_por, actualizado_en) VALUES (1, $1, $2, now())
+           ON CONFLICT (id) DO UPDATE SET config = $1, actualizado_por = $2, actualizado_en = now()`,
+          [JSON.stringify(nueva), sesion.nombre || sesion.email || null],
+        );
+        return res.status(200).json({ ok: true, config: nueva });
+      }
+      if (accion === 'aplicar') {
+        const r = await descuentosWebSincronizar(gql, sql, cfg, { aplicar: true, usuario: sesion.nombre || sesion.email, motivo: 'manual' });
+        return res.status(200).json({ ok: true, cambios: r.cambios.length, errores: r.resultados.filter(x => !x.ok), resultados: r.resultados });
+      }
+      if (accion === 'registrar-aviso') {
+        const url = descuentosWebUrlAviso(req);
+        const id = await registrarWebhookDW(gql, url);
+        return res.status(200).json({ ok: true, id });
+      }
+      return res.status(400).json({ error: 'Acción desconocida' });
+    }
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+
+    if (req.query.parte === 'resultados') {
+      const dias = Math.min(180, Math.max(1, Math.round(Number(req.query.dias)) || 30));
+      return res.status(200).json({ resultados: await resultadosPedidosDW(gql, cfg, dias) });
+    }
+
+    const permisos = await permisosShopifyDW(gql);
+    let productos = [], errorProductos = null;
+    try {
+      const lista = await listarProductosDW(gql, cfg);
+      const costosBsaleMap = await costosBsaleDW(lista.map(p => p.sku), (process.env.BSALE_ACCESS_TOKEN || '').trim());
+      productos = lista.map(p => {
+        const manual = p.sku ? cfg.costos_manual[p.sku] : null;
+        const costo = costosBsaleMap[p.sku] ?? manual ?? null;
+        return analizarProductoDW({ ...p, costo, costo_origen: costosBsaleMap[p.sku] ? 'Bsale' : (manual ? 'manual' : null) }, cfg);
+      });
+    } catch (e) { errorProductos = e.message; }
+
+    let aviso = { registrado: false, id: null, otros: 0 };
+    try { aviso = await estadoWebhookDW(gql, descuentosWebUrlAviso(req)); } catch {}
+
+    const { rows: bitacora } = await sql.query(`SELECT creado_en, usuario, motivo, productos, cambios, errores FROM descuentos_web_log ORDER BY id DESC LIMIT 15`);
+    return res.status(200).json({
+      config: cfg, esAdmin, permisos, aviso, productos, errorProductos, bitacora,
+      resumen: {
+        productos: productos.length,
+        con_cambios: productos.filter(tieneCambiosDW).length,
+        con_tramos: productos.filter(p => p.ofrecidos.length).length,
+        sin_costo: productos.filter(p => p.costo == null).length,
+      },
+    });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo leer Descuentos web: ' + e.message });
+  }
+}
+
+let descuentosWebUltimoAviso = 0; // por instancia: basta para no revisar en cada aviso de una carga masiva de stock
+// Revisión automática (aviso de stock de Shopify o cron diario): solo actúa si el módulo está activado, y no más de una vez por minuto.
+async function descuentosWebAutomatico(req, res, motivo) {
+  try {
+    const sql = await getSql();
+    const cfg = await descuentosWebLeerConfig(sql);
+    if (!cfg.activo) return res.status(200).json({ ok: true, omitido: 'módulo desactivado' });
+    if (motivo === 'aviso de stock') {
+      if (Date.now() - descuentosWebUltimoAviso < 60000) return res.status(200).json({ ok: true, omitido: 'revisado hace menos de un minuto' });
+      descuentosWebUltimoAviso = Date.now();
+    }
+    const gql = await descuentosWebGql();
+    const r = await descuentosWebSincronizar(gql, sql, cfg, { aplicar: true, usuario: null, motivo });
+    return res.status(200).json({ ok: true, cambios: r.cambios.length });
+  } catch (e) {
+    return res.status(200).json({ error: e.message }); // 200 a propósito: Shopify reintenta con otro código y no sirve de nada
+  }
+}
+
+function manejarDescuentosWebAviso(req, res) {
+  const esperada = claveAvisoDW(process.env.CRON_SECRET || process.env.AUTH_SECRET);
+  if (!esperada || req.query.k !== esperada) return res.status(401).json({ error: 'No autorizado' });
+  return descuentosWebAutomatico(req, res, 'aviso de stock');
+}
+
+function manejarDescuentosWebCron(req, res) {
+  const secreto = process.env.CRON_SECRET;
+  if (!secreto || (req.headers.authorization || '') !== `Bearer ${secreto}`) return res.status(401).json({ error: 'No autorizado' });
+  return descuentosWebAutomatico(req, res, 'revisión diaria');
+}
+// ===================== DESCUENTOS WEB (fin) =====================
 
 // Resumen para la página Sitio Web: cuánta gente usa el cotizador, desde qué comunas
 // y cuánto les sale el envío. SE CUENTA POR PERSONA, no por cálculo: la ficha vuelve a
