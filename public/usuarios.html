@@ -612,6 +612,11 @@ function renderNotificaciones(){
     </table>`;
 }
 // Editor del texto del "Resumen diario de cambios": el correo de las 19:00 manda lo que quede guardado para HOY (si no hay texto, no manda).
+(function(){
+  const st = document.createElement('style');
+  st.textContent = '#textoResumen:empty::before{content:attr(data-ph);color:#8a96ab;}#textoResumen table{border-collapse:collapse;width:100%;margin:6px 0;}#textoResumen th,#textoResumen td{border:1px solid #cfd9ea;padding:6px 8px;text-align:left;vertical-align:top;}#textoResumen th{background:#eef4ff;}#textoResumen h3{margin:12px 0 4px;font-size:15px;color:#0b2a5b;}#textoResumen ul{margin:4px 0 6px 18px;padding:0;}';
+  document.head.appendChild(st);
+})();
 function filaEditorResumen(){
   const estado = !resumenHoy.contenido ? 'Aún no hay resumen guardado para hoy: el correo de las 19:00 no se enviará.'
     : (resumenHoy.enviadoEn ? `Enviado ${haceTiempo(resumenHoy.enviadoEn)}.` : 'Guardado: se enviará hoy a las 19:00.');
@@ -620,7 +625,14 @@ function filaEditorResumen(){
       <div style="padding:6px 4px;">
         <b>Resumen de hoy (${esc(resumenHoy.fecha)})</b>
         <span class="empty-note" id="estadoResumen" style="margin-left:8px;">${esc(estado)}</span>
-        <textarea id="textoResumen" rows="9" style="width:100%;margin-top:6px;box-sizing:border-box;font:inherit;padding:8px;border:1px solid #cfd9ea;border-radius:8px;" placeholder="Escribe un resumen breve para el equipo. Usa &quot;## Título&quot; para encabezados y &quot;- &quot; para viñetas.">${esc(resumenHoy.contenido)}</textarea>
+        <div class="barra-resumen" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px;">
+          <button type="button" class="btn-ghost btn-sm" onmousedown="event.preventDefault()" onclick="formatoResumen('bold')" title="Negrita"><b>N</b></button>
+          <button type="button" class="btn-ghost btn-sm" onmousedown="event.preventDefault()" onclick="formatoResumen('formatBlock','h3')" title="Título de sección">Título</button>
+          <button type="button" class="btn-ghost btn-sm" onmousedown="event.preventDefault()" onclick="formatoResumen('insertUnorderedList')" title="Lista con viñetas">• Lista</button>
+          <button type="button" class="btn-ghost btn-sm" onmousedown="event.preventDefault()" onclick="insertarTablaResumen()" title="Insertar una tabla de 2 columnas">▦ Tabla</button>
+          <button type="button" class="btn-ghost btn-sm" onmousedown="event.preventDefault()" onclick="formatoResumen('removeFormat')" title="Quitar formato de lo seleccionado">Limpiar</button>
+        </div>
+        <div id="textoResumen" contenteditable="true" data-ph="Escribe o pega aquí el resumen para el equipo (al pegar desde el chat se mantienen negritas, listas y tablas)." style="min-height:220px;max-height:520px;overflow:auto;margin-top:2px;box-sizing:border-box;padding:10px 12px;border:1px solid #cfd9ea;border-radius:8px;background:#fff;line-height:1.45;">${htmlResumenParaEditor(resumenHoy.contenido)}</div>
         <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-primary btn-sm" onclick="guardarResumenHoy()">Guardar resumen de hoy</button>
           <button class="btn-ghost btn-sm" onclick="enviarResumenAhora()">Enviar ahora a los destinatarios</button>
@@ -628,8 +640,19 @@ function filaEditorResumen(){
       </div>
     </td></tr>`;
 }
+// El texto antiguo (sin formato) se muestra con saltos de línea; el HTML guardado ya viene limpio desde el servidor.
+function htmlResumenParaEditor(c){
+  c = c || '';
+  return /<\/?[a-z][^>]*>/i.test(c) ? c : esc(c).replace(/\n/g, '<br>');
+}
+function formatoResumen(cmd, valor){ $('textoResumen').focus(); document.execCommand(cmd, false, valor || null); }
+function insertarTablaResumen(){
+  const fila = (a, b, th) => { const t = th ? 'th' : 'td'; return `<tr><${t}>${a}</${t}><${t}>${b}</${t}></tr>`; };
+  const html = '<table><thead>' + fila('Área', 'Cambio', true) + '</thead><tbody>' + fila('&nbsp;', '&nbsp;') + fila('&nbsp;', '&nbsp;') + fila('&nbsp;', '&nbsp;') + '</tbody></table><p><br></p>';
+  $('textoResumen').focus(); document.execCommand('insertHTML', false, html);
+}
 async function guardarResumenHoy(){
-  const contenido = $('textoResumen').value;
+  const contenido = $('textoResumen').innerHTML;
   try{
     const res = await fetch('/api/usuarios?recurso=notificaciones', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion:'guardar-resumen', contenido }) });
     const data = await res.json();

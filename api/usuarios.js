@@ -7,7 +7,7 @@ import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles, asegurarTablaNoti
 import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, consultarEventosBrevo, resumirEntregaBrevo } from '../lib/mailer.js';
 import { TIPOS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto } from '../lib/notificaciones.js';
-import { TIPO_RESUMEN_CAMBIOS, fechaHoyChile, enviarResumenCambios } from '../lib/resumen-cambios.js';
+import { TIPO_RESUMEN_CAMBIOS, fechaHoyChile, enviarResumenCambios, sanitizarHtmlResumen } from '../lib/resumen-cambios.js';
 import { paginasEfectivas, paginasParaGuardar } from '../lib/paginas-perfil.js';
 
 // Páginas que se pueden marcar en un perfil de acceso (ver
@@ -352,8 +352,11 @@ async function manejarNotificaciones(req, res, sql) {
     const { accion, contenido } = req.body;
     const hoy = fechaHoyChile();
     if (accion === 'guardar-resumen') {
-      const texto = String(contenido || '').trim();
-      if (!texto) return res.status(400).json({ error: 'El resumen no puede estar vacío' });
+      const crudo = String(contenido || '').trim();
+      if (crudo.length > 200000) return res.status(400).json({ error: 'El resumen es demasiado largo' });
+      // Si trae formato (HTML del editor) se guarda limpio; si es texto plano antiguo, se deja tal cual.
+      const texto = /<\/?[a-z][^>]*>/i.test(crudo) ? sanitizarHtmlResumen(crudo) : crudo;
+      if (!texto.replace(/<[^>]*>/g, '').trim()) return res.status(400).json({ error: 'El resumen no puede estar vacío' });
       if (texto.length > 20000) return res.status(400).json({ error: 'El resumen es demasiado largo (máximo 20.000 caracteres)' });
       await asegurarConfigYSuscriptoresPorDefecto(sql, TIPO_RESUMEN_CAMBIOS);
       const quien = usuarioDesdeRequest(req);
