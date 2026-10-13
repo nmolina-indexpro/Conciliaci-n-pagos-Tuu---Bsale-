@@ -168,6 +168,7 @@
       <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
       <div class="menu-herramientas" id="menuHerramientas">
         <a href="usuarios.html" id="navUsuarios" class="active">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
         <a href="reportar-error.html">🆘 Ayuda</a>
         <a href="guia-uso.html">📘 Guía de uso</a>
         <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
@@ -241,7 +242,7 @@
         <button class="tab activa" data-tab="usuarios" onclick="cambiarTab('usuarios')">👤 Usuarios <span class="cuenta" id="cuentaUsuarios">0</span></button>
         <button class="tab" data-tab="perfiles" id="tabPerfiles" onclick="cambiarTab('perfiles')" style="display:none;">🛡️ Perfiles de acceso <span class="cuenta" id="cuentaPerfiles">0</span></button>
         <button class="tab" data-tab="notificaciones" id="tabNotificaciones" onclick="cambiarTab('notificaciones')" style="display:none;">🔔 Notificaciones <span class="cuenta" id="cuentaNotificaciones">0</span></button>
-        <button class="tab" data-tab="cambios" id="tabCambios" onclick="cambiarTab('cambios')" style="display:none;">📝 Cambios <span class="cuenta" id="cuentaCambios">0</span></button>
+
       </div>
     </div>
   </div>
@@ -276,47 +277,6 @@
     <div class="card"><div class="tabla-wrap" id="wrapNotificaciones"><p class="empty-note" style="padding:14px;">Cargando...</p></div></div>
   </section>
 
-  <!-- ===================== Cambios ===================== -->
-  <section class="panel" id="panel-cambios">
-    <div class="sub empty-note" style="margin-bottom:10px;">Historial de los cambios realizados en la tienda, el ERP y el buscador, cada uno con su fecha. Aquí se agregan, editan o eliminan; de aquí también se arma el resumen diario (Notificaciones). Sin datos financieros.</div>
-    <div class="barra">
-      <input type="search" class="buscar" id="buscarCambio" placeholder="Buscar en área o descripción..." oninput="renderCambios()">
-      <select id="filtroAreaCambio" onchange="renderCambios()"><option value="">Área: todas</option></select>
-      <select id="filtroSitioCambio" onchange="renderCambios()"><option value="">Sitio: todos</option><option value="web">Web indexstore.cl</option><option value="erp">ERP</option></select>
-      <select id="filtroEstadoCambio" onchange="renderCambios()"><option value="">Estado: todos</option><option value="publicado">Publicados</option><option value="pendiente">Pendientes de publicar</option></select>
-      <span class="espacio"></span>
-      <button class="btn-ghost" onclick="generarResumenHoy()" title="Arma el resumen con todos los cambios de las últimas 24 horas y muestra cómo se verá el correo">✉ Generar resumen de hoy</button>
-      <button class="btn-primary" onclick="abrirModalCambio()">+ Nuevo cambio</button>
-    </div>
-    <div class="card"><div class="tabla-wrap" id="wrapCambios"><p class="empty-note" style="padding:14px;">Cargando...</p></div></div>
-  </section>
-</div>
-
-<!-- Vista previa del resumen por correo -->
-<div class="modal-fondo" id="modalResumen" onclick="if(event.target===this) cerrarModalResumen()">
-  <div class="modal" style="width:min(780px,100%);">
-    <h2>Resumen de hoy: vista previa del correo</h2>
-    <div class="ayuda" id="infoResumen" style="margin-bottom:8px;"></div>
-    <iframe id="vistaResumen" title="Vista previa del correo" style="width:100%;height:58vh;border:1px solid var(--line);border-radius:10px;background:#fff;"></iframe>
-    <div class="pie"><button class="btn-ghost" onclick="cerrarModalResumen()">Cerrar</button><button class="btn-primary" id="btnEnviarResumenModal" onclick="enviarResumenDesdeModal()">Enviar por correo ahora</button></div>
-  </div>
-</div>
-
-<!-- Nuevo / editar cambio -->
-<div class="modal-fondo" id="modalCambio" onclick="if(event.target===this) cerrarModalCambio()">
-  <div class="modal">
-    <h2 id="tituloModalCambio">Nuevo cambio</h2>
-    <div id="errorCambio"></div>
-    <div class="form-grid">
-      <div><label for="cFecha">Fecha</label><input type="date" id="cFecha"></div>
-      <div><label for="cSitio">Dónde fue el cambio</label><select id="cSitio"><option value="web">Web indexstore.cl</option><option value="erp">ERP</option></select></div>
-      <div><label for="cEstado">Estado</label><select id="cEstado"><option value="publicado">Publicado</option><option value="pendiente">Pendiente de publicar</option></select></div>
-      <div class="ancho"><label for="cUrl">Enlace para ver o probar el cambio</label><input type="url" id="cUrl" maxlength="500" placeholder="https://www.indexstore.cl/... o https://erp.indexstore.cl/..." autocomplete="off"></div>
-      <div class="ancho"><label for="cArea">Área</label><input type="text" id="cArea" list="listaAreasCambio" maxlength="80" placeholder="Ej: Pantallas, Home, Cotizador de envío, ERP..." autocomplete="off"><datalist id="listaAreasCambio"></datalist></div>
-      <div class="ancho"><label for="cDescripcion">Qué cambió</label><textarea id="cDescripcion" rows="5" maxlength="2000" style="width:100%;box-sizing:border-box;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;" placeholder="Qué cambió y qué verá el cliente o el equipo. Sin datos financieros."></textarea></div>
-    </div>
-    <div class="pie"><button class="btn-ghost" onclick="cerrarModalCambio()">Cancelar</button><button class="btn-primary" id="btnGuardarCambio" onclick="guardarCambio()">Guardar</button></div>
-  </div>
 </div>
 
 <!-- Menú de acciones de una fila (flotante, para que no lo recorte la tabla) -->
@@ -426,12 +386,13 @@ async function cargarSesion(){
     } else {
       $('tabPerfiles').style.display = '';
       $('tabNotificaciones').style.display = '';
-      $('tabCambios').style.display = '';
-      await Promise.all([cargarPerfiles(), cargarNotificaciones(), cargarCambios()]);
+      $('navActualizaciones').style.display = '';
+      await Promise.all([cargarPerfiles(), cargarNotificaciones()]);
     }
     cargarUsuarios();
     const inicial = (location.hash || '').replace('#', '');
-    if(['usuarios', 'perfiles', 'notificaciones', 'cambios'].includes(inicial)) cambiarTab(inicial, true);
+    if(inicial === 'cambios'){ location.replace('actualizaciones-erp.html#cambios'); return; }
+    if(['usuarios', 'perfiles', 'notificaciones'].includes(inicial)) cambiarTab(inicial, true);
     // Atrás/Adelante recorren las pestañas por las que se pasó, antes de salir de la página
     Nav.iniciar({
       dimensiones: { tab: { actual: () => (document.querySelector('.tab.activa') || {}).dataset.tab || 'usuarios', aplicar: v => cambiarTab(v, true) } },
@@ -589,7 +550,6 @@ async function eliminarPerfil(id){
 const DIAS_SEMANA = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 let listaNotificaciones = [];
 let usuariosDisponiblesNotif = [];
-let resumenHoy = { fecha: '', contenido: '', enviadoEn: null };
 
 async function cargarNotificaciones(){
   try{
@@ -598,7 +558,6 @@ async function cargarNotificaciones(){
     if(!res.ok){ $('wrapNotificaciones').innerHTML = `<p class="empty-note" style="padding:14px;">${esc(data.error)}</p>`; return; }
     listaNotificaciones = data.tipos || [];
     usuariosDisponiblesNotif = data.usuariosDisponibles || [];
-    resumenHoy = data.resumenHoy || resumenHoy;
     $('cuentaNotificaciones').textContent = listaNotificaciones.length;
     renderNotificaciones();
   }catch(err){
@@ -650,71 +609,14 @@ function renderNotificaciones(){
             </select>
           </div></td>
           <td class="empty-note" title="${n.ultimoEnvioEn ? esc(new Date(n.ultimoEnvioEn).toLocaleString('es-CL')) : ''}">${ultimo || 'Sin envíos'}</td>
-        </tr>${n.tipo === 'resumen-cambios-diario' ? filaEditorResumen() : ''}`;
+        </tr>${n.tipo === 'resumen-cambios-diario' ? filaEnlaceResumen() : ''}`;
       }).join('')}
       </tbody>
     </table>`;
 }
-// Editor del texto del "Resumen diario de cambios": el correo de las 19:00 manda lo que quede guardado para HOY (si no hay texto, no manda).
-(function(){
-  const st = document.createElement('style');
-  st.textContent = '#textoResumen:empty::before{content:attr(data-ph);color:#8a96ab;}#textoResumen table{border-collapse:collapse;width:100%;margin:6px 0;}#textoResumen th,#textoResumen td{border:1px solid #cfd9ea;padding:6px 8px;text-align:left;vertical-align:top;}#textoResumen th{background:#eef4ff;}#textoResumen h3{margin:12px 0 4px;font-size:15px;color:#0b2a5b;}#textoResumen ul{margin:4px 0 6px 18px;padding:0;}';
-  document.head.appendChild(st);
-})();
-function filaEditorResumen(){
-  const estado = !resumenHoy.contenido ? 'Aún no hay resumen guardado para hoy: el correo de las 19:00 no se enviará.'
-    : (resumenHoy.enviadoEn ? `Enviado ${haceTiempo(resumenHoy.enviadoEn)}.` : 'Guardado: se enviará hoy a las 19:00.');
-  return `
-    <tr class="fila-resumen"><td colspan="5" style="background:#f7faff;">
-      <div style="padding:6px 4px;">
-        <b>Resumen de hoy (${esc(resumenHoy.fecha)})</b>
-        <span class="empty-note" id="estadoResumen" style="margin-left:8px;">${esc(estado)}</span>
-        <div class="barra-resumen" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px;">
-          <button type="button" class="btn-ghost btn-sm" onmousedown="event.preventDefault()" onclick="formatoResumen('bold')" title="Negrita"><b>N</b></button>
-          <button type="button" class="btn-ghost btn-sm" onmousedown="event.preventDefault()" onclick="formatoResumen('formatBlock','h3')" title="Título de sección">Título</button>
-          <button type="button" class="btn-ghost btn-sm" onmousedown="event.preventDefault()" onclick="formatoResumen('insertUnorderedList')" title="Lista con viñetas">• Lista</button>
-          <button type="button" class="btn-ghost btn-sm" onmousedown="event.preventDefault()" onclick="insertarTablaResumen()" title="Insertar una tabla de 2 columnas">▦ Tabla</button>
-          <button type="button" class="btn-ghost btn-sm" onmousedown="event.preventDefault()" onclick="formatoResumen('removeFormat')" title="Quitar formato de lo seleccionado">Limpiar</button>
-        </div>
-        <div id="textoResumen" contenteditable="true" data-ph="Escribe o pega aquí el resumen para el equipo (al pegar desde el chat se mantienen negritas, listas y tablas)." style="min-height:220px;max-height:520px;overflow:auto;margin-top:2px;box-sizing:border-box;padding:10px 12px;border:1px solid #cfd9ea;border-radius:8px;background:#fff;line-height:1.45;">${htmlResumenParaEditor(resumenHoy.contenido)}</div>
-        <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn-primary btn-sm" onclick="guardarResumenHoy()">Guardar resumen de hoy</button>
-          <button class="btn-primary btn-sm" onclick="generarResumenHoy()" title="Arma el resumen con todos los cambios de las últimas 24 horas y muestra cómo se verá el correo">Generar resumen de hoy</button>
-          <button class="btn-ghost btn-sm" onclick="enviarResumenAhora()">Enviar ahora a los destinatarios</button>
-        </div>
-      </div>
-    </td></tr>`;
-}
-// El texto antiguo (sin formato) se muestra con saltos de línea; el HTML guardado ya viene limpio desde el servidor.
-function htmlResumenParaEditor(c){
-  c = c || '';
-  return /<\/?[a-z][^>]*>/i.test(c) ? c : esc(c).replace(/\n/g, '<br>');
-}
-function formatoResumen(cmd, valor){ $('textoResumen').focus(); document.execCommand(cmd, false, valor || null); }
-function insertarTablaResumen(){
-  const fila = (a, b, th) => { const t = th ? 'th' : 'td'; return `<tr><${t}>${a}</${t}><${t}>${b}</${t}></tr>`; };
-  const html = '<table><thead>' + fila('Área', 'Cambio', true) + '</thead><tbody>' + fila('&nbsp;', '&nbsp;') + fila('&nbsp;', '&nbsp;') + fila('&nbsp;', '&nbsp;') + '</tbody></table><p><br></p>';
-  $('textoResumen').focus(); document.execCommand('insertHTML', false, html);
-}
-async function guardarResumenHoy(){
-  const contenido = $('textoResumen').innerHTML;
-  try{
-    const res = await fetch('/api/usuarios?recurso=notificaciones', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion:'guardar-resumen', contenido }) });
-    const data = await res.json();
-    if(!res.ok){ alert(data.error); return; }
-    toast('Resumen guardado');
-    cargarNotificaciones();
-  }catch(err){ alert('Error: ' + err.message); }
-}
-async function enviarResumenAhora(){
-  if(!confirm('¿Enviar ahora el resumen guardado a los destinatarios de esta notificación?')) return;
-  try{
-    const res = await fetch('/api/usuarios?recurso=notificaciones', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion:'enviar-resumen-ahora' }) });
-    const data = await res.json();
-    if(!res.ok){ alert(data.error); return; }
-    if(data.enviado) toast('Resumen enviado'); else alert('No se envió: ' + (data.motivo || 'revisa los destinatarios'));
-    cargarNotificaciones();
-  }catch(err){ alert('Error: ' + err.message); }
+// El texto del resumen de hoy y el historial de cambios se editan en su propia página.
+function filaEnlaceResumen(){
+  return `<tr class="fila-resumen"><td colspan="5" style="background:#f7faff;"><div class="empty-note" style="padding:4px;">El texto del resumen de hoy y el historial de cambios se editan en <a href="actualizaciones-erp.html">Actualizaciones ERP</a>.</div></td></tr>`;
 }
 async function guardarNotificacion(tipo, cambios){
   try{
@@ -743,111 +645,6 @@ function agregarSuscriptorNotificacion(tipo, usuarioId){
 }
 function quitarSuscriptorNotificacion(tipo, usuarioId){
   guardarNotificacion(tipo, { quitarUsuarioId: usuarioId });
-}
-
-// ---------------- Cambios (historial) ----------------
-let listaCambios = [];
-let cambioEditandoId = null;
-const fechaCL = iso => { const [a, m, d] = String(iso).slice(0, 10).split('-'); return d + '/' + m + '/' + a; };
-const hoyISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
-async function cargarCambios(){
-  try{
-    const res = await fetch('/api/usuarios?recurso=cambios');
-    const data = await res.json();
-    if(!res.ok){ $('wrapCambios').innerHTML = '<p class="empty-note" style="padding:14px;">' + esc(data.error) + '</p>'; return; }
-    listaCambios = data.cambios || [];
-    $('cuentaCambios').textContent = listaCambios.length;
-    const areas = [...new Set(listaCambios.map(c => c.area))].sort((a, b) => a.localeCompare(b, 'es'));
-    const sel = $('filtroAreaCambio'), actual = sel.value;
-    sel.innerHTML = '<option value="">Área: todas</option>' + areas.map(a => '<option value="' + esc(a) + '">' + esc(a) + '</option>').join('');
-    sel.value = areas.includes(actual) ? actual : '';
-    $('listaAreasCambio').innerHTML = areas.map(a => '<option value="' + esc(a) + '">').join('');
-    renderCambios();
-  }catch(err){
-    $('wrapCambios').innerHTML = '<p class="empty-note" style="padding:14px;">Error: ' + esc(err.message) + '</p>';
-  }
-}
-const insigniaSitio = s => s === 'erp'
-  ? '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;background:#ece8fb;color:#4a2fb0;white-space:nowrap;">ERP</span>'
-  : '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;background:#e1effe;color:#0b57d0;white-space:nowrap;">Web indexstore.cl</span>';
-function renderCambios(){
-  const q = $('buscarCambio').value.trim().toLowerCase(), area = $('filtroAreaCambio').value, estado = $('filtroEstadoCambio').value, sitio = $('filtroSitioCambio').value;
-  const filas = listaCambios.filter(c => (!area || c.area === area) && (!estado || c.estado === estado) && (!sitio || c.sitio === sitio) && (!q || (c.area + ' ' + c.descripcion).toLowerCase().includes(q)));
-  if(filas.length === 0){ $('wrapCambios').innerHTML = '<p class="empty-note" style="padding:14px;">No hay cambios que coincidan.</p>'; return; }
-  $('wrapCambios').innerHTML = '<table><thead><tr><th>Fecha</th><th>Sitio</th><th>Área</th><th style="width:48%;">Qué cambió</th><th>Estado</th><th data-sin-orden>Ver</th><th data-sin-orden></th></tr></thead><tbody>' +
-    filas.map(c => '<tr><td style="white-space:nowrap;">' + fechaCL(c.fecha) + '</td><td>' + insigniaSitio(c.sitio) + '</td><td><b>' + esc(c.area) + '</b></td><td>' + esc(c.descripcion) + '</td>' +
-      '<td><span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;' + (c.estado === 'publicado' ? 'background:#e3f6ea;color:#12713a;' : 'background:#fff1d6;color:#8a5a00;') + '">' + (c.estado === 'publicado' ? 'Publicado' : 'Pendiente') + '</span></td>' +
-      '<td style="white-space:nowrap;">' + (c.url ? '<a href="' + esc(c.url) + '" target="_blank" rel="noopener" title="' + esc(c.url) + '">Ver ↗</a>' : '<span class="empty-note">—</span>') + '</td>' +
-      '<td style="white-space:nowrap;"><button class="btn-ghost btn-sm" onclick="abrirModalCambio(' + c.id + ')">Editar</button> <button class="btn-ghost btn-sm" onclick="eliminarCambio(' + c.id + ')" title="Eliminar">🗑</button></td></tr>').join('') +
-    '</tbody></table>';
-}
-function abrirModalCambio(id){
-  cambioEditandoId = id || null;
-  const c = id ? listaCambios.find(x => x.id === id) : null;
-  $('tituloModalCambio').textContent = c ? 'Editar cambio' : 'Nuevo cambio';
-  $('cFecha').value = c ? c.fecha : hoyISO();
-  $('cEstado').value = c ? c.estado : 'publicado';
-  $('cSitio').value = c ? (c.sitio || 'web') : 'web';
-  $('cUrl').value = c ? (c.url || '') : '';
-  $('cArea').value = c ? c.area : '';
-  $('cDescripcion').value = c ? c.descripcion : '';
-  $('errorCambio').innerHTML = '';
-  $('modalCambio').classList.add('abierto');
-}
-function cerrarModalCambio(){ $('modalCambio').classList.remove('abierto'); }
-async function guardarCambio(){
-  const cuerpo = { fecha: $('cFecha').value, estado: $('cEstado').value, sitio: $('cSitio').value, url: $('cUrl').value, area: $('cArea').value, descripcion: $('cDescripcion').value };
-  if(cambioEditandoId) cuerpo.id = cambioEditandoId;
-  $('btnGuardarCambio').disabled = true;
-  try{
-    const res = await fetch('/api/usuarios?recurso=cambios', { method: cambioEditandoId ? 'PUT' : 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(cuerpo) });
-    const data = await res.json();
-    if(!res.ok){ $('errorCambio').innerHTML = '<div class="error-box">' + esc(data.error) + '</div>'; return; }
-    cerrarModalCambio();
-    toast('Cambio guardado');
-    cargarCambios();
-  }catch(err){
-    $('errorCambio').innerHTML = '<div class="error-box">' + esc(err.message) + '</div>';
-  }finally{ $('btnGuardarCambio').disabled = false; }
-}
-async function eliminarCambio(id){
-  const c = listaCambios.find(x => x.id === id);
-  if(!c || !confirm('¿Eliminar este cambio del historial?\n\n' + c.area + ' — ' + c.descripcion.slice(0, 120))) return;
-  try{
-    const res = await fetch('/api/usuarios?recurso=cambios&id=' + id, { method: 'DELETE' });
-    const data = await res.json();
-    if(!res.ok){ alert(data.error); return; }
-    toast('Cambio eliminado');
-    cargarCambios();
-  }catch(err){ alert('Error: ' + err.message); }
-}
-// "Generar resumen de hoy": el servidor arma el resumen con TODOS los cambios de las últimas 24 horas, lo guarda como el de hoy
-// y aquí se muestra cómo se verá el correo (mismo diseño que recibirá cada destinatario) antes de enviarlo.
-async function generarResumenHoy(){
-  try{
-    const res = await fetch('/api/usuarios?recurso=notificaciones', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion:'generar-resumen' }) });
-    const data = await res.json();
-    if(!res.ok || !data.ok){ alert(data.error || 'No se pudo generar el resumen'); return; }
-    resumenHoy.contenido = data.contenido;
-    const ed = $('textoResumen'); if(ed) ed.innerHTML = htmlResumenParaEditor(data.contenido);
-    const noti = listaNotificaciones.find(n => n.tipo === 'resumen-cambios-diario');
-    const quienes = noti ? noti.suscriptores.map(s => s.nombre).join(', ') : '';
-    $('infoResumen').textContent = data.cantidad + (data.cantidad === 1 ? ' cambio' : ' cambios') + ' de las últimas 24 horas. Asunto: ' + data.asunto + '. ' + (quienes ? 'Se enviará a: ' + quienes + '.' : 'Esta notificación no tiene destinatarios todavía: agrégalos en Notificaciones.');
-    $('vistaResumen').srcdoc = '<!doctype html><meta charset="utf-8">' + data.html;
-    $('modalResumen').classList.add('abierto');
-  }catch(err){ alert('Error: ' + err.message); }
-}
-function cerrarModalResumen(){ $('modalResumen').classList.remove('abierto'); }
-async function enviarResumenDesdeModal(){
-  const b = $('btnEnviarResumenModal'); b.disabled = true;
-  try{
-    const res = await fetch('/api/usuarios?recurso=notificaciones', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion:'enviar-resumen-ahora' }) });
-    const data = await res.json();
-    if(!res.ok){ alert(data.error); return; }
-    if(data.enviado){ toast('Resumen enviado'); cerrarModalResumen(); } else alert('No se envió: ' + (data.motivo || 'revisa los destinatarios'));
-    cargarNotificaciones();
-  }catch(err){ alert('Error: ' + err.message); }
-  finally{ b.disabled = false; }
 }
 
 // ---------------- Usuarios ----------------

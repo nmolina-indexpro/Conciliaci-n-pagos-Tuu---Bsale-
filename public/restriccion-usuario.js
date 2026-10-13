@@ -59,6 +59,7 @@ function aplicarRestriccionPaginas(paginas) {
     if (href === '#') return; // "Cerrar sesión" del menú de la tuerca, no es una página
     if (href === 'reportar-error.html') return; // siempre disponible
     if (href === 'usuarios.html') return; // se rige por rol, no por perfil
+    if (href === 'actualizaciones-erp.html') return; // igual que Usuarios: solo administradores
     if (!paginas.includes(href)) a.style.display = 'none';
   });
 }

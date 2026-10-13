@@ -63,3 +63,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const activo = document.querySelector('.page-nav .active');
   if(activo && activo.scrollIntoView) activo.scrollIntoView({ block:'nearest', inline:'center' });
 });
+
+// "Actualizaciones ERP" (resumen de hoy y cambios) es solo para administradores,
+// igual que el acceso a Usuarios: cada página muestra #navUsuarios cuando la
+// sesión es admin, y este enlace lo acompaña sin tocar el código de cada página.
+document.addEventListener('DOMContentLoaded', () => {
+  const usuarios = document.getElementById('navUsuarios');
+  const actualizaciones = document.getElementById('navActualizaciones');
+  if(!usuarios || !actualizaciones || !window.MutationObserver) return;
+  new MutationObserver(() => {
+    if(usuarios.style.display !== 'none') actualizaciones.style.display = '';
+  }).observe(usuarios, { attributes: true, attributeFilter: ['style'] });
+});
