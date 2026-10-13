@@ -7,7 +7,7 @@ import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles, asegurarTablaNoti
 import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, consultarEventosBrevo, resumirEntregaBrevo } from '../lib/mailer.js';
 import { TIPOS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto } from '../lib/notificaciones.js';
-import { TIPO_RESUMEN_CAMBIOS, fechaHoyChile, enviarResumenCambios, sanitizarHtmlResumen } from '../lib/resumen-cambios.js';
+import { TIPO_RESUMEN_CAMBIOS, fechaHoyChile, enviarResumenCambios, sanitizarHtmlResumen, armarCorreoResumen, armarContenidoCambios } from '../lib/resumen-cambios.js';
 import { asegurarCambiosRegistro, validarCambio } from '../lib/cambios-registro.js';
 import { paginasEfectivas, paginasParaGuardar } from '../lib/paginas-perfil.js';
 
@@ -410,6 +410,25 @@ async function manejarNotificaciones(req, res, sql) {
         ON CONFLICT (fecha) DO UPDATE SET contenido = EXCLUDED.contenido, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now(),
           enviado_en = CASE WHEN resumen_cambios.contenido = EXCLUDED.contenido THEN resumen_cambios.enviado_en ELSE NULL END;`;
       return res.status(200).json({ ok: true });
+    }
+    // Arma el resumen de hoy con los cambios de las últimas 24 horas (fecha de ayer y de hoy), lo guarda y devuelve la vista previa del correo.
+    if (accion === 'generar-resumen') {
+      await asegurarCambiosRegistro(sql);
+      const ayer = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+      const { rows: filas } = await sql`
+        SELECT fecha::text AS fecha, area, descripcion, estado, sitio, url
+        FROM cambios_registro WHERE fecha >= ${ayer}::date ORDER BY fecha DESC, id DESC;`;
+      if (filas.length === 0) return res.status(200).json({ ok: false, error: 'No hay cambios registrados con fecha de ayer u hoy. Agrégalos en la pestaña Cambios.' });
+      const texto = sanitizarHtmlResumen(armarContenidoCambios(filas));
+      await asegurarConfigYSuscriptoresPorDefecto(sql, TIPO_RESUMEN_CAMBIOS);
+      const quien = usuarioDesdeRequest(req);
+      const autor = (quien && (quien.nombre || quien.email)) || 'admin';
+      await sql`
+        INSERT INTO resumen_cambios (fecha, contenido, actualizado_por) VALUES (${hoy}::date, ${texto}, ${autor})
+        ON CONFLICT (fecha) DO UPDATE SET contenido = EXCLUDED.contenido, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now(),
+          enviado_en = CASE WHEN resumen_cambios.contenido = EXCLUDED.contenido THEN resumen_cambios.enviado_en ELSE NULL END;`;
+      const { asunto, html } = armarCorreoResumen(hoy, texto);
+      return res.status(200).json({ ok: true, cantidad: filas.length, contenido: texto, asunto, html });
     }
     if (accion === 'enviar-resumen-ahora') {
       const r = await enviarResumenCambios(sql, { forzar: true });

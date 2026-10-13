@@ -285,10 +285,21 @@
       <select id="filtroSitioCambio" onchange="renderCambios()"><option value="">Sitio: todos</option><option value="web">Web indexstore.cl</option><option value="erp">ERP</option></select>
       <select id="filtroEstadoCambio" onchange="renderCambios()"><option value="">Estado: todos</option><option value="publicado">Publicados</option><option value="pendiente">Pendientes de publicar</option></select>
       <span class="espacio"></span>
+      <button class="btn-ghost" onclick="generarResumenHoy()" title="Arma el resumen con todos los cambios de las últimas 24 horas y muestra cómo se verá el correo">✉ Generar resumen de hoy</button>
       <button class="btn-primary" onclick="abrirModalCambio()">+ Nuevo cambio</button>
     </div>
     <div class="card"><div class="tabla-wrap" id="wrapCambios"><p class="empty-note" style="padding:14px;">Cargando...</p></div></div>
   </section>
+</div>
+
+<!-- Vista previa del resumen por correo -->
+<div class="modal-fondo" id="modalResumen" onclick="if(event.target===this) cerrarModalResumen()">
+  <div class="modal" style="width:min(780px,100%);">
+    <h2>Resumen de hoy: vista previa del correo</h2>
+    <div class="ayuda" id="infoResumen" style="margin-bottom:8px;"></div>
+    <iframe id="vistaResumen" title="Vista previa del correo" style="width:100%;height:58vh;border:1px solid var(--line);border-radius:10px;background:#fff;"></iframe>
+    <div class="pie"><button class="btn-ghost" onclick="cerrarModalResumen()">Cerrar</button><button class="btn-primary" id="btnEnviarResumenModal" onclick="enviarResumenDesdeModal()">Enviar por correo ahora</button></div>
+  </div>
 </div>
 
 <!-- Nuevo / editar cambio -->
@@ -668,7 +679,7 @@ function filaEditorResumen(){
         <div id="textoResumen" contenteditable="true" data-ph="Escribe o pega aquí el resumen para el equipo (al pegar desde el chat se mantienen negritas, listas y tablas)." style="min-height:220px;max-height:520px;overflow:auto;margin-top:2px;box-sizing:border-box;padding:10px 12px;border:1px solid #cfd9ea;border-radius:8px;background:#fff;line-height:1.45;">${htmlResumenParaEditor(resumenHoy.contenido)}</div>
         <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-primary btn-sm" onclick="guardarResumenHoy()">Guardar resumen de hoy</button>
-          <button class="btn-ghost btn-sm" onclick="armarResumenDesdeCambios()" title="Arma una tabla con los cambios de hoy registrados en la pestaña Cambios">Armar desde los cambios de hoy</button>
+          <button class="btn-primary btn-sm" onclick="generarResumenHoy()" title="Arma el resumen con todos los cambios de las últimas 24 horas y muestra cómo se verá el correo">Generar resumen de hoy</button>
           <button class="btn-ghost btn-sm" onclick="enviarResumenAhora()">Enviar ahora a los destinatarios</button>
         </div>
       </div>
@@ -810,17 +821,33 @@ async function eliminarCambio(id){
     cargarCambios();
   }catch(err){ alert('Error: ' + err.message); }
 }
-// Arma el resumen del día con los cambios de hoy (fecha | área | qué cambió | estado), para revisarlo y guardarlo.
-function armarResumenDesdeCambios(){
-  const hoy = resumenHoy.fecha || hoyISO();
-  const delDia = listaCambios.filter(c => c.fecha === hoy);
-  if(delDia.length === 0){ alert('No hay cambios registrados con fecha de hoy (' + fechaCL(hoy) + '). Agrégalos en la pestaña Cambios.'); return; }
-  const ed = $('textoResumen');
-  if(ed.textContent.trim() && !confirm('Esto reemplaza el texto actual del cuadro. ¿Continuar?')) return;
-  const e = esc;
-  ed.innerHTML = '<h3>Cambios del ' + fechaCL(hoy) + '</h3><table><thead><tr><th>Fecha</th><th>Sitio</th><th>Área</th><th>Qué cambió</th><th>Estado</th><th>Ver</th></tr></thead><tbody>' +
-    delDia.map(c => '<tr><td>' + fechaCL(c.fecha) + '</td><td>' + (c.sitio === 'erp' ? 'ERP' : 'Web indexstore.cl') + '</td><td><b>' + e(c.area) + '</b></td><td>' + e(c.descripcion) + '</td><td>' + (c.estado === 'publicado' ? 'Publicado' : 'Pendiente de publicar') + '</td><td>' + (c.url ? '<a href="' + e(c.url) + '">Ver ↗</a>' : '') + '</td></tr>').join('') +
-    '</tbody></table><p><br></p>';
+// "Generar resumen de hoy": el servidor arma el resumen con TODOS los cambios de las últimas 24 horas, lo guarda como el de hoy
+// y aquí se muestra cómo se verá el correo (mismo diseño que recibirá cada destinatario) antes de enviarlo.
+async function generarResumenHoy(){
+  try{
+    const res = await fetch('/api/usuarios?recurso=notificaciones', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion:'generar-resumen' }) });
+    const data = await res.json();
+    if(!res.ok || !data.ok){ alert(data.error || 'No se pudo generar el resumen'); return; }
+    resumenHoy.contenido = data.contenido;
+    const ed = $('textoResumen'); if(ed) ed.innerHTML = htmlResumenParaEditor(data.contenido);
+    const noti = listaNotificaciones.find(n => n.tipo === 'resumen-cambios-diario');
+    const quienes = noti ? noti.suscriptores.map(s => s.nombre).join(', ') : '';
+    $('infoResumen').textContent = data.cantidad + (data.cantidad === 1 ? ' cambio' : ' cambios') + ' de las últimas 24 horas. Asunto: ' + data.asunto + '. ' + (quienes ? 'Se enviará a: ' + quienes + '.' : 'Esta notificación no tiene destinatarios todavía: agrégalos en Notificaciones.');
+    $('vistaResumen').srcdoc = '<!doctype html><meta charset="utf-8">' + data.html;
+    $('modalResumen').classList.add('abierto');
+  }catch(err){ alert('Error: ' + err.message); }
+}
+function cerrarModalResumen(){ $('modalResumen').classList.remove('abierto'); }
+async function enviarResumenDesdeModal(){
+  const b = $('btnEnviarResumenModal'); b.disabled = true;
+  try{
+    const res = await fetch('/api/usuarios?recurso=notificaciones', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion:'enviar-resumen-ahora' }) });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error); return; }
+    if(data.enviado){ toast('Resumen enviado'); cerrarModalResumen(); } else alert('No se envió: ' + (data.motivo || 'revisa los destinatarios'));
+    cargarNotificaciones();
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ b.disabled = false; }
 }
 
 // ---------------- Usuarios ----------------
