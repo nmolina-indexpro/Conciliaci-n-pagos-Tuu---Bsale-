@@ -545,6 +545,7 @@ async function eliminarPerfil(id){
 const DIAS_SEMANA = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 let listaNotificaciones = [];
 let usuariosDisponiblesNotif = [];
+let resumenHoy = { fecha: '', contenido: '', enviadoEn: null };
 
 async function cargarNotificaciones(){
   try{
@@ -553,6 +554,7 @@ async function cargarNotificaciones(){
     if(!res.ok){ $('wrapNotificaciones').innerHTML = `<p class="empty-note" style="padding:14px;">${esc(data.error)}</p>`; return; }
     listaNotificaciones = data.tipos || [];
     usuariosDisponiblesNotif = data.usuariosDisponibles || [];
+    resumenHoy = data.resumenHoy || resumenHoy;
     $('cuentaNotificaciones').textContent = listaNotificaciones.length;
     renderNotificaciones();
   }catch(err){
@@ -604,10 +606,47 @@ function renderNotificaciones(){
             </select>
           </div></td>
           <td class="empty-note" title="${n.ultimoEnvioEn ? esc(new Date(n.ultimoEnvioEn).toLocaleString('es-CL')) : ''}">${ultimo || 'Sin envíos'}</td>
-        </tr>`;
+        </tr>${n.tipo === 'resumen-cambios-diario' ? filaEditorResumen() : ''}`;
       }).join('')}
       </tbody>
     </table>`;
+}
+// Editor del texto del "Resumen diario de cambios": el correo de las 19:00 manda lo que quede guardado para HOY (si no hay texto, no manda).
+function filaEditorResumen(){
+  const estado = !resumenHoy.contenido ? 'Aún no hay resumen guardado para hoy: el correo de las 19:00 no se enviará.'
+    : (resumenHoy.enviadoEn ? `Enviado ${haceTiempo(resumenHoy.enviadoEn)}.` : 'Guardado: se enviará hoy a las 19:00.');
+  return `
+    <tr class="fila-resumen"><td colspan="5" style="background:#f7faff;">
+      <div style="padding:6px 4px;">
+        <b>Resumen de hoy (${esc(resumenHoy.fecha)})</b>
+        <span class="empty-note" id="estadoResumen" style="margin-left:8px;">${esc(estado)}</span>
+        <textarea id="textoResumen" rows="9" style="width:100%;margin-top:6px;box-sizing:border-box;font:inherit;padding:8px;border:1px solid #cfd9ea;border-radius:8px;" placeholder="Escribe un resumen breve para el equipo. Usa &quot;## Título&quot; para encabezados y &quot;- &quot; para viñetas.">${esc(resumenHoy.contenido)}</textarea>
+        <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-primary btn-sm" onclick="guardarResumenHoy()">Guardar resumen de hoy</button>
+          <button class="btn-ghost btn-sm" onclick="enviarResumenAhora()">Enviar ahora a los destinatarios</button>
+        </div>
+      </div>
+    </td></tr>`;
+}
+async function guardarResumenHoy(){
+  const contenido = $('textoResumen').value;
+  try{
+    const res = await fetch('/api/usuarios?recurso=notificaciones', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion:'guardar-resumen', contenido }) });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error); return; }
+    toast('Resumen guardado');
+    cargarNotificaciones();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+async function enviarResumenAhora(){
+  if(!confirm('¿Enviar ahora el resumen guardado a los destinatarios de esta notificación?')) return;
+  try{
+    const res = await fetch('/api/usuarios?recurso=notificaciones', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion:'enviar-resumen-ahora' }) });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error); return; }
+    if(data.enviado) toast('Resumen enviado'); else alert('No se envió: ' + (data.motivo || 'revisa los destinatarios'));
+    cargarNotificaciones();
+  }catch(err){ alert('Error: ' + err.message); }
 }
 async function guardarNotificacion(tipo, cambios){
   try{

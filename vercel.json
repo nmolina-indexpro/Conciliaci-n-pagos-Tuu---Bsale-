@@ -53,6 +53,10 @@
     {
       "path": "/api/negocio?recurso=whatsapp-ejecutivos-notificar-diario",
       "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/negocio?recurso=resumen-cambios-enviar",
+      "schedule": "0 22 * * *"
     }
   ],
   "headers": [

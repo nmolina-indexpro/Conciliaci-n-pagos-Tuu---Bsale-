@@ -24,6 +24,7 @@ import { analizarCategoria as analizarCategoriaWhatsapp, CATEGORIAS_ANALIZABLES,
 import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR } from '../lib/cotizaciones-recontacto.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
+import { enviarResumenCambios } from '../lib/resumen-cambios.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
@@ -99,6 +100,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'cotizaciones-recontactar-diario') return manejarCotizacionesRecontactarDiario(req, res);
   if (req.query.recurso === 'cotizaciones-correos-analizar-respuestas') return manejarCotizacionesCorreosAnalizarRespuestas(req, res);
   if (req.query.recurso === 'whatsapp-ejecutivos-notificar-diario') return manejarWhatsappEjecutivosNotificarDiario(req, res);
+  if (req.query.recurso === 'resumen-cambios-enviar') return manejarResumenCambiosEnviar(req, res);
   // Píxel de seguimiento de apertura de los correos de IndexScale -- lo
   // carga el cliente de correo del destinatario, sin sesión. Mismo patrón
   // que los de arriba, pero la seguridad real la hace el token aleatorio
@@ -10580,6 +10582,23 @@ async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios, ejecutivos, sinAsignar });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen diario de ejecutivos de WhatsApp', detail: String(err) });
+  }
+}
+
+// Cron diario (ver vercel.json) del resumen de cambios: manda el texto que un admin guardó para HOY en Usuarios > Notificaciones.
+// Si ese día no hay texto, no manda nada. Mismo patrón que los demás crons (CRON_SECRET, sin sesión).
+async function manejarResumenCambiosEnviar(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  try {
+    const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    return res.status(200).json({ ok: true, ...(await enviarResumenCambios(sql)) });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error enviando el resumen diario de cambios', detail: String(err) });
   }
 }
 

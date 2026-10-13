@@ -7,6 +7,7 @@ import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles, asegurarTablaNoti
 import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, consultarEventosBrevo, resumirEntregaBrevo } from '../lib/mailer.js';
 import { TIPOS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto } from '../lib/notificaciones.js';
+import { TIPO_RESUMEN_CAMBIOS, fechaHoyChile, enviarResumenCambios } from '../lib/resumen-cambios.js';
 import { paginasEfectivas, paginasParaGuardar } from '../lib/paginas-perfil.js';
 
 // Páginas que se pueden marcar en un perfil de acceso (ver
@@ -340,7 +341,35 @@ async function manejarNotificaciones(req, res, sql) {
         suscriptores: suscriptoresRows.filter(s => s.tipo === tipo).map(s => ({ id: s.id, nombre: s.nombre, email: s.email, activo: s.activo })),
       };
     });
-    return res.status(200).json({ tipos, usuariosDisponibles: usuariosRows });
+    const hoy = fechaHoyChile();
+    const { rows: resumenRows } = await sql`SELECT fecha::text AS fecha, contenido, enviado_en, actualizado_por FROM resumen_cambios WHERE fecha = ${hoy}::date;`;
+    const resumenHoy = { fecha: hoy, contenido: resumenRows[0]?.contenido || '', enviadoEn: resumenRows[0]?.enviado_en || null, actualizadoPor: resumenRows[0]?.actualizado_por || null };
+    return res.status(200).json({ tipos, usuariosDisponibles: usuariosRows, resumenHoy });
+  }
+
+  // Texto del resumen diario de cambios: guardar el de hoy / mandarlo ahora a los suscriptores.
+  if (req.method === 'POST' && (req.body || {}).accion) {
+    const { accion, contenido } = req.body;
+    const hoy = fechaHoyChile();
+    if (accion === 'guardar-resumen') {
+      const texto = String(contenido || '').trim();
+      if (!texto) return res.status(400).json({ error: 'El resumen no puede estar vacío' });
+      if (texto.length > 20000) return res.status(400).json({ error: 'El resumen es demasiado largo (máximo 20.000 caracteres)' });
+      await asegurarConfigYSuscriptoresPorDefecto(sql, TIPO_RESUMEN_CAMBIOS);
+      const quien = usuarioDesdeRequest(req);
+      const autor = (quien && (quien.nombre || quien.email)) || 'admin';
+      // Si el texto cambia después de haberse enviado, vuelve a quedar pendiente para el cron de esa tarde.
+      await sql`
+        INSERT INTO resumen_cambios (fecha, contenido, actualizado_por) VALUES (${hoy}::date, ${texto}, ${autor})
+        ON CONFLICT (fecha) DO UPDATE SET contenido = EXCLUDED.contenido, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now(),
+          enviado_en = CASE WHEN resumen_cambios.contenido = EXCLUDED.contenido THEN resumen_cambios.enviado_en ELSE NULL END;`;
+      return res.status(200).json({ ok: true });
+    }
+    if (accion === 'enviar-resumen-ahora') {
+      const r = await enviarResumenCambios(sql, { forzar: true });
+      return res.status(200).json({ ok: true, ...r });
+    }
+    return res.status(400).json({ error: 'Acción inválida' });
   }
 
   if (req.method === 'PUT') {
