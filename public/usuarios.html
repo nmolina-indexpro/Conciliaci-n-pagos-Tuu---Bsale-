@@ -282,6 +282,7 @@
     <div class="barra">
       <input type="search" class="buscar" id="buscarCambio" placeholder="Buscar en área o descripción..." oninput="renderCambios()">
       <select id="filtroAreaCambio" onchange="renderCambios()"><option value="">Área: todas</option></select>
+      <select id="filtroSitioCambio" onchange="renderCambios()"><option value="">Sitio: todos</option><option value="web">Web indexstore.cl</option><option value="erp">ERP</option></select>
       <select id="filtroEstadoCambio" onchange="renderCambios()"><option value="">Estado: todos</option><option value="publicado">Publicados</option><option value="pendiente">Pendientes de publicar</option></select>
       <span class="espacio"></span>
       <button class="btn-primary" onclick="abrirModalCambio()">+ Nuevo cambio</button>
@@ -297,7 +298,9 @@
     <div id="errorCambio"></div>
     <div class="form-grid">
       <div><label for="cFecha">Fecha</label><input type="date" id="cFecha"></div>
+      <div><label for="cSitio">Dónde fue el cambio</label><select id="cSitio"><option value="web">Web indexstore.cl</option><option value="erp">ERP</option></select></div>
       <div><label for="cEstado">Estado</label><select id="cEstado"><option value="publicado">Publicado</option><option value="pendiente">Pendiente de publicar</option></select></div>
+      <div class="ancho"><label for="cUrl">Enlace para ver o probar el cambio</label><input type="url" id="cUrl" maxlength="500" placeholder="https://www.indexstore.cl/... o https://erp.indexstore.cl/..." autocomplete="off"></div>
       <div class="ancho"><label for="cArea">Área</label><input type="text" id="cArea" list="listaAreasCambio" maxlength="80" placeholder="Ej: Pantallas, Home, Cotizador de envío, ERP..." autocomplete="off"><datalist id="listaAreasCambio"></datalist></div>
       <div class="ancho"><label for="cDescripcion">Qué cambió</label><textarea id="cDescripcion" rows="5" maxlength="2000" style="width:100%;box-sizing:border-box;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;" placeholder="Qué cambió y qué verá el cliente o el equipo. Sin datos financieros."></textarea></div>
     </div>
@@ -753,13 +756,17 @@ async function cargarCambios(){
     $('wrapCambios').innerHTML = '<p class="empty-note" style="padding:14px;">Error: ' + esc(err.message) + '</p>';
   }
 }
+const insigniaSitio = s => s === 'erp'
+  ? '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;background:#ece8fb;color:#4a2fb0;white-space:nowrap;">ERP</span>'
+  : '<span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;background:#e1effe;color:#0b57d0;white-space:nowrap;">Web indexstore.cl</span>';
 function renderCambios(){
-  const q = $('buscarCambio').value.trim().toLowerCase(), area = $('filtroAreaCambio').value, estado = $('filtroEstadoCambio').value;
-  const filas = listaCambios.filter(c => (!area || c.area === area) && (!estado || c.estado === estado) && (!q || (c.area + ' ' + c.descripcion).toLowerCase().includes(q)));
+  const q = $('buscarCambio').value.trim().toLowerCase(), area = $('filtroAreaCambio').value, estado = $('filtroEstadoCambio').value, sitio = $('filtroSitioCambio').value;
+  const filas = listaCambios.filter(c => (!area || c.area === area) && (!estado || c.estado === estado) && (!sitio || c.sitio === sitio) && (!q || (c.area + ' ' + c.descripcion).toLowerCase().includes(q)));
   if(filas.length === 0){ $('wrapCambios').innerHTML = '<p class="empty-note" style="padding:14px;">No hay cambios que coincidan.</p>'; return; }
-  $('wrapCambios').innerHTML = '<table><thead><tr><th>Fecha</th><th>Área</th><th style="width:55%;">Qué cambió</th><th>Estado</th><th data-sin-orden></th></tr></thead><tbody>' +
-    filas.map(c => '<tr><td style="white-space:nowrap;">' + fechaCL(c.fecha) + '</td><td><b>' + esc(c.area) + '</b></td><td>' + esc(c.descripcion) + '</td>' +
+  $('wrapCambios').innerHTML = '<table><thead><tr><th>Fecha</th><th>Sitio</th><th>Área</th><th style="width:48%;">Qué cambió</th><th>Estado</th><th data-sin-orden>Ver</th><th data-sin-orden></th></tr></thead><tbody>' +
+    filas.map(c => '<tr><td style="white-space:nowrap;">' + fechaCL(c.fecha) + '</td><td>' + insigniaSitio(c.sitio) + '</td><td><b>' + esc(c.area) + '</b></td><td>' + esc(c.descripcion) + '</td>' +
       '<td><span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;' + (c.estado === 'publicado' ? 'background:#e3f6ea;color:#12713a;' : 'background:#fff1d6;color:#8a5a00;') + '">' + (c.estado === 'publicado' ? 'Publicado' : 'Pendiente') + '</span></td>' +
+      '<td style="white-space:nowrap;">' + (c.url ? '<a href="' + esc(c.url) + '" target="_blank" rel="noopener" title="' + esc(c.url) + '">Ver ↗</a>' : '<span class="empty-note">—</span>') + '</td>' +
       '<td style="white-space:nowrap;"><button class="btn-ghost btn-sm" onclick="abrirModalCambio(' + c.id + ')">Editar</button> <button class="btn-ghost btn-sm" onclick="eliminarCambio(' + c.id + ')" title="Eliminar">🗑</button></td></tr>').join('') +
     '</tbody></table>';
 }
@@ -769,6 +776,8 @@ function abrirModalCambio(id){
   $('tituloModalCambio').textContent = c ? 'Editar cambio' : 'Nuevo cambio';
   $('cFecha').value = c ? c.fecha : hoyISO();
   $('cEstado').value = c ? c.estado : 'publicado';
+  $('cSitio').value = c ? (c.sitio || 'web') : 'web';
+  $('cUrl').value = c ? (c.url || '') : '';
   $('cArea').value = c ? c.area : '';
   $('cDescripcion').value = c ? c.descripcion : '';
   $('errorCambio').innerHTML = '';
@@ -776,7 +785,7 @@ function abrirModalCambio(id){
 }
 function cerrarModalCambio(){ $('modalCambio').classList.remove('abierto'); }
 async function guardarCambio(){
-  const cuerpo = { fecha: $('cFecha').value, estado: $('cEstado').value, area: $('cArea').value, descripcion: $('cDescripcion').value };
+  const cuerpo = { fecha: $('cFecha').value, estado: $('cEstado').value, sitio: $('cSitio').value, url: $('cUrl').value, area: $('cArea').value, descripcion: $('cDescripcion').value };
   if(cambioEditandoId) cuerpo.id = cambioEditandoId;
   $('btnGuardarCambio').disabled = true;
   try{
@@ -809,8 +818,8 @@ function armarResumenDesdeCambios(){
   const ed = $('textoResumen');
   if(ed.textContent.trim() && !confirm('Esto reemplaza el texto actual del cuadro. ¿Continuar?')) return;
   const e = esc;
-  ed.innerHTML = '<h3>Cambios del ' + fechaCL(hoy) + '</h3><table><thead><tr><th>Fecha</th><th>Área</th><th>Qué cambió</th><th>Estado</th></tr></thead><tbody>' +
-    delDia.map(c => '<tr><td>' + fechaCL(c.fecha) + '</td><td><b>' + e(c.area) + '</b></td><td>' + e(c.descripcion) + '</td><td>' + (c.estado === 'publicado' ? 'Publicado' : 'Pendiente de publicar') + '</td></tr>').join('') +
+  ed.innerHTML = '<h3>Cambios del ' + fechaCL(hoy) + '</h3><table><thead><tr><th>Fecha</th><th>Sitio</th><th>Área</th><th>Qué cambió</th><th>Estado</th><th>Ver</th></tr></thead><tbody>' +
+    delDia.map(c => '<tr><td>' + fechaCL(c.fecha) + '</td><td>' + (c.sitio === 'erp' ? 'ERP' : 'Web indexstore.cl') + '</td><td><b>' + e(c.area) + '</b></td><td>' + e(c.descripcion) + '</td><td>' + (c.estado === 'publicado' ? 'Publicado' : 'Pendiente de publicar') + '</td><td>' + (c.url ? '<a href="' + e(c.url) + '">Ver ↗</a>' : '') + '</td></tr>').join('') +
     '</tbody></table><p><br></p>';
 }
 

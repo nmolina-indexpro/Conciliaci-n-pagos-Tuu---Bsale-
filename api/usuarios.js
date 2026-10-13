@@ -318,7 +318,7 @@ async function manejarCambios(req, res, sql) {
 
   if (req.method === 'GET') {
     const { rows } = await sql`
-      SELECT id, fecha::text AS fecha, area, descripcion, estado, creado_por, actualizado_en
+      SELECT id, fecha::text AS fecha, area, descripcion, estado, sitio, url, creado_por, actualizado_en
       FROM cambios_registro ORDER BY fecha DESC, id DESC;`;
     return res.status(200).json({ cambios: rows });
   }
@@ -326,8 +326,8 @@ async function manejarCambios(req, res, sql) {
     const v = validarCambio(req.body);
     if (v.error) return res.status(400).json({ error: v.error });
     const { rows } = await sql`
-      INSERT INTO cambios_registro (fecha, area, descripcion, estado, creado_por)
-      VALUES (${v.fecha}::date, ${v.area}, ${v.descripcion}, ${v.estado}, ${autor}) RETURNING id;`;
+      INSERT INTO cambios_registro (fecha, area, descripcion, estado, sitio, url, creado_por)
+      VALUES (${v.fecha}::date, ${v.area}, ${v.descripcion}, ${v.estado}, ${v.sitio}, ${v.url}, ${autor}) RETURNING id;`;
     return res.status(200).json({ ok: true, id: rows[0].id });
   }
   if (req.method === 'PUT') {
@@ -336,7 +336,7 @@ async function manejarCambios(req, res, sql) {
     const v = validarCambio(req.body);
     if (v.error) return res.status(400).json({ error: v.error });
     const { rows } = await sql`
-      UPDATE cambios_registro SET fecha = ${v.fecha}::date, area = ${v.area}, descripcion = ${v.descripcion}, estado = ${v.estado}, actualizado_en = now()
+      UPDATE cambios_registro SET fecha = ${v.fecha}::date, area = ${v.area}, descripcion = ${v.descripcion}, estado = ${v.estado}, sitio = ${v.sitio}, url = ${v.url}, actualizado_en = now()
       WHERE id = ${id} RETURNING id;`;
     if (!rows[0]) return res.status(404).json({ error: 'No existe ese cambio' });
     return res.status(200).json({ ok: true });
