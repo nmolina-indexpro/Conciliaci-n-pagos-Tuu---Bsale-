@@ -241,6 +241,7 @@
         <button class="tab activa" data-tab="usuarios" onclick="cambiarTab('usuarios')">👤 Usuarios <span class="cuenta" id="cuentaUsuarios">0</span></button>
         <button class="tab" data-tab="perfiles" id="tabPerfiles" onclick="cambiarTab('perfiles')" style="display:none;">🛡️ Perfiles de acceso <span class="cuenta" id="cuentaPerfiles">0</span></button>
         <button class="tab" data-tab="notificaciones" id="tabNotificaciones" onclick="cambiarTab('notificaciones')" style="display:none;">🔔 Notificaciones <span class="cuenta" id="cuentaNotificaciones">0</span></button>
+        <button class="tab" data-tab="cambios" id="tabCambios" onclick="cambiarTab('cambios')" style="display:none;">📝 Cambios <span class="cuenta" id="cuentaCambios">0</span></button>
       </div>
     </div>
   </div>
@@ -274,6 +275,34 @@
     <div class="sub empty-note" style="margin-bottom:10px;">Quién recibe cada aviso automático y cada cuánto. La hora exacta de envío la fija el servidor; aquí solo se decide si corresponde mandarlo hoy.</div>
     <div class="card"><div class="tabla-wrap" id="wrapNotificaciones"><p class="empty-note" style="padding:14px;">Cargando...</p></div></div>
   </section>
+
+  <!-- ===================== Cambios ===================== -->
+  <section class="panel" id="panel-cambios">
+    <div class="sub empty-note" style="margin-bottom:10px;">Historial de los cambios realizados en la tienda, el ERP y el buscador, cada uno con su fecha. Aquí se agregan, editan o eliminan; de aquí también se arma el resumen diario (Notificaciones). Sin datos financieros.</div>
+    <div class="barra">
+      <input type="search" class="buscar" id="buscarCambio" placeholder="Buscar en área o descripción..." oninput="renderCambios()">
+      <select id="filtroAreaCambio" onchange="renderCambios()"><option value="">Área: todas</option></select>
+      <select id="filtroEstadoCambio" onchange="renderCambios()"><option value="">Estado: todos</option><option value="publicado">Publicados</option><option value="pendiente">Pendientes de publicar</option></select>
+      <span class="espacio"></span>
+      <button class="btn-primary" onclick="abrirModalCambio()">+ Nuevo cambio</button>
+    </div>
+    <div class="card"><div class="tabla-wrap" id="wrapCambios"><p class="empty-note" style="padding:14px;">Cargando...</p></div></div>
+  </section>
+</div>
+
+<!-- Nuevo / editar cambio -->
+<div class="modal-fondo" id="modalCambio" onclick="if(event.target===this) cerrarModalCambio()">
+  <div class="modal">
+    <h2 id="tituloModalCambio">Nuevo cambio</h2>
+    <div id="errorCambio"></div>
+    <div class="form-grid">
+      <div><label for="cFecha">Fecha</label><input type="date" id="cFecha"></div>
+      <div><label for="cEstado">Estado</label><select id="cEstado"><option value="publicado">Publicado</option><option value="pendiente">Pendiente de publicar</option></select></div>
+      <div class="ancho"><label for="cArea">Área</label><input type="text" id="cArea" list="listaAreasCambio" maxlength="80" placeholder="Ej: Pantallas, Home, Cotizador de envío, ERP..." autocomplete="off"><datalist id="listaAreasCambio"></datalist></div>
+      <div class="ancho"><label for="cDescripcion">Qué cambió</label><textarea id="cDescripcion" rows="5" maxlength="2000" style="width:100%;box-sizing:border-box;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;" placeholder="Qué cambió y qué verá el cliente o el equipo. Sin datos financieros."></textarea></div>
+    </div>
+    <div class="pie"><button class="btn-ghost" onclick="cerrarModalCambio()">Cancelar</button><button class="btn-primary" id="btnGuardarCambio" onclick="guardarCambio()">Guardar</button></div>
+  </div>
 </div>
 
 <!-- Menú de acciones de una fila (flotante, para que no lo recorte la tabla) -->
@@ -383,11 +412,12 @@ async function cargarSesion(){
     } else {
       $('tabPerfiles').style.display = '';
       $('tabNotificaciones').style.display = '';
-      await Promise.all([cargarPerfiles(), cargarNotificaciones()]);
+      $('tabCambios').style.display = '';
+      await Promise.all([cargarPerfiles(), cargarNotificaciones(), cargarCambios()]);
     }
     cargarUsuarios();
     const inicial = (location.hash || '').replace('#', '');
-    if(['usuarios', 'perfiles', 'notificaciones'].includes(inicial)) cambiarTab(inicial, true);
+    if(['usuarios', 'perfiles', 'notificaciones', 'cambios'].includes(inicial)) cambiarTab(inicial, true);
     // Atrás/Adelante recorren las pestañas por las que se pasó, antes de salir de la página
     Nav.iniciar({
       dimensiones: { tab: { actual: () => (document.querySelector('.tab.activa') || {}).dataset.tab || 'usuarios', aplicar: v => cambiarTab(v, true) } },
@@ -635,6 +665,7 @@ function filaEditorResumen(){
         <div id="textoResumen" contenteditable="true" data-ph="Escribe o pega aquí el resumen para el equipo (al pegar desde el chat se mantienen negritas, listas y tablas)." style="min-height:220px;max-height:520px;overflow:auto;margin-top:2px;box-sizing:border-box;padding:10px 12px;border:1px solid #cfd9ea;border-radius:8px;background:#fff;line-height:1.45;">${htmlResumenParaEditor(resumenHoy.contenido)}</div>
         <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-primary btn-sm" onclick="guardarResumenHoy()">Guardar resumen de hoy</button>
+          <button class="btn-ghost btn-sm" onclick="armarResumenDesdeCambios()" title="Arma una tabla con los cambios de hoy registrados en la pestaña Cambios">Armar desde los cambios de hoy</button>
           <button class="btn-ghost btn-sm" onclick="enviarResumenAhora()">Enviar ahora a los destinatarios</button>
         </div>
       </div>
@@ -698,6 +729,89 @@ function agregarSuscriptorNotificacion(tipo, usuarioId){
 }
 function quitarSuscriptorNotificacion(tipo, usuarioId){
   guardarNotificacion(tipo, { quitarUsuarioId: usuarioId });
+}
+
+// ---------------- Cambios (historial) ----------------
+let listaCambios = [];
+let cambioEditandoId = null;
+const fechaCL = iso => { const [a, m, d] = String(iso).slice(0, 10).split('-'); return d + '/' + m + '/' + a; };
+const hoyISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+async function cargarCambios(){
+  try{
+    const res = await fetch('/api/usuarios?recurso=cambios');
+    const data = await res.json();
+    if(!res.ok){ $('wrapCambios').innerHTML = '<p class="empty-note" style="padding:14px;">' + esc(data.error) + '</p>'; return; }
+    listaCambios = data.cambios || [];
+    $('cuentaCambios').textContent = listaCambios.length;
+    const areas = [...new Set(listaCambios.map(c => c.area))].sort((a, b) => a.localeCompare(b, 'es'));
+    const sel = $('filtroAreaCambio'), actual = sel.value;
+    sel.innerHTML = '<option value="">Área: todas</option>' + areas.map(a => '<option value="' + esc(a) + '">' + esc(a) + '</option>').join('');
+    sel.value = areas.includes(actual) ? actual : '';
+    $('listaAreasCambio').innerHTML = areas.map(a => '<option value="' + esc(a) + '">').join('');
+    renderCambios();
+  }catch(err){
+    $('wrapCambios').innerHTML = '<p class="empty-note" style="padding:14px;">Error: ' + esc(err.message) + '</p>';
+  }
+}
+function renderCambios(){
+  const q = $('buscarCambio').value.trim().toLowerCase(), area = $('filtroAreaCambio').value, estado = $('filtroEstadoCambio').value;
+  const filas = listaCambios.filter(c => (!area || c.area === area) && (!estado || c.estado === estado) && (!q || (c.area + ' ' + c.descripcion).toLowerCase().includes(q)));
+  if(filas.length === 0){ $('wrapCambios').innerHTML = '<p class="empty-note" style="padding:14px;">No hay cambios que coincidan.</p>'; return; }
+  $('wrapCambios').innerHTML = '<table><thead><tr><th>Fecha</th><th>Área</th><th style="width:55%;">Qué cambió</th><th>Estado</th><th data-sin-orden></th></tr></thead><tbody>' +
+    filas.map(c => '<tr><td style="white-space:nowrap;">' + fechaCL(c.fecha) + '</td><td><b>' + esc(c.area) + '</b></td><td>' + esc(c.descripcion) + '</td>' +
+      '<td><span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;' + (c.estado === 'publicado' ? 'background:#e3f6ea;color:#12713a;' : 'background:#fff1d6;color:#8a5a00;') + '">' + (c.estado === 'publicado' ? 'Publicado' : 'Pendiente') + '</span></td>' +
+      '<td style="white-space:nowrap;"><button class="btn-ghost btn-sm" onclick="abrirModalCambio(' + c.id + ')">Editar</button> <button class="btn-ghost btn-sm" onclick="eliminarCambio(' + c.id + ')" title="Eliminar">🗑</button></td></tr>').join('') +
+    '</tbody></table>';
+}
+function abrirModalCambio(id){
+  cambioEditandoId = id || null;
+  const c = id ? listaCambios.find(x => x.id === id) : null;
+  $('tituloModalCambio').textContent = c ? 'Editar cambio' : 'Nuevo cambio';
+  $('cFecha').value = c ? c.fecha : hoyISO();
+  $('cEstado').value = c ? c.estado : 'publicado';
+  $('cArea').value = c ? c.area : '';
+  $('cDescripcion').value = c ? c.descripcion : '';
+  $('errorCambio').innerHTML = '';
+  $('modalCambio').classList.add('abierto');
+}
+function cerrarModalCambio(){ $('modalCambio').classList.remove('abierto'); }
+async function guardarCambio(){
+  const cuerpo = { fecha: $('cFecha').value, estado: $('cEstado').value, area: $('cArea').value, descripcion: $('cDescripcion').value };
+  if(cambioEditandoId) cuerpo.id = cambioEditandoId;
+  $('btnGuardarCambio').disabled = true;
+  try{
+    const res = await fetch('/api/usuarios?recurso=cambios', { method: cambioEditandoId ? 'PUT' : 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(cuerpo) });
+    const data = await res.json();
+    if(!res.ok){ $('errorCambio').innerHTML = '<div class="error-box">' + esc(data.error) + '</div>'; return; }
+    cerrarModalCambio();
+    toast('Cambio guardado');
+    cargarCambios();
+  }catch(err){
+    $('errorCambio').innerHTML = '<div class="error-box">' + esc(err.message) + '</div>';
+  }finally{ $('btnGuardarCambio').disabled = false; }
+}
+async function eliminarCambio(id){
+  const c = listaCambios.find(x => x.id === id);
+  if(!c || !confirm('¿Eliminar este cambio del historial?\n\n' + c.area + ' — ' + c.descripcion.slice(0, 120))) return;
+  try{
+    const res = await fetch('/api/usuarios?recurso=cambios&id=' + id, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error); return; }
+    toast('Cambio eliminado');
+    cargarCambios();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+// Arma el resumen del día con los cambios de hoy (fecha | área | qué cambió | estado), para revisarlo y guardarlo.
+function armarResumenDesdeCambios(){
+  const hoy = resumenHoy.fecha || hoyISO();
+  const delDia = listaCambios.filter(c => c.fecha === hoy);
+  if(delDia.length === 0){ alert('No hay cambios registrados con fecha de hoy (' + fechaCL(hoy) + '). Agrégalos en la pestaña Cambios.'); return; }
+  const ed = $('textoResumen');
+  if(ed.textContent.trim() && !confirm('Esto reemplaza el texto actual del cuadro. ¿Continuar?')) return;
+  const e = esc;
+  ed.innerHTML = '<h3>Cambios del ' + fechaCL(hoy) + '</h3><table><thead><tr><th>Fecha</th><th>Área</th><th>Qué cambió</th><th>Estado</th></tr></thead><tbody>' +
+    delDia.map(c => '<tr><td>' + fechaCL(c.fecha) + '</td><td><b>' + e(c.area) + '</b></td><td>' + e(c.descripcion) + '</td><td>' + (c.estado === 'publicado' ? 'Publicado' : 'Pendiente de publicar') + '</td></tr>').join('') +
+    '</tbody></table><p><br></p>';
 }
 
 // ---------------- Usuarios ----------------

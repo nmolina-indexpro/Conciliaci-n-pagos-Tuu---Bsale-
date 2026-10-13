@@ -8,6 +8,7 @@ import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, consultarEventosBrevo, resumirEntregaBrevo } from '../lib/mailer.js';
 import { TIPOS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto } from '../lib/notificaciones.js';
 import { TIPO_RESUMEN_CAMBIOS, fechaHoyChile, enviarResumenCambios, sanitizarHtmlResumen } from '../lib/resumen-cambios.js';
+import { asegurarCambiosRegistro, validarCambio } from '../lib/cambios-registro.js';
 import { paginasEfectivas, paginasParaGuardar } from '../lib/paginas-perfil.js';
 
 // Páginas que se pueden marcar en un perfil de acceso (ver
@@ -59,6 +60,7 @@ export default async function handler(req, res) {
 
     if (req.query.recurso === 'perfiles') return manejarPerfiles(req, res, sql);
     if (req.query.recurso === 'notificaciones') return manejarNotificaciones(req, res, sql);
+    if (req.query.recurso === 'cambios') return manejarCambios(req, res, sql);
 
     if (req.method === 'GET') {
       const { rows } = await sql`
@@ -304,6 +306,47 @@ async function manejarPerfiles(req, res, sql) {
     return res.status(200).json({ ok: true });
   }
 
+  return res.status(405).json({ error: 'Method not allowed' });
+}
+
+// ---------------- Historial de cambios (?recurso=cambios) ----------------
+// Solo administradores (ya se validó arriba). Ver lib/cambios-registro.js.
+async function manejarCambios(req, res, sql) {
+  await asegurarCambiosRegistro(sql);
+  const quien = usuarioDesdeRequest(req);
+  const autor = (quien && (quien.nombre || quien.email)) || 'admin';
+
+  if (req.method === 'GET') {
+    const { rows } = await sql`
+      SELECT id, fecha::text AS fecha, area, descripcion, estado, creado_por, actualizado_en
+      FROM cambios_registro ORDER BY fecha DESC, id DESC;`;
+    return res.status(200).json({ cambios: rows });
+  }
+  if (req.method === 'POST') {
+    const v = validarCambio(req.body);
+    if (v.error) return res.status(400).json({ error: v.error });
+    const { rows } = await sql`
+      INSERT INTO cambios_registro (fecha, area, descripcion, estado, creado_por)
+      VALUES (${v.fecha}::date, ${v.area}, ${v.descripcion}, ${v.estado}, ${autor}) RETURNING id;`;
+    return res.status(200).json({ ok: true, id: rows[0].id });
+  }
+  if (req.method === 'PUT') {
+    const id = Number((req.body || {}).id);
+    if (!id) return res.status(400).json({ error: 'Falta el id del cambio' });
+    const v = validarCambio(req.body);
+    if (v.error) return res.status(400).json({ error: v.error });
+    const { rows } = await sql`
+      UPDATE cambios_registro SET fecha = ${v.fecha}::date, area = ${v.area}, descripcion = ${v.descripcion}, estado = ${v.estado}, actualizado_en = now()
+      WHERE id = ${id} RETURNING id;`;
+    if (!rows[0]) return res.status(404).json({ error: 'No existe ese cambio' });
+    return res.status(200).json({ ok: true });
+  }
+  if (req.method === 'DELETE') {
+    const id = Number(req.query.id);
+    if (!id) return res.status(400).json({ error: 'Falta el id del cambio' });
+    await sql`DELETE FROM cambios_registro WHERE id = ${id};`;
+    return res.status(200).json({ ok: true });
+  }
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
