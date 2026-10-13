@@ -554,16 +554,42 @@ function renderAvisos(data){
       .map(([sku, titulo]) => `<option value="${sku}">${titulo || ''}</option>`).join('');
   }
 }
+// Lee la respuesta como JSON; si el servidor devolvió texto (por ejemplo la
+// página de error de Vercel cuando la función se pasa del tiempo máximo), lanza
+// un error claro con el código HTTP en vez de "JSON.parse: unexpected character".
+async function fetchJsonSeguro(url){
+  const res = await fetch(url);
+  const texto = await res.text();
+  try{ return JSON.parse(texto); }
+  catch(e){
+    const err = new Error(res.status === 504 || res.status === 502 || /timed? ?out|FUNCTION_INVOCATION/i.test(texto)
+      ? `el servidor tardó demasiado en responder (HTTP ${res.status}); vuelve a intentarlo en un momento`
+      : `el servidor respondió con un error (HTTP ${res.status}) que no se pudo leer; vuelve a intentarlo`);
+    err.noJson = true;
+    throw err;
+  }
+}
 async function cargar(forzar){
   const status = $('status');
   status.className = '';
   status.textContent = forzar ? 'Recalculando en vivo (Shopify + Bsale)...' : 'Consultando...';
   try{
-    const data = await fetch('/api/negocio?recurso=alertas-stock-shopify' + (forzar ? '&forzar=1' : '')).then(r=>r.json());
+    const urlAlertas = '/api/negocio?recurso=alertas-stock-shopify';
+    let data, recalculoFallo = false;
+    try{
+      data = await fetchJsonSeguro(urlAlertas + (forzar ? '&forzar=1' : ''));
+    }catch(err){
+      // Sin respuesta legible del recálculo en vivo: muestra lo último guardado.
+      if(forzar || !err.noJson) throw err;
+      data = await fetchJsonSeguro(urlAlertas + '&soloCache=1');
+      recalculoFallo = true;
+    }
     renderAvisos(data);
     if(data.calculadoEn){
       const fecha = new Date(data.calculadoEn).toLocaleString('es-CL');
-      status.textContent = data.deCache
+      status.textContent = recalculoFallo
+        ? `El recálculo en vivo tardó demasiado; se muestran los datos guardados del ${fecha}. Usa "↻ Actualizar ahora" para reintentar.`
+        : data.deCache
         ? `Datos guardados del ${fecha} -- usa "↻ Actualizar ahora" para recalcular en vivo.`
         : `Recalculado ahora (${fecha}).`;
     } else {
@@ -597,7 +623,7 @@ async function actualizarSoloReferencia(){
   status.className = '';
   status.textContent = 'Reescaneando pantalla/batería/cargador por modelo...';
   try{
-    const data = await fetch('/api/negocio?recurso=alertas-stock-shopify&soloReferencia=1').then(r=>r.json());
+    const data = await fetchJsonSeguro('/api/negocio?recurso=alertas-stock-shopify&soloReferencia=1');
     if(data.error){ status.className = 'err'; status.textContent = 'Error: ' + data.error; return; }
     renderAvisos(data);
     const fecha = data.calculadoEn ? new Date(data.calculadoEn).toLocaleString('es-CL') : '';

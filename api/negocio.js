@@ -8629,6 +8629,20 @@ async function manejarAlertasStockShopify(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   if (req.query.debugSku) return manejarDebugPrecioBsale(req, res, String(req.query.debugSku).trim());
   if (req.query.soloReferencia === '1') return manejarActualizarSoloReferencia(req, res);
+  // Solo lo último guardado, de cualquier antigüedad y sin tocar Shopify ni Bsale.
+  // La página lo usa cuando el recálculo en vivo se pasa del tiempo máximo de la
+  // función (Vercel responde con texto, no JSON) para no quedarse sin mostrar nada.
+  if (req.query.soloCache === '1') {
+    try {
+      const sqlCache = await getSql();
+      await asegurarTablaAlertasSitioWebCache(sqlCache);
+      const { rows } = await sqlCache`SELECT datos, calculado_en FROM alertas_sitio_web_cache WHERE id = 1;`;
+      if (rows.length && rows[0].datos) {
+        return res.status(200).json({ ...rows[0].datos, calculadoEn: rows[0].calculado_en, deCache: true });
+      }
+    } catch (err) { /* sin caché disponible: responde abajo */ }
+    return res.status(200).json({ error: 'Todavía no hay datos guardados del sitio web', detail: 'Usa "Actualizar ahora" para calcularlos.' });
+  }
   const forzar = req.query.forzar === '1' || req.query.forzar === 'true';
   try {
     const sql = await getSql();
