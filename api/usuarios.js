@@ -316,9 +316,20 @@ async function manejarCambios(req, res, sql) {
   const quien = usuarioDesdeRequest(req);
   const autor = (quien && (quien.nombre || quien.email)) || 'admin';
 
+  // Guarda (o quita) la imagen de vista previa de un cambio. La imagen sale en el correo desde una dirección pública con un código
+  // aleatorio (?recurso=cambio-imagen&t=...), porque el correo no puede cargar imágenes que estén detrás del inicio de sesión.
+  async function guardarImagen(id, v) {
+    if (v.quitarImagen) {
+      await sql`UPDATE cambios_registro SET imagen_b64 = NULL, imagen_tipo = NULL, imagen_token = NULL WHERE id = ${id};`;
+    } else if (v.imagen) {
+      const token = crypto.randomBytes(16).toString('hex');
+      await sql`UPDATE cambios_registro SET imagen_b64 = ${v.imagen.b64}, imagen_tipo = ${v.imagen.tipo}, imagen_token = ${token} WHERE id = ${id};`;
+    }
+  }
+
   if (req.method === 'GET') {
     const { rows } = await sql`
-      SELECT id, fecha::text AS fecha, area, descripcion, estado, sitio, url, creado_por, actualizado_en
+      SELECT id, fecha::text AS fecha, area, descripcion, estado, sitio, url, destacado, imagen_token, creado_por, actualizado_en
       FROM cambios_registro ORDER BY fecha DESC, id DESC;`;
     return res.status(200).json({ cambios: rows });
   }
@@ -326,8 +337,9 @@ async function manejarCambios(req, res, sql) {
     const v = validarCambio(req.body);
     if (v.error) return res.status(400).json({ error: v.error });
     const { rows } = await sql`
-      INSERT INTO cambios_registro (fecha, area, descripcion, estado, sitio, url, creado_por)
-      VALUES (${v.fecha}::date, ${v.area}, ${v.descripcion}, ${v.estado}, ${v.sitio}, ${v.url}, ${autor}) RETURNING id;`;
+      INSERT INTO cambios_registro (fecha, area, descripcion, estado, sitio, url, destacado, creado_por)
+      VALUES (${v.fecha}::date, ${v.area}, ${v.descripcion}, ${v.estado}, ${v.sitio}, ${v.url}, ${v.destacado}, ${autor}) RETURNING id;`;
+    await guardarImagen(rows[0].id, v);
     return res.status(200).json({ ok: true, id: rows[0].id });
   }
   if (req.method === 'PUT') {
@@ -336,9 +348,10 @@ async function manejarCambios(req, res, sql) {
     const v = validarCambio(req.body);
     if (v.error) return res.status(400).json({ error: v.error });
     const { rows } = await sql`
-      UPDATE cambios_registro SET fecha = ${v.fecha}::date, area = ${v.area}, descripcion = ${v.descripcion}, estado = ${v.estado}, sitio = ${v.sitio}, url = ${v.url}, actualizado_en = now()
+      UPDATE cambios_registro SET fecha = ${v.fecha}::date, area = ${v.area}, descripcion = ${v.descripcion}, estado = ${v.estado}, sitio = ${v.sitio}, url = ${v.url}, destacado = ${v.destacado}, actualizado_en = now()
       WHERE id = ${id} RETURNING id;`;
     if (!rows[0]) return res.status(404).json({ error: 'No existe ese cambio' });
+    await guardarImagen(id, v);
     return res.status(200).json({ ok: true });
   }
   if (req.method === 'DELETE') {
@@ -416,7 +429,7 @@ async function manejarNotificaciones(req, res, sql) {
       await asegurarCambiosRegistro(sql);
       const ayer = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
       const { rows: filas } = await sql`
-        SELECT fecha::text AS fecha, area, descripcion, estado, sitio, url
+        SELECT fecha::text AS fecha, area, descripcion, estado, sitio, url, destacado, imagen_token
         FROM cambios_registro WHERE fecha >= ${ayer}::date ORDER BY fecha DESC, id DESC;`;
       if (filas.length === 0) return res.status(200).json({ ok: false, error: 'No hay cambios registrados con fecha de ayer u hoy. Agrégalos en la pestaña Cambios.' });
       const texto = sanitizarHtmlResumen(armarContenidoCambios(filas));

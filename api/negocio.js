@@ -101,6 +101,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'cotizaciones-correos-analizar-respuestas') return manejarCotizacionesCorreosAnalizarRespuestas(req, res);
   if (req.query.recurso === 'whatsapp-ejecutivos-notificar-diario') return manejarWhatsappEjecutivosNotificarDiario(req, res);
   if (req.query.recurso === 'resumen-cambios-enviar') return manejarResumenCambiosEnviar(req, res);
+  if (req.query.recurso === 'cambio-imagen') return manejarCambioImagen(req, res);
   // Píxel de seguimiento de apertura de los correos de IndexScale -- lo
   // carga el cliente de correo del destinatario, sin sesión. Mismo patrón
   // que los de arriba, pero la seguridad real la hace el token aleatorio
@@ -10596,6 +10597,24 @@ async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios, ejecutivos, sinAsignar });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen diario de ejecutivos de WhatsApp', detail: String(err) });
+  }
+}
+
+// Imagen de vista previa de un cambio (columna "Vista previa" del correo del resumen). Es pública a propósito: la pide el cliente de
+// correo del destinatario, sin sesión. La seguridad la da el código aleatorio (t) de cada imagen, que solo existe en el correo.
+// Ver también middleware.ts (esBuscadorIaRegistrarPublico incluye este recurso).
+async function manejarCambioImagen(req, res) {
+  try {
+    const token = String(req.query.t || '');
+    if (!/^[0-9a-f]{32}$/.test(token)) return res.status(404).end();
+    const sql = await getSql();
+    const { rows } = await sql`SELECT imagen_b64, imagen_tipo FROM cambios_registro WHERE imagen_token = ${token};`;
+    if (!rows[0] || !rows[0].imagen_b64) return res.status(404).end();
+    res.setHeader('Content-Type', rows[0].imagen_tipo || 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.status(200).send(Buffer.from(rows[0].imagen_b64, 'base64'));
+  } catch {
+    return res.status(404).end();
   }
 }
 

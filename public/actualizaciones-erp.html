@@ -290,6 +290,11 @@
       <div class="ancho"><label for="cUrl">Enlace para ver o probar el cambio</label><input type="url" id="cUrl" maxlength="500" placeholder="https://www.indexstore.cl/... o https://erp.indexstore.cl/..." autocomplete="off"></div>
       <div class="ancho"><label for="cArea">Área</label><input type="text" id="cArea" list="listaAreasCambio" maxlength="80" placeholder="Ej: Pantallas, Home, Cotizador de envío, ERP..." autocomplete="off"><datalist id="listaAreasCambio"></datalist></div>
       <div class="ancho"><label for="cDescripcion">Qué cambió</label><textarea id="cDescripcion" rows="5" maxlength="2000" style="width:100%;box-sizing:border-box;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;" placeholder="Qué cambió y qué verá el cliente o el equipo. Sin datos financieros."></textarea></div>
+      <div class="ancho"><label class="chk" for="cDestacado"><input type="checkbox" id="cDestacado"> Cambio relevante: sale con vista previa (imagen) en el correo, máximo 4 por correo</label></div>
+      <div class="ancho"><label for="cImagenArchivo">Imagen de vista previa (opcional)</label>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><input type="file" id="cImagenArchivo" accept="image/*" onchange="elegirImagenCambio(this.files[0])" style="width:auto;"><button type="button" class="btn-ghost btn-sm" onclick="quitarImagenCambio()">Quitar imagen</button></div>
+        <img id="cImagenPrevia" alt="Vista previa" style="display:none;max-width:240px;margin-top:8px;border:1px solid var(--line);border-radius:8px;">
+        <div class="ayuda">También puedes pegar una captura (Ctrl+V) con esta ventana abierta. Se reduce sola a un tamaño pequeño.</div></div>
     </div>
     <div class="pie"><button class="btn-ghost" onclick="cerrarModalCambio()">Cancelar</button><button class="btn-primary" id="btnGuardarCambio" onclick="guardarCambio()">Guardar</button></div>
   </div>
@@ -474,12 +479,37 @@ function renderCambios(){
   const filas = listaCambios.filter(c => (!area || c.area === area) && (!estado || c.estado === estado) && (!sitio || c.sitio === sitio) && (!q || (c.area + ' ' + c.descripcion).toLowerCase().includes(q)));
   if(filas.length === 0){ $('wrapCambios').innerHTML = '<p class="empty-note" style="padding:14px;">No hay cambios que coincidan.</p>'; return; }
   $('wrapCambios').innerHTML = '<table><thead><tr><th>Fecha</th><th>Sitio</th><th>Área</th><th style="width:48%;">Qué cambió</th><th>Estado</th><th data-sin-orden>Ver</th><th data-sin-orden></th></tr></thead><tbody>' +
-    filas.map(c => '<tr><td style="white-space:nowrap;">' + fechaCL(c.fecha) + '</td><td>' + insigniaSitio(c.sitio) + '</td><td><b>' + esc(c.area) + '</b></td><td>' + esc(c.descripcion) + '</td>' +
+    filas.map(c => '<tr><td style="white-space:nowrap;">' + fechaCL(c.fecha) + '</td><td>' + insigniaSitio(c.sitio) + '</td><td><b>' + (c.destacado ? '⭐ ' : '') + esc(c.area) + '</b></td><td>' + esc(c.descripcion) + (c.imagen_token ? '<br><img src="/api/negocio?recurso=cambio-imagen&t=' + c.imagen_token + '" alt="" style="width:90px;margin-top:6px;border:1px solid var(--line);border-radius:6px;">' : '') + '</td>' +
       '<td><span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;' + (c.estado === 'publicado' ? 'background:#e3f6ea;color:#12713a;' : 'background:#fff1d6;color:#8a5a00;') + '">' + (c.estado === 'publicado' ? 'Publicado' : 'Pendiente') + '</span></td>' +
       '<td style="white-space:nowrap;">' + (c.url ? '<a href="' + esc(c.url) + '" target="_blank" rel="noopener" title="' + esc(c.url) + '">Ver ↗</a>' : '<span class="empty-note">—</span>') + '</td>' +
       '<td style="white-space:nowrap;"><button class="btn-ghost btn-sm" onclick="abrirModalCambio(' + c.id + ')">Editar</button> <button class="btn-ghost btn-sm" onclick="eliminarCambio(' + c.id + ')" title="Eliminar">🗑</button></td></tr>').join('') +
     '</tbody></table>';
 }
+// Imagen de vista previa: se reduce en el navegador (máx. 480 px de ancho, JPG) para que quede pequeña y liviana.
+let imagenCambioNueva = null, quitarImagenActual = false;
+function mostrarImagenCambio(src){
+  const im = $('cImagenPrevia');
+  if(src){ im.src = src; im.style.display = ''; } else { im.removeAttribute('src'); im.style.display = 'none'; }
+}
+function quitarImagenCambio(){ imagenCambioNueva = null; quitarImagenActual = true; $('cImagenArchivo').value = ''; mostrarImagenCambio(''); }
+async function elegirImagenCambio(archivo){
+  if(!archivo) return;
+  try{
+    const bmp = await createImageBitmap(archivo);
+    const ancho = Math.min(480, bmp.width), alto = Math.round(bmp.height * ancho / bmp.width);
+    const cv = document.createElement('canvas'); cv.width = ancho; cv.height = alto;
+    const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, ancho, alto); ctx.drawImage(bmp, 0, 0, ancho, alto);
+    let calidad = 0.82, url = cv.toDataURL('image/jpeg', calidad);
+    while(url.length > 140000 && calidad > 0.4){ calidad -= 0.1; url = cv.toDataURL('image/jpeg', calidad); }
+    if(url.length > 140000){ alert('La imagen es demasiado pesada aun reducida. Prueba con una captura más pequeña.'); return; }
+    imagenCambioNueva = url; quitarImagenActual = false; mostrarImagenCambio(url);
+  }catch(err){ alert('No se pudo leer la imagen: ' + err.message); }
+}
+document.addEventListener('paste', e => {
+  if(!$('modalCambio').classList.contains('abierto')) return;
+  const it = [...(e.clipboardData ? e.clipboardData.items : [])].find(x => x.type.startsWith('image/'));
+  if(it){ e.preventDefault(); elegirImagenCambio(it.getAsFile()); }
+});
 function abrirModalCambio(id){
   cambioEditandoId = id || null;
   const c = id ? listaCambios.find(x => x.id === id) : null;
@@ -488,6 +518,9 @@ function abrirModalCambio(id){
   $('cEstado').value = c ? c.estado : 'publicado';
   $('cSitio').value = c ? (c.sitio || 'web') : 'web';
   $('cUrl').value = c ? (c.url || '') : '';
+  $('cDestacado').checked = !!(c && c.destacado);
+  imagenCambioNueva = null; quitarImagenActual = false; $('cImagenArchivo').value = '';
+  mostrarImagenCambio(c && c.imagen_token ? '/api/negocio?recurso=cambio-imagen&t=' + c.imagen_token : '');
   $('cArea').value = c ? c.area : '';
   $('cDescripcion').value = c ? c.descripcion : '';
   $('errorCambio').innerHTML = '';
@@ -495,7 +528,7 @@ function abrirModalCambio(id){
 }
 function cerrarModalCambio(){ $('modalCambio').classList.remove('abierto'); }
 async function guardarCambio(){
-  const cuerpo = { fecha: $('cFecha').value, estado: $('cEstado').value, sitio: $('cSitio').value, url: $('cUrl').value, area: $('cArea').value, descripcion: $('cDescripcion').value };
+  const cuerpo = { fecha: $('cFecha').value, estado: $('cEstado').value, sitio: $('cSitio').value, url: $('cUrl').value, area: $('cArea').value, descripcion: $('cDescripcion').value, destacado: $('cDestacado').checked, imagen: imagenCambioNueva || undefined, quitarImagen: quitarImagenActual && !imagenCambioNueva };
   if(cambioEditandoId) cuerpo.id = cambioEditandoId;
   $('btnGuardarCambio').disabled = true;
   try{
