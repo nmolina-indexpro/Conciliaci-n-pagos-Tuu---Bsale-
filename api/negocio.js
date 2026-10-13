@@ -10636,6 +10636,25 @@ async function manejarResumenCambiosEnviar(req, res) {
   }
 }
 
+// Resumen de máximo 5 palabras por cada cambio, redactado con Gemini (una sola llamada para todos). Si falla o no hay clave, devuelve null y
+// el correo usa el comienzo de la descripción de cada cambio.
+async function resumirCambiosCortos(cambios) {
+  if (!process.env.GEMINI_API_KEY || !cambios.length) return null;
+  try {
+    const lista = cambios.slice(0, 15).map((c, i) => `${i + 1}. [${c.area}] ${String(c.descripcion || '').slice(0, 400)}`).join('\n');
+    const texto = await llamarGeminiTexto(
+      'Resumes cambios hechos en una tienda web y en su sistema interno (ERP). Para cada cambio escribe un resumen de MÁXIMO 5 palabras, en español, que diga qué cambió (ej.: "Filtros nuevos de pulgadas", "Buscador de repuestos nuevo"). Sin punto final, sin repetir el nombre del área entre corchetes, sin montos ni datos financieros. Responde SOLO un arreglo JSON de textos, uno por cambio y en el mismo orden.',
+      lista
+    );
+    const m = texto.match(/\[[\s\S]*\]/);
+    const arr = m ? JSON.parse(m[0]) : null;
+    return Array.isArray(arr) ? arr.map(x => (typeof x === 'string' ? x : '')) : null;
+  } catch (err) {
+    console.warn('[resumirCambiosCortos]', err.message);
+    return null;
+  }
+}
+
 // Cron diario: recordatorio interno para generar y enviar el resumen de cambios a mano (solo si hubo cambios en la web y en el ERP).
 async function manejarResumenCambiosRecordatorio(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
@@ -10646,7 +10665,7 @@ async function manejarResumenCambiosRecordatorio(req, res) {
   try {
     const sql = await getSql();
     await asegurarTablaNotificaciones(sql);
-    return res.status(200).json({ ok: true, ...(await enviarRecordatorioResumen(sql)) });
+    return res.status(200).json({ ok: true, ...(await enviarRecordatorioResumen(sql, { resumir: resumirCambiosCortos })) });
   } catch (err) {
     return res.status(500).json({ error: 'Error enviando el recordatorio del resumen de cambios', detail: String(err) });
   }
