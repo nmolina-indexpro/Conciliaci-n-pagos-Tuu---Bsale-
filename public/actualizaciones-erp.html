@@ -241,6 +241,7 @@
       <div class="tabs" id="tabs">
         <button class="tab activa" data-tab="resumen" onclick="cambiarTab('resumen')">✉ Resumen de hoy</button>
         <button class="tab" data-tab="cambios" id="tabCambios" onclick="cambiarTab('cambios')">📝 Cambios <span class="cuenta" id="cuentaCambios">0</span></button>
+        <button class="tab" data-tab="bsale" id="tabBsale" onclick="cambiarTab('bsale')">🧾 Bsale (modo sombra)</button>
       </div>
     </div>
   </div>
@@ -251,6 +252,8 @@
     <div class="sub empty-note" style="margin-bottom:10px;">Resumen de lo que cambió en la tienda, el ERP y el buscador. El correo sale cada día a las 19:00 con el texto que quede guardado para hoy; si no hay texto, no se envía. Quién lo recibe y cada cuánto se define en Usuarios &gt; Notificaciones.</div>
     <div class="card" style="padding:14px 16px;" id="cardResumen"><p class="empty-note">Cargando...</p></div>
   </section>
+
+  <section class="panel" id="panel-bsale"></section>
 
   <!-- ===================== Cambios ===================== -->
   <section class="panel" id="panel-cambios">
@@ -266,6 +269,19 @@
     </div>
     <div class="card"><div class="tabla-wrap" id="wrapCambios"><p class="empty-note" style="padding:14px;">Cargando...</p></div></div>
   </section>
+</div>
+
+<!-- Bsale (modo sombra) -->
+<div id="panelBsaleHtml" hidden>
+  <div class="sub empty-note" style="margin-bottom:10px;">Primera etapa para reemplazar la app "Bsale (Chile)": el ERP revisa los pedidos de Shopify y comprueba que habría emitido <b>el mismo documento</b> que la app (boleta o factura, mismo total y mismo RUT). <b>No emite ni cambia nada</b>: solo lee Shopify y Bsale.</div>
+  <div class="barra">
+    <select id="diasBsale"><option value="7">Últimos 7 días</option><option value="14">Últimos 14 días</option><option value="30">Últimos 30 días</option></select>
+    <button class="btn-primary" id="btnRevisarBsale" onclick="revisarBsaleSombra()">Revisar pedidos</button>
+    <span class="espacio"></span>
+    <label style="font-size:12.5px;display:flex;gap:6px;align-items:center;"><input type="checkbox" id="soloObservaciones" onchange="renderBsaleSombra()"> Ver solo los que tienen observaciones</label>
+  </div>
+  <div id="resumenBsale" style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0;"></div>
+  <div class="card"><div class="tabla-wrap" id="wrapBsale"><p class="empty-note" style="padding:14px;">Pulsa "Revisar pedidos" para comparar.</p></div></div>
 </div>
 
 <!-- Vista previa del resumen por correo -->
@@ -338,7 +354,7 @@ async function cargarSesion(){
     $('navActualizaciones').style.display = '';
     await Promise.all([cargarNotificaciones(), cargarCambios()]);
     const inicial = (location.hash || '').replace('#', '');
-    if(['resumen', 'cambios'].includes(inicial)) cambiarTab(inicial, true);
+    if(['resumen', 'cambios', 'bsale'].includes(inicial)) cambiarTab(inicial, true);
     // Atrás/Adelante recorren las pestañas por las que se pasó, antes de salir de la página
     Nav.iniciar({
       dimensiones: { tab: { actual: () => (document.querySelector('.tab.activa') || {}).dataset.tab || 'resumen', aplicar: v => cambiarTab(v, true) } },
@@ -351,6 +367,39 @@ async function cargarSesion(){
 async function cerrarSesion(){
   await fetch('/api/auth-session', { method: 'DELETE' });
   location.href = '/login.html';
+}
+// ---------------- Bsale (modo sombra) ----------------
+let datosBsale = null;
+function montarPanelBsale(){ const p = $('panel-bsale'), h = $('panelBsaleHtml'); if(p && h && !p.firstChild){ h.hidden = false; p.appendChild(h); } }
+document.addEventListener('DOMContentLoaded', montarPanelBsale);
+async function revisarBsaleSombra(){
+  const b = $('btnRevisarBsale'); b.disabled = true; b.textContent = 'Revisando...';
+  $('wrapBsale').innerHTML = '<p class="empty-note" style="padding:14px;">Consultando Shopify y Bsale (puede tardar unos segundos)...</p>';
+  try{
+    const res = await fetch('/api/negocio?recurso=bsale-sombra&dias=' + $('diasBsale').value);
+    const data = await res.json();
+    if(!res.ok || data.error){ $('wrapBsale').innerHTML = '<div class="error-box">' + esc(data.error || 'Error') + (data.detail ? '<br><small>' + esc(data.detail) + '</small>' : '') + '</div>'; return; }
+    datosBsale = data; renderBsaleSombra();
+  }catch(err){
+    $('wrapBsale').innerHTML = '<div class="error-box">' + esc(err.message) + '</div>';
+  }finally{ b.disabled = false; b.textContent = 'Revisar pedidos'; }
+}
+function renderBsaleSombra(){
+  if(!datosBsale) return;
+  const d = datosBsale, r = d.resumen;
+  const chip = (txt, bg, col) => '<span style="padding:6px 12px;border-radius:999px;font-weight:700;font-size:12.5px;background:' + bg + ';color:' + col + ';">' + txt + '</span>';
+  $('resumenBsale').innerHTML = chip(r.pedidos + ' pedidos', '#eef2f9', '#0b2a5b') + chip(r.coinciden + ' coinciden', '#e3f6ea', '#12713a') +
+    chip(r.conObservaciones + ' con observaciones', r.conObservaciones ? '#fff1d6' : '#eef2f9', r.conObservaciones ? '#8a5a00' : '#0b2a5b') + chip(r.sinDocumento + ' pagados sin documento', r.sinDocumento ? '#fde2e2' : '#eef2f9', r.sinDocumento ? '#a11d1d' : '#0b2a5b');
+  const solo = $('soloObservaciones').checked;
+  const filas = d.filas.filter(f => !solo || f.observaciones.length);
+  if(!filas.length){ $('wrapBsale').innerHTML = '<p class="empty-note" style="padding:14px;">' + (solo ? 'Ningún pedido con observaciones en este período.' : 'No hay pedidos en este período.') + '</p>'; return; }
+  const fechaCL2 = iso => { const x = new Date(iso); return x.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) + ' ' + x.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' }); };
+  $('wrapBsale').innerHTML = '<table><thead><tr><th>Pedido</th><th>Fecha</th><th>Pago</th><th>Total</th><th>ERP emitiría</th><th>Documentos emitidos por la app</th><th>Resultado</th></tr></thead><tbody>' +
+    filas.map(f => {
+      const docs = f.docs.length ? f.docs.map(x => '<div>' + esc(x.prefijo + '-' + x.numero) + (x.bsale && x.bsale.encontrado ? ' · $' + x.bsale.total.toLocaleString('es-CL') + (x.bsale.url ? ' <a href="' + esc(x.bsale.url) + '" target="_blank" rel="noopener">ver ↗</a>' : '') : '') + '</div>').join('') : '<span class="empty-note">—</span>';
+      const res = f.observaciones.length ? f.observaciones.map(o => '<div style="color:#8a5a00;">⚠ ' + esc(o) + '</div>').join('') : (f.docs.length ? '<span style="color:#12713a;font-weight:700;">✔ Coincide</span>' : '<span class="empty-note">Sin documento</span>');
+      return '<tr><td style="white-space:nowrap;"><a href="' + esc(d.tiendaAdmin) + '/orders/' + esc(f.id) + '" target="_blank" rel="noopener"><b>' + esc(f.pedido) + '</b></a></td><td style="white-space:nowrap;">' + fechaCL2(f.fecha) + '</td><td>' + esc(f.estadoPago || '') + (f.cancelado ? ' (cancelado)' : '') + '</td><td style="white-space:nowrap;">$' + f.total.toLocaleString('es-CL') + '</td><td>' + (f.esperado === 'factura' ? 'Factura' : 'Boleta') + '</td><td>' + docs + '</td><td>' + res + '</td></tr>';
+    }).join('') + '</tbody></table>';
 }
 function cambiarTab(tab, sinHash){
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('activa', b.dataset.tab === tab));

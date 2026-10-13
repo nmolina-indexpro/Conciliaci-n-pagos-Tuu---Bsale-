@@ -169,6 +169,7 @@ export default async function handler(req, res) {
   if (recurso === 'cotizacion-correo-contenido') return manejarCotizacionCorreoContenido(req, res, sesion);
   if (recurso === 'cotizacion-zoho') return manejarCotizacionZoho(req, res, sesion);
   if (recurso === 'shopify-urls-sku') return manejarShopifyUrlsSku(req, res, sesion);
+  if (recurso === 'bsale-sombra') return manejarBsaleSombra(req, res, sesion);
   if (recurso === 'zoho-servicio-tecnico-metricas') return manejarZohoServicioTecnicoMetricas(req, res, sesion);
   if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
   if (recurso === 'calendario-pagos-importar') return manejarCalendarioPagosImportar(req, res, sesion);
@@ -8145,6 +8146,141 @@ async function obtenerAccesoShopify() {
 // filtro de colección, a diferencia de manejarAgotados) solo necesita
 // read_products, que sí está concedido y es justo lo que ya usa
 // buscarProductoShopify más abajo.
+// ══════════════════════════════════════════════════════════════════════
+// MODO SOMBRA de documentos Bsale -- primera etapa para reemplazar la app "Bsale (Chile)" de Lobo Creaciones.
+// SOLO LEE: no emite ni cambia nada. Para cada pedido de Shopify calcula qué documento correspondería (boleta o factura, con la
+// misma regla que hoy: factura solo si el cliente la pidió y sus datos tributarios están completos y con RUT válido; si no, boleta),
+// y lo compara con lo que la app ya emitió en Bsale (se ubica por las etiquetas BO-/FA-/NV- del pedido): tipo, total y RUT.
+// Sirve para comprobar, antes de apagar la app, que el ERP tomaría las mismas decisiones.
+// ══════════════════════════════════════════════════════════════════════
+const RE_ETIQUETA_DOC = /^(BO|FA|NV)-(\d+)$/i;
+const rutLimpio = r => String(r || '').replace(/[^0-9kK]/g, '').toUpperCase();
+function rutValido(r) { // dígito verificador (módulo 11)
+  const s = rutLimpio(r);
+  if (s.length < 8 || s.length > 9) return false;
+  const cuerpo = s.slice(0, -1), dv = s.slice(-1);
+  let suma = 0, mul = 2;
+  for (let i = cuerpo.length - 1; i >= 0; i--) { suma += Number(cuerpo[i]) * mul; mul = mul === 7 ? 2 : mul + 1; }
+  const res = 11 - (suma % 11);
+  return dv === (res === 11 ? '0' : res === 10 ? 'K' : String(res));
+}
+function tipoDocumentoEsperado(atributos) {
+  const a = {};
+  for (const x of atributos || []) a[x.key] = x.value;
+  if (String(a.tipo_documento || '').toUpperCase() !== 'FACTURA') return { tipo: 'boleta', atributos: a };
+  const faltan = ['rut', 'razon_social', 'giro', 'region', 'comuna', 'direccion_tributaria'].filter(k => !String(a[k] || '').trim());
+  if (faltan.length) return { tipo: 'boleta', motivo: 'pidió factura pero faltan datos: ' + faltan.join(', '), atributos: a };
+  if (!rutValido(a.rut)) return { tipo: 'boleta', motivo: 'pidió factura pero el RUT no es válido', atributos: a };
+  return { tipo: 'factura', atributos: a };
+}
+
+async function manejarBsaleSombra(req, res, sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores' });
+    const tokenBsale = process.env.BSALE_ACCESS_TOKEN;
+    if (!tokenBsale) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+    const acceso = await obtenerAccesoShopify();
+    if (!acceso) return res.status(200).json({ error: 'Shopify no está configurado en el servidor' });
+    const dias = Math.min(30, Math.max(1, Number(req.query.dias) || 7));
+    const desde = new Date(Date.now() - dias * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+
+    // 1) pedidos de Shopify del período
+    const query = `
+      query($cursor: String, $q: String) {
+        orders(first: 50, after: $cursor, query: $q, sortKey: CREATED_AT, reverse: true) {
+          edges { node {
+            legacyResourceId name createdAt cancelledAt displayFinancialStatus tags
+            customAttributes { key value }
+            currentTotalPriceSet { shopMoney { amount } }
+            billingAddress { company }
+          } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }`;
+    const pedidos = [];
+    let cursor = null;
+    for (let pagina = 0; pagina < 8; pagina++) {
+      const body = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, query, { cursor, q: `created_at:>=${desde}` });
+      const con = body.data?.orders;
+      if (!con) { return res.status(200).json({ error: 'Shopify no devolvió pedidos', detail: JSON.stringify(body.errors || body).slice(0, 300) }); }
+      for (const { node } of con.edges) pedidos.push(node);
+      if (!con.pageInfo.hasNextPage) break;
+      cursor = con.pageInfo.endCursor;
+    }
+
+    // 2) tipos de documento de Bsale (se ubican por código SII: 39 boleta, 33 factura; la nota de venta por nombre)
+    const rTipos = await fetchConTimeout(`${BSALE_BASE}/document_types.json?limit=50`, { headers: { access_token: tokenBsale } }, 15000);
+    const tipos = (await rTipos.json().catch(() => ({}))).items || [];
+    const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+    const idBoleta = (tipos.find(t => Number(t.codeSii) === 39 && t.state === 0) || tipos.find(t => Number(t.codeSii) === 39) || {}).id;
+    const idFactura = (tipos.find(t => Number(t.codeSii) === 33 && t.state === 0) || tipos.find(t => Number(t.codeSii) === 33) || {}).id;
+    const idNotaVenta = (tipos.find(t => norm(t.name) === 'NOTA VENTA') || tipos.find(t => /NOTA.*VENTA/.test(norm(t.name))) || {}).id;
+    const idPorPrefijo = { BO: idBoleta, FA: idFactura, NV: idNotaVenta };
+    const nombrePrefijo = { BO: 'boleta', FA: 'factura', NV: 'nota de venta' };
+
+    // 3) documento de Bsale de cada etiqueta (de a 5 en paralelo para no pasarse del límite de la API)
+    async function buscarDocumento(prefijo, numero) {
+      const idTipo = idPorPrefijo[prefijo];
+      if (!idTipo) return { encontrado: false, motivo: 'no encuentro el tipo de documento en Bsale' };
+      try {
+        const r = await fetchConTimeout(`${BSALE_BASE}/documents.json?number=${numero}&documenttypeid=${idTipo}&expand=[client]&limit=1`, { headers: { access_token: tokenBsale } }, 15000);
+        if (!r.ok) return { encontrado: false, motivo: 'Bsale respondió ' + r.status };
+        const d = ((await r.json()).items || [])[0];
+        if (!d) return { encontrado: false, motivo: 'no existe en Bsale' };
+        return {
+          encontrado: true, total: Math.round(Number(d.totalAmount) || 0), anulado: Number(d.state) !== 0,
+          rut: d.client ? String(d.client.code || '') : '', cliente: d.client ? (d.client.company || [d.client.firstName, d.client.lastName].filter(Boolean).join(' ')) : '',
+          url: d.urlPublicView || d.urlPdf || '',
+        };
+      } catch (e) { return { encontrado: false, motivo: String(e.message || e).slice(0, 80) }; }
+    }
+    const tareas = [];
+    const filas = pedidos.map(p => {
+      const total = Math.round(Number(p.currentTotalPriceSet?.shopMoney?.amount) || 0);
+      const esp = tipoDocumentoEsperado(p.customAttributes);
+      const docs = (p.tags || []).map(t => RE_ETIQUETA_DOC.exec(String(t).trim())).filter(Boolean)
+        .map(m => ({ prefijo: m[1].toUpperCase(), numero: Number(m[2]), tipo: nombrePrefijo[m[1].toUpperCase()] }));
+      const fila = {
+        id: p.legacyResourceId, pedido: p.name, fecha: p.createdAt, estadoPago: p.displayFinancialStatus, cancelado: !!p.cancelledAt, total,
+        esperado: esp.tipo, motivoEsperado: esp.motivo || null,
+        rutPedido: esp.atributos.rut || (p.billingAddress && p.billingAddress.company) || '', docs, observaciones: [],
+      };
+      for (const d of docs) tareas.push(async () => { d.bsale = await buscarDocumento(d.prefijo, d.numero); });
+      return fila;
+    });
+    for (let i = 0; i < tareas.length; i += 5) await Promise.all(tareas.slice(i, i + 5).map(f => f()));
+
+    // 4) comparación
+    for (const f of filas) {
+      const principal = f.docs.find(d => d.prefijo === 'FA') || f.docs.find(d => d.prefijo === 'BO');
+      const pagado = /PAID/i.test(f.estadoPago || '');
+      if (pagado && !principal) f.observaciones.push('Pagado sin boleta ni factura');
+      if (principal) {
+        const emitido = principal.prefijo === 'FA' ? 'factura' : 'boleta';
+        if (emitido !== f.esperado) f.observaciones.push(`Se emitió ${emitido} y el ERP habría emitido ${f.esperado}` + (f.motivoEsperado ? ` (${f.motivoEsperado})` : ''));
+      }
+      for (const d of f.docs) {
+        if (!d.bsale) continue;
+        if (!d.bsale.encontrado) { f.observaciones.push(`${d.tipo} ${d.prefijo}-${d.numero}: ${d.bsale.motivo}`); continue; }
+        if (d.bsale.anulado) f.observaciones.push(`${d.tipo} ${d.prefijo}-${d.numero} está anulada en Bsale`);
+        if (d.prefijo !== 'NV' && d.bsale.total !== f.total) f.observaciones.push(`Total distinto: Shopify $${f.total.toLocaleString('es-CL')} vs ${d.tipo} $${d.bsale.total.toLocaleString('es-CL')}`);
+        if (d.prefijo === 'FA' && f.rutPedido && rutLimpio(f.rutPedido) !== rutLimpio(d.bsale.rut)) f.observaciones.push(`RUT distinto: pedido ${f.rutPedido} vs factura ${d.bsale.rut}`);
+      }
+    }
+    const resumen = {
+      pedidos: filas.length,
+      pagados: filas.filter(f => /PAID/i.test(f.estadoPago || '')).length,
+      sinDocumento: filas.filter(f => f.observaciones.some(o => o.startsWith('Pagado sin'))).length,
+      coinciden: filas.filter(f => f.docs.length > 0 && f.observaciones.length === 0).length,
+      conObservaciones: filas.filter(f => f.observaciones.length > 0).length,
+    };
+    return res.status(200).json({ desde, dias, resumen, filas, tiendaAdmin: 'https://admin.shopify.com/store/' + acceso.domain.split('.')[0] });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error en la revisión sombra de documentos Bsale', detail: String(err) });
+  }
+}
+
 // URL de la ficha de cada SKU en Shopify (tienda y admin), para la columna "Shopify" de Productos estancados.
 // Consulta liviana: solo id, estado, onlineStoreUrl y los SKU de cada producto (no título ni precio). El catálogo
 // completo tarda varios segundos, así que se guarda 30 minutos en memoria (por instancia); ?forzar=1 lo salta.
