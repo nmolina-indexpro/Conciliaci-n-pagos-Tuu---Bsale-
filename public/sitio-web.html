@@ -115,6 +115,28 @@
   .fu-mini b{display:block;font-family:'IBM Plex Mono',monospace;font-size:16px;}
   .fu-mini span{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
   .envio-det summary{cursor:pointer;font-size:12.5px;color:var(--primary-dark);font-weight:600;margin-top:14px;}
+
+  /* Barra lateral de módulos (estilo Bsale): iconos con nombre corto a la izquierda y el contenido del módulo elegido a la derecha */
+  .sw-layout{display:grid;grid-template-columns:96px minmax(0,1fr);gap:22px;align-items:start;}
+  .sw-lateral{position:sticky;top:12px;display:flex;flex-direction:column;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:8px 6px;box-shadow:var(--shadow);}
+  .sw-item{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;width:100%;background:none;color:var(--muted);border:none;border-radius:10px;padding:10px 4px 8px;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:10.5px;line-height:1.2;text-align:center;cursor:pointer;}
+  .sw-item .sw-icono{font-size:21px;line-height:1;filter:grayscale(.35);}
+  .sw-item:hover{background:var(--surface-2);color:var(--text);}
+  .sw-item.activo{background:var(--primary-dim);color:var(--primary-dark);box-shadow:inset 3px 0 0 var(--primary);}
+  .sw-item.activo .sw-icono{filter:none;}
+  .sw-insignia{position:absolute;top:5px;right:9px;min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:var(--red);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;}
+  .sw-insignia.ok{background:var(--green);}
+  .sw-modulo{display:none;min-width:0;}
+  .sw-modulo.activo{display:block;}
+  .sw-modulo > .seccion{margin-bottom:0;}
+  @media (max-width:900px){
+    .sw-layout{grid-template-columns:minmax(0,1fr);gap:14px;}
+    .sw-lateral{position:static;flex-direction:row;overflow-x:auto;padding:6px;gap:2px;scrollbar-width:none;}
+    .sw-lateral::-webkit-scrollbar{display:none;}
+    .sw-item{flex:0 0 auto;width:auto;min-width:78px;padding:8px 8px 6px;}
+    .sw-item.activo{box-shadow:inset 0 -3px 0 var(--primary);}
+    .sw-insignia{right:4px;}
+  }
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -209,9 +231,35 @@
     </div>
   </div>
   <div id="status"></div>
-  <div id="avisoWrap"></div>
 
-  <div class="seccion" id="seccionEnvio">
+  <div class="sw-layout">
+  <nav class="sw-lateral" id="swLateral" aria-label="Módulos del sitio web">
+    <button type="button" class="sw-item activo" data-modulo="stock" onclick="irModulo('stock')" title="Productos con stock en Bsale que no se ven en la tienda (archivados o en borrador)"><span class="sw-icono">📦</span>Stock oculto<span class="sw-insignia" id="insigniaStock"></span></button>
+    <button type="button" class="sw-item" data-modulo="precios" onclick="irModulo('precios')" title="Precios distintos entre Bsale y Shopify"><span class="sw-icono">💲</span>Precios<span class="sw-insignia" id="insigniaPrecios"></span></button>
+    <button type="button" class="sw-item" data-modulo="skus" onclick="irModulo('skus')" title="Productos de referencia con el SKU equivocado"><span class="sw-icono">🏷️</span>SKU de referencia<span class="sw-insignia" id="insigniaSkus"></span></button>
+    <button type="button" class="sw-item" data-modulo="envio" onclick="irModulo('envio')" title="Cotizador de envío en la ficha de producto"><span class="sw-icono">🚚</span>Cotizador de envío</button>
+    <button type="button" class="sw-item" data-modulo="filtros" onclick="irModulo('filtros')" title="Uso de los filtros por marca"><span class="sw-icono">🔎</span>Filtros por marca</button>
+    <button type="button" class="sw-item" data-modulo="compat" onclick="irModulo('compat')" title="Compatibilidad de modelos (qué SKU le corresponde a cada notebook)"><span class="sw-icono">🔧</span>Compatibilidad</button>
+    <button type="button" class="sw-item" data-modulo="modelos" onclick="irModulo('modelos')" title="Modelos detectados en el catálogo de Shopify"><span class="sw-icono">💻</span>Modelos detectados</button>
+  </nav>
+  <main class="sw-contenido">
+
+  <div class="sw-modulo activo" id="mod-stock"><div class="seccion">
+    <div class="seccion-head"><div><h2>📦 Stock oculto en la tienda</h2><div class="sub">Productos con stock disponible en Bsale que en Shopify están archivados o en borrador: los clientes no los ven y se pierden ventas.</div></div></div>
+    <div id="avisoStockWrap"></div>
+  </div></div>
+
+  <div class="sw-modulo" id="mod-precios"><div class="seccion">
+    <div class="seccion-head"><div><h2>💲 Precios entre Bsale y Shopify</h2><div class="sub">Productos cuyo precio en la tienda no coincide con el de la lista de precios de Bsale.</div></div></div>
+    <div id="avisoPreciosWrap"></div>
+  </div></div>
+
+  <div class="sw-modulo" id="mod-skus"><div class="seccion">
+    <div class="seccion-head"><div><h2>🏷️ SKU de referencia</h2><div class="sub">Productos "de referencia" (pantalla, batería o cargador por modelo) que apuntan a un SKU incorrecto.</div></div></div>
+    <div id="avisoSkusWrap"></div>
+  </div></div>
+
+  <div class="sw-modulo" id="mod-envio"><div class="seccion" id="seccionEnvio">
     <div class="seccion-head">
       <div>
         <h2>📦 Cotizador de envío en la ficha de producto</h2>
@@ -243,9 +291,9 @@
         <div class="tabla-wrap"><table class="envio-tabla" id="envioRecientes"></table></div>
       </details>
     </div>
-  </div>
+  </div></div>
 
-  <div class="seccion" id="seccionFiltros">
+  <div class="sw-modulo" id="mod-filtros"><div class="seccion" id="seccionFiltros">
     <div class="seccion-head">
       <div>
         <h2>🔎 Uso de los filtros por marca</h2>
@@ -262,9 +310,9 @@
       <div class="envio-kpis" id="filtrosKpis"></div>
       <div class="fu-grid" id="filtrosTarjetas"></div>
     </div>
-  </div>
+  </div></div>
 
-  <div class="seccion">
+  <div class="sw-modulo" id="mod-compat"><div class="seccion">
     <div class="seccion-head">
       <div>
         <h2>🔧 Compatibilidad de modelos</h2>
@@ -290,12 +338,12 @@
       <thead><tr id="theadCompat"></tr></thead>
       <tbody id="tablaCompat"><tr><td colspan="7" class="empty-note">Cargando...</td></tr></tbody>
     </table></div>
-  </div>
+  </div></div>
 
-  <div class="seccion">
+  <div class="sw-modulo" id="mod-modelos"><div class="seccion">
     <div class="seccion-head">
       <div>
-        <h2>🔎 Modelos detectados en el catálogo</h2>
+        <h2>💻 Modelos detectados en el catálogo</h2>
         <div class="sub">Se detectan solos a partir de pantallas, baterías y cargadores de Shopify -- se agrupan por marca+serie (ej. "HP 240 G4") usando lo que ya está escrito en cada título, sin escribir ni hacer clic en nada. Elige marca y luego serie para ver sus modelos. Cuando a un modelo le falta batería o cargador, se completa como respaldo con la misma búsqueda con confianza del formulario de arriba. Marca y modelo son editables por si la detección se equivocó -- la columna "Título en Shopify" te muestra siempre el origen real.</div>
       </div>
     </div>
@@ -310,6 +358,9 @@
       <button class="btn-primary btn-compact" id="btnGuardarDescubiertos" onclick="guardarTodosDescubiertos()" style="display:none;">💾 Guardar todos en la tabla de arriba</button>
       <button class="btn-ghost btn-compact" id="btnSeguirBuscando" onclick="continuarBusquedaPendientes()" style="display:none;">🔍 Seguir buscando en los que faltan</button>
     </div>
+  </div></div>
+
+  </main>
   </div>
 
 </div>
@@ -615,12 +666,42 @@ function descargarSkusIncorrectos(){
 // Compartido entre cargar() y actualizarSoloReferencia() -- pinta las 4
 // tarjetas de avisos y el autocompletado de SKU a partir de la misma
 // forma de respuesta que devuelven ambos endpoints.
+// ---------- Barra lateral de módulos ----------
+function insigniaModulo(id, cantidad){
+  const el = $(id);
+  if(!el) return;
+  if(cantidad === null || cantidad === undefined){ el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.classList.toggle('ok', cantidad === 0);
+  el.textContent = cantidad === 0 ? '✓' : (cantidad > 99 ? '99+' : String(cantidad));
+  el.title = cantidad === 0 ? 'Sin casos por revisar' : cantidad + ' por revisar';
+}
+const MODULOS_SITIO = ['stock', 'precios', 'skus', 'envio', 'filtros', 'compat', 'modelos'];
+function irModulo(clave, sinHash){
+  if(!MODULOS_SITIO.includes(clave)) clave = MODULOS_SITIO[0];
+  document.querySelectorAll('.sw-modulo').forEach(m => m.classList.toggle('activo', m.id === 'mod-' + clave));
+  document.querySelectorAll('.sw-item').forEach(b => b.classList.toggle('activo', b.dataset.modulo === clave));
+  try{ if(!sinHash) history.replaceState(null, '', '#' + clave); }catch(e){ /* sin historial disponible */ }
+}
+function moduloDesdeHash(){
+  const h = (location.hash || '').replace('#', '');
+  return MODULOS_SITIO.includes(h) ? h : MODULOS_SITIO[0];
+}
+window.addEventListener('hashchange', () => irModulo(moduloDesdeHash(), true));
+document.addEventListener('DOMContentLoaded', () => irModulo(moduloDesdeHash(), true));
 function renderAvisos(data){
   const avisoStock = renderAvisoStockShopify(data.stockNoVisible ?? null, data.error, data.detail);
   const avisoPrecios = renderAvisoPreciosDistintos(data.preciosDistintos ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
   const avisoDesincronizados = renderAvisoPreciosDesincronizados(data.preciosDesincronizados ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
   const avisoSkusIncorrectos = renderAvisoSkusIncorrectos(data.skusIncorrectosReferencia ?? null, data.error, data.detail);
-  $('avisoWrap').innerHTML = avisoSkusIncorrectos + avisoStock + avisoPrecios + avisoDesincronizados; // las funciones siempre devuelven un resultado explícito (avisoSkusIncorrectos puede ser '' -- caso raro, no molesta con una tarjeta "✅" aparte)
+  // las funciones siempre devuelven un resultado explícito (avisoSkusIncorrectos puede ser '' -- caso raro, no molesta con una tarjeta "✅" aparte)
+  $('avisoStockWrap').innerHTML = avisoStock;
+  $('avisoPreciosWrap').innerHTML = avisoPrecios + avisoDesincronizados;
+  $('avisoSkusWrap').innerHTML = avisoSkusIncorrectos;
+  // insignia de cada módulo: cuántos casos hay que revisar (rojo) o "ok" si no hay ninguno
+  insigniaModulo('insigniaStock', Array.isArray(data.stockNoVisible) ? data.stockNoVisible.length : null);
+  insigniaModulo('insigniaPrecios', Array.isArray(data.preciosDistintos) || Array.isArray(data.preciosDesincronizados) ? (data.preciosDistintos || []).length + (data.preciosDesincronizados || []).length : null);
+  insigniaModulo('insigniaSkus', Array.isArray(data.skusIncorrectosReferencia) ? data.skusIncorrectosReferencia.length : null);
   // Autocompletado del formulario de compatibilidad (SKU -> título),
   // reutilizando el mismo catálogo de Shopify que ya se trajo arriba --
   // sin golpear Shopify de nuevo aparte.
