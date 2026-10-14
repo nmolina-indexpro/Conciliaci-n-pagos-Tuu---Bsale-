@@ -170,6 +170,8 @@ export default async function handler(req, res) {
   if (recurso === 'cotizacion-zoho') return manejarCotizacionZoho(req, res, sesion);
   if (recurso === 'shopify-urls-sku') return manejarShopifyUrlsSku(req, res, sesion);
   if (recurso === 'bsale-sombra') return manejarBsaleSombra(req, res, sesion);
+  if (recurso === 'bsale-sombra-datos') return manejarBsaleSombraDatos(req, res, sesion);
+  if (recurso === 'shopify-permisos') return manejarShopifyPermisos(req, res, sesion);
   if (recurso === 'bsale-prueba-cotizacion') return manejarBsalePruebaCotizacion(req, res, sesion);
   if (recurso === 'zoho-servicio-tecnico-metricas') return manejarZohoServicioTecnicoMetricas(req, res, sesion);
   if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
@@ -8222,6 +8224,130 @@ async function manejarBsalePruebaCotizacion(req, res, sesion) {
     return res.status(200).json({ ok: true, tipo: tipo.name, id: d.id, numero: d.number, total: d.totalAmount, url: d.urlPublicView || d.urlPdf || '', clienteExistente: !!existente });
   } catch (err) {
     return res.status(200).json({ error: 'Error en la prueba de creación de documento', detail: String(err) });
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// MODO SOMBRA de stock y precios (solo lectura). Entrega, por tandas pequeñas, el stock y los precios de Bsale y los de Shopify;
+// la página los junta y muestra las diferencias, para comprobar que el ERP dejaría la tienda igual que la app "Bsale (Chile)".
+// fuente=stock   -> stock de la bodega "Casa Matriz" de Bsale (disponible = existencias menos reservado), por SKU
+// fuente=precios -> "Lista de Precios Base" de Bsale, por SKU (neto y con IVA)
+// fuente=shopify -> variantes de Shopify: SKU, precio, precio de comparación, stock, estado del producto
+// ══════════════════════════════════════════════════════════════════════
+let cacheConfigSombraBsale = null; // { ts, officeId, officeNombre, listaId, listaNombre }
+async function configSombraBsale(token) {
+  if (cacheConfigSombraBsale && Date.now() - cacheConfigSombraBsale.ts < 10 * 60000) return cacheConfigSombraBsale;
+  const cab = { headers: { access_token: token } };
+  const [ro, rl] = await Promise.all([
+    fetchConTimeout(BSALE_BASE + '/offices.json?limit=50', cab, 15000),
+    fetchConTimeout(BSALE_BASE + '/price_lists.json?limit=50', cab, 15000),
+  ]);
+  const oficinas = (await ro.json().catch(() => ({}))).items || [];
+  const listas = (await rl.json().catch(() => ({}))).items || [];
+  const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+  const oficina = oficinas.find(o => norm(o.name) === 'CASA MATRIZ') || oficinas.find(o => o.state === 0) || oficinas[0] || {};
+  const lista = listas.find(l => norm(l.name) === 'LISTA DE PRECIOS BASE') || listas.find(l => l.state === 0) || listas[0] || {};
+  cacheConfigSombraBsale = { ts: Date.now(), officeId: oficina.id, officeNombre: oficina.name, listaId: lista.id, listaNombre: lista.name };
+  return cacheConfigSombraBsale;
+}
+
+async function manejarBsaleSombraDatos(req, res, sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores' });
+    const fuente = String(req.query.fuente || '');
+    const PAGINAS_POR_TANDA = 24, EN_PARALELO = 8;
+
+    if (fuente === 'shopify') {
+      const acceso = await obtenerAccesoShopify();
+      if (!acceso) return res.status(200).json({ error: 'Shopify no está configurado en el servidor' });
+      const query = `
+        query($cursor: String) {
+          productVariants(first: 250, after: $cursor) {
+            nodes { sku price compareAtPrice inventoryQuantity product { title handle status } }
+            pageInfo { hasNextPage endCursor }
+          }
+        }`;
+      const items = [];
+      let cursor = req.query.cursor ? String(req.query.cursor) : null, siguiente = null;
+      for (let i = 0; i < 3; i++) {
+        const body = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, query, { cursor });
+        const con = body.data && body.data.productVariants;
+        if (!con) return res.status(200).json({ error: 'Shopify no devolvió variantes', detail: JSON.stringify(body.errors || body).slice(0, 300) });
+        for (const v of con.nodes) {
+          if (!v.sku) continue;
+          items.push({ sku: v.sku, precio: Math.round(Number(v.price) || 0), comparar: v.compareAtPrice ? Math.round(Number(v.compareAtPrice)) : null, stock: v.inventoryQuantity, producto: v.product ? v.product.title : '', handle: v.product ? v.product.handle : '', estado: v.product ? v.product.status : '' });
+        }
+        if (!con.pageInfo.hasNextPage) { siguiente = null; break; }
+        cursor = con.pageInfo.endCursor; siguiente = cursor;
+      }
+      return res.status(200).json({ fuente, items, siguiente });
+    }
+
+    if (fuente === 'stock' || fuente === 'precios') {
+      const token = process.env.BSALE_ACCESS_TOKEN;
+      if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+      const cfg = await configSombraBsale(token);
+      const offset = Math.max(0, Number(req.query.offset) || 0);
+      const ruta = fuente === 'stock'
+        ? o => `/stocks.json?${cfg.officeId ? 'officeid=' + cfg.officeId + '&' : ''}expand=variant&limit=50&offset=${o}`
+        : o => `/price_lists/${cfg.listaId}/details.json?expand=variant&limit=50&offset=${o}`;
+      if (fuente === 'precios' && !cfg.listaId) return res.status(200).json({ error: 'No encuentro la lista de precios en Bsale' });
+      const cab = { headers: { access_token: token } };
+      let total = null; const filas = [];
+      const pedir = async o => {
+        const r = await fetchConTimeout(BSALE_BASE + ruta(o), cab, 20000);
+        if (!r.ok) throw new Error('Bsale respondió ' + r.status + ' en ' + ruta(o).slice(0, 60));
+        return r.json();
+      };
+      // la primera página sola (da el total) y luego el resto de la tanda, de a ocho en paralelo y sin pedir páginas que no existen
+      const primera = await pedir(offset);
+      if (typeof primera.count === 'number') total = primera.count;
+      filas.push(...(primera.items || []));
+      const limite = total !== null ? Math.min(total, offset + PAGINAS_POR_TANDA * 50) : offset + PAGINAS_POR_TANDA * 50;
+      const offsets = [];
+      for (let o = offset + 50; o < limite; o += 50) offsets.push(o);
+      for (let i = 0; i < offsets.length; i += EN_PARALELO) {
+        const resp = await Promise.all(offsets.slice(i, i + EN_PARALELO).map(pedir));
+        for (const d of resp) filas.push(...(d.items || []));
+      }
+      const porSku = {};
+      for (const f of filas) {
+        const sku = f.variant && f.variant.code; if (!sku) continue;
+        if (fuente === 'stock') {
+          const p = porSku[sku] || (porSku[sku] = { sku, disponible: 0, total: 0 });
+          p.disponible += Number(f.quantityAvailable ?? f.quantity ?? 0); p.total += Number(f.quantity ?? 0);
+        } else {
+          porSku[sku] = { sku, neto: f.variantValue != null ? Number(f.variantValue) : null, bruto: f.variantValueWithTaxes != null ? Number(f.variantValueWithTaxes) : null };
+        }
+      }
+      const siguiente = (total !== null && offset + PAGINAS_POR_TANDA * 50 < total) ? offset + PAGINAS_POR_TANDA * 50 : null;
+      return res.status(200).json({ fuente, total, siguiente, bodega: cfg.officeNombre, lista: cfg.listaNombre, items: Object.values(porSku) });
+    }
+    return res.status(400).json({ error: 'fuente inválida (stock, precios o shopify)' });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error leyendo datos para la comparación sombra', detail: String(err.message || err).slice(0, 300) });
+  }
+}
+
+// Permisos (scopes) que tiene HOY la app de Shopify del ERP, frente a los que haría falta para reemplazar la app de Bsale.
+async function manejarShopifyPermisos(req, res, sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores' });
+    const acceso = await obtenerAccesoShopify();
+    if (!acceso) return res.status(200).json({ error: 'Shopify no está configurado en el servidor' });
+    const body = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, 'query { currentAppInstallation { accessScopes { handle } } }', {});
+    const tiene = ((body.data && body.data.currentAppInstallation && body.data.currentAppInstallation.accessScopes) || []).map(s => s.handle).sort();
+    if (!tiene.length) return res.status(200).json({ error: 'Shopify no devolvió los permisos', detail: JSON.stringify(body.errors || body).slice(0, 300) });
+    const necesarios = [
+      ['read_orders', 'leer pedidos'], ['write_orders', 'etiquetar pedidos y guardar el enlace del documento'],
+      ['read_products', 'leer productos y precios'], ['write_products', 'actualizar precios'],
+      ['read_inventory', 'leer stock'], ['write_inventory', 'actualizar stock'], ['read_locations', 'ubicar la sucursal PROVIDENCIA'],
+    ].map(([permiso, para]) => ({ permiso, para, tiene: tiene.includes(permiso) || (permiso.startsWith('read_') && tiene.includes('write_' + permiso.slice(5))) }));
+    return res.status(200).json({ ok: true, tiene, necesarios });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error consultando los permisos de Shopify', detail: String(err.message || err).slice(0, 300) });
   }
 }
 

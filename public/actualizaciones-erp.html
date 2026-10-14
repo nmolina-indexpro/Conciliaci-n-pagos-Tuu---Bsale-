@@ -292,6 +292,24 @@
     </div>
     <div id="resultadoPruebaBsale" style="margin-top:8px;"></div>
   </div>
+  <div class="card" style="padding:12px 14px;margin:8px 0 12px;">
+    <b>Permisos de la app de Shopify del ERP</b>
+    <div class="empty-note" style="margin:4px 0 8px;">Para reemplazar la app de Bsale el ERP tiene que poder escribir pedidos, stock y precios. Aquí se ve qué permisos tiene hoy.</div>
+    <button class="btn-ghost" id="btnPermisos" onclick="revisarPermisosShopify()">Revisar permisos</button>
+    <div id="resultadoPermisos" style="margin-top:8px;"></div>
+  </div>
+  <div class="card" style="padding:12px 14px;margin:8px 0 12px;">
+    <b>Stock y precios (modo sombra)</b>
+    <div class="empty-note" style="margin:4px 0 8px;">Compara el stock de la bodega <b>Casa Matriz</b> y la <b>Lista de Precios Base</b> de Bsale contra lo que hay hoy en Shopify, por SKU. <b>Solo lee</b>; no cambia nada. Tarda un par de minutos (unos 7.400 SKU).</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button class="btn-primary" id="btnStockPrecios" onclick="compararStockPrecios()">Comparar stock y precios</button>
+      <label style="font-size:12.5px;display:flex;gap:6px;align-items:center;"><input type="checkbox" id="soloActivos" checked onchange="renderStockPrecios()"> Solo productos activos en Shopify</label>
+      <select id="vistaSP" onchange="renderStockPrecios()"><option value="stock">Ver diferencias de stock</option><option value="precios">Ver diferencias de precio</option></select>
+    </div>
+    <div id="progresoSP" class="empty-note" style="margin-top:8px;"></div>
+    <div id="resumenSP" style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0;"></div>
+    <div class="tabla-wrap" id="wrapSP"></div>
+  </div>
   <div id="resumenBsale" style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0;"></div>
   <div class="card"><div class="tabla-wrap" id="wrapBsale"><p class="empty-note" style="padding:14px;">Pulsa "Revisar pedidos" para comparar.</p></div></div>
 </div>
@@ -382,6 +400,83 @@ async function cerrarSesion(){
 }
 // ---------------- Bsale (modo sombra) ----------------
 let datosBsale = null;
+async function revisarPermisosShopify(){
+  const out = $('resultadoPermisos'), b = $('btnPermisos'); b.disabled = true; out.innerHTML = '';
+  try{
+    const res = await fetch('/api/negocio?recurso=shopify-permisos'); const d = await res.json();
+    if(!res.ok || d.error){ out.innerHTML = '<div class="error-box">' + esc(d.error || 'Error') + (d.detail ? '<br><small>' + esc(d.detail) + '</small>' : '') + '</div>'; return; }
+    const faltan = d.necesarios.filter(x => !x.tiene);
+    out.innerHTML = '<table><thead><tr><th>Permiso</th><th>Para qué</th><th>Estado</th></tr></thead><tbody>' + d.necesarios.map(x =>
+      '<tr><td><code>' + esc(x.permiso) + '</code></td><td>' + esc(x.para) + '</td><td>' + (x.tiene ? '<span style="color:#12713a;font-weight:700;">✔ Lo tiene</span>' : '<span style="color:#a11d1d;font-weight:700;">✖ Falta</span>') + '</td></tr>').join('') + '</tbody></table>' +
+      (faltan.length ? '<div class="empty-note" style="margin-top:6px;">Faltan ' + faltan.length + ' permiso(s): hay que agregarlos a la app del ERP en el Dev Dashboard de Shopify y volver a aprobar la instalación en la tienda.</div>' : '<div style="margin-top:6px;color:#12713a;font-weight:700;">La app del ERP ya tiene todos los permisos necesarios.</div>') +
+      '<details style="margin-top:6px;"><summary class="empty-note" style="cursor:pointer;">Todos los permisos que tiene hoy (' + d.tiene.length + ')</summary><div class="empty-note">' + d.tiene.map(esc).join(', ') + '</div></details>';
+  }catch(err){ out.innerHTML = '<div class="error-box">' + esc(err.message) + '</div>'; }
+  finally{ b.disabled = false; }
+}
+let datosSP = null;
+async function traerTandas(fuente, onProgreso){
+  const items = []; let offset = 0, cursor = null, total = null, extra = {};
+  for(let guardia = 0; guardia < 80; guardia++){
+    const q = fuente === 'shopify' ? (cursor ? '&cursor=' + encodeURIComponent(cursor) : '') : '&offset=' + offset;
+    const res = await fetch('/api/negocio?recurso=bsale-sombra-datos&fuente=' + fuente + q);
+    const d = await res.json();
+    if(!res.ok || d.error) throw new Error((d.error || 'Error') + (d.detail ? ' — ' + d.detail : ''));
+    items.push(...d.items); if(d.total != null) total = d.total; if(d.bodega) extra.bodega = d.bodega; if(d.lista) extra.lista = d.lista;
+    onProgreso(items.length, total);
+    if(fuente === 'shopify'){ if(!d.siguiente) break; cursor = d.siguiente; } else { if(d.siguiente == null) break; offset = d.siguiente; }
+  }
+  return { items, extra };
+}
+async function compararStockPrecios(){
+  const b = $('btnStockPrecios'), prog = $('progresoSP'); b.disabled = true; datosSP = null;
+  $('wrapSP').innerHTML = ''; $('resumenSP').innerHTML = '';
+  try{
+    const pasos = [['stock', 'Stock de Bsale'], ['precios', 'Precios de Bsale'], ['shopify', 'Variantes de Shopify']], res = {};
+    for(let i = 0; i < pasos.length; i++){
+      const [f, nombre] = pasos[i];
+      res[f] = await traerTandas(f, (n, total) => { const pct = total ? Math.min(100, Math.round(n / total * 100)) : null; prog.textContent = 'Paso ' + (i + 1) + ' de 3 — ' + nombre + ': ' + (pct != null ? pct + '% — ' : '') + n.toLocaleString('es-CL') + (total ? ' de ' + total.toLocaleString('es-CL') : '') + ' leídos...'; });
+    }
+    datosSP = { stock: res.stock.items, precios: res.precios.items, shopify: res.shopify.items, bodega: res.stock.extra.bodega, lista: res.precios.extra.lista };
+    prog.textContent = 'Listo. Bodega de Bsale: ' + (datosSP.bodega || '—') + ' · Lista de precios: ' + (datosSP.lista || '—') + '.';
+    renderStockPrecios();
+  }catch(err){ prog.innerHTML = '<span style="color:#a11d1d;">' + esc(err.message) + '</span>'; }
+  finally{ b.disabled = false; }
+}
+function renderStockPrecios(){
+  if(!datosSP) return;
+  const soloActivos = $('soloActivos').checked;
+  const shop = new Map(); for(const v of datosSP.shopify){ if(!shop.has(v.sku)) shop.set(v.sku, v); }
+  const bsStock = new Map(datosSP.stock.map(x => [x.sku, x])), bsPrecio = new Map(datosSP.precios.map(x => [x.sku, x]));
+  const universo = [...shop.values()].filter(v => !soloActivos || v.estado === 'ACTIVE');
+  // stock
+  const stockDif = [], stockIgual = []; let sinBsaleStock = 0;
+  for(const v of universo){
+    const b = bsStock.get(v.sku); if(!b){ sinBsaleStock++; continue; }
+    const dif = (v.stock ?? 0) - b.disponible; (dif === 0 ? stockIgual : stockDif).push({ ...v, bsale: b.disponible, bsaleTotal: b.total, dif });
+  }
+  // precios (Bsale con IVA; si no viene, neto + 19%)
+  const precioDif = [], precioIgual = []; let sinBsalePrecio = 0;
+  for(const v of universo){
+    const b = bsPrecio.get(v.sku); if(!b){ sinBsalePrecio++; continue; }
+    const bruto = b.bruto != null ? Math.round(b.bruto) : (b.neto != null ? Math.round(b.neto * 1.19) : null); if(bruto == null){ sinBsalePrecio++; continue; }
+    const dif = v.precio - bruto; (Math.abs(dif) <= 1 ? precioIgual : precioDif).push({ ...v, bsale: bruto, dif });
+  }
+  const soloBsale = [...bsStock.keys()].filter(s => !shop.has(s)).length;
+  const chip = (t, bg, c) => '<span style="padding:6px 12px;border-radius:999px;font-weight:700;font-size:12.5px;background:' + bg + ';color:' + c + ';">' + t + '</span>';
+  const n = x => x.toLocaleString('es-CL');
+  $('resumenSP').innerHTML = chip(n(universo.length) + ' SKU en Shopify' + (soloActivos ? ' (activos)' : ''), '#eef2f9', '#0b2a5b') +
+    chip('Stock: ' + n(stockIgual.length) + ' iguales · ' + n(stockDif.length) + ' distintos', stockDif.length ? '#fff1d6' : '#e3f6ea', stockDif.length ? '#8a5a00' : '#12713a') +
+    chip('Precios: ' + n(precioIgual.length) + ' iguales (±$1) · ' + n(precioDif.length) + ' distintos', precioDif.length ? '#fff1d6' : '#e3f6ea', precioDif.length ? '#8a5a00' : '#12713a') +
+    chip(n(sinBsaleStock) + ' sin stock en Bsale · ' + n(sinBsalePrecio) + ' sin precio en Bsale · ' + n(soloBsale) + ' solo en Bsale', '#eef2f9', '#0b2a5b');
+  const vista = $('vistaSP').value, filas = (vista === 'stock' ? stockDif : precioDif).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif));
+  if(!filas.length){ $('wrapSP').innerHTML = '<p class="empty-note" style="padding:12px;">Sin diferencias de ' + vista + '.</p>'; return; }
+  const tope = 300, mostrar = filas.slice(0, tope);
+  $('wrapSP').innerHTML = '<table><thead><tr><th>SKU</th><th>Producto</th><th>Estado</th>' + (vista === 'stock' ? '<th>Stock Shopify</th><th>Disponible Bsale</th>' : '<th>Precio Shopify</th><th>Comparación Shopify</th><th>Precio Bsale (con IVA)</th>') + '<th>Diferencia</th></tr></thead><tbody>' +
+    mostrar.map(v => '<tr><td style="white-space:nowrap;"><b>' + esc(v.sku) + '</b></td><td>' + esc(v.producto) + '</td><td>' + esc(v.estado) + '</td>' +
+      (vista === 'stock' ? '<td>' + n(v.stock ?? 0) + '</td><td>' + n(v.bsale) + (v.bsaleTotal !== v.bsale ? ' <span class="empty-note">(total ' + n(v.bsaleTotal) + ')</span>' : '') + '</td>' : '<td>$' + n(v.precio) + '</td><td>' + (v.comparar ? '$' + n(v.comparar) : '—') + '</td><td>$' + n(v.bsale) + '</td>') +
+      '<td style="font-weight:700;color:' + (v.dif > 0 ? '#a11d1d' : '#8a5a00') + ';">' + (v.dif > 0 ? '+' : '') + n(v.dif) + '</td></tr>').join('') + '</tbody></table>' +
+    (filas.length > tope ? '<div class="empty-note" style="padding:8px;">Se muestran las ' + tope + ' diferencias más grandes de ' + n(filas.length) + '.</div>' : '');
+}
 async function pruebaCotizacionBsale(){
   const b = $('btnPruebaBsale'), out = $('resultadoPruebaBsale');
   if(!confirm('Se emitirá UNA cotización de prueba en Bsale (sin efecto tributario) y se enviará por correo a ' + $('pbEmail').value + '. ¿Continuar?')) return;
