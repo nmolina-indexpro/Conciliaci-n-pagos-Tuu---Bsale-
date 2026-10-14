@@ -126,6 +126,9 @@
   .nota-perfil{font-size:11.5px;color:var(--muted);margin-top:10px;}
 
   /* ---- Notificaciones: una fila por alerta, en columnas ---- */
+  tr.notif-cat td{background:var(--surface-2);border-top:2px solid var(--line);padding:9px 10px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:var(--primary-dark);}
+  tr.notif-cat td small{font-weight:500;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:6px;font-size:11.5px;}
+  tr.notif-cat:first-child td{border-top:none;}
   td.notif-nombre{min-width:220px;}
   td.notif-nombre b{display:block;font-size:13px;line-height:1.25;}
   td.notif-nombre small{color:var(--muted);font-size:11px;}
@@ -551,6 +554,7 @@ async function eliminarPerfil(id){
 // ---------------- Notificaciones por correo ----------------
 const DIAS_SEMANA = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 let listaNotificaciones = [];
+let categoriasNotif = []; // [{ id, nombre, icono }] en el orden en que se muestran
 let usuariosDisponiblesNotif = [];
 
 async function cargarNotificaciones(){
@@ -559,6 +563,7 @@ async function cargarNotificaciones(){
     const data = await res.json();
     if(!res.ok){ $('wrapNotificaciones').innerHTML = `<p class="empty-note" style="padding:14px;">${esc(data.error)}</p>`; return; }
     listaNotificaciones = data.tipos || [];
+    categoriasNotif = data.categorias || [];
     usuariosDisponiblesNotif = data.usuariosDisponibles || [];
     $('cuentaNotificaciones').textContent = listaNotificaciones.length;
     renderNotificaciones();
@@ -577,6 +582,23 @@ function haceTiempo(iso){
   if(d < 30) return `hace ${d} día${d === 1 ? '' : 's'}`;
   return new Date(iso).toLocaleDateString('es-CL');
 }
+// Ordena las notificaciones por categoría (ERP, Comercial, Sitio web, Análisis...) y antes de cada grupo agrega una fila de título.
+function ordenarPorCategoria(lista){
+  const cats = categoriasNotif.length ? categoriasNotif : [];
+  const idsConocidos = new Set(cats.map(c => c.id));
+  const todas = cats.concat(lista.some(n => !idsConocidos.has(n.categoria)) ? [{ id: '__otras', nombre: 'Otras', icono: '📌' }] : []);
+  const salida = [];
+  for(const c of todas){
+    const delGrupo = lista.filter(n => c.id === '__otras' ? !idsConocidos.has(n.categoria) : n.categoria === c.id);
+    if(!delGrupo.length) continue;
+    salida.push({ __categoria: { ...c, total: delGrupo.length, activas: delGrupo.filter(n => n.activa).length } });
+    salida.push(...delGrupo);
+  }
+  return salida.length ? salida : lista;
+}
+function filaCategoriaNotif(c){
+  return `<tr class="notif-cat"><td colspan="5">${esc(c.icono || '')} ${esc(c.nombre)}<small>${c.activas} de ${c.total} activas</small></td></tr>`;
+}
 function renderNotificaciones(){
   if(listaNotificaciones.length === 0){
     $('wrapNotificaciones').innerHTML = `<p class="empty-note" style="padding:14px;">No hay notificaciones configurables todavía.</p>`;
@@ -586,7 +608,7 @@ function renderNotificaciones(){
     <table>
       <thead><tr><th>Notificación</th><th>Activa</th><th>Frecuencia</th><th style="width:38%;">Destinatarios</th><th>Último envío</th></tr></thead>
       <tbody>
-      ${listaNotificaciones.map(n => {
+      ${ordenarPorCategoria(listaNotificaciones).map(n => n.__categoria ? filaCategoriaNotif(n.__categoria) : (() => {
         const disponibles = usuariosDisponiblesNotif.filter(u => !n.suscriptores.some(s => s.id === u.id));
         const ultimo = haceTiempo(n.ultimoEnvioEn);
         return `
@@ -612,7 +634,7 @@ function renderNotificaciones(){
           </div></td>
           <td class="empty-note" title="${n.ultimoEnvioEn ? esc(new Date(n.ultimoEnvioEn).toLocaleString('es-CL')) : ''}">${ultimo || 'Sin envíos'}</td>
         </tr>${n.tipo === 'resumen-cambios-diario' ? filaEnlaceResumen() : ''}`;
-      }).join('')}
+      })()).join('')}
       </tbody>
     </table>`;
 }

@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles, asegurarTablaNotificaciones } from '../lib/db.js';
 import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
 import { enviarCorreo, consultarEventosBrevo, resumirEntregaBrevo } from '../lib/mailer.js';
-import { TIPOS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto } from '../lib/notificaciones.js';
+import { TIPOS_NOTIFICACION, CATEGORIAS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto } from '../lib/notificaciones.js';
 import { TIPO_RESUMEN_CAMBIOS, fechaHoyChile, enviarResumenCambios, sanitizarHtmlResumen, armarCorreoResumen, armarContenidoCambios } from '../lib/resumen-cambios.js';
 import { asegurarCambiosRegistro, validarCambio } from '../lib/cambios-registro.js';
 import { paginasEfectivas, paginasParaGuardar } from '../lib/paginas-perfil.js';
@@ -389,7 +389,7 @@ async function manejarNotificaciones(req, res, sql) {
     const tipos = Object.entries(TIPOS_NOTIFICACION).map(([tipo, info]) => {
       const c = configPorTipo[tipo] || {};
       return {
-        tipo, nombre: info.nombre,
+        tipo, nombre: info.nombre, categoria: info.categoria || 'otras',
         activa: c.activa !== false,
         frecuencia: c.frecuencia || 'diaria',
         diaSemana: c.dia_semana ?? null,
@@ -400,7 +400,7 @@ async function manejarNotificaciones(req, res, sql) {
     const hoy = fechaHoyChile();
     const { rows: resumenRows } = await sql`SELECT fecha::text AS fecha, contenido, enviado_en, actualizado_por FROM resumen_cambios WHERE fecha = ${hoy}::date;`;
     const resumenHoy = { fecha: hoy, contenido: resumenRows[0]?.contenido || '', enviadoEn: resumenRows[0]?.enviado_en || null, actualizadoPor: resumenRows[0]?.actualizado_por || null };
-    return res.status(200).json({ tipos, usuariosDisponibles: usuariosRows, resumenHoy });
+    return res.status(200).json({ tipos, categorias: CATEGORIAS_NOTIFICACION, usuariosDisponibles: usuariosRows, resumenHoy });
   }
 
   // Texto del resumen diario de cambios: guardar el de hoy / mandarlo ahora a los suscriptores.
