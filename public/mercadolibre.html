@@ -247,6 +247,22 @@
     <div class="sub empty-note" style="margin-bottom:10px;">Conexión del ERP con la cuenta vendedora de Mercado Libre para medir ventas, publicaciones y reputación. Es de <b>solo lectura</b>: el ERP no cambia precios, stock ni publicaciones.</div>
     <div class="card" style="padding:14px 16px;" id="cardEstado"><p class="empty-note">Cargando...</p></div>
     <div class="card" style="padding:14px 16px;margin-top:12px;display:none;" id="cardPrueba"></div>
+
+    <div id="seccionDatos" style="display:none;">
+      <div class="card" style="padding:14px 16px;margin-top:12px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <h2 style="font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0;">Datos de Mercado Libre</h2>
+          <span class="espacio" style="flex:1;"></span>
+          <button class="btn-primary" id="btnActualizarDatos" onclick="MLMetricas.actualizarDatos()">Actualizar datos</button>
+        </div>
+        <div class="empty-note" style="margin-top:4px;">Trae publicaciones, visitas, órdenes, envíos, preguntas, reputación, publicidad y costos de Bsale. Se actualiza solo una vez al día; el botón sirve para traer lo más reciente.</div>
+        <div id="progresoDatos"></div>
+      </div>
+      <div class="card" style="padding:14px 16px;margin-top:12px;">
+        <div class="tabs" id="tabsMetricas" style="flex-wrap:wrap;margin-bottom:10px;border-bottom:1px solid var(--line);"></div>
+        <div id="contenidoMetricas"><p class="empty-note">Cargando...</p></div>
+      </div>
+    </div>
   </section>
 </div>
 
@@ -255,6 +271,7 @@
 <script src="navegacion-historial.js"></script>
 <script src="restriccion-usuario.js"></script>
 <script src="menu-herramientas.js"></script>
+<script src="mercadolibre-metricas.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 function esc(t){
@@ -308,6 +325,7 @@ async function cargarEstado(){
 }
 function renderEstado(){
   const e = estado;
+  if(window.MLMetricas){ if(e.conectado && !renderEstado.iniciado){ renderEstado.iniciado = true; MLMetricas.iniciar(); } else if(!e.conectado){ renderEstado.iniciado = false; MLMetricas.ocultar(); } }
   if(!e.configurado){
     $('cardEstado').innerHTML = `
       <h2 style="font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0 0 8px;">Falta crear la aplicación en Mercado Libre</h2>
@@ -387,5 +405,6 @@ async function desconectar(){
 }
 cargarSesion();
 </script>
+<script src="tablas-ordenables.js"></script>
 </body>
 </html>
