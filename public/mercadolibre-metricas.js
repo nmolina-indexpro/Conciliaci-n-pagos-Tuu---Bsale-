@@ -208,6 +208,20 @@
     }
   }
 
+  async function diagnostico() {
+    const b = $('btnDiagnostico'), cont = $('resultadoDiagnostico');
+    b.disabled = true; cont.innerHTML = '<p class="empty-note">Consultando Mercado Libre...</p>';
+    try {
+      const d = await pedir('diagnostico');
+      if (!d.ok) { cont.innerHTML = '<div class="error-box">' + esc(d.error) + '</div>'; return; }
+      cont.innerHTML = '<div class="empty-note" style="margin:8px 0;">Respuestas reales de Mercado Libre (recortadas, sin datos de compradores). Si algún dato sale vacío en las métricas, copia esto y mándamelo.</div>' +
+        d.resultados.map(r => '<div style="margin:8px 0;"><b>' + esc(r.nombre) + '</b> ' + (r.estado === 'ok' ? '<span style="color:var(--green);">OK</span>' : '<span style="color:var(--red);">Error' + (r.http ? ' ' + r.http : '') + '</span>') +
+          ' <code style="font-size:11.5px;">' + esc(r.ruta) + '</code><pre style="background:var(--surface-2);border-radius:8px;padding:8px 10px;font-size:11.5px;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto;margin:4px 0 0;">' + esc(r.muestra) + '</pre></div>').join('');
+    } catch (err) {
+      cont.innerHTML = '<div class="error-box">' + esc(err.message) + '</div>';
+    } finally { b.disabled = false; }
+  }
+
   async function iniciar() {
     $('seccionDatos').style.display = '';
     try {
@@ -216,5 +230,5 @@
     } catch (err) { /* sin estado todavía */ }
     cargarMetricas();
   }
-  window.MLMetricas = { iniciar, actualizarDatos, tab: t => { tabActiva = t; dibujarMetricas(); }, ocultar: () => { $('seccionDatos').style.display = 'none'; } };
+  window.MLMetricas = { iniciar, actualizarDatos, diagnostico, tab: t => { tabActiva = t; dibujarMetricas(); }, ocultar: () => { $('seccionDatos').style.display = 'none'; } };
 })();

@@ -253,10 +253,12 @@
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <h2 style="font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0;">Datos de Mercado Libre</h2>
           <span class="espacio" style="flex:1;"></span>
+          <button class="btn-ghost" id="btnDiagnostico" onclick="MLMetricas.diagnostico()" title="Muestra lo que Mercado Libre responde a cada lectura (sin datos de compradores)">Diagnóstico de la API</button>
           <button class="btn-primary" id="btnActualizarDatos" onclick="MLMetricas.actualizarDatos()">Actualizar datos</button>
         </div>
         <div class="empty-note" style="margin-top:4px;">Trae publicaciones, visitas, órdenes, envíos, preguntas, reputación, publicidad y costos de Bsale. Se actualiza solo una vez al día; el botón sirve para traer lo más reciente.</div>
         <div id="progresoDatos"></div>
+        <div id="resultadoDiagnostico"></div>
       </div>
       <div class="card" style="padding:14px 16px;margin-top:12px;">
         <div class="tabs" id="tabsMetricas" style="flex-wrap:wrap;margin-bottom:10px;border-bottom:1px solid var(--line);"></div>
@@ -362,7 +364,7 @@ function renderEstado(){
       <b style="font-size:15px;">${esc(c.nickname || 'Cuenta de Mercado Libre')}</b>
       <span class="empty-note">${esc(c.siteId || '')}${c.id ? ' · usuario ' + esc(c.id) : ''}</span>
     </div>
-    <div class="empty-note" style="line-height:1.7;">Conectada por <b>${esc(c.conectadoPor || '—')}</b> el ${esc(fechaHora(c.conectadoEn))}. El acceso actual vence el ${esc(fechaHora(c.accesoExpiraEn))} y se renueva solo.<br>Permisos concedidos por Mercado Libre: <b>${esc(c.permisos || 'no informados')}</b>${escrituraNegocio(c.permisos) ? ' <span style="color:var(--red);font-weight:700;">· hay permisos de negocio con escritura (' + esc(escrituraNegocio(c.permisos)) + '): bájalos a Lectura o Sin acceso en la aplicación y vuelve a conectar</span>' : ' <span class="empty-note">(los permisos de cuenta «admin» con lectura y escritura los fija Mercado Libre; el ERP solo hace lecturas)</span>'}</div>
+    <div class="empty-note" style="line-height:1.7;">Conectada por <b>${esc(c.conectadoPor || '—')}</b> el ${esc(fechaHora(c.conectadoEn))}, y el acceso actual vence el ${esc(fechaHora(c.accesoExpiraEn))} y se renueva solo.<br>Permisos concedidos por Mercado Libre: <b>${esc(c.permisos || 'no informados')}</b>${escrituraNegocio(c.permisos) ? ' <span style="color:var(--red);font-weight:700;">· hay permisos de negocio con escritura (' + esc(escrituraNegocio(c.permisos)) + '): bájalos a Lectura o Sin acceso en la aplicación y vuelve a conectar</span>' : ' <span class="empty-note">(los permisos de cuenta «admin» con lectura y escritura los fija Mercado Libre; el ERP solo hace lecturas)</span>'}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
       <button class="btn-primary btn-sm" id="btnProbar" onclick="probar()">Probar lectura</button>
       <button class="btn-ghost btn-sm" onclick="conectar()" title="Vuelve a autorizar la cuenta (por ejemplo si cambió la contraseña o los permisos)">Reconectar</button>

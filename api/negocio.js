@@ -31,7 +31,7 @@ import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionE
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
 import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTablaMercadoLibre, leerConexion, borrarConexion, conectarConCodigo, probarLectura, lectorML } from '../lib/mercadolibre.js';
-import { asegurarTablasMLDatos, reiniciarSync, estadoSync, siguientePaso, ejecutarPaso, calcularMetricasML, PASOS as PASOS_ML } from '../lib/mercadolibre-datos.js';
+import { asegurarTablasMLDatos, reiniciarSync, estadoSync, siguientePaso, ejecutarPaso, calcularMetricasML, diagnosticoLectura, PASOS as PASOS_ML } from '../lib/mercadolibre-datos.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
@@ -11421,6 +11421,14 @@ async function manejarMercadoLibre(req, res, sesion) {
       await asegurarTablasMLDatos(sql);
       const r = await ejecutarTramoMercadoLibre(sql, cfg, req.query.paso ? String(req.query.paso) : null, 40000);
       return res.status(200).json(r);
+    }
+    if (accion === 'diagnostico') {
+      try {
+        const lector = await lectorML(sql, cfg);
+        return res.status(200).json({ ok: true, resultados: await diagnosticoLectura({ leer: lector.leer, userId: lector.userId, ahora: () => Date.now() }) });
+      } catch (err) {
+        return res.status(200).json({ ok: false, error: err.codigo === 'sin_conexion' ? 'Mercado Libre no está conectado' : err.message });
+      }
     }
     if (accion === 'metricas') {
       await asegurarTablasMLDatos(sql);
