@@ -22,6 +22,7 @@ import { corregirCorreo } from '../lib/correos-corregidos.js';
 import { sqlOfertaLateral, PARAMS_OFERTA, sqlSolicitudLateral, PARAM_SOLICITUD, mejorNivelOferta, nivelConversacion, esConversion, esOfertaCompleta, nivelDesdeFilaSql, resumirConversionComercial } from '../lib/whatsapp-oferta.js';
 import { analizarCategoria as analizarCategoriaWhatsapp, CATEGORIAS_ANALIZABLES, analizarMotivo as analizarMotivoWhatsapp, MOTIVOS_ANALIZABLES, esCierreCordial, debeReclasificarPorCierre, RESULTADOS_DEBILES_CIERRE, MOTIVOS_DEBILES_CIERRE } from '../lib/whatsapp-motivos.js';
 import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR } from '../lib/cotizaciones-recontacto.js';
+import { prepararCotizaciones as prepararCotizacionesSeguimiento, armarCorreoSeguimiento } from '../lib/cotizaciones-seguimiento.js';
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
@@ -4570,31 +4571,12 @@ async function manejarGoogleAdsResumenSemanal(req, res) {
   }
 }
 
-// Seguimiento automático de cotizaciones -- pedido del usuario ("el
-// siguiente paso natural a 'días sin contacto' es crear un recordatorio
-// solo"). Dos correos, mismo cron, mismo mecanismo probado que el resumen
-// semanal de Servicio Técnico de arriba (enviarCorreo + CRON_SECRET, sin
-// sesión):
-//   1) Resumen diario -- TODAS las cotizaciones abiertas sin cambios de
-//      estado hace 7+ días, agrupadas por vendedor. Solo se manda si hay
-//      algo que reportar.
-//   2) Alerta urgente -- el subconjunto con 3+ días Y monto sobre $300.000
-//      (se están por perder y valen la pena una intervención). Solo se
-//      manda si hay al menos una.
-// OJO: se descartó mandar esto por WhatsApp al no tener un vendedor/admin
-// que haya escrito primero -- Meta rechaza texto libre fuera de la ventana
-// de 24h de una conversación iniciada por el cliente, y no hay una
-// plantilla pre-aprobada para esto. Correo es lo que sí funciona hoy.
-//
-// UMBRAL_DIAS_SIN_CONTACTO acá DEBE calzar con UMBRAL_DIAS_SIN_CONTACTO_COT
-// en oportunidades-comerciales.html -- es el mismo concepto ("días sin
-// contacto"), solo que acá se recalcula server-side porque un cron no
-// tiene el array `cotizaciones` ya cargado en el navegador de nadie.
+// Seguimiento automático de cotizaciones -- UN solo correo diario "Qué hacer hoy" (antes eran tres: "Seguimiento" de 7+ días, "Cotizaciones en
+// riesgo" y "Por recontactar"). Se prioriza por MONTO y por DÍAS sin contacto (ver lib/cotizaciones-seguimiento.js: niveles Crítica / Alta /
+// Seguimiento), agrupado por vendedor, con las 5 de mayor prioridad arriba. Mismo mecanismo probado de los otros crons (enviarCorreo + CRON_SECRET,
+// sin sesión). Se descartó mandar esto por WhatsApp: Meta rechaza texto libre fuera de la ventana de 24h y no hay plantilla pre-aprobada.
 // Destinatarios: ver TIPOS_NOTIFICACION['cotizaciones-seguimiento-diario'] / página Usuarios.
-const COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS = 7;
-const COTIZACIONES_SEGUIMIENTO_TOPE_DIAS = 35; // más vieja que esto ya no entra al resumen diario -- prácticamente perdida
-const COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS = 3;
-const COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO = 300000;
+// Con ?probar=1 (y el mismo secreto del cron) manda el correo aunque la notificación esté inactiva o no toque hoy, con "[PRUEBA]" en el asunto.
 async function manejarCotizacionesSeguimientoDiario(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
   const auth = req.headers.authorization || '';
@@ -4604,110 +4586,42 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
   try {
     const sql = await getSql();
     await asegurarTablaNotificaciones(sql);
-    if (!(await notificacionDebeEnviarse(sql, 'cotizaciones-seguimiento-diario'))) {
+    const probar = req.query.probar === '1';
+    if (!probar && !(await notificacionDebeEnviarse(sql, 'cotizaciones-seguimiento-diario'))) {
       return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
     }
-    const destinatariosSeguimiento = await obtenerSuscriptoresEmail(sql, 'cotizaciones-seguimiento-diario');
+    const destinatarios = await obtenerSuscriptoresEmail(sql, 'cotizaciones-seguimiento-diario');
     await asegurarTablaCotizaciones(sql);
+    await asegurarTablaCotizacionesContactos(sql);
+    await asegurarTablaCotizacionesCorreos(sql);
 
+    // Último contacto real (correo saliente o contacto registrado) y último mensaje del cliente, para contar los días y detectar al cliente que espera.
     const { rows } = await sql`
-      SELECT id, cliente_nombre, monto, fecha, actualizado_en, estado, vendedor_nombre
-      FROM bsale_cotizaciones
-      WHERE estado NOT IN ('facturada', 'perdida');
-    `;
+      SELECT c.id, c.numero, c.url_cotizacion, c.cliente_nombre, c.monto, c.fecha, c.estado, c.actualizado_en, c.vendedor_nombre, ug.nombre AS responsable,
+             (SELECT MAX(x.fecha) FROM (
+                SELECT fecha FROM bsale_cotizaciones_contactos WHERE cotizacion_id = c.id
+                UNION ALL
+                SELECT fecha FROM cotizaciones_correos WHERE direccion = 'saliente' AND (cotizacion_id = c.id OR (cliente_email IS NOT NULL AND cliente_email <> '' AND cliente_email = c.cliente_email))
+              ) x) AS ultimo_contacto,
+             (SELECT MAX(fecha) FROM cotizaciones_correos WHERE direccion = 'entrante' AND (cotizacion_id = c.id OR (cliente_email IS NOT NULL AND cliente_email <> '' AND cliente_email = c.cliente_email))) AS ultimo_entrante
+      FROM bsale_cotizaciones c
+      LEFT JOIN usuarios ug ON ug.id = c.responsable_gestion_id
+      WHERE c.estado NOT IN ('facturada', 'perdida');`;
 
-    const hoy = new Date().toISOString().slice(0, 10);
-    const diasEntre = (desde, hasta) => Math.round((new Date(hasta + 'T00:00:00Z') - new Date(desde + 'T00:00:00Z')) / 86400000);
-
-    // Base SIN filtrar por ningún umbral todavía -- el umbral urgente
-    // (3+ días) es más bajo que el del resumen (7+ días), así que "urgentes"
-    // NO puede salir de filtrar "pendientes" (eso dejaría afuera para
-    // siempre a las cotizaciones de 3-6 días, que nunca llegarían a
-    // "pendientes"). Ambas listas se derivan de esta misma base, cada una
-    // con su propio corte.
-    //
-    // Bug real detectado (muchas cotizaciones repitiendo el mismo "días sin
-    // contacto"): actualizado_en tiene DEFAULT now() en la base de datos,
-    // así que NUNCA es null -- ni siquiera para una cotización recién
-    // sincronizada que nadie ha tocado -- y el fallback a "fecha" de más
-    // abajo nunca se activaba. Un lote grande sincronizado el mismo día
-    // (con estado todavía en 'sin_contactar', el default) quedaba pegado
-    // para siempre en la misma fecha de sincronización, no la fecha real
-    // de la cotización. Ahora "actualizado_en" solo se usa si la
-    // cotización realmente cambió de estado alguna vez (manejarCotizacionEstado
-    // es lo único que lo actualiza después del insert inicial); si sigue en
-    // 'sin_contactar', se usa "fecha" (la fecha de emisión real en Bsale).
-    const abiertasConDias = rows.map(r => {
-      const actualizadoDeVerdad = r.estado !== 'sin_contactar' && r.actualizado_en;
-      const base = actualizadoDeVerdad ? new Date(r.actualizado_en).toISOString().slice(0, 10) : (r.fecha ? new Date(r.fecha).toISOString().slice(0, 10) : null);
-      const dias = base ? diasEntre(base, hoy) : null;
-      return {
-        cliente: r.cliente_nombre || 'Sin nombre', monto: Number(r.monto) || 0,
-        vendedor: r.vendedor_nombre || 'Sin vendedor asignado', dias,
-      };
-    }).filter(c => c.dias !== null);
-
-    // Tope de 35 días (pedido del usuario): una cotización más vieja que
-    // eso ya está prácticamente perdida -- seguir recordándola a diario en
-    // este resumen no aporta, y además esas son justo las que más se
-    // repetían con el mismo número por el bug de arriba.
-    const pendientes = abiertasConDias
-      .filter(c => c.dias >= COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS && c.dias <= COTIZACIONES_SEGUIMIENTO_TOPE_DIAS)
-      .sort((a, b) => b.dias - a.dias);
-
+    const prep = prepararCotizacionesSeguimiento(rows);
+    // Sin nada que atender no se manda correo (igual que antes: solo se avisa si hay algo); con ?probar=1 se manda igual para ver el diseño.
+    if (!prep.items.length && !probar) {
+      return res.status(200).json({ ok: true, enviado: false, motivo: 'no hay cotizaciones por atender hoy', revisadas: rows.length, porDepurar: prep.depurar.n });
+    }
+    const { asunto, html, resumen } = armarCorreoSeguimiento(prep, { urlBase: URL_BASE_APP });
     const envios = [];
-    const urlPagina = 'https://erp.indexstore.cl/cotizaciones-clientes.html';
-    const filaCot = c => `<li><b>${c.cliente}</b> — $${Math.round(c.monto).toLocaleString('es-CL')} — ${c.dias} días sin contacto</li>`;
-
-    // ---------- 1) Resumen diario, agrupado por vendedor ----------
-    if (pendientes.length > 0) {
-      const porVendedor = new Map();
-      for (const c of pendientes) {
-        if (!porVendedor.has(c.vendedor)) porVendedor.set(c.vendedor, []);
-        porVendedor.get(c.vendedor).push(c);
-      }
-      const bloquesVendedor = [...porVendedor.entries()]
-        .sort((a, b) => b[1].length - a[1].length)
-        .map(([vendedor, items]) => {
-          const totalVendedor = items.reduce((suma, c) => suma + c.monto, 0);
-          return `<h3>${vendedor} (${items.length}) — Total: $${Math.round(totalVendedor).toLocaleString('es-CL')}</h3><ul>${items.map(filaCot).join('')}</ul>`;
-        })
-        .join('');
-      const html = `
-        <h2>📋 Seguimiento de cotizaciones</h2>
-        <p style="color:#666;">${pendientes.length} ${pendientes.length === 1 ? 'cotización' : 'cotizaciones'} sin cambios de estado hace ${COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS}+ días.</p>
-        ${bloquesVendedor}
-        <p><a href="${urlPagina}">Ver en el ERP -- página Ventas</a></p>
-      `;
-      const asunto = `📋 Seguimiento -- ${pendientes.length} ${pendientes.length === 1 ? 'cotización' : 'cotizaciones'} sin contacto hace ${COTIZACIONES_SEGUIMIENTO_UMBRAL_DIAS}+ días`;
-      for (const para of destinatariosSeguimiento) {
-        envios.push({ tipo: 'resumen', para, ...(await enviarCorreo({ para, asunto, html })) });
-      }
+    for (const para of destinatarios) {
+      envios.push({ para, ...(await enviarCorreo({ para, asunto: probar ? `[PRUEBA] ${asunto}` : asunto, html })) });
     }
-
-    // ---------- 2) Alerta urgente, solo las críticas ----------
-    // Se deriva de abiertasConDias (no de "pendientes") -- ver comentario
-    // de arriba, su umbral de días es menor que el del resumen.
-    const urgentes = abiertasConDias
-      .filter(c => c.dias >= COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS && c.monto >= COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO)
-      .sort((a, b) => b.dias - a.dias);
-    if (urgentes.length > 0) {
-      const html = `
-        <h2 style="color:#DC2626;">🚨 Cotizaciones en riesgo</h2>
-        <p style="color:#666;">${urgentes.length} ${urgentes.length === 1 ? 'cotización' : 'cotizaciones'} con ${COTIZACIONES_SEGUIMIENTO_URGENTE_DIAS}+ días sin contacto y sobre $${COTIZACIONES_SEGUIMIENTO_URGENTE_MONTO.toLocaleString('es-CL')} -- se están por perder.</p>
-        <ul>${urgentes.map(c => `<li><b>${c.cliente}</b> — $${Math.round(c.monto).toLocaleString('es-CL')} — ${c.dias} días sin contacto — vendedor: ${c.vendedor}</li>`).join('')}</ul>
-        <p><a href="${urlPagina}">Ver en el ERP -- página Ventas</a></p>
-      `;
-      const asunto = `🚨 ${urgentes.length} ${urgentes.length === 1 ? 'cotización' : 'cotizaciones'} en riesgo de perderse`;
-      for (const para of destinatariosSeguimiento) {
-        envios.push({ tipo: 'urgente', para, ...(await enviarCorreo({ para, asunto, html })) });
-      }
-    }
-
-    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'cotizaciones-seguimiento-diario');
-    return res.status(200).json({ ok: true, pendientes: pendientes.length, urgentes: urgentes.length, envios });
+    if (envios.length > 0 && !probar) await marcarNotificacionEnviada(sql, 'cotizaciones-seguimiento-diario');
+    return res.status(200).json({ ok: true, enviado: envios.length > 0, porAtender: prep.items.length, criticas: resumen.critica.n, altas: resumen.alta.n, seguimiento: resumen.seguimiento.n, porDepurar: prep.depurar.n, envios });
   } catch (err) {
-    return res.status(500).json({ error: 'Error generando o enviando el seguimiento de cotizaciones', detail: String(err) });
+    return res.status(500).json({ error: 'Error generando o enviando el seguimiento de cotizaciones', detail: String(err.message || err) });
   }
 }
 
@@ -4719,6 +4633,8 @@ async function manejarCotizacionesRecontactarDiario(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
   const auth = req.headers.authorization || '';
   if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  // Absorbido por el correo diario unificado (manejarCotizacionesSeguimientoDiario): ya no se manda por separado.
+  if (req.query.probar !== '1') return res.status(200).json({ ok: true, enviado: false, motivo: 'unificado en el seguimiento diario de cotizaciones' });
   try {
     const sql = await getSql();
     await asegurarTablaNotificaciones(sql);
