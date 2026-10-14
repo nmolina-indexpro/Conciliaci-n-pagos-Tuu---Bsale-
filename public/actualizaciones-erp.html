@@ -310,6 +310,7 @@
     <b>Avisos de Bsale (webhooks, modo sombra)</b>
     <div class="empty-note" style="margin:4px 0 8px;">Cuando Bsale active los webhooks, aquí se ven los avisos que llegan (stock, precio, documentos) y qué cambiaría en Shopify. <b>No se escribe nada en Shopify.</b> Dirección para Bsale: <code>https://erp.indexstore.cl/api/negocio?recurso=bsale-webhook</code></div>
     <button class="btn-ghost" id="btnEventosBsale" onclick="cargarEventosBsale()">Ver avisos recibidos</button>
+    <button class="btn-ghost" id="btnReevaluarBsale" onclick="reevaluarEventosBsale()" title="Vuelve a leer de Bsale y Shopify los avisos de stock o precio que quedaron con error. No escribe nada.">Volver a evaluar los que fallaron</button>
     <div id="resumenEventosBsale" class="empty-note" style="margin-top:8px;"></div>
     <div class="tabla-wrap" id="wrapEventosBsale"></div>
   </div>
@@ -464,6 +465,20 @@ async function detalleBsalePedido(id){
       '</div><div id="resultadoEmision" style="margin-top:8px;"></div></div>';
     $('cuerpoPedidoBsale').innerHTML = h;
   }catch(err){ $('cuerpoPedidoBsale').innerHTML = '<div class="error-box">' + esc(err.message) + '</div>'; }
+}
+async function reevaluarEventosBsale(){
+  const b = $('btnReevaluarBsale'); b.disabled = true; let total = 0;
+  try{
+    for(let vuelta = 0; vuelta < 30; vuelta++){
+      const res = await fetch('/api/negocio?recurso=bsale-eventos', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion:'reevaluar' }) });
+      const d = await res.json();
+      if(!res.ok || d.error){ $('resumenEventosBsale').innerHTML = '<span style="color:#a11d1d;">' + esc(d.error || 'Error') + '</span>'; return; }
+      total += d.evaluados; b.textContent = 'Evaluando... ' + total + ' (quedan ' + d.restantes + ')';
+      if(!d.restantes || !d.evaluados) break;
+    }
+  }catch(err){ $('resumenEventosBsale').innerHTML = '<span style="color:#a11d1d;">' + esc(err.message) + '</span>'; }
+  finally{ b.disabled = false; b.textContent = 'Volver a evaluar los que fallaron'; }
+  cargarEventosBsale();
 }
 async function cargarEventosBsale(){
   const b = $('btnEventosBsale'); b.disabled = true;

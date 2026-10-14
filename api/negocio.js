@@ -8635,10 +8635,29 @@ async function manejarBsaleWebhook(req, res) {
 // Últimos avisos recibidos (pantalla Bsale > Avisos). Solo administradores.
 async function manejarBsaleEventos(req, res, sesion) {
   try {
-    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
     if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores' });
     const sql = await getSql();
     await asegurarTablasBsaleSync(sql);
+    // "Volver a evaluar": vuelve a procesar avisos de stock o precio que quedaron con error (por ejemplo, de antes de un arreglo) usando el
+    // recurso que se guardó. Solo lee de Bsale y Shopify; no escribe en Shopify. De a pocos por llamada: la página repite hasta terminar.
+    if (req.method === 'POST') {
+      if ((req.body || {}).accion !== 'reevaluar') return res.status(400).json({ error: 'Acción inválida' });
+      const { rows: pendientes } = await sql`
+        SELECT id, topic, accion, recurso FROM bsale_sync_eventos
+        WHERE lower(topic) IN ('stock', 'price', 'precio') AND (resultado->>'error' IS NOT NULL OR resultado->>'nota' LIKE 'no pude%') AND coalesce(resultado->>'reevaluado', '') = ''
+        ORDER BY id DESC LIMIT 12;`;
+      let hechos = 0;
+      for (const ev of pendientes) {
+        let resultado;
+        try { resultado = await evaluarAvisoBsale(ev.topic, ev.accion, recursoBsaleSeguro(ev.recurso)); } catch (e) { resultado = { error: String(e.message || e).slice(0, 200) }; }
+        resultado.reevaluado = '1';
+        await sql`UPDATE bsale_sync_eventos SET resultado = ${JSON.stringify(resultado)}::jsonb WHERE id = ${ev.id};`;
+        hechos++;
+      }
+      const { rows: resto } = await sql`SELECT count(*)::int AS n FROM bsale_sync_eventos WHERE lower(topic) IN ('stock', 'price', 'precio') AND (resultado->>'error' IS NOT NULL OR resultado->>'nota' LIKE 'no pude%') AND coalesce(resultado->>'reevaluado', '') = '';`;
+      return res.status(200).json({ ok: true, evaluados: hechos, restantes: resto[0].n });
+    }
     const { rows } = await sql`SELECT id, recibido_en, topic, accion, recurso, resultado FROM bsale_sync_eventos ORDER BY id DESC LIMIT 60;`;
     const { rows: conteo } = await sql`SELECT topic, count(*)::int AS n FROM bsale_sync_eventos WHERE recibido_en > now() - interval '24 hours' GROUP BY topic ORDER BY n DESC;`;
     return res.status(200).json({ eventos: rows, ultimas24h: conteo, claveConfigurada: !!process.env.BSALE_WEBHOOK_CLAVE });
