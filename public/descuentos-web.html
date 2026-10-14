@@ -269,8 +269,11 @@
         <div class="sub">Lo medido en la ficha (quién vio los tramos, hizo clic y agregó al carro) y lo vendido en los pedidos de la tienda con los descuentos automáticos cuyo nombre empieza con "Volumen".</div>
       </div>
       <div class="filtros" style="margin:0;">
-        <button type="button" class="btn-ghost btn-compact" data-dias="30">30 días</button>
-        <button type="button" class="btn-ghost btn-compact" data-dias="90">90 días</button>
+        <button type="button" class="btn-ghost btn-compact" data-periodo="hoy">Hoy</button>
+        <button type="button" class="btn-ghost btn-compact" data-periodo="ayer">Ayer</button>
+        <button type="button" class="btn-ghost btn-compact" data-periodo="semana" title="Desde el lunes hasta hoy">Esta semana</button>
+        <button type="button" class="btn-ghost btn-compact" data-periodo="30">30 días</button>
+        <button type="button" class="btn-ghost btn-compact" data-periodo="90">90 días</button>
       </div>
     </div>
     <div id="resEstado" class="empty-note">Cargando…</div>
@@ -326,7 +329,8 @@ async function cerrarSesion(){
 }
 
 let D = null;       // respuesta principal
-let diasRes = 30;
+let periodoRes = '30'; // 'hoy' | 'ayer' | 'semana' | '30' | '90'
+const PERIODO_TEXTO = { hoy: 'hoy', ayer: 'ayer', semana: 'esta semana', 30: 'los últimos 30 días', 90: 'los últimos 90 días' };
 
 // Cada módulo se puede minimizar (se recuerda) y las listas largas muestran 3 filas con un botón "Ver todos".
 const LIMITE_FILAS = 3;
@@ -497,9 +501,9 @@ async function aplicar(){
 }
 
 async function cargarResultados(){
-  document.querySelectorAll('[data-dias]').forEach(b => b.classList.toggle('active', Number(b.dataset.dias) === diasRes));
+  document.querySelectorAll('[data-periodo]').forEach(b => b.classList.toggle('active', b.dataset.periodo === periodoRes));
   const est = $('resEstado'); est.className = 'empty-note'; est.style.display = ''; est.textContent = 'Cargando…'; $('resContenido').style.display = 'none';
-  const j = await api(undefined, `&parte=resultados&dias=${diasRes}`);
+  const j = await api(undefined, `&parte=resultados&` + (['hoy', 'ayer', 'semana'].includes(periodoRes) ? `periodo=${periodoRes}` : `dias=${periodoRes}`));
   if(j.error){ est.className = 'note-box err'; est.textContent = j.error; return; }
   const r = j.resultados, it = j.interes;
   const avisos = [];
@@ -509,7 +513,8 @@ async function cargarResultados(){
   const hayPedidos = r && r.pedidos_con_descuento;
   if(!hayFicha && !hayPedidos){
     est.className = avisos.length ? '' : 'empty-note';
-    est.innerHTML = avisos.join('') + `Todavía no hay datos de los últimos ${diasRes} días${r ? ` (${fmtNum(r.pedidos_tienda)} pedidos revisados)` : ''}. Aparecen cuando los clientes ven el bloque de descuentos en la ficha y compran con ellos.`;
+    est.innerHTML = avisos.join('') + `Todavía no hay datos de ${PERIODO_TEXTO[periodoRes]}${j.rango ? ` (${esc(j.rango.desde)}${j.rango.desde === j.rango.hasta ? '' : ' al ' + esc(j.rango.hasta)})` : ''}${r ? ` — ${fmtNum(r.pedidos_tienda)} pedidos revisados, ${fmtNum(r.pedidos_con_algun_descuento || 0)} con algún descuento` : ''}. Aparecen cuando los clientes ven el bloque de descuentos en la ficha y compran con ellos.`;
+    if(r && r.otros_descuentos && r.otros_descuentos.length) est.innerHTML += `<div class="desde" style="margin-top:6px;">Otros descuentos en los pedidos de este período (no cuentan como descuento por volumen): ${r.otros_descuentos.map(x => esc(x.titulo) + ' (' + fmtNum(x.pedidos) + ' pedido' + (x.pedidos === 1 ? '' : 's') + ')').join(' · ')}</div>`;
     return;
   }
   est.innerHTML = avisos.join(''); est.className = ''; est.style.display = avisos.length ? '' : 'none';
@@ -522,7 +527,7 @@ async function cargarResultados(){
     k.push(['Agregaron al carro', fmtNum(it.carro.personas), `${fmtNum(it.carro.veces)} vez/veces · ${fmtNum(conTramo)} con la cantidad de un tramo`]);
   }
   if(r){
-    k.push(['Pedidos con descuento', fmtNum(r.pedidos_con_descuento), `${Math.round(r.pedidos_con_descuento / Math.max(1, r.pedidos_tienda) * 100)}% de ${fmtNum(r.pedidos_tienda)} pedidos`]);
+    k.push(['Pedidos con descuento', fmtNum(r.pedidos_con_descuento), `${Math.round(r.pedidos_con_descuento / Math.max(1, r.pedidos_tienda) * 100)}% de ${fmtNum(r.pedidos_tienda)} pedidos${r.pedidos_con_algun_descuento > r.pedidos_con_descuento ? ` · ${fmtNum(r.pedidos_con_algun_descuento)} con algún descuento` : ''}`]);
     k.push(['Unidades', fmtNum(r.unidades), 'vendidas con descuento']);
     k.push(['Descuento entregado', clp(r.descuento), `${Math.round(r.descuento / Math.max(1, r.venta_bruta) * 100)}% del precio de lista`]);
     k.push(['Venta neta', clp(r.venta_neta), `${clp(r.venta_bruta)} a precio de lista`]);
@@ -546,6 +551,10 @@ async function cargarResultados(){
   $('porDia').innerHTML = dias.length ? dias.map(x => `<div class="dia"><span class="dia-f">${esc(x.dia.slice(5).split('-').reverse().join('/'))}</span><span class="dia-barra"><i class="ok" style="width:${x.unidades / max * 100}%"></i></span><span class="dia-n">${fmtNum(x.unidades)}</span></div>`).join('') : '<div class="empty-note">Sin ventas con descuento todavía.</div>';
   limitarTodo();
   if(r?.truncado) $('resEstado').insertAdjacentHTML('afterend', '<div class="desde">Hay más pedidos que los revisados; las cifras pueden quedar cortas. Prueba con 30 días.</div>');
+  const nota = [`Período: ${esc(PERIODO_TEXTO[periodoRes])}${j.rango ? ` (${esc(j.rango.desde)}${j.rango.desde === j.rango.hasta ? '' : ' al ' + esc(j.rango.hasta)})` : ''}.`];
+  if(r && r.otros_descuentos && r.otros_descuentos.length) nota.push(`Otros descuentos en los pedidos (no cuentan como descuento por volumen): ${r.otros_descuentos.map(x => esc(x.titulo) + ' (' + fmtNum(x.pedidos) + ')').join(' · ')}.`);
+  const notaPrevia = $('resPeriodoNota'); if(notaPrevia) notaPrevia.remove();
+  $('tTramosNota').insertAdjacentHTML('afterend', `<div class="desde" id="resPeriodoNota">${nota.join(' ')}</div>`);
 }
 
 function numeroTramo(t){ const m = String(t).match(/(\d+)/); return m ? Number(m[1]) : null; }
@@ -615,7 +624,7 @@ document.addEventListener('tabla-ordenada', () => limitarTodo());
 $('btnActualizar').addEventListener('click', cargar);
 $('btnGuardarReglas').addEventListener('click', () => guardarReglas());
 $('btnAplicar').addEventListener('click', aplicar);
-document.querySelectorAll('[data-dias]').forEach(b => b.addEventListener('click', () => { diasRes = Number(b.dataset.dias); cargarResultados(); }));
+document.querySelectorAll('[data-periodo]').forEach(b => b.addEventListener('click', () => { periodoRes = b.dataset.periodo; cargarResultados(); }));
 cargarSesionUsuario();
 iniciarMinimizar();
 cargar();

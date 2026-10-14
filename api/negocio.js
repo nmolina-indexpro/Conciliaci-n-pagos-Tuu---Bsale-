@@ -12,7 +12,7 @@
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, asegurarTablaDescuentosWeb, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
 import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, validarEmbudo as validarEmbudoBuscadorIa, validarDescuentoEvento as validarDescuentoEventoBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
-import { normalizarConfig as normalizarConfigDW, analizarProducto as analizarProductoDW, permisosShopify as permisosShopifyDW, listarProductos as listarProductosDW, aplicarEtiquetas as aplicarEtiquetasDW, estadoWebhook as estadoWebhookDW, registrarWebhook as registrarWebhookDW, costosBsale as costosBsaleDW, resultadosPedidos as resultadosPedidosDW, claveAviso as claveAvisoDW, tieneCambios as tieneCambiosDW, estadoDescuentos as estadoDescuentosDW, crearDescuentoFuncion as crearDescuentoFuncionDW } from '../lib/descuentos-web.js';
+import { normalizarConfig as normalizarConfigDW, analizarProducto as analizarProductoDW, permisosShopify as permisosShopifyDW, listarProductos as listarProductosDW, aplicarEtiquetas as aplicarEtiquetasDW, estadoWebhook as estadoWebhookDW, registrarWebhook as registrarWebhookDW, costosBsale as costosBsaleDW, resultadosPedidos as resultadosPedidosDW, rangoResultados as rangoResultadosDW, claveAviso as claveAvisoDW, tieneCambios as tieneCambiosDW, estadoDescuentos as estadoDescuentosDW, crearDescuentoFuncion as crearDescuentoFuncionDW } from '../lib/descuentos-web.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
@@ -14994,15 +14994,16 @@ async function manejarBuscadorIaDescuento(req, res) {
 
 // Interés en los descuentos, medido en la ficha: solo personas probables (navegador real, fuera de centros de datos);
 // los bots se informan aparte. Devuelve personas distintas (huella diaria) y veces (eventos).
-async function descuentosWebInteres(sql, dias) {
+async function descuentosWebInteres(sql, rango) {
   await asegurarTablaDescuentosWeb(sql);
+  const params = [rango.desdeISO, rango.hastaISO];
   const base = `WITH ev AS (
       SELECT tipo, COALESCE(tramo, 0) AS tramo, vid, (ua_tipo = 'navegador' AND COALESCE(centro_datos, false) = false) AS es_persona
-      FROM descuentos_web_eventos WHERE creado_en >= now() - make_interval(days => $1))`;
+      FROM descuentos_web_eventos WHERE creado_en >= $1::timestamptz AND creado_en < $2::timestamptz)`;
   const [porTramo, totales, bots] = await Promise.all([
-    sql.query(`${base} SELECT tipo, tramo, count(*)::int AS veces, count(DISTINCT vid)::int AS personas FROM ev WHERE es_persona GROUP BY 1, 2 ORDER BY 1, 2`, [dias]),
-    sql.query(`${base} SELECT tipo, count(*)::int AS veces, count(DISTINCT vid)::int AS personas FROM ev WHERE es_persona GROUP BY 1`, [dias]),
-    sql.query(`${base} SELECT count(*)::int AS eventos FROM ev WHERE NOT es_persona`, [dias]),
+    sql.query(`${base} SELECT tipo, tramo, count(*)::int AS veces, count(DISTINCT vid)::int AS personas FROM ev WHERE es_persona GROUP BY 1, 2 ORDER BY 1, 2`, params),
+    sql.query(`${base} SELECT tipo, count(*)::int AS veces, count(DISTINCT vid)::int AS personas FROM ev WHERE es_persona GROUP BY 1`, params),
+    sql.query(`${base} SELECT count(*)::int AS eventos FROM ev WHERE NOT es_persona`, params),
   ]);
   const tot = Object.fromEntries(totales.rows.map(r => [r.tipo, { veces: r.veces, personas: r.personas }]));
   const vacio = { veces: 0, personas: 0 };
@@ -15094,12 +15095,12 @@ async function manejarDescuentosWeb(req, res, sesion) {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
     if (req.query.parte === 'resultados') {
-      const dias = Math.min(180, Math.max(1, Math.round(Number(req.query.dias)) || 30));
+      const rango = rangoResultadosDW({ periodo: String(req.query.periodo || ''), dias: req.query.dias });
       // Lo medido en la ficha y lo vendido salen por separado: si Shopify falla, el interés igual se muestra (y al revés).
       let resultados = null, errorResultados = null, interes = null, errorInteres = null;
-      try { resultados = await resultadosPedidosDW(gql, cfg, dias); } catch (e) { errorResultados = e.message; }
-      try { interes = await descuentosWebInteres(sql, dias); } catch (e) { errorInteres = e.message; }
-      return res.status(200).json({ resultados, errorResultados, interes, errorInteres });
+      try { resultados = await resultadosPedidosDW(gql, cfg, rango); } catch (e) { errorResultados = e.message; }
+      try { interes = await descuentosWebInteres(sql, rango); } catch (e) { errorInteres = e.message; }
+      return res.status(200).json({ resultados, errorResultados, interes, errorInteres, rango: { desde: rango.desde, hasta: rango.hasta, etiqueta: rango.etiqueta } });
     }
 
     const permisos = await permisosShopifyDW(gql);
