@@ -34,6 +34,7 @@ import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegu
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
 import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTablaMercadoLibre, leerConexion, borrarConexion, conectarConCodigo, probarLectura, lectorML } from '../lib/mercadolibre.js';
+import { asegurarTablaCotizacionesEliminadas, eliminarCotizaciones, anularCotizacionesDuplicadas, listarEliminadas, MOTIVO_ANULADA_BSALE } from '../lib/cotizaciones-limpieza.js';
 import { asegurarTablasMLDatos, reiniciarSync, estadoSync, siguientePaso, ejecutarPaso, calcularMetricasML, diagnosticoLectura, normalizarRango, PASOS as PASOS_ML } from '../lib/mercadolibre-datos.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
 
@@ -171,6 +172,7 @@ export default async function handler(req, res) {
   if (recurso === 'clientes-empresa-correo-personal') return manejarClientesEmpresaCorreoPersonal(req, res, sesion);
   if (recurso === 'cotizaciones-clientes') return manejarCotizacionesClientes(req, res, sesion);
   if (recurso === 'sync-cotizaciones') return manejarSyncCotizaciones(req, res, sesion);
+  if (recurso === 'cotizaciones-limpiar') return manejarCotizacionesLimpiar(req, res, sesion);
   if (recurso === 'cotizacion-estado') return manejarCotizacionEstado(req, res, sesion);
   if (recurso === 'cotizacion-gestion') return manejarCotizacionGestion(req, res, sesion);
   if (recurso === 'cotizacion-contacto') return manejarCotizacionContacto(req, res, sesion);
@@ -1541,6 +1543,8 @@ async function manejarSyncCotizaciones(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaCotizaciones(sql);
+    await asegurarTablaCotizacionesEliminadas(sql);
+    let anuladasEliminadas = 0; // cotizaciones que Bsale informa como anuladas y que se sacan del ERP
 
     const { rows: estadoRows } = await sql`SELECT * FROM bsale_cotizaciones_sync_estado WHERE id = 1;`;
     const estado = estadoRows[0] || {};
@@ -1617,10 +1621,18 @@ async function manejarSyncCotizaciones(req, res, sesion) {
           d.state === 0 && !d.cancellationStatus && (tipoCotizacionId ? true : esCotizacionDoc(d.document_type))
         );
 
+        // Una cotización que ya estaba en el ERP y que en Bsale quedó anulada se elimina del ERP (regla pedida por el usuario).
+        const anuladasBsale = items.filter(d => (d.state !== 0 || d.cancellationStatus) && (tipoCotizacionId ? true : esCotizacionDoc(d.document_type)));
+        if (anuladasBsale.length > 0) {
+          anuladasEliminadas += await eliminarCotizaciones(sql, anuladasBsale.map(d => ({ id: d.id, detalle: 'Anulada en Bsale' })), MOTIVO_ANULADA_BSALE, sesion.nombre || sesion.email);
+        }
+
         if (cotizaciones.length > 0) {
           await sql.query(
             `INSERT INTO bsale_cotizaciones (id, numero, cliente_id, cliente_nombre, cliente_telefono, monto, fecha, url_cotizacion, vendedor_id, vendedor_nombre, sincronizado_en, cliente_email)
-             SELECT * FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::text[], $5::text[], $6::numeric[], $7::date[], $8::text[], $9::int[], $10::text[], $11::timestamptz[], $12::text[])
+             SELECT u.* FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::text[], $5::text[], $6::numeric[], $7::date[], $8::text[], $9::int[], $10::text[], $11::timestamptz[], $12::text[])
+               AS u(id, numero, cliente_id, cliente_nombre, cliente_telefono, monto, fecha, url_cotizacion, vendedor_id, vendedor_nombre, sincronizado_en, cliente_email)
+             WHERE u.id NOT IN (SELECT id FROM bsale_cotizaciones_eliminadas) -- una cotización eliminada (duplicada o anulada) no vuelve aunque Bsale la siga entregando
              ON CONFLICT (id) DO UPDATE SET
                numero = EXCLUDED.numero, cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre,
                monto = EXCLUDED.monto, fecha = EXCLUDED.fecha,
@@ -1663,7 +1675,7 @@ async function manejarSyncCotizaciones(req, res, sesion) {
     }
 
     if (!pasadaListadoTerminada) {
-      return res.status(200).json({ completo: false, fase: 'listado', procesadosEnEstaLlamada: procesados, offsetActual: offset, totalDocumentos: total });
+      return res.status(200).json({ completo: false, fase: 'listado', procesadosEnEstaLlamada: procesados, offsetActual: offset, totalDocumentos: total, anuladasEliminadas });
     }
 
     // ---- Fase 2: por cada cliente con cotización pendiente de revisar,
@@ -1803,15 +1815,40 @@ async function manejarSyncCotizaciones(req, res, sesion) {
       return res.status(200).json({ completo: false, fase: 'historial', procesadosEnEstaLlamada: clientesRevisados, vinculosEncontrados, pendientesHistorial: quedanPendientes, totalDocumentos: total });
     }
 
+    // Ya con los vínculos a boleta/factura al día: de las cotizaciones abiertas de un mismo cliente sin venta asociada queda solo la más reciente.
+    let duplicadasEliminadas = 0;
+    try { duplicadasEliminadas = (await anularCotizacionesDuplicadas(sql, { por: 'Sincronización con Bsale' })).eliminadas; }
+    catch (err) { console.error('[sync-cotizaciones] limpieza de duplicadas falló:', err); }
+
     const { rows: pendientesVinculoRestantes } = await sql`SELECT COUNT(*)::int AS n FROM bsale_cotizaciones WHERE documento_asociado_id IS NULL;`;
 
     await sql`UPDATE bsale_cotizaciones_sync_estado SET offset_actual = 0, ultima_pasada_completa_en = now(), actualizado_en = now() WHERE id = 1;`;
     return res.status(200).json({
       completo: true, fase: 'historial', procesadosEnEstaLlamada: clientesRevisados, vinculosEncontrados,
-      pendientesVinculo: pendientesVinculoRestantes[0]?.n || 0, totalDocumentos: total,
+      pendientesVinculo: pendientesVinculoRestantes[0]?.n || 0, totalDocumentos: total, duplicadasEliminadas, anuladasEliminadas,
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error sincronizando cotizaciones con Bsale', detail: String(err) });
+  }
+}
+
+// Limpieza manual de cotizaciones duplicadas (mismo cliente, abiertas y sin venta asociada: queda solo la más reciente).
+//   GET  ?recurso=cotizaciones-limpiar            -> últimas eliminadas (registro, con motivo)
+//   POST ?recurso=cotizaciones-limpiar {simular}  -> con simular=true solo dice cuáles se eliminarían
+// La misma limpieza corre sola al terminar cada sincronización con Bsale. Solo administradores.
+async function manejarCotizacionesLimpiar(req, res, sesion) {
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede limpiar cotizaciones' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaCotizaciones(sql);
+    await asegurarTablaCotizacionesEliminadas(sql);
+    if (req.method === 'GET') return res.status(200).json({ eliminadas: await listarEliminadas(sql) });
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const simular = Boolean((req.body || {}).simular);
+    const r = await anularCotizacionesDuplicadas(sql, { simular, por: sesion.nombre || sesion.email });
+    return res.status(200).json({ ok: true, ...r });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error limpiando cotizaciones', detail: String(err.message || err) });
   }
 }
 
