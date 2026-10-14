@@ -296,6 +296,7 @@
     <b>Permisos de la app de Shopify del ERP</b>
     <div class="empty-note" style="margin:4px 0 8px;">Para reemplazar la app de Bsale el ERP tiene que poder escribir pedidos, stock y precios. Aquí se ve qué permisos tiene hoy.</div>
     <button class="btn-ghost" id="btnPermisos" onclick="revisarPermisosShopify()">Revisar permisos</button>
+    <button class="btn-ghost" id="btnProbarPermisos" onclick="revisarPermisosShopify(true)" title="Hace pedidos de cambio sobre datos que no existen: comprueba que Shopify acepta escribir, sin cambiar nada">Probar escritura (sin cambiar nada)</button>
     <div id="resultadoPermisos" style="margin-top:8px;"></div>
   </div>
   <div class="card" style="padding:12px 14px;margin:8px 0 12px;">
@@ -410,15 +411,16 @@ async function cerrarSesion(){
 }
 // ---------------- Bsale (modo sombra) ----------------
 let datosBsale = null;
-async function revisarPermisosShopify(){
-  const out = $('resultadoPermisos'), b = $('btnPermisos'); b.disabled = true; out.innerHTML = '';
+async function revisarPermisosShopify(probar){
+  const out = $('resultadoPermisos'), b = $(probar ? 'btnProbarPermisos' : 'btnPermisos'); b.disabled = true; out.innerHTML = '';
   try{
-    const res = await fetch('/api/negocio?recurso=shopify-permisos'); const d = await res.json();
+    const res = await fetch('/api/negocio?recurso=shopify-permisos' + (probar === true ? '&probar=1' : '')); const d = await res.json();
     if(!res.ok || d.error){ out.innerHTML = '<div class="error-box">' + esc(d.error || 'Error') + (d.detail ? '<br><small>' + esc(d.detail) + '</small>' : '') + '</div>'; return; }
     const faltan = d.necesarios.filter(x => !x.tiene);
     out.innerHTML = '<table><thead><tr><th>Permiso</th><th>Para qué</th><th>Estado</th></tr></thead><tbody>' + d.necesarios.map(x =>
       '<tr><td><code>' + esc(x.permiso) + '</code></td><td>' + esc(x.para) + '</td><td>' + (x.tiene ? '<span style="color:#12713a;font-weight:700;">✔ Lo tiene</span>' : '<span style="color:#a11d1d;font-weight:700;">✖ Falta</span>') + '</td></tr>').join('') + '</tbody></table>' +
       (faltan.length ? '<div class="empty-note" style="margin-top:6px;">Faltan ' + faltan.length + ' permiso(s): hay que agregarlos a la app del ERP en el Dev Dashboard de Shopify y volver a aprobar la instalación en la tienda.</div>' : '<div style="margin-top:6px;color:#12713a;font-weight:700;">La app del ERP ya tiene todos los permisos necesarios.</div>') +
+      (d.pruebas ? '<div style="margin-top:8px;"><b>Pruebas de escritura (sin cambiar nada)</b></div><table><tbody>' + d.pruebas.map(p => '<tr><td>' + esc(p.nombre) + '</td><td>' + (p.ok ? '<span style="color:#12713a;font-weight:700;">✔ Funciona</span>' : '<span style="color:#a11d1d;font-weight:700;">✖ Falla</span>') + '</td><td class="empty-note">' + esc(p.detalle) + '</td></tr>').join('') + '</tbody></table>' : '') +
       '<details style="margin-top:6px;"><summary class="empty-note" style="cursor:pointer;">Todos los permisos que tiene hoy (' + d.tiene.length + ')</summary><div class="empty-note">' + d.tiene.map(esc).join(', ') + '</div></details>';
   }catch(err){ out.innerHTML = '<div class="error-box">' + esc(err.message) + '</div>'; }
   finally{ b.disabled = false; }

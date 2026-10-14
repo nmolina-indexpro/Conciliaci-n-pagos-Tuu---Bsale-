@@ -8347,7 +8347,30 @@ async function manejarShopifyPermisos(req, res, sesion) {
       ['read_products', 'leer productos y precios'], ['write_products', 'actualizar precios'],
       ['read_inventory', 'leer stock'], ['write_inventory', 'actualizar stock'], ['read_locations', 'ubicar la sucursal PROVIDENCIA'],
     ].map(([permiso, para]) => ({ permiso, para, tiene: tiene.includes(permiso) || (permiso.startsWith('read_') && tiene.includes('write_' + permiso.slice(5))) }));
-    return res.status(200).json({ ok: true, tiene, necesarios });
+    if (!req.query.probar) return res.status(200).json({ ok: true, tiene, necesarios });
+    // Pruebas de escritura SIN EFECTO: se piden cambios sobre ids que no existen en esta tienda. Si el permiso falta, Shopify contesta
+    // ACCESS_DENIED antes de mirar nada; si lo tiene, contesta que el objeto no existe (y no cambia nada).
+    const intentar = async (nombre, query) => {
+      try {
+        const b = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, query, {});
+        const denegado = (b.errors || []).some(e => /ACCESS_DENIED|access denied|required access/i.test(JSON.stringify(e)));
+        if (denegado) return { nombre, ok: false, detalle: 'Shopify rechazó el permiso (ACCESS_DENIED)' };
+        const campo = b.data && Object.values(b.data)[0];
+        const msg = campo && campo.userErrors && campo.userErrors[0] ? campo.userErrors[0].message : (b.errors && b.errors[0] ? b.errors[0].message : '');
+        return { nombre, ok: true, detalle: 'El permiso funciona (Shopify respondió: "' + String(msg).slice(0, 100) + '", sin cambiar nada)' };
+      } catch (e) { return { nombre, ok: false, detalle: String(e.message || e).slice(0, 160) }; }
+    };
+    const pruebas = [];
+    pruebas.push(await intentar('Escribir pedidos (write_orders)', 'mutation { orderUpdate(input: { id: "gid://shopify/Order/1", note: "prueba" }) { order { id } userErrors { field message } } }'));
+    pruebas.push(await intentar('Escribir stock (write_inventory)', 'mutation { inventorySetQuantities(input: { name: "available", reason: "correction", ignoreCompareQuantity: true, quantities: [{ inventoryItemId: "gid://shopify/InventoryItem/1", locationId: "gid://shopify/Location/1", quantity: 0 }] }) { inventoryAdjustmentGroup { id } userErrors { field message } } }'));
+    pruebas.push(await intentar('Etiquetar pedidos (write_orders)', 'mutation { tagsAdd(id: "gid://shopify/Order/1", tags: ["prueba"]) { node { id } userErrors { field message } } }'));
+    // leer sucursales: esta sí devuelve datos reales (solo lectura)
+    try {
+      const b = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, 'query { locations(first: 10) { nodes { name isActive } } }', {});
+      const nodos = b.data && b.data.locations && b.data.locations.nodes;
+      pruebas.push(nodos ? { nombre: 'Leer sucursales (read_locations)', ok: true, detalle: 'Sucursales: ' + nodos.map(n => n.name + (n.isActive ? '' : ' (inactiva)')).join(', ') } : { nombre: 'Leer sucursales (read_locations)', ok: false, detalle: JSON.stringify(b.errors || b).slice(0, 160) });
+    } catch (e) { pruebas.push({ nombre: 'Leer sucursales (read_locations)', ok: false, detalle: String(e.message || e).slice(0, 160) }); }
+    return res.status(200).json({ ok: true, tiene, necesarios, pruebas });
   } catch (err) {
     return res.status(200).json({ error: 'Error consultando los permisos de Shopify', detail: String(err.message || err).slice(0, 300) });
   }
