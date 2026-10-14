@@ -29,6 +29,7 @@ import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emisio
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
+import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
 import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTablaMercadoLibre, leerConexion, borrarConexion, conectarConCodigo, probarLectura, lectorML } from '../lib/mercadolibre.js';
@@ -105,6 +106,9 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'cotizaciones-recontactar-diario') return manejarCotizacionesRecontactarDiario(req, res);
   if (req.query.recurso === 'cotizaciones-correos-analizar-respuestas') return manejarCotizacionesCorreosAnalizarRespuestas(req, res);
   if (req.query.recurso === 'whatsapp-ejecutivos-notificar-diario') return manejarWhatsappEjecutivosNotificarDiario(req, res);
+  // Cron semanal (domingo) del resumen de Google Ads. Ver vercel.json,
+  // middleware.ts (esGoogleAdsResumenSemanalPublico) y lib/google-ads-resumen.js.
+  if (req.query.recurso === 'google-ads-resumen-semanal') return manejarGoogleAdsResumenSemanal(req, res);
   if (req.query.recurso === 'resumen-cambios-enviar') return manejarResumenCambiosEnviar(req, res);
   if (req.query.recurso === 'resumen-cambios-recordatorio') return manejarResumenCambiosRecordatorio(req, res);
   if (req.query.recurso === 'mercadolibre-sync') return manejarMercadoLibreSyncCron(req, res);
@@ -4479,6 +4483,49 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Servicio Técnico', detail: String(err) });
+  }
+}
+
+// Correo semanal (todos los domingos) con el resumen de Google Ads de los
+// últimos 15 y 30 días -- pedido del usuario. Mismo patrón que el resumen
+// de Servicio Técnico de arriba (CRON_SECRET, sin sesión, suscriptores en
+// la página Usuarios: TIPOS_NOTIFICACION['google-ads-resumen-semanal']).
+// Sin montos en pesos por defecto (regla de notificaciones, ver
+// lib/google-ads-resumen.js). Necesita las variables GOOGLE_ADS_* en
+// Vercel; si faltan, responde con el detalle en vez de fallar. ?solo_ver=1
+// devuelve el correo armado (asunto + html) sin enviarlo ni marcarlo.
+async function manejarGoogleAdsResumenSemanal(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  try {
+    const faltan = faltanVariablesGoogleAds();
+    if (faltan.length > 0) {
+      return res.status(200).json({ ok: false, enviado: false, error: `Faltan variables de entorno en Vercel: ${faltan.join(', ')}` });
+    }
+    const soloVer = req.query.solo_ver === '1';
+    const sql = soloVer ? null : await getSql();
+    if (sql) {
+      await asegurarTablaNotificaciones(sql);
+      if (!(await notificacionDebeEnviarse(sql, 'google-ads-resumen-semanal'))) {
+        return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+      }
+    }
+    const resumen = await generarResumenGoogleAds();
+    const { asunto, html } = armarCorreoGoogleAds(resumen, { incluirMontos: process.env.GOOGLE_ADS_RESUMEN_INCLUIR_MONTOS === '1' });
+    if (soloVer) return res.status(200).json({ ok: true, enviado: false, asunto, html });
+
+    const destinatarios = await obtenerSuscriptoresEmail(sql, 'google-ads-resumen-semanal');
+    const envios = [];
+    for (const para of destinatarios) {
+      envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
+    }
+    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'google-ads-resumen-semanal');
+    return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Google Ads', detail: String(err) });
   }
 }
 
