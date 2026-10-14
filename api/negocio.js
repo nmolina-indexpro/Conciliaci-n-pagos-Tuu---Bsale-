@@ -8573,7 +8573,8 @@ async function evaluarAvisoBsale(topic, accion, recurso) {
   const sep = recurso.includes('?') ? '&' : '?';
   const r = await fetchConTimeout('https://api.bsale.io' + recurso + sep + 'expand=variant', { headers: { access_token: token } }, 12000);
   if (!r.ok) return { error: 'Bsale respondió ' + r.status + ' al leer ' + recurso };
-  const rec = await r.json().catch(() => null);
+  let rec = await r.json().catch(() => null);
+  if (rec && Array.isArray(rec.items)) rec = rec.items[0] || null; // si el aviso apunta a una lista (por ejemplo /v1/stocks.json?variantid=...), se toma el primer registro
   const cfg = await configSombraBsale(token);
   const datos = datosDeAviso(t, rec, cfg.officeId);
   if (!datos) return { nota: 'no pude sacar SKU y valor de ese recurso' };
