@@ -55,12 +55,15 @@ function aplicarRestriccionMargenes(rol) {
 function aplicarRestriccionPaginas(paginas) {
   if (!Array.isArray(paginas)) return; // null/undefined = sin restricción
   document.querySelectorAll('.page-nav a[href], .menu-herramientas a[href]').forEach(a => {
-    const href = a.getAttribute('href').replace(/^\//, '');
+    const href = a.getAttribute('href').replace(/^\//, '').split('#')[0]; // los enlaces a módulos de una página (sitio-web.html#envio) se rigen por la página
     if (href === '#') return; // "Cerrar sesión" del menú de la tuerca, no es una página
     if (href === 'reportar-error.html') return; // siempre disponible
     if (href === 'usuarios.html') return; // se rige por rol, no por perfil
     if (href === 'actualizaciones-erp.html') return; // igual que Usuarios: solo administradores
     if (href === 'mercadolibre.html') return; // igual que Usuarios: solo administradores
     if (!paginas.includes(href)) a.style.display = 'none';
+    // módulos que viven dentro de otra página pero también son una página con su propio permiso (Buscador IA, Descuentos web)
+    const requiere = a.getAttribute('data-requiere');
+    if (requiere && !paginas.includes(requiere)) a.style.display = 'none';
   });
 }

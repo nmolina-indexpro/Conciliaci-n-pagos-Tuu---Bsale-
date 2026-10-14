@@ -127,6 +127,7 @@
   .sw-insignia{position:absolute;top:5px;right:9px;min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:var(--red);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;}
   .sw-insignia.ok{background:var(--green);}
   .sw-modulo{display:none;min-width:0;}
+  .sw-frame{display:block;width:100%;min-height:640px;border:0;background:transparent;}
   .sw-modulo.activo{display:block;}
   .sw-modulo > .seccion{margin-bottom:0;}
   /* Resumen: una tarjeta por módulo con sus cifras clave y un aviso si hay algo pendiente */
@@ -235,16 +236,28 @@
         </div>
       </div>
       <div class="nav-dropdown">
-        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
         <div class="nav-dropdown-menu" id="navAnalisis">
           <a href="analisis.html">Análisis</a>
           <a href="productos-estancados.html">Productos estancados</a>
           <a href="google-analytics.html">Google Analytics</a>
           <a href="productos-nuevos.html">Productos Nuevos</a>
           <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
-          <a href="sitio-web.html" class="active">Sitio Web</a>
-          <a href="buscador-ia.html">Buscador IA</a>
-          <a href="descuentos-web.html">Descuentos web</a>
         </div>
       </div>
     </nav>
@@ -273,6 +286,8 @@
     <button type="button" class="sw-item" data-modulo="filtros" onclick="irModulo('filtros')" title="Uso de los filtros por marca"><span class="sw-icono">🔎</span>Filtros por marca</button>
     <button type="button" class="sw-item" data-modulo="compat" onclick="irModulo('compat')" title="Compatibilidad de modelos (qué SKU le corresponde a cada notebook)"><span class="sw-icono">🔧</span>Compatibilidad</button>
     <button type="button" class="sw-item" data-modulo="modelos" onclick="irModulo('modelos')" title="Modelos detectados en el catálogo de Shopify"><span class="sw-icono">💻</span>Modelos detectados</button>
+    <button type="button" class="sw-item" data-modulo="buscador" onclick="irModulo('buscador')" title="Buscador con IA de indexstore.cl: búsquedas, sin resultado y clics"><span class="sw-icono">🤖</span>Buscador IA</button>
+    <button type="button" class="sw-item" data-modulo="descuentos" onclick="irModulo('descuentos')" title="Descuentos por cantidad en la tienda"><span class="sw-icono">🎟️</span>Descuentos web</button>
   </nav>
   <main class="sw-contenido">
 
@@ -397,6 +412,10 @@
       <button class="btn-ghost btn-compact" id="btnSeguirBuscando" onclick="continuarBusquedaPendientes()" style="display:none;">🔍 Seguir buscando en los que faltan</button>
     </div>
   </div></div>
+
+  <div class="sw-modulo" id="mod-buscador"><iframe class="sw-frame" id="frame-buscador" data-src="buscador-ia.html?embed=1" title="Buscador IA"></iframe></div>
+
+  <div class="sw-modulo" id="mod-descuentos"><iframe class="sw-frame" id="frame-descuentos" data-src="descuentos-web.html?embed=1" title="Descuentos web"></iframe></div>
 
   </main>
   </div>
@@ -725,13 +744,13 @@ function insigniaModulo(id, cantidad){
   el.textContent = cantidad === 0 ? '✓' : (cantidad > 99 ? '99+' : String(cantidad));
   el.title = cantidad === 0 ? 'Sin casos por revisar' : cantidad + ' por revisar';
 }
-const MODULOS_SITIO = ['resumen', 'stock', 'precios', 'skus', 'envio', 'filtros', 'compat', 'modelos'];
+const MODULOS_SITIO = ['resumen', 'stock', 'precios', 'skus', 'envio', 'filtros', 'compat', 'modelos', 'buscador', 'descuentos'];
 // ---------- Resumen: una tarjeta por módulo ----------
 // nivel: 'alerta' (hay algo que corregir), 'atencion' (por analizar o revisar), 'ok', 'sin_datos', 'cargando'
 const RESUMEN_META = {
   stock: { icono: '📦', titulo: 'Stock oculto' }, precios: { icono: '💲', titulo: 'Precios' }, skus: { icono: '🏷️', titulo: 'SKU de referencia' },
   envio: { icono: '🚚', titulo: 'Cotizador de envío' }, filtros: { icono: '🔎', titulo: 'Filtros por marca' }, compat: { icono: '🔧', titulo: 'Compatibilidad' },
-  modelos: { icono: '💻', titulo: 'Modelos detectados' },
+  modelos: { icono: '💻', titulo: 'Modelos detectados' }, buscador: { icono: '🤖', titulo: 'Buscador IA' }, descuentos: { icono: '🎟️', titulo: 'Descuentos web' },
 };
 const RESUMEN = {};
 Object.keys(RESUMEN_META).forEach(k => { RESUMEN[k] = { nivel: 'cargando', mensaje: 'Cargando…', datos: [] }; });
@@ -771,10 +790,57 @@ function renderResumenSitio(){
   }
 }
 document.addEventListener('DOMContentLoaded', renderResumenSitio);
+// Buscador IA: últimos 30 días (todas las búsquedas)
+async function cargarResumenBuscador(){
+  if(!RESUMEN_META.buscador) return;
+  try{
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone:'America/Santiago' });
+    const ini = new Date(Date.now() - 29 * 86400000).toLocaleDateString('en-CA', { timeZone:'America/Santiago' });
+    const d = await fetchJsonSeguro(`/api/negocio?recurso=buscador-ia&desde=${ini}&hasta=${hoy}&origen=todo`);
+    if(d.error){ setResumen('buscador', 'atencion', 'No se pudo cargar: ' + d.error, []); return; }
+    const r = d.resumen || {}, c = d.clics || {};
+    const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+    const datos = [[fmtNum(r.total), 'Búsquedas'], [pct(r.sin_resultado, r.total), 'Sin resultado'], [pct(c.busquedas_con_clic, r.medibles), 'Con clic'], [fmtNum(c.busquedas_con_whatsapp), 'A WhatsApp']];
+    if(!r.total) setResumen('buscador', 'sin_datos', 'Sin búsquedas en los últimos 30 días.', []);
+    else if(r.con_error > 0) setResumen('buscador', 'atencion', fmtNum(r.con_error) + ' búsqueda(s) con error: la IA no respondió a tiempo', datos);
+    else if(r.total >= 20 && r.sin_resultado / r.total >= 0.25) setResumen('buscador', 'atencion', pct(r.sin_resultado, r.total) + ' de las búsquedas no encontró nada: revisa qué piden los clientes', datos);
+    else setResumen('buscador', 'ok', fmtNum(r.total) + ' búsquedas en los últimos 30 días.', datos);
+  }catch(e){ setResumen('buscador', 'atencion', 'No se pudo cargar: ' + e.message, []); }
+}
+// Descuentos web: estado de la revisión automática y de las etiquetas
+async function cargarResumenDescuentos(){
+  if(!RESUMEN_META.descuentos) return;
+  try{
+    const j = await fetchJsonSeguro('/api/negocio?recurso=descuentos-web');
+    if(j.error){ setResumen('descuentos', 'atencion', 'No se pudo cargar: ' + j.error, []); return; }
+    const r = j.resumen || {}, c = j.config || {};
+    const datos = [[fmtNum(r.productos), 'Productos'], [fmtNum(r.con_tramos), 'Con descuento'], [fmtNum(r.con_cambios), 'Cambios pendientes'], [fmtNum(r.sin_costo), 'Sin costo']];
+    if(j.permisos && j.permisos.ok === false) setResumen('descuentos', 'alerta', 'Falta el permiso de Shopify para cambiar etiquetas', datos);
+    else if(j.errorProductos) setResumen('descuentos', 'alerta', 'No se pudieron leer los productos de Shopify: ' + j.errorProductos, datos);
+    else if(r.con_cambios > 0) setResumen('descuentos', 'atencion', fmtNum(r.con_cambios) + ' producto(s) con etiquetas por poner o quitar', datos);
+    else if(r.sin_costo > 0) setResumen('descuentos', 'atencion', fmtNum(r.sin_costo) + ' producto(s) sin costo: no se puede calcular su margen', datos);
+    else if(c.activo === false) setResumen('descuentos', 'atencion', 'La revisión automática está apagada', datos);
+    else setResumen('descuentos', 'ok', 'Revisión automática activa y etiquetas al día.', datos);
+  }catch(e){ setResumen('descuentos', 'atencion', 'No se pudo cargar: ' + e.message, []); }
+}
+// Quita un módulo (barra, panel y tarjeta) cuando el perfil del usuario no tiene permiso para esa página
+function quitarModuloSitio(clave){
+  const ix = MODULOS_SITIO.indexOf(clave);
+  if(ix >= 0) MODULOS_SITIO.splice(ix, 1);
+  delete RESUMEN_META[clave]; delete RESUMEN[clave];
+  document.querySelectorAll('.sw-item[data-modulo="' + clave + '"], #mod-' + clave).forEach(e => e.remove());
+  document.querySelectorAll('#navSitioWeb a[href$="#' + clave + '"]').forEach(a => a.style.display = 'none');
+  renderResumenSitio();
+}
 function irModulo(clave, sinHash){
   if(!MODULOS_SITIO.includes(clave)) clave = MODULOS_SITIO[0];
   document.querySelectorAll('.sw-modulo').forEach(m => m.classList.toggle('activo', m.id === 'mod-' + clave));
   document.querySelectorAll('.sw-item').forEach(b => b.classList.toggle('activo', b.dataset.modulo === clave));
+  // la opción del menú principal "Sitio Web" también marca el módulo en el que estás
+  document.querySelectorAll('#navSitioWeb a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === 'sitio-web.html#' + clave));
+  // las páginas incrustadas (Buscador IA, Descuentos web) se cargan la primera vez que se abren
+  const marco = $('frame-' + clave);
+  if(marco && !marco.getAttribute('src')) marco.setAttribute('src', marco.dataset.src);
   try{ if(!sinHash) history.replaceState(null, '', '#' + clave); }catch(e){ /* sin historial disponible */ }
 }
 function moduloDesdeHash(){
@@ -782,6 +848,11 @@ function moduloDesdeHash(){
   return MODULOS_SITIO.includes(h) ? h : MODULOS_SITIO[0];
 }
 window.addEventListener('hashchange', () => irModulo(moduloDesdeHash(), true));
+// la página incrustada avisa cuánto mide su contenido para que el marco se ajuste (sin doble barra de desplazamiento)
+window.addEventListener('message', ev => {
+  if(ev.origin !== location.origin || !ev.data || ev.data.tipo !== 'sw-altura') return;
+  document.querySelectorAll('.sw-frame').forEach(f => { if(f.contentWindow === ev.source) f.style.height = Math.max(400, Number(ev.data.altura) + 8) + 'px'; });
+});
 document.addEventListener('DOMContentLoaded', () => irModulo(moduloDesdeHash(), true));
 function resumenDesdeAvisos(data){
   const sinRevisar = 'No se pudo revisar: ' + (data.error || 'faltan datos de Bsale o Shopify');
@@ -1542,6 +1613,14 @@ async function cargarSesionUsuario(){
     }
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
+    // Buscador IA y Descuentos web son páginas con su propio permiso: sin él, no aparecen aquí
+    if(Array.isArray(u.paginas)){
+      if(!u.paginas.includes('buscador-ia.html')) quitarModuloSitio('buscador');
+      if(!u.paginas.includes('descuentos-web.html')) quitarModuloSitio('descuentos');
+      if(!MODULOS_SITIO.includes(moduloDesdeHash())) irModulo('resumen', true);
+    }
+    cargarResumenBuscador();
+    setTimeout(cargarResumenDescuentos, 1500); // consulta Shopify y Bsale en vivo: se deja para después de lo demás
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){
