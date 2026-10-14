@@ -158,7 +158,7 @@
   }
   function vPublicidad(m) {
     const p = m.publicidad;
-    if (!p.disponible) return '<div class="aviso-box">Publicidad no disponible: ' + esc(p.motivo || '') + '</div>' + nota('Si la cuenta usa Product Ads y aun así no aparece, puede faltar el permiso de publicidad en la aplicación de Mercado Libre.');
+    if (!p.disponible) return '<div class="aviso-box">Publicidad no disponible: ' + esc(p.motivo || '') + '</div>' + nota('Si la cuenta no usa Product Ads, no hay publicidad que medir aquí y esta pestaña puede ignorarse. Si la usa y aun así no aparece, puede faltar el permiso de publicidad en la aplicación de Mercado Libre.');
     return tarjetas([['Gasto', clp(p.gasto), esc(p.desde) + ' al ' + esc(p.hasta)], ['Ventas por publicidad', clp(p.ventas)], ['ACOS', pct(p.acos), 'gasto / ventas por publicidad'], ['ROAS', p.roas == null ? '—' : p.roas.toFixed(1).replace('.', ',') + 'x', 'ventas por cada $1 invertido']]) +
       h('Campañas') + tabla([['Campaña', f => esc(f.nombre || f.id || '—')], ['Estado', f => esc(({ active: 'Activa', paused: 'Pausada', idle: 'Sin actividad' })[f.estado] || f.estado || '—')], ['Gasto', f => clp(f.metricas.costo), 'text-align:right;'], ['Ventas', f => clp(f.metricas.ventas), 'text-align:right;'],
         ['ACOS', f => pct(f.metricas.costo && f.metricas.ventas ? f.metricas.costo / f.metricas.ventas : f.metricas.acos), 'text-align:right;'], ['Clics', f => ent(f.metricas.clics), 'text-align:right;'], ['Impresiones', f => ent(f.metricas.impresiones), 'text-align:right;']], p.campañas, 'Sin campañas.') +
