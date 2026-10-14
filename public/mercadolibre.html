@@ -336,9 +336,9 @@ function renderEstado(){
             <code id="uriRedireccion" style="background:var(--surface-2);padding:5px 9px;border-radius:7px;font-size:12.5px;word-break:break-all;">${esc(e.redirectUri)}</code>
             <button class="btn-ghost btn-sm" onclick="copiarUri()">Copiar</button>
           </div></li>
-        <li>Permisos: solo lectura (y el permiso que mantiene la conexión activa, <i>offline_access</i>). No hace falta escritura.</li>
+        <li>Permisos: marca <b>lectura</b> y <b>acceso offline</b> (<i>offline_access</i>, es lo que permite renovar la conexión sin volver a autorizar). No marques escritura.</li>
         <li>Copia el <b>App ID</b> y la <b>Secret Key</b> de la aplicación a Vercel (<i>Settings &gt; Environment Variables</i>) como <code>ML_APP_ID</code> y <code>ML_CLIENT_SECRET</code>, y vuelve a desplegar. No las pegues en el chat.</li>
-        <li>Vuelve a esta página y aprieta <b>Conectar</b>.</li>
+        <li>Vuelve a esta página y aprieta <b>Conectar</b>. Inicia sesión en Mercado Libre con el usuario <b>titular o administrador</b> de la cuenta (un operador o colaborador no sirve).</li>
       </ol>
       <div class="empty-note">Cuando las dos variables estén cargadas, este aviso desaparece y aparece el botón para conectar.</div>`;
     return;
