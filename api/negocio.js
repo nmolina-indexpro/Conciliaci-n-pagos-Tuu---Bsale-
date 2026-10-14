@@ -7316,6 +7316,7 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
     `;
     const contacto = contactoRows[0];
     const clienteBsale = await buscarClienteBsalePorTelefono(sql, contacto?.telefono);
+    const cotizacionesCliente = await cotizacionesDelClienteWhatsapp(sql, contacto?.telefono, clienteBsale ? clienteBsale.id : null);
 
     const { rows: mensajes } = await sql`SELECT * FROM whatsapp_mensajes WHERE conversacion_id = ${id} ORDER BY marca_tiempo ASC;`;
     const { rows: analisisRows } = await sql`SELECT * FROM whatsapp_analisis_ia WHERE conversacion_id = ${id};`;
@@ -7357,6 +7358,7 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
         id: clienteBsale.id, nombre: clienteBsale.nombre, rut: clienteBsale.rut,
         empresa: clienteBsale.empresa, puntos: clienteBsale.puntos,
       } : null,
+      cotizaciones: cotizacionesCliente,
       mensajes: mensajes.map(m => ({
         id: m.id, marcaTiempo: m.marca_tiempo, direccion: m.direccion, tipo: m.tipo,
         texto: m.contenido_texto, mediaUrl: m.media_url, estado: m.estado,
@@ -7904,6 +7906,33 @@ async function manejarWhatsappClientes(req, res, sesion) {
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error al cargar clientes de WhatsApp', detail: String(err) });
+  }
+}
+
+// Cotizaciones del cliente de una conversación de WhatsApp (para la ficha lateral): las más recientes, cada una con la boleta/factura a la que quedó
+// asociada (o "sin venta asociada"). No hay un vínculo guardado entre conversación y cotización: se cruzan por el cliente de Bsale (si se encontró por
+// teléfono) o por los últimos 9 dígitos del teléfono de la cotización. Es una coincidencia, no un vínculo confirmado.
+async function cotizacionesDelClienteWhatsapp(sql, telefono, clienteBsaleId) {
+  const digitos = String(telefono || '').replace(/[^0-9]/g, '');
+  const tel9 = digitos.length >= 9 ? digitos.slice(-9) : null;
+  if (!tel9 && !clienteBsaleId) return [];
+  try {
+    await asegurarTablaCotizaciones(sql);
+    const { rows } = await sql`
+      SELECT id, numero, fecha::text AS fecha, monto::float AS monto, estado, url_cotizacion, vendedor_nombre,
+             documento_asociado_id, documento_asociado_tipo, documento_asociado_numero, documento_asociado_url, documento_asociado_fecha::text AS documento_asociado_fecha
+      FROM bsale_cotizaciones
+      WHERE (${clienteBsaleId}::int IS NOT NULL AND cliente_id = ${clienteBsaleId}::int)
+         OR (${tel9}::text IS NOT NULL AND right(regexp_replace(COALESCE(cliente_telefono, ''), '[^0-9]', '', 'g'), 9) = ${tel9}::text)
+      ORDER BY fecha DESC NULLS LAST, id DESC LIMIT 8;`;
+    return rows.map(r => ({
+      id: r.id, numero: r.numero, fecha: r.fecha, monto: r.monto, estado: r.estado, url: r.url_cotizacion || null, vendedor: r.vendedor_nombre || null,
+      documentoAsociado: r.documento_asociado_id ? {
+        tipo: r.documento_asociado_tipo || 'Documento', numero: r.documento_asociado_numero || '', url: r.documento_asociado_url || null, fecha: r.documento_asociado_fecha || null,
+      } : null,
+    }));
+  } catch (err) {
+    return []; // si la tabla de cotizaciones no está disponible, la ficha sigue funcionando sin este bloque
   }
 }
 

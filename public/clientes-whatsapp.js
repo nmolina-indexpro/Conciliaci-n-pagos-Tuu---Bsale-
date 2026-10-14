@@ -1069,6 +1069,29 @@ function fichaBsaleHtml(clienteBsale){
   if (!clienteBsale) return '<div class="ficha-fila"><span>Bsale</span><b class="sub">Sin coincidencia</b></div>';
   return `<div class="ficha-fila"><span>Bsale</span><b><span class="badge b-ambar" title="Coincidencia automática por teléfono -- todavía sin confirmar a mano">🔍 ${escapeHtml(clienteBsale.nombre)} (por confirmar)</span></b></div>`;
 }
+// Cotizaciones del cliente y si ya están asociadas a una boleta/factura. Coincidencia por cliente de Bsale o por teléfono (no es un vínculo guardado).
+const COTIZACION_ESTADO_LABEL = {
+  sin_contactar: 'Sin contactar', cotizacion_enviada: 'Cotización enviada', cliente_respondio: 'Cliente respondió', contactado: 'Contactado',
+  contactado_no_responde: 'Contactado, sin respuesta', contactado_segunda_vez: 'Contactado 2ª vez', mercado_publico: 'Mercado Público', perdida: 'Perdida', facturada: 'Facturada',
+};
+const fmtFechaDia = s => { const m = String(s || '').match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})/); return m ? m[3] + '/' + m[2] + '/' + m[1] : fmtFecha(s); }; // fecha de solo día: sin corrimiento por zona horaria
+function fichaCotizacionesHtml(lista){
+  const cab = '<div class="ficha-grupo"><h3>🧾 Cotizaciones y ventas</h3>';
+  if (!lista || !lista.length) return cab + '<div class="ficha-fila"><span>Cotizaciones</span><b class="sub">Sin cotizaciones asociadas</b></div></div>';
+  const fila = q => {
+    const num = q.url ? `<a href="${escapeHtml(q.url)}" target="_blank" rel="noopener">#${escapeHtml(q.numero || q.id)} ↗</a>` : `#${escapeHtml(q.numero || q.id)}`;
+    const d = q.documentoAsociado;
+    const doc = d
+      ? `<span class="badge b-verde" title="Cotización asociada a una venta">✔ ${escapeHtml(d.tipo)} ${d.url ? `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener">N° ${escapeHtml(d.numero)} ↗</a>` : 'N° ' + escapeHtml(d.numero)}${d.fecha ? ' · ' + escapeHtml(fmtFechaDia(d.fecha)) : ''}</span>`
+      : '<span class="badge b-ambar" title="No hay una boleta/factura asociada a esta cotización">Sin venta asociada</span>';
+    return `<div style="padding:6px 0;border-top:1px solid var(--line);">
+      <div class="ficha-fila"><span>${num}</span><b>${fmtMoneda(q.monto)}</b></div>
+      <div class="ficha-fila"><span>${q.fecha ? escapeHtml(fmtFechaDia(q.fecha)) : '—'}${q.vendedor ? ' · ' + escapeHtml(q.vendedor) : ''}</span><b><span class="badge b-gris">${escapeHtml(COTIZACION_ESTADO_LABEL[q.estado] || q.estado || '—')}</span></b></div>
+      <div style="padding:2px 0;">${doc}</div>
+    </div>`;
+  };
+  return cab + lista.map(fila).join('') + '<div class="sub" style="font-size:10px;margin-top:4px;">Coincidencia por cliente de Bsale o teléfono, no un vínculo confirmado.</div></div>';
+}
 function renderFichaBandeja(data){
   const c = data.conversacion, ct = data.contacto, ai = data.analisisIa;
   const resInfo = resultadoComercialInfo(c);
@@ -1099,6 +1122,7 @@ function renderFichaBandeja(data){
         <div class="ficha-fila"><span>Última conversación</span><b>${fmtFecha(ct?.ultimaConversacionEn)}</b></div>
         ${fichaBsaleHtml(data.clienteBsale)}
       </div>
+      ${fichaCotizacionesHtml(data.cotizaciones)}
       <div class="ficha-grupo">
         <h3>⚙️ Gestión</h3>
         <div class="ficha-fila"><span>Estado</span><b><select onchange="guardarCampoConvBandeja(${c.id}, 'estado', this.value)" style="font-size:12px;">${WHATSAPP_ESTADOS_ATENCION_EDITABLES.map(e => `<option value="${e}" ${e === c.estado ? 'selected' : ''}>${ESTADO_LABEL[e]}</option>`).join('')}</select></b></div>
