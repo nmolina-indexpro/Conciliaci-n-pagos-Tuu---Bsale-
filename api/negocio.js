@@ -30,7 +30,7 @@ import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
-import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
+import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
 import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
@@ -47,6 +47,12 @@ const ESTADOS_VALIDOS = ['pendiente', 'en progreso', 'resuelto'];
 const RESPONSABLE_REPORTES = 'Nicolás Molina'; // fijo por ahora, ver reportar-error.html
 const URL_REPORTES = 'https://erp.indexstore.cl/reportar-error.html';
 const URL_BASE_APP = 'https://erp.indexstore.cl';
+
+// Modo prueba de las notificaciones por correo (botón "Enviar prueba" de Usuarios > Notificaciones): ?probar=1&para=correo manda el correo SOLO a
+// esa persona (la que apretó el botón), con [PRUEBA] en el asunto, aunque la notificación esté inactiva o no toque hoy, y sin marcarla como enviada.
+const esPruebaNotif = req => req.query.probar === '1';
+const destinatariosDePrueba = req => (req.query.probar === '1' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(req.query.para || ''))) ? [String(req.query.para)] : null;
+const asuntoDePrueba = (req, asunto) => (req.query.probar === '1' ? `[PRUEBA] ${asunto}` : asunto);
 const ZOHO_TIMEOUT_MS = 20000;
 
 // Vercel parsea el body a JSON automáticamente por defecto -- pero el
@@ -154,6 +160,7 @@ export default async function handler(req, res) {
   if (!sesion) return res.status(401).json({ error: 'No hay sesión activa' });
 
   const recurso = req.query.recurso;
+  if (recurso === 'notificacion-probar') return manejarNotificacionProbar(req, res, sesion);
   if (recurso === 'criticos') return manejarCriticos(req, res, sesion);
   if (recurso === 'alertas-stock-shopify') return manejarAlertasStockShopify(req, res, sesion);
   if (recurso === 'mercadolibre') return manejarMercadoLibre(req, res, sesion);
@@ -2379,7 +2386,7 @@ async function manejarProductosEstancadosFlagsNotificar(req, res) {
   try {
     const sql = await getSql();
     await asegurarTablaNotificaciones(sql);
-    if (!(await notificacionDebeEnviarse(sql, 'productos-estancados-flags'))) {
+    if (!esPruebaNotif(req) && !(await notificacionDebeEnviarse(sql, 'productos-estancados-flags'))) {
       return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
     }
     await asegurarTablaVentasSkuEstado(sql);
@@ -2423,12 +2430,12 @@ async function manejarProductosEstancadosFlagsNotificar(req, res) {
       <p><a href="${urlPagina}">Ver en el ERP -- Productos estancados</a></p>
     `;
     const asunto = `📋 Productos estancados -- ${rows.length} ${rows.length === 1 ? 'cambio' : 'cambios'} en las últimas 24h`;
-    const destinatarios = await obtenerSuscriptoresEmail(sql, 'productos-estancados-flags');
+    const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'productos-estancados-flags');
     const envios = [];
     for (const para of destinatarios) {
-      envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
+      envios.push({ para, ...(await enviarCorreo({ para, asunto: asuntoDePrueba(req, asunto), html })) });
     }
-    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'productos-estancados-flags', { asunto, html });
+    if (envios.length > 0 && !esPruebaNotif(req)) await marcarNotificacionEnviada(sql, 'productos-estancados-flags', { asunto, html });
     return res.status(200).json({ ok: true, cambios: rows.length, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando el resumen de cambios de Productos estancados', detail: String(err) });
@@ -4431,6 +4438,58 @@ async function manejarPreferenciasUsuario(req, res, sesion) {
   }
 }
 
+// Botón "Enviar prueba" de Usuarios > Notificaciones (solo administradores): arma el correo de esa notificación con los datos de hoy y lo manda SOLO a
+// quien apretó el botón, con [PRUEBA] en el asunto; no toca la frecuencia, los suscriptores ni el "último envío". Reusa el mismo código del cron
+// (con ?probar=1&para=...), así lo que llega es exactamente lo que recibirían los suscriptores. Si hoy no hay nada que reportar (por ejemplo, ningún
+// cambio en productos estancados) y esa notificación ya se envió alguna vez, manda ese último correo real con "[PRUEBA · último envío real]".
+async function manejarNotificacionProbar(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede enviar correos de prueba' });
+  const tipo = String(req.query.tipo || '');
+  if (!TIPOS_NOTIFICACION[tipo]) return res.status(400).json({ error: 'Notificación desconocida' });
+  const destino = String(sesion.email || '');
+  if (!destino) return res.status(400).json({ error: 'Tu sesión no tiene correo' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    const crons = {
+      'alertas-sitio-web': manejarAlertasSitioWebNotificar,
+      'servicio-tecnico-resumen-semanal': manejarServicioTecnicoResumenSemanal,
+      'cotizaciones-seguimiento-diario': manejarCotizacionesSeguimientoDiario,
+      'productos-estancados-flags': manejarProductosEstancadosFlagsNotificar,
+      'whatsapp-ejecutivos-diario': manejarWhatsappEjecutivosNotificarDiario,
+      'google-ads-resumen-semanal': manejarGoogleAdsResumenSemanal,
+    };
+    let r;
+    if (tipo === 'resumen-cambios-diario') r = await enviarResumenCambios(sql, { para: destino });
+    else if (tipo === 'resumen-cambios-recordatorio') r = await enviarRecordatorioResumen(sql, { para: destino, resumir: resumirCambiosCortos });
+    else if (crons[tipo]) {
+      const cap = { status: 200, cuerpo: null };
+      const resFalsa = { status(c) { cap.status = c; return this; }, json(o) { cap.cuerpo = o; return this; }, setHeader() { return this; }, end() { return this; } };
+      const reqFalsa = { method: 'GET', headers: { authorization: `Bearer ${process.env.CRON_SECRET || ''}` }, query: { probar: '1', para: destino } };
+      await crons[tipo](reqFalsa, resFalsa);
+      r = cap.cuerpo || {};
+      if (cap.status >= 400) return res.status(200).json({ ok: false, enviado: false, destino, error: r.error || `Falló (HTTP ${cap.status})`, detail: r.detail || null });
+    } else return res.status(400).json({ error: 'Esta notificación no tiene envío de prueba' });
+
+    const envio = (r.envios || [])[0];
+    if (r.enviado && (!envio || envio.enviado !== false)) return res.status(200).json({ ok: true, enviado: true, destino });
+    if (envio && envio.enviado === false) return res.status(200).json({ ok: false, enviado: false, destino, error: 'No se pudo enviar el correo', detail: envio.motivo || envio.error || null });
+
+    // Hoy no hay datos para armarlo: se manda el último correo real que se envió, si existe
+    const motivo = r.motivo || r.error || 'hoy no hay datos para armar este correo';
+    const { rows } = await sql`SELECT ultimo_asunto, ultimo_html FROM notificaciones_config WHERE tipo = ${tipo};`;
+    if (rows[0] && rows[0].ultimo_html) {
+      const e = await enviarCorreo({ para: destino, asunto: `[PRUEBA · último envío real] ${rows[0].ultimo_asunto || TIPOS_NOTIFICACION[tipo].nombre}`, html: rows[0].ultimo_html });
+      if (e.enviado === false) return res.status(200).json({ ok: false, enviado: false, destino, error: 'No se pudo enviar el correo', detail: e.motivo || e.error || null });
+      return res.status(200).json({ ok: true, enviado: true, destino, ultimoEnvio: true, motivo });
+    }
+    return res.status(200).json({ ok: false, enviado: false, destino, error: `No se envió: ${motivo}. Como esta notificación nunca se ha enviado, no hay un correo anterior que mostrar.` });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error enviando el correo de prueba', detail: String(err.message || err) });
+  }
+}
+
 // Correo semanal (todos los lunes) a nmolina@indexstore.cl y
 // nathalia@indexstore.cl con un resumen de Servicio Técnico de la semana
 // recién terminada (lunes a domingo) -- pedido del usuario. Lo dispara un
@@ -4505,7 +4564,7 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
     const { asunto, html } = armarCorreoServicioTecnico({ semana, semanaPrevia, inicio: fmtFecha(inicioSemana), fin: fmtFecha(finSemana), zoho, zohoError, ultimaSincronizacion, urlBase: URL_BASE_APP });
     if (req.query.solo_ver === '1') return res.status(200).json({ ok: true, enviado: false, asunto, html });
 
-    const destinatarios = await obtenerSuscriptoresEmail(sql, 'servicio-tecnico-resumen-semanal');
+    const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'servicio-tecnico-resumen-semanal');
     const envios = [];
     for (const para of destinatarios) {
       envios.push({ para, ...(await enviarCorreo({ para, asunto: probar ? `[PRUEBA] ${asunto}` : asunto, html })) });
@@ -4540,7 +4599,7 @@ async function manejarGoogleAdsResumenSemanal(req, res) {
     const sql = soloVer ? null : await getSql();
     if (sql) {
       await asegurarTablaNotificaciones(sql);
-      if (!(await notificacionDebeEnviarse(sql, 'google-ads-resumen-semanal'))) {
+      if (!esPruebaNotif(req) && !(await notificacionDebeEnviarse(sql, 'google-ads-resumen-semanal'))) {
         return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
       }
     }
@@ -4548,12 +4607,12 @@ async function manejarGoogleAdsResumenSemanal(req, res) {
     const { asunto, html } = armarCorreoGoogleAds(resumen, { incluirMontos: process.env.GOOGLE_ADS_RESUMEN_INCLUIR_MONTOS === '1' });
     if (soloVer) return res.status(200).json({ ok: true, enviado: false, asunto, html });
 
-    const destinatarios = await obtenerSuscriptoresEmail(sql, 'google-ads-resumen-semanal');
+    const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'google-ads-resumen-semanal');
     const envios = [];
     for (const para of destinatarios) {
-      envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
+      envios.push({ para, ...(await enviarCorreo({ para, asunto: asuntoDePrueba(req, asunto), html })) });
     }
-    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'google-ads-resumen-semanal', { asunto, html });
+    if (envios.length > 0 && !esPruebaNotif(req)) await marcarNotificacionEnviada(sql, 'google-ads-resumen-semanal', { asunto, html });
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Google Ads', detail: String(err) });
@@ -4579,7 +4638,7 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
     if (!probar && !(await notificacionDebeEnviarse(sql, 'cotizaciones-seguimiento-diario'))) {
       return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
     }
-    const destinatarios = await obtenerSuscriptoresEmail(sql, 'cotizaciones-seguimiento-diario');
+    const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'cotizaciones-seguimiento-diario');
     await asegurarTablaCotizaciones(sql);
     await asegurarTablaCotizacionesContactos(sql);
     await asegurarTablaCotizacionesCorreos(sql);
@@ -9455,7 +9514,7 @@ async function manejarAlertasSitioWebNotificar(req, res) {
   try {
     const sqlNotif = await getSql();
     await asegurarTablaNotificaciones(sqlNotif);
-    if (!(await notificacionDebeEnviarse(sqlNotif, 'alertas-sitio-web'))) {
+    if (!esPruebaNotif(req) && !(await notificacionDebeEnviarse(sqlNotif, 'alertas-sitio-web'))) {
       return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
     }
 
@@ -9518,12 +9577,12 @@ async function manejarAlertasSitioWebNotificar(req, res) {
     `;
     const asunto = `⚠ Alertas Sitio Web IndexStore -- ${stockNoVisible?.length || 0} sin stock visible, ${(preciosDistintos?.length || 0) + (preciosDesincronizados?.length || 0)} con precio distinto${haySkusIncorrectos ? `, ${skusIncorrectosReferencia.length} SKU mal vinculado` : ''}`;
 
-    const destinatarios = await obtenerSuscriptoresEmail(sqlNotif, 'alertas-sitio-web');
+    const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sqlNotif, 'alertas-sitio-web');
     const envios = [];
     for (const para of destinatarios) {
-      envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
+      envios.push({ para, ...(await enviarCorreo({ para, asunto: asuntoDePrueba(req, asunto), html })) });
     }
-    if (envios.length > 0) await marcarNotificacionEnviada(sqlNotif, 'alertas-sitio-web', { asunto, html });
+    if (envios.length > 0 && !esPruebaNotif(req)) await marcarNotificacionEnviada(sqlNotif, 'alertas-sitio-web', { asunto, html });
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando las alertas de Sitio Web', detail: String(err) });
@@ -11228,7 +11287,7 @@ async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
   try {
     const sql = await getSql();
     await asegurarTablaNotificaciones(sql);
-    if (!(await notificacionDebeEnviarse(sql, 'whatsapp-ejecutivos-diario'))) {
+    if (!esPruebaNotif(req) && !(await notificacionDebeEnviarse(sql, 'whatsapp-ejecutivos-diario'))) {
       return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
     }
     await asegurarTablaWhatsapp(sql);
@@ -11272,12 +11331,12 @@ async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
     const totalConversaciones = ejecutivos.reduce((s, e) => s + e.total, 0) + (sinAsignar?.total || 0);
     const asunto = `📈 Resumen ejecutivos WhatsApp -- ${ayerStr} (${totalConversaciones} conversaciones)`;
 
-    const destinatarios = await obtenerSuscriptoresEmail(sql, 'whatsapp-ejecutivos-diario');
+    const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'whatsapp-ejecutivos-diario');
     const envios = [];
     for (const para of destinatarios) {
-      envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
+      envios.push({ para, ...(await enviarCorreo({ para, asunto: asuntoDePrueba(req, asunto), html })) });
     }
-    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'whatsapp-ejecutivos-diario', { asunto, html });
+    if (envios.length > 0 && !esPruebaNotif(req)) await marcarNotificacionEnviada(sql, 'whatsapp-ejecutivos-diario', { asunto, html });
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios, ejecutivos, sinAsignar });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen diario de ejecutivos de WhatsApp', detail: String(err) });
