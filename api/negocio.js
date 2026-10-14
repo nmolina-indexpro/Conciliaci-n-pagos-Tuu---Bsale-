@@ -26,6 +26,7 @@ import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFI
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
+import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
@@ -124,6 +125,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'buscador-ia-ranking') return manejarBuscadorIaRanking(req, res);
   if (req.query.recurso === 'buscador-ia-envio') return manejarBuscadorIaEnvio(req, res);
   if (req.query.recurso === 'buscador-ia-embudo') return manejarBuscadorIaEmbudo(req, res);
+  if (req.query.recurso === 'buscador-ia-filtro') return manejarBuscadorIaFiltro(req, res);
   if (req.query.recurso === 'buscador-ia-descuento') return manejarBuscadorIaDescuento(req, res);
   // Descuentos web: el aviso de stock de Shopify y la revisión diaria entran sin sesión (clave en la URL / CRON_SECRET, ver handler).
   if (req.query.recurso === 'descuentos-web-aviso') return manejarDescuentosWebAviso(req, res);
@@ -170,6 +172,7 @@ export default async function handler(req, res) {
   if (recurso === 'llamadas-anexo') return manejarLlamadasAnexo(req, res, sesion);
   if (recurso === 'buscador-ia') return manejarBuscadorIa(req, res, sesion);
   if (recurso === 'envio-estimado') return manejarEnvioEstimado(req, res, sesion);
+  if (recurso === 'filtros-uso') return manejarFiltrosUso(req, res, sesion);
   if (recurso === 'descuentos-web') return manejarDescuentosWeb(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
@@ -14730,6 +14733,43 @@ async function manejarBuscadorIaEmbudo(req, res) {
     return res.status(200).json({ ok: true, guardado: (r.rowCount ?? 0) > 0 });
   } catch (e) {
     return res.status(200).json({ error: 'No se pudo guardar el evento: ' + e.message });
+  }
+}
+
+// Uso de los filtros por marca (colecciones y buscador del home): lo manda el Worker (sin sesión, clave en x-api-key) cada vez que alguien
+// usa un filtro. Ver lib/filtros-uso.js. El análisis lo lee la página Sitio Web con sesión (recurso filtros-uso).
+async function manejarBuscadorIaFiltro(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const claveEsperada = process.env.BUSCADOR_IA_KEY;
+  if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
+  if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) return res.status(401).json({ error: 'Clave inválida' });
+  const validado = validarFiltroEvento(req.body);
+  if (!validado.ok) return res.status(400).json({ error: validado.error });
+  const f = validado.fila;
+  try {
+    const sql = await getSql();
+    await asegurarTablaFiltrosUso(sql);
+    await sql.query(
+      `INSERT INTO filtros_uso_eventos (origen, tipo, valor, dispositivo, vid, pais, ua_tipo, centro_datos) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [f.origen, f.tipo, f.valor, f.dispositivo, f.vid, f.pais, f.ua_tipo, f.centro_datos],
+    );
+    if (Math.random() < 0.02) {
+      await sql.query(`DELETE FROM filtros_uso_eventos WHERE creado_en < now() - make_interval(days => $1)`, [BUSCADOR_IA_RETENCION_DIAS]);
+    }
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo guardar el evento: ' + e.message });
+  }
+}
+
+async function manejarFiltrosUso(req, res, _sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const dias = [7, 30, 90].includes(Number(req.query.dias)) ? Number(req.query.dias) : 30;
+    const sql = await getSql();
+    return res.status(200).json(await resumenFiltrosUso(sql, dias));
+  } catch (err) {
+    return res.status(200).json({ error: 'Error calculando el uso de los filtros', detail: String(err.message || err).slice(0, 200) });
   }
 }
 

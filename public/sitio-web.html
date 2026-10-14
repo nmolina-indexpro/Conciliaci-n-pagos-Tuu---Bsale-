@@ -105,6 +105,15 @@
   .envio-tabla td{padding:8px;border-bottom:1px solid var(--line);}
   .envio-tabla .num{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
   .envio-tabla th.num{text-align:right;}
+  .fu-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:6px;}
+  .fu-tarjeta{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;}
+  .fu-tarjeta h3{font-family:'Space Grotesk',sans-serif;font-size:14.5px;margin:0 0 4px;}
+  .fu-barra{height:9px;background:var(--surface-2);border-radius:6px;overflow:hidden;margin:4px 0 10px;}
+  .fu-barra i{display:block;height:100%;background:var(--primary);}
+  .fu-mini{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:8px 0;}
+  .fu-mini div{background:var(--surface-2);border-radius:8px;padding:7px 9px;}
+  .fu-mini b{display:block;font-family:'IBM Plex Mono',monospace;font-size:16px;}
+  .fu-mini span{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
   .envio-det summary{cursor:pointer;font-size:12.5px;color:var(--primary-dark);font-weight:600;margin-top:14px;}
 </style>
 <meta name="theme-color" content="#0F766E">
@@ -236,6 +245,25 @@
     </div>
   </div>
 
+  <div class="seccion" id="seccionFiltros">
+    <div class="seccion-head">
+      <div>
+        <h2>🔎 Uso de los filtros por marca</h2>
+        <div class="sub">Cuántas personas usan los botones de marca, serie y medidas en las colecciones de cargadores, baterías y pantallas, y el buscador "Encuentra tu repuesto" del home; y cuántas siguen usando el filtro lateral de siempre. Se cuenta por persona (huella anónima diaria): la misma persona en dos días cuenta dos veces. Los bots se descartan.</div>
+      </div>
+      <div class="envio-periodo">
+        <button type="button" class="btn-ghost btn-compact" data-filtros-dias="7" onclick="cargarFiltrosUso(7)">7 días</button>
+        <button type="button" class="btn-ghost btn-compact active" data-filtros-dias="30" onclick="cargarFiltrosUso(30)">30 días</button>
+        <button type="button" class="btn-ghost btn-compact" data-filtros-dias="90" onclick="cargarFiltrosUso(90)">90 días</button>
+      </div>
+    </div>
+    <div id="filtrosEstado" class="empty-note">Cargando…</div>
+    <div id="filtrosContenido" style="display:none;">
+      <div class="envio-kpis" id="filtrosKpis"></div>
+      <div class="fu-grid" id="filtrosTarjetas"></div>
+    </div>
+  </div>
+
   <div class="seccion">
     <div class="seccion-head">
       <div>
@@ -303,6 +331,51 @@ function envioTabla(el, cols, filas, vacio){
   if(!filas.length){ el.innerHTML = `<tbody><tr><td class="empty-note">${envioEsc(vacio)}</td></tr></tbody>`; return; }
   el.innerHTML = '<thead><tr>' + cols.map(c => `<th class="${c.cls||''}">${envioEsc(c.t)}</th>`).join('') + '</tr></thead><tbody>' +
     filas.map(f => '<tr>' + cols.map(c => `<td class="${c.cls||''}">${c.f(f)}</td>`).join('') + '</tr>').join('') + '</tbody>';
+}
+let filtrosDias = 30;
+async function cargarFiltrosUso(dias){
+  if(dias) filtrosDias = dias;
+  document.querySelectorAll('[data-filtros-dias]').forEach(b => b.classList.toggle('active', Number(b.dataset.filtrosDias) === filtrosDias));
+  const estado = $('filtrosEstado'), contenido = $('filtrosContenido');
+  estado.className = 'empty-note'; estado.textContent = 'Cargando…'; estado.style.display = '';
+  try{
+    const res = await fetch('/api/negocio?recurso=filtros-uso&dias=' + filtrosDias);
+    const d = await res.json();
+    if(d.error){ estado.className = 'note-box err'; estado.textContent = d.error + (d.detail ? ' — ' + d.detail : ''); contenido.style.display = 'none'; return; }
+    const total = d.origenes.reduce((t, o) => t + o.vistas + o.usaron + o.lateral, 0);
+    if(!total){
+      estado.textContent = 'Todavía no hay datos en este período. Aparecen cuando los bloques del tema (colecciones y buscador del home) estén publicados y los clientes empiecen a usarlos' + (d.desde ? ' (primer aviso: ' + new Date(d.desde).toLocaleDateString('es-CL') + ')' : '') + '.';
+      contenido.style.display = 'none'; return;
+    }
+    estado.style.display = 'none'; contenido.style.display = '';
+    const cols = d.origenes.filter(o => o.origen !== 'home'), home = d.origenes.find(o => o.origen === 'home');
+    const suma = k => cols.reduce((t, o) => t + o[k], 0);
+    const pct = (a, b) => b ? Math.round(Math.min(a, b) / b * 100) + '%' : '—';
+    const hb = (home && home.valores.buscar) ? home.valores.buscar.reduce((t, x) => t + x.personas, 0) : 0;
+    const hw = (home && home.valores.whatsapp) ? home.valores.whatsapp.reduce((t, x) => t + x.personas, 0) : 0;
+    $('filtrosKpis').innerHTML = [
+      ['Vieron una colección', fmtNum(suma('vistas')), 'cargadores, baterías y pantallas'],
+      ['Usaron botones nuevos', fmtNum(suma('usaron')), pct(suma('usaron'), suma('vistas')) + ' de quienes vieron una colección'],
+      ['Usaron el filtro lateral', fmtNum(suma('lateral')), pct(suma('lateral'), suma('vistas')) + ' de quienes vieron una colección'],
+      ['Vieron el buscador del home', fmtNum(home ? home.vistas : 0), 'Encuentra tu repuesto'],
+      ['Lo usaron en el home', fmtNum(home ? home.usaron : 0), pct(home ? home.usaron : 0, home ? home.vistas : 0) + ' de quienes lo vieron'],
+      ['"Ver productos" / WhatsApp', fmtNum(hb) + ' / ' + fmtNum(hw), 'personas que pulsaron cada botón en el home'],
+      ['Bots descartados', fmtNum(d.bots), 'avisos de bots o servidores, aparte'],
+    ].map(k => '<div class="envio-kpi"><div class="lbl">' + k[0] + '</div><div class="big">' + k[1] + '</div><div class="nota">' + k[2] + '</div></div>').join('');
+    const ORDEN = ['marca', 'todas', 'serie', 'pulgadas', 'resolucion', 'watt', 'voltaje', 'punta', 'tipo', 'lateral', 'buscar', 'whatsapp', 'limpiar'];
+    const tablaVal = (titulo, filas) => '<p class="envio-sub" style="margin:10px 0 4px;">' + envioEsc(titulo) + '</p><table class="envio-tabla"><thead><tr><th>Valor</th><th class="num">Personas</th><th class="num">Veces</th></tr></thead><tbody>' +
+      filas.slice(0, 8).map(x => '<tr><td>' + envioEsc(x.valor) + '</td><td class="num">' + fmtNum(x.personas) + '</td><td class="num">' + fmtNum(x.veces) + '</td></tr>').join('') +
+      (filas.length > 8 ? '<tr><td class="empty-note" colspan="3">y ' + (filas.length - 8) + ' más</td></tr>' : '') + '</tbody></table>';
+    $('filtrosTarjetas').innerHTML = d.origenes.map(o => {
+      const usoPct = o.vistas ? Math.round(Math.min(o.usaron, o.vistas) / o.vistas * 100) : 0;
+      const disp = o.dispositivos.filter(x => x.dispositivo !== 'sin dato').map(x => envioEsc(x.dispositivo === 'movil' ? 'Celular' : 'Escritorio') + ': ' + fmtNum(x.usaron) + ' de ' + fmtNum(x.vistas) + ' (' + pct(x.usaron, x.vistas) + ')').join(' · ');
+      const tablas = ORDEN.filter(t => o.valores[t] && o.valores[t].length).map(t => tablaVal(d.nombresTipo[t] || t, o.valores[t])).join('');
+      return '<div class="fu-tarjeta"><h3>' + envioEsc(o.nombre) + '</h3>' +
+        '<div class="fu-mini"><div><b>' + fmtNum(o.vistas) + '</b><span>Vieron</span></div><div><b>' + fmtNum(o.usaron) + '</b><span>Usaron botones</span></div><div><b>' + fmtNum(o.lateral) + '</b><span>Filtro lateral</span></div></div>' +
+        '<div class="fu-barra" title="' + usoPct + '% usó los botones"><i style="width:' + usoPct + '%"></i></div>' +
+        (disp ? '<div class="empty-note">' + disp + '</div>' : '') + (tablas || '<div class="empty-note" style="margin-top:8px;">Sin uso de filtros todavía.</div>') + '</div>';
+    }).join('');
+  }catch(err){ estado.className = 'note-box err'; estado.textContent = err.message; contenido.style.display = 'none'; }
 }
 async function cargarEnvioEstimado(dias){
   if(dias) envioDias = dias;
@@ -1269,6 +1342,7 @@ async function cerrarSesion(){
 cargar();
 promesaModelosCompatIniciales = cargarModelosCompat();
 cargarEnvioEstimado();
+cargarFiltrosUso();
 cargarSesionUsuario();
 
 // Autocompletado sin botón: apenas hay marca y modelo escritos, busca sola
