@@ -170,6 +170,7 @@ export default async function handler(req, res) {
   if (recurso === 'cotizacion-zoho') return manejarCotizacionZoho(req, res, sesion);
   if (recurso === 'shopify-urls-sku') return manejarShopifyUrlsSku(req, res, sesion);
   if (recurso === 'bsale-sombra') return manejarBsaleSombra(req, res, sesion);
+  if (recurso === 'bsale-prueba-cotizacion') return manejarBsalePruebaCotizacion(req, res, sesion);
   if (recurso === 'zoho-servicio-tecnico-metricas') return manejarZohoServicioTecnicoMetricas(req, res, sesion);
   if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
   if (recurso === 'calendario-pagos-importar') return manejarCalendarioPagosImportar(req, res, sesion);
@@ -8174,6 +8175,56 @@ function tipoDocumentoEsperado(atributos) {
   return { tipo: 'factura', atributos: a };
 }
 
+// Prueba controlada de que el token de Bsale del ERP PUEDE CREAR documentos: emite UNA cotización (documento sin efecto tributario,
+// no se declara al SII) a nombre de quien indique el administrador, con una sola línea de $119 que dice que es una prueba, y le manda
+// el PDF por correo. Solo administradores, solo POST y un botón explícito en Actualizaciones ERP > Bsale (modo sombra).
+async function manejarBsalePruebaCotizacion(req, res, sesion) {
+  try {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores' });
+    const token = process.env.BSALE_ACCESS_TOKEN;
+    if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+    const { rut, nombre, apellido, email } = req.body || {};
+    if (!rutValido(rut)) return res.status(200).json({ error: 'El RUT no es válido (con puntos o sin ellos, con dígito verificador)' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ''))) return res.status(200).json({ error: 'El correo no es válido' });
+    const limpio = rutLimpio(rut), codigo = limpio.slice(0, -1) + '-' + limpio.slice(-1);
+    const cab = { headers: { access_token: token } };
+
+    // tipo de documento "cotización"
+    const rTipos = await fetchConTimeout(BSALE_BASE + '/document_types.json?limit=50', cab, 15000);
+    const tipos = (await rTipos.json().catch(() => ({}))).items || [];
+    const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+    const tipo = tipos.find(t => /COTIZ/.test(norm(t.name)) && t.state === 0) || tipos.find(t => /COTIZ/.test(norm(t.name)));
+    if (!tipo) return res.status(200).json({ error: 'No encuentro el tipo de documento "cotización" en Bsale', tipos: tipos.map(t => t.name) });
+
+    // sucursal (oficina) de Bsale
+    let officeId = Number(process.env.BSALE_OFFICE_ID) || null;
+    if (!officeId) {
+      const rOf = await fetchConTimeout(BSALE_BASE + '/offices.json?limit=10', cab, 15000);
+      const of = ((await rOf.json().catch(() => ({}))).items || []).find(o => o.state === 0) || {};
+      officeId = of.id || null;
+    }
+
+    // cliente: si ya existe por RUT se usa ese (sin tocar sus datos); si no, Bsale lo crea con estos datos
+    const rCli = await fetchConTimeout(BSALE_BASE + '/clients.json?code=' + encodeURIComponent(codigo) + '&limit=1', cab, 15000);
+    const existente = ((await rCli.json().catch(() => ({}))).items || [])[0];
+    const hoy = Math.floor(Date.now() / 86400000) * 86400;
+    const cuerpo = {
+      documentTypeId: tipo.id, ...(officeId ? { officeId } : {}), emissionDate: hoy, expirationDate: hoy + 7 * 86400,
+      declareSii: 0, sendEmail: 1,
+      ...(existente ? { clientId: existente.id } : { client: { code: codigo, firstName: String(nombre || '').slice(0, 60), lastName: String(apellido || '').slice(0, 60), email: String(email) } }),
+      details: [{ netUnitValue: 100, quantity: 1, taxId: '[1]', comment: 'PRUEBA de integración ERP IndexStore - sin valor comercial' }],
+    };
+    const r = await fetchConTimeout(BSALE_BASE + '/documents.json', { method: 'POST', headers: { access_token: token, 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) }, 25000);
+    const texto = await r.text();
+    let d = null; try { d = JSON.parse(texto); } catch {}
+    if (!r.ok || !d || !d.id) return res.status(200).json({ error: 'Bsale rechazó la creación del documento (HTTP ' + r.status + ')', detail: texto.slice(0, 600), enviado: cuerpo });
+    return res.status(200).json({ ok: true, tipo: tipo.name, id: d.id, numero: d.number, total: d.totalAmount, url: d.urlPublicView || d.urlPdf || '', clienteExistente: !!existente });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error en la prueba de creación de documento', detail: String(err) });
+  }
+}
+
 async function manejarBsaleSombra(req, res, sesion) {
   try {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -8264,7 +8315,7 @@ async function manejarBsaleSombra(req, res, sesion) {
         if (!d.bsale) continue;
         if (!d.bsale.encontrado) { f.observaciones.push(`${d.tipo} ${d.prefijo}-${d.numero}: ${d.bsale.motivo}`); continue; }
         if (d.bsale.anulado) f.observaciones.push(`${d.tipo} ${d.prefijo}-${d.numero} está anulada en Bsale`);
-        if (d.prefijo !== 'NV' && d.bsale.total !== f.total) f.observaciones.push(`Total distinto: Shopify $${f.total.toLocaleString('es-CL')} vs ${d.tipo} $${d.bsale.total.toLocaleString('es-CL')}`);
+        if (d.prefijo !== 'NV' && Math.abs(d.bsale.total - f.total) > 1) f.observaciones.push(`Total distinto: Shopify $${f.total.toLocaleString('es-CL')} vs ${d.tipo} $${d.bsale.total.toLocaleString('es-CL')}`);
         if (d.prefijo === 'FA' && f.rutPedido && rutLimpio(f.rutPedido) !== rutLimpio(d.bsale.rut)) f.observaciones.push(`RUT distinto: pedido ${f.rutPedido} vs factura ${d.bsale.rut}`);
       }
     }

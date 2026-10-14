@@ -280,6 +280,18 @@
     <span class="espacio"></span>
     <label style="font-size:12.5px;display:flex;gap:6px;align-items:center;"><input type="checkbox" id="soloObservaciones" onchange="renderBsaleSombra()"> Ver solo los que tienen observaciones</label>
   </div>
+  <div class="card" style="padding:12px 14px;margin:8px 0 12px;">
+    <b>Prueba de creación de documentos</b>
+    <div class="empty-note" style="margin:4px 0 8px;">Comprueba que el token de Bsale del ERP puede <b>crear</b> documentos. Emite <b>una cotización</b> de prueba (sin efecto tributario, no va al SII) de $119 a nombre de la persona que indiques y le manda el PDF por correo.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+      <div><label for="pbRut" style="font-size:12px;display:block;">RUT</label><input type="text" id="pbRut" placeholder="12.345.678-9" autocomplete="off" style="width:140px;"></div>
+      <div><label for="pbNombre" style="font-size:12px;display:block;">Nombre</label><input type="text" id="pbNombre" value="Nicolás" autocomplete="off" style="width:130px;"></div>
+      <div><label for="pbApellido" style="font-size:12px;display:block;">Apellido</label><input type="text" id="pbApellido" value="Molina" autocomplete="off" style="width:130px;"></div>
+      <div><label for="pbEmail" style="font-size:12px;display:block;">Correo</label><input type="email" id="pbEmail" value="nmolina@indexpro.cl" autocomplete="off" style="width:220px;"></div>
+      <button class="btn-ghost" id="btnPruebaBsale" onclick="pruebaCotizacionBsale()">Emitir cotización de prueba</button>
+    </div>
+    <div id="resultadoPruebaBsale" style="margin-top:8px;"></div>
+  </div>
   <div id="resumenBsale" style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0;"></div>
   <div class="card"><div class="tabla-wrap" id="wrapBsale"><p class="empty-note" style="padding:14px;">Pulsa "Revisar pedidos" para comparar.</p></div></div>
 </div>
@@ -370,6 +382,19 @@ async function cerrarSesion(){
 }
 // ---------------- Bsale (modo sombra) ----------------
 let datosBsale = null;
+async function pruebaCotizacionBsale(){
+  const b = $('btnPruebaBsale'), out = $('resultadoPruebaBsale');
+  if(!confirm('Se emitirá UNA cotización de prueba en Bsale (sin efecto tributario) y se enviará por correo a ' + $('pbEmail').value + '. ¿Continuar?')) return;
+  b.disabled = true; b.textContent = 'Emitiendo...'; out.innerHTML = '';
+  try{
+    const res = await fetch('/api/negocio?recurso=bsale-prueba-cotizacion', { method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ rut: $('pbRut').value, nombre: $('pbNombre').value, apellido: $('pbApellido').value, email: $('pbEmail').value }) });
+    const d = await res.json();
+    if(d.ok) out.innerHTML = '<div style="color:#12713a;font-weight:700;">✔ El token PUEDE crear documentos. Se emitió la ' + esc(d.tipo) + ' N° ' + esc(d.numero) + ' por $' + Number(d.total || 0).toLocaleString('es-CL') + (d.url ? ' — <a href="' + esc(d.url) + '" target="_blank" rel="noopener">ver documento ↗</a>' : '') + '. Revisa el correo ' + esc($('pbEmail').value) + '.</div>';
+    else out.innerHTML = '<div class="error-box">' + esc(d.error || 'Error') + (d.detail ? '<br><small>' + esc(d.detail) + '</small>' : '') + '</div>';
+  }catch(err){ out.innerHTML = '<div class="error-box">' + esc(err.message) + '</div>'; }
+  finally{ b.disabled = false; b.textContent = 'Emitir cotización de prueba'; }
+}
 function montarPanelBsale(){ const p = $('panel-bsale'), h = $('panelBsaleHtml'); if(p && h && !p.firstChild){ h.hidden = false; p.appendChild(h); } }
 document.addEventListener('DOMContentLoaded', montarPanelBsale);
 async function revisarBsaleSombra(){
