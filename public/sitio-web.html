@@ -129,6 +129,37 @@
   .sw-modulo{display:none;min-width:0;}
   .sw-modulo.activo{display:block;}
   .sw-modulo > .seccion{margin-bottom:0;}
+  /* Resumen: una tarjeta por módulo con sus cifras clave y un aviso si hay algo pendiente */
+  .sw-alertas{margin-bottom:16px;}
+  .sw-alerta-caja{border-radius:12px;padding:12px 16px;font-size:13px;border:1px solid;}
+  .sw-alerta-caja.hay{background:var(--red-bg);border-color:#F5B5B5;}
+  .sw-alerta-caja.ok{background:var(--green-bg);border-color:#B7E4C7;}
+  .sw-alerta-caja h3{font-family:'Space Grotesk',sans-serif;font-size:14px;margin:0 0 6px;}
+  .sw-alerta-caja ul{margin:0;padding:0;list-style:none;}
+  .sw-alerta-caja li{padding:3px 0;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;}
+  .sw-alerta-caja a{color:var(--primary-dark);font-weight:700;cursor:pointer;text-decoration:underline;}
+  .sw-res-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px;}
+  .sw-res-card{position:relative;background:var(--surface);border:1px solid var(--line);border-left-width:5px;border-radius:12px;padding:14px 16px;cursor:pointer;transition:box-shadow .15s,transform .15s;text-align:left;font-family:'Plus Jakarta Sans',sans-serif;font-weight:500;font-size:13px;color:var(--text);display:block;width:100%;}
+  .sw-res-card:hover{box-shadow:0 4px 16px rgba(31,42,36,.12);transform:translateY(-1px);}
+  .sw-res-card.nivel-alerta{border-left-color:var(--red);}
+  .sw-res-card.nivel-atencion{border-left-color:var(--amber);}
+  .sw-res-card.nivel-ok{border-left-color:var(--green);}
+  .sw-res-card.nivel-sin_datos,.sw-res-card.nivel-cargando{border-left-color:#B8C0B4;}
+  .sw-res-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+  .sw-res-titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;display:flex;align-items:center;gap:7px;}
+  .sw-pill{font-family:'Space Grotesk',sans-serif;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+  .sw-pill.alerta{background:var(--red);color:#fff;}
+  .sw-pill.atencion{background:var(--amber-dim);color:#B45309;}
+  .sw-pill.ok{background:var(--green-bg);color:var(--green);}
+  .sw-pill.sin_datos,.sw-pill.cargando{background:var(--surface-2);color:var(--muted);}
+  .sw-res-datos{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:8px;margin:6px 0 8px;}
+  .sw-res-datos div{background:var(--surface-2);border-radius:8px;padding:6px 8px;}
+  .sw-res-datos b{display:block;font-family:'IBM Plex Mono',monospace;font-size:16px;}
+  .sw-res-datos span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;}
+  .sw-res-msg{font-size:12px;color:var(--muted);line-height:1.4;}
+  .sw-res-card.nivel-alerta .sw-res-msg{color:var(--red);font-weight:600;}
+  .sw-res-card.nivel-atencion .sw-res-msg{color:#B45309;font-weight:600;}
+  .sw-res-ver{font-size:11px;color:var(--primary-dark);font-weight:700;margin-top:6px;}
   @media (max-width:900px){
     .sw-layout{grid-template-columns:minmax(0,1fr);gap:14px;}
     .sw-lateral{position:static;flex-direction:row;overflow-x:auto;padding:6px;gap:2px;scrollbar-width:none;}
@@ -234,7 +265,8 @@
 
   <div class="sw-layout">
   <nav class="sw-lateral" id="swLateral" aria-label="Módulos del sitio web">
-    <button type="button" class="sw-item activo" data-modulo="stock" onclick="irModulo('stock')" title="Productos con stock en Bsale que no se ven en la tienda (archivados o en borrador)"><span class="sw-icono">📦</span>Stock oculto<span class="sw-insignia" id="insigniaStock"></span></button>
+    <button type="button" class="sw-item activo" data-modulo="resumen" onclick="irModulo('resumen')" title="Resumen de todos los módulos y lo que está pendiente"><span class="sw-icono">🏠</span>Resumen<span class="sw-insignia" id="insigniaResumen"></span></button>
+    <button type="button" class="sw-item" data-modulo="stock" onclick="irModulo('stock')" title="Productos con stock en Bsale que no se ven en la tienda (archivados o en borrador)"><span class="sw-icono">📦</span>Stock oculto<span class="sw-insignia" id="insigniaStock"></span></button>
     <button type="button" class="sw-item" data-modulo="precios" onclick="irModulo('precios')" title="Precios distintos entre Bsale y Shopify"><span class="sw-icono">💲</span>Precios<span class="sw-insignia" id="insigniaPrecios"></span></button>
     <button type="button" class="sw-item" data-modulo="skus" onclick="irModulo('skus')" title="Productos de referencia con el SKU equivocado"><span class="sw-icono">🏷️</span>SKU de referencia<span class="sw-insignia" id="insigniaSkus"></span></button>
     <button type="button" class="sw-item" data-modulo="envio" onclick="irModulo('envio')" title="Cotizador de envío en la ficha de producto"><span class="sw-icono">🚚</span>Cotizador de envío</button>
@@ -244,7 +276,13 @@
   </nav>
   <main class="sw-contenido">
 
-  <div class="sw-modulo activo" id="mod-stock"><div class="seccion">
+  <div class="sw-modulo activo" id="mod-resumen"><div class="seccion">
+    <div class="seccion-head"><div><h2>🏠 Resumen del sitio web</h2><div class="sub">Una tarjeta por módulo con sus cifras clave. Si hay algo pendiente o por analizar, aparece avisado aquí; haz clic en una tarjeta para ver el detalle.</div></div></div>
+    <div class="sw-alertas" id="swAlertas"></div>
+    <div class="sw-res-grid" id="swResumen"></div>
+  </div></div>
+
+  <div class="sw-modulo" id="mod-stock"><div class="seccion">
     <div class="seccion-head"><div><h2>📦 Stock oculto en la tienda</h2><div class="sub">Productos con stock disponible en Bsale que en Shopify están archivados o en borrador: los clientes no los ven y se pierden ventas.</div></div></div>
     <div id="avisoStockWrap"></div>
   </div></div>
@@ -392,9 +430,10 @@ async function cargarFiltrosUso(dias){
   try{
     const res = await fetch('/api/negocio?recurso=filtros-uso&dias=' + filtrosDias);
     const d = await res.json();
-    if(d.error){ estado.className = 'note-box err'; estado.textContent = d.error + (d.detail ? ' — ' + d.detail : ''); contenido.style.display = 'none'; return; }
+    if(d.error){ estado.className = 'note-box err'; estado.textContent = d.error + (d.detail ? ' — ' + d.detail : ''); contenido.style.display = 'none'; setResumen('filtros', 'atencion', 'No se pudo cargar: ' + d.error, []); return; }
     const total = d.origenes.reduce((t, o) => t + o.vistas + o.usaron + o.lateral, 0);
     if(!total){
+      setResumen('filtros', 'sin_datos', 'Todavía no hay datos de uso en los últimos ' + filtrosDias + ' días.', []);
       estado.textContent = 'Todavía no hay datos en este período. Aparecen cuando los bloques del tema (colecciones y buscador del home) estén publicados y los clientes empiecen a usarlos' + (d.desde ? ' (primer aviso: ' + new Date(d.desde).toLocaleDateString('es-CL') + ')' : '') + '.';
       contenido.style.display = 'none'; return;
     }
@@ -402,6 +441,10 @@ async function cargarFiltrosUso(dias){
     const cols = d.origenes.filter(o => o.origen !== 'home'), home = d.origenes.find(o => o.origen === 'home');
     const suma = k => cols.reduce((t, o) => t + o[k], 0);
     const pct = (a, b) => b ? Math.round(Math.min(a, b) / b * 100) + '%' : '—';
+    const usoNuevo = suma('usaron'), usoLateral = suma('lateral'), vistasCol = suma('vistas');
+    const datosFiltros = [[fmtNum(vistasCol), 'Vieron'], [pct(usoNuevo, vistasCol), 'Botones nuevos'], [pct(usoLateral, vistasCol), 'Filtro lateral'], [fmtNum(home ? home.usaron : 0), 'Buscador home']];
+    if(vistasCol >= 20 && usoLateral > usoNuevo) setResumen('filtros', 'atencion', 'Usan más el filtro lateral que los botones nuevos: conviene analizar por qué', datosFiltros);
+    else setResumen('filtros', 'ok', fmtNum(usoNuevo) + ' personas usaron los botones nuevos en los últimos ' + filtrosDias + ' días.', datosFiltros);
     const hb = (home && home.valores.buscar) ? home.valores.buscar.reduce((t, x) => t + x.personas, 0) : 0;
     const hw = (home && home.valores.whatsapp) ? home.valores.whatsapp.reduce((t, x) => t + x.personas, 0) : 0;
     $('filtrosKpis').innerHTML = [
@@ -426,7 +469,7 @@ async function cargarFiltrosUso(dias){
         '<div class="fu-barra" title="' + usoPct + '% usó los botones"><i style="width:' + usoPct + '%"></i></div>' +
         (disp ? '<div class="empty-note">' + disp + '</div>' : '') + (tablas || '<div class="empty-note" style="margin-top:8px;">Sin uso de filtros todavía.</div>') + '</div>';
     }).join('');
-  }catch(err){ estado.className = 'note-box err'; estado.textContent = err.message; contenido.style.display = 'none'; }
+  }catch(err){ estado.className = 'note-box err'; estado.textContent = err.message; contenido.style.display = 'none'; setResumen('filtros', 'atencion', 'No se pudo cargar: ' + err.message, []); }
 }
 async function cargarEnvioEstimado(dias){
   if(dias) envioDias = dias;
@@ -438,15 +481,20 @@ async function cargarEnvioEstimado(dias){
     const ini = new Date(Date.now() - (envioDias - 1) * 86400000).toLocaleDateString('en-CA', { timeZone:'America/Santiago' });
     const res = await fetch(`/api/negocio?recurso=envio-estimado&desde=${ini}&hasta=${fin}`);
     const d = await res.json();
-    if(d.error){ estado.className = 'note-box err'; estado.textContent = d.error; contenido.style.display = 'none'; return; }
+    if(d.error){ estado.className = 'note-box err'; estado.textContent = d.error; contenido.style.display = 'none'; setResumen('envio', 'atencion', 'No se pudo cargar: ' + d.error, []); return; }
     const r = d.resumen || {};
     if(!r.calculos_total){
       estado.textContent = 'Todavía no hay cálculos registrados en este período. Aparecen cuando los clientes usan el cotizador en la ficha de producto.';
-      contenido.style.display = 'none'; return;
+      contenido.style.display = 'none';
+      setResumen('envio', 'sin_datos', 'Sin cálculos en los últimos ' + envioDias + ' días.', []);
+      return;
     }
     estado.style.display = 'none'; contenido.style.display = '';
     const nombre = c => (d.regiones || {})[c] || c;
     const em = d.embudo || {};
+    const datosEnvio = [[fmtNum(r.personas), 'Personas'], [envioPct(r.eligieron, r.personas), 'Eligieron comuna'], [fmtNum(em.carro), 'Al carro'], [fmtNum(em.compra), 'Compraron']];
+    if(r.sin_tarifas > 0) setResumen('envio', 'alerta', r.sin_tarifas + ' comuna(s) sin tarifas de envío: conviene revisarlas', datosEnvio);
+    else setResumen('envio', 'ok', 'Cotizaciones de los últimos ' + envioDias + ' días sin comunas sin tarifa.', datosEnvio);
     $('envioKpis').innerHTML = [
       ['Personas', fmtNum(r.personas), `${fmtNum(r.bots)} bots o servidores, aparte`],
       ['Eligieron una comuna', fmtNum(r.eligieron), `${envioPct(r.eligieron, r.personas)} de las personas; el resto solo vio la comuna recordada`],
@@ -487,6 +535,7 @@ async function cargarEnvioEstimado(dias){
     ], d.recientes || [], 'Sin datos.');
   }catch(e){
     estado.className = 'note-box err'; estado.textContent = 'No se pudo cargar el cotizador de envío: ' + e.message; contenido.style.display = 'none';
+    setResumen('envio', 'atencion', 'No se pudo cargar: ' + e.message, []);
   }
 }
 function debounce(fn, ms){
@@ -676,7 +725,52 @@ function insigniaModulo(id, cantidad){
   el.textContent = cantidad === 0 ? '✓' : (cantidad > 99 ? '99+' : String(cantidad));
   el.title = cantidad === 0 ? 'Sin casos por revisar' : cantidad + ' por revisar';
 }
-const MODULOS_SITIO = ['stock', 'precios', 'skus', 'envio', 'filtros', 'compat', 'modelos'];
+const MODULOS_SITIO = ['resumen', 'stock', 'precios', 'skus', 'envio', 'filtros', 'compat', 'modelos'];
+// ---------- Resumen: una tarjeta por módulo ----------
+// nivel: 'alerta' (hay algo que corregir), 'atencion' (por analizar o revisar), 'ok', 'sin_datos', 'cargando'
+const RESUMEN_META = {
+  stock: { icono: '📦', titulo: 'Stock oculto' }, precios: { icono: '💲', titulo: 'Precios' }, skus: { icono: '🏷️', titulo: 'SKU de referencia' },
+  envio: { icono: '🚚', titulo: 'Cotizador de envío' }, filtros: { icono: '🔎', titulo: 'Filtros por marca' }, compat: { icono: '🔧', titulo: 'Compatibilidad' },
+  modelos: { icono: '💻', titulo: 'Modelos detectados' },
+};
+const RESUMEN = {};
+Object.keys(RESUMEN_META).forEach(k => { RESUMEN[k] = { nivel: 'cargando', mensaje: 'Cargando…', datos: [] }; });
+const PILL_TEXTO = { alerta: '⚠ Revisar', atencion: '● Por analizar', ok: '✓ Al día', sin_datos: 'Sin datos', cargando: 'Cargando…' };
+function setResumen(clave, nivel, mensaje, datos){
+  RESUMEN[clave] = { nivel, mensaje: mensaje || '', datos: datos || [] };
+  renderResumenSitio();
+}
+function renderResumenSitio(){
+  const grid = $('swResumen');
+  if(!grid) return;
+  grid.innerHTML = Object.keys(RESUMEN_META).map(k => {
+    const m = RESUMEN_META[k], r = RESUMEN[k];
+    const datos = r.datos.length ? '<div class="sw-res-datos">' + r.datos.map(d => '<div><b>' + envioEsc(d[0]) + '</b><span>' + envioEsc(d[1]) + '</span></div>').join('') + '</div>' : '';
+    return '<button type="button" class="sw-res-card nivel-' + r.nivel + '" onclick="irModulo(\'' + k + '\')">' +
+      '<div class="sw-res-top"><span class="sw-res-titulo"><span>' + m.icono + '</span>' + m.titulo + '</span><span class="sw-pill ' + r.nivel + '">' + PILL_TEXTO[r.nivel] + '</span></div>' +
+      datos + '<div class="sw-res-msg">' + envioEsc(r.mensaje) + '</div><div class="sw-res-ver">Ver detalle →</div></button>';
+  }).join('');
+  // franja de alertas: lo pendiente o por analizar, con enlace al módulo
+  const pendientes = Object.keys(RESUMEN_META).filter(k => RESUMEN[k].nivel === 'alerta' || RESUMEN[k].nivel === 'atencion');
+  const cargando = Object.keys(RESUMEN_META).some(k => RESUMEN[k].nivel === 'cargando');
+  const caja = $('swAlertas');
+  if(pendientes.length){
+    caja.innerHTML = '<div class="sw-alerta-caja hay"><h3>🔔 ' + pendientes.length + (pendientes.length === 1 ? ' módulo con algo pendiente o por analizar' : ' módulos con algo pendiente o por analizar') + '</h3><ul>' +
+      pendientes.map(k => '<li>' + RESUMEN_META[k].icono + ' <b>' + RESUMEN_META[k].titulo + ':</b> ' + envioEsc(RESUMEN[k].mensaje) + ' <a onclick="irModulo(\'' + k + '\')">Ver →</a></li>').join('') + '</ul></div>';
+  } else if(cargando){
+    caja.innerHTML = '<div class="sw-alerta-caja ok">Revisando los módulos…</div>';
+  } else {
+    caja.innerHTML = '<div class="sw-alerta-caja ok">✅ <b>Todo al día:</b> ningún módulo tiene algo pendiente por revisar.</div>';
+  }
+  const ins = $('insigniaResumen');
+  if(ins){
+    ins.style.display = pendientes.length ? 'flex' : 'none';
+    ins.classList.remove('ok');
+    ins.textContent = String(pendientes.length);
+    ins.title = pendientes.length + ' con algo pendiente o por analizar';
+  }
+}
+document.addEventListener('DOMContentLoaded', renderResumenSitio);
 function irModulo(clave, sinHash){
   if(!MODULOS_SITIO.includes(clave)) clave = MODULOS_SITIO[0];
   document.querySelectorAll('.sw-modulo').forEach(m => m.classList.toggle('activo', m.id === 'mod-' + clave));
@@ -689,6 +783,23 @@ function moduloDesdeHash(){
 }
 window.addEventListener('hashchange', () => irModulo(moduloDesdeHash(), true));
 document.addEventListener('DOMContentLoaded', () => irModulo(moduloDesdeHash(), true));
+function resumenDesdeAvisos(data){
+  const sinRevisar = 'No se pudo revisar: ' + (data.error || 'faltan datos de Bsale o Shopify');
+  // stock oculto
+  if(data.error || !Array.isArray(data.stockNoVisible)) setResumen('stock', 'atencion', sinRevisar, []);
+  else if(data.stockNoVisible.length) setResumen('stock', 'alerta', data.stockNoVisible.length + (data.stockNoVisible.length === 1 ? ' producto con stock no se ve en la tienda' : ' productos con stock no se ven en la tienda') + ': se están perdiendo ventas', [[fmtNum(data.stockNoVisible.length), 'Ocultos'], [fmtNum(data.stockNoVisible.reduce((t, s) => t + (Number(s.stock) || 0), 0)), 'Unidades']]);
+  else setResumen('stock', 'ok', 'Todo el stock disponible está visible en la tienda.', [['0', 'Ocultos']]);
+  // precios
+  const d1 = Array.isArray(data.preciosDistintos) ? data.preciosDistintos.length : null, d2 = Array.isArray(data.preciosDesincronizados) ? data.preciosDesincronizados.length : null;
+  if(data.error || (d1 === null && d2 === null)) setResumen('precios', 'atencion', sinRevisar, []);
+  else if((d1 || 0) + (d2 || 0) > 0) setResumen('precios', 'alerta', ((d1 || 0) + (d2 || 0)) + ' precio(s) no coinciden con la lista de Bsale', [[fmtNum(d1 || 0), 'Distintos'], [fmtNum(d2 || 0), 'Referencia']]);
+  else setResumen('precios', 'ok', 'Los precios de la tienda coinciden con Bsale.', [['0', 'Distintos'], ['0', 'Referencia']]);
+  // SKU de referencia
+  const s = Array.isArray(data.skusIncorrectosReferencia) ? data.skusIncorrectosReferencia.length : null;
+  if(data.error || s === null) setResumen('skus', 'atencion', sinRevisar, []);
+  else if(s > 0) setResumen('skus', 'alerta', s + (s === 1 ? ' producto de referencia con SKU incorrecto' : ' productos de referencia con SKU incorrecto'), [[fmtNum(s), 'Con error']]);
+  else setResumen('skus', 'ok', 'Los productos de referencia tienen el SKU correcto.', [['0', 'Con error']]);
+}
 function renderAvisos(data){
   const avisoStock = renderAvisoStockShopify(data.stockNoVisible ?? null, data.error, data.detail);
   const avisoPrecios = renderAvisoPreciosDistintos(data.preciosDistintos ?? null, data.listaPrecioBsaleNombre, data.error, data.detail);
@@ -702,6 +813,7 @@ function renderAvisos(data){
   insigniaModulo('insigniaStock', Array.isArray(data.stockNoVisible) ? data.stockNoVisible.length : null);
   insigniaModulo('insigniaPrecios', Array.isArray(data.preciosDistintos) || Array.isArray(data.preciosDesincronizados) ? (data.preciosDistintos || []).length + (data.preciosDesincronizados || []).length : null);
   insigniaModulo('insigniaSkus', Array.isArray(data.skusIncorrectosReferencia) ? data.skusIncorrectosReferencia.length : null);
+  resumenDesdeAvisos(data);
   // Autocompletado del formulario de compatibilidad (SKU -> título),
   // reutilizando el mismo catálogo de Shopify que ya se trajo arriba --
   // sin golpear Shopify de nuevo aparte.
@@ -821,7 +933,7 @@ async function cargarColeccionesYDescubrir(forzar){
     // a buscar en Shopify de nuevo cada vez que se abre la página.
     if(promesaModelosCompatIniciales) await promesaModelosCompatIniciales;
     const data = await fetch('/api/negocio?recurso=colecciones-modelos-notebook' + (forzar ? '&forzar=1' : '')).then(r=>r.json());
-    if(data.error){ $('estadoDescubrimiento').textContent = data.error; return; }
+    if(data.error){ $('estadoDescubrimiento').textContent = data.error; setResumen('modelos', 'atencion', 'No se pudo leer el catálogo: ' + data.error, []); return; }
     ultimosConteosColecciones = { pantalla: (data.pantalla||[]).length, bateria: (data.bateria||[]).length, cargador: (data.cargador||[]).length };
     ultimosErroresColecciones = data.erroresPorCategoria || null;
     ultimoCalculadoEnColecciones = data.calculadoEn || null;
@@ -829,6 +941,7 @@ async function cargarColeccionesYDescubrir(forzar){
     iniciarDescubrimientoModelos({ pantalla: data.pantalla || [], bateria: data.bateria || [], cargador: data.cargador || [] });
   }catch(err){
     $('estadoDescubrimiento').textContent = 'Error consultando las colecciones: ' + err.message;
+    setResumen('modelos', 'atencion', 'No se pudo consultar las colecciones: ' + err.message, []);
   }
 }
 function resumenConteosColecciones(){
@@ -999,6 +1112,15 @@ function iniciarDescubrimientoModelos(coleccionesPorCategoria){
   }
   renderNavegacionModelos();
   procesarBusquedaBateriaCargador();
+  resumenModelosDetectados();
+}
+// Resumen del módulo: modelos detectados en el catálogo que todavía no están guardados en Compatibilidad (pendientes de revisar y guardar).
+function resumenModelosDetectados(){
+  const n = candidatosDescubiertos.length, pend = (typeof colaPendientesBusqueda !== 'undefined' ? colaPendientesBusqueda.length : 0);
+  const datos = [[fmtNum(n), 'Por guardar'], [fmtNum(ultimoOmitidosYaGuardados), 'Ya guardados'], [fmtNum(pend), 'Sin buscar']];
+  if(ultimosErroresColecciones) setResumen('modelos', 'atencion', 'Las colecciones de Shopify devolvieron errores: ' + Object.values(ultimosErroresColecciones).join(' · '), datos);
+  else if(n > 0) setResumen('modelos', 'atencion', n + ' modelo(s) detectados sin guardar en Compatibilidad' + (pend ? ' (' + pend + ' por buscar en Shopify)' : '') + ': revisa y guarda', datos);
+  else setResumen('modelos', 'ok', 'No hay modelos detectados pendientes de guardar.', datos);
 }
 
 // ---------- Navegación marca -> serie -> modelos ----------
@@ -1133,6 +1255,7 @@ const TOPE_BUSQUEDA = 25; // ritmo suave por tanda -- no golpear Shopify de más
 const CONCURRENCIA_BUSQUEDA = 5; // varias búsquedas a la vez en vez de una por una con pausa fija -- cada búsqueda ya hace sus propias 3 consultas en paralelo (ver buscarSkusModeloNotebook) y el cupo de Shopify es amplio (2000, se recupera 100/seg), así que este es el cuello de botella real de tiempo de carga
 let colaPendientesBusqueda = []; // lo que NO entró en la tanda actual -- se sigue buscando con el botón "Seguir buscando", no se pierde silenciosamente
 function actualizarBotonSeguirBuscando(){
+  try{ resumenModelosDetectados(); }catch(e){ /* el resumen no debe romper la búsqueda */ }
   const btn = $('btnSeguirBuscando');
   if(colaPendientesBusqueda.length > 0){
     btn.style.display = '';
@@ -1252,11 +1375,17 @@ async function cargarModelosCompat(){
   const tbody = $('tablaCompat');
   try{
     const data = await fetch('/api/negocio?recurso=modelos-compatibilidad').then(r=>r.json());
-    if(data.error){ tbody.innerHTML = `<tr><td colspan="7" class="empty-note">${data.error}</td></tr>`; return; }
+    if(data.error){ tbody.innerHTML = `<tr><td colspan="7" class="empty-note">${data.error}</td></tr>`; setResumen('compat', 'atencion', 'No se pudo cargar: ' + data.error, []); return; }
     ultimosModelosCompat = data.modelos || [];
     renderTablaCompat(ultimosModelosCompat);
+    const incompletos = ultimosModelosCompat.filter(m => !m.skuBateria || !m.skuPantalla || !m.skuCargador).length;
+    const datosCompat = [[fmtNum(ultimosModelosCompat.length), 'Modelos'], [fmtNum(ultimosModelosCompat.length - incompletos), 'Completos'], [fmtNum(incompletos), 'Incompletos']];
+    if(!ultimosModelosCompat.length) setResumen('compat', 'sin_datos', 'Todavía no hay modelos cargados.', datosCompat);
+    else if(incompletos) setResumen('compat', 'atencion', incompletos + ' modelo(s) sin alguno de los 3 SKU (batería, pantalla o cargador)', datosCompat);
+    else setResumen('compat', 'ok', 'Todos los modelos tienen batería, pantalla y cargador.', datosCompat);
   }catch(err){
     tbody.innerHTML = `<tr><td colspan="7" class="empty-note">Error: ${err.message}</td></tr>`;
+    setResumen('compat', 'atencion', 'No se pudo cargar: ' + err.message, []);
   }
 }
 let sortColCompat = 'marca';
