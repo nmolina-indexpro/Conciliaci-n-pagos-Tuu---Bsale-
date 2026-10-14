@@ -30,6 +30,7 @@ import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from 
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
+import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
 import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTablaMercadoLibre, leerConexion, borrarConexion, conectarConCodigo, probarLectura, lectorML } from '../lib/mercadolibre.js';
@@ -131,6 +132,9 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'buscador-ia-embudo') return manejarBuscadorIaEmbudo(req, res);
   if (req.query.recurso === 'buscador-ia-filtro') return manejarBuscadorIaFiltro(req, res);
   if (req.query.recurso === 'buscador-ia-descuento') return manejarBuscadorIaDescuento(req, res);
+  // Conversión real de Google Ads (mensaje de WhatsApp recibido): el aviso del toque llega por el Worker (x-api-key) y el cron sube las conversiones (CRON_SECRET).
+  if (req.query.recurso === 'wa-clic-ads') return manejarWaClicAds(req, res);
+  if (req.query.recurso === 'wa-clic-ads-cron') return manejarWaClicAdsCron(req, res);
   // Descuentos web: el aviso de stock de Shopify y la revisión diaria entran sin sesión (clave en la URL / CRON_SECRET, ver handler).
   if (req.query.recurso === 'descuentos-web-aviso') return manejarDescuentosWebAviso(req, res);
   if (req.query.recurso === 'descuentos-web-cron') return manejarDescuentosWebCron(req, res);
@@ -14826,6 +14830,50 @@ async function manejarFiltrosUso(req, res, _sesion) {
     return res.status(200).json(await resumenFiltrosUso(sql, dias));
   } catch (err) {
     return res.status(200).json({ error: 'Error calculando el uso de los filtros', detail: String(err.message || err).slice(0, 200) });
+  }
+}
+
+// Toque en un botón de WhatsApp del sitio, con el código que va en el texto precargado y los identificadores de clic de Google.
+// Lo manda el Worker de Cloudflare (misma clave y mismo patrón que el resto de los avisos del sitio). No lleva datos personales.
+async function manejarWaClicAds(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const claveEsperada = process.env.BUSCADOR_IA_KEY;
+  if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
+  if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) return res.status(401).json({ error: 'Clave inválida' });
+  const validado = validarClicWaAds(req.body);
+  if (!validado.ok) return res.status(400).json({ error: validado.error });
+  try {
+    const sql = await getSql();
+    await guardarClicWaAds(sql, validado.fila);
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo guardar el toque: ' + e.message });
+  }
+}
+
+// Cron diario: vincula los mensajes recibidos que traen un código y sube a Google Ads la conversión offline de cada uno.
+// ?solo_ver=1 vincula pero no sube (para revisar). Devuelve solo cantidades.
+async function manejarWaClicAdsCron(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    await asegurarTablaWaClicsAds(sql);
+    const vinculo = await vincularMensajesWaAds(sql);
+    if (req.query.solo_ver === '1') return res.status(200).json({ ok: true, vinculo, subida: 'omitida (solo_ver)' });
+    const faltan = [...faltanVariablesGoogleAds(), ...faltanVariablesConversionWaAds()];
+    if (faltan.length > 0) {
+      return res.status(200).json({ ok: false, vinculo, error: `Faltan variables de entorno en Vercel: ${faltan.join(', ')}` });
+    }
+    const subida = await subirConversionesWaAds(sql);
+    await sql.query(`DELETE FROM wa_clics_ads WHERE creado_en < now() - make_interval(days => $1)`, [RETENCION_WA_ADS]);
+    return res.status(200).json({ ok: true, vinculo, subida });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en la conversión de WhatsApp para Google Ads', detail: String(err.message || err).slice(0, 300) });
   }
 }
 
