@@ -323,6 +323,11 @@ async function cargarEstado(){
     $('cardEstado').innerHTML = '<div class="error-box">' + esc(err.message) + '</div>';
   }
 }
+// Permisos de negocio (urn:ml:...) concedidos con escritura; los de la cuenta base (urn:global:admin:...) los impone Mercado Libre.
+function escrituraNegocio(permisos){
+  return String(permisos || '').split(' ').filter(s => s.indexOf('urn:ml:') === 0 && s.slice(-11) === '/read-write')
+    .map(s => s.split(':').slice(-2, -1)[0].replace('/read-write', '')).join(', ');
+}
 function renderEstado(){
   const e = estado;
   if(window.MLMetricas){ if(e.conectado && !renderEstado.iniciado){ renderEstado.iniciado = true; MLMetricas.iniciar(); } else if(!e.conectado){ renderEstado.iniciado = false; MLMetricas.ocultar(); } }
@@ -357,7 +362,7 @@ function renderEstado(){
       <b style="font-size:15px;">${esc(c.nickname || 'Cuenta de Mercado Libre')}</b>
       <span class="empty-note">${esc(c.siteId || '')}${c.id ? ' · usuario ' + esc(c.id) : ''}</span>
     </div>
-    <div class="empty-note" style="line-height:1.7;">Conectada por <b>${esc(c.conectadoPor || '—')}</b> el ${esc(fechaHora(c.conectadoEn))}. El acceso actual vence el ${esc(fechaHora(c.accesoExpiraEn))} y se renueva solo.<br>Permisos concedidos por Mercado Libre: <b>${esc(c.permisos || 'no informados')}</b>${/write/i.test(c.permisos || '') ? ' <span style="color:var(--red);font-weight:700;">· incluye escritura: baja los permisos a Lectura en la aplicación y vuelve a conectar</span>' : ''}</div>
+    <div class="empty-note" style="line-height:1.7;">Conectada por <b>${esc(c.conectadoPor || '—')}</b> el ${esc(fechaHora(c.conectadoEn))}. El acceso actual vence el ${esc(fechaHora(c.accesoExpiraEn))} y se renueva solo.<br>Permisos concedidos por Mercado Libre: <b>${esc(c.permisos || 'no informados')}</b>${escrituraNegocio(c.permisos) ? ' <span style="color:var(--red);font-weight:700;">· hay permisos de negocio con escritura (' + esc(escrituraNegocio(c.permisos)) + '): bájalos a Lectura o Sin acceso en la aplicación y vuelve a conectar</span>' : ' <span class="empty-note">(los permisos de cuenta «admin» con lectura y escritura los fija Mercado Libre; el ERP solo hace lecturas)</span>'}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
       <button class="btn-primary btn-sm" id="btnProbar" onclick="probar()">Probar lectura</button>
       <button class="btn-ghost btn-sm" onclick="conectar()" title="Vuelve a autorizar la cuenta (por ejemplo si cambió la contraseña o los permisos)">Reconectar</button>
@@ -387,7 +392,7 @@ async function probar(){
       const fila = (k, v) => '<tr><td style="width:240px;color:var(--muted);">' + k + '</td><td><b>' + esc(v == null || v === '' ? '—' : v) + '</b></td></tr>';
       card.innerHTML = '<h2 style="font-family:\'Space Grotesk\',sans-serif;font-size:15px;margin:0 0 8px;">La lectura funciona</h2><table><tbody>' +
         fila('Cuenta', d.nickname) + fila('Sitio', d.siteId) + fila('Tipo de usuario', d.tipoUsuario) + fila('Nivel de reputación', d.nivelReputacion) +
-        fila('Estado MercadoLíder', d.estadoMercadoLider) + fila('Ventas completadas', d.ventasCompletadas) + fila('Publicaciones activas', d.publicacionesActivas) + '</tbody></table>' +
+        fila('Estado MercadoLíder', d.estadoMercadoLider) + fila('Ventas completadas', d.ventasCompletadas) + fila('Publicaciones activas', d.publicacionesActivas) + fila('Publicaciones pausadas', d.publicacionesPausadas) + fila('Publicaciones en total', d.publicacionesTotales) + fila('Órdenes de los últimos 90 días', d.ordenes90d) + fila('Cuenta creada', d.registro ? new Date(d.registro).toLocaleDateString('es-CL') : null) + '</tbody></table>' + ((d.publicacionesTotales === 0 && !d.ordenes90d) ? '<div class="aviso-box" style="margin-top:8px;">Esta cuenta no tiene publicaciones ni órdenes. Si IndexStore vende en Mercado Libre, probablemente conectaste otra cuenta: usa <b>Reconectar</b> e inicia sesión con la cuenta que tiene las publicaciones.</div>' : '') +
         '<div class="empty-note" style="margin-top:8px;">Si estos datos coinciden con tu panel de Mercado Libre, la conexión está bien y se pueden armar las métricas.</div>';
     }
   }catch(err){
