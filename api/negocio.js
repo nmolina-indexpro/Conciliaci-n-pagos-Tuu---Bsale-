@@ -26,6 +26,7 @@ import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFI
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
 import { armarDocumento, compararConApp } from '../lib/bsale-emision.js';
+import { asegurarTablasBsaleSync, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
@@ -104,6 +105,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'resumen-cambios-enviar') return manejarResumenCambiosEnviar(req, res);
   if (req.query.recurso === 'resumen-cambios-recordatorio') return manejarResumenCambiosRecordatorio(req, res);
   if (req.query.recurso === 'cambio-imagen') return manejarCambioImagen(req, res);
+  if (req.query.recurso === 'bsale-webhook') return manejarBsaleWebhook(req, res);
   // Píxel de seguimiento de apertura de los correos de IndexScale -- lo
   // carga el cliente de correo del destinatario, sin sesión. Mismo patrón
   // que los de arriba, pero la seguridad real la hace el token aleatorio
@@ -172,6 +174,7 @@ export default async function handler(req, res) {
   if (recurso === 'shopify-urls-sku') return manejarShopifyUrlsSku(req, res, sesion);
   if (recurso === 'bsale-sombra') return manejarBsaleSombra(req, res, sesion);
   if (recurso === 'bsale-sombra-datos') return manejarBsaleSombraDatos(req, res, sesion);
+  if (recurso === 'bsale-eventos') return manejarBsaleEventos(req, res, sesion);
   if (recurso === 'bsale-sombra-pedido') return manejarBsaleSombraPedido(req, res, sesion);
   if (recurso === 'shopify-permisos') return manejarShopifyPermisos(req, res, sesion);
   if (recurso === 'bsale-prueba-cotizacion') return manejarBsalePruebaCotizacion(req, res, sesion);
@@ -8451,6 +8454,75 @@ async function manejarBsaleSombraPedido(req, res, sesion) {
     return res.status(200).json({ ok: true, pedido: { id, nombre: o.name, total: documento.totalEsperado }, documento, app, diferencias, avisos });
   } catch (err) {
     return res.status(200).json({ error: 'Error armando el documento en sombra', detail: String(err.message || err).slice(0, 300) });
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Avisos (webhooks) de Bsale -- MODO SOMBRA. Bsale avisa cuando cambia stock, precio, documentos, etc. Esto los recibe SIN sesión (los llama
+// Bsale), los guarda y, para stock y precio, calcula qué cambiaría en Shopify. NO escribe nada en Shopify.
+// Seguridad: Bsale no documenta firma, así que el contenido del aviso no se cree: solo se usa para saber QUÉ recurso volver a leer de la API
+// de Bsale (y solo rutas /v1/ de Bsale). Si se define BSALE_WEBHOOK_CLAVE en Vercel, la dirección debe llevar ?clave=...
+// ══════════════════════════════════════════════════════════════════════
+async function evaluarAvisoBsale(topic, accion, recurso) {
+  const t = String(topic || '').toLowerCase();
+  if (!['stock', 'price', 'precio'].includes(t)) return { nota: 'aviso guardado (no es de stock ni de precio)' };
+  if (String(accion).toUpperCase() === 'DELETE') return { nota: 'aviso de borrado: no se evalúa' };
+  if (!recurso) return { error: 'el aviso no trae un recurso válido de Bsale' };
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return { error: 'BSALE_ACCESS_TOKEN no está configurada' };
+  const sep = recurso.includes('?') ? '&' : '?';
+  const r = await fetchConTimeout('https://api.bsale.io' + recurso + sep + 'expand=variant', { headers: { access_token: token } }, 12000);
+  if (!r.ok) return { error: 'Bsale respondió ' + r.status + ' al leer ' + recurso };
+  const rec = await r.json().catch(() => null);
+  const cfg = await configSombraBsale(token);
+  const datos = datosDeAviso(t, rec, cfg.officeId);
+  if (!datos) return { nota: 'no pude sacar SKU y valor de ese recurso' };
+  if (datos.ignorado) return { sku: datos.sku, nota: 'ignorado (' + datos.ignorado + ')' };
+  if (!/^[A-Za-z0-9._\-]+$/.test(datos.sku)) return { sku: datos.sku, error: 'SKU con caracteres no admitidos' };
+  const acceso = await obtenerAccesoShopify();
+  if (!acceso) return { sku: datos.sku, error: 'Shopify no está configurado' };
+  const query = `query($q: String!) { productVariants(first: 50, query: $q) { nodes { id sku price inventoryQuantity product { title status } } } }`;
+  const body = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, query, { q: "sku:'" + datos.sku + "'" });
+  const variantes = ((body.data && body.data.productVariants && body.data.productVariants.nodes) || []).filter(v => v.sku === datos.sku)
+    .map(v => ({ id: v.id.split('/').pop(), producto: v.product ? v.product.title : '', estado: v.product ? v.product.status : '', stock: v.inventoryQuantity, precio: Math.round(Number(v.price) || 0) }));
+  const plan = planDeSku({ sku: datos.sku, disponibleBsale: datos.disponibleBsale, precioBrutoBsale: datos.precioBrutoBsale, variantes });
+  return { sku: datos.sku, bsale: { disponible: datos.disponibleBsale ?? null, precioBruto: datos.precioBrutoBsale ?? null }, publicaciones: plan.publicaciones, igual: plan.igual, cambiaria: plan.cambios.slice(0, 5), totalCambios: plan.cambios.length };
+}
+
+async function manejarBsaleWebhook(req, res) {
+  try {
+    if (req.method !== 'POST') return res.status(200).json({ ok: true });
+    const clave = process.env.BSALE_WEBHOOK_CLAVE;
+    if (clave && String(req.query.clave || '') !== clave) return res.status(401).json({ error: 'No autorizado' });
+    const b = req.body || {};
+    const topic = String(b.topic || '').slice(0, 40), accion = String(b.action || '').slice(0, 10);
+    const recurso = recursoBsaleSeguro(b.resource);
+    const sql = await getSql();
+    await asegurarTablasBsaleSync(sql);
+    let resultado;
+    try { resultado = await evaluarAvisoBsale(topic, accion, recurso); } catch (e) { resultado = { error: String(e.message || e).slice(0, 200) }; }
+    await sql`INSERT INTO bsale_sync_eventos (topic, accion, recurso, recurso_id, cpn_id, resultado)
+              VALUES (${topic}, ${accion}, ${recurso || String(b.resource || '').slice(0, 120)}, ${String(b.resourceId || '').slice(0, 40)}, ${String(b.cpnId || '').slice(0, 20)}, ${JSON.stringify(resultado)}::jsonb);`;
+    await sql`DELETE FROM bsale_sync_eventos WHERE recibido_en < now() - interval '30 days';`;
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    // Bsale reintenta (o no) según su política: ante un fallo interno se responde 500 para que lo vuelva a mandar
+    return res.status(500).json({ error: 'Error guardando el aviso', detail: String(err.message || err).slice(0, 160) });
+  }
+}
+
+// Últimos avisos recibidos (pantalla Bsale > Avisos). Solo administradores.
+async function manejarBsaleEventos(req, res, sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores' });
+    const sql = await getSql();
+    await asegurarTablasBsaleSync(sql);
+    const { rows } = await sql`SELECT id, recibido_en, topic, accion, recurso, resultado FROM bsale_sync_eventos ORDER BY id DESC LIMIT 60;`;
+    const { rows: conteo } = await sql`SELECT topic, count(*)::int AS n FROM bsale_sync_eventos WHERE recibido_en > now() - interval '24 hours' GROUP BY topic ORDER BY n DESC;`;
+    return res.status(200).json({ eventos: rows, ultimas24h: conteo, claveConfigurada: !!process.env.BSALE_WEBHOOK_CLAVE });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error leyendo los avisos de Bsale', detail: String(err.message || err).slice(0, 200) });
   }
 }
 

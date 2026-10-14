@@ -300,6 +300,13 @@
     <div id="resultadoPermisos" style="margin-top:8px;"></div>
   </div>
   <div class="card" style="padding:12px 14px;margin:8px 0 12px;">
+    <b>Avisos de Bsale (webhooks, modo sombra)</b>
+    <div class="empty-note" style="margin:4px 0 8px;">Cuando Bsale active los webhooks, aquí se ven los avisos que llegan (stock, precio, documentos) y qué cambiaría en Shopify. <b>No se escribe nada en Shopify.</b> Dirección para Bsale: <code>https://erp.indexstore.cl/api/negocio?recurso=bsale-webhook</code></div>
+    <button class="btn-ghost" id="btnEventosBsale" onclick="cargarEventosBsale()">Ver avisos recibidos</button>
+    <div id="resumenEventosBsale" class="empty-note" style="margin-top:8px;"></div>
+    <div class="tabla-wrap" id="wrapEventosBsale"></div>
+  </div>
+  <div class="card" style="padding:12px 14px;margin:8px 0 12px;">
     <b>Stock y precios (modo sombra)</b>
     <div class="empty-note" style="margin:4px 0 8px;">Compara el stock de la bodega <b>Casa Matriz</b> y la <b>Lista de Precios Base</b> de Bsale contra lo que hay hoy en Shopify, por SKU. <b>Solo lee</b>; no cambia nada. Tarda un par de minutos (unos 7.400 SKU).</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
@@ -445,6 +452,22 @@ async function detalleBsalePedido(id){
       '<pre style="white-space:pre-wrap;font-size:11.5px;background:#f5f8fe;padding:8px;border-radius:8px;margin-top:6px;max-height:260px;overflow:auto;">' + esc(JSON.stringify({ ...doc, details: undefined }, null, 2)) + '</pre></details>';
     $('cuerpoPedidoBsale').innerHTML = h;
   }catch(err){ $('cuerpoPedidoBsale').innerHTML = '<div class="error-box">' + esc(err.message) + '</div>'; }
+}
+async function cargarEventosBsale(){
+  const b = $('btnEventosBsale'); b.disabled = true;
+  try{
+    const res = await fetch('/api/negocio?recurso=bsale-eventos'); const d = await res.json();
+    if(!res.ok || d.error){ $('resumenEventosBsale').innerHTML = '<span style="color:#a11d1d;">' + esc(d.error || 'Error') + '</span>'; return; }
+    $('resumenEventosBsale').textContent = d.eventos.length ? 'Últimas 24 horas: ' + (d.ultimas24h.map(x => x.n + ' de ' + x.topic).join(' · ') || 'ninguno') + (d.claveConfigurada ? '' : ' · La dirección aún no exige clave (lo sensible se vuelve a leer siempre desde Bsale).') : 'Todavía no ha llegado ningún aviso de Bsale.';
+    const fecha = iso => new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    $('wrapEventosBsale').innerHTML = d.eventos.length ? '<table><thead><tr><th>Cuándo</th><th>Aviso</th><th>SKU</th><th>Bsale dice</th><th>En Shopify</th></tr></thead><tbody>' + d.eventos.map(e => {
+      const r = e.resultado || {};
+      const bsale = r.bsale ? [r.bsale.disponible != null ? 'stock ' + r.bsale.disponible : '', r.bsale.precioBruto != null ? 'precio $' + Number(r.bsale.precioBruto).toLocaleString('es-CL') : ''].filter(Boolean).join(' · ') : '';
+      const shop = r.error ? '<span style="color:#a11d1d;">' + esc(r.error) + '</span>' : (r.nota ? '<span class="empty-note">' + esc(r.nota) + '</span>' : (r.igual ? '<span style="color:#12713a;font-weight:700;">✔ Ya está igual</span>' : '<span style="color:#8a5a00;font-weight:700;">⚠ Cambiaría ' + r.totalCambios + ': </span>' + (r.cambiaria || []).map(c => esc(c.tipo + ' ' + c.de + ' → ' + c.a)).join(', ')));
+      return '<tr><td style="white-space:nowrap;">' + fecha(e.recibido_en) + '</td><td>' + esc(e.topic) + ' ' + esc(e.accion) + '</td><td>' + esc(r.sku || '—') + '</td><td>' + esc(bsale) + '</td><td>' + shop + '</td></tr>';
+    }).join('') + '</tbody></table>' : '';
+  }catch(err){ $('resumenEventosBsale').innerHTML = '<span style="color:#a11d1d;">' + esc(err.message) + '</span>'; }
+  finally{ b.disabled = false; }
 }
 let datosSP = null;
 async function traerTandas(fuente, onProgreso){
