@@ -301,6 +301,12 @@
     <div id="resultadoPermisos" style="margin-top:8px;"></div>
   </div>
   <div class="card" style="padding:12px 14px;margin:8px 0 12px;">
+    <b>Emisión desde el ERP</b> <span id="estadoEmision" class="empty-note"></span>
+    <div class="empty-note" style="margin:4px 0 8px;">Cada tipo de documento nace <b>apagado</b>. Antes de encender uno, <b>desmarca ese mismo flujo en la app de Bsale</b> (Tipos de documento), o los dos lo emitirán y quedaría duplicado ante el SII. Con un tipo encendido, el ERP emite solo cuando tú lo pides desde el <b>Detalle</b> de un pedido, escribiendo una confirmación.</div>
+    <div id="interruptoresEmision" style="display:flex;gap:14px;flex-wrap:wrap;"></div>
+    <div id="ultimasEmisiones" class="empty-note" style="margin-top:8px;"></div>
+  </div>
+  <div class="card" style="padding:12px 14px;margin:8px 0 12px;">
     <b>Avisos de Bsale (webhooks, modo sombra)</b>
     <div class="empty-note" style="margin:4px 0 8px;">Cuando Bsale active los webhooks, aquí se ven los avisos que llegan (stock, precio, documentos) y qué cambiaría en Shopify. <b>No se escribe nada en Shopify.</b> Dirección para Bsale: <code>https://erp.indexstore.cl/api/negocio?recurso=bsale-webhook</code></div>
     <button class="btn-ghost" id="btnEventosBsale" onclick="cargarEventosBsale()">Ver avisos recibidos</button>
@@ -452,6 +458,10 @@ async function detalleBsalePedido(id){
     h += '<details style="margin-top:10px;"><summary style="cursor:pointer;font-weight:700;">Documento completo que armaría el ERP (' + esc(doc.tipo) + ')</summary>' +
       '<table style="margin-top:6px;"><thead><tr><th>Línea</th><th>SKU</th><th>Cant.</th><th>Neto unit.</th><th>Total línea</th></tr></thead><tbody>' + doc.details.map(l => '<tr><td>' + esc(l.comment) + '</td><td>' + esc(l.code || '—') + '</td><td>' + l.quantity + '</td><td>$' + n(l.netUnitValue) + '</td><td>$' + n(l.brutoLinea) + '</td></tr>').join('') + '</tbody></table>' +
       '<pre style="white-space:pre-wrap;font-size:11.5px;background:#f5f8fe;padding:8px;border-radius:8px;margin-top:6px;max-height:260px;overflow:auto;">' + esc(JSON.stringify({ ...doc, details: undefined }, null, 2)) + '</pre></details>';
+    h += '<div style="margin-top:12px;border-top:1px solid #d3dff3;padding-top:10px;"><b>Emisión desde el ERP</b> <span class="empty-note">(simular nunca envía nada; emitir exige el interruptor encendido y escribir EMITIR)</span><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">' +
+      ['nota_venta', 'boleta', 'factura'].map(t => '<button class="btn-ghost btn-sm" onclick="emitirBsale(\'' + esc(d.pedido.id) + '\', \'' + t + '\', true)">Simular ' + NOMBRES_EMISION[t].toLowerCase() + '</button>' +
+        (configEmision[t] ? '<button class="btn-primary btn-sm" onclick="emitirBsale(\'' + esc(d.pedido.id) + '\', \'' + t + '\', false)">EMITIR ' + NOMBRES_EMISION[t].toLowerCase() + '</button>' : '<span class="empty-note" style="align-self:center;">(emitir ' + NOMBRES_EMISION[t].toLowerCase() + ': apagado)</span>')).join('') +
+      '</div><div id="resultadoEmision" style="margin-top:8px;"></div></div>';
     $('cuerpoPedidoBsale').innerHTML = h;
   }catch(err){ $('cuerpoPedidoBsale').innerHTML = '<div class="error-box">' + esc(err.message) + '</div>'; }
 }
@@ -471,6 +481,42 @@ async function cargarEventosBsale(){
   }catch(err){ $('resumenEventosBsale').innerHTML = '<span style="color:#a11d1d;">' + esc(err.message) + '</span>'; }
   finally{ b.disabled = false; }
 }
+let configEmision = { nota_venta: false, boleta: false, factura: false };
+const NOMBRES_EMISION = { nota_venta: 'Nota de venta', boleta: 'Boleta electrónica', factura: 'Factura electrónica' };
+async function cargarConfigEmision(){
+  try{
+    const res = await fetch('/api/negocio?recurso=bsale-emision-config'); const d = await res.json();
+    if(!res.ok || d.error){ $('estadoEmision').textContent = d.error || 'Error'; return; }
+    configEmision = d.config;
+    $('estadoEmision').textContent = (configEmision.nota_venta || configEmision.boleta || configEmision.factura) ? '— hay tipos ENCENDIDOS' : '— todo apagado';
+    $('interruptoresEmision').innerHTML = Object.keys(NOMBRES_EMISION).map(t => '<label style="display:flex;gap:6px;align-items:center;font-weight:700;"><input type="checkbox" ' + (configEmision[t] ? 'checked' : '') + ' onchange="cambiarEmision(\'' + t + '\', this.checked, this)"> ' + NOMBRES_EMISION[t] + '</label>').join('');
+    $('ultimasEmisiones').textContent = d.ultimas && d.ultimas.length ? 'Últimas emisiones: ' + d.ultimas.map(u => u.pedido + ' ' + u.tipo + ' ' + u.estado + (u.numero ? ' N° ' + u.numero : '') + (u.error ? ' (' + u.error.slice(0, 60) + ')' : '')).join(' · ') : 'Aún no se ha emitido nada desde el ERP.';
+  }catch(err){ $('estadoEmision').textContent = err.message; }
+}
+async function cambiarEmision(tipo, activo, caja){
+  const msg = activo ? 'Vas a ENCENDER la emisión de ' + NOMBRES_EMISION[tipo].toLowerCase() + ' desde el ERP.\n\n¿Ya desmarcaste ese flujo en la app de Bsale? Si no, ambos emitirán el mismo documento.\n\n(No emite nada por sí solo: solo permite emitir desde el Detalle de un pedido.)' : '¿Apagar la emisión de ' + NOMBRES_EMISION[tipo].toLowerCase() + ' desde el ERP?';
+  if(!confirm(msg)){ caja.checked = !activo; return; }
+  const res = await fetch('/api/negocio?recurso=bsale-emision-config', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ tipo, activo }) });
+  const d = await res.json(); if(d.error){ alert(d.error); caja.checked = !activo; return; }
+  cargarConfigEmision();
+}
+async function emitirBsale(id, tipo, simular){
+  const out = $('resultadoEmision');
+  if(!simular){
+    const c = prompt('EMISIÓN REAL en Bsale: ' + NOMBRES_EMISION[tipo] + ' del pedido.\n\nEscribe EMITIR para confirmar:');
+    if(c !== 'EMITIR') return;
+  }
+  out.innerHTML = '<p class="empty-note">Procesando...</p>';
+  try{
+    const res = await fetch('/api/negocio?recurso=bsale-emitir', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ id, tipo, simular: !!simular, confirmar: simular ? undefined : 'EMITIR' }) });
+    const d = await res.json();
+    if(!res.ok || !d.ok){ out.innerHTML = '<div class="error-box">' + esc(d.error || 'Error') + (d.detail ? '<br><small>' + esc(d.detail) + '</small>' : '') + '</div>'; return; }
+    if(d.simulado) out.innerHTML = '<div style="color:#12713a;font-weight:700;">✔ Simulación correcta: así se enviaría a Bsale (no se envió nada).</div>' + (d.avisos && d.avisos.length ? '<div class="empty-note">' + d.avisos.map(esc).join('<br>') + '</div>' : '') + '<pre style="white-space:pre-wrap;font-size:11.5px;background:#f5f8fe;padding:8px;border-radius:8px;max-height:260px;overflow:auto;">' + esc(JSON.stringify(d.cuerpo, null, 2)) + '</pre>';
+    else out.innerHTML = '<div style="color:#12713a;font-weight:700;">✔ Emitido: ' + esc(NOMBRES_EMISION[tipo]) + ' N° ' + esc(d.numero) + ' por $' + Number(d.total || 0).toLocaleString('es-CL') + (d.url ? ' — <a href="' + esc(d.url) + '" target="_blank" rel="noopener">ver ↗</a>' : '') + '</div><div class="empty-note">Etiquetas en Shopify: ' + esc(d.escrituraShopify) + '</div>';
+    cargarConfigEmision();
+  }catch(err){ out.innerHTML = '<div class="error-box">' + esc(err.message) + '</div>'; }
+}
+document.addEventListener('DOMContentLoaded', cargarConfigEmision);
 let datosSP = null;
 async function traerTandas(fuente, onProgreso){
   const items = []; let offset = 0, cursor = null, total = null, extra = {};

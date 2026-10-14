@@ -25,12 +25,13 @@ import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR 
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
-import { armarDocumento, compararConApp } from '../lib/bsale-emision.js';
-import { asegurarTablasBsaleSync, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
+import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
+import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
-import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTablaMercadoLibre, leerConexion, borrarConexion, conectarConCodigo, probarLectura } from '../lib/mercadolibre.js';
+import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTablaMercadoLibre, leerConexion, borrarConexion, conectarConCodigo, probarLectura, lectorML } from '../lib/mercadolibre.js';
+import { asegurarTablasMLDatos, reiniciarSync, estadoSync, siguientePaso, ejecutarPaso, calcularMetricasML, PASOS as PASOS_ML } from '../lib/mercadolibre-datos.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
@@ -105,6 +106,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'whatsapp-ejecutivos-notificar-diario') return manejarWhatsappEjecutivosNotificarDiario(req, res);
   if (req.query.recurso === 'resumen-cambios-enviar') return manejarResumenCambiosEnviar(req, res);
   if (req.query.recurso === 'resumen-cambios-recordatorio') return manejarResumenCambiosRecordatorio(req, res);
+  if (req.query.recurso === 'mercadolibre-sync') return manejarMercadoLibreSyncCron(req, res);
   if (req.query.recurso === 'cambio-imagen') return manejarCambioImagen(req, res);
   if (req.query.recurso === 'bsale-webhook') return manejarBsaleWebhook(req, res);
   // Píxel de seguimiento de apertura de los correos de IndexScale -- lo
@@ -177,6 +179,8 @@ export default async function handler(req, res) {
   if (recurso === 'bsale-sombra') return manejarBsaleSombra(req, res, sesion);
   if (recurso === 'bsale-sombra-datos') return manejarBsaleSombraDatos(req, res, sesion);
   if (recurso === 'bsale-eventos') return manejarBsaleEventos(req, res, sesion);
+  if (recurso === 'bsale-emision-config') return manejarBsaleEmisionConfig(req, res, sesion);
+  if (recurso === 'bsale-emitir') return manejarBsaleEmitir(req, res, sesion);
   if (recurso === 'bsale-sombra-pedido') return manejarBsaleSombraPedido(req, res, sesion);
   if (recurso === 'shopify-permisos') return manejarShopifyPermisos(req, res, sesion);
   if (recurso === 'bsale-prueba-cotizacion') return manejarBsalePruebaCotizacion(req, res, sesion);
@@ -8396,7 +8400,8 @@ async function contextoEmisionBsale(token) {
   const vend = usuarios.find(u => norm([u.firstName, u.lastName].filter(Boolean).join(' ')) === 'VENTA WEB') || usuarios.find(u => /VENTA WEB/.test(norm([u.firstName, u.lastName, u.username].filter(Boolean).join(' '))));
   if (!medio) avisos.push('No encuentro el medio de pago "SHOPIFY" en Bsale');
   if (!vend) avisos.push('No encuentro el vendedor "venta web" en Bsale');
-  const ctx = { idBoleta: sii(39), idFactura: sii(33), officeId: cfg.officeId, listaId: cfg.listaId, medioPagoId: medio && medio.id, vendedorId: vend && vend.id, emissionDate: Math.floor(Date.now() / 86400000) * 86400 };
+  const nv = tipos.find(t => /NOTA.*VENTA/.test(norm(t.name)) && !/CREDITO|CRÉDITO/.test(norm(t.name)));
+  const ctx = { idNotaVenta: nv && nv.id, idBoleta: sii(39), idFactura: sii(33), officeId: cfg.officeId, listaId: cfg.listaId, medioPagoId: medio && medio.id, vendedorId: vend && vend.id, emissionDate: Math.floor(Date.now() / 86400000) * 86400 };
   cacheCtxEmision = { ts: Date.now(), ctx, avisos };
   return cacheCtxEmision;
 }
@@ -8525,6 +8530,160 @@ async function manejarBsaleEventos(req, res, sesion) {
     return res.status(200).json({ eventos: rows, ultimas24h: conteo, claveConfigurada: !!process.env.BSALE_WEBHOOK_CLAVE });
   } catch (err) {
     return res.status(200).json({ error: 'Error leyendo los avisos de Bsale', detail: String(err.message || err).slice(0, 200) });
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// EMISIÓN DE DOCUMENTOS BSALE DESDE EL ERP (reemplazo de la app "Bsale (Chile)"). TODO APAGADO POR DEFECTO.
+// - Un interruptor por tipo (nota de venta, boleta, factura) en bsale_emision_config; todos nacen en "apagado".
+// - "Simular" siempre está permitido: arma y valida el documento y muestra lo que se mandaría a Bsale, sin enviar nada.
+// - Emitir de verdad exige: el interruptor del tipo encendido + escribir la confirmación + que el pedido no tenga ya ese documento.
+// - Cada emisión queda en bsale_emisiones (un solo registro vigente por pedido y tipo) y se etiqueta el pedido en Shopify.
+// OJO al encender un tipo: hay que desmarcar ese mismo flujo en la app de Bsale, o los dos emitirán el documento (duplicado ante el SII).
+// ══════════════════════════════════════════════════════════════════════
+const TIPOS_EMISION = { nota_venta: { prefijo: 'NV', etiqueta: 'Nota de Venta' }, boleta: { prefijo: 'BO', etiqueta: 'Boleta' }, factura: { prefijo: 'FA', etiqueta: 'Factura' } };
+
+async function leerConfigEmision(sql) {
+  await asegurarTablasEmisionBsale(sql);
+  const { rows } = await sql`SELECT nota_venta, boleta, factura, actualizado_por, actualizado_en FROM bsale_emision_config WHERE id = 1;`;
+  return rows[0] || { nota_venta: false, boleta: false, factura: false };
+}
+
+async function manejarBsaleEmisionConfig(req, res, sesion) {
+  try {
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores' });
+    const sql = await getSql();
+    if (req.method === 'POST') {
+      const { tipo, activo } = req.body || {};
+      if (!TIPOS_EMISION[tipo] || typeof activo !== 'boolean') return res.status(400).json({ error: 'tipo o valor inválido' });
+      await asegurarTablasEmisionBsale(sql);
+      const autor = sesion.nombre || sesion.email || 'admin';
+      const columna = { nota_venta: 'nota_venta', boleta: 'boleta', factura: 'factura' }[tipo];
+      await sql.query(`UPDATE bsale_emision_config SET ${columna} = $1, actualizado_por = $2, actualizado_en = now() WHERE id = 1;`, [activo, autor]);
+    } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const config = await leerConfigEmision(sql);
+    const { rows: ultimas } = await sql`SELECT pedido, tipo, estado, numero, error, creado_en FROM bsale_emisiones ORDER BY id DESC LIMIT 15;`;
+    return res.status(200).json({ config, ultimas });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error con la configuración de emisión', detail: String(err.message || err).slice(0, 200) });
+  }
+}
+
+async function manejarBsaleEmitir(req, res, sesion) {
+  const fallo = (error, extra = {}) => res.status(200).json({ ok: false, error, ...extra });
+  try {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores' });
+    const { id: idCrudo, tipo, simular, confirmar } = req.body || {};
+    const meta = TIPOS_EMISION[tipo];
+    const id = String(idCrudo || '').replace(/\D/g, '');
+    if (!meta || !id) return res.status(400).json({ error: 'Falta el pedido o el tipo de documento' });
+    const token = process.env.BSALE_ACCESS_TOKEN;
+    if (!token) return fallo('BSALE_ACCESS_TOKEN no está configurada en el servidor');
+    const acceso = await obtenerAccesoShopify();
+    if (!acceso) return fallo('Shopify no está configurado en el servidor');
+    const sql = await getSql();
+    const config = await leerConfigEmision(sql);
+    if (!simular) {
+      if (!config[tipo]) return fallo('La emisión de ' + meta.etiqueta.toLowerCase() + ' está APAGADA. Enciéndela primero en la tarjeta "Emisión desde el ERP".');
+      if (confirmar !== 'EMITIR') return fallo('Falta la confirmación escrita (EMITIR)');
+    }
+
+    // pedido
+    const query = `
+      query($id: ID!) { node(id: $id) { ... on Order {
+        name email tags displayFinancialStatus cancelledAt customAttributes { key value }
+        currentTotalPriceSet { shopMoney { amount } }
+        billingAddress { firstName lastName company address1 city province phone }
+        customer { firstName lastName email }
+        lineItems(first: 50) { nodes { sku name quantity originalTotalSet { shopMoney { amount } } discountAllocations { allocatedAmountSet { shopMoney { amount } } } } }
+        shippingLines(first: 5) { nodes { title originalPriceSet { shopMoney { amount } } discountedPriceSet { shopMoney { amount } } } }
+      } } }`;
+    const body = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, query, { id: 'gid://shopify/Order/' + id });
+    const o = body.data && body.data.node;
+    if (!o || !o.name) return fallo('No encuentro ese pedido en Shopify');
+    const pedido = { ...o, lineItems: o.lineItems.nodes, shippingLines: o.shippingLines.nodes };
+
+    // protecciones (valen también para simular, para que el resultado diga la verdad)
+    const avisos = [];
+    if (o.cancelledAt) return fallo('El pedido está cancelado');
+    const yaTiene = (o.tags || []).map(t => RE_ETIQUETA_DOC.exec(String(t).trim())).filter(Boolean).find(m => m[1].toUpperCase() === meta.prefijo);
+    if (yaTiene) return fallo('El pedido ya tiene ' + meta.etiqueta.toLowerCase() + ' (' + yaTiene[0] + '). No se emite otra.');
+    const estado = String(o.displayFinancialStatus || '');
+    if (tipo === 'nota_venta' && /^PAID$/i.test(estado)) avisos.push('El pedido ya está pagado: la nota de venta se emite normalmente con el pago pendiente.');
+    if (tipo !== 'nota_venta' && !/^PAID$/i.test(estado)) return fallo('Boletas y facturas se emiten con el pedido pagado (estado actual: ' + estado + ')');
+    const { rows: previas } = await sql`SELECT id, estado FROM bsale_emisiones WHERE shopify_order_id = ${id} AND tipo = ${tipo} AND estado IN ('procesando', 'emitido');`;
+    if (previas.length) return fallo('Este pedido ya tiene una emisión de ' + meta.etiqueta.toLowerCase() + ' registrada en el ERP (' + previas[0].estado + ').');
+
+    const { ctx, avisos: avisosCtx } = await contextoEmisionBsale(token);
+    avisos.push(...avisosCtx);
+    const idNotaVenta = ctx.idNotaVenta || null;
+    let ctxEmision = ctx;
+    if (!idNotaVenta) {
+      const rt = await fetchConTimeout(BSALE_BASE + '/document_types.json?limit=50', { headers: { access_token: token } }, 15000);
+      const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+      const nv = ((await rt.json().catch(() => ({}))).items || []).find(t => /NOTA.*VENTA/.test(norm(t.name)));
+      ctxEmision = { ...ctx, idNotaVenta: nv && nv.id };
+    }
+    const doc = armarDocumento(pedido, ctxEmision, tipo === 'nota_venta' ? 'nota_venta' : null);
+    if (tipo === 'boleta' && doc.tipoCliente !== 'boleta') return fallo('Este pedido corresponde a FACTURA, no a boleta' + (doc.motivo ? ' (' + doc.motivo + ')' : ''));
+    if (tipo === 'factura' && doc.tipoCliente !== 'factura') return fallo('Este pedido corresponde a BOLETA, no a factura' + (doc.motivo ? ' (' + doc.motivo + ')' : ''));
+
+    // ids de Bsale: variante de cada SKU y cliente (si ya existe por RUT)
+    const cab = { headers: { access_token: token } };
+    const variantes = {};
+    for (const sku of [...new Set(doc.details.filter(d => d.tipo === 'producto' && d.code).map(d => d.code))]) {
+      const r = await fetchConTimeout(BSALE_BASE + '/variants.json?code=' + encodeURIComponent(sku) + '&limit=1', cab, 15000);
+      const v = r.ok ? ((await r.json().catch(() => ({}))).items || [])[0] : null;
+      if (v && v.id) variantes[sku] = v.id;
+    }
+    let clienteId = null;
+    if (doc.client.code) {
+      const rc = await fetchConTimeout(BSALE_BASE + '/clients.json?code=' + encodeURIComponent(doc.client.code) + '&limit=1', cab, 15000);
+      const c = rc.ok ? ((await rc.json().catch(() => ({}))).items || [])[0] : null;
+      if (c && c.id) clienteId = c.id;
+    }
+    const armado = cuerpoBsale(doc, { variantes, clienteId });
+    if (armado.error) return fallo(armado.error, { avisos });
+    if (simular) return res.status(200).json({ ok: true, simulado: true, tipo, pedido: o.name, cuerpo: armado.cuerpo, clienteExistente: !!clienteId, avisos });
+
+    // emisión real: primero se reserva el registro (impide doble clic o dos emisiones a la vez), luego se envía
+    const autor = sesion.nombre || sesion.email || 'admin';
+    const { rows: reserva } = await sql`
+      INSERT INTO bsale_emisiones (shopify_order_id, pedido, tipo, estado, total, payload, creado_por)
+      VALUES (${id}, ${o.name}, ${tipo}, 'procesando', ${doc.totalEsperado}, ${JSON.stringify(armado.cuerpo)}::jsonb, ${autor})
+      ON CONFLICT DO NOTHING RETURNING id;`;
+    if (!reserva[0]) return fallo('Ya se está emitiendo (o ya se emitió) ' + meta.etiqueta.toLowerCase() + ' para este pedido.');
+    const idReg = reserva[0].id;
+    let d, texto = '';
+    try {
+      const r = await fetchConTimeout(BSALE_BASE + '/documents.json', { method: 'POST', headers: { access_token: token, 'Content-Type': 'application/json' }, body: JSON.stringify(armado.cuerpo) }, 30000);
+      texto = await r.text();
+      try { d = JSON.parse(texto); } catch { d = null; }
+      if (!r.ok || !d || !d.id) throw new Error('Bsale rechazó el documento (HTTP ' + r.status + '): ' + texto.slice(0, 400));
+    } catch (e) {
+      await sql`UPDATE bsale_emisiones SET estado = 'error', error = ${String(e.message || e).slice(0, 600)} WHERE id = ${idReg};`;
+      return fallo(String(e.message || e).slice(0, 600));
+    }
+    const url = d.urlPublicView || d.urlPdf || '';
+    await sql`UPDATE bsale_emisiones SET estado = 'emitido', bsale_id = ${d.id}, numero = ${d.number || null}, url = ${url} WHERE id = ${idReg};`;
+
+    // se etiqueta el pedido en Shopify y se guarda el enlace del documento (igual que hacía la app)
+    let escritura = 'ok';
+    try {
+      const gid = 'gid://shopify/Order/' + id;
+      const rt = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, 'mutation($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { message } } }', { id: gid, tags: [meta.prefijo + '-' + d.number, meta.etiqueta] });
+      const e1 = rt.data && rt.data.tagsAdd && rt.data.tagsAdd.userErrors;
+      const attrs = (o.customAttributes || []).filter(a => !(a.key === 'url_documento' && tipo !== 'nota_venta'));
+      if (tipo !== 'nota_venta' || !attrs.some(a => a.key === 'url_documento')) attrs.push({ key: 'url_documento', value: url });
+      if (!attrs.some(a => a.key === 'tipo_documento')) attrs.push({ key: 'tipo_documento', value: tipo === 'factura' ? 'FACTURA' : 'BOLETA' });
+      const ru = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, 'mutation($input: OrderInput!) { orderUpdate(input: $input) { userErrors { message } } }', { input: { id: gid, customAttributes: attrs.map(a => ({ key: a.key, value: a.value })) } });
+      const e2 = ru.data && ru.data.orderUpdate && ru.data.orderUpdate.userErrors;
+      if ((e1 && e1.length) || (e2 && e2.length)) escritura = 'Shopify avisó: ' + JSON.stringify([...(e1 || []), ...(e2 || [])]).slice(0, 200);
+    } catch (e) { escritura = 'No se pudo etiquetar el pedido en Shopify: ' + String(e.message || e).slice(0, 150); }
+    return res.status(200).json({ ok: true, emitido: true, tipo, pedido: o.name, numero: d.number, total: d.totalAmount, url, escrituraShopify: escritura, avisos });
+  } catch (err) {
+    return res.status(200).json({ ok: false, error: 'Error en la emisión', detail: String(err.message || err).slice(0, 300) });
   }
 }
 
@@ -11126,6 +11285,59 @@ async function manejarResumenCambiosEnviar(req, res) {
   }
 }
 
+// Un tramo de la sincronización de Mercado Libre: elige el paso (el pedido o el primero pendiente), trabaja hasta limiteMs y devuelve el avance.
+async function ejecutarTramoMercadoLibre(sql, cfg, pasoPedido, limiteMs) {
+  const paso = pasoPedido || await siguientePaso(sql);
+  if (!paso) return { completo: true, ...(await estadoSync(sql)) };
+  if (!PASOS_ML.includes(paso)) return { error: 'Paso desconocido', ...(await estadoSync(sql)) };
+  let lector;
+  try {
+    lector = await lectorML(sql, cfg);
+  } catch (err) {
+    const motivo = err.codigo === 'sin_conexion' ? 'Mercado Libre no está conectado' : err.codigo === 'renovacion_fallida' ? 'Mercado Libre rechazó renovar el acceso: hay que volver a conectar la cuenta' : err.message;
+    return { error: motivo, requiereReconectar: err.codigo !== 'sin_conexion', ...(await estadoSync(sql)) };
+  }
+  const token = (process.env.BSALE_ACCESS_TOKEN || '').trim();
+  const ctx = {
+    leer: lector.leer, userId: lector.userId, ahora: () => Date.now(),
+    costosBsale: skus => costosBsaleDW(skus, token),
+  };
+  await ejecutarPaso(sql, ctx, paso, { limiteMs });
+  const estado = await estadoSync(sql);
+  return { pasoEjecutado: paso, ...estado };
+}
+
+// Cron diario: renueva todo lo de Mercado Libre. Si la vuelta anterior quedó a medias la continúa; si ya terminó, empieza una nueva.
+// Trabaja hasta ~50 s (límite de la función): lo que falte lo termina la próxima ejecución o el botón de la página.
+async function manejarMercadoLibreSyncCron(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const cfg = configML();
+    if (!cfg.configurado) return res.status(200).json({ ok: true, omitido: 'Mercado Libre no está configurado' });
+    const sql = await getSql();
+    await asegurarTablaMercadoLibre(sql);
+    if (!(await leerConexion(sql))) return res.status(200).json({ ok: true, omitido: 'Mercado Libre no está conectado' });
+    await asegurarTablasMLDatos(sql);
+    let est = await estadoSync(sql);
+    if (est.completo) { await reiniciarSync(sql); est = await estadoSync(sql); }
+    const t0 = Date.now(), PRESUPUESTO_MS = 50000;
+    let ultimo = null;
+    while (Date.now() - t0 < PRESUPUESTO_MS) {
+      const paso = await siguientePaso(sql);
+      if (!paso) break;
+      ultimo = await ejecutarTramoMercadoLibre(sql, cfg, paso, Math.max(3000, PRESUPUESTO_MS - (Date.now() - t0)));
+      if (ultimo.error) break;
+      const p = ultimo.pasos.find(x => x.paso === paso);
+      if (p && p.error) break; // un paso con error no se reintenta en bucle
+    }
+    return res.status(200).json({ ok: true, completo: Boolean(ultimo && ultimo.completo), porcentaje: ultimo ? ultimo.porcentaje : est.porcentaje, error: ultimo ? ultimo.error || null : null });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error sincronizando Mercado Libre', detail: String(err.message || err) });
+  }
+}
+
 // Resumen de máximo 5 palabras por cada cambio, redactado con Gemini (una sola llamada para todos). Si falla o no hay clave, devuelve null y
 // el correo usa el comienzo de la descripción de cada cambio.
 async function resumirCambiosCortos(cambios) {
@@ -11191,6 +11403,37 @@ async function manejarMercadoLibre(req, res, sesion) {
           : err.message;
         return res.status(200).json({ ok: false, error: motivo, requiereReconectar: err.codigo === 'renovacion_fallida' });
       }
+    }
+    // ---- datos y métricas (ver lib/mercadolibre-datos.js)
+    if (accion === 'sync-estado') {
+      await asegurarTablasMLDatos(sql);
+      return res.status(200).json(await estadoSync(sql));
+    }
+    if (accion === 'sync-reiniciar') {
+      if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+      await asegurarTablasMLDatos(sql);
+      await reiniciarSync(sql);
+      return res.status(200).json(await estadoSync(sql));
+    }
+    // Trabaja un tramo del paso que toca (o el pedido en ?paso=) y devuelve el avance; la página lo repite hasta terminar.
+    if (accion === 'sync') {
+      if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+      await asegurarTablasMLDatos(sql);
+      const r = await ejecutarTramoMercadoLibre(sql, cfg, req.query.paso ? String(req.query.paso) : null, 40000);
+      return res.status(200).json(r);
+    }
+    if (accion === 'metricas') {
+      await asegurarTablasMLDatos(sql);
+      let stockBsale = null, ventasBsale = null;
+      try { stockBsale = await obtenerStockBsalePorSku(); } catch (e) { stockBsale = null; }
+      try {
+        await asegurarTablaVentasSku(sql);
+        const { rows } = await sql`
+          SELECT sku, SUM(cantidad)::float AS unidades, SUM(monto)::float AS monto FROM bsale_ventas_sku
+          WHERE fecha >= (now() AT TIME ZONE 'America/Santiago')::date - 30 GROUP BY sku;`;
+        ventasBsale = rows;
+      } catch (e) { ventasBsale = null; }
+      return res.status(200).json(await calcularMetricasML(sql, { stockBsale, ventasBsale }));
     }
     if (accion === 'desconectar') {
       if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
