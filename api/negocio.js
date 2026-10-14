@@ -8612,12 +8612,12 @@ async function evaluarAvisoBsale(topic, accion, recurso) {
   if (!/^[A-Za-z0-9._\-]+$/.test(datos.sku)) return { sku: datos.sku, error: 'SKU con caracteres no admitidos' };
   const acceso = await obtenerAccesoShopify();
   if (!acceso) return { sku: datos.sku, error: 'Shopify no está configurado' };
-  const query = `query($q: String!) { productVariants(first: 50, query: $q) { nodes { id sku price inventoryQuantity product { title status } } } }`;
+  const query = `query($q: String!) { productVariants(first: 50, query: $q) { nodes { id sku price inventoryQuantity inventoryItem { tracked } product { title status } } } }`;
   const body = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, query, { q: "sku:'" + datos.sku + "'" });
   const variantes = ((body.data && body.data.productVariants && body.data.productVariants.nodes) || []).filter(v => v.sku === datos.sku)
-    .map(v => ({ id: v.id.split('/').pop(), producto: v.product ? v.product.title : '', estado: v.product ? v.product.status : '', stock: v.inventoryQuantity, precio: Math.round(Number(v.price) || 0) }));
+    .map(v => ({ id: v.id.split('/').pop(), producto: v.product ? v.product.title : '', estado: v.product ? v.product.status : '', stock: v.inventoryQuantity, seguimiento: !(v.inventoryItem && v.inventoryItem.tracked === false), precio: Math.round(Number(v.price) || 0) }));
   const plan = planDeSku({ sku: datos.sku, disponibleBsale: datos.disponibleBsale, precioBrutoBsale: datos.precioBrutoBsale, variantes });
-  return { sku: datos.sku, bsale: { disponible: datos.disponibleBsale ?? null, precioBruto: datos.precioBrutoBsale ?? null }, publicaciones: plan.publicaciones, igual: plan.igual, cambiaria: plan.cambios.slice(0, 5), totalCambios: plan.cambios.length };
+  return { sku: datos.sku, bsale: { disponible: datos.disponibleBsale ?? null, precioBruto: datos.precioBrutoBsale ?? null }, publicaciones: plan.publicaciones, sinSeguimiento: variantes.filter(v => !v.seguimiento).length, igual: plan.igual, cambiaria: plan.cambios.slice(0, 5), totalCambios: plan.cambios.length };
 }
 
 async function manejarBsaleWebhook(req, res) {
