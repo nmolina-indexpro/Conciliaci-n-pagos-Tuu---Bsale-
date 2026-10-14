@@ -8616,8 +8616,17 @@ async function evaluarAvisoBsale(topic, accion, recurso) {
   const body = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, query, { q: "sku:'" + datos.sku + "'" });
   const variantes = ((body.data && body.data.productVariants && body.data.productVariants.nodes) || []).filter(v => v.sku === datos.sku)
     .map(v => ({ id: v.id.split('/').pop(), producto: v.product ? v.product.title : '', estado: v.product ? v.product.status : '', stock: v.inventoryQuantity, seguimiento: !(v.inventoryItem && v.inventoryItem.tracked === false), precio: Math.round(Number(v.price) || 0) }));
-  const plan = planDeSku({ sku: datos.sku, disponibleBsale: datos.disponibleBsale, precioBrutoBsale: datos.precioBrutoBsale, variantes });
-  return { sku: datos.sku, bsale: { disponible: datos.disponibleBsale ?? null, precioBruto: datos.precioBrutoBsale ?? null }, publicaciones: plan.publicaciones, sinSeguimiento: variantes.filter(v => !v.seguimiento).length, igual: plan.igual, cambiaria: plan.cambios.slice(0, 5), totalCambios: plan.cambios.length };
+  // para un aviso de precio hay que saber si el SKU tiene stock en Bsale (la regla excluye los que no tienen)
+  let stockParaRegla = datos.disponibleBsale;
+  if (stockParaRegla === undefined) {
+    try {
+      const rs = await fetchConTimeout(BSALE_BASE + '/stocks.json?code=' + encodeURIComponent(datos.sku) + (cfg.officeId ? '&officeid=' + cfg.officeId : '') + '&limit=50', cab, 12000);
+      const filas = rs.ok ? ((await rs.json().catch(() => ({}))).items || []) : null;
+      stockParaRegla = filas ? filas.reduce((t, x) => t + Number(x.quantityAvailable ?? x.quantity ?? 0), 0) : null;
+    } catch { stockParaRegla = null; }
+  }
+  const plan = planDeSku({ sku: datos.sku, disponibleBsale: datos.disponibleBsale, precioBrutoBsale: datos.precioBrutoBsale, variantes, stockParaRegla });
+  return { sku: datos.sku, bsale: { disponible: datos.disponibleBsale ?? null, precioBruto: datos.precioBrutoBsale ?? null }, publicaciones: plan.publicaciones, sinSeguimiento: variantes.filter(v => !v.seguimiento).length, igual: plan.igual, excluido: plan.excluido || null, cambiaria: plan.cambios.slice(0, 5), totalCambios: plan.cambios.length };
 }
 
 async function manejarBsaleWebhook(req, res) {
@@ -12139,7 +12148,8 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
               (c.venta_detectada OR (c.bsale_documento_numero IS NOT NULL AND c.bsale_documento_numero <> '')) AS vendida,
               ofe.oferta_completa, ofe.oferta_cotizada, ofe.oferta_enlace, ofe.oferta_cotizacion, sol.solicito,
               EXTRACT(EPOCH FROM (ofe.oferta_en - COALESCE(c.primer_mensaje_cliente_en, c.iniciada_en))) / 60 AS minutos_a_oferta,
-              EXISTS (SELECT 1 FROM whatsapp_mensajes mo WHERE mo.conversacion_id = c.id AND mo.direccion = 'out') AS con_salida
+              EXISTS (SELECT 1 FROM whatsapp_mensajes mo WHERE mo.conversacion_id = c.id AND mo.direccion = 'out') AS con_salida,
+              COALESCE((SELECT MAX(mu.marca_tiempo) FROM whatsapp_mensajes mu WHERE mu.conversacion_id = c.id) >= now() - interval '3 days', false) AS reciente
        FROM whatsapp_conversaciones c ${sqlOfertaLateral(3)} ${sqlSolicitudLateral(10)}
        WHERE c.iniciada_en >= $1 AND c.iniciada_en < $2 AND c.cantidad_mensajes > 0;`,
       [desde, hasta, ...PARAMS_OFERTA(), PARAM_SOLICITUD()]
@@ -12147,6 +12157,7 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
     const conversionComercial = resumirConversionComercial(ofertaRows.map(r => ({
       intencion: r.intencion, categoria: r.categoria, vendida: !!r.vendida,
       oferta: nivelDesdeFilaSql(r), minutosAOferta: r.minutos_a_oferta != null ? Number(r.minutos_a_oferta) : null,
+      link: !!(r.oferta_completa || r.oferta_cotizada || r.oferta_enlace), cotizacion: !!(r.oferta_cotizacion || r.solicito), reciente: !!r.reciente,
     })));
     conversionComercial.pctConRespuestaRegistrada = ofertaRows.length ? Math.round((ofertaRows.filter(r => r.con_salida).length / ofertaRows.length) * 1000) / 10 : null;
 
