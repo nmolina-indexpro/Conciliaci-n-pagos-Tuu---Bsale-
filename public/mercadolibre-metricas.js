@@ -145,6 +145,7 @@
     const completo = r.precio != null && r.costo != null && r.comision != null && r.envio != null;
     const margen = completo ? (r.precio - r.comision - r.envio) * f - r.costo : null;
     return {
+      precioLista: r.precioLista == null ? null : r.precioLista * f, precioPublicado: r.precioPublicado == null ? null : r.precioPublicado * f,
       precio: r.precio == null ? null : r.precio * f, comision: r.comision == null ? null : r.comision * f, envio: r.envio == null ? null : r.envio * f,
       margen, pct: margen != null && r.precio ? margen / (r.precio * f) : null, ingresos: r.ingresos * f,
       margenPeriodo: margen != null && r.unidades ? margen * r.unidades : null,
@@ -152,7 +153,7 @@
   }
   const VALOR_ORDEN = {
     sku: r => r.sku, nombre: r => r.nombre, enMl: r => (r.estadoMl === 'activa' ? 2 : r.estadoMl === 'pausada' ? 1 : 0),
-    precio: (r, e) => e.precio, costo: r => r.costo, comision: (r, e) => e.comision, envio: (r, e) => e.envio, margen: (r, e) => e.margen, pct: (r, e) => e.pct,
+    precioLista: (r, e) => e.precioLista, precioPublicado: (r, e) => e.precioPublicado, precio: (r, e) => e.precio, costo: r => r.costo, comision: (r, e) => e.comision, envio: (r, e) => e.envio, margen: (r, e) => e.margen, pct: (r, e) => e.pct,
     unidades: r => r.unidades, ingresos: (r, e) => e.ingresos, margenPeriodo: (r, e) => e.margenPeriodo,
   };
   function filasCatalogo() {
@@ -169,6 +170,9 @@
         case 'bajo': return e.pct != null && e.pct < MARGEN_BAJO;
         case 'negativo': return e.margen != null && e.margen < 0;
         case 'sinBsale': return !r.enBsale;
+        case 'precioDistinto': return r.precioDistinto;
+        case 'sinPrecioLista': return r.enBsale && r.estadoMl === 'activa' && r.precioLista == null;
+        case 'potencial': return r.enBsale && !r.estadoMl && r.precioLista != null;
         default: return true;
       }
     });
@@ -191,7 +195,7 @@
     if (!c.disponible) { cont.innerHTML = '<div class="aviso-box">' + esc(c.motivo) + '</div>'; return; }
     const filas = filasCatalogo();
     const visibles = filas.slice(0, cat.mostrar);
-    const COLS = [['enMl', 'En Mercado Libre'], ['sku', 'SKU'], ['nombre', 'Producto (Bsale)'], [null, 'Publicación'], ['precio', 'Precio ML'], ['costo', 'Costo Bsale'], ['comision', 'Comisión'], ['envio', 'Envío'],
+    const COLS = [['enMl', 'En Mercado Libre'], ['sku', 'SKU'], ['nombre', 'Producto (Bsale)'], [null, 'Publicación'], ['precioLista', 'Precio lista Bsale (ML)'], ['precioPublicado', 'Precio publicado en ML'], ['precio', 'Precio usado en el margen'], ['costo', 'Costo Bsale'], ['comision', 'Comisión'], ['envio', 'Envío'],
       ['margen', 'Margen'], ['pct', 'Margen %'], ['unidades', 'Unidades'], ['ingresos', 'Ingresos'], ['margenPeriodo', 'Margen del período']];
     const flecha = col => (cat.col === col ? (cat.dir > 0 ? ' ▲' : ' ▼') : '');
     const num = 'text-align:right;white-space:nowrap;';
@@ -202,7 +206,9 @@
       const mg = e.margen == null ? (r.costo == null && r.enBsale ? '<span class="empty-note" title="' + esc(r.motivoCosto || 'Sin costo en Bsale') + '">sin costo</span>' : '—') : '<b style="color:' + (e.margen < 0 ? 'var(--red)' : 'inherit') + ';">' + marca(r.estimado, clp(e.margen)) + '</b>';
       return '<tr><td style="white-space:nowrap;"><input type="checkbox" disabled ' + (r.estadoMl === 'activa' ? 'checked' : '') + ' title="' + (r.estadoMl === 'activa' ? 'Publicado y activo en Mercado Libre' : r.estadoMl === 'pausada' ? 'Publicación pausada' : 'No está en Mercado Libre') + '">' + estado + '</td>' +
         '<td>' + esc(r.sku || '—') + '</td><td>' + esc((r.nombre || '').slice(0, 70)) + '</td><td>' + pubHtml + '</td>' +
-        '<td style="' + num + '">' + (e.precio == null ? '—' : clp(e.precio)) + '</td>' +
+        '<td style="' + num + '">' + (e.precioLista == null ? '<span class="empty-note" title="Este SKU no tiene precio en la lista de Bsale">—</span>' : clp(e.precioLista)) + '</td>' +
+        '<td style="' + num + '">' + (e.precioPublicado == null ? '—' : clp(e.precioPublicado)) + (r.precioDistinto ? ' <span class="badge" style="background:#DC262622;color:#DC2626;" title="El precio publicado en Mercado Libre (' + clp(r.precioPublicado) + ') es distinto al de la lista de Bsale (' + clp(r.precioLista) + ')">≠ lista</span>' : '') + '</td>' +
+        '<td style="' + num + '" title="' + (r.precioFuente === 'ventas' ? 'Precio real al que se vendió en el período (promedio)' : r.precioFuente === 'lista' ? 'Precio de la lista de Bsale' : r.precioFuente === 'publicado' ? 'Precio publicado en Mercado Libre (el SKU no está en la lista de Bsale)' : '') + '">' + (e.precio == null ? '—' : clp(e.precio)) + (r.precioFuente ? ' <span class="empty-note" style="font-size:10.5px;">' + (r.precioFuente === 'ventas' ? 'real' : r.precioFuente === 'lista' ? 'lista' : 'publ.') + '</span>' : '') + '</td>' +
         '<td style="' + num + '">' + (r.costo == null ? '<span class="empty-note">—</span>' : clp(r.costo)) + '</td>' +
         '<td style="' + num + '">' + marca(r.comisionEst, e.comision == null ? '—' : clp(e.comision)) + '</td>' +
         '<td style="' + num + '">' + marca(r.envioEst, e.envio == null ? '—' : clp(e.envio)) + '</td>' +
@@ -213,27 +219,30 @@
     cont.innerHTML = '<div style="margin:6px 0;" class="empty-note">Mostrando ' + ent(visibles.length) + ' de ' + ent(filas.length) + ' productos' + (filas.length !== c.filas.length ? ' (filtrados de ' + ent(c.filas.length) + ')' : '') + '. Haz clic en el título de una columna para ordenar.</div>' +
       '<div class="tabla-wrap" style="max-height:640px;overflow:auto;"><table data-sin-orden><thead><tr>' +
       COLS.map(([k, t]) => '<th' + (k ? ' style="cursor:pointer;user-select:none;" onclick="MLMetricas.catOrden(\'' + k + '\')"' : '') + '>' + esc(t) + flecha(k) + '</th>').join('') +
-      '</tr></thead><tbody>' + (visibles.length ? visibles.map(filaHtml).join('') : '<tr><td colspan="13" class="empty-note" style="padding:14px;">Ningún producto coincide con el filtro.</td></tr>') + '</tbody></table></div>' +
+      '</tr></thead><tbody>' + (visibles.length ? visibles.map(filaHtml).join('') : '<tr><td colspan="15" class="empty-note" style="padding:14px;">Ningún producto coincide con el filtro.</td></tr>') + '</tbody></table></div>' +
       (filas.length > visibles.length ? '<div style="margin:10px 0;"><button class="btn-ghost btn-sm" onclick="MLMetricas.catMas()">Mostrar 200 más</button></div>' : '');
   }
   function vMargen(m) {
     const c = m.catalogo, r = c && c.disponible ? c.resumen : null;
     const datos = ivaNeto ? m.margenNeto : m.margen;
     const opciones = [['todos', 'Todos los productos'], ['enMl', 'En Mercado Libre (activos)'], ['pausadas', 'Pausados en Mercado Libre'], ['sinPublicar', 'No publicados'], ['conVentas', 'Con ventas en el período'],
-      ['sinCosto', 'Sin costo en Bsale'], ['bajo', 'Margen bajo (menos de 10%)'], ['negativo', 'Margen negativo'], ['sinBsale', 'Publicaciones sin SKU en Bsale']];
+      ['sinCosto', 'Sin costo en Bsale'], ['bajo', 'Margen bajo (menos de 10%)'], ['negativo', 'Margen negativo'], ['precioDistinto', 'Precio publicado distinto a la lista de Bsale'], ['sinPrecioLista', 'Activos sin precio en la lista de Bsale'],
+      ['potencial', 'No publicados con precio en la lista'], ['sinBsale', 'Publicaciones sin SKU en Bsale']];
     return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;"><span class="empty-note" style="font-weight:700;">Valores</span>' +
       '<button class="btn-' + (ivaNeto ? 'primary' : 'ghost') + ' btn-sm" onclick="MLMetricas.setIva(true)">Netos de IVA (recomendado)</button>' +
       '<button class="btn-' + (ivaNeto ? 'ghost' : 'primary') + ' btn-sm" onclick="MLMetricas.setIva(false)">Con IVA</button>' +
       '<span class="empty-note">Período: ' + periodo(m) + '. El costo de Bsale es neto, por eso lo comparable es el precio sin IVA.</span></div>' +
       vModeloMargen(datos, 'Modelo 1: lo vendido en el período', 'Publicaciones con ventas en el período: ingreso, comisión y envío reales de las órdenes, menos el costo de Bsale.') +
       h('Modelo 2: catálogo completo de Bsale') +
-      '<div class="empty-note" style="margin:-2px 0 8px;line-height:1.5;">Todos los productos de Bsale, estén o no en Mercado Libre. El check indica si tienen una publicación <b>activa</b>. Para lo vendido en el período los valores son reales; para lo publicado sin ventas se usa el precio de la publicación con la comisión y el envío que se observan en tus órdenes (marcado con ≈); lo no publicado muestra solo el costo.</div>' +
+      '<div class="empty-note" style="margin:-2px 0 8px;line-height:1.5;">Todos los productos de Bsale, estén o no en Mercado Libre. El check indica si tienen una publicación <b>activa</b>. Para lo vendido en el período los valores son reales; para lo que no vendió se usa el precio de la <b>lista de Bsale «LISTA PRECIOS MERCADO LIBRE»</b> (o el publicado si el SKU no está en esa lista) con la comisión y el envío que se observan en tus órdenes (marcado con ≈). «Precio publicado en ML» es el que hoy tiene la publicación y se marca ≠ lista si difiere de la lista de Bsale.</div>' +
       (r ? tarjetas([['Productos en Bsale', ent(r.productos)], ['Activos en Mercado Libre', ent(r.activas), pct(r.productos ? r.activas / r.productos : null, 0) + ' del catálogo'], ['Pausados', ent(r.pausadas)], ['No publicados', ent(r.sinPublicar)],
-        ['Con ventas en el período', ent(r.conVentas)], ['Sin costo en Bsale', ent(r.sinCosto), 'no se puede calcular su margen'], ['Publicaciones sin SKU en Bsale', ent(r.mlSinBsale), 'no se pueden emparejar']]) : '') +
+        ['Con ventas en el período', ent(r.conVentas)], ['Sin costo en Bsale', ent(r.sinCosto), 'no se puede calcular su margen'], ['Publicaciones sin SKU en Bsale', ent(r.mlSinBsale), 'no se pueden emparejar'],
+        ['Precio publicado ≠ lista', ent(r.preciosDistintos), 'activos con más de 1% de diferencia'], ['Activos sin precio en la lista', ent(r.activasSinPrecioLista)], ['No publicados con precio en la lista', ent(r.potencial), 'se puede estimar su margen']]) +
+      (c.lista && c.lista.nombre ? '<div class="empty-note" style="margin-bottom:6px;">Lista de precios de Bsale usada como precio de Mercado Libre: <b>' + esc(c.lista.nombre) + '</b> (con IVA).</div>' : '') : '') +
       (c && c.disponible ? '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0;"><input type="search" id="catBuscar" placeholder="Buscar por SKU, producto o publicación..." value="' + esc(cat.q) + '" oninput="MLMetricas.catQ(this.value)" style="flex:1 1 260px;max-width:380px;">' +
         '<select id="catFiltro" onchange="MLMetricas.catFiltro(this.value)">' + opciones.map(o => '<option value="' + o[0] + '"' + (cat.filtro === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></div>' : '') +
       '<div id="catTabla"></div>' +
-      nota('<b>Margen = precio − comisión − envío del vendedor − costo de Bsale</b>, por unidad. «Margen del período» = margen por unidad × unidades vendidas. El costo es el promedio de Bsale. Los productos sin costo en Bsale no tienen margen calculable. La comisión y el envío observados hoy: ' +
+      nota('<b>Margen = precio − comisión − envío del vendedor − costo de Bsale</b>, por unidad. El precio es el real si vendió en el período; si no, el de la lista de Bsale. «Margen del período» = margen por unidad × unidades vendidas. El costo es el promedio de Bsale. Los productos sin costo en Bsale no tienen margen calculable. La comisión y el envío observados hoy: ' +
         (c && c.disponible ? 'comisión ' + pct(c.tasas.comision) + ' · envío ' + pct(c.tasas.envio) + ' del precio.' : 'sin datos.') + ' * Dato incompleto: el costo de envío todavía no se consulta o algunas unidades no tienen costo.');
   }
   function vReputacion(m) {
