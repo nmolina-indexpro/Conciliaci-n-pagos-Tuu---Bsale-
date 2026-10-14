@@ -17,6 +17,7 @@
     desfase: 'Cantidades distintas', sin_sku_en_bsale: 'El SKU no existe en Bsale',
   };
   let metricas = null, tabActiva = 'resumen', corriendo = false;
+  let rangoPedido = { desde: null, hasta: null }; // vacío = últimos 30 días
 
   async function pedir(accion, metodo, extra) {
     const res = await fetch(API + '&accion=' + accion + (extra || ''), { method: metodo || 'GET' });
@@ -86,17 +87,20 @@
   const h = t => '<h2 style="font-family:\'Space Grotesk\',sans-serif;font-size:15px;margin:16px 0 6px;">' + t + '</h2>';
   const insignia = (t, color) => '<span class="badge" style="background:' + color + '22;color:' + color + ';">' + esc(t) + '</span>';
 
+  const fechaCorta = iso => { const p = String(iso || '').split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : '—'; };
+  const periodo = m => (m.rango ? fechaCorta(m.rango.desde) + ' al ' + fechaCorta(m.rango.hasta) + ' (' + m.rango.dias + (m.rango.dias === 1 ? ' día' : ' días') + ')' : 'últimos ' + m.ventanaDias + ' días');
   // ---------------------------------------------------------------- una función por cosa que se mide
   function vResumen(m) {
-    const e = m.embudo.resumen, g = m.margen.resumen, a = m.atencion.resumen, r = m.reputacion.actual, p = m.publicidad;
+    const e = m.embudo.resumen, g = m.margen.resumen, gn = m.margenNeto.resumen, a = m.atencion.resumen, r = m.reputacion.actual, p = m.publicidad;
     const nivel = r && r.nivel ? (NIVELES[r.nivel] || [r.nivel, '#6B7568']) : null;
-    return '<p class="empty-note">Últimos ' + m.ventanaDias + ' días, según los datos guardados el ' + esc(fechaHora(m.actualizadoEn)) + '</p>' +
+    return '<p class="empty-note">Período: ' + periodo(m) + ' · datos guardados el ' + esc(fechaHora(m.actualizadoEn)) + '</p>' +
       tarjetas([
         ['Visitas', ent(e.visitas), ent(e.publicacionesActivas) + ' publicaciones activas'],
         ['Órdenes', ent(e.ordenes), ent(e.unidades) + ' unidades'],
         ['Conversión', pct(e.conversion, 2), 'órdenes / visitas'],
         ['Ingresos', clp(e.ingresos), 'precio de venta, sin descontar comisión'],
-        ['Margen real', g.margen == null ? '—' : clp(g.margen), g.margenPct == null ? 'faltan costos de Bsale' : pct(g.margenPct) + ' · ' + g.publicacionesConCosto + ' de ' + g.publicacionesVendidas + ' publicaciones con costo'],
+        ['Margen (precios con IVA)', g.margen == null ? '—' : clp(g.margen), g.margenPct == null ? 'faltan costos de Bsale' : pct(g.margenPct) + ' · ' + g.publicacionesConCosto + ' de ' + g.publicacionesVendidas + ' publicaciones con costo'],
+        ['Margen neto de IVA', gn.margen == null ? '—' : clp(gn.margen), gn.margenPct == null ? 'faltan costos de Bsale' : pct(gn.margenPct) + ' sobre el ingreso neto'],
         ['Comisión + envío', pct((g.comisionPct || 0) + (g.envioPct || 0)), 'comisión ' + pct(g.comisionPct) + ' · envío ' + pct(g.envioPct)],
         ['Reputación', nivel ? '<span style="color:' + nivel[1] + ';">' + esc(nivel[0]) + '</span>' : '—', r ? 'reclamos ' + pct(r.reclamos) + ' · cancelaciones ' + pct(r.cancelaciones) : ''],
         ['Preguntas sin responder', ent(a.sinResponder), 'mediana de respuesta ' + minutos(a.medianaMinutos)],
@@ -106,28 +110,34 @@
   function vEmbudo(m) {
     const e = m.embudo.resumen;
     const filas = m.embudo.filas;
-    return tarjetas([['Visitas', ent(e.visitas)], ['Órdenes', ent(e.ordenes)], ['Conversión global', pct(e.conversion, 2)], ['Con tráfico y sin ventas', ent(e.traficoSinVentas), 'publicaciones con 30 visitas o más y ninguna orden']]) +
+    return tarjetas([['Visitas', ent(e.visitas)], ['Órdenes', ent(e.ordenes)], ['Conversión global', pct(e.conversion, 2)], ['Con tráfico y sin ventas', ent(e.traficoSinVentas), 'publicaciones con visitas (30 por cada 30 días del período) y ninguna orden']]) +
       h('Publicaciones activas: visitas → órdenes') +
       tabla([
         ['Publicación', f => titulo(f)], ['SKU', f => esc(f.sku || '—')], ['Visitas', f => ent(f.visitas), 'text-align:right;'], ['Órdenes', f => ent(f.ordenes), 'text-align:right;'],
         ['Unidades', f => ent(f.unidades), 'text-align:right;'], ['Conversión', f => pct(f.conversion, 2), 'text-align:right;'], ['Ingresos', f => clp(f.ingresos), 'text-align:right;'],
         ['Alerta', f => f.banderas.map(b => insignia(BANDERAS[b] || b, b === 'trafico_sin_ventas' ? '#DC2626' : '#B45309')).join(' ')],
       ], filas, 'Aún no hay publicaciones: actualiza los datos.') +
-      nota('<b>Cómo leerlo:</b> mucha visita y ninguna orden suele ser precio, fotos, título o envío que no convence; poca visita es posicionamiento o publicidad. La conversión es órdenes / visitas de los últimos ' + m.ventanaDias + ' días.');
+      nota('<b>Cómo leerlo:</b> mucha visita y ninguna orden suele ser precio, fotos, título o envío que no convence; poca visita es posicionamiento o publicidad. La conversión es órdenes / visitas del período (' + periodo(m) + ').');
   }
-  function vMargen(m) {
-    const g = m.margen.resumen;
-    return tarjetas([
-      ['Margen real', g.margen == null ? '—' : clp(g.margen), g.margenPct == null ? '' : pct(g.margenPct) + ' sobre lo vendido con costo'],
-      ['Ingresos', clp(g.ingresos)], ['Comisión de Mercado Libre', clp(g.comision), pct(g.comisionPct) + ' de lo vendido'], ['Envío que paga el vendedor', clp(g.envio), pct(g.envioPct) + ' de lo vendido'],
-      ['Ventas con margen bajo', ent(g.ventasBajoMargen), 'publicaciones con menos de 10%'],
-    ]) + h('Margen por publicación (de menor a mayor)') +
+  function vModeloMargen(datos, titulo, explicacion) {
+    const g = datos.resumen;
+    return h(titulo) + '<div class="empty-note" style="margin:-2px 0 8px;line-height:1.5;">' + explicacion + '</div>' +
+      tarjetas([
+        ['Margen', g.margen == null ? '—' : clp(g.margen), g.margenPct == null ? '' : pct(g.margenPct) + ' sobre lo vendido con costo'],
+        ['Ingresos', clp(g.ingresos)], ['Comisión de Mercado Libre', clp(g.comision), pct(g.comisionPct) + ' de lo vendido'], ['Envío que paga el vendedor', clp(g.envio), pct(g.envioPct) + ' de lo vendido'],
+        ['Ventas con margen bajo', ent(g.ventasBajoMargen), 'publicaciones con menos de 10%'],
+      ]) +
       tabla([
         ['Publicación', f => esc(f.titulo || f.itemId)], ['SKU', f => esc(f.sku || '—')], ['Unidades', f => ent(f.unidades), 'text-align:right;'], ['Ingresos', f => clp(f.ingresos), 'text-align:right;'],
         ['Comisión', f => clp(f.comision), 'text-align:right;'], ['Envío', f => clp(f.envio) + (f.envioPendiente ? ' *' : ''), 'text-align:right;'], ['Costo Bsale', f => f.costo == null ? '<span class="empty-note">sin costo</span>' : clp(f.costo) + (f.costoCompleto ? '' : ' *'), 'text-align:right;'],
         ['Margen', f => f.margen == null ? '—' : '<b style="color:' + (f.margen < 0 ? 'var(--red)' : 'inherit') + ';">' + clp(f.margen) + '</b>', 'text-align:right;'], ['Margen %', f => pct(f.margenPct), 'text-align:right;'],
-      ], m.margen.filas, 'Sin ventas en el período.') +
-      nota('<b>Margen = ingreso − comisión − envío del vendedor − costo de Bsale.</b> El costo es el promedio de Bsale (o la última compra). * Dato incompleto: el costo de envío todavía no se consulta o algunas unidades no tienen costo. La comisión se toma de cada orden de Mercado Libre; si la cifra no calza con tu panel, avísame y lo ajusto.');
+      ], datos.filas, 'Sin ventas en el período.');
+  }
+  function vMargen(m) {
+    return '<p class="empty-note">Período: ' + periodo(m) + '. Dos formas de calcular el mismo margen, con las mismas columnas (de menor a mayor margen).</p>' +
+      vModeloMargen(m.margen, 'Modelo 1: precios con IVA', 'Ingreso, comisión y envío tal como los informa Mercado Libre (con IVA) menos el costo de Bsale. <b>Ojo:</b> el costo de Bsale es neto, así que este modelo muestra un margen más alto del real.') +
+      vModeloMargen(m.margenNeto, 'Modelo 2: neto de IVA', 'Ingreso, comisión y envío divididos por 1,19 (sin IVA) menos el costo de Bsale (neto). Es la comparación pareja si el costo de Bsale no incluye IVA.') +
+      nota('<b>Margen = ingreso − comisión − envío del vendedor − costo de Bsale.</b> El costo es el promedio de Bsale (o la última compra). * Dato incompleto: el costo de envío todavía no se consulta o algunas unidades no tienen costo. El modelo 2 supone que la comisión y el envío de Mercado Libre incluyen IVA y que el costo de Bsale es neto; si en tu caso es distinto, avísame y lo ajusto.');
   }
   function vReputacion(m) {
     const r = m.reputacion.actual;
@@ -149,7 +159,7 @@
   function vAtencion(m) {
     const a = m.atencion.resumen;
     return tarjetas([
-      ['Preguntas', ent(a.preguntas), 'últimos ' + m.ventanaDias + ' días'], ['Respondidas', pct(a.porcentajeRespondidas), ent(a.respondidas) + ' de ' + ent(a.preguntas)],
+      ['Preguntas', ent(a.preguntas), periodo(m)], ['Respondidas', pct(a.porcentajeRespondidas), ent(a.respondidas) + ' de ' + ent(a.preguntas)],
       ['Sin responder', ent(a.sinResponder), ent(a.sinResponderMas24h) + ' con más de 24 horas'], ['Tiempo mediano', minutos(a.medianaMinutos)],
       ['Respondidas en 1 hora', pct(a.dentroDe1h), 'en 24 horas: ' + pct(a.dentroDe24h)], ['Preguntas por orden', a.preguntasPorOrden == null ? '—' : a.preguntasPorOrden.toFixed(1).replace('.', ',')],
     ]) + h('Publicaciones con muchas preguntas y ninguna venta') +
@@ -199,11 +209,42 @@
     const t = TABS.find(x => x[0] === tabActiva) || TABS[0];
     cont.innerHTML = t[2](metricas);
   }
+  const PRESETS = [7, 14, 30, 90];
+  const diasAtras = (n, hoy) => { const d = new Date(hoy + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+  function dibujarFiltro() {
+    const cont = $('filtroFechas'), r = metricas && metricas.rango;
+    if (!r || !metricas.hayDatos) { cont.style.display = 'none'; return; }
+    cont.style.display = '';
+    const activo = n => r.hasta === r.hoy && r.desde === diasAtras(n - 1, r.hoy);
+    cont.innerHTML = '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
+      '<span class="empty-note" style="font-weight:700;">Período</span>' +
+      PRESETS.map(n => '<button class="btn-' + (activo(n) ? 'primary' : 'ghost') + ' btn-sm" onclick="MLMetricas.preset(' + n + ')">Últimos ' + n + ' días</button>').join('') +
+      '<span class="empty-note" style="margin-left:6px;">Desde</span><input type="date" id="fDesde" value="' + esc(r.desde) + '" min="' + esc(r.minimo) + '" max="' + esc(r.hoy) + '">' +
+      '<span class="empty-note">hasta</span><input type="date" id="fHasta" value="' + esc(r.hasta) + '" min="' + esc(r.minimo) + '" max="' + esc(r.hoy) + '">' +
+      '<button class="btn-ghost btn-sm" onclick="MLMetricas.aplicarRango()">Aplicar</button></div>' +
+      '<div class="empty-note" style="margin-top:4px;">Se puede elegir cualquier rango dentro de los últimos ' + r.maximoDias + ' días. Reputación, stock y publicidad muestran siempre lo último guardado.</div>';
+  }
+  function aplicarRango() {
+    const d = $('fDesde').value, h = $('fHasta').value;
+    if (!d || !h) { alert('Elige las dos fechas'); return; }
+    if (d > h) { alert('La fecha inicial no puede ser posterior a la final'); return; }
+    rangoPedido = { desde: d, hasta: h };
+    cargarMetricas();
+  }
+  function preset(n) {
+    const hoy = metricas && metricas.rango ? metricas.rango.hoy : new Date().toISOString().slice(0, 10);
+    rangoPedido = { desde: diasAtras(n - 1, hoy), hasta: hoy };
+    cargarMetricas();
+  }
   async function cargarMetricas() {
     try {
-      metricas = await pedir('metricas');
+      $('contenidoMetricas').style.opacity = '.5';
+      metricas = await pedir('metricas', 'GET', rangoPedido.desde ? '&desde=' + encodeURIComponent(rangoPedido.desde) + '&hasta=' + encodeURIComponent(rangoPedido.hasta) : '');
+      $('contenidoMetricas').style.opacity = '';
+      dibujarFiltro();
       dibujarMetricas();
     } catch (err) {
+      $('contenidoMetricas').style.opacity = '';
       $('contenidoMetricas').innerHTML = '<div class="error-box">' + esc(err.message) + '</div>';
     }
   }
@@ -230,5 +271,5 @@
     } catch (err) { /* sin estado todavía */ }
     cargarMetricas();
   }
-  window.MLMetricas = { iniciar, actualizarDatos, diagnostico, tab: t => { tabActiva = t; dibujarMetricas(); }, ocultar: () => { $('seccionDatos').style.display = 'none'; } };
+  window.MLMetricas = { iniciar, actualizarDatos, diagnostico, preset, aplicarRango, tab: t => { tabActiva = t; dibujarMetricas(); }, ocultar: () => { $('seccionDatos').style.display = 'none'; } };
 })();

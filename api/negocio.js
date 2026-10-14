@@ -31,7 +31,7 @@ import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionE
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
 import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTablaMercadoLibre, leerConexion, borrarConexion, conectarConCodigo, probarLectura, lectorML } from '../lib/mercadolibre.js';
-import { asegurarTablasMLDatos, reiniciarSync, estadoSync, siguientePaso, ejecutarPaso, calcularMetricasML, diagnosticoLectura, PASOS as PASOS_ML } from '../lib/mercadolibre-datos.js';
+import { asegurarTablasMLDatos, reiniciarSync, estadoSync, siguientePaso, ejecutarPaso, calcularMetricasML, diagnosticoLectura, normalizarRango, PASOS as PASOS_ML } from '../lib/mercadolibre-datos.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
@@ -11432,16 +11432,17 @@ async function manejarMercadoLibre(req, res, sesion) {
     }
     if (accion === 'metricas') {
       await asegurarTablasMLDatos(sql);
+      const rango = normalizarRango(req.query.desde, req.query.hasta);
       let stockBsale = null, ventasBsale = null;
       try { stockBsale = await obtenerStockBsalePorSku(); } catch (e) { stockBsale = null; }
       try {
         await asegurarTablaVentasSku(sql);
         const { rows } = await sql`
           SELECT sku, SUM(cantidad)::float AS unidades, SUM(monto)::float AS monto FROM bsale_ventas_sku
-          WHERE fecha >= (now() AT TIME ZONE 'America/Santiago')::date - 30 GROUP BY sku;`;
+          WHERE fecha >= ${rango.desde}::date AND fecha <= ${rango.hasta}::date GROUP BY sku;`;
         ventasBsale = rows;
       } catch (e) { ventasBsale = null; }
-      return res.status(200).json(await calcularMetricasML(sql, { stockBsale, ventasBsale }));
+      return res.status(200).json(await calcularMetricasML(sql, { stockBsale, ventasBsale, desde: rango.desde, hasta: rango.hasta }));
     }
     if (accion === 'desconectar') {
       if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
