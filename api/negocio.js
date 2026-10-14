@@ -2585,6 +2585,14 @@ async function manejarPreciosSkuVariacion(req, res, sesion) {
 const HORARIO_EXTENDIDO_DIAS_SEMANA = ['miércoles', 'jueves'];
 const HORARIO_EXTENDIDO_DESDE_MIN = 18 * 60 + 30; // 18:30
 const HORARIO_EXTENDIDO_HASTA_MIN = 19 * 60 + 30; // 19:30 (inclusive)
+// Vendedores cuyas ventas NO se cuentan acá (pedido del usuario): Lesly Celis tiene asociadas en Bsale las ventas web de Shopify, que no son ventas
+// del local y distorsionarían la evaluación de la extensión horaria. Se compara por nombre sin tildes ni mayúsculas.
+const HORARIO_EXTENDIDO_VENDEDORES_EXCLUIDOS = ['lesly celis'];
+const nombreSinTildes = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const esVendedorExcluidoHorarioExtendido = nombre => {
+  const n = nombreSinTildes(nombre);
+  return HORARIO_EXTENDIDO_VENDEDORES_EXCLUIDOS.some(x => n === x || n.includes(x));
+};
 function diaYHoraChile(unixSeconds) {
   if (!unixSeconds) return null;
   const partes = new Intl.DateTimeFormat('es-CL', {
@@ -2655,6 +2663,7 @@ async function manejarVentasHorarioExtendido(req, res, sesion) {
 
     const seenIds = new Set();
     const todasLasVentas = []; // TODO lo que califica como horario extendido dentro de [fetchDesde, fetchHasta]
+    let excluidasPorVendedor = 0;
     for (const d of allDocs) {
       if (seenIds.has(d.id)) continue;
       seenIds.add(d.id);
@@ -2681,6 +2690,7 @@ async function manejarVentasHorarioExtendido(req, res, sesion) {
       // hipótesis a revisar.
       const vendedorId = d.user?.id ?? null;
       const vendedor = vendedorId ? (vendedoresPorId.get(vendedorId) || `Usuario #${vendedorId}`) : 'Venta web';
+      if (esVendedorExcluidoHorarioExtendido(vendedor)) { excluidasPorVendedor++; continue; } // ventas web asociadas a Lesly Celis: no son ventas del local
 
       todasLasVentas.push({
         numero: d.number ? String(d.number) : '', tipoDocumento: d.document_type?.name || null,
@@ -2705,7 +2715,7 @@ async function manejarVentasHorarioExtendido(req, res, sesion) {
     const porVendedor = [...porVendedorMap.values()].sort((a, b) => b.monto - a.monto);
 
     return res.status(200).json({
-      desde: desdeStr, hasta: hastaStr, ventas, porVendedor,
+      desde: desdeStr, hasta: hastaStr, ventas, porVendedor, vendedoresExcluidos: ['Lesly Celis'], documentosExcluidos: excluidasPorVendedor,
       ...resumenVentas(ventas),
       resumenMensual: {
         actual: { desde: mesActualDesde, hasta: mesActualHasta, ...resumenVentas(ventasMesActual) },
