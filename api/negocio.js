@@ -18,6 +18,7 @@ import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
 import { armarComunicacionZoho, filasCorreosDesdeZoho, ticketEnVentana, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
+import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { corregirCorreo } from '../lib/correos-corregidos.js';
 import { sqlOfertaLateral, PARAMS_OFERTA, sqlSolicitudLateral, PARAM_SOLICITUD, mejorNivelOferta, nivelConversacion, esConversion, esOfertaCompleta, nivelDesdeFilaSql, resumirConversionComercial } from '../lib/whatsapp-oferta.js';
 import { analizarCategoria as analizarCategoriaWhatsapp, CATEGORIAS_ANALIZABLES, analizarMotivo as analizarMotivoWhatsapp, MOTIVOS_ANALIZABLES, esCierreCordial, debeReclasificarPorCierre, RESULTADOS_DEBILES_CIERRE, MOTIVOS_DEBILES_CIERRE } from '../lib/whatsapp-motivos.js';
@@ -4450,7 +4451,8 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
   try {
     const sql = await getSql();
     await asegurarTablaNotificaciones(sql);
-    if (!(await notificacionDebeEnviarse(sql, 'servicio-tecnico-resumen-semanal'))) {
+    const probar = req.query.probar === '1' || req.query.solo_ver === '1';
+    if (!probar && !(await notificacionDebeEnviarse(sql, 'servicio-tecnico-resumen-semanal'))) {
       return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
     }
     await asegurarTablaServiciosMensual(sql);
@@ -4490,38 +4492,25 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
     const { rows: estadoRows } = await sql`SELECT * FROM bsale_servicios_sync_estado WHERE id = 1;`;
     const ultimaSincronizacion = estadoRows[0]?.ultima_pasada_completa_en || null;
 
-    const variacionPct = (actual, anterior) => {
-      if (!anterior) return actual > 0 ? null : 0; // null = "nuevo" (sin base de comparación), no una variación real
-      return Math.round(((actual - anterior) / anterior) * 100);
-    };
-    const notaVariacion = pct => {
-      if (pct === null) return '<span style="color:#15803D;">▲ nuevo (sin datos la semana pasada)</span>';
-      if (pct === 0) return '<span style="color:#6B7568;">＝ igual que la semana pasada</span>';
-      const color = pct > 0 ? '#15803D' : '#DC2626';
-      const flecha = pct > 0 ? '▲' : '▼';
-      return `<span style="color:${color};">${flecha} ${pct > 0 ? '+' : ''}${pct}% vs. semana anterior</span>`;
-    };
+    // Indicadores operativos del dashboard de la página (Zoho Desk): se reutiliza el mismo cálculo y la misma caché de 5 minutos del endpoint
+    // de la página. Si Zoho no responde o no está configurado, el correo sale igual con la parte de Bsale y lo avisa.
+    let zoho = null, zohoError = null;
+    try {
+      const r = await consultarMetricasZohoInterno();
+      if (r.configurado === false) zohoError = 'Zoho Desk no está configurado';
+      else if (r.error) zohoError = r.error;
+      else zoho = r;
+    } catch (e) { zohoError = String(e.message || e); }
 
-    const filaServicio = f => `<li><b>${f.nombre || f.sku}</b> — ${Number(f.cantidad)} unidad${Number(f.cantidad) === 1 ? '' : 'es'} · $${Math.round(Number(f.monto)).toLocaleString('es-CL')}</li>`;
-    const topServicios = semana.filas.slice(0, 8);
-
-    const html = `
-      <h2>🔧 Resumen semanal — Servicio Técnico</h2>
-      <p style="color:#666;">Semana del ${fmtFecha(inicioSemana)} al ${fmtFecha(finSemana)}.</p>
-      <p><b>Servicios vendidos:</b> ${semana.cantidadTotal} ${notaVariacion(variacionPct(semana.cantidadTotal, semanaPrevia.cantidadTotal))}</p>
-      <p><b>Monto total:</b> $${Math.round(semana.montoTotal).toLocaleString('es-CL')} ${notaVariacion(variacionPct(semana.montoTotal, semanaPrevia.montoTotal))}</p>
-      ${topServicios.length ? `<h3>Servicios más vendidos esta semana</h3><ul>${topServicios.map(filaServicio).join('')}</ul>` : '<p>No se registraron servicios vendidos esta semana.</p>'}
-      <p><a href="https://erp.indexstore.cl/servicio-tecnico.html">Ver detalle en el ERP -- página Servicio Técnico</a></p>
-      <p style="color:#999;font-size:11px;">Datos sincronizados desde Bsale hasta: ${ultimaSincronizacion ? new Date(ultimaSincronizacion).toLocaleString('es-CL') : 'nunca -- sincronizar manualmente en la página'}.</p>
-    `;
-    const asunto = `🔧 Servicio Técnico -- resumen semanal (${fmtFecha(inicioSemana)} al ${fmtFecha(finSemana)}): ${semana.cantidadTotal} servicios, $${Math.round(semana.montoTotal).toLocaleString('es-CL')}`;
+    const { asunto, html } = armarCorreoServicioTecnico({ semana, semanaPrevia, inicio: fmtFecha(inicioSemana), fin: fmtFecha(finSemana), zoho, zohoError, ultimaSincronizacion, urlBase: URL_BASE_APP });
+    if (req.query.solo_ver === '1') return res.status(200).json({ ok: true, enviado: false, asunto, html });
 
     const destinatarios = await obtenerSuscriptoresEmail(sql, 'servicio-tecnico-resumen-semanal');
     const envios = [];
     for (const para of destinatarios) {
-      envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
+      envios.push({ para, ...(await enviarCorreo({ para, asunto: probar ? `[PRUEBA] ${asunto}` : asunto, html })) });
     }
-    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'servicio-tecnico-resumen-semanal', { asunto, html });
+    if (envios.length > 0 && !probar) await marcarNotificacionEnviada(sql, 'servicio-tecnico-resumen-semanal', { asunto, html });
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Servicio Técnico', detail: String(err) });
@@ -5056,6 +5045,15 @@ async function manejarZohoServicioTecnicoMetricas(req, res, _sesion) {
   } catch (err) {
     return res.status(200).json({ configurado: true, error: 'No se pudo consultar Zoho Desk', detail: String(err.message || err) });
   }
+}
+
+// Las mismas métricas que ve la página Servicio Técnico, pero para usarlas dentro de otro handler (el correo semanal): se llama al handler
+// con una petición mínima y se recoge su JSON, así no se duplica la lectura de Zoho ni su caché.
+async function consultarMetricasZohoInterno() {
+  let cuerpo = null;
+  const res = { status() { return this; }, json(o) { cuerpo = o; return this; } };
+  await manejarZohoServicioTecnicoMetricas({ method: 'GET', query: {} }, res, null);
+  return cuerpo || { error: 'Zoho Desk no respondió' };
 }
 
 // Los mensajes de Zoho se guardan en cotizaciones_correos (casilla "Zoho Desk"), igual que los correos detectados por
