@@ -314,6 +314,15 @@
   <div class="card"><div class="tabla-wrap" id="wrapBsale"><p class="empty-note" style="padding:14px;">Pulsa "Revisar pedidos" para comparar.</p></div></div>
 </div>
 
+<!-- Detalle de un pedido en modo sombra -->
+<div class="modal-fondo" id="modalPedidoBsale" onclick="if(event.target===this) cerrarModalPedidoBsale()">
+  <div class="modal" style="width:min(900px,100%);">
+    <h2 id="tituloPedidoBsale">Pedido</h2>
+    <div id="cuerpoPedidoBsale"><p class="empty-note">Cargando...</p></div>
+    <div class="pie"><button class="btn-ghost" onclick="cerrarModalPedidoBsale()">Cerrar</button></div>
+  </div>
+</div>
+
 <!-- Vista previa del resumen por correo -->
 <div class="modal-fondo" id="modalResumen" onclick="if(event.target===this) cerrarModalResumen()">
   <div class="modal" style="width:min(780px,100%);">
@@ -412,6 +421,27 @@ async function revisarPermisosShopify(){
       '<details style="margin-top:6px;"><summary class="empty-note" style="cursor:pointer;">Todos los permisos que tiene hoy (' + d.tiene.length + ')</summary><div class="empty-note">' + d.tiene.map(esc).join(', ') + '</div></details>';
   }catch(err){ out.innerHTML = '<div class="error-box">' + esc(err.message) + '</div>'; }
   finally{ b.disabled = false; }
+}
+function cerrarModalPedidoBsale(){ $('modalPedidoBsale').classList.remove('abierto'); }
+async function detalleBsalePedido(id){
+  $('tituloPedidoBsale').textContent = 'Pedido — documento que emitiría el ERP'; $('cuerpoPedidoBsale').innerHTML = '<p class="empty-note">Cargando...</p>'; $('modalPedidoBsale').classList.add('abierto');
+  try{
+    const res = await fetch('/api/negocio?recurso=bsale-sombra-pedido&id=' + encodeURIComponent(id)); const d = await res.json();
+    if(!res.ok || d.error){ $('cuerpoPedidoBsale').innerHTML = '<div class="error-box">' + esc(d.error || 'Error') + (d.detail ? '<br><small>' + esc(d.detail) + '</small>' : '') + '</div>'; return; }
+    $('tituloPedidoBsale').textContent = 'Pedido ' + d.pedido.nombre + ' — $' + d.pedido.total.toLocaleString('es-CL');
+    const doc = d.documento, n = x => Number(x).toLocaleString('es-CL');
+    let h = '';
+    if(d.avisos && d.avisos.length) h += '<div class="error-box">' + d.avisos.map(esc).join('<br>') + '</div>';
+    if(d.diferencias){
+      const malas = d.diferencias.filter(x => !x.ok).length;
+      h += '<div style="margin:6px 0;font-weight:700;color:' + (malas ? '#8a5a00' : '#12713a') + ';">' + (malas ? malas + ' campo(s) distintos' : '✔ El ERP emitiría lo mismo que la app') + '</div>' +
+        '<table><thead><tr><th>Campo</th><th>ERP emitiría</th><th>La app emitió</th><th></th></tr></thead><tbody>' + d.diferencias.map(x => '<tr><td>' + esc(x.campo) + '</td><td>' + esc(x.erp) + '</td><td>' + esc(x.app) + '</td><td>' + (x.ok ? '✔' : '<span style="color:#8a5a00;font-weight:700;">⚠</span>') + '</td></tr>').join('') + '</tbody></table>';
+    } else h += '<p class="empty-note">Este pedido no tiene boleta ni factura emitida por la app para comparar.</p>';
+    h += '<details style="margin-top:10px;"><summary style="cursor:pointer;font-weight:700;">Documento completo que armaría el ERP (' + esc(doc.tipo) + ')</summary>' +
+      '<table style="margin-top:6px;"><thead><tr><th>Línea</th><th>SKU</th><th>Cant.</th><th>Neto unit.</th><th>Total línea</th></tr></thead><tbody>' + doc.details.map(l => '<tr><td>' + esc(l.comment) + '</td><td>' + esc(l.code || '—') + '</td><td>' + l.quantity + '</td><td>$' + n(l.netUnitValue) + '</td><td>$' + n(l.brutoLinea) + '</td></tr>').join('') + '</tbody></table>' +
+      '<pre style="white-space:pre-wrap;font-size:11.5px;background:#f5f8fe;padding:8px;border-radius:8px;margin-top:6px;max-height:260px;overflow:auto;">' + esc(JSON.stringify({ ...doc, details: undefined }, null, 2)) + '</pre></details>';
+    $('cuerpoPedidoBsale').innerHTML = h;
+  }catch(err){ $('cuerpoPedidoBsale').innerHTML = '<div class="error-box">' + esc(err.message) + '</div>'; }
 }
 let datosSP = null;
 async function traerTandas(fuente, onProgreso){
@@ -514,11 +544,11 @@ function renderBsaleSombra(){
   const filas = d.filas.filter(f => !solo || f.observaciones.length);
   if(!filas.length){ $('wrapBsale').innerHTML = '<p class="empty-note" style="padding:14px;">' + (solo ? 'Ningún pedido con observaciones en este período.' : 'No hay pedidos en este período.') + '</p>'; return; }
   const fechaCL2 = iso => { const x = new Date(iso); return x.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) + ' ' + x.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' }); };
-  $('wrapBsale').innerHTML = '<table><thead><tr><th>Pedido</th><th>Fecha</th><th>Pago</th><th>Total</th><th>ERP emitiría</th><th>Documentos emitidos por la app</th><th>Resultado</th></tr></thead><tbody>' +
+  $('wrapBsale').innerHTML = '<table><thead><tr><th>Pedido</th><th>Fecha</th><th>Pago</th><th>Total</th><th>ERP emitiría</th><th>Documentos emitidos por la app</th><th>Resultado</th><th data-sin-orden></th></tr></thead><tbody>' +
     filas.map(f => {
       const docs = f.docs.length ? f.docs.map(x => '<div>' + esc(x.prefijo + '-' + x.numero) + (x.bsale && x.bsale.encontrado ? ' · $' + x.bsale.total.toLocaleString('es-CL') + (x.bsale.url ? ' <a href="' + esc(x.bsale.url) + '" target="_blank" rel="noopener">ver ↗</a>' : '') : '') + '</div>').join('') : '<span class="empty-note">—</span>';
       const res = f.observaciones.length ? f.observaciones.map(o => '<div style="color:#8a5a00;">⚠ ' + esc(o) + '</div>').join('') : (f.docs.length ? '<span style="color:#12713a;font-weight:700;">✔ Coincide</span>' : '<span class="empty-note">Sin documento</span>');
-      return '<tr><td style="white-space:nowrap;"><a href="' + esc(d.tiendaAdmin) + '/orders/' + esc(f.id) + '" target="_blank" rel="noopener"><b>' + esc(f.pedido) + '</b></a></td><td style="white-space:nowrap;">' + fechaCL2(f.fecha) + '</td><td>' + esc(f.estadoPago || '') + (f.cancelado ? ' (cancelado)' : '') + '</td><td style="white-space:nowrap;">$' + f.total.toLocaleString('es-CL') + '</td><td>' + (f.esperado === 'factura' ? 'Factura' : 'Boleta') + '</td><td>' + docs + '</td><td>' + res + '</td></tr>';
+      return '<tr><td style="white-space:nowrap;"><a href="' + esc(d.tiendaAdmin) + '/orders/' + esc(f.id) + '" target="_blank" rel="noopener"><b>' + esc(f.pedido) + '</b></a></td><td style="white-space:nowrap;">' + fechaCL2(f.fecha) + '</td><td>' + esc(f.estadoPago || '') + (f.cancelado ? ' (cancelado)' : '') + '</td><td style="white-space:nowrap;">$' + f.total.toLocaleString('es-CL') + '</td><td>' + (f.esperado === 'factura' ? 'Factura' : 'Boleta') + '</td><td>' + docs + '</td><td>' + res + '</td><td><button class="btn-ghost btn-sm" onclick="detalleBsalePedido(\'' + esc(f.id) + '\')">Detalle</button></td></tr>';
     }).join('') + '</tbody></table>';
 }
 function cambiarTab(tab, sinHash){

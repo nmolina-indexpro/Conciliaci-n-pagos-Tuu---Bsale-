@@ -25,6 +25,7 @@ import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR 
 import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
+import { armarDocumento, compararConApp } from '../lib/bsale-emision.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
@@ -171,6 +172,7 @@ export default async function handler(req, res) {
   if (recurso === 'shopify-urls-sku') return manejarShopifyUrlsSku(req, res, sesion);
   if (recurso === 'bsale-sombra') return manejarBsaleSombra(req, res, sesion);
   if (recurso === 'bsale-sombra-datos') return manejarBsaleSombraDatos(req, res, sesion);
+  if (recurso === 'bsale-sombra-pedido') return manejarBsaleSombraPedido(req, res, sesion);
   if (recurso === 'shopify-permisos') return manejarShopifyPermisos(req, res, sesion);
   if (recurso === 'bsale-prueba-cotizacion') return manejarBsalePruebaCotizacion(req, res, sesion);
   if (recurso === 'zoho-servicio-tecnico-metricas') return manejarZohoServicioTecnicoMetricas(req, res, sesion);
@@ -8348,6 +8350,84 @@ async function manejarShopifyPermisos(req, res, sesion) {
     return res.status(200).json({ ok: true, tiene, necesarios });
   } catch (err) {
     return res.status(200).json({ error: 'Error consultando los permisos de Shopify', detail: String(err.message || err).slice(0, 300) });
+  }
+}
+
+// Detalle de UN pedido en modo sombra: el documento completo que el ERP emitiría (líneas, envío, cliente, medio de pago, vendedor,
+// sucursal) frente al que emitió la app, campo por campo. Solo lectura. Ver lib/bsale-emision.js.
+let cacheCtxEmision = null; // { ts, ctx, avisos }
+async function contextoEmisionBsale(token) {
+  if (cacheCtxEmision && Date.now() - cacheCtxEmision.ts < 10 * 60000) return cacheCtxEmision;
+  const cab = { headers: { access_token: token } };
+  const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+  const leer = async ruta => { try { const r = await fetchConTimeout(BSALE_BASE + ruta, cab, 15000); return r.ok ? ((await r.json()).items || []) : []; } catch { return []; } };
+  const [tipos, medios, usuarios, cfg] = await Promise.all([leer('/document_types.json?limit=50'), leer('/payment_types.json?limit=50'), leer('/users.json?limit=50'), configSombraBsale(token)]);
+  const avisos = [];
+  const sii = c => (tipos.find(t => Number(t.codeSii) === c && t.state === 0) || tipos.find(t => Number(t.codeSii) === c) || {}).id;
+  const medio = medios.find(m => norm(m.name) === 'SHOPIFY');
+  const vend = usuarios.find(u => norm([u.firstName, u.lastName].filter(Boolean).join(' ')) === 'VENTA WEB') || usuarios.find(u => /VENTA WEB/.test(norm([u.firstName, u.lastName, u.username].filter(Boolean).join(' '))));
+  if (!medio) avisos.push('No encuentro el medio de pago "SHOPIFY" en Bsale');
+  if (!vend) avisos.push('No encuentro el vendedor "venta web" en Bsale');
+  const ctx = { idBoleta: sii(39), idFactura: sii(33), officeId: cfg.officeId, listaId: cfg.listaId, medioPagoId: medio && medio.id, vendedorId: vend && vend.id, emissionDate: Math.floor(Date.now() / 86400000) * 86400 };
+  cacheCtxEmision = { ts: Date.now(), ctx, avisos };
+  return cacheCtxEmision;
+}
+
+async function manejarBsaleSombraPedido(req, res, sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores' });
+    const token = process.env.BSALE_ACCESS_TOKEN;
+    if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+    const acceso = await obtenerAccesoShopify();
+    if (!acceso) return res.status(200).json({ error: 'Shopify no está configurado en el servidor' });
+    const id = String(req.query.id || '').replace(/\D/g, '');
+    if (!id) return res.status(400).json({ error: 'Falta el id del pedido' });
+    const query = `
+      query($id: ID!) { node(id: $id) { ... on Order {
+        name email tags customAttributes { key value }
+        currentTotalPriceSet { shopMoney { amount } }
+        billingAddress { firstName lastName company address1 city province phone }
+        customer { firstName lastName email }
+        lineItems(first: 50) { nodes { sku name quantity originalTotalSet { shopMoney { amount } } discountAllocations { allocatedAmountSet { shopMoney { amount } } } } }
+        shippingLines(first: 5) { nodes { title originalPriceSet { shopMoney { amount } } discountedPriceSet { shopMoney { amount } } } }
+      } } }`;
+    const body = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, query, { id: 'gid://shopify/Order/' + id });
+    const o = body.data && body.data.node;
+    if (!o || !o.name) return res.status(200).json({ error: 'No encuentro ese pedido en Shopify', detail: JSON.stringify(body.errors || '').slice(0, 200) });
+    const pedido = { ...o, lineItems: o.lineItems.nodes, shippingLines: o.shippingLines.nodes };
+    const { ctx, avisos } = await contextoEmisionBsale(token);
+    const documento = armarDocumento(pedido, ctx);
+
+    // documento que emitió la app (FA- si hay factura; si no BO-)
+    const etiquetas = (o.tags || []).map(t => RE_ETIQUETA_DOC.exec(String(t).trim())).filter(Boolean).map(m => ({ prefijo: m[1].toUpperCase(), numero: Number(m[2]) }));
+    const tag = etiquetas.find(t => t.prefijo === 'FA') || etiquetas.find(t => t.prefijo === 'BO');
+    let app = null, diferencias = null;
+    if (tag) {
+      const idTipo = tag.prefijo === 'FA' ? ctx.idFactura : ctx.idBoleta;
+      const cab = { headers: { access_token: token } };
+      const rd = await fetchConTimeout(`${BSALE_BASE}/documents.json?number=${tag.numero}&documenttypeid=${idTipo}&expand=[client,payments,office,seller]&limit=1`, cab, 15000);
+      const d = rd.ok ? ((await rd.json()).items || [])[0] : null;
+      if (d) {
+        const rdet = await fetchConTimeout(`${BSALE_BASE}/documents/${d.id}/details.json?limit=50&expand=[variant]`, cab, 15000);
+        const dets = rdet.ok ? ((await rdet.json()).items || []) : [];
+        const pagos = (d.payments && d.payments.items) || [];
+        app = {
+          tipo: tag.prefijo === 'FA' ? 'factura' : 'boleta', numero: tag.numero, total: Math.round(Number(d.totalAmount) || 0), url: d.urlPublicView || d.urlPdf || '',
+          cliente: { rut: d.client ? String(d.client.code || '') : '', razon: d.client ? (d.client.company || [d.client.firstName, d.client.lastName].filter(Boolean).join(' ')) : '', giro: d.client ? d.client.activity : '' },
+          detalles: dets.map(x => ({ sku: x.variant && x.variant.code ? x.variant.code : null, cantidad: Number(x.quantity) || 0, total: Math.round(Number(x.totalAmount ?? (Number(x.netAmount) + Number(x.taxAmount))) || 0), neto: x.netUnitValue != null ? Number(x.netUnitValue) : null, glosa: x.comment || '' })),
+          medioPago: pagos.map(p => p.name).filter(Boolean).join(', '),
+          vendedor: d.seller ? [d.seller.firstName, d.seller.lastName].filter(Boolean).join(' ') : '',
+          oficina: d.office ? d.office.name : '',
+        };
+        diferencias = compararConApp(documento, app);
+        if (app.medioPago) diferencias.push({ campo: 'Medio de pago', erp: 'SHOPIFY', app: app.medioPago, ok: /SHOPIFY/i.test(app.medioPago) });
+        if (app.vendedor) diferencias.push({ campo: 'Vendedor', erp: 'venta web', app: app.vendedor, ok: /venta web/i.test(app.vendedor) });
+      } else avisos.push('No encuentro en Bsale el documento ' + tag.prefijo + '-' + tag.numero);
+    }
+    return res.status(200).json({ ok: true, pedido: { id, nombre: o.name, total: documento.totalEsperado }, documento, app, diferencias, avisos });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error armando el documento en sombra', detail: String(err.message || err).slice(0, 300) });
   }
 }
 
