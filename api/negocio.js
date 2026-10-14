@@ -2427,7 +2427,7 @@ async function manejarProductosEstancadosFlagsNotificar(req, res) {
     for (const para of destinatarios) {
       envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
     }
-    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'productos-estancados-flags');
+    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'productos-estancados-flags', { asunto, html });
     return res.status(200).json({ ok: true, cambios: rows.length, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando el resumen de cambios de Productos estancados', detail: String(err) });
@@ -4521,7 +4521,7 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
     for (const para of destinatarios) {
       envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
     }
-    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'servicio-tecnico-resumen-semanal');
+    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'servicio-tecnico-resumen-semanal', { asunto, html });
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Servicio Técnico', detail: String(err) });
@@ -4564,7 +4564,7 @@ async function manejarGoogleAdsResumenSemanal(req, res) {
     for (const para of destinatarios) {
       envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
     }
-    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'google-ads-resumen-semanal');
+    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'google-ads-resumen-semanal', { asunto, html });
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Google Ads', detail: String(err) });
@@ -4618,7 +4618,7 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
     for (const para of destinatarios) {
       envios.push({ para, ...(await enviarCorreo({ para, asunto: probar ? `[PRUEBA] ${asunto}` : asunto, html })) });
     }
-    if (envios.length > 0 && !probar) await marcarNotificacionEnviada(sql, 'cotizaciones-seguimiento-diario');
+    if (envios.length > 0 && !probar) await marcarNotificacionEnviada(sql, 'cotizaciones-seguimiento-diario', { asunto, html });
     return res.status(200).json({ ok: true, enviado: envios.length > 0, porAtender: prep.items.length, criticas: resumen.critica.n, altas: resumen.alta.n, seguimiento: resumen.seguimiento.n, porDepurar: prep.depurar.n, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el seguimiento de cotizaciones', detail: String(err.message || err) });
@@ -4663,7 +4663,7 @@ async function manejarCotizacionesRecontactarDiario(req, res) {
     const destinatarios = await obtenerSuscriptoresEmail(sql, 'cotizaciones-recontactar-diario');
     const envios = [];
     for (const para of destinatarios) envios.push({ para, ...(await enviarCorreo({ para, asunto: probar ? `[PRUEBA] ${asunto}` : asunto, html })) });
-    if (envios.length > 0 && !probar) await marcarNotificacionEnviada(sql, 'cotizaciones-recontactar-diario');
+    if (envios.length > 0 && !probar) await marcarNotificacionEnviada(sql, 'cotizaciones-recontactar-diario', { asunto, html });
     return res.status(200).json({ ok: true, enviado: envios.length > 0, cotizaciones: items.length, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen de cotizaciones por recontactar', detail: String(err.message || err) });
@@ -9525,7 +9525,7 @@ async function manejarAlertasSitioWebNotificar(req, res) {
     for (const para of destinatarios) {
       envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
     }
-    if (envios.length > 0) await marcarNotificacionEnviada(sqlNotif, 'alertas-sitio-web');
+    if (envios.length > 0) await marcarNotificacionEnviada(sqlNotif, 'alertas-sitio-web', { asunto, html });
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando las alertas de Sitio Web', detail: String(err) });
@@ -11279,7 +11279,7 @@ async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
     for (const para of destinatarios) {
       envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
     }
-    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'whatsapp-ejecutivos-diario');
+    if (envios.length > 0) await marcarNotificacionEnviada(sql, 'whatsapp-ejecutivos-diario', { asunto, html });
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios, ejecutivos, sinAsignar });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen diario de ejecutivos de WhatsApp', detail: String(err) });

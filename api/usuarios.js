@@ -378,7 +378,15 @@ async function manejarNotificaciones(req, res, sql) {
     for (const tipo of Object.keys(TIPOS_NOTIFICACION)) {
       await asegurarConfigYSuscriptoresPorDefecto(sql, tipo);
     }
-    const { rows: configRows } = await sql`SELECT tipo, frecuencia, dia_semana, activa, ultimo_envio_en FROM notificaciones_config;`;
+    // Vista previa de UN correo (el último que se mandó de esa notificación): asunto y HTML guardados al enviarlo.
+    if (req.query.vista) {
+      const tipoVista = String(req.query.vista);
+      if (!TIPOS_NOTIFICACION[tipoVista]) return res.status(400).json({ error: 'Tipo de notificación inválido' });
+      const { rows: vr } = await sql`SELECT ultimo_asunto, ultimo_html, ultimo_envio_en FROM notificaciones_config WHERE tipo = ${tipoVista};`;
+      if (!vr[0] || !vr[0].ultimo_html) return res.status(200).json({ tieneVista: false });
+      return res.status(200).json({ tieneVista: true, asunto: vr[0].ultimo_asunto || '', html: vr[0].ultimo_html, enviadoEn: vr[0].ultimo_envio_en });
+    }
+    const { rows: configRows } = await sql`SELECT tipo, frecuencia, dia_semana, activa, ultimo_envio_en, ultimo_asunto, (ultimo_html IS NOT NULL) AS tiene_vista FROM notificaciones_config;`;
     const { rows: suscriptoresRows } = await sql`
       SELECT ns.tipo, u.id, u.nombre, u.email, u.activo
       FROM notificaciones_suscriptores ns JOIN usuarios u ON u.id = ns.usuario_id
@@ -394,6 +402,7 @@ async function manejarNotificaciones(req, res, sql) {
         frecuencia: c.frecuencia || 'diaria',
         diaSemana: c.dia_semana ?? null,
         ultimoEnvioEn: c.ultimo_envio_en || null,
+        ultimoAsunto: c.ultimo_asunto || null, tieneVista: Boolean(c.tiene_vista),
         suscriptores: suscriptoresRows.filter(s => s.tipo === tipo).map(s => ({ id: s.id, nombre: s.nombre, email: s.email, activo: s.activo })),
       };
     });

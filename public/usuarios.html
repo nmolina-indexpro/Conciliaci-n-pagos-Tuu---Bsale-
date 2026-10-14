@@ -126,6 +126,12 @@
   .nota-perfil{font-size:11.5px;color:var(--muted);margin-top:10px;}
 
   /* ---- Notificaciones: una fila por alerta, en columnas ---- */
+  .mini-correo{position:relative;width:150px;height:104px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#eef2f9;cursor:pointer;display:block;}
+  .mini-correo:hover{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-dim);}
+  .mini-correo iframe{position:absolute;top:0;left:0;width:640px;height:440px;border:0;transform:scale(.234);transform-origin:0 0;pointer-events:none;background:#fff;}
+  .mini-correo .cubre{position:absolute;inset:0;}
+  .mini-correo .lupa{position:absolute;right:4px;bottom:4px;background:rgba(15,118,110,.9);color:#fff;border-radius:999px;font-size:10px;padding:1px 7px;font-family:'Space Grotesk',sans-serif;font-weight:700;}
+  .mini-vacio{width:150px;height:104px;border:1px dashed var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;text-align:center;padding:8px;font-size:10.5px;color:var(--muted);line-height:1.3;}
   tr.notif-cat td{background:var(--surface-2);border-top:2px solid var(--line);padding:9px 10px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:var(--primary-dark);}
   tr.notif-cat td small{font-weight:500;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:6px;font-size:11.5px;}
   tr.notif-cat:first-child td{border-top:none;}
@@ -285,6 +291,16 @@
 
 <!-- Menú de acciones de una fila (flotante, para que no lo recorte la tabla) -->
 <div class="menu-flotante" id="menuFila"></div>
+
+<!-- Vista del último correo enviado de una notificación -->
+<div class="modal-fondo" id="modalVistaCorreo" onclick="if(event.target===this) cerrarVistaCorreo()">
+  <div class="modal" style="width:min(780px,100%);">
+    <h2 id="tituloVistaCorreo">Último correo</h2>
+    <div class="ayuda" id="infoVistaCorreo" style="margin-bottom:8px;"></div>
+    <iframe id="marcoVistaCorreo" sandbox="allow-popups allow-popups-to-escape-sandbox" title="Último correo enviado" style="width:100%;height:62vh;border:1px solid var(--line);border-radius:10px;background:#fff;"></iframe>
+    <div class="pie"><button class="btn-ghost" onclick="cerrarVistaCorreo()">Cerrar</button></div>
+  </div>
+</div>
 
 <!-- Nuevo usuario -->
 <div class="modal-fondo" id="modalUsuario" onclick="if(event.target===this) cerrarModalUsuario()">
@@ -583,6 +599,53 @@ function haceTiempo(iso){
   return new Date(iso).toLocaleDateString('es-CL');
 }
 // Ordena las notificaciones por categoría (ERP, Comercial, Sitio web, Análisis...) y antes de cada grupo agrega una fila de título.
+// ---- Miniatura del último correo enviado de cada notificación (se guarda al enviarlo; ver marcarNotificacionEnviada en lib/notificaciones.js)
+const vistasCorreo = {}; // tipo -> { clave, asunto, html, enviadoEn }
+function claveVista(n){ return (n.ultimoEnvioEn || '') + '|' + (n.ultimoAsunto || ''); }
+function marcoCorreo(html){ return '<!doctype html><meta charset="utf-8"><base target="_blank"><body style="margin:0;background:#eef2f9">' + html; }
+function miniaturaCorreoHtml(n){
+  if(!n.tieneVista) return '<div class="mini-vacio" title="Se guarda al enviarse el próximo correo de esta notificación">Sin vista previa todavía</div>';
+  const v = vistasCorreo[n.tipo];
+  const srcdoc = v && v.clave === claveVista(n) ? ' srcdoc="' + esc(marcoCorreo(v.html)) + '"' : '';
+  return `<a class="mini-correo" id="mini_${n.tipo}" onclick="abrirVistaCorreo('${n.tipo}')" title="${esc(n.ultimoAsunto || 'Último correo enviado')}">
+    <iframe sandbox tabindex="-1" loading="lazy" aria-hidden="true"${srcdoc}></iframe><span class="cubre"></span><span class="lupa">🔍 Ver</span></a>`;
+}
+async function traerVistaCorreo(n){
+  const clave = claveVista(n);
+  if(vistasCorreo[n.tipo] && vistasCorreo[n.tipo].clave === clave) return vistasCorreo[n.tipo];
+  const res = await fetch('/api/usuarios?recurso=notificaciones&vista=' + encodeURIComponent(n.tipo));
+  const data = await res.json();
+  if(!res.ok || !data.tieneVista) return null;
+  vistasCorreo[n.tipo] = { clave, asunto: data.asunto, html: data.html, enviadoEn: data.enviadoEn };
+  return vistasCorreo[n.tipo];
+}
+async function cargarMiniaturas(){
+  for(const n of listaNotificaciones){
+    if(!n.tieneVista) continue;
+    const cont = document.getElementById('mini_' + n.tipo);
+    const marco = cont && cont.querySelector('iframe');
+    if(!marco || marco.getAttribute('srcdoc')) continue;
+    try{
+      const v = await traerVistaCorreo(n);
+      if(v && document.getElementById('mini_' + n.tipo)) document.getElementById('mini_' + n.tipo).querySelector('iframe').srcdoc = marcoCorreo(v.html);
+    }catch(e){ /* sin miniatura: no bloquea la lista */ }
+  }
+}
+async function abrirVistaCorreo(tipo){
+  const n = listaNotificaciones.find(x => x.tipo === tipo);
+  if(!n) return;
+  $('tituloVistaCorreo').textContent = n.nombre;
+  $('infoVistaCorreo').textContent = 'Cargando…';
+  $('marcoVistaCorreo').srcdoc = '';
+  $('modalVistaCorreo').classList.add('abierto');
+  try{
+    const v = await traerVistaCorreo(n);
+    if(!v){ $('infoVistaCorreo').textContent = 'Todavía no hay un correo guardado.'; return; }
+    $('infoVistaCorreo').textContent = 'Asunto: ' + v.asunto + ' · enviado ' + new Date(v.enviadoEn).toLocaleString('es-CL');
+    $('marcoVistaCorreo').srcdoc = marcoCorreo(v.html);
+  }catch(err){ $('infoVistaCorreo').textContent = 'No se pudo cargar: ' + err.message; }
+}
+function cerrarVistaCorreo(){ $('modalVistaCorreo').classList.remove('abierto'); $('marcoVistaCorreo').srcdoc = ''; }
 function ordenarPorCategoria(lista){
   const cats = categoriasNotif.length ? categoriasNotif : [];
   const idsConocidos = new Set(cats.map(c => c.id));
@@ -597,7 +660,7 @@ function ordenarPorCategoria(lista){
   return salida.length ? salida : lista;
 }
 function filaCategoriaNotif(c){
-  return `<tr class="notif-cat"><td colspan="5">${esc(c.icono || '')} ${esc(c.nombre)}<small>${c.activas} de ${c.total} activas</small></td></tr>`;
+  return `<tr class="notif-cat"><td colspan="6">${esc(c.icono || '')} ${esc(c.nombre)}<small>${c.activas} de ${c.total} activas</small></td></tr>`;
 }
 function renderNotificaciones(){
   if(listaNotificaciones.length === 0){
@@ -606,7 +669,7 @@ function renderNotificaciones(){
   }
   $('wrapNotificaciones').innerHTML = `
     <table>
-      <thead><tr><th>Notificación</th><th>Activa</th><th>Frecuencia</th><th style="width:38%;">Destinatarios</th><th>Último envío</th></tr></thead>
+      <thead><tr><th>Notificación</th><th>Activa</th><th>Frecuencia</th><th style="width:34%;">Destinatarios</th><th>Último envío</th><th>Último correo</th></tr></thead>
       <tbody>
       ${ordenarPorCategoria(listaNotificaciones).map(n => n.__categoria ? filaCategoriaNotif(n.__categoria) : (() => {
         const disponibles = usuariosDisponiblesNotif.filter(u => !n.suscriptores.some(s => s.id === u.id));
@@ -633,14 +696,16 @@ function renderNotificaciones(){
             </select>
           </div></td>
           <td class="empty-note" title="${n.ultimoEnvioEn ? esc(new Date(n.ultimoEnvioEn).toLocaleString('es-CL')) : ''}">${ultimo || 'Sin envíos'}</td>
+          <td>${miniaturaCorreoHtml(n)}</td>
         </tr>${n.tipo === 'resumen-cambios-diario' ? filaEnlaceResumen() : ''}`;
       })()).join('')}
       </tbody>
     </table>`;
+  cargarMiniaturas();
 }
 // El texto del resumen de hoy y el historial de cambios se editan en su propia página.
 function filaEnlaceResumen(){
-  return `<tr class="fila-resumen"><td colspan="5" style="background:#f7faff;"><div class="empty-note" style="padding:4px;">El texto del resumen de hoy y el historial de cambios se editan en <a href="actualizaciones-erp.html">Actualizaciones ERP</a>.</div></td></tr>`;
+  return `<tr class="fila-resumen"><td colspan="6" style="background:#f7faff;"><div class="empty-note" style="padding:4px;">El texto del resumen de hoy y el historial de cambios se editan en <a href="actualizaciones-erp.html">Actualizaciones ERP</a>.</div></td></tr>`;
 }
 async function guardarNotificacion(tipo, cambios){
   try{
