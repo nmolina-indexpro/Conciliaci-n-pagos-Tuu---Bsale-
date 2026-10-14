@@ -11351,6 +11351,15 @@ async function ejecutarTramoMercadoLibre(sql, cfg, pasoPedido, limiteMs) {
   const ctx = {
     leer: lector.leer, userId: lector.userId, ahora: () => Date.now(),
     costosBsale: skus => costosBsaleDW(skus, token),
+    // lectura de Bsale (solo GET) para el catálogo completo
+    bsale: token ? async ruta => {
+      const r = await fetchConTimeout(`https://api.bsale.io/v1${ruta}`, { headers: { access_token: token, Accept: 'application/json' } }, 15000);
+      const texto = await r.text();
+      let datos = null;
+      try { datos = JSON.parse(texto); } catch { /* respuesta no JSON */ }
+      if (!r.ok) { const e = new Error(`Bsale HTTP ${r.status} en ${ruta.split('?')[0]}`); e.status = r.status; throw e; }
+      return datos || {};
+    } : null,
   };
   await ejecutarPaso(sql, ctx, paso, { limiteMs });
   const estado = await estadoSync(sql);
