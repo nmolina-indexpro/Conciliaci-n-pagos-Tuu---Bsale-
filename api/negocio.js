@@ -8570,12 +8570,32 @@ async function evaluarAvisoBsale(topic, accion, recurso) {
   if (!recurso) return { error: 'el aviso no trae un recurso válido de Bsale' };
   const token = process.env.BSALE_ACCESS_TOKEN;
   if (!token) return { error: 'BSALE_ACCESS_TOKEN no está configurada' };
+  // Los avisos de stock apuntan a la API v2 (/v2/stocks.json?variant=3281&office=1), que no admite "expand": se lee el registro tal cual
+  // y el SKU se busca en la variante (API v1). Para precio y documentos se sigue usando v1 con expand=variant.
+  const cab = { headers: { access_token: token } };
+  const version2 = recurso.startsWith('/v2/');
   const sep = recurso.includes('?') ? '&' : '?';
-  const r = await fetchConTimeout('https://api.bsale.io' + recurso + sep + 'expand=variant', { headers: { access_token: token } }, 12000);
+  const r = await fetchConTimeout('https://api.bsale.io' + recurso + (version2 ? '' : sep + 'expand=variant'), cab, 12000);
   if (!r.ok) return { error: 'Bsale respondió ' + r.status + ' al leer ' + recurso };
-  let rec = await r.json().catch(() => null);
-  if (rec && Array.isArray(rec.items)) rec = rec.items[0] || null; // si el aviso apunta a una lista (por ejemplo /v1/stocks.json?variantid=...), se toma el primer registro
+  const cuerpoRec = await r.json().catch(() => null);
+  let rec = cuerpoRec;
+  const lista = cuerpoRec && (Array.isArray(cuerpoRec.items) ? cuerpoRec.items : (Array.isArray(cuerpoRec.data) ? cuerpoRec.data : null));
+  if (lista) rec = lista[0] || null; // aviso que apunta a una lista: se toma el primer registro (sin registro = sin existencias)
+  const consulta = new URLSearchParams(recurso.split('?')[1] || '');
   const cfg = await configSombraBsale(token);
+  if (t === 'stock') {
+    const idDe = o => (o && (o.id ?? (String(o.href || '').match(/(\d+)\.json/) || [])[1])) ?? null;
+    const idVar = idDe(rec && rec.variant) ?? consulta.get('variant') ?? consulta.get('variantid');
+    let codigo = rec && rec.variant && rec.variant.code;
+    if (!codigo && idVar) {
+      const rv = await fetchConTimeout(BSALE_BASE + '/variants/' + encodeURIComponent(idVar) + '.json', cab, 12000);
+      const v = rv.ok ? await rv.json().catch(() => null) : null;
+      codigo = v && v.code;
+    }
+    if (!codigo) return { nota: 'no pude sacar el SKU de la variante ' + (idVar || '?') };
+    const oficina = idDe(rec && rec.office) ?? consulta.get('office') ?? consulta.get('officeid');
+    rec = { variant: { code: codigo }, quantity: rec ? Number(rec.quantity) || 0 : 0, quantityAvailable: rec ? Number(rec.quantityAvailable ?? rec.quantity) || 0 : 0, office: oficina != null ? { id: oficina } : null };
+  }
   const datos = datosDeAviso(t, rec, cfg.officeId);
   if (!datos) return { nota: 'no pude sacar SKU y valor de ese recurso' };
   if (datos.ignorado) return { sku: datos.sku, nota: 'ignorado (' + datos.ignorado + ')' };
