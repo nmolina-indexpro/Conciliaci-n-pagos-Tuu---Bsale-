@@ -169,6 +169,7 @@
       <div class="menu-herramientas" id="menuHerramientas">
         <a href="usuarios.html" id="navUsuarios">👤 Usuarios</a>
         <a href="actualizaciones-erp.html" id="navActualizaciones" class="active">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
         <a href="reportar-error.html">🆘 Ayuda</a>
         <a href="guia-uso.html">📘 Guía de uso</a>
         <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
@@ -400,6 +401,7 @@ async function cargarSesion(){
       return;
     }
     $('navActualizaciones').style.display = '';
+    $('navMercadoLibre').style.display = '';
     await Promise.all([cargarNotificaciones(), cargarCambios()]);
     const inicial = (location.hash || '').replace('#', '');
     if(['resumen', 'cambios', 'bsale'].includes(inicial)) cambiarTab(inicial, true);

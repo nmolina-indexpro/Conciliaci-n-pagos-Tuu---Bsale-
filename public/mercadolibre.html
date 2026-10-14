@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Mercado Libre — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --amber:#B45309; --amber-bg:#FEF3E0;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:18px 28px 36px 28px;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:16px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  /* ---- Controles base ---- */
+  label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;display:block;margin-bottom:4px;}
+  input,select{padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--text);}
+  input:focus,select:focus{outline:none;border-color:var(--primary);}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;}
+  button:disabled{opacity:.45;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);border:1.5px solid var(--line);color:var(--muted);}
+  .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-danger{background:var(--red-bg);color:var(--red);}
+  .btn-sm{padding:5px 10px;font-size:11.5px;}
+  .empty-note{color:var(--muted);font-size:12.5px;}
+  .error-box{background:var(--red-bg);color:var(--red);border-radius:8px;padding:8px 12px;font-size:12.5px;margin-bottom:10px;}
+  .aviso-box{background:var(--amber-bg);color:var(--amber);border-radius:8px;padding:8px 12px;font-size:12.5px;margin-bottom:10px;}
+
+  /* ---- Cabecera de la página: título + pestañas + acción principal ---- */
+  .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:14px;}
+  .page-head h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:20px;margin:0 0 8px;}
+  .tabs{display:flex;gap:2px;}
+  .tab{background:none;border:none;border-bottom:2.5px solid transparent;border-radius:0;padding:8px 14px;color:var(--muted);font-size:13px;display:flex;align-items:center;gap:7px;}
+  .tab:hover{color:var(--text);}
+  .tab.activa{color:var(--primary);border-bottom-color:var(--primary);}
+  .tab .cuenta{background:var(--surface-2);color:var(--muted);border-radius:999px;font-size:10.5px;padding:1px 7px;}
+  .tab.activa .cuenta{background:var(--primary-dim);color:var(--primary);}
+  .panel{display:none;}
+  .panel.activa{display:block;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);}
+
+  /* ---- Usuarios ---- */
+  .resumen{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+  .chip-res{background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 11px;font-size:12px;color:var(--muted);}
+  .chip-res b{color:var(--text);font-family:'IBM Plex Mono',monospace;margin-right:3px;}
+  .barra{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+  .barra .buscar{flex:1 1 220px;max-width:340px;}
+  .barra .espacio{flex:1;}
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:0.4px;padding:8px 10px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
+  td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  tbody tr:hover{background:#FAFBF7;}
+  tr.inactivo td{opacity:.62;}
+  .persona{display:flex;align-items:center;gap:10px;min-width:210px;}
+  .avatar{width:30px;height:30px;border-radius:50%;background:var(--primary-dim);color:var(--primary);font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11.5px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .avatar.admin{background:var(--primary);color:#fff;}
+  .persona .nombre{font-weight:600;font-size:13px;line-height:1.2;}
+  .persona .correo{color:var(--muted);font-size:11.5px;}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:2px 9px;border-radius:999px;font-weight:700;white-space:nowrap;}
+  .badge.admin{background:var(--primary-dim);color:var(--primary);}
+  .badge.usuario{background:var(--surface-2);color:var(--muted);}
+  .badge.inactivo{background:var(--red-bg);color:var(--red);}
+  .badge.pendiente{background:var(--amber-bg);color:var(--amber);}
+  .badge.vigente{background:var(--blue-bg);color:var(--blue);}
+  select.perfil-sel{padding:4px 8px;font-size:12px;max-width:170px;}
+  .switch{position:relative;display:inline-block;width:34px;height:19px;margin:0;vertical-align:middle;}
+  .switch input{opacity:0;width:0;height:0;position:absolute;}
+  .switch .pista{position:absolute;inset:0;background:#CBD2C6;border-radius:999px;transition:.15s;cursor:pointer;}
+  .switch .pista::before{content:'';position:absolute;width:15px;height:15px;left:2px;top:2px;background:#fff;border-radius:50%;transition:.15s;box-shadow:0 1px 2px rgba(0,0,0,.25);}
+  .switch input:checked + .pista{background:var(--primary);}
+  .switch input:checked + .pista::before{transform:translateX(15px);}
+  .switch input:disabled + .pista{opacity:.5;cursor:not-allowed;}
+  .btn-menu{background:none;border:1.5px solid transparent;color:var(--muted);padding:3px 9px;font-size:16px;line-height:1;border-radius:8px;}
+  .btn-menu:hover{background:var(--surface-2);border-color:var(--line);color:var(--text);}
+  .menu-flotante{position:fixed;z-index:60;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 28px rgba(31,42,36,.18);padding:5px;min-width:230px;display:none;}
+  .menu-flotante button{display:flex;width:100%;text-align:left;background:none;color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;font-weight:500;font-size:12.5px;padding:7px 10px;border-radius:7px;gap:8px;align-items:center;}
+  .menu-flotante button:hover{background:var(--surface-2);}
+  .menu-flotante button.peligro{color:var(--red);}
+  .menu-flotante button.peligro:hover{background:var(--red-bg);}
+  .menu-flotante hr{border:none;border-top:1px solid var(--line);margin:4px 2px;}
+
+  /* ---- Perfiles: lista a la izquierda, páginas agrupadas a la derecha ---- */
+  .perfiles-grid{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start;}
+  .lista-perfiles{padding:8px;}
+  .item-perfil{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:13px;padding:8px 10px;border-radius:8px;margin-bottom:2px;}
+  .item-perfil:hover{background:var(--surface-2);}
+  .item-perfil.activa{background:var(--primary-dim);color:var(--primary);}
+  .item-perfil small{color:var(--muted);font-weight:500;font-size:11px;}
+  .item-perfil.nuevo{color:var(--primary);border:1.5px dashed var(--primary);margin-top:6px;justify-content:center;}
+  .detalle-perfil{padding:14px 16px;}
+  .detalle-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+  .detalle-head h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0;}
+  .detalle-head .espacio{flex:1;}
+  .grupos{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;}
+  .grupo{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--bg);}
+  .grupo-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;}
+  .grupo-head .todo{font-weight:600;font-size:10.5px;color:var(--primary);cursor:pointer;background:none;border:none;padding:0;}
+  .chk{display:flex;align-items:center;gap:7px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);margin:0;padding:2.5px 0;cursor:pointer;}
+  .chk input{padding:0;margin:0;accent-color:var(--primary);}
+  .nota-perfil{font-size:11.5px;color:var(--muted);margin-top:10px;}
+
+  /* ---- Notificaciones: una fila por alerta, en columnas ---- */
+  td.notif-nombre{min-width:220px;}
+  td.notif-nombre b{display:block;font-size:13px;line-height:1.25;}
+  td.notif-nombre small{color:var(--muted);font-size:11px;}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center;}
+  .chip{display:inline-flex;align-items:center;gap:4px;background:var(--surface-2);border-radius:999px;padding:2px 4px 2px 10px;font-size:11.5px;}
+  .chip button{background:none;color:var(--muted);padding:0 6px;font-size:14px;line-height:1.1;border-radius:999px;}
+  .chip button:hover{background:var(--red-bg);color:var(--red);}
+  select.agregar{padding:3px 8px;font-size:11.5px;border-style:dashed;color:var(--primary);max-width:150px;}
+  .frec{display:flex;gap:5px;align-items:center;flex-wrap:wrap;}
+  .frec select{padding:4px 8px;font-size:12px;}
+
+  /* ---- Ventana (modal) y aviso breve ---- */
+  .modal-fondo{position:fixed;inset:0;background:rgba(20,28,24,.45);display:none;align-items:center;justify-content:center;z-index:80;padding:16px;}
+  .modal-fondo.abierto{display:flex;}
+  .modal{background:var(--surface);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.25);width:min(560px,100%);max-height:92vh;overflow:auto;padding:18px 20px;}
+  .modal h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0 0 12px;}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;}
+  .form-grid .ancho{grid-column:1 / -1;}
+  .form-grid input,.form-grid select{width:100%;}
+  .modal .pie{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;}
+  .ayuda{font-size:11px;color:var(--muted);margin-top:3px;font-weight:400;text-transform:none;letter-spacing:0;}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%) translateY(20px);background:#1F2A24;color:#fff;padding:9px 16px;border-radius:9px;font-size:12.5px;opacity:0;pointer-events:none;transition:.2s;z-index:100;}
+  .toast.visible{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  @media (max-width:900px){
+    body{padding:14px 12px 30px 12px;}
+    .perfiles-grid{grid-template-columns:minmax(0,1fr);}
+    .form-grid{grid-template-columns:minmax(0,1fr);}
+  }
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" class="active">🛒 Mercado Libre</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html">Compras</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+          <a href="sitio-web.html">Sitio Web</a>
+          <a href="buscador-ia.html">Buscador IA</a>
+          <a href="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <div class="page-head">
+    <div>
+      <h1>Mercado Libre</h1>
+    </div>
+  </div>
+  <div id="avisoAcceso"></div>
+
+  <section class="panel activa" id="panel-ml">
+    <div class="sub empty-note" style="margin-bottom:10px;">Conexión del ERP con la cuenta vendedora de Mercado Libre para medir ventas, publicaciones y reputación. Es de <b>solo lectura</b>: el ERP no cambia precios, stock ni publicaciones.</div>
+    <div class="card" style="padding:14px 16px;" id="cardEstado"><p class="empty-note">Cargando...</p></div>
+    <div class="card" style="padding:14px 16px;margin-top:12px;display:none;" id="cardPrueba"></div>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="navegacion-historial.js"></script>
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function esc(t){
+  return String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+let toastTimer = null;
+function toast(msg){
+  const el = $('toast'); el.textContent = msg; el.classList.add('visible');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('visible'), 2600);
+}
+const API = '/api/negocio?recurso=mercadolibre';
+const fechaHora = iso => iso ? new Date(iso).toLocaleString('es-CL') : '—';
+let estado = null;
+
+async function cargarSesion(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok){ location.href = '/login.html'; return; }
+    const u = await res.json();
+    $('userBox').innerHTML = `<span>Conectado como <b>${esc(u.nombre || u.email)}</b> (${esc(u.rol)})</span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol !== 'admin'){
+      $('panel-ml').style.display = 'none';
+      $('avisoAcceso').innerHTML = '<div class="error-box">Esta página es solo para administradores.</div>';
+      return;
+    }
+    ['navActualizaciones', 'navMercadoLibre'].forEach(id => { $(id).style.display = ''; });
+    cargarEstado();
+  }catch(err){ location.href = '/login.html'; }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+async function pedir(accion, metodo){
+  const res = await fetch(API + '&accion=' + accion, { method: metodo || 'GET' });
+  const texto = await res.text();
+  let data = null;
+  try{ data = JSON.parse(texto); }catch(e){ throw new Error('El servidor respondió con un error (HTTP ' + res.status + ')'); }
+  if(!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+async function cargarEstado(){
+  try{
+    estado = await pedir('estado');
+    renderEstado();
+  }catch(err){
+    $('cardEstado').innerHTML = '<div class="error-box">' + esc(err.message) + '</div>';
+  }
+}
+function renderEstado(){
+  const e = estado;
+  if(!e.configurado){
+    $('cardEstado').innerHTML = `
+      <h2 style="font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0 0 8px;">Falta crear la aplicación en Mercado Libre</h2>
+      <ol style="margin:0 0 10px 20px;padding:0;line-height:1.7;font-size:13.5px;">
+        <li>Entra a <b>developers.mercadolibre.cl</b> con la cuenta vendedora de IndexStore y crea una aplicación (<i>Mis aplicaciones &gt; Crear</i>).</li>
+        <li>En <b>URI de redirección</b> pega exactamente esta dirección:
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0;">
+            <code id="uriRedireccion" style="background:var(--surface-2);padding:5px 9px;border-radius:7px;font-size:12.5px;word-break:break-all;">${esc(e.redirectUri)}</code>
+            <button class="btn-ghost btn-sm" onclick="copiarUri()">Copiar</button>
+          </div></li>
+        <li>Permisos: solo lectura (y el permiso que mantiene la conexión activa, <i>offline_access</i>). No hace falta escritura.</li>
+        <li>Copia el <b>App ID</b> y la <b>Secret Key</b> de la aplicación a Vercel (<i>Settings &gt; Environment Variables</i>) como <code>ML_APP_ID</code> y <code>ML_CLIENT_SECRET</code>, y vuelve a desplegar. No las pegues en el chat.</li>
+        <li>Vuelve a esta página y aprieta <b>Conectar</b>.</li>
+      </ol>
+      <div class="empty-note">Cuando las dos variables estén cargadas, este aviso desaparece y aparece el botón para conectar.</div>`;
+    return;
+  }
+  if(!e.conectado){
+    $('cardEstado').innerHTML = `
+      <h2 style="font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0 0 8px;">Aplicación lista: falta autorizar la cuenta</h2>
+      <p class="empty-note" style="margin:0 0 10px;">Al apretar <b>Conectar</b> te lleva a Mercado Libre para que inicies sesión con la cuenta vendedora y aceptes los permisos. Después vuelves aquí.</p>
+      <button class="btn-primary" id="btnConectar" onclick="conectar()">Conectar con Mercado Libre</button>`;
+    return;
+  }
+  const c = e.cuenta || {};
+  $('cardEstado').innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+      <span class="badge vigente">Conectado</span>
+      <b style="font-size:15px;">${esc(c.nickname || 'Cuenta de Mercado Libre')}</b>
+      <span class="empty-note">${esc(c.siteId || '')}${c.id ? ' · usuario ' + esc(c.id) : ''}</span>
+    </div>
+    <div class="empty-note" style="line-height:1.7;">Conectada por <b>${esc(c.conectadoPor || '—')}</b> el ${esc(fechaHora(c.conectadoEn))}. El acceso actual vence el ${esc(fechaHora(c.accesoExpiraEn))} y se renueva solo.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+      <button class="btn-primary btn-sm" id="btnProbar" onclick="probar()">Probar lectura</button>
+      <button class="btn-ghost btn-sm" onclick="conectar()" title="Vuelve a autorizar la cuenta (por ejemplo si cambió la contraseña o los permisos)">Reconectar</button>
+      <button class="btn-ghost btn-sm" onclick="desconectar()">Desconectar</button>
+    </div>`;
+}
+function copiarUri(){
+  const t = $('uriRedireccion').textContent;
+  if(navigator.clipboard) navigator.clipboard.writeText(t).then(() => toast('Dirección copiada'), () => toast('Copia la dirección a mano'));
+  else toast('Copia la dirección a mano');
+}
+async function conectar(){
+  const b = $('btnConectar'); if(b) b.disabled = true;
+  try{
+    const d = await pedir('conectar');
+    location.href = d.url;
+  }catch(err){ alert(err.message); if(b) b.disabled = false; }
+}
+async function probar(){
+  const b = $('btnProbar'); b.disabled = true;
+  const card = $('cardPrueba'); card.style.display = ''; card.innerHTML = '<p class="empty-note">Consultando Mercado Libre...</p>';
+  try{
+    const d = await pedir('prueba');
+    if(!d.ok){
+      card.innerHTML = '<div class="error-box">' + esc(d.error || 'No se pudo leer') + '</div>' + (d.requiereReconectar ? '<button class="btn-primary btn-sm" onclick="conectar()">Reconectar</button>' : '');
+    } else {
+      const fila = (k, v) => '<tr><td style="width:240px;color:var(--muted);">' + k + '</td><td><b>' + esc(v == null || v === '' ? '—' : v) + '</b></td></tr>';
+      card.innerHTML = '<h2 style="font-family:\'Space Grotesk\',sans-serif;font-size:15px;margin:0 0 8px;">La lectura funciona</h2><table><tbody>' +
+        fila('Cuenta', d.nickname) + fila('Sitio', d.siteId) + fila('Tipo de usuario', d.tipoUsuario) + fila('Nivel de reputación', d.nivelReputacion) +
+        fila('Estado MercadoLíder', d.estadoMercadoLider) + fila('Ventas completadas', d.ventasCompletadas) + fila('Publicaciones activas', d.publicacionesActivas) + '</tbody></table>' +
+        '<div class="empty-note" style="margin-top:8px;">Si estos datos coinciden con tu panel de Mercado Libre, la conexión está bien y se pueden armar las métricas.</div>';
+    }
+  }catch(err){
+    card.innerHTML = '<div class="error-box">' + esc(err.message) + '</div>';
+  }finally{ b.disabled = false; }
+}
+async function desconectar(){
+  if(!confirm('¿Desconectar Mercado Libre? Se borran los accesos guardados; para volver a medir hay que conectar de nuevo.')) return;
+  try{
+    await pedir('desconectar', 'POST');
+    $('cardPrueba').style.display = 'none';
+    toast('Desconectado');
+    cargarEstado();
+  }catch(err){ alert(err.message); }
+}
+cargarSesion();
+</script>
+</body>
+</html>

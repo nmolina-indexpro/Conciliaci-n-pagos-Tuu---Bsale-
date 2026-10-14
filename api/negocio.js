@@ -30,6 +30,7 @@ import { asegurarTablasBsaleSync, recursoBsaleSeguro, planDeSku, datosDeAviso } 
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada } from '../lib/notificaciones.js';
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
+import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTablaMercadoLibre, leerConexion, borrarConexion, conectarConCodigo, probarLectura } from '../lib/mercadolibre.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
@@ -140,6 +141,7 @@ export default async function handler(req, res) {
   const recurso = req.query.recurso;
   if (recurso === 'criticos') return manejarCriticos(req, res, sesion);
   if (recurso === 'alertas-stock-shopify') return manejarAlertasStockShopify(req, res, sesion);
+  if (recurso === 'mercadolibre') return manejarMercadoLibre(req, res, sesion);
   if (recurso === 'modelos-compatibilidad') return manejarModelosCompatibilidad(req, res, sesion);
   if (recurso === 'buscar-repuestos-modelo') return manejarBuscarRepuestosModelo(req, res, sesion);
   if (recurso === 'colecciones-modelos-notebook') return manejarColeccionesModelosNotebook(req, res, sesion);
@@ -11140,6 +11142,64 @@ async function resumirCambiosCortos(cambios) {
   } catch (err) {
     console.warn('[resumirCambiosCortos]', err.message);
     return null;
+  }
+}
+
+// Conexión con Mercado Libre (solo lectura), solo para administradores. Ver lib/mercadolibre.js.
+//   GET  ?recurso=mercadolibre&accion=estado       -> si está configurado/conectado, cuenta y vencimiento del acceso
+//   GET  ?recurso=mercadolibre&accion=conectar     -> { url } a la que hay que mandar al administrador para autorizar
+//   POST ?recurso=mercadolibre&accion=callback     -> { code, state } que devuelve Mercado Libre; guarda la conexión
+//   GET  ?recurso=mercadolibre&accion=prueba       -> lectura de prueba (cuenta, reputación, publicaciones activas)
+//   POST ?recurso=mercadolibre&accion=desconectar  -> borra los tokens guardados
+async function manejarMercadoLibre(req, res, sesion) {
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo para administradores' });
+  const accion = String(req.query.accion || 'estado');
+  const cfg = configML();
+  try {
+    const sql = await getSql();
+    await asegurarTablaMercadoLibre(sql);
+    if (accion === 'estado') {
+      const c = await leerConexion(sql);
+      return res.status(200).json({
+        configurado: cfg.configurado, redirectUri: cfg.redirect, conectado: Boolean(c),
+        cuenta: c ? { id: c.ml_user_id, nickname: c.nickname, siteId: c.site_id, conectadoPor: c.conectado_por, conectadoEn: c.conectado_en, accesoExpiraEn: c.expira_en } : null,
+      });
+    }
+    if (accion === 'conectar') {
+      if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+      if (!cfg.configurado) return res.status(400).json({ error: 'Faltan ML_APP_ID y ML_CLIENT_SECRET en las variables de entorno de Vercel' });
+      const estado = firmarEstado(sesion.uid, process.env.AUTH_SECRET);
+      return res.status(200).json({ url: urlAutorizacion(cfg, estado) });
+    }
+    if (accion === 'callback') {
+      if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+      if (!cfg.configurado) return res.status(400).json({ error: 'Faltan ML_APP_ID y ML_CLIENT_SECRET en las variables de entorno de Vercel' });
+      const { code, state } = req.body || {};
+      if (!code || !state) return res.status(400).json({ error: 'Falta el código de autorización' });
+      if (!verificarEstado(state, sesion.uid, process.env.AUTH_SECRET)) {
+        return res.status(400).json({ error: 'La autorización venció o no corresponde a esta sesión. Vuelve a apretar "Conectar".' });
+      }
+      const yo = await conectarConCodigo(sql, cfg, String(code), { conectadoPor: sesion.nombre || sesion.email });
+      return res.status(200).json({ ok: true, cuenta: { id: yo.id, nickname: yo.nickname || null, siteId: yo.site_id || null } });
+    }
+    if (accion === 'prueba') {
+      try {
+        return res.status(200).json({ ok: true, ...(await probarLectura(sql, cfg)) });
+      } catch (err) {
+        const motivo = err.codigo === 'sin_conexion' ? 'Mercado Libre no está conectado'
+          : err.codigo === 'renovacion_fallida' ? 'Mercado Libre rechazó renovar el acceso: hay que volver a conectar la cuenta'
+          : err.message;
+        return res.status(200).json({ ok: false, error: motivo, requiereReconectar: err.codigo === 'renovacion_fallida' });
+      }
+    }
+    if (accion === 'desconectar') {
+      if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+      await borrarConexion(sql);
+      return res.status(200).json({ ok: true });
+    }
+    return res.status(400).json({ error: 'Acción inválida' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error con Mercado Libre', detail: String(err.message || err) });
   }
 }
 

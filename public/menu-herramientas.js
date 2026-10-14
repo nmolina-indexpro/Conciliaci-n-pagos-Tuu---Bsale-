@@ -70,8 +70,12 @@ document.addEventListener('DOMContentLoaded', () => {
 document.addEventListener('DOMContentLoaded', () => {
   const usuarios = document.getElementById('navUsuarios');
   const actualizaciones = document.getElementById('navActualizaciones');
+  const mercadolibre = document.getElementById('navMercadoLibre');
   if(!usuarios || !actualizaciones || !window.MutationObserver) return;
   new MutationObserver(() => {
-    if(usuarios.style.display !== 'none') actualizaciones.style.display = '';
+    if(usuarios.style.display !== 'none'){
+      actualizaciones.style.display = '';
+      if(mercadolibre) mercadolibre.style.display = '';
+    }
   }).observe(usuarios, { attributes: true, attributeFilter: ['style'] });
 });

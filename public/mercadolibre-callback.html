@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Conectando Mercado Libre — IndexStore</title>
+<style>
+  body{margin:0;background:#F7F8F3;color:#1F2A24;font-family:'Plus Jakarta Sans',Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:16px;}
+  .caja{background:#fff;border:1px solid #E3E7DC;border-radius:14px;box-shadow:0 1px 2px rgba(31,42,36,.05),0 4px 12px rgba(31,42,36,.05);padding:24px 26px;max-width:460px;width:100%;}
+  h1{font-size:18px;margin:0 0 8px;}
+  p{font-size:14px;line-height:1.5;color:#6B7568;margin:6px 0;}
+  .error{background:#FCE8E8;color:#DC2626;border-radius:8px;padding:8px 12px;font-size:13px;margin-top:10px;}
+  a.boton{display:inline-block;margin-top:12px;background:#0F766E;color:#fff;text-decoration:none;font-weight:700;font-size:13px;padding:9px 16px;border-radius:8px;}
+</style>
+</head>
+<body>
+<div class="caja">
+  <h1 id="titulo">Conectando con Mercado Libre...</h1>
+  <p id="detalle">Un momento, se está guardando la autorización.</p>
+  <div id="error"></div>
+  <a class="boton" id="volver" href="mercadolibre.html" style="display:none;">Volver a Mercado Libre</a>
+</div>
+<script>
+(async function(){
+  const q = new URLSearchParams(location.search);
+  const t = id => document.getElementById(id);
+  function fallo(msg){
+    t('titulo').textContent = 'No se pudo conectar';
+    t('detalle').textContent = '';
+    t('error').innerHTML = '<div class="error"></div>';
+    t('error').firstChild.textContent = msg;
+    t('volver').style.display = '';
+  }
+  if(q.get('error')){ fallo('Mercado Libre informó: ' + (q.get('error_description') || q.get('error'))); return; }
+  const code = q.get('code'), state = q.get('state');
+  if(!code || !state){ fallo('Falta el código de autorización. Vuelve a Mercado Libre y aprieta Conectar.'); return; }
+  // se borra el código de la barra de direcciones: es de un solo uso y no debe quedar en el historial
+  history.replaceState(null, '', location.pathname);
+  try{
+    const res = await fetch('/api/negocio?recurso=mercadolibre&accion=callback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, state }) });
+    const texto = await res.text();
+    let data = null;
+    try{ data = JSON.parse(texto); }catch(e){ throw new Error('El servidor respondió con un error (HTTP ' + res.status + ')'); }
+    if(!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    t('titulo').textContent = 'Conectado';
+    t('detalle').textContent = 'Cuenta ' + ((data.cuenta && data.cuenta.nickname) || '') + ' conectada. Volviendo...';
+    setTimeout(() => { location.href = 'mercadolibre.html'; }, 1200);
+  }catch(err){ fallo(err.message); }
+})();
+</script>
+</body>
+</html>
