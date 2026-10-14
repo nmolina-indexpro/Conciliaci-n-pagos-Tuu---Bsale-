@@ -11374,7 +11374,7 @@ async function manejarMercadoLibre(req, res, sesion) {
       const c = await leerConexion(sql);
       return res.status(200).json({
         configurado: cfg.configurado, redirectUri: cfg.redirect, conectado: Boolean(c),
-        cuenta: c ? { id: c.ml_user_id, nickname: c.nickname, siteId: c.site_id, conectadoPor: c.conectado_por, conectadoEn: c.conectado_en, accesoExpiraEn: c.expira_en } : null,
+        cuenta: c ? { id: c.ml_user_id, nickname: c.nickname, siteId: c.site_id, conectadoPor: c.conectado_por, conectadoEn: c.conectado_en, accesoExpiraEn: c.expira_en, permisos: c.scope || null } : null,
       });
     }
     if (accion === 'conectar') {

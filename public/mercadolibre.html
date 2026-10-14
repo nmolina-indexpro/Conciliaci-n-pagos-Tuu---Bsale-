@@ -357,7 +357,7 @@ function renderEstado(){
       <b style="font-size:15px;">${esc(c.nickname || 'Cuenta de Mercado Libre')}</b>
       <span class="empty-note">${esc(c.siteId || '')}${c.id ? ' · usuario ' + esc(c.id) : ''}</span>
     </div>
-    <div class="empty-note" style="line-height:1.7;">Conectada por <b>${esc(c.conectadoPor || '—')}</b> el ${esc(fechaHora(c.conectadoEn))}. El acceso actual vence el ${esc(fechaHora(c.accesoExpiraEn))} y se renueva solo.</div>
+    <div class="empty-note" style="line-height:1.7;">Conectada por <b>${esc(c.conectadoPor || '—')}</b> el ${esc(fechaHora(c.conectadoEn))}. El acceso actual vence el ${esc(fechaHora(c.accesoExpiraEn))} y se renueva solo.<br>Permisos concedidos por Mercado Libre: <b>${esc(c.permisos || 'no informados')}</b>${/write/i.test(c.permisos || '') ? ' <span style="color:var(--red);font-weight:700;">· incluye escritura: baja los permisos a Lectura en la aplicación y vuelve a conectar</span>' : ''}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
       <button class="btn-primary btn-sm" id="btnProbar" onclick="probar()">Probar lectura</button>
       <button class="btn-ghost btn-sm" onclick="conectar()" title="Vuelve a autorizar la cuenta (por ejemplo si cambió la contraseña o los permisos)">Reconectar</button>
