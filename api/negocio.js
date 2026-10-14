@@ -19,6 +19,8 @@ import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores
 import { armarComunicacionZoho, filasCorreosDesdeZoho, ticketEnVentana, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
+import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
+import { contarSeguimientos, PAUSA_SEGUIMIENTO_MS } from '../lib/whatsapp-seguimientos.js';
 import { corregirCorreo } from '../lib/correos-corregidos.js';
 import { sqlOfertaLateral, PARAMS_OFERTA, sqlSolicitudLateral, PARAM_SOLICITUD, mejorNivelOferta, nivelConversacion, esConversion, esOfertaCompleta, nivelDesdeFilaSql, resumirConversionComercial } from '../lib/whatsapp-oferta.js';
 import { analizarCategoria as analizarCategoriaWhatsapp, CATEGORIAS_ANALIZABLES, analizarMotivo as analizarMotivoWhatsapp, MOTIVOS_ANALIZABLES, esCierreCordial, debeReclasificarPorCierre, RESULTADOS_DEBILES_CIERRE, MOTIVOS_DEBILES_CIERRE } from '../lib/whatsapp-motivos.js';
@@ -8593,6 +8595,7 @@ async function evaluarAvisoBsale(topic, accion, recurso) {
   if (lista) rec = lista[0] || null; // aviso que apunta a una lista: se toma el primer registro (sin registro = sin existencias)
   const consulta = new URLSearchParams(recurso.split('?')[1] || '');
   const cfg = await configSombraBsale(token);
+  let infoVariante = null; // { fisico } solo en avisos de stock: ¿es un producto que lleva stock en Bsale (no servicio, no stock ilimitado)?
   if (t === 'stock') {
     const idDe = o => (o && (o.id ?? (String(o.href || '').match(/(\d+)\.json/) || [])[1])) ?? null;
     const idVar = idDe(rec && rec.variant) ?? consulta.get('variant') ?? consulta.get('variantid');
@@ -8603,6 +8606,20 @@ async function evaluarAvisoBsale(topic, accion, recurso) {
       codigo = v && v.code;
     }
     if (!codigo) return { nota: 'no pude sacar el SKU de la variante ' + (idVar || '?') };
+    // si el stock llegó en 0, hace falta saber si es un producto físico que se agotó o algo que nunca lleva stock (servicio, stock ilimitado, pack)
+    const dispAviso = rec ? Number(rec.quantityAvailable ?? rec.quantity) || 0 : 0;
+    if (dispAviso <= 0 && idVar) {
+      try {
+        const rv2 = await fetchConTimeout(BSALE_BASE + '/variants/' + encodeURIComponent(idVar) + '.json', cab, 12000);
+        const v2 = rv2.ok ? await rv2.json().catch(() => null) : null;
+        const idProd = v2 && v2.product && (v2.product.id ?? (String(v2.product.href || '').match(/(\d+)\.json/) || [])[1]);
+        if (v2 && idProd) {
+          const rp = await fetchConTimeout(BSALE_BASE + '/products/' + encodeURIComponent(idProd) + '.json', cab, 12000);
+          const p = rp.ok ? await rp.json().catch(() => null) : null;
+          if (p) infoVariante = { fisico: Number(p.classification) === 0 && Number(v2.unlimitedStock) !== 1 };
+        }
+      } catch { infoVariante = null; }
+    }
     const oficina = idDe(rec && rec.office) ?? consulta.get('office') ?? consulta.get('officeid');
     rec = { variant: { code: codigo }, quantity: rec ? Number(rec.quantity) || 0 : 0, quantityAvailable: rec ? Number(rec.quantityAvailable ?? rec.quantity) || 0 : 0, office: oficina != null ? { id: oficina } : null };
   }
@@ -8625,8 +8642,8 @@ async function evaluarAvisoBsale(topic, accion, recurso) {
       stockParaRegla = filas ? filas.reduce((t, x) => t + Number(x.quantityAvailable ?? x.quantity ?? 0), 0) : null;
     } catch { stockParaRegla = null; }
   }
-  const plan = planDeSku({ sku: datos.sku, disponibleBsale: datos.disponibleBsale, precioBrutoBsale: datos.precioBrutoBsale, variantes, stockParaRegla });
-  return { sku: datos.sku, bsale: { disponible: datos.disponibleBsale ?? null, precioBruto: datos.precioBrutoBsale ?? null }, publicaciones: plan.publicaciones, sinSeguimiento: variantes.filter(v => !v.seguimiento).length, igual: plan.igual, excluido: plan.excluido || null, cambiaria: plan.cambios.slice(0, 5), totalCambios: plan.cambios.length };
+  const plan = planDeSku({ sku: datos.sku, disponibleBsale: datos.disponibleBsale, precioBrutoBsale: datos.precioBrutoBsale, variantes, stockParaRegla, productoConStock: infoVariante ? infoVariante.fisico : undefined, motivoExclusion: infoVariante && !infoVariante.fisico ? 'sin stock en Bsale (servicio o producto sin control de stock)' : undefined });
+  return { sku: datos.sku, bsale: { disponible: datos.disponibleBsale ?? null, precioBruto: datos.precioBrutoBsale ?? null }, publicaciones: plan.publicaciones, sinSeguimiento: variantes.filter(v => !v.seguimiento).length, igual: plan.igual, excluido: plan.excluido || null, agotado: !!plan.agotado, cambiaria: plan.cambios.slice(0, 5), totalCambios: plan.cambios.length };
 }
 
 async function manejarBsaleWebhook(req, res) {
@@ -11284,7 +11301,7 @@ async function calcularWhatsappAnaliticaEjecutivos(sql, desde, hasta) {
       || usuariosActivos.find(u => normalizarTexto(u.nombre || '').includes(normalizarTexto(nombreCorto)));
     const fila = usuario ? porResponsable.get(usuario.id) : null;
     return {
-      usuarioId: usuario?.id ?? null,
+      usuarioId: usuario?.id ?? null, nombreCorto,
       nombre: usuario?.nombre || nombreCorto,
       total: fila?.total || 0,
       inicia: fila?.inicia || 0,
@@ -11333,10 +11350,82 @@ async function manejarWhatsappAnaliticaEjecutivos(req, res, sesion) {
   }
 }
 
-// Correo diario (ver vercel.json) con el resumen de ejecutivos de ayer --
-// pedido del usuario. Destinatarios: ver
-// TIPOS_NOTIFICACION['whatsapp-ejecutivos-diario'] / página Usuarios.
-// Reusa exactamente el mismo cálculo que la página (calcularWhatsappAnaliticaEjecutivos).
+// "Recontacta" del correo diario: seguimientos sin respuesta que mandó cada ejecutivo en el período (ver lib/whatsapp-seguimientos.js para la regla).
+// Solo se cuentan David, Stephanie y Nathalia. Se atribuye por usuario verificado del ERP o, si no, por la firma del texto (aplicarFirmas).
+const WHATSAPP_EJECUTIVOS_SEGUIMIENTO = ['Stefanie', 'David', 'Nathalia'];
+async function calcularSeguimientosWhatsapp(sql, desdeTs, hastaTs) {
+  const { rows: usuariosActivos } = await sql`SELECT id, nombre, email FROM usuarios WHERE activo = true ORDER BY nombre ASC;`;
+  const { ejecutivosFirma } = construirRosterEjecutivos(usuariosActivos);
+  // clave -> nombre corto de quienes se cuentan
+  const permitidas = new Map();
+  for (const nombreCorto of WHATSAPP_EJECUTIVOS_SEGUIMIENTO) {
+    const emailConocido = WHATSAPP_VENDEDORES_EMAIL[nombreCorto];
+    const u = (emailConocido && usuariosActivos.find(x => (x.email || '').toLowerCase() === emailConocido))
+      || usuariosActivos.find(x => normalizarTexto(x.nombre || '').includes(normalizarTexto(nombreCorto)));
+    permitidas.set(u ? claveUsuario(u.id) : 'n:' + normalizarTexto(nombreCorto).replace(/[^a-z0-9]/g, ''), nombreCorto);
+  }
+  // Mensajes salientes del período cuyo mensaje anterior (de cualquier conversación del contacto) también fue nuestro, con 2 h o más de pausa
+  const { rows: cand } = await sql.query(
+    `SELECT m.id, c.contacto_id, m.marca_tiempo, prev.direccion AS prev_dir, prev.marca_tiempo AS prev_t
+     FROM whatsapp_mensajes m
+     JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id
+     JOIN whatsapp_contactos ct ON ct.id = c.contacto_id AND ct.es_demo = false
+     JOIN LATERAL (
+       SELECT p.direccion, p.marca_tiempo FROM whatsapp_mensajes p
+       JOIN whatsapp_conversaciones pc ON pc.id = p.conversacion_id
+       WHERE pc.contacto_id = c.contacto_id AND COALESCE(p.estado, '') <> 'failed'
+         AND (p.marca_tiempo < m.marca_tiempo OR (p.marca_tiempo = m.marca_tiempo AND p.id < m.id))
+       ORDER BY p.marca_tiempo DESC, p.id DESC LIMIT 1
+     ) prev ON true
+     WHERE m.direccion = 'out' AND m.marca_tiempo >= $1 AND m.marca_tiempo < $2 AND COALESCE(m.estado, '') <> 'failed'
+       AND prev.direccion = 'out' AND m.marca_tiempo - prev.marca_tiempo >= make_interval(secs => $3::double precision)
+     LIMIT 5000;`,
+    [desdeTs, hastaTs, PAUSA_SEGUIMIENTO_MS / 1000]
+  );
+  if (!cand.length) return contarSeguimientos([], new Map(), permitidas);
+  const candidatos = cand.map(r => ({ id: r.id, t: new Date(r.marca_tiempo).getTime(), prevDir: r.prev_dir, prevT: new Date(r.prev_t).getTime() }));
+  // Línea de tiempo de esos contactos (desde 36 h antes) para atribuir por firma dentro del mismo episodio, igual que el Control de ejecutivos
+  const contactoIds = [...new Set(cand.map(r => r.contacto_id))];
+  const { rows: msgRows } = await sql.query(
+    `SELECT m.id, c.contacto_id, m.marca_tiempo, m.direccion, m.autor_usuario_id, left(m.contenido_texto, 300) AS texto, aud.usuario_id AS auditoria_usuario_id
+     FROM whatsapp_mensajes m
+     JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id
+     LEFT JOIN LATERAL (
+       SELECT u.id AS usuario_id
+       FROM whatsapp_auditoria a
+       JOIN usuarios u ON lower(u.nombre) = lower(a.usuario_email) OR lower(u.email) = lower(a.usuario_email)
+       WHERE m.direccion = 'out' AND m.origen = 'api' AND m.autor_usuario_id IS NULL
+         AND a.conversacion_id = m.conversacion_id AND a.accion = 'mensaje_enviado'
+         AND a.created_at BETWEEN m.marca_tiempo - interval '5 minutes' AND m.marca_tiempo + interval '5 minutes'
+         AND a.detalle = 'Envió: "' || left(coalesce(m.contenido_texto, ''), 80) || CASE WHEN length(coalesce(m.contenido_texto, '')) > 80 THEN '…' ELSE '' END || '"'
+       ORDER BY abs(extract(epoch FROM (a.created_at - m.marca_tiempo))) LIMIT 1
+     ) aud ON true
+     WHERE c.contacto_id = ANY($1::int[]) AND m.marca_tiempo >= $2::timestamptz - interval '36 hours' AND m.marca_tiempo < $3 AND COALESCE(m.estado, '') <> 'failed'
+     ORDER BY c.contacto_id, m.marca_tiempo, m.id LIMIT 50000;`,
+    [contactoIds, desdeTs, hastaTs]
+  );
+  const mensajes = msgRows.map(r => {
+    const autorId = r.direccion === 'out' ? (r.autor_usuario_id || r.auditoria_usuario_id || null) : null;
+    return { id: r.id, contactoId: r.contacto_id, t: new Date(r.marca_tiempo).getTime(), dir: r.direccion === 'out' ? 'out' : 'in', autorId, autorClave: null, texto: r.texto || null, origenAutor: autorId ? 'erp' : null };
+  });
+  aplicarFirmas(mensajes, ejecutivosFirma);
+  const claves = new Map(mensajes.filter(m => m.dir === 'out').map(m => [m.id, m.autorClave || (m.autorId ? claveUsuario(m.autorId) : null)]));
+  return contarSeguimientos(candidatos, claves, permitidas);
+}
+
+// Llama a un handler de análisis (que responde con res.status().json()) desde otro handler y recoge su JSON, sin pasar por HTTP.
+async function consultarHandlerInterno(handler, query) {
+  const cap = { status: 200, cuerpo: null };
+  const resFalsa = { status(c) { cap.status = c; return this; }, json(o) { cap.cuerpo = o; return this; }, setHeader() { return this; }, end() { return this; } };
+  await handler({ method: 'GET', query, headers: {} }, resFalsa, { rol: 'admin' });
+  if (cap.status >= 400 || !cap.cuerpo || cap.cuerpo.error) throw new Error((cap.cuerpo && (cap.cuerpo.detail || cap.cuerpo.error)) || `HTTP ${cap.status}`);
+  return cap.cuerpo;
+}
+
+// Correo diario (ver vercel.json): ejecutivos de ayer + 10 análisis de los últimos 7 días (los de la pestaña Analítica de Clientes WhatsApp),
+// con el diseño de los demás correos (lib/whatsapp-resumen-correo.js). Destinatarios: ver TIPOS_NOTIFICACION['whatsapp-ejecutivos-diario'] / página Usuarios.
+// Reusa los mismos cálculos de la página (calcularWhatsappAnaliticaEjecutivos y manejarWhatsappAnalitica). Si la analítica falla, el correo sale igual con
+// los ejecutivos y lo avisa. ?solo_ver=1 (con CRON_SECRET) devuelve el correo armado sin enviarlo.
 async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
   const auth = req.headers.authorization || '';
@@ -11346,7 +11435,8 @@ async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
   try {
     const sql = await getSql();
     await asegurarTablaNotificaciones(sql);
-    if (!esPruebaNotif(req) && !(await notificacionDebeEnviarse(sql, 'whatsapp-ejecutivos-diario'))) {
+    const soloVer = req.query.solo_ver === '1';
+    if (!soloVer && !esPruebaNotif(req) && !(await notificacionDebeEnviarse(sql, 'whatsapp-ejecutivos-diario'))) {
       return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
     }
     await asegurarTablaWhatsapp(sql);
@@ -11360,35 +11450,28 @@ async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
     );
     const { ejecutivos, sinAsignar } = await calcularWhatsappAnaliticaEjecutivos(sql, rangoRows[0].desde_ts, rangoRows[0].hasta_ts);
 
-    const filaEjecutivo = e => `
-      <tr>
-        <td style="padding:6px 10px;border-bottom:1px solid #eee;"><b>${e.nombre}</b></td>
-        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${e.inicia}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${e.nuevas}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${e.clienteVuelveAHablar}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${e.recontactaProactivo}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;">${e.total}</td>
-      </tr>`;
-    const html = `
-      <h2>📈 Resumen diario de ejecutivos -- WhatsApp</h2>
-      <p style="color:#666;">Conversaciones del ${ayerStr}.</p>
-      <table style="border-collapse:collapse;font-family:sans-serif;font-size:13px;">
-        <thead><tr style="background:#f5f5f5;">
-          <th style="padding:6px 10px;text-align:left;">Ejecutivo</th>
-          <th style="padding:6px 10px;">Inicia</th>
-          <th style="padding:6px 10px;">Nuevas</th>
-          <th style="padding:6px 10px;">Cliente vuelve a hablar</th>
-          <th style="padding:6px 10px;">Recontacta proactivo</th>
-          <th style="padding:6px 10px;">Total</th>
-        </tr></thead>
-        <tbody>${ejecutivos.map(filaEjecutivo).join('')}</tbody>
-      </table>
-      ${sinAsignar ? `<p style="color:#999;font-size:12px;margin-top:10px;">Además, ${sinAsignar.total} conversación${sinAsignar.total === 1 ? '' : 'es'} sin ejecutivo asignado todavía.</p>` : ''}
-      <p style="color:#999;font-size:11px;margin-top:14px;">"Inicia" y "Recontacta proactivo" dependen de a quién quedó asignada cada conversación -- WhatsApp no dice qué persona mandó un mensaje escrito directo desde la app, así que esto es la mejor aproximación disponible, no un dato exacto.</p>
-      <p><a href="${URL_BASE_APP}/clientes-whatsapp.html">Ver en el ERP -- Clientes WhatsApp</a></p>
-    `;
-    const totalConversaciones = ejecutivos.reduce((s, e) => s + e.total, 0) + (sinAsignar?.total || 0);
-    const asunto = `📈 Resumen ejecutivos WhatsApp -- ${ayerStr} (${totalConversaciones} conversaciones)`;
+    // "Recontacta": seguimientos sin respuesta por ejecutivo (solo David, Stephanie y Nathalia)
+    let seguimientos = null;
+    try {
+      seguimientos = await calcularSeguimientosWhatsapp(sql, rangoRows[0].desde_ts, rangoRows[0].hasta_ts);
+      for (const e of ejecutivos) e.seguimientos = e.nombreCorto in seguimientos.porEjecutivo ? seguimientos.porEjecutivo[e.nombreCorto] : null;
+    } catch (e) {
+      for (const x of ejecutivos) x.seguimientos = null;
+    }
+
+    // Analítica: 14 días (evolución diaria) y 7 días (el resto), terminando ayer
+    const diaMenos = n => new Date(Date.parse(ayerStr + 'T00:00:00Z') - n * 86400000).toISOString().slice(0, 10);
+    let semana = {}, serie14 = [], avisoAnalitica = null;
+    try {
+      const [s7, s14] = await Promise.all([
+        consultarHandlerInterno(manejarWhatsappAnalitica, { desde: diaMenos(6), hasta: ayerStr }),
+        consultarHandlerInterno(manejarWhatsappAnalitica, { desde: diaMenos(13), hasta: ayerStr }),
+      ]);
+      semana = s7; serie14 = s14.serie || [];
+    } catch (e) { avisoAnalitica = String(e.message || e); }
+
+    const { asunto, html } = armarCorreoWhatsapp({ dia: ayerStr, ejecutivos, sinAsignar, semana, serie14, seguimientos, avisoAnalitica, urlBase: URL_BASE_APP });
+    if (soloVer) return res.status(200).json({ ok: true, enviado: false, asunto, html, seguimientos });
 
     const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'whatsapp-ejecutivos-diario');
     const envios = [];
@@ -11396,7 +11479,7 @@ async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
       envios.push({ para, ...(await enviarCorreo({ para, asunto: asuntoDePrueba(req, asunto), html })) });
     }
     if (envios.length > 0 && !esPruebaNotif(req)) await marcarNotificacionEnviada(sql, 'whatsapp-ejecutivos-diario', { asunto, html });
-    return res.status(200).json({ ok: true, enviado: envios.length > 0, envios, ejecutivos, sinAsignar });
+    return res.status(200).json({ ok: true, enviado: envios.length > 0, envios, ejecutivos, sinAsignar, seguimientos, avisoAnalitica });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen diario de ejecutivos de WhatsApp', detail: String(err) });
   }
@@ -14162,6 +14245,40 @@ async function manejarWhatsappControlEjecutivos(req, res, sesion) {
   }
 }
 
+// Ejecutivos conocidos para el control y los correos de WhatsApp: usuarios activos + roster del reporte (aunque no tengan usuario en el ERP).
+// Devuelve el roster de claves, los nombres de quienes no tienen usuario y los nombres para detectar la firma en el texto.
+function construirRosterEjecutivos(usuariosActivos) {
+  const roster = [];
+  const nombresPseudo = new Map(); // clave 'n:<nombre>' -> nombre visible, para quien está en el roster pero no tiene usuario
+  const ejecutivosFirma = [];      // [{clave, nombres}] para detectar la firma en el texto
+  const primerNombre = n => normalizarTexto(String(n || '').trim().split(/\s+/)[0] || '');
+  const repeticiones = new Map();
+  for (const u of usuariosActivos) { const pn = primerNombre(u.nombre); repeticiones.set(pn, (repeticiones.get(pn) || 0) + 1); }
+  for (const u of usuariosActivos) {
+    const pn = primerNombre(u.nombre);
+    // Si dos usuarios comparten el primer nombre, la firma sería ambigua: no se usa para ese nombre.
+    if (pn.length >= 3 && repeticiones.get(pn) === 1) ejecutivosFirma.push({ clave: claveUsuario(u.id), nombres: [pn] });
+  }
+  for (const nombreCorto of WHATSAPP_EJECUTIVOS_REPORTE) {
+    const emailConocido = WHATSAPP_VENDEDORES_EMAIL[nombreCorto];
+    const u = (emailConocido && usuariosActivos.find(x => (x.email || '').toLowerCase() === emailConocido))
+      || usuariosActivos.find(x => normalizarTexto(x.nombre || '').includes(normalizarTexto(nombreCorto)));
+    const alias = normalizarTexto(nombreCorto);
+    if (u) {
+      if (!roster.includes(claveUsuario(u.id))) roster.push(claveUsuario(u.id));
+      const e = ejecutivosFirma.find(x => x.clave === claveUsuario(u.id));
+      if (e && !e.nombres.includes(alias)) e.nombres.push(alias);
+      else if (!e) ejecutivosFirma.push({ clave: claveUsuario(u.id), nombres: [alias] });
+    } else {
+      const clave = 'n:' + alias.replace(/[^a-z0-9]/g, '');
+      nombresPseudo.set(clave, nombreCorto);
+      if (!roster.includes(clave)) roster.push(clave);
+      ejecutivosFirma.push({ clave, nombres: [alias] });
+    }
+  }
+  return { roster, nombresPseudo, ejecutivosFirma };
+}
+
 // Arma todo el resultado (tabla, tarjetas, motivos, detalle). Lo usan el endpoint de arriba y la clasificación por IA.
 async function armarControlEjecutivos(sql, query) {
     const esFecha = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -14175,34 +14292,7 @@ async function armarControlEjecutivos(sql, query) {
 
     // Ejecutivos conocidos: usuarios activos + roster del reporte (aunque no tengan usuario en el ERP).
     const { rows: usuariosActivos } = await sql`SELECT id, nombre, email FROM usuarios WHERE activo = true ORDER BY nombre ASC;`;
-    const roster = [];
-    const nombresPseudo = new Map(); // clave 'n:<nombre>' -> nombre visible, para quien está en el roster pero no tiene usuario
-    const ejecutivosFirma = [];      // [{clave, nombres}] para detectar la firma en el texto
-    const primerNombre = n => normalizarTexto(String(n || '').trim().split(/\s+/)[0] || '');
-    const repeticiones = new Map();
-    for (const u of usuariosActivos) { const pn = primerNombre(u.nombre); repeticiones.set(pn, (repeticiones.get(pn) || 0) + 1); }
-    for (const u of usuariosActivos) {
-      const pn = primerNombre(u.nombre);
-      // Si dos usuarios comparten el primer nombre, la firma sería ambigua: no se usa para ese nombre.
-      if (pn.length >= 3 && repeticiones.get(pn) === 1) ejecutivosFirma.push({ clave: claveUsuario(u.id), nombres: [pn] });
-    }
-    for (const nombreCorto of WHATSAPP_EJECUTIVOS_REPORTE) {
-      const emailConocido = WHATSAPP_VENDEDORES_EMAIL[nombreCorto];
-      const u = (emailConocido && usuariosActivos.find(x => (x.email || '').toLowerCase() === emailConocido))
-        || usuariosActivos.find(x => normalizarTexto(x.nombre || '').includes(normalizarTexto(nombreCorto)));
-      const alias = normalizarTexto(nombreCorto);
-      if (u) {
-        if (!roster.includes(claveUsuario(u.id))) roster.push(claveUsuario(u.id));
-        const e = ejecutivosFirma.find(x => x.clave === claveUsuario(u.id));
-        if (e && !e.nombres.includes(alias)) e.nombres.push(alias);
-        else if (!e) ejecutivosFirma.push({ clave: claveUsuario(u.id), nombres: [alias] });
-      } else {
-        const clave = 'n:' + alias.replace(/[^a-z0-9]/g, '');
-        nombresPseudo.set(clave, nombreCorto);
-        if (!roster.includes(clave)) roster.push(clave);
-        ejecutivosFirma.push({ clave, nombres: [alias] });
-      }
-    }
+    const { roster, nombresPseudo, ejecutivosFirma } = construirRosterEjecutivos(usuariosActivos);
 
     const { rows: rangoRows } = await sql.query(
       `SELECT ($1::date)::timestamp AT TIME ZONE 'America/Santiago' AS desde_ts,
