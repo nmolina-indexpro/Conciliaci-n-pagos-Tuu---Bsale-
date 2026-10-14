@@ -26,7 +26,7 @@ import { sqlOfertaLateral, PARAMS_OFERTA, sqlSolicitudLateral, PARAM_SOLICITUD, 
 import { analizarCategoria as analizarCategoriaWhatsapp, CATEGORIAS_ANALIZABLES, analizarMotivo as analizarMotivoWhatsapp, MOTIVOS_ANALIZABLES, esCierreCordial, debeReclasificarPorCierre, RESULTADOS_DEBILES_CIERRE, MOTIVOS_DEBILES_CIERRE } from '../lib/whatsapp-motivos.js';
 import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR } from '../lib/cotizaciones-recontacto.js';
 import { prepararCotizaciones as prepararCotizacionesSeguimiento, armarCorreoSeguimiento } from '../lib/cotizaciones-seguimiento.js';
-import { calcularControlEjecutivos, aplicarFirmas, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
+import { calcularControlEjecutivos, aplicarFirmas, detectarFirmaEnTexto, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
@@ -11317,7 +11317,56 @@ async function calcularWhatsappAnaliticaEjecutivos(sql, desde, hasta) {
     clienteVuelveAHablar: filaSinAsignar.cliente_vuelve_a_hablar, recontactaProactivo: filaSinAsignar.recontacta_proactivo,
   } : null;
 
-  return { ejecutivos, sinAsignar };
+  // Las conversaciones SIN responsable donde un ejecutivo se presentó por escrito ("Hola, soy David", "Hola, buenas tardes, habla Stephanie", "le habla Nathalia")
+  // se le atribuyen a ese ejecutivo (mismo detector de firmas del Control de ejecutivos). Si el chat nombra a dos ejecutivos distintos, queda sin asignar.
+  let reasignadasPorFirma = 0;
+  if (sinAsignar && sinAsignar.total > 0) {
+    const { ejecutivosFirma } = construirRosterEjecutivos(usuariosActivos);
+    // clave de firma -> fila del ejecutivo del reporte
+    const filaPorClave = new Map();
+    WHATSAPP_EJECUTIVOS_REPORTE.forEach((nombreCorto, k) => {
+      const e = ejecutivos[k];
+      filaPorClave.set(e.usuarioId != null ? claveUsuario(e.usuarioId) : 'n:' + normalizarTexto(nombreCorto).replace(/[^a-z0-9]/g, ''), e);
+    });
+    const { rows: sinResp } = await sql.query(
+      `WITH primeros AS (SELECT contacto_id, MIN(id) AS primer_conversacion_id FROM whatsapp_conversaciones GROUP BY contacto_id)
+       SELECT c.id, (c.id = p.primer_conversacion_id) AS es_primera_conversacion,
+              (SELECT m.direccion FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id ORDER BY m.marca_tiempo ASC LIMIT 1) AS primer_mensaje_direccion
+       FROM whatsapp_conversaciones c JOIN primeros p ON p.contacto_id = c.contacto_id
+       WHERE c.iniciada_en >= $1 AND c.iniciada_en < $2 AND c.responsable_id IS NULL;`,
+      [desde, hasta]
+    );
+    const ids = sinResp.map(r => r.id);
+    const { rows: textos } = ids.length ? await sql.query(
+      `SELECT conversacion_id, left(contenido_texto, 600) AS texto FROM whatsapp_mensajes
+       WHERE conversacion_id = ANY($1::int[]) AND direccion = 'out' AND contenido_texto IS NOT NULL AND contenido_texto <> ''
+       ORDER BY conversacion_id, marca_tiempo LIMIT 20000;`,
+      [ids]
+    ) : { rows: [] };
+    const clavesPorConv = new Map();
+    for (const r of textos) {
+      const clave = detectarFirmaEnTexto(r.texto, ejecutivosFirma);
+      if (clave) { if (!clavesPorConv.has(r.conversacion_id)) clavesPorConv.set(r.conversacion_id, new Set()); clavesPorConv.get(r.conversacion_id).add(clave); }
+    }
+    for (const r of sinResp) {
+      const set = clavesPorConv.get(r.id);
+      if (!set || set.size !== 1) continue;
+      const fila = filaPorClave.get([...set][0]);
+      if (!fila) continue; // se presentó alguien que no está en el reporte
+      fila.total++; reasignadasPorFirma++;
+      if (r.primer_mensaje_direccion === 'out') fila.inicia++;
+      if (r.es_primera_conversacion) fila.nuevas++;
+      else if (r.primer_mensaje_direccion === 'in') fila.clienteVuelveAHablar++;
+      else if (r.primer_mensaje_direccion === 'out') fila.recontactaProactivo++;
+      sinAsignar.total--;
+      if (r.primer_mensaje_direccion === 'out') sinAsignar.inicia--;
+      if (r.es_primera_conversacion) sinAsignar.nuevas--;
+      else if (r.primer_mensaje_direccion === 'in') sinAsignar.clienteVuelveAHablar--;
+      else if (r.primer_mensaje_direccion === 'out') sinAsignar.recontactaProactivo--;
+    }
+  }
+
+  return { ejecutivos, sinAsignar, reasignadasPorFirma };
 }
 
 async function manejarWhatsappAnaliticaEjecutivos(req, res, sesion) {
@@ -11448,7 +11497,7 @@ async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
          (($1::date + 1))::timestamp AT TIME ZONE 'America/Santiago' AS hasta_ts;`,
       [ayerStr]
     );
-    const { ejecutivos, sinAsignar } = await calcularWhatsappAnaliticaEjecutivos(sql, rangoRows[0].desde_ts, rangoRows[0].hasta_ts);
+    const { ejecutivos, sinAsignar, reasignadasPorFirma } = await calcularWhatsappAnaliticaEjecutivos(sql, rangoRows[0].desde_ts, rangoRows[0].hasta_ts);
 
     // "Recontacta": seguimientos sin respuesta por ejecutivo (solo David, Stephanie y Nathalia)
     let seguimientos = null;
@@ -11470,7 +11519,7 @@ async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
       semana = s7; serie14 = s14.serie || [];
     } catch (e) { avisoAnalitica = String(e.message || e); }
 
-    const { asunto, html } = armarCorreoWhatsapp({ dia: ayerStr, ejecutivos, sinAsignar, semana, serie14, seguimientos, avisoAnalitica, urlBase: URL_BASE_APP });
+    const { asunto, html } = armarCorreoWhatsapp({ dia: ayerStr, ejecutivos, sinAsignar, semana, serie14, seguimientos, reasignadasPorFirma, avisoAnalitica, urlBase: URL_BASE_APP });
     if (soloVer) return res.status(200).json({ ok: true, enviado: false, asunto, html, seguimientos });
 
     const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'whatsapp-ejecutivos-diario');
