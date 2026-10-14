@@ -307,6 +307,7 @@
       <select id="vistaSP" onchange="renderStockPrecios()"><option value="stock">Ver diferencias de stock</option><option value="precios">Ver diferencias de precio</option></select>
     </div>
     <div id="progresoSP" class="empty-note" style="margin-top:8px;"></div>
+    <div id="detalleLecturaSP" class="empty-note" style="margin-top:6px;"></div>
     <div id="resumenSP" style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0;"></div>
     <div class="tabla-wrap" id="wrapSP"></div>
   </div>
@@ -474,36 +475,39 @@ async function compararStockPrecios(){
 }
 function renderStockPrecios(){
   if(!datosSP) return;
-  const soloActivos = $('soloActivos').checked;
-  const shop = new Map(); for(const v of datosSP.shopify){ if(!shop.has(v.sku)) shop.set(v.sku, v); }
+  const soloActivos = $('soloActivos').checked, n = x => x.toLocaleString('es-CL');
+  // Varias publicaciones de Shopify comparten el mismo SKU (SKU base): se agrupan por SKU y se revisa CADA publicación
+  const porSku = new Map(); for(const v of datosSP.shopify){ if(!porSku.has(v.sku)) porSku.set(v.sku, []); porSku.get(v.sku).push(v); }
   const bsStock = new Map(datosSP.stock.map(x => [x.sku, x])), bsPrecio = new Map(datosSP.precios.map(x => [x.sku, x]));
-  const universo = [...shop.values()].filter(v => !soloActivos || v.estado === 'ACTIVE');
-  // stock
-  const stockDif = [], stockIgual = []; let sinBsaleStock = 0;
-  for(const v of universo){
-    const b = bsStock.get(v.sku); if(!b){ sinBsaleStock++; continue; }
-    const dif = (v.stock ?? 0) - b.disponible; (dif === 0 ? stockIgual : stockDif).push({ ...v, bsale: b.disponible, bsaleTotal: b.total, dif });
+  const skus = [...porSku.entries()].map(([sku, lista]) => ({ sku, lista: soloActivos ? lista.filter(v => v.estado === 'ACTIVE') : lista })).filter(g => g.lista.length);
+  const publicaciones = skus.reduce((t, g) => t + g.lista.length, 0);
+  const stockDif = [], precioDif = []; let stockIgual = 0, precioIgual = 0, sinFilaStock = 0, sinPrecio = 0, inconsistentes = 0;
+  for(const g of skus){
+    const b = bsStock.get(g.sku), bs = b ? b.disponible : 0; if(!b) sinFilaStock++; // sin fila de stock en Bsale = 0 unidades
+    const malStock = g.lista.filter(v => (v.stock ?? 0) !== bs);
+    if(malStock.length) stockDif.push({ ...malStock[0], sku: g.sku, bsale: bs, bsaleTotal: b ? b.total : 0, dif: (malStock[0].stock ?? 0) - bs, listados: malStock.length + ' de ' + g.lista.length, sinFila: !b }); else stockIgual++;
+    const p = bsPrecio.get(g.sku), bruto = p ? (p.bruto != null ? Math.round(p.bruto) : (p.neto != null ? Math.round(p.neto * 1.19) : null)) : null;
+    if(bruto == null){ sinPrecio++; } else {
+      const malPrecio = g.lista.filter(v => Math.abs(v.precio - bruto) > 1);
+      if(malPrecio.length) precioDif.push({ ...malPrecio[0], sku: g.sku, bsale: bruto, dif: malPrecio[0].precio - bruto, listados: malPrecio.length + ' de ' + g.lista.length }); else precioIgual++;
+    }
+    if(new Set(g.lista.map(v => v.stock ?? 0)).size > 1 || new Set(g.lista.map(v => v.precio)).size > 1) inconsistentes++;
   }
-  // precios (Bsale con IVA; si no viene, neto + 19%)
-  const precioDif = [], precioIgual = []; let sinBsalePrecio = 0;
-  for(const v of universo){
-    const b = bsPrecio.get(v.sku); if(!b){ sinBsalePrecio++; continue; }
-    const bruto = b.bruto != null ? Math.round(b.bruto) : (b.neto != null ? Math.round(b.neto * 1.19) : null); if(bruto == null){ sinBsalePrecio++; continue; }
-    const dif = v.precio - bruto; (Math.abs(dif) <= 1 ? precioIgual : precioDif).push({ ...v, bsale: bruto, dif });
-  }
-  const soloBsale = [...bsStock.keys()].filter(s => !shop.has(s)).length;
+  const soloBsale = [...bsStock.keys()].filter(k => !porSku.has(k)).length;
+  const estados = {}; for(const v of datosSP.shopify) estados[v.estado] = (estados[v.estado] || 0) + 1;
   const chip = (t, bg, c) => '<span style="padding:6px 12px;border-radius:999px;font-weight:700;font-size:12.5px;background:' + bg + ';color:' + c + ';">' + t + '</span>';
-  const n = x => x.toLocaleString('es-CL');
-  $('resumenSP').innerHTML = chip(n(universo.length) + ' SKU en Shopify' + (soloActivos ? ' (activos)' : ''), '#eef2f9', '#0b2a5b') +
-    chip('Stock: ' + n(stockIgual.length) + ' iguales · ' + n(stockDif.length) + ' distintos', stockDif.length ? '#fff1d6' : '#e3f6ea', stockDif.length ? '#8a5a00' : '#12713a') +
-    chip('Precios: ' + n(precioIgual.length) + ' iguales (±$1) · ' + n(precioDif.length) + ' distintos', precioDif.length ? '#fff1d6' : '#e3f6ea', precioDif.length ? '#8a5a00' : '#12713a') +
-    chip(n(sinBsaleStock) + ' sin stock en Bsale · ' + n(sinBsalePrecio) + ' sin precio en Bsale · ' + n(soloBsale) + ' solo en Bsale', '#eef2f9', '#0b2a5b');
+  $('resumenSP').innerHTML = chip(n(skus.length) + ' SKU distintos · ' + n(publicaciones) + ' publicaciones' + (soloActivos ? ' activas' : ''), '#eef2f9', '#0b2a5b') +
+    chip('Stock: ' + n(stockIgual) + ' SKU iguales · ' + n(stockDif.length) + ' distintos', stockDif.length ? '#fff1d6' : '#e3f6ea', stockDif.length ? '#8a5a00' : '#12713a') +
+    chip('Precios: ' + n(precioIgual) + ' SKU iguales (±$1) · ' + n(precioDif.length) + ' distintos', precioDif.length ? '#fff1d6' : '#e3f6ea', precioDif.length ? '#8a5a00' : '#12713a') +
+    chip(n(inconsistentes) + ' SKU con publicaciones que no coinciden entre sí', inconsistentes ? '#fff1d6' : '#eef2f9', inconsistentes ? '#8a5a00' : '#0b2a5b') +
+    chip(n(sinFilaStock) + ' sin fila de stock en Bsale (se toman como 0) · ' + n(sinPrecio) + ' sin precio en Bsale · ' + n(soloBsale) + ' solo en Bsale', '#eef2f9', '#0b2a5b');
+  $('detalleLecturaSP').textContent = 'Leído: Shopify ' + n(datosSP.shopify.length) + ' variantes con SKU (' + Object.entries(estados).map(([k, v]) => n(v) + ' ' + k.toLowerCase()).join(', ') + ') · Bsale stock ' + n(datosSP.stock.length) + ' SKU · Bsale precios ' + n(datosSP.precios.length) + ' SKU.';
   const vista = $('vistaSP').value, filas = (vista === 'stock' ? stockDif : precioDif).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif));
   if(!filas.length){ $('wrapSP').innerHTML = '<p class="empty-note" style="padding:12px;">Sin diferencias de ' + vista + '.</p>'; return; }
   const tope = 300, mostrar = filas.slice(0, tope);
-  $('wrapSP').innerHTML = '<table><thead><tr><th>SKU</th><th>Producto</th><th>Estado</th>' + (vista === 'stock' ? '<th>Stock Shopify</th><th>Disponible Bsale</th>' : '<th>Precio Shopify</th><th>Comparación Shopify</th><th>Precio Bsale (con IVA)</th>') + '<th>Diferencia</th></tr></thead><tbody>' +
-    mostrar.map(v => '<tr><td style="white-space:nowrap;"><b>' + esc(v.sku) + '</b></td><td>' + esc(v.producto) + '</td><td>' + esc(v.estado) + '</td>' +
-      (vista === 'stock' ? '<td>' + n(v.stock ?? 0) + '</td><td>' + n(v.bsale) + (v.bsaleTotal !== v.bsale ? ' <span class="empty-note">(total ' + n(v.bsaleTotal) + ')</span>' : '') + '</td>' : '<td>$' + n(v.precio) + '</td><td>' + (v.comparar ? '$' + n(v.comparar) : '—') + '</td><td>$' + n(v.bsale) + '</td>') +
+  $('wrapSP').innerHTML = '<table><thead><tr><th>SKU</th><th>Producto</th><th>Publicaciones distintas</th>' + (vista === 'stock' ? '<th>Stock Shopify</th><th>Disponible Bsale</th>' : '<th>Precio Shopify</th><th>Comparación Shopify</th><th>Precio Bsale (con IVA)</th>') + '<th>Diferencia</th></tr></thead><tbody>' +
+    mostrar.map(v => '<tr><td style="white-space:nowrap;"><b>' + esc(v.sku) + '</b></td><td>' + esc(v.producto) + '</td><td>' + esc(v.listados) + '</td>' +
+      (vista === 'stock' ? '<td>' + n(v.stock ?? 0) + '</td><td>' + n(v.bsale) + (v.sinFila ? ' <span class="empty-note">(sin fila)</span>' : (v.bsaleTotal !== v.bsale ? ' <span class="empty-note">(total ' + n(v.bsaleTotal) + ')</span>' : '')) + '</td>' : '<td>$' + n(v.precio) + '</td><td>' + (v.comparar ? '$' + n(v.comparar) : '—') + '</td><td>$' + n(v.bsale) + '</td>') +
       '<td style="font-weight:700;color:' + (v.dif > 0 ? '#a11d1d' : '#8a5a00') + ';">' + (v.dif > 0 ? '+' : '') + n(v.dif) + '</td></tr>').join('') + '</tbody></table>' +
     (filas.length > tope ? '<div class="empty-note" style="padding:8px;">Se muestran las ' + tope + ' diferencias más grandes de ' + n(filas.length) + '.</div>' : '');
 }
