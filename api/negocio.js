@@ -15124,7 +15124,8 @@ async function manejarWaClicAdsCron(req, res) {
       console.log('[wa-clic-ads-cron]', JSON.stringify(falla));
       return res.status(200).json(falla);
     }
-    const subida = await subirConversionesWaAds(sql);
+    // ?validar=1: prueba el envío con Google (validateOnly) sin marcar nada como subido.
+    const subida = await subirConversionesWaAds(sql, process.env, { soloValidar: req.query.validar === '1' });
     await sql.query(`DELETE FROM wa_clics_ads WHERE creado_en < now() - make_interval(days => $1)`, [RETENCION_WA_ADS]);
     // Solo cantidades y nombres de variables que faltan (sin secretos): queda en el registro de Vercel para poder revisarlo.
     console.log('[wa-clic-ads-cron]', JSON.stringify({ ok: true, vinculo, subida }));
