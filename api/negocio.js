@@ -15112,6 +15112,8 @@ async function manejarWaClicAdsCron(req, res) {
     await asegurarTablaWhatsapp(sql);
     await asegurarTablaWaClicsAds(sql);
     const vinculo = await vincularMensajesWaAds(sql);
+    const tabla = (await sql.query(`SELECT count(*)::int AS total, count(mensaje_id)::int AS con_mensaje, count(subida_en)::int AS subidos, max(creado_en) AS ultimo FROM wa_clics_ads`)).rows[0];
+    console.log('[wa-clic-ads-cron] tabla wa_clics_ads:', JSON.stringify(tabla));
     if (req.query.solo_ver === '1') return res.status(200).json({ ok: true, vinculo, subida: 'omitida (solo_ver)' });
     const faltan = [...faltanVariablesGoogleAds(), ...faltanVariablesConversionWaAds()];
     if (faltan.length > 0) {
