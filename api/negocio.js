@@ -15080,7 +15080,10 @@ async function manejarWaClicAds(req, res) {
   const claveEsperada = process.env.BUSCADOR_IA_KEY;
   if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
   if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) {
-    console.log('[wa-clic-ads] clave inválida');
+    // Para comparar las claves de Vercel y del Worker sin mostrarlas: largo y huella corta (SHA-256) de cada una.
+    const huella = (v) => createHash('sha256').update(String(v ?? '')).digest('hex').slice(0, 6);
+    const recibida = String(req.headers['x-api-key'] ?? '');
+    console.log('[wa-clic-ads] clave inválida | recibida: largo', recibida.length, 'huella', huella(recibida), '| esperada: largo', claveEsperada.length, 'huella', huella(claveEsperada));
     return res.status(401).json({ error: 'Clave inválida' });
   }
   const validado = validarClicWaAds(req.body);
