@@ -15075,10 +15075,14 @@ async function manejarFiltrosUso(req, res, _sesion) {
 // Toque en un botón de WhatsApp del sitio, con el código que va en el texto precargado y los identificadores de clic de Google.
 // Lo manda el Worker de Cloudflare (misma clave y mismo patrón que el resto de los avisos del sitio). No lleva datos personales.
 async function manejarWaClicAds(req, res) {
+  console.log('[wa-clic-ads] llamada recibida, método', req.method, '| con x-api-key:', Boolean(req.headers['x-api-key']));
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const claveEsperada = process.env.BUSCADOR_IA_KEY;
   if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
-  if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) return res.status(401).json({ error: 'Clave inválida' });
+  if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) {
+    console.log('[wa-clic-ads] clave inválida');
+    return res.status(401).json({ error: 'Clave inválida' });
+  }
   const validado = validarClicWaAds(req.body);
   if (!validado.ok) {
     console.log('[wa-clic-ads] rechazado:', validado.error, '| tipo de cuerpo:', typeof req.body);
