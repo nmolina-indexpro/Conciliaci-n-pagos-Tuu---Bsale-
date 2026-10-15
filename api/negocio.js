@@ -15080,12 +15080,17 @@ async function manejarWaClicAds(req, res) {
   if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
   if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) return res.status(401).json({ error: 'Clave inválida' });
   const validado = validarClicWaAds(req.body);
-  if (!validado.ok) return res.status(400).json({ error: validado.error });
+  if (!validado.ok) {
+    console.log('[wa-clic-ads] rechazado:', validado.error, '| tipo de cuerpo:', typeof req.body);
+    return res.status(400).json({ error: validado.error });
+  }
   try {
     const sql = await getSql();
     await guardarClicWaAds(sql, validado.fila);
+    console.log('[wa-clic-ads] guardado codigo', validado.fila.codigo);
     return res.status(200).json({ ok: true });
   } catch (e) {
+    console.log('[wa-clic-ads] error al guardar:', String(e.message || e).slice(0, 200));
     return res.status(200).json({ error: 'No se pudo guardar el toque: ' + e.message });
   }
 }
