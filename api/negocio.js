@@ -15106,10 +15106,14 @@ async function manejarWaClicAdsCron(req, res) {
     if (req.query.solo_ver === '1') return res.status(200).json({ ok: true, vinculo, subida: 'omitida (solo_ver)' });
     const faltan = [...faltanVariablesGoogleAds(), ...faltanVariablesConversionWaAds()];
     if (faltan.length > 0) {
-      return res.status(200).json({ ok: false, vinculo, error: `Faltan variables de entorno en Vercel: ${faltan.join(', ')}` });
+      const falla = { ok: false, vinculo, error: `Faltan variables de entorno en Vercel: ${faltan.join(', ')}` };
+      console.log('[wa-clic-ads-cron]', JSON.stringify(falla));
+      return res.status(200).json(falla);
     }
     const subida = await subirConversionesWaAds(sql);
     await sql.query(`DELETE FROM wa_clics_ads WHERE creado_en < now() - make_interval(days => $1)`, [RETENCION_WA_ADS]);
+    // Solo cantidades y nombres de variables que faltan (sin secretos): queda en el registro de Vercel para poder revisarlo.
+    console.log('[wa-clic-ads-cron]', JSON.stringify({ ok: true, vinculo, subida }));
     return res.status(200).json({ ok: true, vinculo, subida });
   } catch (err) {
     return res.status(500).json({ error: 'Error en la conversión de WhatsApp para Google Ads', detail: String(err.message || err).slice(0, 300) });
