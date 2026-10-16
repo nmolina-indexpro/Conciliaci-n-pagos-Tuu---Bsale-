@@ -34,6 +34,7 @@ import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, product
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
+import { analizarGoogleAds, validarRango as validarRangoGoogleAds } from '../lib/google-ads-analisis.js';
 import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
@@ -200,6 +201,7 @@ export default async function handler(req, res) {
   if (recurso === 'filtros-uso') return manejarFiltrosUso(req, res, sesion);
   if (recurso === 'envio-gratis-shopify') return manejarEnvioGratisShopify(req, res, sesion);
   if (recurso === 'wa-clic-ads-resumen') return manejarWaClicAdsResumen(req, res, sesion);
+  if (recurso === 'google-ads-analisis') return manejarGoogleAdsAnalisis(req, res, sesion);
   if (recurso === 'descuentos-web') return manejarDescuentosWeb(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
@@ -15253,6 +15255,24 @@ async function manejarWaClicAdsCron(req, res) {
     return res.status(200).json({ ok: true, vinculo, atribucion, subida });
   } catch (err) {
     return res.status(500).json({ error: 'Error en la conversión de WhatsApp para Google Ads', detail: String(err.message || err).slice(0, 300) });
+  }
+}
+
+// Página Análisis > Google Ads: cinco métricas de las campañas (costo por mensaje real, gasto por red, conversiones vs mensajes, cuota perdida,
+// búsquedas sin convertir). Solo lectura. GET ?recurso=google-ads-analisis&desde=AAAA-MM-DD&hasta=AAAA-MM-DD (sin fechas: el mes actual). Ver lib/google-ads-analisis.js.
+async function manejarGoogleAdsAnalisis(req, res, _sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const rango = validarRangoGoogleAds(req.query.desde || hoy.slice(0, 8) + '01', req.query.hasta || hoy);
+    if (rango.error) return res.status(400).json({ error: rango.error });
+    let sql = null;
+    try { sql = await getSql(); await asegurarTablaWaClicsAds(sql); } catch (e) { sql = null; }
+    const r = await analizarGoogleAds({ desde: rango.desde, hasta: rango.hasta, sql });
+    if (r.sin_configurar) return res.status(200).json({ error: `Faltan variables de Google Ads en Vercel: ${r.faltan.join(', ')}` });
+    return res.status(200).json(r);
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo leer Google Ads', detail: String(err.message || err).slice(0, 300) });
   }
 }
 

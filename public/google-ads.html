@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Google Ads — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  @media (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:18px 20px;}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:var(--text);}
+  .card .pct{font-size:13px;font-weight:700;color:var(--primary);margin-top:2px;}
+  .card.destacada{background:var(--primary-dim);border-color:var(--primary);}
+  .card .ver-detalle{font-size:11px;color:var(--muted);margin-top:6px;}
+
+  .ga-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0;}
+  @media (max-width:900px){.ga-tabs{grid-template-columns:repeat(2,1fr);}}
+  .ga-tab{background:var(--surface-2);border:1.5px solid var(--line);border-radius:12px;padding:16px 14px;text-align:left;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:box-shadow .15s,transform .15s,border-color .15s,background .15s;}
+  .ga-tab:hover{box-shadow:var(--shadow);transform:translateY(-1px);}
+  .ga-tab.active{background:var(--primary-dim);border-color:var(--primary);}
+  .ga-tab-icono{font-size:20px;margin-bottom:6px;display:block;}
+  .ga-tab-titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;color:var(--text);}
+  .ga-tab-sub{font-size:11px;color:var(--muted);margin-top:2px;}
+
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-top:16px;color:var(--text);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:12px;padding:7px 13px;}
+
+  .filtros{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+  input[type=date]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:6px 10px;border-radius:9px;font-size:12.5px;}
+  .date-field{display:flex;align-items:center;gap:5px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  .filtro-rango-fechas{display:flex;align-items:center;gap:7px;}
+
+  .chart-legend{display:flex;gap:16px;margin:2px 0 14px;flex-wrap:wrap;}
+  .chart-legend-item{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);}
+  .chart-legend-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+
+  .canal-chart{max-height:420px;overflow-y:auto;padding-right:4px;}
+  .canal-grupo{margin-bottom:14px;}
+  .canal-titulo{font-size:12px;color:var(--text);margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .canal-fila{display:flex;align-items:center;gap:8px;margin-bottom:3px;}
+  .canal-pista{flex:1;background:var(--surface-2);border-radius:5px;height:12px;overflow:hidden;}
+  .canal-relleno{height:100%;border-radius:5px;min-width:3px;}
+  .canal-valor{width:56px;flex-shrink:0;text-align:right;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text);}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  th.amount, td.amount{text-align:right;}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+
+  .ads-bloque{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:0 0 18px;box-shadow:var(--shadow);}
+  .ads-cab{display:flex;gap:14px;align-items:flex-start;margin-bottom:12px;}
+  .ads-num{flex:none;width:30px;height:30px;border-radius:50%;background:var(--primary);color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;}
+  .ads-cab h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0 0 3px;}
+  .ads-cab .sub{margin:0;font-size:12.5px;}
+  .ads-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:12px 0 14px;}
+  .ads-kpis .card{padding:12px 14px;} .ads-kpis .card .big{font-size:21px;} .ads-kpis .card .nota{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.35;}
+  .ads-lectura{margin-top:12px;padding:10px 14px;border-radius:10px;background:var(--primary-dim);border:1px solid #BFE0DB;font-size:12.5px;line-height:1.5;}
+  .ads-lectura.alerta{background:var(--amber-dim);border-color:#F3D9A8;}
+  .ads-error{margin:8px 0;padding:10px 14px;border-radius:10px;background:var(--red-bg);border:1px solid #F4C5C5;color:var(--red);font-size:12.5px;}
+  .ads-barra{display:inline-block;width:90px;height:8px;border-radius:5px;background:var(--surface-2);vertical-align:middle;margin-right:7px;overflow:hidden;}
+  .ads-barra i{display:block;height:100%;background:var(--primary);border-radius:5px;} .ads-barra i.rojo{background:var(--red);} .ads-barra i.ambar{background:var(--amber);}
+  .badge-ads{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;}
+  .badge-ads.si{background:var(--green-bg);color:var(--green);} .badge-ads.no{background:var(--red-bg);color:var(--red);}
+  .mejor{color:var(--green);font-weight:700;} .peor{color:var(--red);font-weight:700;}
+  .ads-pie{font-size:11.5px;color:var(--muted);margin:4px 0 0;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html">Compras</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html" class="active">Google Ads</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>📣 Google Ads</h1>
+  <div class="sub">Cinco métricas para decidir qué hacer con las campañas. En IndexStore la venta es consultiva: lo que importa es el <b>mensaje de WhatsApp real</b> (lo confirma el ERP), no los toques en el botón ni las conversiones que cuenta Google. Solo lectura: esta página no cambia nada en la cuenta.</div>
+
+  <div class="filtros">
+    <div class="filtro-rango-fechas">
+      <div class="date-field"><label for="adsDesde">Desde</label><input type="date" id="adsDesde" onchange="cambioManualAds('desde')"></div>
+      <div class="date-field"><label for="adsHasta">Hasta</label><input type="date" id="adsHasta" onchange="cambioManualAds('hasta')"></div>
+    </div>
+    <button class="btn-ghost btn-compact" id="btnAdsHoy" onclick="setRangoAds('hoy')">Hoy</button>
+    <button class="btn-ghost btn-compact" id="btnAdsSemana" onclick="setRangoAds('semana')" title="Los últimos 7 días, contando hoy">Semana</button>
+    <button class="btn-ghost btn-compact active" id="btnAdsMes" onclick="setRangoAds('mes')">Mes actual</button>
+    <button class="btn-ghost btn-compact" id="btnAdsMesAnterior" onclick="setRangoAds('mes_anterior')">Mes anterior</button>
+    <button class="btn-ghost btn-compact" onclick="cargarAds()">↻ Actualizar</button>
+  </div>
+
+  <div id="adsEstado" class="empty-note">Cargando…</div>
+  <div id="adsContenido" style="display:none;">
+    <section class="ads-bloque" id="bloque1"></section>
+    <section class="ads-bloque" id="bloque2"></section>
+    <section class="ads-bloque" id="bloque3"></section>
+    <section class="ads-bloque" id="bloque4"></section>
+    <section class="ads-bloque" id="bloque5"></section>
+    <p class="ads-pie" id="adsPie"></p>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function escapeHtml(texto){
+  return String(texto ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+const fmtNum = n => new Intl.NumberFormat('es-CL').format(Math.round(n || 0));
+const fmtClp = n => n == null ? '—' : '$' + new Intl.NumberFormat('es-CL').format(Math.round(n));
+const fmtPct = (n, d = 1) => n == null ? '—' : (n * 100).toFixed(d).replace('.', ',') + '%';
+const fmtDec = (n, d = 1) => n == null ? '—' : (Number.isInteger(Number(n)) ? fmtNum(n) : Number(n).toFixed(d).replace('.', ','));
+const fechaCorta = s => s.split('-').reverse().join('-');
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){
+      ['navUsuarios', 'navActualizaciones', 'navMercadoLibre'].forEach(id => { const n = $(id); if(n) n.style.display = ''; });
+    }
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Período (fechas de Chile) ----------
+const hoyAds = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+const rangoAds = { desde: hoyAds.slice(0, 8) + '01', hasta: hoyAds };
+function sumarDiasAds(str, n){ const d = new Date(str + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+function marcarAtajoAds(tipo){
+  [['hoy', 'btnAdsHoy'], ['semana', 'btnAdsSemana'], ['mes', 'btnAdsMes'], ['mes_anterior', 'btnAdsMesAnterior']].forEach(([k, id]) => $(id).classList.toggle('active', k === tipo));
+}
+function setRangoAds(tipo){
+  const primeroMes = hoyAds.slice(0, 8) + '01';
+  let d = primeroMes, h = hoyAds;
+  if(tipo === 'hoy') d = hoyAds;
+  else if(tipo === 'semana') d = sumarDiasAds(hoyAds, -6);
+  else if(tipo === 'mes_anterior'){ h = sumarDiasAds(primeroMes, -1); d = h.slice(0, 8) + '01'; }
+  rangoAds.desde = d; rangoAds.hasta = h;
+  $('adsDesde').value = d; $('adsHasta').value = h;
+  marcarAtajoAds(tipo);
+  cargarAds();
+}
+function cambioManualAds(cual){
+  let d = $('adsDesde').value, h = $('adsHasta').value;
+  if(!d && !h){ $('adsDesde').value = rangoAds.desde; $('adsHasta').value = rangoAds.hasta; return; }
+  if(!d) d = h;
+  if(!h) h = d;
+  if(d > hoyAds) d = hoyAds;
+  if(h > hoyAds) h = hoyAds;
+  if(d > h){ if(cual === 'desde') h = d; else d = h; }
+  rangoAds.desde = d; rangoAds.hasta = h;
+  $('adsDesde').value = d; $('adsHasta').value = h;
+  marcarAtajoAds(null);
+  cargarAds();
+}
+
+// ---------- Armado de cada bloque ----------
+function cabBloque(n, titulo, sub){
+  return `<div class="ads-cab"><span class="ads-num">${n}</span><div><h2>${titulo}</h2><div class="sub">${sub}</div></div></div>`;
+}
+function kpis(lista){
+  return '<div class="ads-kpis">' + lista.map(k => `<div class="card"><div class="lbl">${k[0]}</div><div class="big">${k[1]}</div><div class="nota">${k[2] || ''}</div></div>`).join('') + '</div>';
+}
+function errorBloque(msg){ return `<div class="ads-error">No se pudo leer este bloque: ${escapeHtml(msg || 'sin detalle')}</div>`; }
+function lectura(texto, alerta){ return texto ? `<div class="ads-lectura${alerta ? ' alerta' : ''}">💡 ${texto}</div>` : ''; }
+function barra(frac, clase){ const w = Math.max(0, Math.min(1, frac || 0)) * 100; return `<span class="ads-barra"><i class="${clase || ''}" style="width:${w}%"></i></span>`; }
+
+function bloque1(d){
+  const cab = cabBloque(1, 'Costo por mensaje real de WhatsApp', 'Cuánto cuesta cada mensaje confirmado por el ERP, por campaña: gasto de Google Ads dividido por los mensajes que de verdad llegaron.');
+  const b = d.costo_por_mensaje;
+  if(!b) return cab + errorBloque(d.errores.costo_por_mensaje);
+  const t = b.totales;
+  const conMsg = b.filas.filter(f => f.costo_por_mensaje != null);
+  const mejor = conMsg.length ? conMsg.reduce((a, c) => c.costo_por_mensaje < a.costo_por_mensaje ? c : a) : null;
+  const peor = conMsg.length > 1 ? conMsg.reduce((a, c) => c.costo_por_mensaje > a.costo_por_mensaje ? c : a) : null;
+  const sinMsg = b.filas.filter(f => f.gasto > 0 && f.mensajes === 0 && f.id);
+  let html = cab + (d.errores.erp ? errorBloque('Faltan los mensajes del ERP (' + d.errores.erp + '): solo se ve el gasto de Google.') : '');
+  html += kpis([
+    ['Gasto en Google Ads', fmtClp(t.gasto), `${fmtNum(t.clics)} clics · ${fmtClp(t.costo_por_clic)} por clic`],
+    ['Toques al botón de WhatsApp', fmtNum(t.toques), 'personas que llegaron de un anuncio y tocaron el botón'],
+    ['Mensajes reales', fmtNum(t.mensajes), 'confirmados por el ERP (código "ref" en el mensaje)'],
+    ['Costo por mensaje real', fmtClp(t.costo_por_mensaje), t.mensajes ? 'gasto total / mensajes reales' : 'todavía sin mensajes en este período'],
+  ]);
+  html += '<div class="tabla-wrap"><table><thead><tr><th>Campaña</th><th>Tipo</th><th class="amount">Gasto</th><th class="amount">Clics</th><th class="amount">Toques al botón</th><th class="amount">Mensajes reales</th><th class="amount">Costo por mensaje</th><th class="amount">Conversiones (Google)</th></tr></thead><tbody>' +
+    b.filas.map(f => `<tr><td>${escapeHtml(f.nombre)}</td><td>${escapeHtml(f.tipo)}</td><td class="amount">${fmtClp(f.gasto)}</td><td class="amount">${fmtNum(f.clics)}</td><td class="amount">${fmtNum(f.toques)}</td><td class="amount">${fmtNum(f.mensajes)}</td><td class="amount ${mejor && f === mejor ? 'mejor' : (peor && f === peor ? 'peor' : '')}">${fmtClp(f.costo_por_mensaje)}</td><td class="amount">${f.id ? fmtDec(f.conv_google) : '—'}</td></tr>`).join('') +
+    '</tbody></table></div>';
+  let txt = '';
+  if(mejor && peor && mejor !== peor) txt = `El mensaje más barato sale en <b>${escapeHtml(mejor.nombre)}</b> (${fmtClp(mejor.costo_por_mensaje)}) y el más caro en <b>${escapeHtml(peor.nombre)}</b> (${fmtClp(peor.costo_por_mensaje)}).`;
+  else if(mejor) txt = `Solo <b>${escapeHtml(mejor.nombre)}</b> tiene mensajes reales en este período (${fmtClp(mejor.costo_por_mensaje)} cada uno).`;
+  if(sinMsg.length) txt += ` ${sinMsg.length === 1 ? 'La campaña' : 'Las campañas'} <b>${sinMsg.map(f => escapeHtml(f.nombre)).join(', ')}</b> gastó ${fmtClp(sinMsg.reduce((s, f) => s + f.gasto, 0))} sin ningún mensaje confirmado.`;
+  if(!b.filas.length) txt = 'No hubo campañas con impresiones en este período.';
+  return html + lectura(txt, sinMsg.length > 0) + '<p class="ads-pie">Los mensajes se atribuyen a la campaña por el clic de Google (gclid). Los clics de iPhone no traen campaña y van en la fila "Sin campaña identificada". El ERP lleva este registro desde el 15-10-2026.</p>';
+}
+
+function bloque2(d){
+  const cab = cabBloque(2, 'Dónde se va la inversión', 'Gasto por red: Búsqueda, Display, YouTube, Performance Max… Si una parte grande va a Display, el dinero se gasta en sitios y apps donde casi nunca hay una consulta real.');
+  const r = d.redes;
+  if(!r) return cab + errorBloque(d.errores.redes);
+  const display = r.redes.find(x => x.red === 'CONTENT');
+  let html = cab + kpis([
+    ['Gasto total', fmtClp(r.gasto_total), 'en el período'],
+    ['En Display', fmtPct(r.pct_display), display ? fmtClp(display.gasto) + ' en sitios y apps asociados' : 'sin gasto en Display'],
+    ['En Búsqueda de Google', fmtPct((r.redes.find(x => x.red === 'SEARCH') || { pct_gasto: 0 }).pct_gasto), 'donde la persona está buscando el producto'],
+  ]);
+  html += '<div class="tabla-wrap"><table><thead><tr><th>Red</th><th class="amount">Gasto</th><th>% del gasto</th><th class="amount">Impresiones</th><th class="amount">Clics</th><th class="amount">CTR</th><th class="amount">Costo por clic</th><th class="amount">Conversiones (Google)</th></tr></thead><tbody>' +
+    r.redes.map(x => `<tr><td>${escapeHtml(x.nombre)}</td><td class="amount">${fmtClp(x.gasto)}</td><td data-orden="${x.pct_gasto}">${barra(x.pct_gasto, x.red === 'CONTENT' ? 'rojo' : '')}${fmtPct(x.pct_gasto)}</td><td class="amount">${fmtNum(x.impresiones)}</td><td class="amount">${fmtNum(x.clics)}</td><td class="amount">${fmtPct(x.ctr, 2)}</td><td class="amount">${fmtClp(x.costo_por_clic)}</td><td class="amount">${fmtDec(x.conversiones)}</td></tr>`).join('') +
+    '</tbody></table></div>';
+  let txt = '';
+  if(r.alerta_display){
+    txt = `El <b>${fmtPct(r.pct_display, 0)}</b> del gasto va a Display.` + (r.campanas_en_display.length ? ` Lo concentra <b>${escapeHtml(r.campanas_en_display[0].nombre)}</b> (${fmtClp(r.campanas_en_display[0].gasto)}).` : '') + ' Conviene revisar los sitios y apps donde aparece y excluir los que no aportan.';
+  } else if(r.redes.length) txt = `Display se lleva el ${fmtPct(r.pct_display, 0)} del gasto: por debajo del umbral de alerta (30%).`;
+  else txt = 'No hubo gasto en este período.';
+  return html + lectura(txt, r.alerta_display);
+}
+
+function bloque3(d){
+  const cab = cabBloque(3, 'Conversiones de Google vs mensajes reales', 'Cuántas conversiones cuenta Google y cuántas son un mensaje de verdad. Si la diferencia es grande, Google está optimizando hacia toques de botón y no hacia clientes.');
+  const c = d.conversiones;
+  if(!c) return cab + errorBloque(d.errores.conversiones);
+  let html = cab + kpis([
+    ['Conversiones según Google', fmtDec(c.conversiones_google), 'todas las acciones de conversión contadas'],
+    ['Que son mensaje confirmado', fmtDec(c.conversiones_mensaje_real), 'acción "WhatsApp - mensaje recibido (ERP)"; Google las procesa con demora de horas'],
+    ['Mensajes reales según el ERP', c.mensajes_erp == null ? '—' : fmtNum(c.mensajes_erp), c.toques_erp == null ? 'sin datos del ERP' : `de ${fmtNum(c.toques_erp)} toques al botón`],
+    ['Conversiones sin mensaje', fmtPct(c.pct_sin_mensaje, 0), 'del total que cuenta Google'],
+  ]);
+  html += '<div class="tabla-wrap"><table><thead><tr><th>Acción de conversión</th><th class="amount">Conversiones</th><th>¿Es un mensaje real?</th></tr></thead><tbody>' +
+    c.acciones.map(a => `<tr><td>${escapeHtml(a.nombre)}</td><td class="amount">${fmtDec(a.conversiones)}</td><td>${a.es_mensaje_real ? '<span class="badge-ads si">Sí</span>' : '<span class="badge-ads no">No (toque de botón u otra acción)</span>'}</td></tr>`).join('') +
+    '</tbody></table></div>';
+  let txt = '';
+  if(c.conversiones_google > 0 && c.pct_sin_mensaje >= 0.5) txt = `De <b>${fmtDec(c.conversiones_google)}</b> conversiones que cuenta Google, solo <b>${fmtDec(c.conversiones_mensaje_real)}</b> son mensajes confirmados. Mientras la campaña optimice hacia las demás, Google va a buscar toques baratos y no clientes: cuando haya suficientes mensajes reales, conviene dejar esa conversión como la meta.`;
+  else if(c.conversiones_google > 0) txt = `El ${fmtPct(1 - c.pct_sin_mensaje, 0)} de las conversiones de Google ya son mensajes confirmados.`;
+  else txt = 'Google no registró conversiones en este período.';
+  return html + lectura(txt, c.conversiones_google > 0 && c.pct_sin_mensaje >= 0.5);
+}
+
+function bloque4(d){
+  const cab = cabBloque(4, 'Cuota de impresiones perdida en Búsqueda', 'De todas las veces que alguien buscó lo que vendes, en cuántas apareció tu anuncio y en cuántas no: por falta de presupuesto o por ranking (oferta y calidad del anuncio).');
+  const q = d.cuota;
+  if(!q) return cab + errorBloque(d.errores.cuota);
+  if(!q.campanas.length) return cab + '<div class="empty-note">No hay campañas de Búsqueda activas con impresiones en este período.</div>';
+  const celda = (v, clase) => v == null ? '<td class="empty-note">—</td>' : `<td data-orden="${v}">${barra(v, clase)}${fmtPct(v, 0)}</td>`;
+  let html = cab + '<div class="tabla-wrap"><table><thead><tr><th>Campaña</th><th class="amount">Gasto</th><th>Cuota de impresiones</th><th>Perdida por presupuesto</th><th>Perdida por ranking</th></tr></thead><tbody>' +
+    q.campanas.map(c => `<tr><td>${escapeHtml(c.nombre)}</td><td class="amount">${fmtClp(c.gasto)}</td>${celda(c.cuota, '')}${celda(c.perdida_presupuesto, 'ambar')}${celda(c.perdida_ranking, 'rojo')}</tr>`).join('') + '</tbody></table></div>';
+  const partes = [];
+  if(q.mayor_perdida_presupuesto) partes.push(`<b>${escapeHtml(q.mayor_perdida_presupuesto.nombre)}</b> pierde el ${fmtPct(q.mayor_perdida_presupuesto.perdida_presupuesto, 0)} de las impresiones por <b>presupuesto</b>: si rinde bien, subirle el presupuesto captura demanda que hoy se pierde.`);
+  if(q.mayor_perdida_ranking) partes.push(`<b>${escapeHtml(q.mayor_perdida_ranking.nombre)}</b> pierde el ${fmtPct(q.mayor_perdida_ranking.perdida_ranking, 0)} por <b>ranking</b>: conviene mejorar anuncios, páginas de destino o la oferta por clic.`);
+  return html + lectura(partes.join(' ') || 'Ninguna campaña de Búsqueda pierde más del 5% de sus impresiones: la cobertura es buena.', partes.length > 0) + '<p class="ads-pie">Google muestra "menos de 10%" cuando el valor es muy bajo; aquí se ve como 10%.</p>';
+}
+
+function bloque5(d){
+  const cab = cabBloque(5, 'Búsquedas que gastan sin convertir', 'Lo que la gente escribió, hizo clic y no convirtió: candidatas a palabra negativa para no volver a pagar por ellas.');
+  const b = d.terminos;
+  if(!b) return cab + errorBloque(d.errores.terminos);
+  let html = cab + kpis([
+    ['Búsquedas sin conversión', fmtNum(b.cantidad), 'con al menos un clic pagado'],
+    ['Gasto en ellas', fmtClp(b.gasto_sin_convertir), b.pct_del_gasto_en_busquedas == null ? '' : fmtPct(b.pct_del_gasto_en_busquedas, 0) + ' del gasto en búsquedas'],
+  ]);
+  if(!b.terminos.length) return html + '<div class="empty-note">No hay búsquedas con gasto sin conversión en este período.</div>';
+  html += '<div class="tabla-wrap"><table><thead><tr><th>Búsqueda</th><th>Campaña</th><th class="amount">Gasto</th><th class="amount">Clics</th><th class="amount">Impresiones</th></tr></thead><tbody>' +
+    b.terminos.map(x => `<tr><td>${escapeHtml(x.termino)}</td><td>${escapeHtml(x.campana)}</td><td class="amount">${fmtClp(x.gasto)}</td><td class="amount">${fmtNum(x.clics)}</td><td class="amount">${fmtNum(x.impresiones)}</td></tr>`).join('') + '</tbody></table></div>';
+  const mas = b.cantidad > b.terminos.length ? ` Se muestran las ${b.terminos.length} que más gastaron, de ${fmtNum(b.cantidad)}.` : '';
+  return html + lectura(`Revisa esta lista: las que no tengan relación con lo que vendes (gratis, reparación, otra marca...) se pueden agregar como palabras clave negativas en Google Ads.${mas}`, b.gasto_sin_convertir > 0) + `<p class="ads-pie">${escapeHtml(b.nota)}</p>`;
+}
+
+// ---------- Carga ----------
+let tokenAds = 0;
+async function cargarAds(){
+  const tk = ++tokenAds;
+  const estado = $('adsEstado'), contenido = $('adsContenido');
+  estado.className = 'empty-note'; estado.textContent = 'Consultando Google Ads…'; estado.style.display = '';
+  contenido.style.opacity = '0.45';
+  try{
+    const res = await fetch(`/api/negocio?recurso=google-ads-analisis&desde=${rangoAds.desde}&hasta=${rangoAds.hasta}`);
+    const d = await res.json();
+    if(tk !== tokenAds) return; // llegó una respuesta de un período anterior
+    if(d.error){ estado.className = 'ads-error'; estado.textContent = d.error + (d.detail ? ' — ' + d.detail : ''); contenido.style.display = 'none'; return; }
+    estado.style.display = 'none'; contenido.style.display = ''; contenido.style.opacity = '';
+    $('bloque1').innerHTML = bloque1(d); $('bloque2').innerHTML = bloque2(d); $('bloque3').innerHTML = bloque3(d); $('bloque4').innerHTML = bloque4(d); $('bloque5').innerHTML = bloque5(d);
+    $('adsPie').textContent = `Período: ${fechaCorta(d.desde)} al ${fechaCorta(d.hasta)} · moneda ${d.moneda} · datos de Google Ads leídos ${new Date(d.generado_en).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}. Google puede corregir las cifras de los últimos días.`;
+  }catch(err){
+    if(tk !== tokenAds) return;
+    estado.className = 'ads-error'; estado.textContent = 'No se pudo consultar: ' + err.message; contenido.style.display = 'none';
+  }
+}
+
+cargarSesionUsuario();
+setRangoAds('mes');
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>
