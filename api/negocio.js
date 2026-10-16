@@ -5851,12 +5851,14 @@ async function avisarLeadWebNuevo(sql, l) {
     const destinatarios = await obtenerSuscriptoresEmail(sql, 'indexscale-lead-web');
     const { asunto, html } = armarCorreoLeadWeb(l);
     let enviados = 0;
+    const errores = [];
     for (const para of destinatarios) {
       const r = await enviarCorreo({ para, asunto, html });
       if (r && r.enviado) enviados++;
+      else errores.push(String((r && r.motivo) || 'sin motivo').slice(0, 200));
     }
     if (enviados > 0) await marcarNotificacionEnviada(sql, 'indexscale-lead-web', { asunto, html });
-    return { enviado: enviados > 0, enviados };
+    return { enviado: enviados > 0, enviados, destinatarios, errores };
   } catch (e) {
     return { enviado: false, motivo: String(e) };
   }
@@ -5896,7 +5898,7 @@ async function manejarIndexscaleLeadWebRegistrar(req, res) {
     const esNuevo = r.rows.length > 0;
     // Aviso al equipo solo la primera vez que se guarda (o se completa) el lead; un reintento idéntico no vuelve a avisar.
     const aviso = esNuevo ? await avisarLeadWebNuevo(sql, { ...b, datos }) : null;
-    return res.status(200).json({ ok: true, nuevo: esNuevo, aviso: aviso ? aviso.enviado : false });
+    return res.status(200).json({ ok: true, nuevo: esNuevo, aviso: aviso ? aviso.enviado : false, aviso_detalle: aviso ? { destinatarios: aviso.destinatarios || [], enviados: aviso.enviados || 0, errores: aviso.errores || [], motivo: aviso.motivo || null } : null });
   } catch (e) {
     return res.status(200).json({ error: 'No se pudo guardar el lead: ' + e.message });
   }
