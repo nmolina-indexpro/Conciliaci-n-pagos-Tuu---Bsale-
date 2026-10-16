@@ -76,6 +76,9 @@
   .sku-code{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);}
   .badge-caida{display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;font-size:11px;background:var(--red-bg);color:var(--red);}
   .chk-group{display:flex;flex-direction:column;gap:3px;}
+  .efecto-linea{font-size:11.5px;line-height:1.35;margin-bottom:6px;}
+  .efecto-linea.ok{color:var(--green);} .efecto-linea.mal{color:var(--red);} .efecto-linea.espera{color:var(--muted);} .efecto-linea.aviso{color:#8A5A00;}
+  .efecto-linea .efecto-sub{display:block;color:var(--muted);font-size:10.5px;}
   .chk-mini{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;}
   .chk-mini input{margin:0;cursor:pointer;}
 
@@ -342,6 +345,7 @@ let ordenVentasBajaAsc = false; // arranca de mayor a menor
 // cargarVentasBaja(), así que la búsqueda no necesita ningún fetch propio.
 let catalogoSkusGlobal = [];
 let costoPorSkuGlobal = {}, nombrePorSkuGlobal = {}, estadoSkuGlobal = {};
+let efectoGlobal = {}, errorEfectoGlobal = null; // "¿Funcionó?": ventas desde que se marcó cada acción, por SKU (lib/efecto-acciones.js)
 let resultadosBusqueda = [];
 // Los checkboxes/comentario/merma son las mismas acciones para la tabla de
 // estancados Y para los resultados de búsqueda -- esta función los busca en
@@ -349,6 +353,41 @@ let resultadosBusqueda = [];
 // lógica (toggleVentaBajaFlag, editarComentarioVentaBaja, etc.).
 function buscarProductoPorSku(sku){
   return ventasBajaActual.find(x => x.sku === sku) || resultadosBusqueda.find(x => x.sku === sku);
+}
+
+// ---------- ¿Funcionó? ----------
+// Una línea por acción marcada (🚚 Envío gratis, 💲 Variación de precio, 🛒 Mercado Libre) con lo que pasó con las ventas del SKU desde
+// el día en que se marcó. Envío gratis y Variación de precio miden las ventas totales del SKU (no se puede separar la venta "con envío
+// gratis"); Mercado Libre mide solo las de Bsale con vendedor "Venta web" y medio de pago "Abono Mercado Libre".
+const ACCIONES_EFECTO = [['envio_gratis', 'envioGratis', '🚚', 'Envío gratis'], ['variacion_precio', 'variacionPrecio', '💲', 'Variación de precio'], ['mercado_libre', 'mercadoLibre', '🛒', 'Mercado Libre']];
+const fmtDiaCorto = iso => { const [, m, d] = String(iso).split('-'); return d + '/' + m; };
+const textoUnidades = n => fmtNum(n) + (n === 1 ? ' unidad' : ' unidades');
+const textoVentas = n => fmtNum(n) + (n === 1 ? ' venta' : ' ventas');
+function lineaEfecto(campo, icono, nombre, r){
+  const cab = `<span title="${escapeHtml(nombre)}">${icono}</span>`;
+  const ml = campo === 'mercado_libre';
+  if(!r) return `<div class="efecto-linea espera">${cab} Recién marcado: se medirá desde hoy</div>`;
+  if(r.estado === 'sin_fecha') return `<div class="efecto-linea aviso" title="Se marcó antes de que el sistema guardara el historial de cambios">${cab} Sin fecha de marca: desmárcalo y vuelve a marcarlo para medirlo</div>`;
+  const desde = fmtDiaCorto(r.desde);
+  if(r.estado === 'funciono'){
+    return ml
+      ? `<div class="efecto-linea ok">${cab} ✔ ${textoVentas(r.documentos)} por Mercado Libre (${textoUnidades(r.unidades)}) desde el ${desde}<span class="efecto-sub">Venta web + Abono Mercado Libre · el SKU vendió ${textoVentas(r.total_documentos)} en total en ese período</span></div>`
+      : `<div class="efecto-linea ok">${cab} ✔ ${textoUnidades(r.unidades)} en ${textoVentas(r.documentos)} desde el ${desde}<span class="efecto-sub">Antes: ${textoUnidades(r.antes_unidades)} en ${textoVentas(r.antes_documentos)} (${fmtNum(r.dias)} d previos)</span></div>`;
+  }
+  if(r.estado === 'sin_datos_pago') return `<div class="efecto-linea aviso" title="Los documentos ya sincronizados traen el medio de pago recién en la siguiente pasada completa">${cab} ⚠ Hay ventas del SKU, pero aún no se lee su medio de pago: sincroniza con Bsale</div>`;
+  if(r.estado === 'pronto') return `<div class="efecto-linea espera">${cab} ⏳ Sin ventas${ml ? ' de Mercado Libre' : ''} aún · marcado el ${desde} (${fmtNum(r.dias)} d)</div>`;
+  return `<div class="efecto-linea mal">${cab} ✖ Sin ventas${ml ? ' de Mercado Libre' : ''} desde el ${desde} (${fmtNum(r.dias)} d)${!ml ? `<span class="efecto-sub">Antes: ${textoUnidades(r.antes_unidades)} en los ${fmtNum(r.dias)} d previos</span>` : '<span class="efecto-sub">Venta web + Abono Mercado Libre</span>'}</div>`;
+}
+function celdaEfecto(p){
+  const lineas = ACCIONES_EFECTO.filter(([, campoP]) => p[campoP]).map(([campo, , icono, nombre]) => lineaEfecto(campo, icono, nombre, (efectoGlobal[p.sku] || {})[campo]));
+  if(!lineas.length) return '<td style="min-width:200px;"><span class="empty-note">—</span></td>';
+  return `<td style="min-width:200px;">${lineas.join('')}${errorEfectoGlobal ? '<div class="efecto-linea aviso">No se pudo medir: ' + escapeHtml(errorEfectoGlobal) + '</div>' : ''}</td>`;
+}
+// Para ordenar: cuántas de las acciones marcadas ya vendieron (sin acciones marcadas = al final)
+function puntajeEfecto(p){
+  const marcadas = ACCIONES_EFECTO.filter(([, campoP]) => p[campoP]);
+  if(!marcadas.length) return null;
+  return marcadas.filter(([campo]) => ((efectoGlobal[p.sku] || {})[campo] || {}).estado === 'funciono').length;
 }
 
 function ordenarVentasBaja(col){
@@ -416,6 +455,7 @@ async function cargarVentasBaja(){
     const { meses, productos, estadoSku } = data;
     catalogoSkusGlobal = stockData.skus || [];
     costoPorSkuGlobal = costoPorSku; nombrePorSkuGlobal = nombrePorSku; estadoSkuGlobal = estadoSku || {};
+    efectoGlobal = data.efecto || {}; errorEfectoGlobal = data.errorEfecto || null;
     if(!productos.length && !(stockData.skus || []).length){
       $('ventasBajaResumen').textContent = '';
       $('wrapVentasBaja').innerHTML = rolActual === 'admin'
@@ -744,7 +784,8 @@ function renderVentasBaja(){
     $('wrapVentasBaja').innerHTML = `<p class="empty-note">No se detectó ningún SKU estancado (con stock disponible y sin ventas hace ${UMBRAL_DIAS_ESTANCADO}+ días).</p>`;
     return;
   }
-  const campoOrden = { stock: 'stockActual', dias: 'diasDesdeUltimaVenta', anio: 'cantidadAnio', monto: 'montoAnio', precioVenta: 'precioVentaConIva', costo: 'costoTotal', oportunidad: 'oportunidadVenta', margen: 'margenTotal' };
+  const campoOrden = { stock: 'stockActual', dias: 'diasDesdeUltimaVenta', anio: 'cantidadAnio', monto: 'montoAnio', precioVenta: 'precioVentaConIva', costo: 'costoTotal', oportunidad: 'oportunidadVenta', margen: 'margenTotal' , efecto: 'efectoPuntaje'};
+  ventasBajaActual.forEach(p => { p.efectoPuntaje = puntajeEfecto(p); });
   const ordenados = [...ventasBajaActual].sort((a, b) => {
     const campo = campoOrden[ordenVentasBaja] || 'diasDesdeUltimaVenta';
     // "Nunca vendido" (null) en días sin venta es MÁS estancado que
@@ -783,6 +824,7 @@ function renderVentasBaja(){
         ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('oportunidad')">Oportunidad de venta (c/IVA)${marca('oportunidad')}</th>` : ''}
         ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('margen')">Margen total stock${marca('margen')}</th>` : ''}
         <th>Acciones</th>
+        <th class="ordenable" onclick="ordenarVentasBaja('efecto')" title="Qué pasó con las ventas desde que se marcó cada acción">¿Funcionó?${marca('efecto')}</th>
       </tr></thead>
       <tbody>
         ${ordenados.map(p => `
@@ -810,6 +852,7 @@ function renderVentasBaja(){
                 ${p.comentario ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.comentario)}</span>` : ''}
               </div>
             </td>
+            ${celdaEfecto(p)}
           </tr>`).join('')}
       </tbody>
     </table></div>
@@ -860,7 +903,7 @@ function renderResultadosBusqueda(totalCoincidencias){
       <thead><tr>
         <th>SKU</th><th>Producto</th><th>Shopify</th><th class="amount">Stock actual</th>
         ${esAdmin ? `<th class="amount">Costo total stock</th>` : ''}
-        <th>Acciones</th>
+        <th>Acciones</th><th>¿Funcionó?</th>
       </tr></thead>
       <tbody>
         ${resultadosBusqueda.map(p => `
@@ -882,6 +925,7 @@ function renderResultadosBusqueda(totalCoincidencias){
                 ${p.comentario ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.comentario)}</span>` : ''}
               </div>
             </td>
+            ${celdaEfecto(p)}
           </tr>`).join('')}
       </tbody>
     </table></div>

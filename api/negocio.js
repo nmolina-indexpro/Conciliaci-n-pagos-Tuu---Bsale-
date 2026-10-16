@@ -33,6 +33,7 @@ import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emisio
 import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, productosConEtiqueta, estadoDescuentoEnvio, crearDescuentoEnvioGratis } from '../lib/envio-gratis-shopify.js';
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
+import { efectoAcciones } from '../lib/efecto-acciones.js';
 import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
@@ -1983,6 +1984,10 @@ async function manejarSyncAnalisis(req, res, sesion) {
       ultimaPeticion = Date.now();
     };
 
+    // Nombre del vendedor de cada documento (para medir las ventas de Mercado Libre en Productos estancados); si no se puede leer, queda vacío.
+    let vendedoresSync = new Map();
+    try { vendedoresSync = await obtenerMapaVendedores(token); } catch (e) { console.warn('[sync-analisis] no se pudieron leer los vendedores:', e.message); }
+
     let pasadaTerminada = total != null && offset >= total;
     while (!pasadaTerminada && presupuestoRestante() > 0) {
       const offsetsTanda = [];
@@ -1999,7 +2004,7 @@ async function manejarSyncAnalisis(req, res, sesion) {
       // sin corchetes no trae los detalles (visto ya en bsale-sku-report.js,
       // que sí usa expand=[details,document_type] con éxito).
       const respuestas = await Promise.all(offsetsTanda.map(async off => {
-        const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[client,document_type,details]&limit=${PUNTOS_SYNC_LIMIT}&offset=${off}`;
+        const url = `${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[client,document_type,details,payments,user]&limit=${PUNTOS_SYNC_LIMIT}&offset=${off}`;
         const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
         if (!r.ok) {
           const texto = await r.text().catch(() => '');
@@ -2073,16 +2078,20 @@ async function manejarSyncAnalisis(req, res, sesion) {
           previa.monto += (Number(det.quantity) || 0) * (Number(det.netUnitValue) || 0);
           porSku.set(codigo, previa);
         }
-        for (const [sku, v] of porSku.entries()) filasSku.push({ documentoId: doc.id, sku, nombre: v.nombre, fecha, cantidad: v.cantidad, monto: v.monto });
+        const vendedorDoc = doc.user?.id ? (vendedoresSync.get(doc.user.id) || `Usuario #${doc.user.id}`) : 'Venta web'; // sin vendedor asignado = venta web (mismo criterio que Horario extendido)
+        const pagosDoc = Array.isArray(doc.payments?.items) ? doc.payments.items : (Array.isArray(doc.payments) ? doc.payments : []);
+        const mediosPagoDoc = pagosDoc.map(p => p?.name || p?.payment_type?.name).filter(Boolean).join(' | ') || '';
+        for (const [sku, v] of porSku.entries()) filasSku.push({ documentoId: doc.id, sku, nombre: v.nombre, fecha, cantidad: v.cantidad, monto: v.monto, vendedor: vendedorDoc, mediosPago: mediosPagoDoc });
       }
       if (filasSku.length > 0) {
         await sql.query(
-          `INSERT INTO bsale_ventas_sku (documento_id, sku, nombre, fecha, cantidad, monto, sincronizado_en)
-           SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::date[], $5::numeric[], $6::numeric[], $7::timestamptz[])
+          `INSERT INTO bsale_ventas_sku (documento_id, sku, nombre, fecha, cantidad, monto, sincronizado_en, vendedor, medios_pago)
+           SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::date[], $5::numeric[], $6::numeric[], $7::timestamptz[], $8::text[], $9::text[])
            ON CONFLICT (documento_id, sku) DO UPDATE SET
              nombre = EXCLUDED.nombre, fecha = EXCLUDED.fecha,
              cantidad = EXCLUDED.cantidad, monto = EXCLUDED.monto,
-             sincronizado_en = EXCLUDED.sincronizado_en;`,
+             sincronizado_en = EXCLUDED.sincronizado_en,
+             vendedor = EXCLUDED.vendedor, medios_pago = EXCLUDED.medios_pago;`,
           [
             filasSku.map(f => f.documentoId),
             filasSku.map(f => f.sku),
@@ -2091,6 +2100,8 @@ async function manejarSyncAnalisis(req, res, sesion) {
             filasSku.map(f => f.cantidad),
             filasSku.map(f => f.monto),
             filasSku.map(() => new Date().toISOString()),
+            filasSku.map(f => f.vendedor),
+            filasSku.map(f => f.mediosPago),
           ]
         );
       }
@@ -2358,8 +2369,11 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
       estadoSkuCompleto[sku] = { comentario: historial[0]?.comentario || null, historial, mercadoLibre: !!est.mercadoLibre, envioGratis: !!est.envioGratis, variacionPrecio: !!est.variacionPrecio };
     }
 
+    // "¿Funcionó?": ventas desde que se marcó cada acción (ver lib/efecto-acciones.js). Si falla, la página sigue sin esa columna.
+    let efecto = {}, errorEfecto = null;
+    try { efecto = await efectoAcciones(sql, new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' })); } catch (e) { errorEfecto = String(e.message || e).slice(0, 160); }
     return res.status(200).json({
-      meses, productos, estadoSku: estadoSkuCompleto, excluidos: excluidosRows.map(r => r.sku), mermas,
+      meses, productos, estadoSku: estadoSkuCompleto, excluidos: excluidosRows.map(r => r.sku), mermas, efecto, errorEfecto,
       ultimaSincronizacion: estadoSync.ultima_pasada_completa_en || null,
     });
   } catch (err) {
