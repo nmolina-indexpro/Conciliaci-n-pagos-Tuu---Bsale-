@@ -1037,7 +1037,30 @@ async function eliminarProductoIntcomex(sku, nombre){
   }
 }
 
+// Enlace a la ficha del producto en Shopify, bajo el SKU. Se pide una sola vez (consulta liviana, guardada 30 min en el servidor) y la tabla se
+// vuelve a pintar cuando llega. Producto en borrador/archivado: solo existe el enlace al admin de Shopify.
+let urlsShopifyCompras = null, cargandoUrlsShopifyCompras = false; // null = todavía no se pidió
+async function cargarUrlsShopifyCompras(){
+  if(cargandoUrlsShopifyCompras) return;
+  cargandoUrlsShopifyCompras = true;
+  try{
+    const data = await (await fetch('/api/negocio?recurso=shopify-urls-sku')).json();
+    urlsShopifyCompras = data.urls || {};
+  }catch(e){ urlsShopifyCompras = {}; }
+  cargandoUrlsShopifyCompras = false;
+  if(productosIntcomexBase().length) renderIntcomex();
+}
+function enlaceShopifyHtml(sku){
+  if(urlsShopifyCompras === null) return '';
+  const e = urlsShopifyCompras[sku];
+  const estilo = 'display:block;font-size:11px;margin-top:2px;';
+  if(!e) return `<span class="empty-note" style="${estilo}" title="Este SKU no existe en Shopify">Sin ficha en Shopify</span>`;
+  if(e.url) return `<a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer" style="${estilo}" title="Abrir el producto en la tienda">En Shopify ↗</a>`;
+  return `<a href="${escapeHtml(e.adminUrl)}" target="_blank" rel="noopener noreferrer" class="empty-note" style="${estilo}" title="El producto no está publicado en la tienda: abre su ficha en el admin de Shopify">En Shopify (no publicado) ↗</a>`;
+}
+
 function renderIntcomex(){
+  if(urlsShopifyCompras === null && !cargandoUrlsShopifyCompras && productosIntcomexBase().length) cargarUrlsShopifyCompras();
   const wrap = $('intcomexWrap');
   const base = productosIntcomexBase();
   const categoria = $('intcomexFiltroCategoria').value;
@@ -1105,7 +1128,7 @@ function renderIntcomex(){
           : '<span class="empty-note" title="Este SKU no tiene foto en Shopify">—</span>';
         return `<tr>
           <td>${fotoHtml}</td>
-          <td>${s.code}</td><td>${s.nombre}</td><td>${s.categoria}</td>
+          <td>${s.code}${enlaceShopifyHtml(s.code)}</td><td>${s.nombre}</td><td>${s.categoria}</td>
           <td class="amount">${fmtNum(s.stockActual)}</td>
           <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
           <td>${s.fechaUltimaCompra || '—'}</td>
