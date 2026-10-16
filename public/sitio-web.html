@@ -104,6 +104,13 @@
   .date-field{display:flex;align-items:center;gap:5px;}
   .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
   .date-field input{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:6px 9px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);}
+  .ia-acc{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;}
+  .ia-acc.destacar{background:#DDF3E4;color:#14663A;} .ia-acc.mantener{background:#ECEFF1;color:#455A64;} .ia-acc.reordenar{background:#DCEBFA;color:#1B4F8C;}
+  .ia-acc.revisar{background:#FDF0D2;color:#8A5A00;} .ia-acc.quitar{background:#FBE0DE;color:#9B2C22;}
+  .ia-panel{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:0 0 14px;background:var(--surface);}
+  .ia-panel h3{margin:0 0 6px;font-size:14px;} .ia-panel ol{margin:6px 0 8px 18px;padding:0;font-size:13px;line-height:1.5;}
+  .ia-panel .ia-nota{font-size:11.5px;color:var(--muted);margin-top:6px;}
+  .ia-motivo{display:block;font-size:11.5px;color:var(--muted);margin-top:1px;}
   .sw-barra-fechas{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-bottom:14px;}
   .sw-barra-fechas .toolbar-fechas{margin:0;}
   .toolbar-fechas .btn-ghost.active{background:var(--primary-dim);border-color:var(--primary);color:var(--primary-dark);}
@@ -372,6 +379,8 @@
         <div class="sub">Cuántas personas usan los botones de marca, serie y medidas en las colecciones de cargadores, baterías y pantallas, y el buscador "Encuentra tu repuesto" del home; y cuántas siguen usando el filtro lateral de siempre. Se cuenta por persona (huella anónima diaria): la misma persona en dos días cuenta dos veces. Los bots se descartan.</div>
       </div>
     </div>
+    <div style="margin:0 0 12px;"><button type="button" class="btn-primary btn-compact" id="btnFiltrosIA" onclick="analizarFiltrosIA()" title="La IA revisa cada valor y sugiere qué destacar, reordenar, revisar o quitar">🤖 Analizar con IA</button> <span class="empty-note" style="margin-left:6px;">Sugiere qué hacer con cada marca, serie y medida para optimizar los filtros.</span></div>
+    <div id="filtrosIA"></div>
     <div id="filtrosEstado" class="empty-note">Cargando…</div>
     <div id="filtrosContenido" style="display:none;">
       <div class="envio-kpis" id="filtrosKpis"></div>
@@ -483,8 +492,10 @@ function envioTabla(el, cols, filas, vacio){
     filas.map(f => '<tr>' + cols.map(c => `<td class="${c.cls||''}">${c.f(f)}</td>`).join('') + '</tr>').join('') + '</tbody>';
 }
 let tokenFiltros = 0;
+let ultimoFiltrosUso = null, analisisFiltrosIA = null;
 async function cargarFiltrosUso(){
   const tk = ++tokenFiltros;
+  analisisFiltrosIA = null; $('filtrosIA').innerHTML = '';
   const estado = $('filtrosEstado'), contenido = $('filtrosContenido');
   estado.className = 'empty-note'; estado.textContent = 'Cargando…'; estado.style.display = '';
   try{
@@ -517,20 +528,61 @@ async function cargarFiltrosUso(){
       ['"Ver productos" / WhatsApp', fmtNum(hb) + ' / ' + fmtNum(hw), 'personas que pulsaron cada botón en el home'],
       ['Bots descartados', fmtNum(d.bots), 'avisos de bots o servidores, aparte'],
     ].map(k => '<div class="envio-kpi"><div class="lbl">' + k[0] + '</div><div class="big">' + k[1] + '</div><div class="nota">' + k[2] + '</div></div>').join('');
-    const ORDEN = ['marca', 'todas', 'serie', 'pulgadas', 'resolucion', 'watt', 'voltaje', 'punta', 'tipo', 'lateral', 'buscar', 'whatsapp', 'limpiar'];
-    const tablaVal = (titulo, filas) => '<p class="envio-sub" style="margin:10px 0 4px;">' + envioEsc(titulo) + '</p><table class="envio-tabla"><thead><tr><th>Valor</th><th class="num">Personas</th><th class="num">Veces</th></tr></thead><tbody>' +
-      filas.slice(0, 8).map(x => '<tr><td>' + envioEsc(x.valor) + '</td><td class="num">' + fmtNum(x.personas) + '</td><td class="num">' + fmtNum(x.veces) + '</td></tr>').join('') +
-      (filas.length > 8 ? '<tr><td class="empty-note" colspan="3">y ' + (filas.length - 8) + ' más</td></tr>' : '') + '</tbody></table>';
-    $('filtrosTarjetas').innerHTML = d.origenes.map(o => {
-      const usoPct = o.vistas ? Math.round(Math.min(o.usaron, o.vistas) / o.vistas * 100) : 0;
-      const disp = o.dispositivos.filter(x => x.dispositivo !== 'sin dato').map(x => envioEsc(x.dispositivo === 'movil' ? 'Celular' : 'Escritorio') + ': ' + fmtNum(x.usaron) + ' de ' + fmtNum(x.vistas) + ' (' + pct(x.usaron, x.vistas) + ')').join(' · ');
-      const tablas = ORDEN.filter(t => o.valores[t] && o.valores[t].length).map(t => tablaVal(d.nombresTipo[t] || t, o.valores[t])).join('');
-      return '<div class="fu-tarjeta"><h3>' + envioEsc(o.nombre) + '</h3>' +
-        '<div class="fu-mini"><div><b>' + fmtNum(o.vistas) + '</b><span>Vieron</span></div><div><b>' + fmtNum(o.usaron) + '</b><span>Usaron botones</span></div><div><b>' + fmtNum(o.lateral) + '</b><span>Filtro lateral</span></div></div>' +
-        '<div class="fu-barra" title="' + usoPct + '% usó los botones"><i style="width:' + usoPct + '%"></i></div>' +
-        (disp ? '<div class="empty-note">' + disp + '</div>' : '') + (tablas || '<div class="empty-note" style="margin-top:8px;">Sin uso de filtros todavía.</div>') + '</div>';
-    }).join('');
+    ultimoFiltrosUso = d;
+    pintarTarjetasFiltros();
   }catch(err){ estado.className = 'note-box err'; estado.textContent = err.message; contenido.style.display = 'none'; setResumen('filtros', 'atencion', 'No se pudo cargar: ' + err.message, []); }
+}
+// Tarjetas por origen. Si ya hay análisis con IA, cada valor muestra su recomendación al lado.
+function pintarTarjetasFiltros(){
+  const d = ultimoFiltrosUso;
+  if(!d) return;
+  const pct = (a, b) => b ? Math.round(Math.min(a, b) / b * 100) + '%' : '—';
+  const ia = analisisFiltrosIA ? new Map(analisisFiltrosIA.valores.map(x => [x.origen + '|' + x.tipo + '|' + x.valor, x])) : null;
+  const LIMITE = ia ? 12 : 8;
+  const ORDEN = ['marca', 'todas', 'serie', 'pulgadas', 'resolucion', 'watt', 'voltaje', 'punta', 'tipo', 'lateral', 'buscar', 'whatsapp', 'limpiar'];
+  const celdaIA = (origen, tipo, valor) => {
+    const r = ia.get(origen + '|' + tipo + '|' + valor);
+    return r ? '<td><span class="ia-acc ' + r.accion + '">' + NOMBRE_ACCION_IA[r.accion] + '</span>' + (r.motivo ? '<span class="ia-motivo">' + envioEsc(r.motivo) + '</span>' : '') + '</td>' : '<td class="empty-note">—</td>';
+  };
+  const tablaVal = (titulo, filas, origen, tipo) => '<p class="envio-sub" style="margin:10px 0 4px;">' + envioEsc(titulo) + '</p><table class="envio-tabla"><thead><tr><th>Valor</th><th class="num">Personas</th><th class="num">Veces</th>' + (ia ? '<th>Recomendación IA</th>' : '') + '</tr></thead><tbody>' +
+    filas.slice(0, LIMITE).map(x => '<tr><td>' + envioEsc(x.valor) + '</td><td class="num">' + fmtNum(x.personas) + '</td><td class="num">' + fmtNum(x.veces) + '</td>' + (ia ? celdaIA(origen, tipo, x.valor) : '') + '</tr>').join('') +
+    (filas.length > LIMITE ? '<tr><td class="empty-note" colspan="' + (ia ? 4 : 3) + '">y ' + (filas.length - LIMITE) + ' más</td></tr>' : '') + '</tbody></table>';
+  $('filtrosTarjetas').innerHTML = d.origenes.map(o => {
+    const usoPct = o.vistas ? Math.round(Math.min(o.usaron, o.vistas) / o.vistas * 100) : 0;
+    const disp = o.dispositivos.filter(x => x.dispositivo !== 'sin dato').map(x => envioEsc(x.dispositivo === 'movil' ? 'Celular' : 'Escritorio') + ': ' + fmtNum(x.usaron) + ' de ' + fmtNum(x.vistas) + ' (' + pct(x.usaron, x.vistas) + ')').join(' · ');
+    const tablas = ORDEN.filter(tp => o.valores[tp] && o.valores[tp].length).map(tp => tablaVal(d.nombresTipo[tp] || tp, o.valores[tp], o.origen, tp)).join('');
+    return '<div class="fu-tarjeta"><h3>' + envioEsc(o.nombre) + '</h3>' +
+      '<div class="fu-mini"><div><b>' + fmtNum(o.vistas) + '</b><span>Vieron</span></div><div><b>' + fmtNum(o.usaron) + '</b><span>Usaron botones</span></div><div><b>' + fmtNum(o.lateral) + '</b><span>Filtro lateral</span></div></div>' +
+      '<div class="fu-barra" title="' + usoPct + '% usó los botones"><i style="width:' + usoPct + '%"></i></div>' +
+      (disp ? '<div class="empty-note">' + disp + '</div>' : '') + (tablas || '<div class="empty-note" style="margin-top:8px;">Sin uso de filtros todavía.</div>') + '</div>';
+  }).join('');
+}
+const NOMBRE_ACCION_IA = { destacar: 'Destacar', mantener: 'Mantener', reordenar: 'Reordenar', revisar: 'Revisar', quitar: 'Quitar' };
+// Análisis con IA (Gemini) de qué hacer con cada valor; se pide a mano y se descarta al cambiar el período
+async function analizarFiltrosIA(){
+  const panel = $('filtrosIA'), btn = $('btnFiltrosIA'), tkPeriodo = tokenFiltros;
+  if(!ultimoFiltrosUso){ panel.innerHTML = '<div class="note-box err">Espera a que carguen los datos del período.</div>'; return; }
+  btn.disabled = true; btn.textContent = 'Analizando…';
+  panel.innerHTML = '<div class="empty-note">La IA está revisando cada valor… puede tardar hasta 30 segundos.</div>';
+  try{
+    const res = await fetch(`/api/negocio?recurso=filtros-uso&parte=analisis-ia&desde=${fechasSitio.desde}&hasta=${fechasSitio.hasta}`, { method: 'POST' });
+    const a = await res.json();
+    if(tkPeriodo !== tokenFiltros) return; // el período cambió mientras tanto: este análisis ya no corresponde
+    if(a.error){ panel.innerHTML = '<div class="note-box err">' + envioEsc(a.error) + (a.detail ? ' — ' + envioEsc(a.detail) : '') + '</div>'; return; }
+    analisisFiltrosIA = a;
+    const cuenta = {};
+    a.valores.forEach(v => { cuenta[v.accion] = (cuenta[v.accion] || 0) + 1; });
+    panel.innerHTML = '<div class="ia-panel"><h3>🤖 Análisis con IA · ' + envioEsc(a.periodo) + '</h3>' +
+      (a.resumen ? '<div style="font-size:13px;line-height:1.5;">' + envioEsc(a.resumen) + '</div>' : '') +
+      (a.prioridades.length ? '<div style="margin-top:8px;font-weight:600;font-size:12.5px;">Qué hacer primero</div><ol>' + a.prioridades.map(x => '<li>' + envioEsc(x) + '</li>').join('') + '</ol>' : '') +
+      '<div>' + Object.keys(NOMBRE_ACCION_IA).filter(k => cuenta[k]).map(k => '<span class="ia-acc ' + k + '" style="margin-right:6px;">' + NOMBRE_ACCION_IA[k] + ': ' + cuenta[k] + '</span>').join('') + '</div>' +
+      '<div class="ia-nota">Son sugerencias de la IA a partir de cuántas personas usan cada valor (no ve ventas ni precios): valídalas antes de cambiar los filtros del tema.' + (a.sin_analizar ? ' ' + a.sin_analizar + ' valor(es) quedaron sin recomendación.' : '') + ' La recomendación de cada valor está en las tarjetas de abajo.</div></div>';
+    pintarTarjetasFiltros();
+  }catch(err){
+    if(tkPeriodo === tokenFiltros) panel.innerHTML = '<div class="note-box err">' + envioEsc(err.message) + '</div>';
+  }finally{
+    btn.disabled = false; btn.textContent = '🤖 Analizar con IA';
+  }
 }
 function fmtNumeroWa(n){ const t = String(n || '').replace(/\D/g, ''); return t.length === 11 ? '+' + t.slice(0, 2) + ' ' + t.slice(2, 3) + ' ' + t.slice(3, 7) + ' ' + t.slice(7) : (n || '—'); }
 // ---------- Filtro de fechas único: lo usan todos los módulos que se miden por período ----------

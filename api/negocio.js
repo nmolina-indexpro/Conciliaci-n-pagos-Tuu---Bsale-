@@ -32,6 +32,7 @@ import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
+import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
@@ -15069,8 +15070,45 @@ async function manejarBuscadorIaFiltro(req, res) {
   }
 }
 
+// Respuesta estructurada de Gemini (la IA debe llamar a la herramienta). Mismo patrón que llamarGeminiAnalisis, pero con herramienta y tamaño propios.
+async function llamarGeminiEstructurado(systemPrompt, texto, herramienta, { maxTokens = 4096, timeoutMs = 45000 } = {}) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('sin_gemini_api_key');
+  const decl = { name: herramienta.name, description: herramienta.description, parameters: convertirSchemaAGemini(herramienta.input_schema) };
+  const respuesta = await fetchConTimeout(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ANALISIS}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: texto }] }],
+        tools: [{ function_declarations: [decl] }],
+        tool_config: { function_calling_config: { mode: 'ANY', allowed_function_names: [decl.name] } },
+        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 },
+      }),
+    },
+    timeoutMs
+  );
+  if (!respuesta.ok) throw errorGemini(respuesta.status, await respuesta.text().catch(() => ''));
+  const dataIA = await respuesta.json();
+  const llamada = (dataIA.candidates?.[0]?.content?.parts || []).find(p => p.functionCall);
+  if (!llamada) throw new Error('Gemini no devolvió un análisis estructurado');
+  return llamada.functionCall.args || {};
+}
+
 async function manejarFiltrosUso(req, res, _sesion) {
   try {
+    // POST ?parte=analisis-ia&desde=&hasta= : análisis con IA (Gemini) de qué hacer con cada valor de los filtros. No guarda nada.
+    if (req.method === 'POST' && req.query.parte === 'analisis-ia') {
+      if (!process.env.GEMINI_API_KEY) return res.status(200).json({ error: 'GEMINI_API_KEY no está configurada en el servidor' });
+      const sqlIA = await getSql();
+      const rangoIA = esFechaDia(req.query.desde) && esFechaDia(req.query.hasta) ? rangoDesdeHasta(req.query.desde, req.query.hasta) : 30;
+      const entrada = armarEntradaFiltrosIA(await resumenFiltrosUso(sqlIA, rangoIA));
+      if (!entrada.origenes.some(o => o.valores.length)) return res.status(200).json({ error: 'Todavía no hay valores de filtros usados en este período: no hay nada que analizar.' });
+      const bruto = await llamarGeminiEstructurado(SISTEMA_FILTROS_IA, 'Uso de los filtros en ' + entrada.periodo + ':\n' + JSON.stringify(entrada), HERRAMIENTA_FILTROS_IA, { maxTokens: 8192 });
+      return res.status(200).json({ ...normalizarAnalisisFiltros(bruto, entrada), periodo: entrada.periodo });
+    }
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     const sql = await getSql();
     // Período elegido en la página (desde/hasta, por día de Chile) o, como antes, los últimos 7/30/90 días.
