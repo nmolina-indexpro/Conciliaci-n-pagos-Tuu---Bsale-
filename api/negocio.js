@@ -9,7 +9,7 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 
-import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, asegurarTablaDescuentosWeb, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
+import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaIndexscaleLeadsWeb, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, asegurarTablaDescuentosWeb, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
 import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, validarEmbudo as validarEmbudoBuscadorIa, validarDescuentoEvento as validarDescuentoEventoBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { normalizarConfig as normalizarConfigDW, analizarProducto as analizarProductoDW, permisosShopify as permisosShopifyDW, listarProductos as listarProductosDW, aplicarEtiquetas as aplicarEtiquetasDW, estadoWebhook as estadoWebhookDW, registrarWebhook as registrarWebhookDW, costosBsale as costosBsaleDW, resultadosPedidos as resultadosPedidosDW, rangoResultados as rangoResultadosDW, claveAviso as claveAvisoDW, tieneCambios as tieneCambiosDW, estadoDescuentos as estadoDescuentosDW, crearDescuentoFuncion as crearDescuentoFuncionDW, productosAlCarro as productosAlCarroDW } from '../lib/descuentos-web.js';
@@ -137,6 +137,8 @@ export default async function handler(req, res) {
   // por fila (?t=), no algo ligado a sesión. Ver middleware.ts
   // (esIndexscalePixelPublico).
   if (req.query.recurso === 'indexscale-pixel') return manejarIndexscalePixel(req, res);
+  // Leads de los formularios de indexscale.cl: los reenvía el servidor de WordPress (sin sesión). Seguridad: clave INDEXSCALE_LEADS_KEY (header x-api-key).
+  if (req.query.recurso === 'indexscale-lead-web-registrar') return manejarIndexscaleLeadWebRegistrar(req, res);
   // Registro de búsquedas del Buscador con IA del home de indexstore.cl: lo
   // llama el Worker de Cloudflare (no un navegador), sin cookie de sesión.
   // La seguridad real la hace la clave BUSCADOR_IA_KEY (header x-api-key)
@@ -226,6 +228,7 @@ export default async function handler(req, res) {
   if (recurso === 'indexpro-historial') return manejarIndexproHistorial(req, res, sesion);
   if (recurso === 'indexpro-enviar-presentacion') return manejarIndexproEnviarPresentacion(req, res, sesion);
   if (recurso === 'indexscale-oportunidades') return manejarIndexscaleOportunidades(req, res, sesion);
+  if (recurso === 'indexscale-leads-web') return manejarIndexscaleLeadsWeb(req, res, sesion);
   if (recurso === 'indexscale-estado') return manejarIndexscaleEstado(req, res, sesion);
   if (recurso === 'indexscale-enviar-presentacion') return manejarIndexscaleEnviarPresentacion(req, res, sesion);
   if (recurso === 'indexscale-verificar-sitios') return manejarIndexscaleVerificarSitios(req, res, sesion);
@@ -5798,6 +5801,79 @@ async function manejarIndexscaleOportunidades(req, res, sesion) {
     return res.status(200).json({ oportunidades, estadosDisponibles: ESTADOS_INDEXSCALE, total: oportunidades.length });
   } catch (err) {
     return res.status(200).json({ error: 'Error leyendo oportunidades IndexScale', detail: String(err), oportunidades: [] });
+  }
+}
+
+// ==================== IndexScale: leads entrantes del sitio web ====================
+// Los formularios de indexscale.cl (contacto rápido, demo, diagnósticos) guardan
+// el lead en WordPress y además lo reenvían acá, para atenderlo desde el ERP.
+const ESTADOS_LEADS_WEB = ['nuevo', 'contactado', 'cotizado', 'ganado', 'perdido', 'spam'];
+
+function textoLead(v, max) {
+  return String(v == null ? '' : v).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, max || 300);
+}
+
+async function manejarIndexscaleLeadWebRegistrar(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const claveEsperada = process.env.INDEXSCALE_LEADS_KEY;
+  if (!claveEsperada) return res.status(200).json({ error: 'INDEXSCALE_LEADS_KEY no está configurada en Vercel' });
+  if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) {
+    return res.status(401).json({ error: 'Clave inválida' });
+  }
+  const b = req.body || {};
+  const wpId = parseInt(b.wp_id, 10);
+  if (!wpId) return res.status(400).json({ error: 'Falta wp_id' });
+  const datos = (b.datos && typeof b.datos === 'object') ? b.datos : {};
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexscaleLeadsWeb(sql);
+    const r = await sql.query(
+      `INSERT INTO indexscale_leads_web
+         (wp_id, creado_en, tipo, nombre, empresa, email, telefono, preferencia_contacto, pagina_origen,
+          utm_source, utm_medium, utm_campaign, utm_term, gclid, referrer, mensaje, datos)
+       VALUES ($1, COALESCE($2::timestamptz, now()), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb)
+       ON CONFLICT (wp_id) DO NOTHING
+       RETURNING id`,
+      [wpId, b.creado_en || null, textoLead(b.tipo, 30), textoLead(b.nombre, 200), textoLead(b.empresa, 200), textoLead(b.email, 200),
+       textoLead(b.telefono, 60), textoLead(b.preferencia_contacto, 30), textoLead(b.pagina_origen, 200),
+       textoLead(b.utm_source, 100), textoLead(b.utm_medium, 100), textoLead(b.utm_campaign, 200), textoLead(b.utm_term, 200),
+       textoLead(b.gclid, 300), textoLead(b.referrer, 300), textoLead(b.mensaje, 4000), JSON.stringify(datos).slice(0, 20000)],
+    );
+    return res.status(200).json({ ok: true, nuevo: r.rows.length > 0 });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo guardar el lead: ' + e.message });
+  }
+}
+
+async function manejarIndexscaleLeadsWeb(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexscaleLeadsWeb(sql);
+    if (req.method === 'PUT') {
+      const { id, estado, notas } = req.body || {};
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      if (estado !== undefined && !ESTADOS_LEADS_WEB.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+      const quien = sesion.nombre || sesion.email;
+      const { rows } = await sql.query(
+        `UPDATE indexscale_leads_web
+            SET estado = COALESCE($2, estado),
+                notas = CASE WHEN $3::text IS NULL THEN notas ELSE $3 END,
+                atendido_por = $4, atendido_en = now()
+          WHERE id = $1 RETURNING id`,
+        [id, estado === undefined ? null : estado, notas === undefined ? null : textoLead(notas, 2000), quien],
+      );
+      if (rows.length === 0) return res.status(404).json({ error: 'No encontrado' });
+      return res.status(200).json({ ok: true });
+    }
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const { rows } = await sql.query(
+      `SELECT id, wp_id, creado_en, tipo, nombre, empresa, email, telefono, preferencia_contacto, pagina_origen,
+              utm_source, utm_medium, utm_campaign, utm_term, gclid, referrer, mensaje, datos, estado, notas, atendido_por, atendido_en
+         FROM indexscale_leads_web ORDER BY creado_en DESC LIMIT 1000`,
+    );
+    return res.status(200).json({ leads: rows });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error leyendo los leads del sitio', detail: String(err) });
   }
 }
 
