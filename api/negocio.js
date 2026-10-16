@@ -31,6 +31,7 @@ import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } fr
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
+import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
@@ -15071,8 +15072,10 @@ async function manejarBuscadorIaFiltro(req, res) {
 async function manejarFiltrosUso(req, res, _sesion) {
   try {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-    const dias = [7, 30, 90].includes(Number(req.query.dias)) ? Number(req.query.dias) : 30;
     const sql = await getSql();
+    // Período elegido en la página (desde/hasta, por día de Chile) o, como antes, los últimos 7/30/90 días.
+    if (esFechaDia(req.query.desde) && esFechaDia(req.query.hasta)) return res.status(200).json(await resumenFiltrosUso(sql, rangoDesdeHasta(req.query.desde, req.query.hasta)));
+    const dias = [7, 30, 90].includes(Number(req.query.dias)) ? Number(req.query.dias) : 30;
     return res.status(200).json(await resumenFiltrosUso(sql, dias));
   } catch (err) {
     return res.status(200).json({ error: 'Error calculando el uso de los filtros', detail: String(err.message || err).slice(0, 200) });
@@ -15296,7 +15299,7 @@ async function manejarDescuentosWeb(req, res, sesion) {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
     if (req.query.parte === 'resultados') {
-      const rango = rangoResultadosDW({ periodo: String(req.query.periodo || ''), dias: req.query.dias });
+      const rango = rangoResultadosDW({ periodo: String(req.query.periodo || ''), dias: req.query.dias, desde: req.query.desde, hasta: req.query.hasta });
       // Lo medido en la ficha y lo vendido salen por separado: si Shopify falla, el interés igual se muestra (y al revés).
       let resultados = null, errorResultados = null, interes = null, errorInteres = null;
       try { resultados = await resultadosPedidosDW(gql, cfg, rango); } catch (e) { errorResultados = e.message; }

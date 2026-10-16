@@ -268,7 +268,7 @@
         <h2>Resultados</h2>
         <div class="sub">Lo medido en la ficha (quién vio los tramos, hizo clic y agregó al carro) y lo vendido en los pedidos de la tienda con los descuentos automáticos cuyo nombre empieza con "Volumen".</div>
       </div>
-      <div class="filtros" style="margin:0;">
+      <div class="filtros filtro-fechas-propio" style="margin:0;">
         <button type="button" class="btn-ghost btn-compact" data-periodo="hoy">Hoy</button>
         <button type="button" class="btn-ghost btn-compact" data-periodo="ayer">Ayer</button>
         <button type="button" class="btn-ghost btn-compact" data-periodo="semana" title="Desde el lunes hasta hoy">Esta semana</button>
@@ -330,6 +330,10 @@ async function cerrarSesion(){
 
 let D = null;       // respuesta principal
 let periodoRes = '30'; // 'hoy' | 'ayer' | 'semana' | '30' | '90'
+// Dentro de Sitio Web (?embed=1) manda el filtro de fechas de esa página: { desde, hasta } (ver embed-sitio.js)
+let fechasSitio = window.FECHAS_SITIO || null;
+window.aplicarFechasSitio = f => { fechasSitio = f; cargarResultados(); };
+const textoPeriodo = () => fechasSitio ? (fechasSitio.desde === fechasSitio.hasta ? 'el día ' + fechasSitio.desde : 'el período elegido') : PERIODO_TEXTO[periodoRes];
 const PERIODO_TEXTO = { hoy: 'hoy', ayer: 'ayer', semana: 'esta semana', 30: 'los últimos 30 días', 90: 'los últimos 90 días' };
 
 // Cada módulo se puede minimizar (se recuerda) y las listas largas muestran 3 filas con un botón "Ver todos".
@@ -503,7 +507,7 @@ async function aplicar(){
 async function cargarResultados(){
   document.querySelectorAll('[data-periodo]').forEach(b => b.classList.toggle('active', b.dataset.periodo === periodoRes));
   const est = $('resEstado'); est.className = 'empty-note'; est.style.display = ''; est.textContent = 'Cargando…'; $('resContenido').style.display = 'none';
-  const j = await api(undefined, `&parte=resultados&` + (['hoy', 'ayer', 'semana'].includes(periodoRes) ? `periodo=${periodoRes}` : `dias=${periodoRes}`));
+  const j = await api(undefined, `&parte=resultados&` + (fechasSitio ? `desde=${fechasSitio.desde}&hasta=${fechasSitio.hasta}` : ['hoy', 'ayer', 'semana'].includes(periodoRes) ? `periodo=${periodoRes}` : `dias=${periodoRes}`));
   if(j.error){ est.className = 'note-box err'; est.textContent = j.error; return; }
   const r = j.resultados, it = j.interes;
   const avisos = [];
@@ -513,7 +517,7 @@ async function cargarResultados(){
   const hayPedidos = r && r.pedidos_con_descuento;
   if(!hayFicha && !hayPedidos){
     est.className = avisos.length ? '' : 'empty-note';
-    est.innerHTML = avisos.join('') + `Todavía no hay datos de ${PERIODO_TEXTO[periodoRes]}${j.rango ? ` (${esc(j.rango.desde)}${j.rango.desde === j.rango.hasta ? '' : ' al ' + esc(j.rango.hasta)})` : ''}${r ? ` — ${fmtNum(r.pedidos_tienda)} pedidos revisados, ${fmtNum(r.pedidos_con_algun_descuento || 0)} con algún descuento` : ''}. Aparecen cuando los clientes ven el bloque de descuentos en la ficha y compran con ellos.`;
+    est.innerHTML = avisos.join('') + `Todavía no hay datos de ${textoPeriodo()}${j.rango ? ` (${esc(j.rango.desde)}${j.rango.desde === j.rango.hasta ? '' : ' al ' + esc(j.rango.hasta)})` : ''}${r ? ` — ${fmtNum(r.pedidos_tienda)} pedidos revisados, ${fmtNum(r.pedidos_con_algun_descuento || 0)} con algún descuento` : ''}. Aparecen cuando los clientes ven el bloque de descuentos en la ficha y compran con ellos.`;
     if(r && r.otros_descuentos && r.otros_descuentos.length) est.innerHTML += `<div class="desde" style="margin-top:6px;">Otros descuentos en los pedidos de este período (no cuentan como descuento por volumen): ${r.otros_descuentos.map(x => esc(x.titulo) + ' (' + fmtNum(x.pedidos) + ' pedido' + (x.pedidos === 1 ? '' : 's') + ')').join(' · ')}</div>`;
     return;
   }
@@ -551,7 +555,7 @@ async function cargarResultados(){
   $('porDia').innerHTML = dias.length ? dias.map(x => `<div class="dia"><span class="dia-f">${esc(x.dia.slice(5).split('-').reverse().join('/'))}</span><span class="dia-barra"><i class="ok" style="width:${x.unidades / max * 100}%"></i></span><span class="dia-n">${fmtNum(x.unidades)}</span></div>`).join('') : '<div class="empty-note">Sin ventas con descuento todavía.</div>';
   limitarTodo();
   if(r?.truncado) $('resEstado').insertAdjacentHTML('afterend', '<div class="desde">Hay más pedidos que los revisados; las cifras pueden quedar cortas. Prueba con 30 días.</div>');
-  const nota = [`Período: ${esc(PERIODO_TEXTO[periodoRes])}${j.rango ? ` (${esc(j.rango.desde)}${j.rango.desde === j.rango.hasta ? '' : ' al ' + esc(j.rango.hasta)})` : ''}.`];
+  const nota = [`Período: ${esc(textoPeriodo())}${j.rango ? ` (${esc(j.rango.desde)}${j.rango.desde === j.rango.hasta ? '' : ' al ' + esc(j.rango.hasta)})` : ''}.`];
   if(r && r.otros_descuentos && r.otros_descuentos.length) nota.push(`Otros descuentos en los pedidos (no cuentan como descuento por volumen): ${r.otros_descuentos.map(x => esc(x.titulo) + ' (' + fmtNum(x.pedidos) + ')').join(' · ')}.`);
   const notaPrevia = $('resPeriodoNota'); if(notaPrevia) notaPrevia.remove();
   $('tTramosNota').insertAdjacentHTML('afterend', `<div class="desde" id="resPeriodoNota">${nota.join(' ')}</div>`);
