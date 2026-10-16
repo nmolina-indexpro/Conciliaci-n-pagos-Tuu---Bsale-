@@ -202,6 +202,12 @@
       <span id="estadoEnvioGratis" class="sub"></span>
     </div>
     <div id="wrapEnvioGratis"></div>
+    <div id="bloqueDescuentoEnvio" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);">
+      <b>Descuento automático de envío gratis</b>
+      <div class="sub" style="margin:4px 0 6px;">Hace que el envío salga en $0 en el pago, sin código, cuando <b>todos</b> los productos del carro tienen la etiqueta. Si el carro mezcla uno con etiqueta y otro sin ella, el envío se cobra normal.</div>
+      <div id="estadoDescuentoEnvio" class="sub"></div>
+      <button class="btn-primary" id="btnCrearDescuentoEnvio" style="display:none;margin-top:6px;" onclick="crearDescuentoEnvioGratisUI()">Crear descuento de envío gratis</button>
+    </div>
   </details>
 
   <div id="ventasBajaResumen" class="sub" style="margin:10px 0 14px;"></div>
@@ -632,6 +638,7 @@ async function cargarEnvioGratisShopify(){
     const res = await fetch('/api/negocio?recurso=envio-gratis-shopify'); const d = await res.json();
     if(!res.ok || d.error){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(d.error || 'Error') + (d.detail ? ' — ' + escapeHtml(d.detail) : '') + '</p>'; return; }
     if(!d.items.length && !d.sobrantes.length){ wrap.innerHTML = '<p class="empty-note">Todavía no hay productos marcados con "Envío gratis".</p>'; return; }
+    pintarDescuentoEnvio(d.descuento);
     const pendientes = d.items.filter(i => !i.error && i.etiquetadas < i.publicaciones).length;
     est.textContent = d.items.length + ' SKU marcados · ' + pendientes + ' con publicaciones sin etiquetar' + (d.sobrantes.length ? ' · ' + d.sobrantes.length + ' etiquetadas que ya no están marcadas' : '') + (d.truncado ? ' · (se muestran los primeros 80)' : '');
     wrap.innerHTML = '<table><thead><tr><th>SKU</th><th>Producto</th><th>Publicaciones en Shopify</th><th>Con etiqueta</th><th>Estado</th></tr></thead><tbody>' +
@@ -641,6 +648,26 @@ async function cargarEnvioGratisShopify(){
       }).join('') + '</tbody></table>' +
       (d.sobrantes.length ? '<p class="sub" style="margin-top:10px;"><b>Con la etiqueta, pero su SKU ya no está marcado</b> (se quitan al sincronizar):</p><table><thead><tr><th>Producto</th><th>SKU</th></tr></thead><tbody>' + d.sobrantes.map(p => '<tr><td>' + escapeHtml(p.title) + '</td><td>' + escapeHtml(p.skus.join(', ')) + '</td></tr>').join('') + '</tbody></table>' : '');
   }catch(err){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; }
+}
+function pintarDescuentoEnvio(ds){
+  const est = document.getElementById('estadoDescuentoEnvio'), btn = document.getElementById('btnCrearDescuentoEnvio');
+  if(!ds){ est.textContent = ''; btn.style.display = 'none'; return; }
+  const fn = ds.funcion.publicada === true ? '<span style="color:#12713a;font-weight:700;">✔ Función publicada</span>' : (ds.funcion.publicada === false ? '<span style="color:#a11d1d;font-weight:700;">✖ Función sin publicar</span> (ver GUIA-ENVIO-GRATIS.md)' : '<span style="color:#8a5a00;">No pude revisar la función' + (ds.funcion.error ? ': ' + escapeHtml(ds.funcion.error) : '') + '</span>');
+  const dc = ds.descuento.existe ? '<span style="color:#12713a;font-weight:700;">✔ Descuento creado (' + escapeHtml(ds.descuento.estado || '') + ')</span>' : '<span style="color:#8a5a00;font-weight:700;">Descuento aún no creado</span>';
+  est.innerHTML = fn + ' · ' + dc;
+  btn.style.display = (ds.funcion.publicada && !ds.descuento.existe) ? '' : 'none';
+}
+async function crearDescuentoEnvioGratisUI(){
+  if(!confirm('Se creará en Shopify el descuento automático "Envío gratis (productos con etiqueta)" y quedará activo de inmediato: desde ese momento un carro con solo productos etiquetados paga $0 de envío. ¿Continuar?')) return;
+  const b = document.getElementById('btnCrearDescuentoEnvio'); b.disabled = true;
+  try{
+    const res = await fetch('/api/negocio?recurso=envio-gratis-shopify', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion: 'crear-descuento' }) });
+    const d = await res.json();
+    if(!res.ok || !d.ok){ alert(d.error || 'No se pudo crear el descuento'); return; }
+    avisoEnvioGratis('Descuento de envío gratis creado y activo');
+    cargarEnvioGratisShopify();
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ b.disabled = false; }
 }
 async function sincronizarEnvioGratis(){
   if(!confirm('Se pondrá la etiqueta envio-gratis en todas las publicaciones de Shopify de los SKU marcados, y se quitará de las que ya no estén marcadas. ¿Continuar?')) return;

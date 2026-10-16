@@ -30,7 +30,7 @@ import { calcularControlEjecutivos, aplicarFirmas, detectarFirmaEnTexto, claveUs
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
-import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, productosConEtiqueta } from '../lib/envio-gratis-shopify.js';
+import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, productosConEtiqueta, estadoDescuentoEnvio, crearDescuentoEnvioGratis } from '../lib/envio-gratis-shopify.js';
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
@@ -15121,6 +15121,14 @@ async function manejarEnvioGratisShopify(req, res, sesion) {
     const gql = await descuentosWebGql();
     const conLimite = async (lista, n, fn) => { const out = []; for (let i = 0; i < lista.length; i += n) out.push(...await Promise.all(lista.slice(i, i + n).map(fn))); return out; };
     const sobrantes = (await productosConEtiqueta(gql)).filter(p => !p.skus.some(s => marcados.some(m => m.sku === s)) );
+    if (req.method === 'POST' && (req.body || {}).accion === 'crear-descuento') {
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede crear el descuento' });
+      const estado = await estadoDescuentoEnvio(gql);
+      if (!estado.funcion.publicada) return res.status(200).json({ ok: false, error: 'La función de envío gratis todavía no está publicada en Shopify (ver GUIA-ENVIO-GRATIS.md).' });
+      if (estado.descuento.existe) return res.status(200).json({ ok: false, error: 'El descuento ya existe (' + (estado.descuento.estado || 'sin estado') + ').' });
+      try { return res.status(200).json({ ok: true, id: await crearDescuentoEnvioGratis(gql) }); }
+      catch (e) { return res.status(200).json({ ok: false, error: 'Shopify no creó el descuento: ' + String(e.message || e).slice(0, 200) }); }
+    }
     if (req.method === 'POST') {
       if ((req.body || {}).accion !== 'sincronizar') return res.status(400).json({ error: 'Acción inválida' });
       const resultados = await conLimite(marcados, 4, async m => ({ sku: m.sku, ...(await aplicarEtiquetaEnvioGratis(gql, m.sku, true)) }));
@@ -15137,7 +15145,8 @@ async function manejarEnvioGratisShopify(req, res, sesion) {
       try { return { sku: m.sku, nombre: m.nombre || '', ...(await estadoDeSku(gql, m.sku)) }; }
       catch (e) { return { sku: m.sku, nombre: m.nombre || '', error: String(e.message || e).slice(0, 80) }; }
     });
-    return res.status(200).json({ etiqueta: ETIQUETA_ENVIO_GRATIS, items, sobrantes: sobrantes.map(p => ({ handle: p.handle, title: p.title, skus: p.skus })), truncado: rows.length > marcados.length });
+    const descuento = await estadoDescuentoEnvio(gql);
+    return res.status(200).json({ etiqueta: ETIQUETA_ENVIO_GRATIS, descuento, items, sobrantes: sobrantes.map(p => ({ handle: p.handle, title: p.title, skus: p.skus })), truncado: rows.length > marcados.length });
   } catch (err) {
     return res.status(200).json({ error: 'No se pudo consultar Shopify', detail: String(err.message || err).slice(0, 200) });
   }
