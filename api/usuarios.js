@@ -19,7 +19,10 @@ const PAGINAS_DISPONIBLES = [
   'home.html', 'index.html', 'conciliacion.html', 'compras.html',
   'alertas-stock.html', 'productos-en-transito.html', 'oportunidades-comerciales.html', 'cotizaciones-clientes.html', 'compra-agil.html', 'metas-de-venta.html', 'llamadas.html', 'buscador-ia.html', 'descuentos-web.html', 'sitio-web.html',
   'eficiencia-tickets.html', 'analisis.html', 'servicio-tecnico.html', 'identificacion-modelos.html', 'productos-nuevos.html', 'clientes-whatsapp.html', 'guia-uso.html',
+  'indexscale.html', 'productos-estancados.html', 'google-analytics.html', 'ejecutivos-whatsapp.html',
 ];
+// REGLA: toda página nueva de la app (menos login, recuperar/reset de contraseña, reportar-error, Usuarios, Mercado Libre y Actualizaciones ERP, que son
+// solo para administradores o públicas) debe agregarse aquí Y a GRUPOS_PAGINAS en public/usuarios.html; si no, no se le puede dar acceso a otros usuarios.
 
 // Modo diagnóstico puntual (?debugBrevo=email@dominio.cl): consulta
 // directo la API de Brevo (con la misma BREVO_API_KEY que ya usa
