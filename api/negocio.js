@@ -5832,7 +5832,12 @@ async function manejarIndexscaleLeadWebRegistrar(req, res) {
          (wp_id, creado_en, tipo, nombre, empresa, email, telefono, preferencia_contacto, pagina_origen,
           utm_source, utm_medium, utm_campaign, utm_term, gclid, referrer, mensaje, datos)
        VALUES ($1, COALESCE($2::timestamptz, now()), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb)
-       ON CONFLICT (wp_id) DO NOTHING
+       ON CONFLICT (wp_id) DO UPDATE SET
+         tipo = EXCLUDED.tipo, nombre = EXCLUDED.nombre, empresa = EXCLUDED.empresa, email = EXCLUDED.email, telefono = EXCLUDED.telefono,
+         preferencia_contacto = EXCLUDED.preferencia_contacto, pagina_origen = EXCLUDED.pagina_origen, utm_source = EXCLUDED.utm_source,
+         utm_medium = EXCLUDED.utm_medium, utm_campaign = EXCLUDED.utm_campaign, utm_term = EXCLUDED.utm_term, gclid = EXCLUDED.gclid,
+         referrer = EXCLUDED.referrer, mensaje = EXCLUDED.mensaje, datos = EXCLUDED.datos
+       WHERE COALESCE(indexscale_leads_web.nombre, '') = '' AND COALESCE(indexscale_leads_web.email, '') = ''
        RETURNING id`,
       [wpId, b.creado_en || null, textoLead(b.tipo, 30), textoLead(b.nombre, 200), textoLead(b.empresa, 200), textoLead(b.email, 200),
        textoLead(b.telefono, 60), textoLead(b.preferencia_contacto, 30), textoLead(b.pagina_origen, 200),
