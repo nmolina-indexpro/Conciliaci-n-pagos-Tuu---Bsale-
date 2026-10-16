@@ -1068,6 +1068,7 @@ function renderIntcomex(){
     <div class="tabla-wrap">
     <table>
       <thead><tr>
+        <th data-sin-orden>Foto</th>
         <th onclick="ordenarIntcomexPor('code')" style="cursor:pointer;">SKU${flechaIntcomex('code')}</th>
         <th onclick="ordenarIntcomexPor('nombre')" style="cursor:pointer;">Producto${flechaIntcomex('nombre')}</th>
         <th onclick="ordenarIntcomexPor('categoria')" style="cursor:pointer;">Categoría${flechaIntcomex('categoria')}</th>
@@ -1098,7 +1099,12 @@ function renderIntcomex(){
           etiquetaComentario = textoCorto + (historialComentarios.length > 1 ? ` (+${historialComentarios.length - 1})` : '');
           tituloComentario = `${ultimoComentario.comentario} — ${ultimoComentario.autor || 'Desconocido'}, ${new Date(ultimoComentario.creadoEn).toLocaleString('es-CL')}`;
         }
+        // Miniatura de Shopify (mismo mapa SKU -> imagen de la tabla principal); sin foto si el SKU no está en la tienda
+        const fotoHtml = s.imagenUrl
+          ? `<a href="${s.imagenUrl}" target="_blank" rel="noopener noreferrer" title="Ver la foto"><img src="${s.imagenUrl}" alt="" loading="lazy" style="width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--line);display:block;"></a>`
+          : '<span class="empty-note" title="Este SKU no tiene foto en Shopify">—</span>';
         return `<tr>
+          <td>${fotoHtml}</td>
           <td>${s.code}</td><td>${s.nombre}</td><td>${s.categoria}</td>
           <td class="amount">${fmtNum(s.stockActual)}</td>
           <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
