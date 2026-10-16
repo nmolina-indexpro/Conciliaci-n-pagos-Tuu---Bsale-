@@ -98,6 +98,13 @@
   .envio-dia .barra{height:11px;background:var(--surface-2);border-radius:6px;overflow:hidden;}
   .envio-dia .barra i{display:block;height:100%;background:var(--primary);}
   .envio-dia .n{text-align:right;font-family:'IBM Plex Mono',monospace;}
+  .toolbar-fechas{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 14px;}
+  .toolbar-fechas .periodo-txt{font-size:12px;color:var(--muted);margin-left:6px;}
+  .filtro-rango-fechas{display:flex;align-items:center;gap:7px;}
+  .date-field{display:flex;align-items:center;gap:5px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  .date-field input{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:6px 9px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);}
+  .toolbar-fechas .btn-ghost.active{background:var(--primary-dim);border-color:var(--primary);color:var(--primary-dark);}
   .envio-periodo{display:flex;gap:6px;align-items:center;}
   .envio-periodo .btn-ghost.active{background:var(--primary-dim);border-color:var(--primary);color:var(--primary-dark);}
   .envio-tabla{width:100%;border-collapse:collapse;font-size:12.5px;}
@@ -372,11 +379,16 @@
         <h2>📣 Google Ads → WhatsApp</h2>
         <div class="sub">Cuando alguien llega desde un anuncio de Google y toca un botón de WhatsApp, el sitio agrega un código corto al mensaje ("ref ABC123"). Cuando ese mensaje llega, el ERP lo vincula y se lo informa a Google Ads como conversión real. Aquí ves cuántos toques hubo, cuántos terminaron en mensaje y cuántos ya se informaron. Si el cliente borra el código antes de enviar, ese mensaje no se puede vincular: las cifras son un mínimo, nunca un exceso. Incluye también las pruebas internas.</div>
       </div>
-      <div class="envio-periodo">
-        <button type="button" class="btn-ghost btn-compact" data-adswa-dias="7" onclick="cargarAdsWa(7)">7 días</button>
-        <button type="button" class="btn-ghost btn-compact active" data-adswa-dias="30" onclick="cargarAdsWa(30)">30 días</button>
-        <button type="button" class="btn-ghost btn-compact" data-adswa-dias="90" onclick="cargarAdsWa(90)">90 días</button>
+    </div>
+    <div class="toolbar-fechas">
+      <div class="filtro-rango-fechas">
+        <div class="date-field"><label for="adswaDesde">Desde</label><input type="date" id="adswaDesde" onchange="cambioManualAdsWa()"></div>
+        <div class="date-field"><label for="adswaHasta">Hasta</label><input type="date" id="adswaHasta" onchange="cambioManualAdsWa()"></div>
       </div>
+      <button type="button" class="btn-ghost btn-compact" id="btnAdsWaHoy" onclick="setRangoAdsWa('hoy')">Hoy</button>
+      <button type="button" class="btn-ghost btn-compact" id="btnAdsWaSemana" onclick="setRangoAdsWa('semana')">Semana</button>
+      <button type="button" class="btn-ghost btn-compact active" id="btnAdsWaMes" onclick="setRangoAdsWa('mes')">Mes actual</button>
+      <button type="button" class="btn-ghost btn-compact" id="btnAdsWaMesAnterior" onclick="setRangoAdsWa('mes_anterior')">Mes anterior</button>
     </div>
     <div id="adswaEstado" class="empty-note">Cargando…</div>
     <div id="adswaContenido" style="display:none;">
@@ -478,7 +490,7 @@ async function cargarFiltrosUso(dias){
     const total = d.origenes.reduce((t, o) => t + o.vistas + o.usaron + o.lateral, 0);
     if(!total){
       setResumen('filtros', 'sin_datos', 'Todavía no hay datos de uso en los últimos ' + filtrosDias + ' días.', []);
-      estado.textContent = 'Todavía no hay datos en este período. Aparecen cuando los bloques del tema (colecciones y buscador del home) estén publicados y los clientes empiecen a usarlos' + (d.desde ? ' (primer aviso: ' + new Date(d.desde).toLocaleDateString('es-CL') + ')' : '') + '.';
+      estado.textContent = 'Todavía no hay toques en este período. Aparecen cuando los bloques del tema (colecciones y buscador del home) estén publicados y los clientes empiecen a usarlos' + (d.desde ? ' (primer aviso: ' + new Date(d.desde).toLocaleDateString('es-CL') + ')' : '') + '.';
       contenido.style.display = 'none'; return;
     }
     estado.style.display = 'none'; contenido.style.display = '';
@@ -515,19 +527,37 @@ async function cargarFiltrosUso(dias){
     }).join('');
   }catch(err){ estado.className = 'note-box err'; estado.textContent = err.message; contenido.style.display = 'none'; setResumen('filtros', 'atencion', 'No se pudo cargar: ' + err.message, []); }
 }
-let adsWaDias = 30;
-async function cargarAdsWa(dias){
-  if(dias) adsWaDias = dias;
-  document.querySelectorAll('[data-adswa-dias]').forEach(b => b.classList.toggle('active', Number(b.dataset.adswaDias) === adsWaDias));
+// Fechas de Chile (YYYY-MM-DD) para el filtro del módulo Google Ads → WhatsApp
+const hoyAdsWa = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+function sumarDiasAdsWa(str, n){ const d = new Date(str + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+function marcarAtajoAdsWa(tipo){
+  [['hoy', 'btnAdsWaHoy'], ['semana', 'btnAdsWaSemana'], ['mes', 'btnAdsWaMes'], ['mes_anterior', 'btnAdsWaMesAnterior']].forEach(([t, id]) => $(id).classList.toggle('active', t === tipo));
+}
+function setRangoAdsWa(tipo){
+  const primeroMes = hoyAdsWa.slice(0, 8) + '01';
+  let d = primeroMes, h = hoyAdsWa;
+  if(tipo === 'hoy') d = hoyAdsWa;
+  else if(tipo === 'semana') d = sumarDiasAdsWa(hoyAdsWa, -6);
+  else if(tipo === 'mes_anterior'){ h = sumarDiasAdsWa(primeroMes, -1); d = h.slice(0, 8) + '01'; }
+  $('adswaDesde').value = d; $('adswaHasta').value = h;
+  marcarAtajoAdsWa(tipo);
+  cargarAdsWa();
+}
+function cambioManualAdsWa(){ marcarAtajoAdsWa(null); cargarAdsWa(); }
+async function cargarAdsWa(){
+  if(!$('adswaDesde').value) $('adswaDesde').value = hoyAdsWa.slice(0, 8) + '01';
+  if(!$('adswaHasta').value) $('adswaHasta').value = hoyAdsWa;
+  const desde = $('adswaDesde').value, hasta = $('adswaHasta').value;
+  const periodo = desde === hasta ? 'el ' + desde.split('-').reverse().join('-') : 'el período ' + desde.split('-').reverse().join('-') + ' a ' + hasta.split('-').reverse().join('-');
   const estado = $('adswaEstado'), contenido = $('adswaContenido');
   estado.className = 'empty-note'; estado.textContent = 'Cargando…'; estado.style.display = '';
   try{
-    const res = await fetch('/api/negocio?recurso=wa-clic-ads-resumen&dias=' + adsWaDias);
+    const res = await fetch('/api/negocio?recurso=wa-clic-ads-resumen&desde=' + encodeURIComponent(desde) + '&hasta=' + encodeURIComponent(hasta));
     const d = await res.json();
     if(d.error){ estado.className = 'note-box err'; estado.textContent = d.error + (d.detail ? ' — ' + d.detail : ''); contenido.style.display = 'none'; setResumen('adswa', 'atencion', 'No se pudo cargar: ' + d.error, []); return; }
     if(!d.toques){
-      setResumen('adswa', 'sin_datos', 'Todavía no hay toques con código en los últimos ' + adsWaDias + ' días.', []);
-      estado.textContent = 'Todavía no hay datos en este período. Aparecen cuando alguien llega desde un anuncio de Google y toca un botón de WhatsApp' + (d.desde ? ' (primer toque: ' + new Date(d.desde).toLocaleDateString('es-CL') + ')' : '') + '.';
+      setResumen('adswa', 'sin_datos', 'Todavía no hay toques con código en ' + periodo + '.', []);
+      estado.textContent = 'Todavía no hay toques en este período. Aparecen cuando alguien llega desde un anuncio de Google y toca un botón de WhatsApp' + (d.primer_toque ? ' (primer toque: ' + new Date(d.primer_toque).toLocaleDateString('es-CL') + ')' : '') + '.';
       contenido.style.display = 'none'; return;
     }
     estado.style.display = 'none'; contenido.style.display = '';
@@ -535,7 +565,7 @@ async function cargarAdsWa(dias){
     const datos = [[fmtNum(d.toques), 'Toques'], [fmtNum(d.con_mensaje), 'Mensajes'], [fmtNum(d.subidas), 'Informados']];
     if(!d.conversion_configurada) setResumen('adswa', 'atencion', 'Falta configurar la subida a Google Ads en Vercel (id de la conversión y permiso de Data Manager).', datos);
     else if(d.con_error) setResumen('adswa', 'alerta', fmtNum(d.con_error) + ' mensajes no se pudieron informar a Google Ads: revisar el detalle.', datos);
-    else setResumen('adswa', 'ok', fmtNum(d.con_mensaje) + ' mensajes reales desde anuncios en los últimos ' + adsWaDias + ' días.', datos);
+    else setResumen('adswa', 'ok', fmtNum(d.con_mensaje) + ' mensajes reales desde anuncios en ' + periodo + '.', datos);
     $('adswaKpis').innerHTML = [
       ['Toques con código', fmtNum(d.toques), 'personas que llegaron de un anuncio y tocaron WhatsApp'],
       ['Mensajes recibidos', fmtNum(d.con_mensaje), pctAds(d.con_mensaje, d.toques) + ' de los toques (mínimo: sin contar los que borraron el código)'],
@@ -1701,7 +1731,7 @@ cargar();
 promesaModelosCompatIniciales = cargarModelosCompat();
 cargarEnvioEstimado();
 cargarFiltrosUso();
-cargarAdsWa();
+setRangoAdsWa('mes');
 cargarSesionUsuario();
 
 // Autocompletado sin botón: apenas hay marca y modelo escritos, busca sola

@@ -15140,9 +15140,15 @@ async function manejarWaClicAdsCron(req, res) {
 async function manejarWaClicAdsResumen(req, res, _sesion) {
   try {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-    const dias = [7, 30, 90].includes(Number(req.query.dias)) ? Number(req.query.dias) : 30;
+    // Rango de fechas de Chile (YYYY-MM-DD, ambas incluidas); sin parámetros, el mes actual. Máximo un año.
+    const fechaOk = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !Number.isNaN(Date.parse(v));
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    let desde = fechaOk(req.query.desde) ? req.query.desde : hoy.slice(0, 8) + '01';
+    let hasta = fechaOk(req.query.hasta) ? req.query.hasta : hoy;
+    if (desde > hasta) [desde, hasta] = [hasta, desde];
+    if ((Date.parse(hasta) - Date.parse(desde)) / 86400000 > 366) return res.status(400).json({ error: 'El rango no puede superar un año' });
     const sql = await getSql();
-    const d = await detalleWaClics(sql, dias);
+    const d = await detalleWaClics(sql, desde, hasta);
     d.conversion_configurada = Boolean(String(process.env.GOOGLE_ADS_WHATSAPP_CONVERSION_ID || '').trim() && String(process.env.GOOGLE_DATAMANAGER_REFRESH_TOKEN || '').trim());
     return res.status(200).json(d);
   } catch (err) {
