@@ -193,6 +193,17 @@
   </div>
   <div id="resultadosBusquedaSku"></div>
 
+  <details class="envio-gratis-panel" id="panelEnvioGratis" ontoggle="if(this.open) cargarEnvioGratisShopify()" style="margin:12px 0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;">
+    <summary style="cursor:pointer;font-weight:700;">🚚 Envío gratis en Shopify <span class="sub" style="font-weight:400;">— los SKU marcados con "Envío gratis" y su etiqueta en la tienda</span></summary>
+    <div class="sub" style="margin:8px 0;">Al marcar "🚚 Envío gratis" en un producto, el ERP pone la etiqueta <b>envio-gratis</b> en todas las publicaciones de ese SKU en Shopify (y la quita al desmarcar). La ficha del producto muestra el aviso a partir de esa etiqueta.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+      <button class="btn-ghost" onclick="cargarEnvioGratisShopify()">↻ Ver estado en Shopify</button>
+      <button class="btn-primary" id="btnSincEnvioGratis" onclick="sincronizarEnvioGratis()">Sincronizar etiquetas</button>
+      <span id="estadoEnvioGratis" class="sub"></span>
+    </div>
+    <div id="wrapEnvioGratis"></div>
+  </details>
+
   <div id="ventasBajaResumen" class="sub" style="margin:10px 0 14px;"></div>
   <div id="wrapVentasBaja"><p class="empty-note">Cargando...</p></div>
   <div id="syncStatus"></div>
@@ -608,6 +619,41 @@ function cerrarModalComentariosSiFondo(ev){
   if(ev.target.id === 'modalComentariosOverlay') cerrarModalComentarios();
 }
 
+function avisoEnvioGratis(texto){
+  let el = document.getElementById('avisoEnvioGratisFlotante');
+  if(!el){ el = document.createElement('div'); el.id = 'avisoEnvioGratisFlotante'; el.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1F2A24;color:#fff;padding:9px 16px;border-radius:9px;font-size:12.5px;z-index:200;max-width:90vw;'; document.body.appendChild(el); }
+  el.textContent = texto; el.style.display = '';
+  clearTimeout(el._t); el._t = setTimeout(() => { el.style.display = 'none'; }, 4500);
+}
+async function cargarEnvioGratisShopify(){
+  const wrap = document.getElementById('wrapEnvioGratis'), est = document.getElementById('estadoEnvioGratis');
+  wrap.innerHTML = '<p class="empty-note">Consultando Shopify...</p>'; est.textContent = '';
+  try{
+    const res = await fetch('/api/negocio?recurso=envio-gratis-shopify'); const d = await res.json();
+    if(!res.ok || d.error){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(d.error || 'Error') + (d.detail ? ' — ' + escapeHtml(d.detail) : '') + '</p>'; return; }
+    if(!d.items.length && !d.sobrantes.length){ wrap.innerHTML = '<p class="empty-note">Todavía no hay productos marcados con "Envío gratis".</p>'; return; }
+    const pendientes = d.items.filter(i => !i.error && i.etiquetadas < i.publicaciones).length;
+    est.textContent = d.items.length + ' SKU marcados · ' + pendientes + ' con publicaciones sin etiquetar' + (d.sobrantes.length ? ' · ' + d.sobrantes.length + ' etiquetadas que ya no están marcadas' : '') + (d.truncado ? ' · (se muestran los primeros 80)' : '');
+    wrap.innerHTML = '<table><thead><tr><th>SKU</th><th>Producto</th><th>Publicaciones en Shopify</th><th>Con etiqueta</th><th>Estado</th></tr></thead><tbody>' +
+      d.items.map(i => {
+        const estado = i.error ? '<span style="color:#a11d1d;">' + escapeHtml(i.error) + '</span>' : (i.publicaciones === 0 ? '<span style="color:#8a5a00;">No está en Shopify</span>' : (i.etiquetadas === i.publicaciones ? '<span style="color:#12713a;font-weight:700;">✔ Al día</span>' : '<span style="color:#8a5a00;font-weight:700;">⚠ Faltan ' + (i.publicaciones - i.etiquetadas) + '</span>'));
+        return '<tr><td><b>' + escapeHtml(i.sku) + '</b></td><td>' + escapeHtml(i.nombre) + '</td><td>' + fmtNum(i.publicaciones || 0) + '</td><td>' + fmtNum(i.etiquetadas || 0) + '</td><td>' + estado + '</td></tr>';
+      }).join('') + '</tbody></table>' +
+      (d.sobrantes.length ? '<p class="sub" style="margin-top:10px;"><b>Con la etiqueta, pero su SKU ya no está marcado</b> (se quitan al sincronizar):</p><table><thead><tr><th>Producto</th><th>SKU</th></tr></thead><tbody>' + d.sobrantes.map(p => '<tr><td>' + escapeHtml(p.title) + '</td><td>' + escapeHtml(p.skus.join(', ')) + '</td></tr>').join('') + '</tbody></table>' : '');
+  }catch(err){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; }
+}
+async function sincronizarEnvioGratis(){
+  if(!confirm('Se pondrá la etiqueta envio-gratis en todas las publicaciones de Shopify de los SKU marcados, y se quitará de las que ya no estén marcadas. ¿Continuar?')) return;
+  const b = document.getElementById('btnSincEnvioGratis'); b.disabled = true; b.textContent = 'Sincronizando...';
+  try{
+    const res = await fetch('/api/negocio?recurso=envio-gratis-shopify', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion: 'sincronizar' }) });
+    const d = await res.json();
+    if(!res.ok || d.error){ alert(d.error || 'No se pudo sincronizar'); return; }
+    avisoEnvioGratis('Listo: ' + d.puestas + ' publicaciones etiquetadas, ' + d.quitadas + ' sin etiqueta' + (d.errores.length ? ' · avisos: ' + d.errores[0] : ''));
+    cargarEnvioGratisShopify();
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ b.disabled = false; b.textContent = 'Sincronizar etiquetas'; }
+}
 async function toggleVentaBajaFlag(sku, campo, valor){
   const p = buscarProductoPorSku(sku);
   const anterior = p ? p[campo] : undefined;
@@ -620,6 +666,12 @@ async function toggleVentaBajaFlag(sku, campo, valor){
     });
     const data = await res.json();
     if(!res.ok || data.error){ throw new Error(data.error || 'No se pudo guardar.'); }
+    if(campo === 'envioGratis' && data.etiquetaShopify){
+      const e = data.etiquetaShopify;
+      avisoEnvioGratis(e.error ? '⚠ Quedó marcado aquí, pero Shopify no respondió: ' + e.error + ' (usa "Sincronizar etiquetas" más tarde)'
+        : (e.errores && e.errores.length ? '⚠ Shopify avisó: ' + e.errores[0]
+        : (valor ? 'Etiqueta envio-gratis puesta en ' + e.cambiadas + ' de ' + e.publicaciones + ' publicaciones de Shopify' : 'Etiqueta envio-gratis quitada de ' + e.cambiadas + ' publicaciones de Shopify')));
+    }
   }catch(err){
     if(p) p[campo] = anterior; // revierte si falló
     alert('Error: ' + err.message);

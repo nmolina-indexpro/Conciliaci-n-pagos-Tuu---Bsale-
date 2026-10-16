@@ -30,6 +30,7 @@ import { calcularControlEjecutivos, aplicarFirmas, detectarFirmaEnTexto, claveUs
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
+import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, productosConEtiqueta } from '../lib/envio-gratis-shopify.js';
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
@@ -196,6 +197,7 @@ export default async function handler(req, res) {
   if (recurso === 'buscador-ia') return manejarBuscadorIa(req, res, sesion);
   if (recurso === 'envio-estimado') return manejarEnvioEstimado(req, res, sesion);
   if (recurso === 'filtros-uso') return manejarFiltrosUso(req, res, sesion);
+  if (recurso === 'envio-gratis-shopify') return manejarEnvioGratisShopify(req, res, sesion);
   if (recurso === 'wa-clic-ads-resumen') return manejarWaClicAdsResumen(req, res, sesion);
   if (recurso === 'descuentos-web') return manejarDescuentosWeb(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
@@ -2221,6 +2223,7 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
           nuevoComentarioId = await registrarComentario(sql, 'ventas_sku', sku, comentario, sesion.nombre || sesion.email);
         }
       }
+      let etiquetaShopify = null; // resultado de poner/quitar la etiqueta "envio-gratis" en Shopify (solo si cambió esa marca)
       if (mercadoLibre !== undefined || envioGratis !== undefined || variacionPrecio !== undefined) {
         // Se lee el estado ANTES de pisarlo -- es la única forma de saber
         // qué campo realmente cambió (prender un checkbox que ya estaba
@@ -2246,8 +2249,15 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
         for (const [campo, valorNuevo] of cambios) {
           await sql`INSERT INTO ventas_sku_flags_historial (sku, campo, valor_nuevo, cambiado_por) VALUES (${sku}, ${campo}, ${valorNuevo}, ${sesion.nombre || sesion.email});`;
         }
+        // "Envío gratis" se refleja en Shopify: etiqueta "envio-gratis" en todas las publicaciones de ese SKU. Si Shopify falla, la marca
+        // igual queda guardada aquí y se puede reintentar con "Sincronizar etiquetas".
+        const cambioEnvio = cambios.find(([campo]) => campo === 'envio_gratis');
+        if (cambioEnvio) {
+          try { etiquetaShopify = await aplicarEtiquetaEnvioGratis(await descuentosWebGql(), sku, cambioEnvio[1]); }
+          catch (e) { etiquetaShopify = { error: String(e.message || e).slice(0, 160) }; }
+        }
       }
-      return res.status(200).json({ ok: true, id: nuevoComentarioId });
+      return res.status(200).json({ ok: true, id: nuevoComentarioId, etiquetaShopify });
     }
 
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -15095,6 +15105,42 @@ async function llamarGeminiEstructurado(systemPrompt, texto, herramienta, { maxT
   const llamada = (dataIA.candidates?.[0]?.content?.parts || []).find(p => p.functionCall);
   if (!llamada) throw new Error('Gemini no devolvió un análisis estructurado');
   return llamada.functionCall.args || {};
+}
+
+// Estado de la etiqueta "envio-gratis" en Shopify de los SKU marcados con "🚚 Envío gratis" (Productos estancados), y sincronización.
+// GET  -> por cada SKU marcado: cuántas publicaciones tiene en Shopify y cuántas ya tienen la etiqueta; más las publicaciones con la
+//         etiqueta cuyo SKU ya no está marcado (sobrantes).
+// POST { accion: 'sincronizar' } -> pone la etiqueta donde falta y la quita de los sobrantes.
+async function manejarEnvioGratisShopify(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    const { rows } = await sql`
+      SELECT c.sku, (SELECT MAX(v.nombre) FROM bsale_ventas_sku v WHERE v.sku = c.sku) AS nombre
+      FROM ventas_sku_comentarios c WHERE c.envio_gratis = true ORDER BY c.sku;`;
+    const marcados = rows.slice(0, 80);
+    const gql = await descuentosWebGql();
+    const conLimite = async (lista, n, fn) => { const out = []; for (let i = 0; i < lista.length; i += n) out.push(...await Promise.all(lista.slice(i, i + n).map(fn))); return out; };
+    const sobrantes = (await productosConEtiqueta(gql)).filter(p => !p.skus.some(s => marcados.some(m => m.sku === s)) );
+    if (req.method === 'POST') {
+      if ((req.body || {}).accion !== 'sincronizar') return res.status(400).json({ error: 'Acción inválida' });
+      const resultados = await conLimite(marcados, 4, async m => ({ sku: m.sku, ...(await aplicarEtiquetaEnvioGratis(gql, m.sku, true)) }));
+      let quitadas = 0; const errores = resultados.flatMap(r => r.errores);
+      for (const p of sobrantes) {
+        const r = await gql('mutation($id: ID!, $t: [String!]!) { tagsRemove(id: $id, tags: $t) { userErrors { message } } }', { id: p.id, t: [ETIQUETA_ENVIO_GRATIS] });
+        const ue = (r.data && r.data.tagsRemove && r.data.tagsRemove.userErrors) || [];
+        if (ue.length) errores.push(ue[0].message); else quitadas++;
+      }
+      return res.status(200).json({ ok: true, puestas: resultados.reduce((t, r) => t + r.cambiadas, 0), quitadas, errores: errores.slice(0, 5), por: sesion.nombre || sesion.email });
+    }
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const items = await conLimite(marcados, 4, async m => {
+      try { return { sku: m.sku, nombre: m.nombre || '', ...(await estadoDeSku(gql, m.sku)) }; }
+      catch (e) { return { sku: m.sku, nombre: m.nombre || '', error: String(e.message || e).slice(0, 80) }; }
+    });
+    return res.status(200).json({ etiqueta: ETIQUETA_ENVIO_GRATIS, items, sobrantes: sobrantes.map(p => ({ handle: p.handle, title: p.title, skus: p.skus })), truncado: rows.length > marcados.length });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo consultar Shopify', detail: String(err.message || err).slice(0, 200) });
+  }
 }
 
 async function manejarFiltrosUso(req, res, _sesion) {
