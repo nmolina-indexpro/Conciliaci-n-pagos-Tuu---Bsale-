@@ -34,7 +34,7 @@ import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from 
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
-import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, detalleWaClics, numeroConectado as numeroConectadoWaAds, atribuirClics as atribuirClicsWaAds, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
+import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, detalleWaClics, numeroConectado as numeroConectadoWaAds, asegurarWaClicsAdsUnaVez as asegurarWaClicsAdsUnaVezWaAds, sqlOrigenGoogleAds, atribuirClics as atribuirClicsWaAds, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
 import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTablaMercadoLibre, leerConexion, borrarConexion, conectarConCodigo, probarLectura, lectorML } from '../lib/mercadolibre.js';
@@ -7092,6 +7092,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
         paramsConMiId
       );
 
+      await asegurarWaClicsAdsUnaVezWaAds(sql);
       const paramsConPaginacion = [...params, pageSize, offset];
       const { rows } = await sql.query(
         `SELECT
@@ -7103,6 +7104,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
            c.bsale_documento_numero, c.bsale_documento_tipo, c.bsale_documento_monto, c.bsale_documento_fecha, c.bsale_documento_url,
            c.fuente_tipo, c.fuente_titulo, c.fuente_url, c.fuente_id, c.fuente_utm_source,
            c.shopify_journey_fuente, c.shopify_journey_medio, c.shopify_journey_campana, c.shopify_journey_landing_page,
+           ${sqlOrigenGoogleAds('c')} AS ads_origen,
            ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono,
            a.probabilidad_compra,
            u.nombre AS responsable_nombre,
@@ -7272,6 +7274,8 @@ function mapearConversacionWhatsapp(r) {
     fuenteUrl: r.fuente_url,
     fuenteId: r.fuente_id,
     fuenteUtmSource: r.fuente_utm_source,
+    // Origen medido de Google Ads (toque con código vinculado a esta conversación): campaña, tipo, grupo, palabra clave, red, hora del toque.
+    googleAds: r.ads_origen || null,
     cantidadMensajes: r.cantidad_mensajes,
     cantidadImagenes: r.cantidad_imagenes || 0,
     analisisDesactualizado: r.analisis_desactualizado === true,
@@ -7304,6 +7308,8 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
     const clienteBsale = await buscarClienteBsalePorTelefono(sql, contacto?.telefono);
     const cotizacionesCliente = await cotizacionesDelClienteWhatsapp(sql, contacto?.telefono, clienteBsale ? clienteBsale.id : null);
 
+    await asegurarWaClicsAdsUnaVezWaAds(sql);
+    const { rows: adsRows } = await sql.query(`SELECT ${sqlOrigenGoogleAds('c')} AS ads_origen FROM whatsapp_conversaciones c WHERE c.id = $1`, [id]);
     const { rows: mensajes } = await sql`SELECT * FROM whatsapp_mensajes WHERE conversacion_id = ${id} ORDER BY marca_tiempo ASC;`;
     const { rows: analisisRows } = await sql`SELECT * FROM whatsapp_analisis_ia WHERE conversacion_id = ${id};`;
     const { rows: auditoria } = await sql`SELECT * FROM whatsapp_auditoria WHERE conversacion_id = ${id} ORDER BY created_at DESC LIMIT 30;`;
@@ -7331,7 +7337,7 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
 
     return res.status(200).json({
       conversacion: {
-        ...mapearConversacionWhatsapp({ ...conv, primera_respuesta_segundos: conv.primera_respuesta_segundos ?? primeraRespuestaDesdeMensajes(mensajes), cliente_nombre: contacto?.nombre, cliente_telefono: contacto?.telefono, probabilidad_compra: analisisRows[0]?.probabilidad_compra }),
+        ...mapearConversacionWhatsapp({ ...conv, ads_origen: adsRows[0]?.ads_origen || null, primera_respuesta_segundos: conv.primera_respuesta_segundos ?? primeraRespuestaDesdeMensajes(mensajes), cliente_nombre: contacto?.nombre, cliente_telefono: contacto?.telefono, probabilidad_compra: analisisRows[0]?.probabilidad_compra }),
         pedidoAsociado: conv.pedido_asociado,
       },
       ventanaAbierta, ventanaExpiraEn,
@@ -15152,6 +15158,7 @@ async function manejarWaClicAdsResumen(req, res, _sesion) {
     if (desde > hasta) [desde, hasta] = [hasta, desde];
     if ((Date.parse(hasta) - Date.parse(desde)) / 86400000 > 366) return res.status(400).json({ error: 'El rango no puede superar un año' });
     const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
     const d = await detalleWaClics(sql, desde, hasta, numeroConectadoWaAds());
     d.conversion_configurada = Boolean(String(process.env.GOOGLE_ADS_WHATSAPP_CONVERSION_ID || '').trim() && String(process.env.GOOGLE_DATAMANAGER_REFRESH_TOKEN || '').trim());
     return res.status(200).json(d);

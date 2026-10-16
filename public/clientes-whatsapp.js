@@ -245,7 +245,14 @@ function debounce(fn, ms){
 // Origen de la conversación: anuncio pagado de Meta (referral) o un link
 // con UTM que el cliente pegó en el chat (ver extraerUtmDeTexto) -- dos
 // fuentes distintas, mismo juego de campos (fuenteTipo/Titulo/Url/Id).
+const NOM_RED_ADS = { SEARCH: 'Búsqueda', CONTENT: 'Display', YOUTUBE: 'YouTube', YOUTUBE_SEARCH: 'YouTube', YOUTUBE_WATCH: 'YouTube', SEARCH_PARTNERS: 'Socios de búsqueda' };
 function fuenteInfo(c){
+  // Medido por el ERP: el cliente tocó un botón de WhatsApp tras un clic en un anuncio de Google y su mensaje trajo el código "ref".
+  if (c.googleAds && c.googleAds.campana) {
+    const g = c.googleAds;
+    return { icono: '📣', texto: `Google Ads — ${g.campana}${g.red ? ' · ' + (NOM_RED_ADS[g.red] || g.red) : ''}${g.palabra ? ' · «' + g.palabra + '»' : ''}`, esSub: false };
+  }
+  if (c.googleAds) return { icono: '📣', texto: 'Google Ads (campaña por identificar)', esSub: false };
   if (!c.fuenteTipo) return { icono: '❓', texto: 'Origen desconocido', esSub: true };
   if (c.fuenteTipo === 'boton_sitio') return { icono: '📎', texto: `Botón WhatsApp del sitio (sin campaña)${c.fuenteTitulo ? ' — ' + c.fuenteTitulo : ''}`, esSub: false };
   if (c.fuenteTipo === 'utm') {
@@ -749,6 +756,7 @@ function itemConvHtml(c){
           ${c.categoria ? `<span class="badge-mini b-gris">${escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria)}</span>` : ''}
           <span class="sub" style="font-size:10.5px;">${escapeHtml(c.responsableNombre || (c.vendedorDetectado ? c.vendedorDetectado + ' 🤖' : 'Sin asignar'))}</span>
           ${c.clienteTelefono ? `<span class="sub item-telefono" style="font-size:10.5px;">· 📞 ${escapeHtml(fmtTelefonoLista(c.clienteTelefono))}</span>` : ''}
+          ${c.googleAds ? `<span class="badge-mini b-gris" title="${escapeHtml(fuenteInfo(c).texto)}">📣 Google Ads</span>` : ''}
         </div>
         ${alerta ? `<div style="margin-top:4px;"><span class="alerta-chip ${alerta.clase}" style="font-size:10px;padding:2px 7px;">${alerta.icono} ${escapeHtml(alerta.texto)}</span></div>` : ''}
       </div>

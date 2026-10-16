@@ -609,6 +609,7 @@ async function cargarAdsWa(){
       { t:'Campaña', f: x => envioEsc(x.campana || '—') + (x.red ? '<div class="empty-note" style="margin:2px 0 0;">' + envioEsc(NOM_RED[x.red] || x.red) + '</div>' : '') },
       { t:'WhatsApp', f: x => envioEsc(x.numero ? fmtNumeroWa(x.numero) : '—') },
       { t:'Dispositivo', f: x => envioEsc(x.dispositivo === 'movil' ? 'Celular' : x.dispositivo === 'escritorio' ? 'Escritorio' : '—') },
+      { t:'Cliente', f: x => x.conversacion_id ? '<a href="clientes-whatsapp.html?abrirConversacion=' + x.conversacion_id + '" title="Abrir la conversación">' + envioEsc(x.cliente_nombre || 'Sin nombre') + '</a>' + (x.cliente_telefono ? '<div class="empty-note" style="margin:2px 0 0;">' + envioEsc(fmtNumeroWa(x.cliente_telefono)) + '</div>' : '') : '—' },
       { t:'Mensaje', f: x => fch(x.mensaje_en) },
       { t:'Estado', f: x => envioEsc(ESTADO[x.estado] || x.estado) + (x.error ? '<div class="empty-note" style="margin:2px 0 0;">' + envioEsc(x.error) + '</div>' : '') },
     ], d.recientes, 'Sin toques.');
