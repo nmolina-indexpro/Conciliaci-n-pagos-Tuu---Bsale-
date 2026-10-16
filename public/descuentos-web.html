@@ -283,6 +283,12 @@
         <div><h2>Por tramo</h2><div class="tabla-wrap"><table id="tTramos"></table></div><div class="desde" id="tTramosNota" style="margin-top:8px;"></div></div>
         <div><h2>Unidades por día</h2><div id="porDia"></div></div>
       </div>
+      <div id="carroProductos" style="margin-top:22px;">
+        <h2>Productos agregados al carro con descuento por cantidad</h2>
+        <div class="desde" style="margin:2px 0 8px;">Productos que alguien agregó al carro con la cantidad de un tramo (3 o más, 5 o más). Es lo medido en la ficha, aunque después no haya comprado.</div>
+        <div id="carroProductosEstado" class="empty-note" style="display:none;"></div>
+        <div class="tabla-wrap"><table id="tCarroProductos"></table></div>
+      </div>
     </div>
   </div>
 
@@ -549,6 +555,21 @@ async function cargarResultados(){
   $('tTramos').innerHTML = `<thead><tr><th>Tramo</th><th class="amount">Clics</th><th class="amount">Personas con clic</th><th class="amount">Agregaron al carro</th><th class="amount">Pedidos</th><th class="amount">Unidades</th><th class="amount">Descuento</th></tr></thead><tbody>` +
     filas.map(f => `<tr><td>${esc(f.etq)}</td><td class="amount">${fmtNum(f.clic.veces)}</td><td class="amount">${fmtNum(f.clic.personas)}</td><td class="amount">${fmtNum(f.carro.personas)}</td><td class="amount">${f.ped ? fmtNum(f.ped.pedidos) : '—'}</td><td class="amount">${f.ped ? fmtNum(f.ped.unidades) : '—'}</td><td class="amount">${f.ped ? clp(f.ped.descuento) : '—'}</td></tr>`).join('') + '</tbody>';
   $('tTramosNota').textContent = it ? `"Agregaron al carro" cuenta personas según el tramo que alcanzaba la cantidad al agregar. Los ${fmtNum(it.bots)} avisos de bots o servidores no se cuentan.` : '';
+
+  // Productos que se agregaron al carro con la cantidad de un tramo
+  const pc = j.productosCarro, tramosCfg = D.config.tramos.map(x => x.cantidad), estPc = $('carroProductosEstado');
+  estPc.style.display = 'none';
+  if(j.errorProductosCarro){ estPc.className = 'note-box err'; estPc.textContent = 'No se pudo leer la lista de productos: ' + j.errorProductosCarro; estPc.style.display = ''; }
+  const prods = (pc && pc.productos) || [];
+  if(!prods.length){
+    $('tCarroProductos').innerHTML = '';
+    if(!j.errorProductosCarro){ estPc.className = 'empty-note'; estPc.textContent = 'Nadie agregó al carro un producto con la cantidad de un tramo en este período.'; estPc.style.display = ''; }
+  } else {
+    if(pc.errorNombres){ estPc.className = 'note-box err'; estPc.textContent = 'No se pudieron leer los nombres desde Shopify (' + pc.errorNombres + '): se muestra el número de variante.'; estPc.style.display = ''; }
+    const fechaPc = v => v ? new Date(v).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    $('tCarroProductos').innerHTML = `<thead><tr><th>Producto</th><th>SKU</th>${tramosCfg.map(c => `<th class="amount">Con ${c} o más</th>`).join('')}<th class="amount">Personas</th><th class="amount">Unidades agregadas</th><th class="amount">Mayor cantidad</th><th>Último</th></tr></thead><tbody>` +
+      prods.map(x => `<tr><td>${x.producto ? (x.handle ? `<a href="https://indexstore.cl/products/${encodeURIComponent(x.handle)}" target="_blank" rel="noopener">${esc(x.producto)}</a>` : esc(x.producto)) : `Variante ${esc(x.variante || 'sin identificar')}`}${x.variante_titulo ? `<span class="desde"> · ${esc(x.variante_titulo)}</span>` : ''}</td><td>${esc(x.sku || '—')}</td>${tramosCfg.map(c => `<td class="amount">${fmtNum((x.porTramo || {})[c] || 0)}</td>`).join('')}<td class="amount">${fmtNum(x.personas)}</td><td class="amount">${fmtNum(x.unidades)}</td><td class="amount">${fmtNum(x.mayor)}</td><td>${esc(fechaPc(x.ultima))}</td></tr>`).join('') + '</tbody>';
+  }
 
   const dias = r?.porDia || [];
   const max = Math.max(1, ...dias.map(x => x.unidades));
