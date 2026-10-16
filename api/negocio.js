@@ -34,7 +34,7 @@ import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from 
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
-import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, detalleWaClics, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
+import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, detalleWaClics, atribuirClics as atribuirClicsWaAds, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
 import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTablaMercadoLibre, leerConexion, borrarConexion, conectarConCodigo, probarLectura, lectorML } from '../lib/mercadolibre.js';
@@ -15116,9 +15116,13 @@ async function manejarWaClicAdsCron(req, res) {
     await asegurarTablaWhatsapp(sql);
     await asegurarTablaWaClicsAds(sql);
     const vinculo = await vincularMensajesWaAds(sql);
+    // De qué campaña salió cada toque (consulta de solo lectura a Google Ads). Si falla, no impide vincular ni subir.
+    let atribucion;
+    try { atribucion = await atribuirClicsWaAds(sql); } catch (e) { atribucion = { error: String(e.message || e).slice(0, 200) }; }
+    console.log('[wa-clic-ads-cron] atribución:', JSON.stringify(atribucion));
     const tabla = (await sql.query(`SELECT count(*)::int AS total, count(mensaje_id)::int AS con_mensaje, count(subida_en)::int AS subidos, max(creado_en) AS ultimo FROM wa_clics_ads`)).rows[0];
     console.log('[wa-clic-ads-cron] tabla wa_clics_ads:', JSON.stringify(tabla));
-    if (req.query.solo_ver === '1') return res.status(200).json({ ok: true, vinculo, subida: 'omitida (solo_ver)' });
+    if (req.query.solo_ver === '1') return res.status(200).json({ ok: true, vinculo, atribucion, subida: 'omitida (solo_ver)' });
     const faltan = [...faltanVariablesGoogleAds(), ...faltanVariablesConversionWaAds()];
     if (faltan.length > 0) {
       const falla = { ok: false, vinculo, error: `Faltan variables de entorno en Vercel: ${faltan.join(', ')}` };
@@ -15130,7 +15134,7 @@ async function manejarWaClicAdsCron(req, res) {
     await sql.query(`DELETE FROM wa_clics_ads WHERE creado_en < now() - make_interval(days => $1)`, [RETENCION_WA_ADS]);
     // Solo cantidades y nombres de variables que faltan (sin secretos): queda en el registro de Vercel para poder revisarlo.
     console.log('[wa-clic-ads-cron]', JSON.stringify({ ok: true, vinculo, subida }));
-    return res.status(200).json({ ok: true, vinculo, subida });
+    return res.status(200).json({ ok: true, vinculo, atribucion, subida });
   } catch (err) {
     return res.status(500).json({ error: 'Error en la conversión de WhatsApp para Google Ads', detail: String(err.message || err).slice(0, 300) });
   }
