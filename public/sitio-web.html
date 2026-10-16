@@ -405,6 +405,8 @@
         <div><p class="envio-sub">Por página de destino</p><div class="tabla-wrap"><table class="envio-tabla" id="adswaPaginas"></table></div></div>
         <div><p class="envio-sub">Por dispositivo</p><div class="tabla-wrap"><table class="envio-tabla" id="adswaDisp"></table></div></div>
       </div>
+      <p class="envio-sub" style="margin-top:14px;">Por número de WhatsApp</p>
+      <div class="tabla-wrap"><table class="envio-tabla" id="adswaNumeros"></table></div>
       <p class="envio-sub" style="margin-top:14px;">Últimos toques</p>
       <div class="tabla-wrap"><table class="envio-tabla" id="adswaRecientes"></table></div>
     </div>
@@ -535,6 +537,7 @@ async function cargarFiltrosUso(dias){
     }).join('');
   }catch(err){ estado.className = 'note-box err'; estado.textContent = err.message; contenido.style.display = 'none'; setResumen('filtros', 'atencion', 'No se pudo cargar: ' + err.message, []); }
 }
+function fmtNumeroWa(n){ const t = String(n || '').replace(/\D/g, ''); return t.length === 11 ? '+' + t.slice(0, 2) + ' ' + t.slice(2, 3) + ' ' + t.slice(3, 7) + ' ' + t.slice(7) : (n || '—'); }
 // Fechas de Chile (YYYY-MM-DD) para el filtro del módulo Google Ads → WhatsApp
 const hoyAdsWa = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
 function sumarDiasAdsWa(str, n){ const d = new Date(str + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
@@ -576,8 +579,9 @@ async function cargarAdsWa(){
     else setResumen('adswa', 'ok', fmtNum(d.con_mensaje) + ' mensajes reales desde anuncios en ' + periodo + '.', datos);
     $('adswaKpis').innerHTML = [
       ['Toques con código', fmtNum(d.toques), 'personas que llegaron de un anuncio y tocaron WhatsApp'],
-      ['Mensajes recibidos', fmtNum(d.con_mensaje), pctAds(d.con_mensaje, d.toques) + ' de los toques (mínimo: sin contar los que borraron el código)'],
+      ['Mensajes recibidos', fmtNum(d.con_mensaje), pctAds(d.con_mensaje, d.toques_confirmables) + ' de los toques que se pueden confirmar (mínimo: sin contar los que borraron el código)'],
       ['Informados a Google Ads', fmtNum(d.subidas), 'ya subidos como conversión'],
+      ...(d.toques_otro_numero ? [['Toques a otro número', fmtNum(d.toques_otro_numero), 'el ERP solo recibe los mensajes del ' + fmtNumeroWa(d.numero_conectado) + ': estos no se pueden confirmar']] : []),
       ['Por subir', fmtNum(d.por_subir), 'se suben en la próxima ejecución diaria (11:30 UTC)'],
       ['Con error', fmtNum(d.con_error), d.con_error ? 'ver el motivo en la tabla de abajo' : 'sin errores'],
     ].map(k => '<div class="envio-kpi"><div class="lbl">' + k[0] + '</div><div class="big">' + k[1] + '</div><div class="nota">' + k[2] + '</div></div>').join('');
@@ -589,6 +593,11 @@ async function cargarAdsWa(){
     envioTabla($('adswaCampanas'), [{ t:'Campaña', f: x => envioEsc(x.campana) }, { t:'Tipo', f: x => envioEsc(NOM_TIPO[x.tipo] || x.tipo || '—') }, ...colsMsg, { t:'Informados', cls:'num', f: x => fmtNum(x.subidas) }], d.por_campana || [], 'Sin datos.');
     envioTabla($('adswaRedes'), [{ t:'Red', f: x => envioEsc(NOM_RED[x.red] || x.red) }, ...colsMsg], d.por_red || [], 'Sin datos.');
     envioTabla($('adswaPalabras'), [{ t:'Palabra clave', f: x => envioEsc(x.palabra_clave) }, ...colsMsg], d.por_palabra || [], 'Todavía sin palabras clave atribuidas.');
+    envioTabla($('adswaNumeros'), [
+      { t:'Número', f: x => envioEsc(x.numero === 'sin dato' ? 'Sin dato (toques anteriores a este cambio)' : fmtNumeroWa(x.numero)) },
+      ...colsMsg,
+      { t:'¿Se confirma el mensaje?', f: x => x.confirmable ? '✅ Sí (el ERP recibe sus mensajes)' : '— No (el ERP no recibe los mensajes de este número)' },
+    ], d.por_numero || [], 'Sin datos.');
     envioTabla($('adswaPaginas'), [{ t:'Página', f: x => envioEsc(nomPagina(x.pagina)) }, ...cols2], d.por_pagina, 'Sin datos.');
     envioTabla($('adswaDisp'), [{ t:'Dispositivo', f: x => envioEsc(x.dispositivo === 'movil' ? 'Celular' : x.dispositivo === 'escritorio' ? 'Escritorio' : x.dispositivo) }, ...cols2], d.por_dispositivo, 'Sin datos.');
     const ESTADO = { subida: '✅ Informado a Google', por_subir: '🕒 Mensaje recibido, por subir', error: '⚠ Mensaje recibido, error al subir', sin_mensaje: '— Sin mensaje (aún)' };
@@ -598,6 +607,7 @@ async function cargarAdsWa(){
       { t:'Código', f: x => envioEsc(x.codigo) },
       { t:'Página', f: x => envioEsc(nomPagina(x.pagina || '')) },
       { t:'Campaña', f: x => envioEsc(x.campana || '—') + (x.red ? '<div class="empty-note" style="margin:2px 0 0;">' + envioEsc(NOM_RED[x.red] || x.red) + '</div>' : '') },
+      { t:'WhatsApp', f: x => envioEsc(x.numero ? fmtNumeroWa(x.numero) : '—') },
       { t:'Dispositivo', f: x => envioEsc(x.dispositivo === 'movil' ? 'Celular' : x.dispositivo === 'escritorio' ? 'Escritorio' : '—') },
       { t:'Mensaje', f: x => fch(x.mensaje_en) },
       { t:'Estado', f: x => envioEsc(ESTADO[x.estado] || x.estado) + (x.error ? '<div class="empty-note" style="margin:2px 0 0;">' + envioEsc(x.error) + '</div>' : '') },
