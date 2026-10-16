@@ -5813,6 +5813,55 @@ function textoLead(v, max) {
   return String(v == null ? '' : v).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, max || 300);
 }
 
+// Aviso inmediato por correo (notificación 'indexscale-lead-web', se administra en Usuarios > Notificaciones) cuando entra un lead nuevo del sitio.
+// Nunca hace fallar el registro: si el correo no está configurado o falla, el lead igual queda guardado en el ERP.
+function htmlLead(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function armarCorreoLeadWeb(l) {
+  const tipo = (l.mensaje || '').includes('[Formulario rápido]') ? 'Contacto rápido'
+    : ({ demo: 'Demo gratis', express: 'Diagnóstico Express', general: 'Diagnóstico / contacto' }[l.tipo] || 'Formulario');
+  const ads = !!(l.gclid || (l.utm_source === 'google' && l.utm_medium === 'cpc'));
+  const tel = String(l.telefono || '').replace(/\D/g, '');
+  const waNum = tel ? (tel.startsWith('56') ? tel : '56' + tel) : '';
+  const fila = (k, v) => v ? `<tr><td style="padding:4px 14px 4px 0;color:#666;vertical-align:top;">${k}</td><td style="padding:4px 0;">${v}</td></tr>` : '';
+  const d = l.datos || {};
+  const extra = [d.tipo_sitio && 'Tipo de sitio: ' + d.tipo_sitio, d.rubro && 'Rubro: ' + d.rubro, d.dominio_deseado && 'Dominio: ' + d.dominio_deseado, d.sitio && 'Sitio: ' + d.sitio]
+    .filter(Boolean).map(htmlLead).join('<br>');
+  const asunto = `Lead nuevo en indexscale.cl: ${l.nombre || 'sin nombre'} — ${tipo}${ads ? ' (Google Ads)' : ''}`;
+  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111;">
+    <h2 style="margin:0 0 6px;">Lead nuevo en indexscale.cl</h2>
+    <p style="margin:0 0 12px;color:#555;">${htmlLead(tipo)}${ads ? ' · <b>vino de un anuncio de Google Ads</b>' : ''}. Responde pronto: se prometió contestar en pocas horas.</p>
+    <table style="border-collapse:collapse;">
+      ${fila('Nombre', htmlLead(l.nombre))}
+      ${fila('WhatsApp', waNum ? `<a href="https://wa.me/${waNum}">${htmlLead(l.telefono)}</a>` : '')}
+      ${fila('Correo', l.email ? `<a href="mailto:${htmlLead(l.email)}">${htmlLead(l.email)}</a>` : '')}
+      ${fila('Prefiere ser contactado por', htmlLead(l.preferencia_contacto))}
+      ${fila('Página', htmlLead(l.pagina_origen))}
+      ${fila('Campaña', htmlLead(l.utm_campaign))}
+      ${fila('Palabra clave', htmlLead(l.utm_term))}
+      ${fila('Detalle', extra)}
+    </table>
+    <p style="margin:16px 0 0;"><a href="https://erp.indexstore.cl/indexscale.html" style="background:#0F766E;color:#fff;padding:9px 16px;border-radius:6px;text-decoration:none;">Abrir en el ERP</a></p>
+  </div>`;
+  return { asunto, html };
+}
+async function avisarLeadWebNuevo(sql, l) {
+  try {
+    await asegurarTablaNotificaciones(sql);
+    if (!(await notificacionDebeEnviarse(sql, 'indexscale-lead-web'))) return { enviado: false, motivo: 'notificación inactiva' };
+    const destinatarios = await obtenerSuscriptoresEmail(sql, 'indexscale-lead-web');
+    const { asunto, html } = armarCorreoLeadWeb(l);
+    let enviados = 0;
+    for (const para of destinatarios) {
+      const r = await enviarCorreo({ para, asunto, html });
+      if (r && r.enviado) enviados++;
+    }
+    if (enviados > 0) await marcarNotificacionEnviada(sql, 'indexscale-lead-web', { asunto, html });
+    return { enviado: enviados > 0, enviados };
+  } catch (e) {
+    return { enviado: false, motivo: String(e) };
+  }
+}
+
 async function manejarIndexscaleLeadWebRegistrar(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const claveEsperada = process.env.INDEXSCALE_LEADS_KEY;
@@ -5844,7 +5893,10 @@ async function manejarIndexscaleLeadWebRegistrar(req, res) {
        textoLead(b.utm_source, 100), textoLead(b.utm_medium, 100), textoLead(b.utm_campaign, 200), textoLead(b.utm_term, 200),
        textoLead(b.gclid, 300), textoLead(b.referrer, 300), textoLead(b.mensaje, 4000), JSON.stringify(datos).slice(0, 20000)],
     );
-    return res.status(200).json({ ok: true, nuevo: r.rows.length > 0 });
+    const esNuevo = r.rows.length > 0;
+    // Aviso al equipo solo la primera vez que se guarda (o se completa) el lead; un reintento idéntico no vuelve a avisar.
+    const aviso = esNuevo ? await avisarLeadWebNuevo(sql, { ...b, datos }) : null;
+    return res.status(200).json({ ok: true, nuevo: esNuevo, aviso: aviso ? aviso.enviado : false });
   } catch (e) {
     return res.status(200).json({ error: 'No se pudo guardar el lead: ' + e.message });
   }
