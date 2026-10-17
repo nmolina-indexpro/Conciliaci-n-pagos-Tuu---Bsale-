@@ -6405,6 +6405,7 @@ async function manejarWhatsappWebhook(req, res) {
     const entradas = req.body?.entry || [];
     let mensajesProcesados = 0;
     const conversacionesTocadas = new Set(); // para el análisis IA automático, ver más abajo
+    const conversacionesConImagen = new Set(); // conversaciones que recibieron una foto en esta llamada (ver el análisis IA automático más abajo)
     for (const entrada of entradas) {
       for (const cambio of (entrada.changes || [])) {
         const valor = cambio.value || {};
@@ -6481,6 +6482,7 @@ async function manejarWhatsappWebhook(req, res) {
           await sql`UPDATE whatsapp_contactos SET ultima_conversacion_en = now(), updated_at = now() WHERE id = ${contacto.id};`;
           mensajesProcesados++;
           conversacionesTocadas.add(conversacion.id);
+          if (tipo === 'imagen' && mediaRef) conversacionesConImagen.add(conversacion.id);
         }
 
         for (const m of echosPayload) {
@@ -6564,7 +6566,15 @@ async function manejarWhatsappWebhook(req, res) {
       try {
         const { rows: previo } = await sql`SELECT updated_at FROM whatsapp_analisis_ia WHERE conversacion_id = ${conversacionId};`;
         const ultimaVez = previo[0]?.updated_at ? new Date(previo[0].updated_at).getTime() : 0;
-        if (Date.now() - ultimaVez > DEBOUNCE_ANALISIS_IA_MS) {
+        // Una FOTO (típicamente la etiqueta del equipo, con el modelo) se analiza aunque el análisis anterior sea reciente: si no, un "Hola" y la foto
+        // pegados dejaban el análisis con solo el "Hola" ("sin contenido específico") y nada lo volvía a revisar. El análisis solo lee las 2 primeras
+        // fotos de la conversación (ver TOPE_IMAGENES), así que desde la tercera no se salta la espera (no aporta nada y cuesta).
+        let fotoNueva = false;
+        if (conversacionesConImagen.has(conversacionId)) {
+          const { rows: fotos } = await sql`SELECT count(*)::int AS n FROM whatsapp_mensajes WHERE conversacion_id = ${conversacionId} AND tipo = 'imagen' AND media_url IS NOT NULL;`;
+          fotoNueva = (fotos[0]?.n || 0) <= 2;
+        }
+        if (fotoNueva || Date.now() - ultimaVez > DEBOUNCE_ANALISIS_IA_MS) {
           await ejecutarAnalisisIA(sql, conversacionId, 'Sistema (análisis automático)');
         }
       } catch (err) {
