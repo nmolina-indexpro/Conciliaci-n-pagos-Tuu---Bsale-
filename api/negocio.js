@@ -30,6 +30,7 @@ import { calcularControlEjecutivos, aplicarFirmas, detectarFirmaEnTexto, claveUs
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
+import { asegurarTablaCotizacionesWeb, crearCotizacion, verCotizacion, comprarCotizacion, leerConfig as leerConfigCotizacionWeb, guardarConfig as guardarConfigCotizacionWeb, estadoEfectivo as estadoCotizacionWeb } from '../lib/cotizacion-web.js';
 import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, productosConEtiqueta, estadoDescuentoEnvio, crearDescuentoEnvioGratis } from '../lib/envio-gratis-shopify.js';
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
@@ -150,6 +151,8 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'buscador-ia-embudo') return manejarBuscadorIaEmbudo(req, res);
   if (req.query.recurso === 'buscador-ia-filtro') return manejarBuscadorIaFiltro(req, res);
   if (req.query.recurso === 'buscador-ia-descuento') return manejarBuscadorIaDescuento(req, res);
+  // Cotización web (prototipo): crear / ver / comprar. Llega desde el Worker de Cloudflare con la clave BUSCADOR_IA_KEY (x-api-key).
+  if (req.query.recurso === 'cotizacion-web') return manejarCotizacionWeb(req, res);
   // Conversión real de Google Ads (mensaje de WhatsApp recibido): el aviso del toque llega por el Worker (x-api-key) y el cron sube las conversiones (CRON_SECRET).
   if (req.query.recurso === 'wa-clic-ads') return manejarWaClicAds(req, res);
   if (req.query.recurso === 'wa-clic-ads-cron') return manejarWaClicAdsCron(req, res);
@@ -218,6 +221,7 @@ export default async function handler(req, res) {
   if (recurso === 'bsale-sombra-pedido') return manejarBsaleSombraPedido(req, res, sesion);
   if (recurso === 'shopify-permisos') return manejarShopifyPermisos(req, res, sesion);
   if (recurso === 'bsale-prueba-cotizacion') return manejarBsalePruebaCotizacion(req, res, sesion);
+  if (recurso === 'cotizacion-web-admin') return manejarCotizacionWebAdmin(req, res, sesion);
   if (recurso === 'zoho-servicio-tecnico-metricas') return manejarZohoServicioTecnicoMetricas(req, res, sesion);
   if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
   if (recurso === 'calendario-pagos-importar') return manejarCalendarioPagosImportar(req, res, sesion);
@@ -8461,6 +8465,58 @@ function tipoDocumentoEsperado(atributos) {
   if (faltan.length) return { tipo: 'boleta', motivo: 'pidió factura pero faltan datos: ' + faltan.join(', '), atributos: a };
   if (!rutValido(a.rut)) return { tipo: 'boleta', motivo: 'pidió factura pero el RUT no es válido', atributos: a };
   return { tipo: 'factura', atributos: a };
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// COTIZACIÓN WEB (prototipo). Lógica en lib/cotizacion-web.js. Público (lo llama el Worker, x-api-key) y administración (sesión).
+// ══════════════════════════════════════════════════════════════════════
+async function manejarCotizacionWeb(req, res) {
+  try {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const claveEsperada = process.env.BUSCADOR_IA_KEY;
+    if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
+    if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) return res.status(401).json({ error: 'Clave inválida' });
+    const token = process.env.BSALE_ACCESS_TOKEN;
+    if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+    const sql = await getSql();
+    await asegurarTablaCotizacionesWeb(sql);
+    const deps = {
+      sql, enviarCorreo, clave: claveEsperada,
+      gql: await descuentosWebGql(),
+      bsale: (ruta, init = {}) => fetchConTimeout(BSALE_BASE + ruta, { ...init, headers: { access_token: token, ...(init.headers || {}) } }, 25000),
+    };
+    const b = req.body || {};
+    let r;
+    if (b.accion === 'crear') r = await crearCotizacion(deps, b);
+    else if (b.accion === 'ver') r = await verCotizacion(deps, b.token);
+    else if (b.accion === 'comprar') r = await comprarCotizacion(deps, b.token, b.acepta === true);
+    else return res.status(400).json({ error: 'Acción no válida' });
+    if (r.interno) console.error('cotizacion-web:', JSON.stringify(r.interno));
+    const { status, interno, ...cuerpo } = r;
+    return res.status(status || 200).json(cuerpo);
+  } catch (err) {
+    console.error('cotizacion-web error', err);
+    return res.status(500).json({ error: 'No pudimos procesar la cotización. Intenta de nuevo en unos minutos.' });
+  }
+}
+
+// Administración: GET lista (cualquier usuario con acceso) y estado del interruptor; POST { estado?, correos? } cambia el interruptor (solo administradores).
+async function manejarCotizacionWebAdmin(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaCotizacionesWeb(sql);
+    if (req.method === 'POST') {
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores pueden cambiar quién puede cotizar' });
+      await guardarConfigCotizacionWeb(sql, { estado: req.body && req.body.estado, correos: req.body && req.body.correos });
+    } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const { rows } = await sql.query(`SELECT id, estado, bsale_numero, bsale_url, email, nombre, telefono, rut, razon_social, comuna, metodo_pago, envio_nombre, envio_precio, total, correo_enviado, creado_en, vence_en, pago_iniciado_en, vistas, items FROM cotizaciones_web ORDER BY creado_en DESC LIMIT 200`);
+    return res.status(200).json({
+      config: await leerConfigCotizacionWeb(sql),
+      cotizaciones: rows.map(f => ({ ...f, estado: estadoCotizacionWeb(f), items: (f.items || []).map(l => ({ sku: l.sku, titulo: l.titulo, cantidad: l.cantidad })) })),
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo leer las cotizaciones web: ' + err.message });
+  }
 }
 
 // Prueba controlada de que el token de Bsale del ERP PUEDE CREAR documentos: emite UNA cotización (documento sin efecto tributario,

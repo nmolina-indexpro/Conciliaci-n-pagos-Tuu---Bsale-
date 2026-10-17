@@ -270,6 +270,7 @@
           <a href="sitio-web.html#modelos">Modelos detectados</a>
           <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
           <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+          <a href="sitio-web.html#cotizaciones" data-requiere="cotizaciones-web.html">Cotizaciones web</a>
         </div>
       </div>
       <div class="nav-dropdown">
@@ -312,6 +313,7 @@
     <button type="button" class="sw-item" data-modulo="modelos" onclick="irModulo('modelos')" title="Modelos detectados en el catálogo de Shopify"><span class="sw-icono">💻</span>Modelos detectados</button>
     <button type="button" class="sw-item" data-modulo="buscador" onclick="irModulo('buscador')" title="Buscador con IA de indexstore.cl: búsquedas, sin resultado y clics"><span class="sw-icono">🤖</span>Buscador IA</button>
     <button type="button" class="sw-item" data-modulo="descuentos" onclick="irModulo('descuentos')" title="Descuentos por cantidad en la tienda"><span class="sw-icono">🎟️</span>Descuentos web</button>
+    <button type="button" class="sw-item" data-modulo="cotizaciones" onclick="irModulo('cotizaciones')" title="Cotizaciones que los clientes arman en la tienda (prototipo)"><span class="sw-icono">📝</span>Cotizaciones web</button>
   </nav>
   <main class="sw-contenido">
 
@@ -475,6 +477,7 @@
   <div class="sw-modulo" id="mod-buscador"><iframe class="sw-frame" id="frame-buscador" data-src="buscador-ia.html?embed=1" title="Buscador IA"></iframe></div>
 
   <div class="sw-modulo" id="mod-descuentos"><iframe class="sw-frame" id="frame-descuentos" data-src="descuentos-web.html?embed=1" title="Descuentos web"></iframe></div>
+  <div class="sw-modulo" id="mod-cotizaciones"><iframe class="sw-frame" id="frame-cotizaciones" data-src="cotizaciones-web.html?embed=1" title="Cotizaciones web"></iframe></div>
 
   </main>
   </div>
@@ -963,7 +966,7 @@ function insigniaModulo(id, cantidad){
   el.textContent = cantidad === 0 ? '✓' : (cantidad > 99 ? '99+' : String(cantidad));
   el.title = cantidad === 0 ? 'Sin casos por revisar' : cantidad + ' por revisar';
 }
-const MODULOS_SITIO = ['resumen', 'stock', 'precios', 'skus', 'envio', 'filtros', 'adswa', 'compat', 'modelos', 'buscador', 'descuentos'];
+const MODULOS_SITIO = ['resumen', 'stock', 'precios', 'skus', 'envio', 'filtros', 'adswa', 'compat', 'modelos', 'buscador', 'descuentos', 'cotizaciones'];
 // ---------- Resumen: una tarjeta por módulo ----------
 // nivel: 'alerta' (hay algo que corregir), 'atencion' (por analizar o revisar), 'ok', 'sin_datos', 'cargando'
 const RESUMEN_META = {
@@ -1838,6 +1841,7 @@ async function cargarSesionUsuario(){
     if(Array.isArray(u.paginas)){
       if(!u.paginas.includes('buscador-ia.html')) quitarModuloSitio('buscador');
       if(!u.paginas.includes('descuentos-web.html')) quitarModuloSitio('descuentos');
+      if(!u.paginas.includes('cotizaciones-web.html')) quitarModuloSitio('cotizaciones');
       if(!MODULOS_SITIO.includes(moduloDesdeHash())) irModulo('resumen', true);
     }
     sesionCargada = true;

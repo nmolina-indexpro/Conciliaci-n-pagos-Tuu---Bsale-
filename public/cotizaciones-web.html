@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Cotizaciones web — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:24px 32px 50px 32px;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;margin:0 0 5px 0;}
+  h1 span{color:var(--primary);}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin:0 0 4px 0;}
+  .sub{color:var(--muted);font-size:13px;}
+  .volver{font-size:12.5px;color:var(--primary-dark);text-decoration:none;display:inline-block;margin-bottom:10px;}
+  select, textarea, input{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 10px;border-radius:9px;font-size:13px;}
+  textarea{width:100%;min-height:70px;font-family:'IBM Plex Mono',monospace;font-size:12px;resize:vertical;}
+  select:focus, textarea:focus{outline:none;border-color:var(--primary);}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  button:hover:not(:disabled){background:var(--primary-dark);}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .fila{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-top:12px;}
+  .fila label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600;margin-bottom:4px;}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:20px;}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);}
+  .kpi .lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+  .kpi .big{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:700;margin-top:4px;}
+  .nota{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:14px;}
+  .nota.err{background:var(--red-bg);border-color:#F5B5B5;} .nota.ok{background:var(--green-bg);border-color:#B8E2C4;}
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th.amount, td.amount{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;display:inline-block;}
+  .badge.verde{background:var(--green-bg);color:var(--green);} .badge.gris{background:var(--surface-2);color:var(--muted);} .badge.azul{background:var(--blue-bg);color:var(--blue);} .badge.rojo{background:var(--red-bg);color:var(--red);}
+  .vacio{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  small{color:var(--muted);}
+  html.embebido body{padding-top:0;}
+</style>
+<script src="embed-sitio.js"></script>
+</head>
+<body>
+<a class="volver" href="sitio-web.html#cotizaciones" id="volver">← Sitio Web</a>
+<h1>Cotizaciones <span>web</span></h1>
+<p class="sub">Los clientes arman su cotización en indexstore.cl (<code>/pages/cotizar</code>); se crea una cotización real en Bsale, reciben un correo y tienen 3 días para pagarla desde el enlace. Prototipo.</p>
+
+<div class="seccion">
+  <h2>Quién puede cotizar</h2>
+  <p class="sub" style="margin:2px 0 0">Mientras sea prototipo déjalo en «Solo pruebas»: únicamente los correos de la lista pueden generar cotizaciones (las crean de verdad en Bsale y les llega el correo).</p>
+  <div class="fila">
+    <div><label for="estado">Estado</label>
+      <select id="estado"><option value="apagado">Apagado (nadie)</option><option value="prototipo">Solo pruebas (lista de correos)</option><option value="abierto">Abierto a todos los clientes</option></select></div>
+    <div style="flex:1;min-width:260px"><label for="correos">Correos de prueba (separados por coma o espacio)</label><textarea id="correos" placeholder="nmolina@indexpro.cl, vendedor@indexstore.cl"></textarea></div>
+    <div><button id="guardar" type="button">Guardar</button></div>
+  </div>
+  <div id="msg" style="margin-top:10px"></div>
+</div>
+
+<div class="kpis" id="kpis"></div>
+
+<div class="seccion">
+  <h2>Cotizaciones creadas</h2>
+  <p class="sub" style="margin:2px 0 12px">Las últimas 200. «Pago iniciado» significa que el cliente pulsó «Generar compra» y fue al carro de Shopify; no confirma que haya pagado (eso se ve en el pedido).</p>
+  <div class="tabla-wrap"><table id="tabla"></table></div>
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => Math.round(n || 0).toLocaleString('es-CL');
+const fh = iso => iso ? new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
+if (/[?&]embed=1/.test(location.search)) $('volver').style.display = 'none';
+
+function pintar(d) {
+  $('estado').value = d.config.estado;
+  if (document.activeElement !== $('correos')) $('correos').value = d.config.correos.join(', ');
+  const c = d.cotizaciones;
+  const vig = c.filter(x => x.estado === 'vigente').length, venc = c.filter(x => x.estado === 'vencida').length, pago = c.filter(x => x.pago_iniciado_en).length;
+  $('kpis').innerHTML = [['Creadas', c.length], ['Vigentes', vig], ['Vencidas', venc], ['Con pago iniciado', pago]].map(([l, v]) => `<div class="kpi"><div class="lbl">${l}</div><div class="big">${fmt(v)}</div></div>`).join('');
+  if (!c.length) { $('tabla').innerHTML = '<tbody><tr><td class="vacio">Todavía no hay cotizaciones.</td></tr></tbody>'; return; }
+  const badge = e => ({ vigente: 'verde', vencida: 'gris', comprada: 'azul', anulada: 'rojo' }[e] || 'gris');
+  $('tabla').innerHTML = '<thead><tr><th>N° Bsale</th><th>Creada</th><th>Cliente</th><th>Productos</th><th>Comuna</th><th class="amount">Total</th><th>Estado</th><th>Vence</th><th>Pago iniciado</th><th>Correo</th><th>Vistas</th></tr></thead><tbody>' +
+    c.map(x => `<tr><td>${x.bsale_url ? `<a href="${esc(x.bsale_url)}" target="_blank" rel="noopener">${esc(x.bsale_numero)}</a>` : esc(x.bsale_numero)}</td><td>${fh(x.creado_en)}</td><td>${esc(x.razon_social)}<br><small>${esc(x.nombre)} · ${esc(x.email)}</small></td>` +
+      `<td>${x.items.map(i => `${i.cantidad} × ${esc(i.titulo)}`).join('<br>')}</td><td>${esc(x.comuna)}<br><small>${esc(x.envio_nombre)}</small></td><td class="amount">$${fmt(x.total)}</td><td><span class="badge ${badge(x.estado)}">${esc(x.estado)}</span></td><td>${fh(x.vence_en)}</td><td>${fh(x.pago_iniciado_en)}</td><td>${x.correo_enviado ? '✓' : '<span class="badge rojo">No salió</span>'}</td><td class="amount">${x.vistas}</td></tr>`).join('') + '</tbody>';
+}
+async function cargar(cuerpo) {
+  try {
+    const r = await fetch('/api/negocio?recurso=cotizacion-web-admin', cuerpo ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) } : undefined);
+    const d = await r.json();
+    if (d.error) { $('msg').innerHTML = `<div class="nota err">${esc(d.error)}</div>`; return; }
+    pintar(d); return d;
+  } catch (e) { $('msg').innerHTML = `<div class="nota err">No se pudo cargar: ${esc(e.message)}</div>`; }
+}
+$('guardar').addEventListener('click', async () => {
+  $('guardar').disabled = true;
+  const d = await cargar({ estado: $('estado').value, correos: $('correos').value });
+  if (d) $('msg').innerHTML = '<div class="nota ok">Guardado.</div>';
+  $('guardar').disabled = false;
+});
+cargar();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>
