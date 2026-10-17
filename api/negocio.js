@@ -35,6 +35,7 @@ import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, product
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
+import { asegurarTablaComprasProveedorAsignado } from '../lib/db.js';
 import { analizarGoogleAds, validarRango as validarRangoGoogleAds } from '../lib/google-ads-analisis.js';
 import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
@@ -246,6 +247,7 @@ export default async function handler(req, res) {
   if (recurso === 'sync-servicios-tecnico') return manejarSyncServiciosTecnico(req, res, sesion);
   if (recurso === 'link-compra') return manejarLinkCompra(req, res, sesion);
   if (recurso === 'compras-dm-excluidos') return manejarComprasDMExcluidos(req, res, sesion);
+  if (recurso === 'compras-proveedor-asignado') return manejarComprasProveedorAsignado(req, res, sesion);
   if (recurso === 'recomendacion-compra-excluidos') return manejarRecomendacionCompraExcluidos(req, res, sesion);
   if (recurso === 'compras-intcomex-excluidos') return manejarComprasIntcomexExcluidos(req, res, sesion);
   if (recurso === 'compras-intcomex-comentarios') return manejarComprasIntcomexComentarios(req, res, sesion);
@@ -3440,6 +3442,40 @@ async function manejarComprasDMExcluidos(req, res, sesion) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     return res.status(500).json({ error: 'Error gestionando exclusiones de DM', detail: String(err) });
+  }
+}
+
+// Proveedor asignado a mano en el Catálogo completo de Compras: ese SKU entra a la lista de compras de DM o de Intcomex.
+//   GET                          -> { asignados: { SKU: 'DM' | 'Intcomex' } }
+//   PUT { sku, proveedor }       -> asigna ('DM' o 'Intcomex'); proveedor vacío/null = vuelve a la detección automática
+// Cualquier persona con acceso a Compras puede cambiarlo (es reversible, a diferencia de eliminar un producto de la lista).
+const PROVEEDORES_ASIGNABLES = ['DM', 'Intcomex'];
+async function manejarComprasProveedorAsignado(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaComprasProveedorAsignado(sql);
+    if (req.method === 'GET') {
+      const { rows } = await sql`SELECT sku, proveedor FROM compras_proveedor_asignado;`;
+      return res.status(200).json({ asignados: Object.fromEntries(rows.map(r => [r.sku, r.proveedor])) });
+    }
+    if (req.method === 'PUT') {
+      const sku = String(req.body?.sku || '').trim();
+      const proveedor = String(req.body?.proveedor || '').trim();
+      if (!sku || sku.length > 100) return res.status(400).json({ error: 'Falta el SKU' });
+      if (!proveedor) {
+        await sql`DELETE FROM compras_proveedor_asignado WHERE sku = ${sku};`;
+        return res.status(200).json({ ok: true, proveedor: null });
+      }
+      if (!PROVEEDORES_ASIGNABLES.includes(proveedor)) return res.status(400).json({ error: 'Proveedor inválido (DM o Intcomex)' });
+      await sql`
+        INSERT INTO compras_proveedor_asignado (sku, proveedor, asignado_por) VALUES (${sku}, ${proveedor}, ${sesion.nombre || sesion.email})
+        ON CONFLICT (sku) DO UPDATE SET proveedor = EXCLUDED.proveedor, asignado_por = EXCLUDED.asignado_por, asignado_en = now();
+      `;
+      return res.status(200).json({ ok: true, proveedor });
+    }
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error gestionando el proveedor asignado', detail: String(err) });
   }
 }
 

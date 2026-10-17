@@ -116,6 +116,7 @@
   .sw-insignia{position:absolute;top:5px;right:9px;min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:var(--red);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;}
   .sw-modulo{display:none;min-width:0;}
   .sw-modulo.activo{display:block;}
+  .sel-proveedor{font-family:'Plus Jakarta Sans',sans-serif;font-size:11.5px;padding:4px 6px;border:1.5px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text);max-width:150px;}
   .sw-frame{display:block;width:100%;min-height:640px;border:0;background:transparent;}
   .sw-contenido{min-width:0;}
   .sw-res-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px;}
@@ -647,6 +648,7 @@ async function cargar(){
       fetch(`/api/shopify-images-report`).then(r=>r.json()).catch(()=>({imagenes:{}})),
       cargarLinksDM(),
       cargarLinksIntcomex(),
+      cargarProveedorAsignado(),
     ]);
     if(res.error){
       status.className = 'err';
@@ -924,6 +926,55 @@ let linkDMPorSku = {};
 let excluidosDM = new Set();
 let excluidosRecomendacion = new Set();
 
+// Proveedor asignado a mano en el Catálogo completo ('DM' o 'Intcomex'): manda sobre la detección automática y sobre las exclusiones.
+let proveedorAsignado = {};
+async function cargarProveedorAsignado(){
+  try{
+    const d = await (await fetch('/api/negocio?recurso=compras-proveedor-asignado')).json();
+    proveedorAsignado = d.asignados || {};
+  }catch(e){ proveedorAsignado = {}; }
+}
+function esProductoDM(s){
+  const a = proveedorAsignado[s.code];
+  if(a) return a === 'DM';
+  return CATEGORIAS_DM.has((s.categoria || '').toUpperCase()) && REGEX_PROVEEDOR_DM.test(s.proveedor || '') && !excluidosDM.has(s.code);
+}
+function esProductoIntcomex(s){
+  const a = proveedorAsignado[s.code];
+  if(a) return a === 'Intcomex';
+  return s.proveedor === 'Intcomex' && !excluidosIntcomex.has(s.code);
+}
+function productosDMBase(){ return datosSkus.filter(esProductoDM); }
+// Lista de compras a la que pertenece hoy el SKU (para la columna y el orden del Catálogo completo)
+function etiquetaProveedorLista(s){ return esProductoDM(s) ? 'DM' : (esProductoIntcomex(s) ? 'Intcomex' : ''); }
+function etiquetaProveedorAuto(s){
+  if(!s.proveedor) return 'sin compra';
+  if(REGEX_PROVEEDOR_DM.test(s.proveedor)) return CATEGORIAS_DM.has((s.categoria || '').toUpperCase()) ? 'DM' : 'DM, categoría fuera de la lista';
+  return nombreProveedorUltimaCompra(s.proveedor);
+}
+function celdaProveedor(s){
+  const a = proveedorAsignado[s.code] || '';
+  const auto = etiquetaProveedorAuto(s);
+  return `<td><select class="sel-proveedor" onchange="asignarProveedor('${escapeHtml(s.code)}', this.value)" title="Asigna el producto a una lista de compras: DM o Intcomex. Automático = lo que detecta el sistema por la última factura de ingreso."><option value="">Automático (${escapeHtml(auto)})</option><option value="DM"${a === 'DM' ? ' selected' : ''}>DM</option><option value="Intcomex"${a === 'Intcomex' ? ' selected' : ''}>Intcomex</option></select></td>`;
+}
+async function asignarProveedor(sku, valor){
+  try{
+    const res = await fetch('/api/negocio?recurso=compras-proveedor-asignado', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku, proveedor: valor }) });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar el proveedor.'); renderTabla(); return; }
+    if(valor) proveedorAsignado[sku] = valor; else delete proveedorAsignado[sku];
+    renderTabla(); renderDM(); renderIntcomex(); renderResumenModulos();
+  }catch(err){
+    alert('Error: ' + err.message); renderTabla();
+  }
+}
+// Al sacar un producto de la lista de DM/Intcomex con 🗑️, también se suelta la asignación manual (si no, seguiría apareciendo)
+async function soltarProveedorAsignado(sku){
+  if(!proveedorAsignado[sku]) return;
+  try{ await fetch('/api/negocio?recurso=compras-proveedor-asignado', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku, proveedor: '' }) }); }catch(e){ /* mejor esfuerzo */ }
+  delete proveedorAsignado[sku];
+}
+
 async function cargarLinksDM(){
   try{
     const [resLinks, resExcluidos, resExcluidosRecomendacion] = await Promise.all([
@@ -947,7 +998,8 @@ async function eliminarProductoDM(sku, nombre){
     const data = await res.json();
     if(!res.ok || data.error){ alert(data.error || 'No se pudo eliminar.'); return; }
     excluidosDM.add(sku);
-    renderDM();
+    await soltarProveedorAsignado(sku);
+    renderDM(); renderTabla();
   }catch(err){
     alert('Error: ' + err.message);
   }
@@ -986,7 +1038,7 @@ function flechaDM(campo){
 
 function renderDM(){
   const wrap = $('dmWrap');
-  const productosDM = datosSkus.filter(s => CATEGORIAS_DM.has((s.categoria || '').toUpperCase()) && REGEX_PROVEEDOR_DM.test(s.proveedor || '') && !excluidosDM.has(s.code));
+  const productosDM = productosDMBase();
   const productos = filtroDMCategoria ? productosDM.filter(filtrosDMCategoria[filtroDMCategoria]) : productosDM;
   if(productos.length === 0){
     wrap.innerHTML = '<p class="empty-note">No se encontraron productos de Comercial Dos Mundos (o todavía no se ha presionado "Analizar").</p>';
@@ -1104,7 +1156,7 @@ async function cargarLinksIntcomex(){
   }catch(err){ linkIntcomexPorSku = {}; excluidosIntcomex = new Set(); comentariosIntcomexPorSku = {}; }
 }
 function productosIntcomexBase(){
-  return datosSkus.filter(s => s.proveedor === 'Intcomex' && !excluidosIntcomex.has(s.code));
+  return datosSkus.filter(esProductoIntcomex);
 }
 function ordenarIntcomexPor(campo){
   if(ordenIntcomex.campo === campo) ordenIntcomex.asc = !ordenIntcomex.asc;
@@ -1125,7 +1177,8 @@ async function eliminarProductoIntcomex(sku, nombre){
     const data = await res.json();
     if(!res.ok || data.error){ alert(data.error || 'No se pudo eliminar.'); return; }
     excluidosIntcomex.add(sku);
-    renderIntcomex();
+    await soltarProveedorAsignado(sku);
+    renderIntcomex(); renderTabla();
   }catch(err){
     alert('Error: ' + err.message);
   }
@@ -2290,6 +2343,7 @@ function renderTabla(){
   }
 
   // Comparamos contra la categoría EXACTA de Bsale (sin tildes ni mayúsculas)
+  datosSkus.forEach(s => { s.proveedorLista = etiquetaProveedorLista(s); });
   let filas = aplicarFiltros(datosSkus);
 
   filas = filas.slice().sort((a,b) => {
@@ -2346,6 +2400,7 @@ function renderTabla(){
         <th onclick="ordenarPor('code')">SKU${flecha('code')}</th>
         <th onclick="ordenarPor('nombre')">Producto${flecha('nombre')}</th>
         <th onclick="ordenarPor('categoria')">Categoría${flecha('categoria')}</th>
+        <th onclick="ordenarPor('proveedorLista')" title="A qué lista de compras pertenece el producto (DM o Intcomex). Se puede cambiar a mano.">Proveedor${flecha('proveedorLista')}</th>
         <th class="amount" onclick="ordenarPor('unidadesVendidas')">Vendidas (período)${flecha('unidadesVendidas')}</th>
         <th class="amount" onclick="ordenarPor('ventaDiariaPromedio')">Venta diaria prom.${flecha('ventaDiariaPromedio')}</th>
         <th class="amount" onclick="ordenarPor('semana4')" title="Hace 22-28 días">Sem. -4${flecha('semana4')}</th>
@@ -2381,6 +2436,7 @@ function renderTabla(){
             <td>${s.code}</td>
             <td>${s.nombre}</td>
             <td>${s.categoria}</td>
+            ${celdaProveedor(s)}
             <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
             <td class="amount">${s.ventaDiariaPromedio}</td>
             <td class="amount">${fmtNum(s.semana4)}</td>
@@ -2576,7 +2632,7 @@ function renderResumenModulos(){
     [[fmtNum(datosSkus.length), 'SKU'], [fmtNum(urg), 'Urgentes'], [fmtNum(pron), 'Pronto']],
     urg ? urg + ' SKU con 5 días de cobertura o menos: conviene reponerlos' : (pron ? pron + ' SKU se agotan en 14 días o menos' : 'Ningún SKU con cobertura crítica'));
   ponerInsignia('catalogo', urg);
-  const productosDM = datosSkus.filter(s => CATEGORIAS_DM.has((s.categoria || '').toUpperCase()) && REGEX_PROVEEDOR_DM.test(s.proveedor || '') && !excluidosDM.has(s.code));
+  const productosDM = productosDMBase();
   const sinStockDM = productosDM.filter(s => !(s.stockActual > 0)).length;
   setResumenModulo('dm', sinStockDM ? 'atencion' : (productosDM.length ? 'ok' : 'sin_datos'), sinStockDM ? 'Atención' : (productosDM.length ? 'Al día' : 'Sin datos'),
     [[fmtNum(productosDM.length), 'Productos'], [fmtNum(sinStockDM), 'Sin stock']], productosDM.length ? (sinStockDM ? sinStockDM + ' producto(s) de DM sin stock' : 'Todos los productos de DM tienen stock') : 'No se encontraron productos de DM');
