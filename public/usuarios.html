@@ -657,16 +657,24 @@ async function abrirVistaCorreo(tipo){
   if(!n) return;
   $('tituloVistaCorreo').textContent = n.nombre;
   $('infoVistaCorreo').textContent = 'Cargando…';
-  $('marcoVistaCorreo').srcdoc = '';
+  ponerMarcoVistaCorreo(null);
   $('modalVistaCorreo').classList.add('abierto');
   try{
     const v = await traerVistaCorreo(n);
     if(!v){ $('infoVistaCorreo').textContent = 'Todavía no hay un correo guardado.'; return; }
     $('infoVistaCorreo').textContent = 'Asunto: ' + v.asunto + ' · enviado ' + new Date(v.enviadoEn).toLocaleString('es-CL');
-    $('marcoVistaCorreo').srcdoc = marcoCorreo(v.html);
+    ponerMarcoVistaCorreo(marcoCorreo(v.html));
   }catch(err){ $('infoVistaCorreo').textContent = 'No se pudo cargar: ' + err.message; }
 }
-function cerrarVistaCorreo(){ $('modalVistaCorreo').classList.remove('abierto'); $('marcoVistaCorreo').srcdoc = ''; }
+// Se reemplaza el iframe completo en cada apertura (en vez de reasignar srcdoc del mismo): reasignar srcdoc dos veces seguidas
+// ("vacío" y luego el correo) podía dejar el visor en blanco en algunos navegadores cuando el correo ya estaba en memoria.
+function ponerMarcoVistaCorreo(html){
+  const viejo = $('marcoVistaCorreo');
+  const nuevo = viejo.cloneNode(false);
+  if(html) nuevo.srcdoc = html;
+  viejo.replaceWith(nuevo);
+}
+function cerrarVistaCorreo(){ $('modalVistaCorreo').classList.remove('abierto'); ponerMarcoVistaCorreo(null); }
 function ordenarPorCategoria(lista){
   const cats = categoriasNotif.length ? categoriasNotif : [];
   const idsConocidos = new Set(cats.map(c => c.id));
