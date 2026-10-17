@@ -21,6 +21,7 @@ const RUTAS_PUBLICAS = new Set([
   '/api/auth-bootstrap',
   '/recuperar-password.html',
   '/reset-password.html',
+  '/cotizar-tienda.js',
 ]);
 
 // getSql también sirve en Edge (@vercel/postgres es fetch-based, sin nada
