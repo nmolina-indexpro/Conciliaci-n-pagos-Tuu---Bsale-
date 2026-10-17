@@ -116,6 +116,7 @@
   .sw-insignia{position:absolute;top:5px;right:9px;min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:var(--red);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;}
   .sw-modulo{display:none;min-width:0;}
   .sw-modulo.activo{display:block;}
+  .sw-frame{display:block;width:100%;min-height:640px;border:0;background:transparent;}
   .sw-contenido{min-width:0;}
   .sw-res-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px;}
   .sw-res-card{position:relative;background:var(--surface);border:1px solid var(--line);border-left-width:5px;border-radius:12px;padding:14px 16px;cursor:pointer;transition:box-shadow .15s,transform .15s;text-align:left;font-family:'Plus Jakarta Sans',sans-serif;font-weight:500;font-size:13px;color:var(--text);display:block;width:100%;}
@@ -189,6 +190,7 @@
           <a href="compras.html#daxis">Importación Daxis</a>
           <a href="compras.html#dm">Compras DM</a>
           <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
           <a href="compras.html#comparador">Comparativa de cotizaciones</a>
           <a href="alertas-stock.html">Alertas de Stock</a>
           <a href="productos-en-transito.html">Productos en tránsito</a>
@@ -273,6 +275,7 @@
     <button type="button" class="sw-item" data-modulo="daxis" onclick="irModulo('daxis')" title="Importación Daxis: Pedido de cargadores y baterías a Daxis, dimensionado con la venta de 12 meses."><span class="sw-icono">🚢</span>Importación Daxis<span class="sw-insignia" id="insignia-daxis"></span></button>
     <button type="button" class="sw-item" data-modulo="dm" onclick="irModulo('dm')" title="Compras DM: Productos de Comercial Dos Mundos con su stock, costo y link de compra."><span class="sw-icono">🏬</span>Compras DM<span class="sw-insignia" id="insignia-dm"></span></button>
     <button type="button" class="sw-item" data-modulo="intcomex" onclick="irModulo('intcomex')" title="Compras Intcomex: Productos de las facturas de Intcomex, con foto, stock y link de compra."><span class="sw-icono">🖥️</span>Compras Intcomex<span class="sw-insignia" id="insignia-intcomex"></span></button>
+    <button type="button" class="sw-item" data-modulo="insumos" onclick="irModulo('insumos')" title="Insumos de Servicio Técnico: stock y link de compra de tornillos, pasta térmica, etc."><span class="sw-icono">🧰</span>Insumos S. Técnico<span class="sw-insignia" id="insignia-insumos"></span></button>
     <button type="button" class="sw-item" data-modulo="comparador" onclick="irModulo('comparador')" title="Comparativa de cotizaciones: Coimco vs Laptop Center: precios de cada proveedor, producto por producto."><span class="sw-icono">🔍</span>Comparativa<span class="sw-insignia" id="insignia-comparador"></span></button>
   </nav>
   <main class="sw-contenido">
@@ -292,6 +295,7 @@
       <button type="button" class="sw-res-card nivel-sin_datos" id="resCard-daxis" onclick="irModulo('daxis')"><div class="sw-res-top"><span class="sw-res-titulo"><span>🚢</span>Importación Daxis</span><span class="sw-pill sin_datos" id="resPill-daxis">Abrir</span></div><div class="sw-res-datos" id="resDatos-daxis"></div><div class="sw-res-msg" id="resMsg-daxis">Pedido de cargadores y baterías a Daxis, dimensionado con la venta de 12 meses.</div><div class="sw-res-ver">Ver detalle →</div></button>
       <button type="button" class="sw-res-card nivel-sin_datos" id="resCard-dm" onclick="irModulo('dm')"><div class="sw-res-top"><span class="sw-res-titulo"><span>🏬</span>Compras DM</span><span class="sw-pill sin_datos" id="resPill-dm">Abrir</span></div><div class="sw-res-datos" id="resDatos-dm"></div><div class="sw-res-msg" id="resMsg-dm">Productos de Comercial Dos Mundos con su stock, costo y link de compra.</div><div class="sw-res-ver">Ver detalle →</div></button>
       <button type="button" class="sw-res-card nivel-sin_datos" id="resCard-intcomex" onclick="irModulo('intcomex')"><div class="sw-res-top"><span class="sw-res-titulo"><span>🖥️</span>Compras Intcomex</span><span class="sw-pill sin_datos" id="resPill-intcomex">Abrir</span></div><div class="sw-res-datos" id="resDatos-intcomex"></div><div class="sw-res-msg" id="resMsg-intcomex">Productos de las facturas de Intcomex, con foto, stock y link de compra.</div><div class="sw-res-ver">Ver detalle →</div></button>
+      <button type="button" class="sw-res-card nivel-sin_datos" id="resCard-insumos" onclick="irModulo('insumos')"><div class="sw-res-top"><span class="sw-res-titulo"><span>🧰</span>Insumos de Servicio Técnico</span><span class="sw-pill sin_datos" id="resPill-insumos">Abrir</span></div><div class="sw-res-datos" id="resDatos-insumos"></div><div class="sw-res-msg" id="resMsg-insumos">Stock y link de compra de los insumos del taller (tornillos, pasta térmica, alcohol isopropílico…).</div><div class="sw-res-ver">Ver detalle →</div></button>
       <button type="button" class="sw-res-card nivel-sin_datos" id="resCard-comparador" onclick="irModulo('comparador')"><div class="sw-res-top"><span class="sw-res-titulo"><span>🔍</span>Comparativa de cotizaciones</span><span class="sw-pill sin_datos" id="resPill-comparador">Abrir</span></div><div class="sw-res-datos" id="resDatos-comparador"></div><div class="sw-res-msg" id="resMsg-comparador">Coimco vs Laptop Center: precios de cada proveedor, producto por producto.</div><div class="sw-res-ver">Ver detalle →</div></button>
     </div>
   </div>
@@ -462,6 +466,8 @@
     </div>
   </div>
   </div>
+
+  <div class="sw-modulo" id="mod-insumos"><iframe class="sw-frame" id="frame-insumos" data-src="insumos-servicio-tecnico.html?embed=1" title="Insumos de Servicio Técnico"></iframe></div>
 
   <div class="sw-modulo" id="mod-comparador">
   <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #7C3AED;" id="comparadorCard">
@@ -2519,13 +2525,16 @@ let nombreActual = ''; // para saber cuáles comentarios de Intcomex son "míos"
 
 
 // ---------- Módulos (barra lateral, igual que Sitio Web) ----------
-const MODULOS_COMPRAS = ['resumen', 'catalogo', 'recomendacion', 'daxis', 'dm', 'intcomex', 'comparador'];
+const MODULOS_COMPRAS = ['resumen', 'catalogo', 'recomendacion', 'daxis', 'dm', 'intcomex', 'insumos', 'comparador'];
 function irModulo(clave, sinHash){
   if(!MODULOS_COMPRAS.includes(clave)) clave = MODULOS_COMPRAS[0];
   document.querySelectorAll('.sw-modulo').forEach(m => m.classList.toggle('activo', m.id === 'mod-' + clave));
   document.querySelectorAll('.sw-item').forEach(b => b.classList.toggle('activo', b.dataset.modulo === clave));
   // el submenú "Compras" del menú principal también marca el módulo en el que estás
   document.querySelectorAll('#navCompras a').forEach(a => { const h = a.getAttribute('href') || ''; if(h.startsWith('compras.html#')) a.classList.toggle('active', h === 'compras.html#' + clave); });
+  // las páginas incrustadas (Insumos de Servicio Técnico) se cargan la primera vez que se abren
+  const marco = $('frame-' + clave);
+  if(marco && !marco.getAttribute('src')) marco.setAttribute('src', marco.dataset.src);
   try{ if(!sinHash) history.replaceState(null, '', '#' + clave); }catch(e){ /* sin historial disponible */ }
 }
 function moduloDesdeHash(){
@@ -2533,6 +2542,18 @@ function moduloDesdeHash(){
   return MODULOS_COMPRAS.includes(h) ? h : MODULOS_COMPRAS[0];
 }
 window.addEventListener('hashchange', () => irModulo(moduloDesdeHash(), true));
+// la página incrustada avisa cuánto mide su contenido para que el marco se ajuste (sin doble barra de desplazamiento)
+window.addEventListener('message', ev => {
+  if(ev.origin !== location.origin || !ev.data || ev.data.tipo !== 'sw-altura') return;
+  document.querySelectorAll('.sw-frame').forEach(f => { if(f.contentWindow === ev.source) f.style.height = Math.max(400, Number(ev.data.altura) + 8) + 'px'; });
+});
+// Quita un módulo (barra, panel y tarjeta) cuando el perfil del usuario no tiene permiso para esa página
+function quitarModuloCompras(clave){
+  const ix = MODULOS_COMPRAS.indexOf(clave);
+  if(ix >= 0) MODULOS_COMPRAS.splice(ix, 1);
+  document.querySelectorAll('.sw-item[data-modulo="' + clave + '"], #mod-' + clave + ', #resCard-' + clave).forEach(e => e.remove());
+  document.querySelectorAll('#navCompras a[href$="#' + clave + '"]').forEach(a => a.style.display = 'none');
+}
 
 // Tarjetas del Resumen: una por módulo, con una cifra clave y un aviso si hay algo urgente.
 function setResumenModulo(clave, nivel, pill, datos, msg){
@@ -2575,6 +2596,8 @@ async function cargarSesionUsuario(){
     document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
+    // Insumos de Servicio Técnico es una página con su propio permiso: sin él, no aparece aquí
+    if(Array.isArray(u.paginas) && !u.paginas.includes('insumos-servicio-tecnico.html')){ quitarModuloCompras('insumos'); if(!MODULOS_COMPRAS.includes(moduloDesdeHash())) irModulo('resumen', true); }
     aplicarRestriccionMargenes(u.rol);
     if(u.rol === 'admin'){
       const nav = document.getElementById('navUsuarios');

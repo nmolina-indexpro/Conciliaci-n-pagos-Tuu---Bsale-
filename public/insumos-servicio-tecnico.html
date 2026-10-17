@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Insumos de Servicio Técnico — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;}
+  .seccion-head h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:0 0 4px;}
+  .seccion.colapsada{padding-bottom:22px;}
+  .seccion.colapsada .seccion-head{margin-bottom:0;}
+  .seccion.colapsada > *:not(.seccion-head){display:none !important;} /* #chartTendencia trae su propio display:block por id (más específico) -- esto tiene que ganar siempre */
+  .seccion-head-acciones{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap;}
+  .btn-toggle-seccion{background:var(--surface);border:1.5px solid var(--line);border-radius:8px;width:32px;height:32px;padding:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--muted);cursor:pointer;flex-shrink:0;}
+  .btn-toggle-seccion:hover{border-color:var(--primary);color:var(--primary);}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.activo{background:var(--primary-dim);border-color:var(--primary);color:var(--primary);}
+  .btn-icono{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);font-size:12px;cursor:pointer;padding:0;vertical-align:middle;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  #syncStatus{font-size:12px;color:var(--muted);margin-top:10px;}
+  #syncStatus.err{color:var(--red);}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap;}
+  th.mes, td.mes{text-align:right;}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
+  .marca-peor{color:var(--red);font-weight:700;}
+  td.servicio{white-space:normal;}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .sku-code{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11px;}
+  .delta{display:inline-block;margin-left:6px;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:999px;}
+  .delta.up{background:var(--green-bg);color:var(--green);}
+  .delta.down{background:var(--red-bg);color:var(--red);}
+  .delta.flat{background:var(--surface-2);color:var(--muted);}
+  tr.fila-total td{border-top:2px solid var(--line);font-weight:700;background:var(--surface-2);}
+  tr.fila-total{position:sticky;bottom:0;}
+
+  /* La tabla tiene 12 meses + Acumulado + Ticket promedio -- de sobra para
+     no entrar en el ancho de la pantalla (pedido del usuario: la columna
+     Ticket promedio quedaba cortada a la derecha). Se fija esa última
+     columna en el borde derecho del scroll horizontal, igual que el
+     encabezado ya queda fijo arriba (position:sticky;top:0 en "th"). */
+  td.pegado-derecha, th.pegado-derecha{position:sticky;right:0;background:var(--surface);box-shadow:-2px 0 4px rgba(31,42,36,.08);}
+  th.pegado-derecha{background:var(--surface-2);z-index:3;}
+  tr.fila-total td.pegado-derecha{background:var(--surface-2);}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:18px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:5px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;color:var(--text);}
+  .card .note{color:var(--muted);font-size:11px;margin-top:3px;}
+  .arrow-up{color:var(--green);font-weight:700;}
+  .arrow-down{color:var(--red);font-weight:700;}
+
+  .toolbar-extra{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .toolbar-extra input[type="text"], .toolbar-extra select{
+    font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:8px 11px;
+    border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);
+  }
+  .toolbar-extra input[type="text"]:focus, .toolbar-extra select:focus{outline:none;border-color:var(--primary);}
+
+  .alerta-caida{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:9px;background:var(--red-bg);margin-bottom:8px;font-size:12.5px;}
+  .alerta-caida:last-child{margin-bottom:0;}
+  .alerta-caida b{color:var(--text);}
+  .alerta-caida .cifras{font-family:'IBM Plex Mono',monospace;color:var(--red);font-weight:600;white-space:nowrap;}
+
+  #chartTendencia{width:100%;height:auto;display:block;}
+  .chart-tick{font-family:'IBM Plex Mono',monospace;font-size:9.5px;fill:var(--muted);}
+  .chart-bar{fill:var(--primary);}
+  .chart-bar.actual{fill:var(--primary-dim);stroke:var(--primary);stroke-width:1;stroke-dasharray:2 2;}
+
+  /* ---- Tablero: las secciones se reparten en columnas para que quepan de un vistazo ---- */
+  .seccion{padding:18px 20px;margin-bottom:16px;}
+  .seccion-head{margin-bottom:12px;}
+  .seccion-head .sub{font-size:12px;}
+  .grid{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:16px;}
+  .fila-2{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;align-items:start;margin-bottom:16px;}
+  .fila-2.mitad{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .fila-2.solo{grid-template-columns:minmax(0,1fr);}
+  .fila-2 > .seccion{margin-bottom:0;}
+  .tabla-wrap.alta{max-height:330px;overflow:auto;}
+  .btn-compact{font-size:11px;padding:4px 9px;}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .date-field{display:flex;align-items:center;gap:5px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  .date-field input{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:6px 9px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);}
+  .filtro-rango-fechas{display:flex;align-items:center;gap:7px;}
+  .toolbar-fechas{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .toolbar-fechas .periodo-txt{font-size:12px;color:var(--muted);margin-left:6px;}
+  /* la tarjeta de caídas es angosta: el detalle de cifras baja de línea en vez de salirse */
+  .alerta-caida{flex-wrap:wrap;}
+  .alerta-caida .cifras{white-space:normal;font-size:11.5px;}
+
+  /* ---- Soporte en Zoho Desk: 5 paneles en una cuadrícula de 12 columnas ---- */
+  #zdDepto{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:6px 9px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);max-width:260px;}
+  .zd-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px;}
+  .zd-panel{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0;display:flex;flex-direction:column;}
+  .zd-4{grid-column:span 4;} .zd-3{grid-column:span 3;} .zd-5{grid-column:span 5;} .zd-7{grid-column:span 7;}
+  .zd-panel h3{font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0 0 8px;}
+  .zd-big{font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:600;line-height:1.1;color:var(--text);}
+  .zd-big small{font-size:13px;font-weight:500;color:var(--muted);margin-left:4px;}
+  .zd-nota{font-size:11.5px;color:var(--muted);margin-top:3px;}
+  .zd-barras{margin-top:10px;display:flex;flex-direction:column;gap:6px;}
+  .zd-barra{display:grid;grid-template-columns:minmax(70px,38%) 1fr 28px;align-items:center;gap:8px;font-size:12px;}
+  .zd-barra .pista{background:var(--line);border-radius:4px;height:9px;overflow:hidden;}
+  .zd-barra .relleno{display:block;height:100%;border-radius:4px;background:var(--blue);}
+  .zd-barra .relleno.amb{background:var(--amber);}
+  .zd-barra .nom{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .zd-barra .val{font-family:'IBM Plex Mono',monospace;text-align:right;font-weight:600;}
+  .zd-alerta{margin-top:10px;padding:8px 10px;border-radius:8px;background:var(--amber-dim);font-size:12px;color:var(--text);}
+  .zd-alerta.roja{background:var(--red-bg);}
+  .zd-leyenda{display:flex;gap:14px;font-size:11.5px;color:var(--muted);margin:2px 0 4px;flex-wrap:wrap;}
+  .zd-leyenda i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;}
+  .zd-scroll{max-height:250px;overflow:auto;margin-top:6px;}
+  .zd-panel table{font-size:12px;} .zd-panel td, .zd-panel th{padding:6px 8px;}
+  .zd-panel td.wrap{white-space:normal;}
+  #chartFlujo{width:100%;height:auto;display:block;}
+  @media (max-width:1250px){ .zd-4{grid-column:span 6;} .zd-3{grid-column:span 6;} .zd-5{grid-column:span 6;} .zd-7{grid-column:span 12;} }
+  @media (max-width:1100px){ .fila-2, .fila-2.mitad{grid-template-columns:minmax(0,1fr);} .grid{grid-template-columns:repeat(2,minmax(0,1fr));} }
+  @media (max-width:700px){ .zd-4,.zd-3,.zd-5,.zd-7{grid-column:span 12;} }
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+<script src="embed-sitio.js"></script>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html" class="active">Insumos servicio técnico</a>
+          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>Insumos de Servicio Técnico</h1>
+
+  <div class="seccion" id="seccionInsumos" style="margin-top:6px;">
+    <div class="seccion-head">
+      <div>
+        <h2>🧰 Insumos de Servicio Técnico</h2>
+        <div class="sub" style="margin-bottom:0;">Productos de la categoría "Insumos" en Bsale (tornillos, pasta térmica, alcohol isopropílico, etc.) -- stock actual y último ingreso, para saber qué reponer.</div>
+      </div>
+      <div class="seccion-head-acciones">
+        <button class="btn-primary" id="btnCargarInsumos" onclick="cargarInsumos()">🔄 Actualizar</button>
+      </div>
+    </div>
+    <div class="toolbar-extra">
+      <input type="text" id="buscarInsumoInput" placeholder="Buscar insumo o SKU..." oninput="renderInsumos()">
+    </div>
+    <div id="wrapInsumos"><p class="empty-note">Presiona "Actualizar" para traer el stock desde Bsale.</p></div>
+    <div id="statusInsumos" style="font-size:12px;color:var(--muted);margin-top:10px;"></div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+function fmtMoneda(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
+// Nombres de producto vienen de Bsale (dato externo) -> se escapan antes de interpolar en innerHTML.
+function escapeHtml(texto){
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){
+      ['navUsuarios', 'navActualizaciones', 'navMercadoLibre'].forEach(id => { const n = document.getElementById(id); if(n) n.style.display = ''; });
+    }
+    cargarInsumos(); // se precarga solo, sin esperar el clic en "Actualizar"
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Insumos de Servicio Técnico ----------
+// Reutiliza /api/bsale-sku-report (ya trae stock actual, último costo y
+// fecha de última recepción por SKU -- mismo endpoint que usa compras.html
+// para "Alertas de Stock") en vez de agregar un endpoint nuevo: Vercel
+// Hobby tiene tope de 12 funciones serverless (ver CLAUDE.md), y este dato
+// ya existe ahí completo, solo hace falta filtrar por la categoría real de
+// Bsale "Insumos" (tornillos, pasta térmica, alcohol isopropílico, etc. --
+// lo que usa Servicio Técnico como material fungible, no como repuesto que
+// se vende con SKU "SER..."). No se sincroniza automático al cargar la
+// página -- golpea Bsale en vivo (puede tardar), el usuario decide cuándo.
+let insumosActuales = [];
+let sortColInsumos = 'stockActual';
+let sortAscInsumos = true; // stock más bajo primero -- lo más urgente de reponer
+const normalizarCategoriaInsumo = c => (c || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+let linkCompraPorSku = {};
+async function cargarInsumos(){
+  $('btnCargarInsumos').disabled = true;
+  $('statusInsumos').textContent = 'Consultando Bsale (puede tardar unos segundos)...';
+  $('wrapInsumos').innerHTML = '<p class="empty-note">Cargando...</p>';
+  try{
+    const [res, resLinks] = await Promise.all([
+      fetch('/api/bsale-sku-report?days=90').then(r=>r.json()),
+      fetch('/api/negocio?recurso=link-compra&contexto=insumos_sku').then(r=>r.json()).catch(()=>({linkPorSku:{}})),
+    ]);
+    const data = res;
+    linkCompraPorSku = resLinks.linkPorSku || {};
+    if(data.error){
+      $('statusInsumos').textContent = 'Error: ' + (data.detail || data.error);
+      $('wrapInsumos').innerHTML = '<p class="empty-note">No se pudo cargar el stock de insumos.</p>';
+      return;
+    }
+    insumosActuales = (data.skus || []).filter(s => normalizarCategoriaInsumo(s.categoria) === 'insumos');
+    renderInsumos();
+    $('statusInsumos').textContent = `Listo — ${fmtNum(insumosActuales.length)} insumos encontrados en Bsale (categoría "Insumos").`;
+  }catch(err){
+    $('statusInsumos').textContent = 'Error: ' + err.message;
+    $('wrapInsumos').innerHTML = '<p class="empty-note">Error al cargar.</p>';
+  }finally{
+    $('btnCargarInsumos').disabled = false;
+  }
+}
+
+function cambiarOrdenInsumos(col){
+  if(sortColInsumos === col) sortAscInsumos = !sortAscInsumos;
+  else { sortColInsumos = col; sortAscInsumos = true; }
+  renderInsumos();
+}
+
+// Cualquier persona logueada puede agregar/actualizar el link -- pedido del
+// usuario: que cualquiera que necesite comprar de nuevo pueda ir directo,
+// no solo quien lo guardó la primera vez. Cada actualización queda
+// registrada (quién y cuándo) en el mismo historial de comentarios
+// compartido, ver manejarInsumoLink.
+async function editarLinkInsumo(sku){
+  const actual = linkCompraPorSku[sku] || '';
+  const nuevo = prompt('Link para comprar este insumo de nuevo (ej. el link del producto en AliExpress):', actual);
+  if(nuevo === null) return; // canceló
+  const texto = nuevo.trim();
+  if(!texto){ alert('El link no puede quedar vacío.'); return; }
+  try{
+    const res = await fetch('/api/negocio?recurso=link-compra', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contexto: 'insumos_sku', sku, link: texto }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar el link.'); return; }
+    linkCompraPorSku[sku] = texto;
+    renderInsumos();
+  }catch(err){
+    alert('Error: ' + err.message);
+  }
+}
+
+function renderInsumos(){
+  if(!insumosActuales.length){
+    $('wrapInsumos').innerHTML = '<p class="empty-note">Presiona "Actualizar" para traer el stock desde Bsale.</p>';
+    return;
+  }
+  const busqueda = ($('buscarInsumoInput').value || '').trim().toLowerCase();
+  const lista = insumosActuales.filter(s => !busqueda || (s.nombre || '').toLowerCase().includes(busqueda) || (s.code || '').toLowerCase().includes(busqueda));
+  if(!lista.length){
+    $('wrapInsumos').innerHTML = '<p class="empty-note">Ningún insumo calza con la búsqueda.</p>';
+    return;
+  }
+  const col = sortColInsumos;
+  const ordenada = [...lista].sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if(typeof va === 'string' || typeof vb === 'string'){
+      va = va ?? ''; vb = vb ?? '';
+      return sortAscInsumos ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+    }
+    va = va ?? -Infinity; vb = vb ?? -Infinity;
+    return sortAscInsumos ? va - vb : vb - va;
+  });
+  const marca = c => sortColInsumos === c ? (sortAscInsumos ? ' ▲' : ' ▼') : '';
+  const th = (campo, label) => `<th class="mes ordenable" onclick="cambiarOrdenInsumos('${campo}')">${label}${marca(campo)}</th>`;
+  const filas = ordenada.map(s => {
+    const link = linkCompraPorSku[s.code] || '';
+    const esLinkValido = /^https?:\/\//i.test(link);
+    const linkHtml = esLinkValido
+      ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">🔗 Comprar</a>`
+      : (link ? `<span class="empty-note" title="${escapeHtml(link)}">${escapeHtml(link)}</span>` : '<span class="empty-note">Sin link</span>');
+    return `
+    <tr>
+      <td class="servicio">${escapeHtml(s.nombre)}<br><span class="sku-code">SKU: ${escapeHtml(s.code)}</span></td>
+      <td class="mes amount">${fmtNum(s.stockActual)}</td>
+      <td class="mes amount">${s.fechaUltimaCompra || '—'}</td>
+      <td class="mes amount">${s.ultimoCosto != null ? fmtMoneda(s.ultimoCosto) : '—'}</td>
+      <td class="mes amount">${s.proveedor ? escapeHtml(s.proveedor) : '—'}</td>
+      <td class="mes amount">${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkInsumo('${escapeHtml(s.code)}')">✏️</button></td>
+    </tr>`;
+  }).join('');
+  $('wrapInsumos').innerHTML = `
+    <div class="tabla-wrap"><table>
+      <thead><tr>
+        <th>Insumo</th>
+        ${th('stockActual', 'Stock actual')}
+        ${th('fechaUltimaCompra', 'Última fecha de ingreso')}
+        ${th('ultimoCosto', 'Último costo de ingreso')}
+        ${th('proveedor', 'Proveedor')}
+        <th>Link de compra</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table></div>
+  `;
+}
+
+cargarSesionUsuario();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>

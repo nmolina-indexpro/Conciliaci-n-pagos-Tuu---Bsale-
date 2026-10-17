@@ -201,6 +201,7 @@
           <a href="compras.html#daxis">Importación Daxis</a>
           <a href="compras.html#dm">Compras DM</a>
           <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
           <a href="compras.html#comparador">Comparativa de cotizaciones</a>
           <a href="alertas-stock.html">Alertas de Stock</a>
           <a href="productos-en-transito.html">Productos en tránsito</a>
@@ -385,24 +386,6 @@
   </div>
   </div>
 
-  <div class="seccion" id="seccionInsumos">
-    <div class="seccion-head">
-      <div>
-        <h2>🧰 Insumos de Servicio Técnico</h2>
-        <div class="sub" style="margin-bottom:0;">Productos de la categoría "Insumos" en Bsale (tornillos, pasta térmica, alcohol isopropílico, etc.) -- stock actual y último ingreso, para saber qué reponer.</div>
-      </div>
-      <div class="seccion-head-acciones">
-        <button class="btn-primary" id="btnCargarInsumos" onclick="cargarInsumos()">🔄 Actualizar</button>
-        <button class="btn-toggle-seccion" id="toggle-seccionInsumos" onclick="toggleSeccion('seccionInsumos')" title="Minimizar">▾</button>
-      </div>
-    </div>
-    <div class="toolbar-extra">
-      <input type="text" id="buscarInsumoInput" placeholder="Buscar insumo o SKU..." oninput="renderInsumos()">
-    </div>
-    <div id="wrapInsumos"><p class="empty-note">Presiona "Actualizar" para traer el stock desde Bsale.</p></div>
-    <div id="statusInsumos" style="font-size:12px;color:var(--muted);margin-top:10px;"></div>
-  </div>
-
 </div>
 
 <script src="restriccion-usuario.js"></script>
@@ -435,7 +418,7 @@ const mesActualKey = new Date().toISOString().slice(0, 7);
 // ---------- Minimizar secciones (pedido del usuario) ----------
 // Se guarda en localStorage -- es una preferencia de ESTE navegador, no un
 // dato que otros usuarios deban compartir (mismo criterio que analisis.html).
-const SECCIONES_COLAPSABLES = ['seccionZoho', 'seccionTendencia', 'seccionCaida', 'seccionServiciosPorMes', 'seccionTecnico', 'seccionClientesRecurrentes', 'seccionInsumos'];
+const SECCIONES_COLAPSABLES = ['seccionZoho', 'seccionTendencia', 'seccionCaida', 'seccionServiciosPorMes', 'seccionTecnico', 'seccionClientesRecurrentes'];
 function toggleSeccion(id, forzarColapsada){
   const el = $(id);
   if(!el) return;
@@ -951,140 +934,11 @@ async function cargarSesionUsuario(){
     $('zdDepto').value = ['tecnico', 'todos'].includes(deptoZohoElegido()) ? deptoZohoElegido() : 'tecnico';
     cargarServicios();
     cargarZohoMetricas();
-    cargarInsumos(); // pedido del usuario: precargar solo, sin esperar el clic en "Actualizar"
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){
   await fetch('/api/auth-session', { method: 'DELETE' });
   location.href = '/login.html';
-}
-
-// ---------- Insumos de Servicio Técnico ----------
-// Reutiliza /api/bsale-sku-report (ya trae stock actual, último costo y
-// fecha de última recepción por SKU -- mismo endpoint que usa compras.html
-// para "Alertas de Stock") en vez de agregar un endpoint nuevo: Vercel
-// Hobby tiene tope de 12 funciones serverless (ver CLAUDE.md), y este dato
-// ya existe ahí completo, solo hace falta filtrar por la categoría real de
-// Bsale "Insumos" (tornillos, pasta térmica, alcohol isopropílico, etc. --
-// lo que usa Servicio Técnico como material fungible, no como repuesto que
-// se vende con SKU "SER..."). No se sincroniza automático al cargar la
-// página -- golpea Bsale en vivo (puede tardar), el usuario decide cuándo.
-let insumosActuales = [];
-let sortColInsumos = 'stockActual';
-let sortAscInsumos = true; // stock más bajo primero -- lo más urgente de reponer
-const normalizarCategoriaInsumo = c => (c || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
-
-let linkCompraPorSku = {};
-async function cargarInsumos(){
-  $('btnCargarInsumos').disabled = true;
-  $('statusInsumos').textContent = 'Consultando Bsale (puede tardar unos segundos)...';
-  $('wrapInsumos').innerHTML = '<p class="empty-note">Cargando...</p>';
-  try{
-    const [res, resLinks] = await Promise.all([
-      fetch('/api/bsale-sku-report?days=90').then(r=>r.json()),
-      fetch('/api/negocio?recurso=link-compra&contexto=insumos_sku').then(r=>r.json()).catch(()=>({linkPorSku:{}})),
-    ]);
-    const data = res;
-    linkCompraPorSku = resLinks.linkPorSku || {};
-    if(data.error){
-      $('statusInsumos').textContent = 'Error: ' + (data.detail || data.error);
-      $('wrapInsumos').innerHTML = '<p class="empty-note">No se pudo cargar el stock de insumos.</p>';
-      return;
-    }
-    insumosActuales = (data.skus || []).filter(s => normalizarCategoriaInsumo(s.categoria) === 'insumos');
-    renderInsumos();
-    $('statusInsumos').textContent = `Listo — ${fmtNum(insumosActuales.length)} insumos encontrados en Bsale (categoría "Insumos").`;
-  }catch(err){
-    $('statusInsumos').textContent = 'Error: ' + err.message;
-    $('wrapInsumos').innerHTML = '<p class="empty-note">Error al cargar.</p>';
-  }finally{
-    $('btnCargarInsumos').disabled = false;
-  }
-}
-
-function cambiarOrdenInsumos(col){
-  if(sortColInsumos === col) sortAscInsumos = !sortAscInsumos;
-  else { sortColInsumos = col; sortAscInsumos = true; }
-  renderInsumos();
-}
-
-// Cualquier persona logueada puede agregar/actualizar el link -- pedido del
-// usuario: que cualquiera que necesite comprar de nuevo pueda ir directo,
-// no solo quien lo guardó la primera vez. Cada actualización queda
-// registrada (quién y cuándo) en el mismo historial de comentarios
-// compartido, ver manejarInsumoLink.
-async function editarLinkInsumo(sku){
-  const actual = linkCompraPorSku[sku] || '';
-  const nuevo = prompt('Link para comprar este insumo de nuevo (ej. el link del producto en AliExpress):', actual);
-  if(nuevo === null) return; // canceló
-  const texto = nuevo.trim();
-  if(!texto){ alert('El link no puede quedar vacío.'); return; }
-  try{
-    const res = await fetch('/api/negocio?recurso=link-compra', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contexto: 'insumos_sku', sku, link: texto }),
-    });
-    const data = await res.json();
-    if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar el link.'); return; }
-    linkCompraPorSku[sku] = texto;
-    renderInsumos();
-  }catch(err){
-    alert('Error: ' + err.message);
-  }
-}
-
-function renderInsumos(){
-  if(!insumosActuales.length){
-    $('wrapInsumos').innerHTML = '<p class="empty-note">Presiona "Actualizar" para traer el stock desde Bsale.</p>';
-    return;
-  }
-  const busqueda = ($('buscarInsumoInput').value || '').trim().toLowerCase();
-  const lista = insumosActuales.filter(s => !busqueda || (s.nombre || '').toLowerCase().includes(busqueda) || (s.code || '').toLowerCase().includes(busqueda));
-  if(!lista.length){
-    $('wrapInsumos').innerHTML = '<p class="empty-note">Ningún insumo calza con la búsqueda.</p>';
-    return;
-  }
-  const col = sortColInsumos;
-  const ordenada = [...lista].sort((a, b) => {
-    let va = a[col], vb = b[col];
-    if(typeof va === 'string' || typeof vb === 'string'){
-      va = va ?? ''; vb = vb ?? '';
-      return sortAscInsumos ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
-    }
-    va = va ?? -Infinity; vb = vb ?? -Infinity;
-    return sortAscInsumos ? va - vb : vb - va;
-  });
-  const marca = c => sortColInsumos === c ? (sortAscInsumos ? ' ▲' : ' ▼') : '';
-  const th = (campo, label) => `<th class="mes ordenable" onclick="cambiarOrdenInsumos('${campo}')">${label}${marca(campo)}</th>`;
-  const filas = ordenada.map(s => {
-    const link = linkCompraPorSku[s.code] || '';
-    const esLinkValido = /^https?:\/\//i.test(link);
-    const linkHtml = esLinkValido
-      ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">🔗 Comprar</a>`
-      : (link ? `<span class="empty-note" title="${escapeHtml(link)}">${escapeHtml(link)}</span>` : '<span class="empty-note">Sin link</span>');
-    return `
-    <tr>
-      <td class="servicio">${escapeHtml(s.nombre)}<br><span class="sku-code">SKU: ${escapeHtml(s.code)}</span></td>
-      <td class="mes amount">${fmtNum(s.stockActual)}</td>
-      <td class="mes amount">${s.fechaUltimaCompra || '—'}</td>
-      <td class="mes amount">${s.ultimoCosto != null ? fmtMoneda(s.ultimoCosto) : '—'}</td>
-      <td class="mes amount">${s.proveedor ? escapeHtml(s.proveedor) : '—'}</td>
-      <td class="mes amount">${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkInsumo('${escapeHtml(s.code)}')">✏️</button></td>
-    </tr>`;
-  }).join('');
-  $('wrapInsumos').innerHTML = `
-    <div class="tabla-wrap"><table>
-      <thead><tr>
-        <th>Insumo</th>
-        ${th('stockActual', 'Stock actual')}
-        ${th('fechaUltimaCompra', 'Última fecha de ingreso')}
-        ${th('ultimoCosto', 'Último costo de ingreso')}
-        ${th('proveedor', 'Proveedor')}
-        <th>Link de compra</th>
-      </tr></thead>
-      <tbody>${filas}</tbody>
-    </table></div>
-  `;
 }
 
 // ---------- Filtro de fechas (mismo esquema que Cotizaciones: Desde/Hasta + atajos) ----------
