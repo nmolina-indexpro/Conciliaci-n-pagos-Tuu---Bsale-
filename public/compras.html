@@ -104,6 +104,50 @@
   .comentario-item{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:12.5px;}
   .comentario-meta{font-size:11px;color:var(--muted);margin-top:2px;}
   #modalComentarioIntcomexNuevo{width:100%;margin-top:14px;min-height:70px;padding:10px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;}
+
+  /* Barra lateral de módulos (igual que Sitio Web): iconos con nombre corto a la izquierda y el módulo elegido a la derecha */
+  .sw-layout{display:grid;grid-template-columns:96px minmax(0,1fr);gap:22px;align-items:start;}
+  .sw-lateral{position:sticky;top:12px;display:flex;flex-direction:column;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:8px 6px;box-shadow:var(--shadow);}
+  .sw-item{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;width:100%;background:none;color:var(--muted);border:none;border-radius:10px;padding:10px 4px 8px;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:10.5px;line-height:1.2;text-align:center;cursor:pointer;}
+  .sw-item .sw-icono{font-size:21px;line-height:1;filter:grayscale(.35);}
+  .sw-item:hover{background:var(--surface-2);color:var(--text);}
+  .sw-item.activo{background:var(--primary-dim);color:var(--primary-dark);box-shadow:inset 3px 0 0 var(--primary);}
+  .sw-item.activo .sw-icono{filter:none;}
+  .sw-insignia{position:absolute;top:5px;right:9px;min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:var(--red);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;}
+  .sw-modulo{display:none;min-width:0;}
+  .sw-modulo.activo{display:block;}
+  .sw-contenido{min-width:0;}
+  .sw-res-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px;}
+  .sw-res-card{position:relative;background:var(--surface);border:1px solid var(--line);border-left-width:5px;border-radius:12px;padding:14px 16px;cursor:pointer;transition:box-shadow .15s,transform .15s;text-align:left;font-family:'Plus Jakarta Sans',sans-serif;font-weight:500;font-size:13px;color:var(--text);display:block;width:100%;}
+  .sw-res-card:hover{box-shadow:0 4px 16px rgba(31,42,36,.12);transform:translateY(-1px);}
+  .sw-res-card.nivel-alerta{border-left-color:var(--red);}
+  .sw-res-card.nivel-atencion{border-left-color:var(--amber);}
+  .sw-res-card.nivel-ok{border-left-color:var(--green);}
+  .sw-res-card.nivel-sin_datos{border-left-color:#B8C0B4;}
+  .sw-res-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+  .sw-res-titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;display:flex;align-items:center;gap:7px;}
+  .sw-pill{font-family:'Space Grotesk',sans-serif;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+  .sw-pill.alerta{background:var(--red);color:#fff;}
+  .sw-pill.atencion{background:var(--amber-dim);color:#B45309;}
+  .sw-pill.ok{background:var(--green-bg);color:var(--green);}
+  .sw-pill.sin_datos{background:var(--surface-2);color:var(--muted);}
+  .sw-res-datos{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:8px;margin:6px 0 8px;}
+  .sw-res-datos:empty{display:none;}
+  .sw-res-datos div{background:var(--surface-2);border-radius:8px;padding:6px 8px;}
+  .sw-res-datos b{display:block;font-family:'IBM Plex Mono',monospace;font-size:16px;}
+  .sw-res-datos span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;}
+  .sw-res-msg{font-size:12px;color:var(--muted);line-height:1.4;}
+  .sw-res-card.nivel-alerta .sw-res-msg{color:var(--red);font-weight:600;}
+  .sw-res-card.nivel-atencion .sw-res-msg{color:#B45309;font-weight:600;}
+  .sw-res-ver{font-size:11px;color:var(--primary-dark);font-weight:700;margin-top:6px;}
+  @media (max-width:900px){
+    .sw-layout{grid-template-columns:minmax(0,1fr);gap:14px;}
+    .sw-lateral{position:static;flex-direction:row;overflow-x:auto;padding:6px;gap:2px;scrollbar-width:none;}
+    .sw-lateral::-webkit-scrollbar{display:none;}
+    .sw-item{flex:0 0 auto;width:auto;min-width:78px;padding:8px 8px 6px;}
+    .sw-item.activo{box-shadow:inset 0 -3px 0 var(--primary);}
+    .sw-insignia{right:4px;}
+  }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <meta name="theme-color" content="#0F766E">
@@ -139,7 +183,13 @@
       <div class="nav-dropdown">
         <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
         <div class="nav-dropdown-menu" id="navCompras">
-          <a href="compras.html" class="active">Compras</a>
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
           <a href="alertas-stock.html">Alertas de Stock</a>
           <a href="productos-en-transito.html">Productos en tránsito</a>
         </div>
@@ -215,6 +265,19 @@
 
   <div id="avisoWrap"></div>
 
+  <div class="sw-layout">
+  <nav class="sw-lateral" id="swLateral" aria-label="Módulos de Compras">
+    <button type="button" class="sw-item activo" data-modulo="resumen" onclick="irModulo('resumen')" title="Resumen: Cifras clave de la página y atajos a cada módulo."><span class="sw-icono">🏠</span>Resumen<span class="sw-insignia" id="insignia-resumen"></span></button>
+    <button type="button" class="sw-item" data-modulo="catalogo" onclick="irModulo('catalogo')" title="Catálogo completo: Todos los SKU con su venta, stock, cobertura y sugerido de compra."><span class="sw-icono">📋</span>Catálogo completo<span class="sw-insignia" id="insignia-catalogo"></span></button>
+    <button type="button" class="sw-item" data-modulo="recomendacion" onclick="irModulo('recomendacion')" title="Recomendación con presupuesto: Qué comprar primero según el presupuesto que definas."><span class="sw-icono">🎯</span>Recomen-dación<span class="sw-insignia" id="insignia-recomendacion"></span></button>
+    <button type="button" class="sw-item" data-modulo="daxis" onclick="irModulo('daxis')" title="Importación Daxis: Pedido de cargadores y baterías a Daxis, dimensionado con la venta de 12 meses."><span class="sw-icono">🚢</span>Importación Daxis<span class="sw-insignia" id="insignia-daxis"></span></button>
+    <button type="button" class="sw-item" data-modulo="dm" onclick="irModulo('dm')" title="Compras DM: Productos de Comercial Dos Mundos con su stock, costo y link de compra."><span class="sw-icono">🏬</span>Compras DM<span class="sw-insignia" id="insignia-dm"></span></button>
+    <button type="button" class="sw-item" data-modulo="intcomex" onclick="irModulo('intcomex')" title="Compras Intcomex: Productos de las facturas de Intcomex, con foto, stock y link de compra."><span class="sw-icono">🖥️</span>Compras Intcomex<span class="sw-insignia" id="insignia-intcomex"></span></button>
+    <button type="button" class="sw-item" data-modulo="comparador" onclick="irModulo('comparador')" title="Comparativa de cotizaciones: Coimco vs Laptop Center: precios de cada proveedor, producto por producto."><span class="sw-icono">🔍</span>Comparativa<span class="sw-insignia" id="insignia-comparador"></span></button>
+  </nav>
+  <main class="sw-contenido">
+
+  <div class="sw-modulo activo" id="mod-resumen">
   <div class="grid grid-5" id="resumenCards">
     <div class="card"><div class="lbl">SKU analizados</div><div class="big" id="cSkus">—</div></div>
     <div class="card"><div class="lbl">Unidades vendidas (período)</div><div class="big" id="cUnidades">—</div></div>
@@ -222,152 +285,18 @@
     <div class="card"><div class="lbl">Monto sugerido a comprar*</div><div class="big" id="cSugerido">—</div></div>
     <div class="card alert solo-admin"><div class="lbl">Margen perdido est. (quiebres)</div><div class="big" id="cMargenPerdido">—</div><div class="note" id="cMargenPerdidoCmp" style="margin-top:6px;font-size:11.5px;"></div></div>
   </div>
-  <p class="empty-note" style="margin-top:-14px;margin-bottom:20px;">↑ Estas tarjetas reflejan la categoría/búsqueda filtrada actualmente, no siempre el catálogo completo.</p>
-
-  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid var(--primary);" id="recomendacionCard">
-    <div class="panel-header" onclick="togglePanel('recomendacionCard')">
-      <span class="lbl" style="margin-bottom:0;">🎯 Recomendación de compra con presupuesto</span>
-      <span class="panel-chevron">▾</span>
-    </div>
-    <div class="panel-body">
-      <div class="filtros" style="margin-bottom:0;">
-        <label style="font-size:12px;color:var(--muted);">Presupuesto disponible:</label>
-        <input type="number" id="presupuestoInput" value="8000000" step="100000" style="width:150px;">
-        <label style="font-size:12px;color:var(--muted);">Analizar venta de los últimos:</label>
-        <select id="periodoAnalisisPresupuesto">
-          <option value="28" selected>28 días (últimas 4 semanas)</option>
-          <option value="30">30 días</option>
-          <option value="60">60 días</option>
-          <option value="90">90 días</option>
-        </select>
-        <label style="font-size:12px;color:var(--muted);">Comprar para cubrir:</label>
-        <select id="horizontePresupuesto">
-          <option value="5">5 días</option>
-          <option value="7" selected>7 días</option>
-          <option value="14">14 días</option>
-        </select>
-        <label style="font-size:12px;color:var(--muted);">Categoría:</label>
-        <select id="categoriaRecomendacion">
-          <option value="pan-car-bat" selected>PAN-CAR-BAT</option>
-          <option value="">Todas las categorías</option>
-          <option value="pantalla">Pantallas</option>
-          <option value="cargador-original">Cargadores originales</option>
-          <option value="cargador-alternativo">Cargadores alternativos</option>
-          <option value="bateria-original">Baterías originales</option>
-          <option value="bateria-alternativo">Baterías alternativas</option>
-        </select>
-        <button class="btn-primary btn-compact" onclick="calcularRecomendacionPresupuesto()">Calcular recomendación</button>
-        <button class="btn-ghost btn-compact btn-exportar" onclick="descargarRecomendacion()">⬇ Descargar recomendación</button>
-      </div>
-      <div id="recomendacionWrap" style="margin-top:14px;"></div>
+  <p class="empty-note" style="margin-top:-14px;margin-bottom:20px;">↑ Estas tarjetas reflejan la categoría/búsqueda filtrada actualmente en el Catálogo completo, no siempre el catálogo entero.</p>
+    <div class="sw-res-grid" id="swResumen" style="margin-top:6px;">
+      <button type="button" class="sw-res-card nivel-sin_datos" id="resCard-catalogo" onclick="irModulo('catalogo')"><div class="sw-res-top"><span class="sw-res-titulo"><span>📋</span>Catálogo completo</span><span class="sw-pill sin_datos" id="resPill-catalogo">Abrir</span></div><div class="sw-res-datos" id="resDatos-catalogo"></div><div class="sw-res-msg" id="resMsg-catalogo">Todos los SKU con su venta, stock, cobertura y sugerido de compra.</div><div class="sw-res-ver">Ver detalle →</div></button>
+      <button type="button" class="sw-res-card nivel-sin_datos" id="resCard-recomendacion" onclick="irModulo('recomendacion')"><div class="sw-res-top"><span class="sw-res-titulo"><span>🎯</span>Recomendación con presupuesto</span><span class="sw-pill sin_datos" id="resPill-recomendacion">Abrir</span></div><div class="sw-res-datos" id="resDatos-recomendacion"></div><div class="sw-res-msg" id="resMsg-recomendacion">Qué comprar primero según el presupuesto que definas.</div><div class="sw-res-ver">Ver detalle →</div></button>
+      <button type="button" class="sw-res-card nivel-sin_datos" id="resCard-daxis" onclick="irModulo('daxis')"><div class="sw-res-top"><span class="sw-res-titulo"><span>🚢</span>Importación Daxis</span><span class="sw-pill sin_datos" id="resPill-daxis">Abrir</span></div><div class="sw-res-datos" id="resDatos-daxis"></div><div class="sw-res-msg" id="resMsg-daxis">Pedido de cargadores y baterías a Daxis, dimensionado con la venta de 12 meses.</div><div class="sw-res-ver">Ver detalle →</div></button>
+      <button type="button" class="sw-res-card nivel-sin_datos" id="resCard-dm" onclick="irModulo('dm')"><div class="sw-res-top"><span class="sw-res-titulo"><span>🏬</span>Compras DM</span><span class="sw-pill sin_datos" id="resPill-dm">Abrir</span></div><div class="sw-res-datos" id="resDatos-dm"></div><div class="sw-res-msg" id="resMsg-dm">Productos de Comercial Dos Mundos con su stock, costo y link de compra.</div><div class="sw-res-ver">Ver detalle →</div></button>
+      <button type="button" class="sw-res-card nivel-sin_datos" id="resCard-intcomex" onclick="irModulo('intcomex')"><div class="sw-res-top"><span class="sw-res-titulo"><span>🖥️</span>Compras Intcomex</span><span class="sw-pill sin_datos" id="resPill-intcomex">Abrir</span></div><div class="sw-res-datos" id="resDatos-intcomex"></div><div class="sw-res-msg" id="resMsg-intcomex">Productos de las facturas de Intcomex, con foto, stock y link de compra.</div><div class="sw-res-ver">Ver detalle →</div></button>
+      <button type="button" class="sw-res-card nivel-sin_datos" id="resCard-comparador" onclick="irModulo('comparador')"><div class="sw-res-top"><span class="sw-res-titulo"><span>🔍</span>Comparativa de cotizaciones</span><span class="sw-pill sin_datos" id="resPill-comparador">Abrir</span></div><div class="sw-res-datos" id="resDatos-comparador"></div><div class="sw-res-msg" id="resMsg-comparador">Coimco vs Laptop Center: precios de cada proveedor, producto por producto.</div><div class="sw-res-ver">Ver detalle →</div></button>
     </div>
   </div>
 
-  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #7C3AED;" id="comparadorCard">
-    <div class="panel-header" onclick="togglePanel('comparadorCard')">
-      <span class="lbl" style="margin-bottom:0;">🔍 Comparativa Coimco vs Laptop Center</span>
-      <span class="panel-chevron">▾</span>
-    </div>
-    <div class="panel-body">
-      <p class="empty-note" style="margin-top:0;">Sube o ingresa lo que cotizó cada proveedor para un mismo pedido y el sistema arma la comparación: a quién comprarle cada línea según precio neto y stock. Nunca compra automático si la equivalencia del producto es dudosa.</p>
-
-      <div class="filtros" style="margin-bottom:12px;">
-        <label style="font-size:12px;color:var(--muted);">Solicitud:</label>
-        <select id="comparadorSelectSolicitud" onchange="comparadorCargarSolicitud(this.value)" style="min-width:220px;"></select>
-        <button class="btn-ghost btn-compact" onclick="comparadorMostrarFormNuevaSolicitud()">➕ Nueva solicitud</button>
-        <button class="btn-ghost btn-compact" onclick="comparadorRenombrarSolicitud()">✏️ Renombrar</button>
-        <button class="btn-ghost btn-compact" style="color:var(--red);border-color:var(--red);" onclick="comparadorEliminarSolicitud()">🗑️ Eliminar solicitud</button>
-        <label style="font-size:12px;color:var(--muted);margin-left:auto;">Umbral de ahorro mínimo:</label>
-        <input type="number" id="comparadorUmbralInput" value="1000" min="0" step="100" style="width:100px;" onchange="comparadorGuardarUmbral()">
-      </div>
-
-      <div id="comparadorFormNuevaSolicitud" hidden style="border:1px dashed var(--line);border-radius:12px;padding:14px;margin-bottom:16px;">
-        <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px;">Pedido base (opcional)</div>
-        <p class="empty-note" style="margin-top:0;margin-bottom:8px;">Puedes dejar esto vacío y crear la solicitud directamente -- el pedido base se arma solo con la primera lista de precios que pegues o subas abajo (normalmente Coimco). Solo completa esto a mano si quieres definir tú mismo qué productos pedir antes de cotizar.</p>
-        <div id="comparadorFilasPedido"></div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
-          <button class="btn-ghost btn-compact" onclick="comparadorAgregarFilaPedido()">➕ Agregar producto</button>
-          <button class="btn-ghost btn-compact" onclick="comparadorTogglePegarPedido()">📝 Pegar lista (SKU, producto, cantidad)</button>
-        </div>
-        <div id="comparadorPegarPedidoWrap" hidden style="margin-top:8px;">
-          <textarea id="comparadorPegarPedidoInput" placeholder="Pega acá una lista con columnas SKU, Producto y Cantidad (tal como la copiarías de Excel o de la tabla de Recomendación de esta misma página). Los precios, si vienen, se ignoran -- acá solo se arma el pedido base." style="width:100%;min-height:80px;font-size:11.5px;"></textarea>
-          <button class="btn-primary btn-compact" onclick="comparadorProcesarPegadoPedido()" style="margin-top:4px;">Agregar filas del texto pegado</button>
-        </div>
-        <div style="margin-top:12px;display:flex;gap:8px;">
-          <button class="btn-primary" onclick="comparadorCrearSolicitud()">Crear solicitud</button>
-          <button class="btn-ghost" onclick="comparadorOcultarFormNuevaSolicitud()">Cancelar</button>
-        </div>
-      </div>
-
-      <div id="comparadorSolicitudWrap"><p class="empty-note">Selecciona o crea una solicitud para empezar.</p></div>
-    </div>
-  </div>
-
-  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #B45309;" id="dmCard">
-    <div class="panel-header" onclick="togglePanel('dmCard')">
-      <span class="lbl" style="margin-bottom:0;">🏬 Comercial Dos Mundos (DM)</span>
-      <span class="panel-chevron">▾</span>
-    </div>
-    <div class="panel-body">
-      <p class="empty-note" style="margin-top:0;">DM no tiene integración con la tienda -- la compra se hace entrando a mano a su portal con sesión iniciada. Esta lista es de referencia: productos alternativos (cargadores, baterías, cargadores de celular, algunas fundas) identificados en las facturas de ingreso a nombre de "Comercial Dos Mundos", con su stock, último costo, y un link directo al producto para comprar más rápido.</p>
-      <div class="filtros" style="margin-bottom:0;">
-        <span class="filtro-label">Categoría:</span>
-        <button class="btn-ghost btn-compact active" id="dmFiltroTodas" onclick="filtrarDMCategoria(null)">Todas</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('cargador-alternativo')">🔌 Cargadores</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('bateria-alternativa')">🔋 Baterías</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('celular')">📱 Cargadores de celular</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('funda')">🎒 Fundas</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('base-notebook')">💻 Bases</button>
-        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('destornilladores')">🔧 Destornilladores</button>
-      </div>
-      <div id="dmWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
-    </div>
-  </div>
-
-  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #2563EB;" id="intcomexCard">
-    <div class="panel-header" onclick="togglePanel('intcomexCard')">
-      <span class="lbl" style="margin-bottom:0;">🖥️ Compras Intcomex</span>
-      <span class="panel-chevron">▾</span>
-    </div>
-    <div class="panel-body">
-      <p class="empty-note" style="margin-top:0;">Productos identificados en las facturas de ingreso a nombre de "Intcomex" (según el texto de la recepción en Bsale), con su stock, último costo, y un link directo al producto para comprar más rápido.</p>
-      <div class="filtros" style="margin-bottom:0;">
-        <input type="text" id="intcomexBuscador" placeholder="Buscar por SKU o nombre..." style="width:260px;" oninput="renderIntcomex()">
-        <select id="intcomexFiltroCategoria" onchange="renderIntcomex()" style="min-width:200px;">
-          <option value="">Todas las categorías</option>
-        </select>
-      </div>
-      <div id="intcomexWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
-    </div>
-  </div>
-
-  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #16A34A;" id="daxisCard">
-    <div class="panel-header" onclick="togglePanel('daxisCard')">
-      <span class="lbl" style="margin-bottom:0;">🚢 Importación Daxis — Cargadores y Baterías</span>
-      <span class="panel-chevron">▾</span>
-    </div>
-    <div class="panel-body">
-      <p class="empty-note" style="margin-top:0;">Estos productos se importan (producción + envío): pasan <b>70 días</b> desde que pagas el 10% inicial hasta que llegan a bodega. La sugerencia de pedido usa la <b>venta de los últimos 12 meses</b> (más estable que un período corto para algo que se pide cada 2-3 meses), apuntando a que te alcance el stock para la cantidad de meses que elijas.</p>
-      <div class="filtros" style="margin-bottom:0;">
-        <label style="font-size:12px;color:var(--muted);">Pedido sugerido debe alcanzar para:</label>
-        <select id="mesesCoberturaDaxis" onchange="renderDaxis()">
-          <option value="3">3 meses</option>
-          <option value="4" selected>4 meses</option>
-          <option value="5">5 meses</option>
-          <option value="6">6 meses</option>
-        </select>
-        <span style="color:var(--muted);font-size:11.5px;">Sugerencia = (venta diaria promedio de los últimos 12 meses × días de cobertura elegidos) − stock actual.</span>
-      </div>
-      <div class="filtros" style="margin-top:10px;margin-bottom:0;">
-        <span class="filtro-label">Categoría:</span>
-        <button class="btn-ghost btn-compact active" id="daxisFiltroTodas" onclick="filtrarDaxisCategoria(null)">Todas</button>
-        <button class="btn-ghost btn-compact" id="daxisFiltroCargador" onclick="filtrarDaxisCategoria('cargador-daxis')">🔌 Cargadores</button>
-        <button class="btn-ghost btn-compact" id="daxisFiltroBateria" onclick="filtrarDaxisCategoria('bateria-daxis')">🔋 Baterías</button>
-      </div>
-      <div id="daxisWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
-    </div>
-  </div>
-
+  <div class="sw-modulo" id="mod-catalogo">
   <div class="card panel-colapsable" style="margin-bottom:24px;" id="tablaPrincipalCard">
     <div class="panel-header" onclick="togglePanel('tablaPrincipalCard')">
       <span class="lbl" style="margin-bottom:0;">📋 Catálogo completo</span>
@@ -419,6 +348,164 @@
 
       <div id="tablaWrap"><p class="empty-note">Presiona "Analizar" para traer los datos de Bsale.</p></div>
     </div>
+  </div>
+  </div>
+
+  <div class="sw-modulo" id="mod-recomendacion">
+  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid var(--primary);" id="recomendacionCard">
+    <div class="panel-header" onclick="togglePanel('recomendacionCard')">
+      <span class="lbl" style="margin-bottom:0;">🎯 Recomendación de compra con presupuesto</span>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <div class="filtros" style="margin-bottom:0;">
+        <label style="font-size:12px;color:var(--muted);">Presupuesto disponible:</label>
+        <input type="number" id="presupuestoInput" value="8000000" step="100000" style="width:150px;">
+        <label style="font-size:12px;color:var(--muted);">Analizar venta de los últimos:</label>
+        <select id="periodoAnalisisPresupuesto">
+          <option value="28" selected>28 días (últimas 4 semanas)</option>
+          <option value="30">30 días</option>
+          <option value="60">60 días</option>
+          <option value="90">90 días</option>
+        </select>
+        <label style="font-size:12px;color:var(--muted);">Comprar para cubrir:</label>
+        <select id="horizontePresupuesto">
+          <option value="5">5 días</option>
+          <option value="7" selected>7 días</option>
+          <option value="14">14 días</option>
+        </select>
+        <label style="font-size:12px;color:var(--muted);">Categoría:</label>
+        <select id="categoriaRecomendacion">
+          <option value="pan-car-bat" selected>PAN-CAR-BAT</option>
+          <option value="">Todas las categorías</option>
+          <option value="pantalla">Pantallas</option>
+          <option value="cargador-original">Cargadores originales</option>
+          <option value="cargador-alternativo">Cargadores alternativos</option>
+          <option value="bateria-original">Baterías originales</option>
+          <option value="bateria-alternativo">Baterías alternativas</option>
+        </select>
+        <button class="btn-primary btn-compact" onclick="calcularRecomendacionPresupuesto()">Calcular recomendación</button>
+        <button class="btn-ghost btn-compact btn-exportar" onclick="descargarRecomendacion()">⬇ Descargar recomendación</button>
+      </div>
+      <div id="recomendacionWrap" style="margin-top:14px;"></div>
+    </div>
+  </div>
+  </div>
+
+  <div class="sw-modulo" id="mod-daxis">
+  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #16A34A;" id="daxisCard">
+    <div class="panel-header" onclick="togglePanel('daxisCard')">
+      <span class="lbl" style="margin-bottom:0;">🚢 Importación Daxis — Cargadores y Baterías</span>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <p class="empty-note" style="margin-top:0;">Estos productos se importan (producción + envío): pasan <b>70 días</b> desde que pagas el 10% inicial hasta que llegan a bodega. La sugerencia de pedido usa la <b>venta de los últimos 12 meses</b> (más estable que un período corto para algo que se pide cada 2-3 meses), apuntando a que te alcance el stock para la cantidad de meses que elijas.</p>
+      <div class="filtros" style="margin-bottom:0;">
+        <label style="font-size:12px;color:var(--muted);">Pedido sugerido debe alcanzar para:</label>
+        <select id="mesesCoberturaDaxis" onchange="renderDaxis()">
+          <option value="3">3 meses</option>
+          <option value="4" selected>4 meses</option>
+          <option value="5">5 meses</option>
+          <option value="6">6 meses</option>
+        </select>
+        <span style="color:var(--muted);font-size:11.5px;">Sugerencia = (venta diaria promedio de los últimos 12 meses × días de cobertura elegidos) − stock actual.</span>
+      </div>
+      <div class="filtros" style="margin-top:10px;margin-bottom:0;">
+        <span class="filtro-label">Categoría:</span>
+        <button class="btn-ghost btn-compact active" id="daxisFiltroTodas" onclick="filtrarDaxisCategoria(null)">Todas</button>
+        <button class="btn-ghost btn-compact" id="daxisFiltroCargador" onclick="filtrarDaxisCategoria('cargador-daxis')">🔌 Cargadores</button>
+        <button class="btn-ghost btn-compact" id="daxisFiltroBateria" onclick="filtrarDaxisCategoria('bateria-daxis')">🔋 Baterías</button>
+      </div>
+      <div id="daxisWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
+    </div>
+  </div>
+  </div>
+
+  <div class="sw-modulo" id="mod-dm">
+  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #B45309;" id="dmCard">
+    <div class="panel-header" onclick="togglePanel('dmCard')">
+      <span class="lbl" style="margin-bottom:0;">🏬 Comercial Dos Mundos (DM)</span>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <p class="empty-note" style="margin-top:0;">DM no tiene integración con la tienda -- la compra se hace entrando a mano a su portal con sesión iniciada. Esta lista es de referencia: productos alternativos (cargadores, baterías, cargadores de celular, algunas fundas) identificados en las facturas de ingreso a nombre de "Comercial Dos Mundos", con su stock, último costo, y un link directo al producto para comprar más rápido.</p>
+      <div class="filtros" style="margin-bottom:0;">
+        <span class="filtro-label">Categoría:</span>
+        <button class="btn-ghost btn-compact active" id="dmFiltroTodas" onclick="filtrarDMCategoria(null)">Todas</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('cargador-alternativo')">🔌 Cargadores</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('bateria-alternativa')">🔋 Baterías</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('celular')">📱 Cargadores de celular</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('funda')">🎒 Fundas</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('base-notebook')">💻 Bases</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('destornilladores')">🔧 Destornilladores</button>
+      </div>
+      <div id="dmWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
+    </div>
+  </div>
+  </div>
+
+  <div class="sw-modulo" id="mod-intcomex">
+  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #2563EB;" id="intcomexCard">
+    <div class="panel-header" onclick="togglePanel('intcomexCard')">
+      <span class="lbl" style="margin-bottom:0;">🖥️ Compras Intcomex</span>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <p class="empty-note" style="margin-top:0;">Productos identificados en las facturas de ingreso a nombre de "Intcomex" (según el texto de la recepción en Bsale), con su stock, último costo, y un link directo al producto para comprar más rápido.</p>
+      <div class="filtros" style="margin-bottom:0;">
+        <input type="text" id="intcomexBuscador" placeholder="Buscar por SKU o nombre..." style="width:260px;" oninput="renderIntcomex()">
+        <select id="intcomexFiltroCategoria" onchange="renderIntcomex()" style="min-width:200px;">
+          <option value="">Todas las categorías</option>
+        </select>
+      </div>
+      <div id="intcomexWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
+    </div>
+  </div>
+  </div>
+
+  <div class="sw-modulo" id="mod-comparador">
+  <div class="card panel-colapsable" style="margin-bottom:24px;border:1.5px solid #7C3AED;" id="comparadorCard">
+    <div class="panel-header" onclick="togglePanel('comparadorCard')">
+      <span class="lbl" style="margin-bottom:0;">🔍 Comparativa Coimco vs Laptop Center</span>
+      <span class="panel-chevron">▾</span>
+    </div>
+    <div class="panel-body">
+      <p class="empty-note" style="margin-top:0;">Sube o ingresa lo que cotizó cada proveedor para un mismo pedido y el sistema arma la comparación: a quién comprarle cada línea según precio neto y stock. Nunca compra automático si la equivalencia del producto es dudosa.</p>
+
+      <div class="filtros" style="margin-bottom:12px;">
+        <label style="font-size:12px;color:var(--muted);">Solicitud:</label>
+        <select id="comparadorSelectSolicitud" onchange="comparadorCargarSolicitud(this.value)" style="min-width:220px;"></select>
+        <button class="btn-ghost btn-compact" onclick="comparadorMostrarFormNuevaSolicitud()">➕ Nueva solicitud</button>
+        <button class="btn-ghost btn-compact" onclick="comparadorRenombrarSolicitud()">✏️ Renombrar</button>
+        <button class="btn-ghost btn-compact" style="color:var(--red);border-color:var(--red);" onclick="comparadorEliminarSolicitud()">🗑️ Eliminar solicitud</button>
+        <label style="font-size:12px;color:var(--muted);margin-left:auto;">Umbral de ahorro mínimo:</label>
+        <input type="number" id="comparadorUmbralInput" value="1000" min="0" step="100" style="width:100px;" onchange="comparadorGuardarUmbral()">
+      </div>
+
+      <div id="comparadorFormNuevaSolicitud" hidden style="border:1px dashed var(--line);border-radius:12px;padding:14px;margin-bottom:16px;">
+        <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px;">Pedido base (opcional)</div>
+        <p class="empty-note" style="margin-top:0;margin-bottom:8px;">Puedes dejar esto vacío y crear la solicitud directamente -- el pedido base se arma solo con la primera lista de precios que pegues o subas abajo (normalmente Coimco). Solo completa esto a mano si quieres definir tú mismo qué productos pedir antes de cotizar.</p>
+        <div id="comparadorFilasPedido"></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+          <button class="btn-ghost btn-compact" onclick="comparadorAgregarFilaPedido()">➕ Agregar producto</button>
+          <button class="btn-ghost btn-compact" onclick="comparadorTogglePegarPedido()">📝 Pegar lista (SKU, producto, cantidad)</button>
+        </div>
+        <div id="comparadorPegarPedidoWrap" hidden style="margin-top:8px;">
+          <textarea id="comparadorPegarPedidoInput" placeholder="Pega acá una lista con columnas SKU, Producto y Cantidad (tal como la copiarías de Excel o de la tabla de Recomendación de esta misma página). Los precios, si vienen, se ignoran -- acá solo se arma el pedido base." style="width:100%;min-height:80px;font-size:11.5px;"></textarea>
+          <button class="btn-primary btn-compact" onclick="comparadorProcesarPegadoPedido()" style="margin-top:4px;">Agregar filas del texto pegado</button>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;">
+          <button class="btn-primary" onclick="comparadorCrearSolicitud()">Crear solicitud</button>
+          <button class="btn-ghost" onclick="comparadorOcultarFormNuevaSolicitud()">Cancelar</button>
+        </div>
+      </div>
+
+      <div id="comparadorSolicitudWrap"><p class="empty-note">Selecciona o crea una solicitud para empezar.</p></div>
+    </div>
+  </div>
+  </div>
+
+  </main>
   </div>
 
 </div>
@@ -610,6 +697,7 @@ async function cargar(){
     renderDM();
     renderIntcomex();
     renderTabla();
+    renderResumenModulos();
 
     status.className = 'ok';
     status.textContent = `Listo — ${res.docsRevisados} documentos revisados, ${res.startDate} a ${res.endDate}`;
@@ -2429,6 +2517,54 @@ function exportarExcel(){
 let rolActual = 'usuario';
 let nombreActual = ''; // para saber cuáles comentarios de Intcomex son "míos" y mostrarles el botón editar
 
+
+// ---------- Módulos (barra lateral, igual que Sitio Web) ----------
+const MODULOS_COMPRAS = ['resumen', 'catalogo', 'recomendacion', 'daxis', 'dm', 'intcomex', 'comparador'];
+function irModulo(clave, sinHash){
+  if(!MODULOS_COMPRAS.includes(clave)) clave = MODULOS_COMPRAS[0];
+  document.querySelectorAll('.sw-modulo').forEach(m => m.classList.toggle('activo', m.id === 'mod-' + clave));
+  document.querySelectorAll('.sw-item').forEach(b => b.classList.toggle('activo', b.dataset.modulo === clave));
+  // el submenú "Compras" del menú principal también marca el módulo en el que estás
+  document.querySelectorAll('#navCompras a').forEach(a => { const h = a.getAttribute('href') || ''; if(h.startsWith('compras.html#')) a.classList.toggle('active', h === 'compras.html#' + clave); });
+  try{ if(!sinHash) history.replaceState(null, '', '#' + clave); }catch(e){ /* sin historial disponible */ }
+}
+function moduloDesdeHash(){
+  const h = (location.hash || '').replace('#', '');
+  return MODULOS_COMPRAS.includes(h) ? h : MODULOS_COMPRAS[0];
+}
+window.addEventListener('hashchange', () => irModulo(moduloDesdeHash(), true));
+
+// Tarjetas del Resumen: una por módulo, con una cifra clave y un aviso si hay algo urgente.
+function setResumenModulo(clave, nivel, pill, datos, msg){
+  const card = $('resCard-' + clave); if(!card) return;
+  card.className = 'sw-res-card nivel-' + nivel;
+  const p = $('resPill-' + clave); p.className = 'sw-pill ' + nivel; p.textContent = pill;
+  $('resDatos-' + clave).innerHTML = datos.map(d => `<div><b>${d[0]}</b><span>${d[1]}</span></div>`).join('');
+  if(msg) $('resMsg-' + clave).textContent = msg;
+}
+function ponerInsignia(clave, n){
+  const el = $('insignia-' + clave); if(!el) return;
+  el.textContent = n > 99 ? '99+' : String(n);
+  el.style.display = n > 0 ? 'flex' : 'none';
+}
+function renderResumenModulos(){
+  if(!datosSkus || !datosSkus.length) return;
+  const urg = datosSkus.filter(s => clasificar(s) === 'urgente').length;
+  const pron = datosSkus.filter(s => clasificar(s) === 'pronto').length;
+  setResumenModulo('catalogo', urg ? 'alerta' : (pron ? 'atencion' : 'ok'), urg ? 'Urgente' : (pron ? 'Atención' : 'Al día'),
+    [[fmtNum(datosSkus.length), 'SKU'], [fmtNum(urg), 'Urgentes'], [fmtNum(pron), 'Pronto']],
+    urg ? urg + ' SKU con 5 días de cobertura o menos: conviene reponerlos' : (pron ? pron + ' SKU se agotan en 14 días o menos' : 'Ningún SKU con cobertura crítica'));
+  ponerInsignia('catalogo', urg);
+  const productosDM = datosSkus.filter(s => CATEGORIAS_DM.has((s.categoria || '').toUpperCase()) && REGEX_PROVEEDOR_DM.test(s.proveedor || '') && !excluidosDM.has(s.code));
+  const sinStockDM = productosDM.filter(s => !(s.stockActual > 0)).length;
+  setResumenModulo('dm', sinStockDM ? 'atencion' : (productosDM.length ? 'ok' : 'sin_datos'), sinStockDM ? 'Atención' : (productosDM.length ? 'Al día' : 'Sin datos'),
+    [[fmtNum(productosDM.length), 'Productos'], [fmtNum(sinStockDM), 'Sin stock']], productosDM.length ? (sinStockDM ? sinStockDM + ' producto(s) de DM sin stock' : 'Todos los productos de DM tienen stock') : 'No se encontraron productos de DM');
+  const productosIntcomex = productosIntcomexBase();
+  const sinStockIntcomex = productosIntcomex.filter(s => !(s.stockActual > 0)).length;
+  setResumenModulo('intcomex', sinStockIntcomex ? 'atencion' : (productosIntcomex.length ? 'ok' : 'sin_datos'), sinStockIntcomex ? 'Atención' : (productosIntcomex.length ? 'Al día' : 'Sin datos'),
+    [[fmtNum(productosIntcomex.length), 'Productos'], [fmtNum(sinStockIntcomex), 'Sin stock']], productosIntcomex.length ? (sinStockIntcomex ? sinStockIntcomex + ' producto(s) de Intcomex sin stock' : 'Todos los productos de Intcomex tienen stock') : 'No se encontraron productos de Intcomex');
+}
+
 async function cargarSesionUsuario(){
   try{
     const res = await fetch('/api/auth-session');
@@ -2459,6 +2595,7 @@ async function cerrarSesion(){
   await fetch('/api/auth-session', { method: 'DELETE' });
   location.href = '/login.html';
 }
+irModulo(moduloDesdeHash(), true);
 cargarSesionUsuario();
 </script>
 <script src="tablas-ordenables.js"></script>
