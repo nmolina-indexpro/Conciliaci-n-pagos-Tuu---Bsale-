@@ -824,9 +824,10 @@ function renderLeadsWeb(){
       <td>${detalleLead(l)}</td>
       <td class="estado-${escLead(l.estado === 'nuevo' ? 'sin_contactar' : l.estado)}"><select class="estado-select" onchange="cambiarEstadoLeadWeb(${l.id}, this.value)">${opts}</select>${atendido}</td>
       <td><input type="text" value="${escLead(l.notas || '')}" placeholder="Nota..." style="width:170px;font-size:12px;" onchange="guardarNotaLeadWeb(${l.id}, this.value)"></td>
+      <td><button type="button" class="btn-ghost btn-compact" title="Eliminar este lead" aria-label="Eliminar lead" onclick="eliminarLeadWeb(${l.id})" style="color:#dc2626;border-color:#fecaca;">🗑</button></td>
     </tr>`;
   }).join('');
-  wrap.innerHTML = `<div class="tabla-wrap"><table><thead><tr><th>Fecha</th><th>Formulario</th><th>Nombre</th><th>Contacto</th><th>Origen</th><th>Detalle</th><th>Estado</th><th>Nota</th></tr></thead><tbody>${tbody}</tbody></table></div>`;
+  wrap.innerHTML = `<div class="tabla-wrap"><table><thead><tr><th>Fecha</th><th>Formulario</th><th>Nombre</th><th>Contacto</th><th>Origen</th><th>Detalle</th><th>Estado</th><th>Nota</th><th data-sin-orden></th></tr></thead><tbody>${tbody}</tbody></table></div>`;
 }
 async function actualizarLeadWeb(id, cuerpo){
   const res = await fetch('/api/negocio?recurso=indexscale-leads-web', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ id }, cuerpo)) }).then(r=>r.json());
@@ -838,6 +839,18 @@ async function cambiarEstadoLeadWeb(id, estado){
 }
 async function guardarNotaLeadWeb(id, notas){
   if(await actualizarLeadWeb(id, { notas })){ const l = datosLeadsWeb.find(x => x.id === id); if(l) l.notas = notas; }
+}
+async function eliminarLeadWeb(id){
+  const l = datosLeadsWeb.find(x => x.id === id);
+  if(!l) return;
+  if(!confirm('¿Eliminar el lead de "' + (l.nombre || l.email || 'sin nombre') + '"? Se borra del ERP y no se puede deshacer.')) return;
+  try{
+    const res = await fetch('/api/negocio?recurso=indexscale-leads-web&id=' + id, { method: 'DELETE' }).then(r=>r.json());
+    if(res.error){ alert('No se pudo eliminar: ' + res.error); return; }
+    datosLeadsWeb = datosLeadsWeb.filter(x => x.id !== id);
+    renderKpisLeadsWeb();
+    renderLeadsWeb();
+  }catch(err){ alert('No se pudo eliminar: ' + err.message); }
 }
 function exportarLeadsWeb(){
   const filas = [['Fecha','Formulario','Nombre','Empresa','Correo','Teléfono','Prefiere','Origen','Página','Campaña','Palabra clave','Estado','Nota']];

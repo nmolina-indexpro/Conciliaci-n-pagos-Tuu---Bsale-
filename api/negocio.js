@@ -5882,6 +5882,8 @@ async function manejarIndexscaleLeadWebRegistrar(req, res) {
   try {
     const sql = await getSql();
     await asegurarTablaIndexscaleLeadsWeb(sql);
+    const { rows: borrado } = await sql.query('SELECT 1 FROM indexscale_leads_web_eliminados WHERE wp_id = $1', [wpId]);
+    if (borrado.length > 0) return res.status(200).json({ ok: true, nuevo: false, aviso: false, eliminado: true });
     const r = await sql.query(
       `INSERT INTO indexscale_leads_web
          (wp_id, creado_en, tipo, nombre, empresa, email, telefono, preferencia_contacto, pagina_origen,
@@ -5926,6 +5928,17 @@ async function manejarIndexscaleLeadsWeb(req, res, sesion) {
         [id, estado === undefined ? null : estado, notas === undefined ? null : textoLead(notas, 2000), quien],
       );
       if (rows.length === 0) return res.status(404).json({ error: 'No encontrado' });
+      return res.status(200).json({ ok: true });
+    }
+    if (req.method === 'DELETE') {
+      const id = parseInt(req.query.id || (req.body || {}).id, 10);
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      const { rows: fila } = await sql.query('SELECT wp_id FROM indexscale_leads_web WHERE id = $1', [id]);
+      if (fila.length === 0) return res.status(404).json({ error: 'No encontrado' });
+      if (fila[0].wp_id) {
+        await sql.query('INSERT INTO indexscale_leads_web_eliminados (wp_id, eliminado_por) VALUES ($1, $2) ON CONFLICT (wp_id) DO NOTHING', [fila[0].wp_id, sesion.nombre || sesion.email]);
+      }
+      await sql.query('DELETE FROM indexscale_leads_web WHERE id = $1', [id]);
       return res.status(200).json({ ok: true });
     }
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
