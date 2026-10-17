@@ -15403,6 +15403,8 @@ async function manejarGoogleAdsAnalisis(req, res, _sesion) {
     if (rango.error) return res.status(400).json({ error: rango.error });
     let sql = null;
     try { sql = await getSql(); await asegurarTablaWaClicsAds(sql); } catch (e) { sql = null; }
+    // El vínculo toque -> mensaje antes solo se hacía en el cron diario, así que "Hoy" siempre salía con 0 mensajes reales.
+    if (sql) { try { await asegurarTablaWhatsapp(sql); await vincularMensajesWaAds(sql); } catch (e) { /* si falla, se muestra lo ya vinculado */ } }
     const r = await analizarGoogleAds({ desde: rango.desde, hasta: rango.hasta, sql });
     if (r.sin_configurar) return res.status(200).json({ error: `Faltan variables de Google Ads en Vercel: ${r.faltan.join(', ')}` });
     return res.status(200).json(r);
@@ -15424,6 +15426,7 @@ async function manejarWaClicAdsResumen(req, res, _sesion) {
     if ((Date.parse(hasta) - Date.parse(desde)) / 86400000 > 366) return res.status(400).json({ error: 'El rango no puede superar un año' });
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
+    try { await asegurarTablaWaClicsAds(sql); await vincularMensajesWaAds(sql); } catch (e) { /* si falla, se muestra lo ya vinculado */ }
     const d = await detalleWaClics(sql, desde, hasta, numeroConectadoWaAds());
     d.conversion_configurada = Boolean(String(process.env.GOOGLE_ADS_WHATSAPP_CONVERSION_ID || '').trim() && String(process.env.GOOGLE_DATAMANAGER_REFRESH_TOKEN || '').trim());
     return res.status(200).json(d);

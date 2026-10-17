@@ -323,7 +323,7 @@ function bloque1(d){
   html += kpis([
     ['Gasto en Google Ads', fmtClp(t.gasto), `${fmtNum(t.clics)} clics · ${fmtClp(t.costo_por_clic)} por clic`],
     ['Toques al botón de WhatsApp', fmtNum(t.toques), 'personas que llegaron de un anuncio y tocaron el botón'],
-    ['Mensajes reales', fmtNum(t.mensajes), 'confirmados por el ERP (código "ref" en el mensaje)'],
+    ['Mensajes reales', fmtNum(t.mensajes), 'de anuncios, confirmados por el ERP (código "ref" en el mensaje)' + (d.conversaciones_whatsapp != null ? ` · en total escribieron ${fmtNum(d.conversaciones_whatsapp)} conversaciones` : '')],
     ['Costo por mensaje real', fmtClp(t.costo_por_mensaje), t.mensajes ? 'gasto total / mensajes reales' : 'todavía sin mensajes en este período'],
   ]);
   html += '<div class="tabla-wrap"><table><thead><tr><th>Campaña</th><th>Tipo</th><th class="amount">Gasto</th><th class="amount">Clics</th><th class="amount">Toques al botón</th><th class="amount">Mensajes reales</th><th class="amount">Costo por mensaje</th><th class="amount">Conversiones (Google)</th></tr></thead><tbody>' +
@@ -334,7 +334,7 @@ function bloque1(d){
   else if(mejor) txt = `Solo <b>${escapeHtml(mejor.nombre)}</b> tiene mensajes reales en este período (${fmtClp(mejor.costo_por_mensaje)} cada uno).`;
   if(sinMsg.length) txt += ` ${sinMsg.length === 1 ? 'La campaña' : 'Las campañas'} <b>${sinMsg.map(f => escapeHtml(f.nombre)).join(', ')}</b> gastó ${fmtClp(sinMsg.reduce((s, f) => s + f.gasto, 0))} sin ningún mensaje confirmado.`;
   if(!b.filas.length) txt = 'No hubo campañas con impresiones en este período.';
-  return html + lectura(txt, sinMsg.length > 0) + '<p class="ads-pie">Los mensajes se atribuyen a la campaña por el clic de Google (gclid). Los clics de iPhone no traen campaña y van en la fila "Sin campaña identificada". El ERP lleva este registro desde el 15-10-2026.</p>';
+  return html + lectura(txt, sinMsg.length > 0) + '<p class="ads-pie">"Mensajes reales" cuenta solo los que llegan con el código (ref XXXXXX) del botón: si la persona lo borra antes de enviar, escribe desde otro canal (ficha de Google, llamada, cliente recurrente) o entra por el ícono flotante, el mensaje llega pero no se atribuye a un anuncio. Los mensajes se atribuyen a la campaña por el clic de Google (gclid). Los clics de iPhone no traen campaña y van en la fila "Sin campaña identificada". El ERP lleva este registro desde el 15-10-2026.</p>';
 }
 
 function bloque2(d){
