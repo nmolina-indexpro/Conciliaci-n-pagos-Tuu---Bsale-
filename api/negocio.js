@@ -35,8 +35,8 @@ import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, product
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
-import { asegurarTablaComprasProveedorAsignado } from '../lib/db.js';
-import { resolverEntradaProducto, datosProductoIdentificado, columnaCompatibilidad } from '../lib/productos-nuevos.js';
+import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas } from '../lib/db.js';
+import { resolverEntradaProducto, datosProductoIdentificado, columnaCompatibilidad } from '../lib/compat-propuestas.js';
 import { analizarGoogleAds, validarRango as validarRangoGoogleAds } from '../lib/google-ads-analisis.js';
 import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
@@ -186,8 +186,8 @@ export default async function handler(req, res) {
   if (recurso === 'productos-nuevos-registro') return manejarProductosNuevosRegistro(req, res, sesion);
   if (recurso === 'productos-nuevos-resumen') return manejarProductosNuevosResumen(req, res, sesion);
   if (recurso === 'productos-nuevos-estado') return manejarProductosNuevosEstado(req, res, sesion);
-  if (recurso === 'productos-nuevos-resolver') return manejarProductosNuevosResolver(req, res, sesion);
-  if (recurso === 'productos-nuevos-asociar') return manejarProductosNuevosAsociar(req, res, sesion);
+  if (recurso === 'compat-propuestas') return manejarCompatPropuestas(req, res, sesion);
+  if (recurso === 'compat-propuestas-resolver') return manejarCompatResolver(req, res, sesion);
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
@@ -13374,33 +13374,7 @@ function mapearProductoNuevoLog(r) {
   return {
     id: r.id, fecha: fecha.slice(0, 10), tipo: r.tipo, marca: r.marca, modelo: r.modelo,
     cantidad: r.cantidad, notas: r.notas || '', creadoPor: r.creado_por, createdAt: r.created_at,
-    skuIdentificado: r.sku_identificado || '', linkProducto: r.link_producto || '',
   };
-}
-
-// El vendedor pega UN dato (link de la tienda o SKU) y de ahí salen el SKU, el link y el título. Si Shopify no responde, se conserva lo escrito.
-async function resolverProductoIdentificado(entrada) {
-  const texto = String(entrada || '').trim();
-  if (!texto) return { sku: null, link: null, titulo: null };
-  let resuelto = null;
-  try { resuelto = resolverEntradaProducto(texto, (await obtenerUrlsShopify(false)).urls); } catch (e) { resuelto = null; }
-  return datosProductoIdentificado(texto, resuelto);
-}
-
-// Deja el producto identificado como lo vigente para ese modelo y, si el modelo todavía no estaba integrado ni descartado, lo pasa a "evaluando"
-// (propuesta del vendedor: un administrador la confirma con "Asociar"). Lo ya integrado no se pisa.
-async function guardarProductoIdentificadoModelo(sql, { tipo, marca, modelo, datos, autor }) {
-  if (!datos.sku && !datos.link) return;
-  await sql`
-    INSERT INTO productos_nuevos_estado (tipo, marca_norm, modelo_norm, estado, sku_integrado, link_producto, producto_titulo, actualizado_por)
-    VALUES (${tipo}, ${String(marca).trim().toUpperCase()}, ${String(modelo).trim().toUpperCase()}, 'evaluando', ${datos.sku}, ${datos.link}, ${datos.titulo}, ${autor})
-    ON CONFLICT (tipo, marca_norm, modelo_norm) DO UPDATE SET
-      sku_integrado = CASE WHEN productos_nuevos_estado.estado = 'integrado' THEN productos_nuevos_estado.sku_integrado ELSE EXCLUDED.sku_integrado END,
-      link_producto = CASE WHEN productos_nuevos_estado.estado = 'integrado' THEN productos_nuevos_estado.link_producto ELSE EXCLUDED.link_producto END,
-      producto_titulo = CASE WHEN productos_nuevos_estado.estado = 'integrado' THEN productos_nuevos_estado.producto_titulo ELSE EXCLUDED.producto_titulo END,
-      estado = CASE WHEN productos_nuevos_estado.estado IN ('integrado', 'descartado') THEN productos_nuevos_estado.estado ELSE 'evaluando' END,
-      actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();
-  `;
 }
 
 // Un solo registro validado + insertado -- usado tanto por el alta manual
@@ -13410,7 +13384,7 @@ async function guardarProductoIdentificadoModelo(sql, { tipo, marca, modelo, dat
 // una excepción con mensaje en español si algo no es válido, en vez de
 // devolver un objeto de error -- el llamador decide si aborta todo (alta
 // simple) o sigue con las demás filas y junta los errores (importación).
-async function insertarProductoNuevoRegistro(sql, { fecha, tipo, marca, modelo, cantidad, notas, producto }, autor) {
+async function insertarProductoNuevoRegistro(sql, { fecha, tipo, marca, modelo, cantidad, notas }, autor) {
   const marcaLimpia = String(marca || '').trim();
   const modeloLimpio = String(modelo || '').trim();
   if (!marcaLimpia || !modeloLimpio) throw new Error('Falta la marca o el modelo');
@@ -13424,13 +13398,11 @@ async function insertarProductoNuevoRegistro(sql, { fecha, tipo, marca, modelo, 
   const fechaFinal = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : hoyChile;
   const notasLimpias = notas ? (String(notas).trim() || null) : null;
 
-  const datos = await resolverProductoIdentificado(producto);
   const { rows } = await sql`
-    INSERT INTO productos_nuevos_registro (fecha, tipo, marca, modelo, cantidad, notas, creado_por, sku_identificado, link_producto)
-    VALUES (${fechaFinal}, ${tipo}, ${marcaLimpia}, ${modeloLimpio}, ${cantidadNum}, ${notasLimpias}, ${autor}, ${datos.sku}, ${datos.link})
+    INSERT INTO productos_nuevos_registro (fecha, tipo, marca, modelo, cantidad, notas, creado_por)
+    VALUES (${fechaFinal}, ${tipo}, ${marcaLimpia}, ${modeloLimpio}, ${cantidadNum}, ${notasLimpias}, ${autor})
     RETURNING *;
   `;
-  await guardarProductoIdentificadoModelo(sql, { tipo, marca: marcaLimpia, modelo: modeloLimpio, datos, autor });
   return mapearProductoNuevoLog(rows[0]);
 }
 
@@ -13513,7 +13485,7 @@ async function manejarProductosNuevosResumen(req, res, sesion) {
         FROM productos_nuevos_registro
         GROUP BY tipo, UPPER(TRIM(marca)), UPPER(TRIM(modelo))
       )
-      SELECT r.*, COALESCE(e.estado, 'pendiente') AS estado, e.sku_integrado, e.link_producto, e.producto_titulo, e.notas_estado,
+      SELECT r.*, COALESCE(e.estado, 'pendiente') AS estado, e.sku_integrado, e.notas_estado,
              e.actualizado_por AS estado_actualizado_por, e.actualizado_en AS estado_actualizado_en
       FROM resumen r
       LEFT JOIN productos_nuevos_estado e
@@ -13526,7 +13498,7 @@ async function manejarProductosNuevosResumen(req, res, sesion) {
         marca: r.marca, modelo: r.modelo,
         cantidadTotal: r.cantidad_total, vecesRegistrado: r.veces_registrado,
         ultimaFecha: String(r.ultima_fecha).slice(0, 10), primeraFecha: String(r.primera_fecha).slice(0, 10),
-        estado: r.estado, skuIntegrado: r.sku_integrado || '', linkProducto: r.link_producto || '', productoTitulo: r.producto_titulo || '', notasEstado: r.notas_estado || '',
+        estado: r.estado, skuIntegrado: r.sku_integrado || '', notasEstado: r.notas_estado || '',
         estadoActualizadoPor: r.estado_actualizado_por, estadoActualizadoEn: r.estado_actualizado_en,
       })),
     });
@@ -13540,7 +13512,7 @@ async function manejarProductosNuevosEstado(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaProductosNuevos(sql);
-    const { tipo, marca, modelo, estado, skuIntegrado, producto, notas, limpiarProducto } = req.body || {};
+    const { tipo, marca, modelo, estado, skuIntegrado, notas } = req.body || {};
     if (!TIPOS_PRODUCTO_NUEVO.includes(tipo)) return res.status(400).json({ error: 'Tipo de producto inválido' });
     if (!ESTADOS_PRODUCTO_NUEVO.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
     // El frontend ya manda marca/modelo normalizados (marcaNorm/modeloNorm
@@ -13550,20 +13522,14 @@ async function manejarProductosNuevosEstado(req, res, sesion) {
     const modeloNorm = String(modelo || '').trim().toUpperCase();
     if (!marcaNorm || !modeloNorm) return res.status(400).json({ error: 'Falta marca o modelo' });
     const autor = sesion.nombre || sesion.email;
+    const sku = skuIntegrado ? String(skuIntegrado).trim() || null : null;
     const notasLimpias = notas ? String(notas).trim() || null : null;
-    // "producto" = link de la tienda o SKU (se resuelven entre sí); skuIntegrado queda por compatibilidad. Si no viene ninguno, NO se borra lo que había
-    // (cambiar solo el estado no debe perder el SKU); para quitarlo a propósito: limpiarProducto = true.
-    const datos = await resolverProductoIdentificado(producto || skuIntegrado);
-    const hayProducto = Boolean(datos.sku || datos.link);
+
     const { rows } = await sql`
-      INSERT INTO productos_nuevos_estado (tipo, marca_norm, modelo_norm, estado, sku_integrado, link_producto, producto_titulo, notas_estado, actualizado_por)
-      VALUES (${tipo}, ${marcaNorm}, ${modeloNorm}, ${estado}, ${limpiarProducto ? null : datos.sku}, ${limpiarProducto ? null : datos.link}, ${limpiarProducto ? null : datos.titulo}, ${notasLimpias}, ${autor})
+      INSERT INTO productos_nuevos_estado (tipo, marca_norm, modelo_norm, estado, sku_integrado, notas_estado, actualizado_por)
+      VALUES (${tipo}, ${marcaNorm}, ${modeloNorm}, ${estado}, ${sku}, ${notasLimpias}, ${autor})
       ON CONFLICT (tipo, marca_norm, modelo_norm) DO UPDATE SET
-        estado = EXCLUDED.estado,
-        sku_integrado = CASE WHEN ${limpiarProducto ? true : false}::boolean THEN NULL WHEN ${hayProducto}::boolean THEN EXCLUDED.sku_integrado ELSE productos_nuevos_estado.sku_integrado END,
-        link_producto = CASE WHEN ${limpiarProducto ? true : false}::boolean THEN NULL WHEN ${hayProducto}::boolean THEN EXCLUDED.link_producto ELSE productos_nuevos_estado.link_producto END,
-        producto_titulo = CASE WHEN ${limpiarProducto ? true : false}::boolean THEN NULL WHEN ${hayProducto}::boolean THEN EXCLUDED.producto_titulo ELSE productos_nuevos_estado.producto_titulo END,
-        notas_estado = COALESCE(EXCLUDED.notas_estado, productos_nuevos_estado.notas_estado),
+        estado = EXCLUDED.estado, sku_integrado = EXCLUDED.sku_integrado, notas_estado = EXCLUDED.notas_estado,
         actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now()
       RETURNING *;
     `;
@@ -13573,9 +13539,22 @@ async function manejarProductosNuevosEstado(req, res, sesion) {
   }
 }
 
+// ---------------- Modelos compatibles (propuestas de compatibilidad) ----------------
+// Página "Modelos compatibles": cuando un vendedor encuentra que un modelo de notebook SÍ es compatible con un producto que vendemos, lo propone
+// (tipo + marca + modelo + SKU o link del producto). Un administrador lo aprueba y entra a notebook_compatibilidad (la base que usan el buscador y la
+// categorización). NO es Productos Nuevos (modelos que no trabajamos, que se analizan mes a mes): son tablas y páginas distintas.
+// El vendedor pega UN dato (link de la tienda o SKU) y de ahí salen el SKU, el link y el título. Si Shopify no responde, se conserva lo escrito.
+async function resolverProductoIdentificado(entrada) {
+  const texto = String(entrada || '').trim();
+  if (!texto) return { sku: null, link: null, titulo: null };
+  let resuelto = null;
+  try { resuelto = resolverEntradaProducto(texto, (await obtenerUrlsShopify(false)).urls); } catch (e) { resuelto = null; }
+  return datosProductoIdentificado(texto, resuelto);
+}
+
 // Resuelve lo que pegó el vendedor (link de la tienda o SKU) a producto de Shopify: { producto: { sku, url, titulo, estado, variantes } | null }.
 // Lo usa Productos Nuevos para mostrar "✓ Pantalla Notebook... (SKU ...)" apenas se pega el dato.
-async function manejarProductosNuevosResolver(req, res, _sesion) {
+async function manejarCompatResolver(req, res, _sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   const q = String(req.query.q || '').trim();
   if (!q) return res.status(400).json({ error: 'Falta el link o el SKU' });
@@ -13588,9 +13567,8 @@ async function manejarProductosNuevosResolver(req, res, _sesion) {
   }
 }
 
-// Asocia el producto identificado a un modelo en la base de compatibilidad del sitio (notebook_compatibilidad, la que usan el buscador y la
-// categorización): pone el SKU en la columna que corresponde al tipo (batería/pantalla/cargador) SIN tocar las otras, y deja el modelo como
-// "integrado". Solo administradores: esa base es curada a mano y alimenta el sitio.
+// Pone el SKU en la columna que corresponde al tipo (batería/pantalla/cargador) de notebook_compatibilidad SIN tocar las otras (si el modelo ya existe,
+// ignorando mayúsculas, actualiza esa fila; si no, la crea).
 async function asociarSkuACompatibilidad(sql, { tipo, marca, modelo, sku, autor }) {
   const col = columnaCompatibilidad(tipo);
   if (!col) throw new Error('Solo se pueden asociar cargadores, baterías y pantallas');
@@ -13613,29 +13591,83 @@ async function asociarSkuACompatibilidad(sql, { tipo, marca, modelo, sku, autor 
   return { fila: r.rows[0], nueva: true };
 }
 
-async function manejarProductosNuevosAsociar(req, res, sesion) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede asociar un modelo a la base de compatibilidad' });
+const ESTADOS_COMPAT_PROPUESTA = ['pendiente', 'aprobada', 'rechazada'];
+function mapearCompatPropuesta(r) {
+  return {
+    id: r.id, creadoEn: r.creado_en, tipo: r.tipo, marca: r.marca, modelo: r.modelo, sku: r.sku, link: r.link || '', titulo: r.titulo || '', nota: r.nota || '',
+    creadoPor: r.creado_por, veces: r.veces, ultimoPor: r.ultimo_por, actualizadoEn: r.actualizado_en, estado: r.estado, revisadoPor: r.revisado_por, revisadoEn: r.revisado_en,
+  };
+}
+
+//   GET                                  -> { propuestas }
+//   POST { tipo, marca, modelo, producto, nota }  -> crea la propuesta (o suma una repetición); cualquier usuario con acceso a la página
+//   PUT { id, accion: 'aprobar' | 'rechazar' | 'reabrir' } -> solo administradores; aprobar agrega el SKU a la base de compatibilidad del sitio
+//   DELETE ?id=                          -> solo administradores
+async function manejarCompatPropuestas(req, res, sesion) {
   try {
     const sql = await getSql();
-    await asegurarTablaProductosNuevos(sql);
+    await asegurarTablaCompatPropuestas(sql);
     await asegurarTablaCompatibilidadNotebook(sql);
-    const { tipo, marca, modelo } = req.body || {};
-    if (!columnaCompatibilidad(tipo)) return res.status(400).json({ error: 'Solo se pueden asociar cargadores, baterías y pantallas' });
-    const marcaNorm = String(marca || '').trim().toUpperCase(), modeloNorm = String(modelo || '').trim().toUpperCase();
-    if (!marcaNorm || !modeloNorm) return res.status(400).json({ error: 'Falta marca o modelo' });
-    const { rows: est } = await sql`SELECT sku_integrado FROM productos_nuevos_estado WHERE tipo = ${tipo} AND marca_norm = ${marcaNorm} AND modelo_norm = ${modeloNorm};`;
-    const sku = est[0]?.sku_integrado;
-    if (!sku) return res.status(400).json({ error: 'Primero indica qué producto sirve (SKU o link) para este modelo' });
-    // marca y modelo como se escribieron (la fila más reciente), no en mayúsculas
-    const { rows: disp } = await sql`SELECT marca, modelo FROM productos_nuevos_registro WHERE tipo = ${tipo} AND UPPER(TRIM(marca)) = ${marcaNorm} AND UPPER(TRIM(modelo)) = ${modeloNorm} ORDER BY created_at DESC LIMIT 1;`;
     const autor = sesion.nombre || sesion.email;
-    const { fila, nueva } = await asociarSkuACompatibilidad(sql, { tipo, marca: disp[0]?.marca || marca, modelo: disp[0]?.modelo || modelo, sku, autor });
-    await sql`UPDATE productos_nuevos_estado SET estado = 'integrado', actualizado_por = ${autor}, actualizado_en = now() WHERE tipo = ${tipo} AND marca_norm = ${marcaNorm} AND modelo_norm = ${modeloNorm};`;
-    return res.status(200).json({ ok: true, nueva, compatibilidad: mapearModeloCompat(fila) });
+
+    if (req.method === 'GET') {
+      const { rows } = await sql`SELECT * FROM compat_propuestas ORDER BY (estado = 'pendiente') DESC, actualizado_en DESC LIMIT 1000;`;
+      return res.status(200).json({ propuestas: rows.map(mapearCompatPropuesta) });
+    }
+
+    if (req.method === 'POST') {
+      const { tipo, marca, modelo, producto, nota } = req.body || {};
+      if (!columnaCompatibilidad(tipo)) return res.status(400).json({ error: 'El tipo debe ser cargador, batería o pantalla' });
+      const marcaL = String(marca || '').trim(), modeloL = String(modelo || '').trim();
+      if (!marcaL || !modeloL) return res.status(400).json({ error: 'Falta la marca o el modelo' });
+      const datos = await resolverProductoIdentificado(producto);
+      if (!datos.sku) return res.status(400).json({ error: 'No pude identificar el producto: revisa el link o escribe el SKU' });
+      const marcaN = marcaL.toUpperCase(), modeloN = modeloL.toUpperCase();
+      // ¿ya está asociado ese mismo producto a ese modelo en la base de compatibilidad? Entonces no hay nada que proponer.
+      const col = columnaCompatibilidad(tipo);
+      const { rows: ya } = await sql`SELECT sku_bateria, sku_pantalla, sku_cargador FROM notebook_compatibilidad WHERE UPPER(TRIM(marca)) = ${marcaN} AND UPPER(TRIM(modelo)) = ${modeloN} LIMIT 1;`;
+      const skuActual = ya[0] ? ya[0][col] : null;
+      if (skuActual && skuActual.toUpperCase() === datos.sku.toUpperCase()) return res.status(200).json({ ok: true, yaAsociado: true, sku: skuActual });
+      const notaLimpia = nota ? String(nota).trim().slice(0, 500) || null : null;
+      const { rows } = await sql`
+        INSERT INTO compat_propuestas (tipo, marca, modelo, marca_norm, modelo_norm, sku, link, titulo, nota, creado_por, ultimo_por)
+        VALUES (${tipo}, ${marcaL}, ${modeloL}, ${marcaN}, ${modeloN}, ${datos.sku}, ${datos.link}, ${datos.titulo}, ${notaLimpia}, ${autor}, ${autor})
+        ON CONFLICT (tipo, marca_norm, modelo_norm, sku) DO UPDATE SET
+          veces = compat_propuestas.veces + 1, ultimo_por = EXCLUDED.ultimo_por, actualizado_en = now(),
+          link = COALESCE(EXCLUDED.link, compat_propuestas.link), titulo = COALESCE(EXCLUDED.titulo, compat_propuestas.titulo), nota = COALESCE(EXCLUDED.nota, compat_propuestas.nota),
+          estado = CASE WHEN compat_propuestas.estado = 'rechazada' THEN 'pendiente' ELSE compat_propuestas.estado END
+        RETURNING *, (xmax = 0) AS nueva;
+      `;
+      return res.status(200).json({ ok: true, nueva: rows[0].nueva, skuDistinto: Boolean(skuActual), skuActual: skuActual || null, propuesta: mapearCompatPropuesta(rows[0]) });
+    }
+
+    if (req.method === 'PUT') {
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede revisar las propuestas' });
+      const { id, accion } = req.body || {};
+      if (!id || !['aprobar', 'rechazar', 'reabrir'].includes(accion)) return res.status(400).json({ error: 'Falta la propuesta o la acción' });
+      const { rows: pr } = await sql`SELECT * FROM compat_propuestas WHERE id = ${id};`;
+      if (!pr[0]) return res.status(404).json({ error: 'Propuesta no encontrada' });
+      if (accion === 'aprobar') {
+        const p = pr[0];
+        const { fila, nueva } = await asociarSkuACompatibilidad(sql, { tipo: p.tipo, marca: p.marca, modelo: p.modelo, sku: p.sku, autor });
+        await sql`UPDATE compat_propuestas SET estado = 'aprobada', revisado_por = ${autor}, revisado_en = now() WHERE id = ${id};`;
+        return res.status(200).json({ ok: true, nueva, compatibilidad: mapearModeloCompat(fila) });
+      }
+      await sql`UPDATE compat_propuestas SET estado = ${accion === 'rechazar' ? 'rechazada' : 'pendiente'}, revisado_por = ${autor}, revisado_en = now() WHERE id = ${id};`;
+      return res.status(200).json({ ok: true });
+    }
+
+    if (req.method === 'DELETE') {
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede eliminar una propuesta' });
+      const id = Number(req.query.id);
+      if (!id) return res.status(400).json({ error: 'Falta id' });
+      await sql`DELETE FROM compat_propuestas WHERE id = ${id};`;
+      return res.status(200).json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
-    if (String(err).includes('23505') || /duplicate key|unique constraint/i.test(String(err))) return res.status(400).json({ error: 'Ya existe una fila para esa marca y modelo' });
-    return res.status(500).json({ error: 'Error asociando el modelo a la compatibilidad', detail: String(err.message || err).slice(0, 200) });
+    return res.status(500).json({ error: 'Error en las propuestas de compatibilidad', detail: String(err.message || err).slice(0, 200) });
   }
 }
 

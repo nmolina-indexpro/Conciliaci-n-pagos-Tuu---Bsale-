@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Modelos compatibles — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;}
+  .seccion-head h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:0 0 4px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.activo{background:var(--primary-dim);border-color:var(--primary);color:var(--primary);}
+  .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);font-size:12px;cursor:pointer;padding:0;vertical-align:middle;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+  .btn-icono.peligro:hover{border-color:var(--red);background:var(--red-bg);color:var(--red);}
+
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:5px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;color:var(--text);}
+
+  .form-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px;}
+  .campo{display:flex;flex-direction:column;gap:5px;}
+  .campo label{font-size:12px;font-weight:600;color:var(--muted);}
+  .campo input[type="text"], .campo input[type="date"], .campo input[type="number"], .campo textarea, .campo select{
+    font-family:'Plus Jakarta Sans',sans-serif;font-size:13.5px;padding:9px 11px;
+    border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);
+  }
+  .campo input:focus, .campo textarea:focus, .campo select:focus{outline:none;border-color:var(--primary);}
+  .campo textarea{resize:vertical;min-height:56px;font-family:inherit;}
+
+  .coincidencia-box{font-size:12px;padding:9px 12px;border-radius:8px;margin:-4px 0 14px;background:var(--surface-2);color:var(--muted);}
+  .coincidencia-box b{color:var(--text);}
+  .coincidencia-box .alerta{color:var(--amber);font-weight:600;}
+  .coincidencia-box .ok{color:var(--green);font-weight:600;}
+  .coincidencia-box a{color:var(--primary);}
+
+  .filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .filtros input[type="text"]{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:8px 11px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);width:220px;}
+  .filtros select{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:8px 11px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);}
+  .filtros input:focus, .filtros select:focus{outline:none;border-color:var(--primary);}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap;}
+  td.notas{max-width:220px;white-space:normal;color:var(--muted);font-size:12px;}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .quien{color:var(--muted);font-size:11.5px;}
+
+  .badge-tipo{display:inline-block;font-family:'Space Grotesk',sans-serif;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;background:var(--surface-2);color:var(--text);}
+  .badge-estado{display:inline-block;font-family:'Space Grotesk',sans-serif;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+  .badge-estado.pendiente{background:var(--amber-dim);color:var(--amber);}
+  .badge-estado.evaluando{background:var(--blue-bg);color:var(--blue);}
+  .badge-estado.integrado{background:var(--green-bg);color:var(--green);}
+  .badge-estado.descartado{background:var(--red-bg);color:var(--red);}
+  select.estado-select{font-family:'Space Grotesk',sans-serif;font-size:11.5px;font-weight:700;padding:5px 8px;border-radius:8px;border:1.5px solid var(--line);background:var(--surface);}
+
+  /* Ranking -- barras horizontales, mismo patrón que google-analytics.html */
+  .canal-chart{max-height:420px;overflow-y:auto;padding-right:4px;}
+  .canal-grupo{margin-bottom:14px;}
+  .canal-titulo{font-size:12px;color:var(--text);margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .canal-fila{display:flex;align-items:center;gap:8px;margin-bottom:3px;}
+  .canal-pista{flex:1;background:var(--surface-2);border-radius:5px;height:12px;overflow:hidden;}
+  .canal-relleno{height:100%;border-radius:5px;min-width:3px;background:var(--primary);}
+  .canal-valor{width:56px;flex-shrink:0;text-align:right;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text);}
+
+  /* Registro rápido: una línea, Enter y listo */
+  .caja-rapida{display:flex;gap:10px;align-items:stretch;margin-bottom:10px;}
+  .caja-rapida input{flex:1;min-width:0;font-family:'Plus Jakarta Sans',sans-serif;font-size:17px;padding:14px 16px;border:2px solid var(--primary);border-radius:12px;background:var(--surface);color:var(--text);box-shadow:0 0 0 4px var(--primary-dim);}
+  .caja-rapida input:focus{outline:none;box-shadow:0 0 0 5px rgba(15,118,110,.22);}
+  .caja-rapida button{font-size:15px;padding:0 24px;border-radius:12px;white-space:nowrap;}
+  .entendi{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;color:var(--muted);}
+  .entendi select,.entendi input{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:6px 9px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);min-width:0;}
+  .entendi input{width:150px;} .entendi input.modelo{width:210px;}
+  .entendi .falta{border-color:var(--amber);background:var(--amber-dim);}
+  .producto-box{margin:4px 0 12px;padding:12px 14px;border:1.5px dashed var(--line);border-radius:12px;background:var(--surface-2);}
+  .producto-box label{display:block;font-size:12.5px;font-weight:700;color:var(--text);margin-bottom:2px;}
+  .producto-box .ayuda{font-size:11.5px;color:var(--muted);margin-bottom:8px;}
+  .producto-box input{width:100%;font-family:'Plus Jakarta Sans',sans-serif;font-size:13.5px;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);}
+  .producto-box input:focus{outline:none;border-color:var(--primary);}
+  .producto-resuelto{font-size:12.5px;margin-top:7px;}
+  .producto-resuelto.ok{color:var(--green);font-weight:600;} .producto-resuelto.aviso{color:var(--amber);font-weight:600;}
+  details.mas{margin:6px 0 14px;} details.mas summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--primary-dark);}
+  details.mas .form-grid{margin-top:12px;}
+  .contador{font-size:12px;color:var(--muted);margin-top:12px;}
+  .btn-mini{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;padding:3px 9px;border-radius:999px;border:1.5px solid var(--primary);background:var(--surface);color:var(--primary);cursor:pointer;}
+  .btn-mini:hover{background:var(--primary-dim);}
+  .prod-celda{display:flex;flex-direction:column;gap:2px;white-space:normal;min-width:170px;max-width:260px;font-size:12px;}
+  .prod-celda a{color:var(--primary);font-weight:600;}
+  .mensaje-guardado{font-size:12.5px;padding:9px 12px;border-radius:8px;margin-bottom:14px;}
+  .mensaje-guardado.ok{background:var(--green-bg);color:var(--green);}
+  .mensaje-guardado.err{background:var(--red-bg);color:var(--red);}
+
+  @media (max-width: 900px){
+    .caja-rapida{flex-direction:column;} .caja-rapida button{padding:12px;}
+    .form-grid{grid-template-columns:1fr 1fr;}
+  }
+  @media (max-width: 560px){
+    .form-grid{grid-template-columns:1fr;}
+  }
+  .badge-prop{display:inline-block;font-family:'Space Grotesk',sans-serif;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+  .badge-prop.pendiente{background:var(--amber-dim);color:var(--amber);} .badge-prop.aprobada{background:var(--green-bg);color:var(--green);} .badge-prop.rechazada{background:var(--red-bg);color:var(--red);}
+  .acciones-prop{display:flex;gap:6px;flex-wrap:wrap;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
+          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html" class="active">Modelos compatibles</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>🔗 Modelos compatibles</h1>
+  <div class="sub">Cuando encuentres que un modelo de notebook <b>sí es compatible</b> con un producto que ya vendemos, regístralo aquí: queda en revisión y, al aprobarse, entra a la base de compatibilidad del sitio (la que usan el buscador y la categorización). <span style="white-space:nowrap;">No es lo mismo que <a href="productos-nuevos.html">Productos Nuevos</a>, que son modelos que <b>no</b> trabajamos.</span></div>
+
+  <div class="grid" id="kpiWrap">
+    <div class="card"><div class="lbl">⏳ Pendientes de revisión</div><div class="big" id="kpiPendientes">—</div></div>
+    <div class="card"><div class="lbl">✓ Aprobadas</div><div class="big" id="kpiAprobadas">—</div></div>
+    <div class="card"><div class="lbl">Mis propuestas</div><div class="big" id="kpiMias">—</div></div>
+    <div class="card"><div class="lbl">Modelos en la base del sitio</div><div class="big" id="kpiBase">—</div></div>
+  </div>
+
+  <div class="seccion" id="seccionForm">
+    <div class="seccion-head">
+      <div>
+        <h2>⚡ Encontré un modelo compatible</h2>
+        <div class="sub" style="margin-bottom:0;">Paso 1: escribe el modelo como te lo dijeron, por ejemplo <i>pantalla lenovo ideapad 3 15IIL05</i>. Paso 2: pega el link o el SKU del producto nuestro que le sirve. Enter y listo: toma 15 segundos.</div>
+      </div>
+    </div>
+
+    <div id="mensajeGuardado"></div>
+
+    <div class="caja-rapida">
+      <input type="text" id="qTexto" autocomplete="off" placeholder="Ej: pantalla lenovo ideapad 3 15IIL05" oninput="alEscribirPedido()" onkeydown="if(event.key==='Enter'){event.preventDefault();guardarPropuesta();}">
+      <button class="btn-primary" id="btnGuardar" onclick="guardarPropuesta()">Proponer ⏎</button>
+    </div>
+    <div class="entendi" id="wrapEntendi">
+      <span>Entendí:</span>
+      <select id="fTipo" onchange="onCambioModelo()">
+        <option value="pantalla">🖥️ Pantalla</option>
+        <option value="bateria">🔋 Batería</option>
+        <option value="cargador">🔌 Cargador</option>
+      </select>
+      <input type="text" id="fMarca" placeholder="Marca (HP, Asus…)" list="listaMarcasProd" oninput="onCambioModelo()">
+      <input type="text" id="fModelo" class="modelo" placeholder="Modelo del notebook" oninput="onCambioModelo()">
+      <datalist id="listaMarcasProd"></datalist>
+      <span style="font-size:11px;">(si algo quedó mal, corrígelo aquí)</span>
+    </div>
+
+    <div id="wrapCoincidencia"></div>
+
+    <div class="producto-box">
+      <label for="fProducto">¿Qué producto nuestro le sirve? <span style="font-weight:500;color:var(--red);">(obligatorio)</span></label>
+      <div class="ayuda">Pega el link del producto en indexstore.cl <b>o</b> escribe el SKU: el sistema completa el otro dato.</div>
+      <input type="text" id="fProducto" autocomplete="off" placeholder="https://www.indexstore.cl/products/…  o  SKU" oninput="alEscribirProducto()" onkeydown="if(event.key==='Enter'){event.preventDefault();guardarPropuesta();}">
+      <div class="producto-resuelto" id="wrapProducto"></div>
+    </div>
+
+    <details class="mas">
+      <summary>Agregar una nota (opcional)</summary>
+      <div class="campo" style="margin-top:10px;">
+        <textarea id="fNota" placeholder="Ej: lo verifiqué con el cliente, mismos conectores y medidas."></textarea>
+      </div>
+    </details>
+
+    <div class="contador" id="contadorHoy"></div>
+  </div>
+
+  <div class="seccion" id="seccionPropuestas">
+    <div class="seccion-head">
+      <div>
+        <h2>📋 Propuestas</h2>
+        <div class="sub" style="margin-bottom:0;">Las pendientes primero. Un administrador las revisa: al <b>aprobar</b>, el SKU se agrega a la base de compatibilidad del sitio.</div>
+      </div>
+    </div>
+    <div class="filtros">
+      <input type="text" id="buscarInput" placeholder="Buscar por marca, modelo o SKU..." oninput="renderPropuestas()">
+      <select id="filtroEstado" onchange="renderPropuestas()">
+        <option value="">Todas</option>
+        <option value="pendiente" selected>Pendientes</option>
+        <option value="aprobada">Aprobadas</option>
+        <option value="rechazada">Rechazadas</option>
+      </select>
+      <select id="filtroTipo" onchange="renderPropuestas()">
+        <option value="">Todos los tipos</option>
+        <option value="pantalla">🖥️ Pantalla</option>
+        <option value="bateria">🔋 Batería</option>
+        <option value="cargador">🔌 Cargador</option>
+      </select>
+    </div>
+    <div id="wrapPropuestas"><p class="empty-note">Cargando...</p></div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script src="interpretar-pedido.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function escapeHtml(texto){
+  return String(texto ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+const TIPO_LABEL = { pantalla: '🖥️ Pantalla', bateria: '🔋 Batería', cargador: '🔌 Cargador' };
+const ESTADO_LABEL = { pendiente: 'Pendiente', aprobada: 'Aprobada ✓', rechazada: 'Rechazada' };
+const COLUMNA_COMPAT = { bateria: 'skuBateria', pantalla: 'skuPantalla', cargador: 'skuCargador' };
+let rolActual = 'usuario', nombreActual = '';
+let propuestas = [];
+let compatCargada = []; // base de compatibilidad del sitio (modelos ya asociados a un SKU)
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    rolActual = u.rol;
+    nombreActual = u.nombre || u.email || '';
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){
+      ['navUsuarios', 'navActualizaciones', 'navMercadoLibre'].forEach(id => { const n = document.getElementById(id); if(n) n.style.display = ''; });
+    }
+    cargarTodo();
+    $('qTexto').focus();
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+async function cargarTodo(){
+  await Promise.all([cargarPropuestas(), cargarCompat()]);
+  renderKpis();
+}
+async function cargarCompat(){
+  try{
+    const data = await (await fetch('/api/negocio?recurso=modelos-compatibilidad')).json();
+    compatCargada = data.modelos || [];
+  }catch(e){ compatCargada = []; }
+}
+async function cargarPropuestas(){
+  try{
+    const res = await fetch('/api/negocio?recurso=compat-propuestas');
+    const data = await res.json();
+    if(!res.ok || data.error){ $('wrapPropuestas').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar.')}</p>`; return; }
+    propuestas = data.propuestas || [];
+    renderPropuestas();
+    renderDatalistMarcas();
+  }catch(err){
+    $('wrapPropuestas').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderKpis(){
+  $('kpiPendientes').textContent = propuestas.filter(p => p.estado === 'pendiente').length;
+  $('kpiAprobadas').textContent = propuestas.filter(p => p.estado === 'aprobada').length;
+  $('kpiMias').textContent = propuestas.filter(p => p.creadoPor === nombreActual).length;
+  $('kpiBase').textContent = compatCargada.length;
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+  const delDia = p => new Date(p.creadoEn).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' }) === hoy;
+  const hoyTodos = propuestas.filter(delDia), mias = hoyTodos.filter(p => p.creadoPor === nombreActual).length;
+  $('contadorHoy').textContent = propuestas.length
+    ? `Hoy el equipo ha propuesto ${hoyTodos.length} modelo${hoyTodos.length === 1 ? '' : 's'}${mias ? ` (${mias} tuyo${mias === 1 ? '' : 's'})` : ''}. Cada modelo que sumamos es una búsqueda menos que termina sin respuesta en el sitio. ¡Gracias!`
+    : 'Todavía no hay propuestas: la primera la haces tú.';
+}
+function renderDatalistMarcas(){
+  const marcas = [...new Set([...propuestas.map(p => p.marca), ...compatCargada.map(c => c.marca)])].sort((a, b) => a.localeCompare(b));
+  $('listaMarcasProd').innerHTML = marcas.map(m => `<option value="${escapeHtml(m)}">`).join('');
+}
+
+// ---------- Escribir el modelo: se entiende solo ----------
+function alEscribirPedido(){
+  const r = interpretarPedido($('qTexto').value, { marcasExtra: [...new Set([...propuestas.map(x => x.marca), ...compatCargada.map(c => c.marca)])] });
+  if(r.tipo) $('fTipo').value = r.tipo;
+  $('fMarca').value = r.marca || '';
+  $('fModelo').value = r.modelo || '';
+  const escribio = $('qTexto').value.trim().length > 0;
+  $('fMarca').classList.toggle('falta', escribio && !r.marca);
+  $('fModelo').classList.toggle('falta', escribio && !r.modelo);
+  onCambioModelo();
+}
+const normTexto = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+function compatibilidadExistente(tipo, marca, modelo){
+  const col = COLUMNA_COMPAT[tipo];
+  const m = normTexto(marca), mo = normTexto(modelo);
+  return compatCargada.find(c => normTexto(c.marca) === m && normTexto(c.modelo) === mo && c[col]) || null;
+}
+
+let timeoutModelo = null;
+function onCambioModelo(){
+  clearTimeout(timeoutModelo);
+  timeoutModelo = setTimeout(verificarModelo, 400);
+}
+// Mientras escribe: ¿ya está en la base? ¿alguien ya lo propuso? ¿hay algo parecido en el catálogo? (con botón "Es este")
+async function verificarModelo(){
+  const wrap = $('wrapCoincidencia');
+  const tipo = $('fTipo').value, marca = $('fMarca').value.trim(), modelo = $('fModelo').value.trim();
+  if(!marca || !modelo){ wrap.innerHTML = ''; return; }
+  const partes = [];
+  const compat = compatibilidadExistente(tipo, marca, modelo);
+  if(compat) partes.push(`<div><span class="ok">✅ Este modelo ya está en la base del sitio</span> con el SKU <b>${escapeHtml(compat[COLUMNA_COMPAT[tipo]])}</b>. Si es otro producto el que sirve, pégalo abajo y queda en revisión; si es el mismo, no hace falta proponerlo.</div>`);
+  const previas = propuestas.filter(p => p.tipo === tipo && normTexto(p.marca) === normTexto(marca) && normTexto(p.modelo) === normTexto(modelo));
+  if(previas.length) partes.push(`<div>🔁 Ya hay propuestas para este modelo: ${previas.map(p => `SKU <b>${escapeHtml(p.sku)}</b> (${ESTADO_LABEL[p.estado].toLowerCase()}, ${p.veces} ${p.veces === 1 ? 'vez' : 'veces'})`).join(' · ')}.</div>`);
+  partes.push('<div id="wrapCatalogoCheck">🔎 Buscando en el catálogo...</div>');
+  wrap.innerHTML = `<div class="coincidencia-box">${partes.join('')}</div>`;
+  try{
+    const data = await (await fetch(`/api/negocio?recurso=buscar-repuestos-modelo&marca=${encodeURIComponent(marca)}&modelo=${encodeURIComponent(modelo)}`)).json();
+    const el = $('wrapCatalogoCheck'); if(!el) return;
+    const enc = data && data[tipo];
+    if(data.error) el.textContent = 'No se pudo revisar el catálogo (' + data.error + ').';
+    else if(enc) el.innerHTML = `💡 Algo que podría servir: ${enc.url ? `<a href="${escapeHtml(enc.url)}" target="_blank" rel="noopener">${escapeHtml(enc.titulo)}</a>` : escapeHtml(enc.titulo)}${enc.sku ? ` (SKU ${escapeHtml(enc.sku)})` : ''} -- confianza ${enc.confianza}%. <button type="button" class="btn-mini" onclick="usarProductoSugerido('${escapeHtml(enc.url || enc.sku || '')}')">Es este</button> si le sirve; si no, pega el correcto abajo.`;
+    else el.textContent = 'No encontré un producto parecido en el catálogo: pega el link o el SKU del que sirve.';
+  }catch(err){
+    const el = $('wrapCatalogoCheck'); if(el) el.textContent = 'No se pudo revisar el catálogo.';
+  }
+}
+function usarProductoSugerido(valor){
+  $('fProducto').value = valor;
+  resolverProductoEscrito();
+  $('fProducto').focus();
+}
+
+// ---------- El producto: link o SKU, el servidor completa el otro dato ----------
+let timeoutProducto = null, tokenProducto = 0;
+function alEscribirProducto(){
+  clearTimeout(timeoutProducto);
+  timeoutProducto = setTimeout(resolverProductoEscrito, 450);
+}
+async function resolverProductoEscrito(){
+  const q = $('fProducto').value.trim();
+  const el = $('wrapProducto');
+  const tk = ++tokenProducto;
+  if(!q){ el.className = 'producto-resuelto'; el.textContent = ''; return; }
+  el.className = 'producto-resuelto'; el.textContent = 'Buscando el producto…';
+  try{
+    const d = await (await fetch('/api/negocio?recurso=compat-propuestas-resolver&q=' + encodeURIComponent(q))).json();
+    if(tk !== tokenProducto) return;
+    const pr = d.producto;
+    if(pr){
+      el.className = 'producto-resuelto ok';
+      el.innerHTML = `✓ ${pr.url ? `<a href="${escapeHtml(pr.url)}" target="_blank" rel="noopener">${escapeHtml(pr.titulo || pr.sku)}</a>` : escapeHtml(pr.titulo || pr.sku)} · SKU <b>${escapeHtml(pr.sku)}</b>${pr.estado && pr.estado !== 'active' ? ' · <span style="color:var(--amber);">no publicado en la tienda</span>' : ''}${pr.variantes ? ` · <span style="color:var(--amber);">tiene ${pr.variantes.length} variantes: se usó ${escapeHtml(pr.sku)}; escribe el SKU exacto si es otro</span>` : ''}`;
+    } else {
+      el.className = 'producto-resuelto aviso';
+      el.textContent = d.error ? `No pude revisar la tienda (${d.error}). Se guardará tal cual lo escribiste.` : 'No encontré ese producto en la tienda: revisa el link o el SKU.';
+    }
+  }catch(err){
+    if(tk === tokenProducto){ el.className = 'producto-resuelto aviso'; el.textContent = 'No pude revisar la tienda. Se guardará tal cual lo escribiste.'; }
+  }
+}
+
+// ---------- Proponer ----------
+async function guardarPropuesta(){
+  const tipo = $('fTipo').value, marca = $('fMarca').value.trim(), modelo = $('fModelo').value.trim();
+  const producto = $('fProducto').value.trim(), nota = $('fNota').value.trim();
+  const mensaje = $('mensajeGuardado');
+  if(!$('qTexto').value.trim() && !marca && !modelo){ mensaje.innerHTML = '<div class="mensaje-guardado err">Escribe el modelo (por ejemplo: pantalla lenovo ideapad 3 15IIL05).</div>'; $('qTexto').focus(); return; }
+  if(!marca || !modelo){
+    mensaje.innerHTML = `<div class="mensaje-guardado err">Me falta ${!marca ? 'la <b>marca</b>' : 'el <b>modelo</b>'}: complétala en "Entendí" y presiona Enter otra vez.</div>`;
+    (!marca ? $('fMarca') : $('fModelo')).focus();
+    return;
+  }
+  if(!producto){
+    mensaje.innerHTML = '<div class="mensaje-guardado err">Falta el producto que le sirve: pega el link de indexstore.cl o escribe el SKU.</div>';
+    $('fProducto').focus();
+    return;
+  }
+  const btn = $('btnGuardar');
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/negocio?recurso=compat-propuestas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo, marca, modelo, producto, nota }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ mensaje.innerHTML = `<div class="mensaje-guardado err">${escapeHtml(data.error || 'No se pudo guardar.')}</div>`; return; }
+    if(data.yaAsociado){
+      mensaje.innerHTML = `<div class="mensaje-guardado ok">👍 Ese modelo ya está en la base del sitio con ese mismo SKU (<b>${escapeHtml(data.sku)}</b>): no hace falta proponerlo. Puedes escribir el siguiente.</div>`;
+    } else {
+      mensaje.innerHTML = `<div class="mensaje-guardado ok">✓ Listo, gracias. <b>${escapeHtml(marca)} ${escapeHtml(modelo)}</b> ${data.nueva ? 'quedó propuesto' : `ya había sido propuesto (${data.propuesta.veces} veces): sumaste la tuya`}${data.skuDistinto ? `. Ojo: en la base del sitio tiene el SKU ${escapeHtml(data.skuActual)}; un administrador decidirá` : ''}. Un administrador lo revisa. Puedes escribir el siguiente.</div>`;
+    }
+    setTimeout(() => { if(mensaje.querySelector('.ok')) mensaje.innerHTML = ''; }, 10000);
+    $('qTexto').value = ''; $('fMarca').value = ''; $('fModelo').value = ''; $('fProducto').value = ''; $('fNota').value = '';
+    $('fMarca').classList.remove('falta'); $('fModelo').classList.remove('falta');
+    $('wrapProducto').textContent = ''; $('wrapCoincidencia').innerHTML = '';
+    await cargarTodo();
+    $('qTexto').focus();
+  }catch(err){
+    mensaje.innerHTML = `<div class="mensaje-guardado err">Error: ${escapeHtml(err.message)}</div>`;
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+// ---------- Tabla de propuestas y revisión ----------
+function fmtFecha(iso){ return iso ? new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'America/Santiago' }) : '—'; }
+function propuestasFiltradas(){
+  const q = $('buscarInput').value.trim().toLowerCase();
+  const estado = $('filtroEstado').value, tipo = $('filtroTipo').value;
+  return propuestas.filter(p => (!estado || p.estado === estado) && (!tipo || p.tipo === tipo) && (!q || `${p.marca} ${p.modelo} ${p.sku}`.toLowerCase().includes(q)));
+}
+function renderPropuestas(){
+  const wrap = $('wrapPropuestas');
+  const filas = propuestasFiltradas();
+  renderKpis();
+  if(!filas.length){ wrap.innerHTML = `<p class="empty-note">${propuestas.length ? 'Sin resultados para ese filtro.' : 'Todavía no hay propuestas.'}</p>`; return; }
+  const esAdmin = rolActual === 'admin';
+  const tbody = filas.map(p => `
+    <tr>
+      <td>${fmtFecha(p.creadoEn)}</td>
+      <td><span class="badge-tipo">${TIPO_LABEL[p.tipo] || p.tipo}</span></td>
+      <td><b>${escapeHtml(p.marca)}</b></td>
+      <td>${escapeHtml(p.modelo)}</td>
+      <td><div class="prod-celda">${p.link ? `<a href="${escapeHtml(p.link)}" target="_blank" rel="noopener">${escapeHtml(p.titulo || p.sku)}</a>` : `<span>${escapeHtml(p.titulo || '—')}</span>`}<span class="amount">SKU ${escapeHtml(p.sku)}</span>${p.nota ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.nota)}</span>` : ''}</div></td>
+      <td class="quien">${escapeHtml(p.creadoPor || '—')}${p.veces > 1 ? ` · ${p.veces} veces` : ''}</td>
+      <td><span class="badge-prop ${p.estado}">${ESTADO_LABEL[p.estado]}</span>${p.estado !== 'pendiente' && p.revisadoPor ? `<div class="quien" style="margin-top:3px;">${escapeHtml(p.revisadoPor)}</div>` : ''}</td>
+      <td>${esAdmin ? `<div class="acciones-prop">
+        ${p.estado !== 'aprobada' ? `<button type="button" class="btn-primary btn-compact" style="padding:6px 12px;font-size:11.5px;" onclick="revisarPropuesta(${p.id}, 'aprobar')" title="Agrega este SKU a la base de compatibilidad del sitio">✅ Aprobar</button>` : ''}
+        ${p.estado === 'pendiente' ? `<button type="button" class="btn-ghost btn-compact" style="padding:6px 12px;font-size:11.5px;" onclick="revisarPropuesta(${p.id}, 'rechazar')">✖ Rechazar</button>` : ''}
+        ${p.estado === 'rechazada' ? `<button type="button" class="btn-ghost btn-compact" style="padding:6px 12px;font-size:11.5px;" onclick="revisarPropuesta(${p.id}, 'reabrir')">↩ Reabrir</button>` : ''}
+        <button type="button" class="btn-icono peligro" title="Eliminar" onclick="eliminarPropuesta(${p.id})">🗑️</button></div>` : ''}</td>
+    </tr>`).join('');
+  wrap.innerHTML = `<div class="tabla-wrap"><table>
+    <thead><tr><th>Fecha</th><th>Tipo</th><th>Marca</th><th>Modelo</th><th>Producto que sirve</th><th>Propuso</th><th>Estado</th><th></th></tr></thead>
+    <tbody>${tbody}</tbody></table></div>`;
+}
+async function revisarPropuesta(id, accion){
+  const p = propuestas.find(x => x.id === id);
+  if(accion === 'aprobar' && p && !confirm(`¿Agregar ${p.marca} ${p.modelo} con el SKU ${p.sku} a la base de compatibilidad del sitio?\n\nDesde ahí lo usan el buscador y la categorización.`)) return;
+  try{
+    const res = await fetch('/api/negocio?recurso=compat-propuestas', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, accion }) });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo actualizar.'); return; }
+    await cargarTodo();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+async function eliminarPropuesta(id){
+  if(!confirm('¿Eliminar esta propuesta?')) return;
+  try{
+    const res = await fetch('/api/negocio?recurso=compat-propuestas&id=' + id, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo eliminar.'); return; }
+    await cargarTodo();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+
+cargarSesionUsuario();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>

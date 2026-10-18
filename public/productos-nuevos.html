@@ -104,35 +104,11 @@
   .canal-relleno{height:100%;border-radius:5px;min-width:3px;background:var(--primary);}
   .canal-valor{width:56px;flex-shrink:0;text-align:right;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text);}
 
-  /* Registro rápido: una línea, Enter y listo */
-  .caja-rapida{display:flex;gap:10px;align-items:stretch;margin-bottom:10px;}
-  .caja-rapida input{flex:1;min-width:0;font-family:'Plus Jakarta Sans',sans-serif;font-size:17px;padding:14px 16px;border:2px solid var(--primary);border-radius:12px;background:var(--surface);color:var(--text);box-shadow:0 0 0 4px var(--primary-dim);}
-  .caja-rapida input:focus{outline:none;box-shadow:0 0 0 5px rgba(15,118,110,.22);}
-  .caja-rapida button{font-size:15px;padding:0 24px;border-radius:12px;white-space:nowrap;}
-  .entendi{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;color:var(--muted);}
-  .entendi select,.entendi input{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:6px 9px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);min-width:0;}
-  .entendi input{width:150px;} .entendi input.modelo{width:210px;}
-  .entendi .falta{border-color:var(--amber);background:var(--amber-dim);}
-  .producto-box{margin:4px 0 12px;padding:12px 14px;border:1.5px dashed var(--line);border-radius:12px;background:var(--surface-2);}
-  .producto-box label{display:block;font-size:12.5px;font-weight:700;color:var(--text);margin-bottom:2px;}
-  .producto-box .ayuda{font-size:11.5px;color:var(--muted);margin-bottom:8px;}
-  .producto-box input{width:100%;font-family:'Plus Jakarta Sans',sans-serif;font-size:13.5px;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);}
-  .producto-box input:focus{outline:none;border-color:var(--primary);}
-  .producto-resuelto{font-size:12.5px;margin-top:7px;}
-  .producto-resuelto.ok{color:var(--green);font-weight:600;} .producto-resuelto.aviso{color:var(--amber);font-weight:600;}
-  details.mas{margin:6px 0 14px;} details.mas summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--primary-dark);}
-  details.mas .form-grid{margin-top:12px;}
-  .contador{font-size:12px;color:var(--muted);margin-top:12px;}
-  .btn-mini{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;padding:3px 9px;border-radius:999px;border:1.5px solid var(--primary);background:var(--surface);color:var(--primary);cursor:pointer;}
-  .btn-mini:hover{background:var(--primary-dim);}
-  .prod-celda{display:flex;flex-direction:column;gap:2px;white-space:normal;min-width:170px;max-width:260px;font-size:12px;}
-  .prod-celda a{color:var(--primary);font-weight:600;}
   .mensaje-guardado{font-size:12.5px;padding:9px 12px;border-radius:8px;margin-bottom:14px;}
   .mensaje-guardado.ok{background:var(--green-bg);color:var(--green);}
   .mensaje-guardado.err{background:var(--red-bg);color:var(--red);}
 
   @media (max-width: 900px){
-    .caja-rapida{flex-direction:column;} .caja-rapida button{padding:12px;}
     .form-grid{grid-template-columns:1fr 1fr;}
   }
   @media (max-width: 560px){
@@ -194,6 +170,7 @@
           <a href="clientes-whatsapp.html">WhatsApp</a>
           <a href="llamadas.html">Llamadas</a>
           <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html">Modelos compatibles</a>
         </div>
       </div>
       <div class="nav-dropdown">
@@ -253,59 +230,50 @@
   <div class="seccion" id="seccionForm">
     <div class="seccion-head">
       <div>
-        <h2>⚡ ¿Qué te pidió el cliente y no teníamos?</h2>
-        <div class="sub" style="margin-bottom:0;">Escríbelo como te lo dijeron y presiona <b>Enter</b>, por ejemplo: <i>batería asus B31N1911</i> o <i>pantalla lenovo ideapad 3 15IIL05</i>. Toma 10 segundos y nos dice qué conseguir y qué sumar a la tienda.</div>
+        <h2>📝 Registrar producto</h2>
+        <div class="sub" style="margin-bottom:0;">Cada vez que te falte uno, regístralo de nuevo aunque ya esté en la lista -- así se ve qué tan seguido se repite.</div>
       </div>
     </div>
 
     <div id="mensajeGuardado"></div>
 
-    <div class="caja-rapida">
-      <input type="text" id="qTexto" autocomplete="off" placeholder="Ej: batería asus B31N1911" oninput="alEscribirPedido()" onkeydown="if(event.key==='Enter'){event.preventDefault();guardarRegistro();}">
-      <button class="btn-primary" id="btnGuardar" onclick="guardarRegistro()">Registrar ⏎</button>
-    </div>
-    <div class="entendi" id="wrapEntendi">
-      <span>Entendí:</span>
-      <select id="fTipo" onchange="onCambioMarcaModelo()">
-        <option value="cargador">🔌 Cargador</option>
-        <option value="bateria">🔋 Batería</option>
-        <option value="pantalla">🖥️ Pantalla</option>
-        <option value="otro">📦 Otro</option>
-      </select>
-      <input type="text" id="fMarca" placeholder="Marca (HP, Asus…)" list="listaMarcasProd" oninput="onCambioMarcaModelo()">
-      <input type="text" id="fModelo" class="modelo" placeholder="Modelo (B31N1911…)" oninput="onCambioMarcaModelo()">
-      <datalist id="listaMarcasProd"></datalist>
-      <span style="font-size:11px;">(si algo quedó mal, corrígelo aquí)</span>
+    <div class="form-grid">
+      <div class="campo">
+        <label>Fecha</label>
+        <input type="date" id="fFecha">
+      </div>
+      <div class="campo">
+        <label>Tipo</label>
+        <select id="fTipo" onchange="onCambioMarcaModelo()">
+          <option value="cargador">🔌 Cargador</option>
+          <option value="bateria">🔋 Batería</option>
+          <option value="pantalla">🖥️ Pantalla</option>
+          <option value="otro">📦 Otro</option>
+        </select>
+      </div>
+      <div class="campo">
+        <label>Cantidad</label>
+        <input type="number" id="fCantidad" value="1" min="1">
+      </div>
+      <div class="campo">
+        <label>Marca</label>
+        <input type="text" id="fMarca" placeholder="Ej: HP, Lenovo, Dell, Asus..." list="listaMarcasProd" oninput="onCambioMarcaModelo()">
+        <datalist id="listaMarcasProd"></datalist>
+      </div>
+      <div class="campo" style="grid-column:span 2;">
+        <label>Modelo</label>
+        <input type="text" id="fModelo" placeholder="Ej: C31N1843" oninput="onCambioMarcaModelo()">
+      </div>
     </div>
 
     <div id="wrapCoincidencia"></div>
 
-    <div class="producto-box">
-      <label for="fProducto">¿Ya sabes qué producto nuestro le sirve? <span style="font-weight:500;color:var(--muted);">(opcional, pero es lo más valioso)</span></label>
-      <div class="ayuda">Pega el link del producto en indexstore.cl <b>o</b> escribe el SKU: el sistema completa el otro dato. Con eso el modelo queda asociado y el buscador del sitio lo encuentra.</div>
-      <input type="text" id="fProducto" autocomplete="off" placeholder="https://www.indexstore.cl/products/…  o  SKU" oninput="alEscribirProducto()" onkeydown="if(event.key==='Enter'){event.preventDefault();guardarRegistro();}">
-      <div class="producto-resuelto" id="wrapProducto"></div>
+    <div class="campo" style="margin-bottom:14px;">
+      <label>Notas (opcional)</label>
+      <textarea id="fNotas" placeholder="Contexto extra -- ej. qué cliente lo pidió, para qué otros modelos sirve, etc."></textarea>
     </div>
 
-    <details class="mas">
-      <summary>Más detalles (fecha, cantidad, notas)</summary>
-      <div class="form-grid">
-        <div class="campo">
-          <label>Fecha</label>
-          <input type="date" id="fFecha">
-        </div>
-        <div class="campo">
-          <label>Cantidad (cuántos pidió)</label>
-          <input type="number" id="fCantidad" value="1" min="1">
-        </div>
-        <div class="campo" style="grid-column:span 3;">
-          <label>Notas (opcional)</label>
-          <textarea id="fNotas" placeholder="Contexto extra -- ej. qué cliente lo pidió, para qué otros modelos sirve, etc."></textarea>
-        </div>
-      </div>
-    </details>
-
-    <div class="contador" id="contadorHoy"></div>
+    <button class="btn-primary" id="btnGuardar" onclick="guardarRegistro()">💾 Registrar</button>
   </div>
 
   <div class="seccion" id="seccionImportar">
@@ -376,7 +344,6 @@
 
 <script src="restriccion-usuario.js"></script>
 <script src="menu-herramientas.js"></script>
-<script src="interpretar-pedido.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 
@@ -390,8 +357,6 @@ function escapeHtml(texto){
 }
 
 let rolActual = 'usuario';
-let nombreActual = '';
-let compatCargada = []; // base de compatibilidad del sitio (modelos ya asociados a un SKU)
 let registrosCargados = [];
 let resumenCargado = [];
 
@@ -404,7 +369,6 @@ async function cargarSesionUsuario(){
     if(!res.ok) return;
     const u = await res.json();
     rolActual = u.rol;
-    nombreActual = u.nombre || u.email || '';
     document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
@@ -412,22 +376,13 @@ async function cargarSesionUsuario(){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
     }
-    $('fFecha').value = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    $('fFecha').value = new Date().toLocaleDateString('en-CA');
     cargarTodo();
-    cargarCompat();
-    $('qTexto').focus();
   }catch(err){ /* silencioso */ }
 }
 async function cerrarSesion(){
   await fetch('/api/auth-session', { method: 'DELETE' });
   location.href = '/login.html';
-}
-
-async function cargarCompat(){
-  try{
-    const data = await (await fetch('/api/negocio?recurso=modelos-compatibilidad')).json();
-    compatCargada = data.modelos || [];
-  }catch(e){ compatCargada = []; }
 }
 
 async function cargarTodo(){
@@ -462,19 +417,7 @@ async function cargarResumen(){
   }
 }
 
-function renderContador(){
-  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
-  const hoyTodos = registrosCargados.filter(r => r.fecha === hoy);
-  const mios = hoyTodos.filter(r => r.creadoPor === nombreActual).length;
-  const desde = new Date(Date.now() - 6 * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
-  const semana = registrosCargados.filter(r => r.fecha >= desde).length;
-  $('contadorHoy').textContent = registrosCargados.length
-    ? `Hoy el equipo ha registrado ${hoyTodos.length} pedido${hoyTodos.length === 1 ? '' : 's'}${mios ? ` (${mios} tuyo${mios === 1 ? '' : 's'})` : ''} · últimos 7 días: ${semana}. Gracias por tomarte el tiempo: es lo que nos dice qué sumar a la tienda.`
-    : 'Todavía no hay registros: el primero lo haces tú.';
-}
-
 function renderKpis(){
-  renderContador();
   $('kpiRegistros').textContent = registrosCargados.length;
   $('kpiModelos').textContent = resumenCargado.length;
   $('kpiPendientes').textContent = resumenCargado.filter(m => m.estado === 'pendiente').length;
@@ -491,62 +434,6 @@ function renderDatalistMarcas(){
 // mismo) + Funcionalidad 2: cruce contra el catálogo real (Bsale/Shopify,
 // mismo buscador que ya usa el Análisis IA de WhatsApp) -- avisa si ese
 // modelo ya se vende, para no evaluar de nuevo algo que ya está integrado.
-// Lo que escribe el vendedor se convierte en tipo + marca + modelo (ver interpretar-pedido.js); los tres campos de "Entendí" quedan editables.
-function alEscribirPedido(){
-  const r = interpretarPedido($('qTexto').value, { marcasExtra: [...new Set(registrosCargados.map(x => x.marca))] });
-  if(r.tipo) $('fTipo').value = r.tipo;
-  $('fMarca').value = r.marca || '';
-  $('fModelo').value = r.modelo || '';
-  const escribio = $('qTexto').value.trim().length > 0;
-  $('fMarca').classList.toggle('falta', escribio && !r.marca);
-  $('fModelo').classList.toggle('falta', escribio && !r.modelo);
-  onCambioMarcaModelo();
-}
-
-// El vendedor pega el link de la tienda o el SKU: el servidor completa el otro dato y se muestra qué producto es.
-let timeoutProducto = null, tokenProducto = 0;
-function alEscribirProducto(){
-  clearTimeout(timeoutProducto);
-  timeoutProducto = setTimeout(resolverProductoEscrito, 450);
-}
-async function resolverProductoEscrito(){
-  const q = $('fProducto').value.trim();
-  const el = $('wrapProducto');
-  const tk = ++tokenProducto;
-  if(!q){ el.className = 'producto-resuelto'; el.textContent = ''; return; }
-  el.className = 'producto-resuelto'; el.textContent = 'Buscando el producto…';
-  try{
-    const d = await (await fetch('/api/negocio?recurso=productos-nuevos-resolver&q=' + encodeURIComponent(q))).json();
-    if(tk !== tokenProducto) return;
-    const pr = d.producto;
-    if(pr){
-      el.className = 'producto-resuelto ok';
-      el.innerHTML = `✓ ${pr.url ? `<a href="${escapeHtml(pr.url)}" target="_blank" rel="noopener">${escapeHtml(pr.titulo || pr.sku)}</a>` : escapeHtml(pr.titulo || pr.sku)} · SKU <b>${escapeHtml(pr.sku)}</b>${pr.estado && pr.estado !== 'active' ? ' · <span style="color:var(--amber);">no publicado en la tienda</span>' : ''}${pr.variantes ? ` · <span style="color:var(--amber);">tiene ${pr.variantes.length} variantes: se usó ${escapeHtml(pr.sku)}; escribe el SKU exacto si es otro</span>` : ''}`;
-    } else {
-      el.className = 'producto-resuelto aviso';
-      el.textContent = d.error ? `No pude revisar la tienda (${d.error}). Se guardará tal cual lo escribiste.` : 'No encontré ese producto en la tienda: revisa el link o el SKU. Si lo dejas así, se guarda tal cual.';
-    }
-  }catch(err){
-    if(tk === tokenProducto){ el.className = 'producto-resuelto aviso'; el.textContent = 'No pude revisar la tienda. Se guardará tal cual lo escribiste.'; }
-  }
-}
-// Botón "Es este": toma el producto que sugirió la búsqueda y lo deja como el producto que sirve
-function usarProductoSugerido(valor){
-  $('fProducto').value = valor;
-  resolverProductoEscrito();
-  $('fProducto').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-}
-
-const normTexto = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
-const COLUMNA_COMPAT = { bateria: 'skuBateria', pantalla: 'skuPantalla', cargador: 'skuCargador' };
-// ¿El modelo ya está en la base de compatibilidad del sitio con un SKU de este tipo? Entonces el vendedor ya tiene la respuesta para el cliente.
-function compatibilidadExistente(tipo, marca, modelo){
-  const col = COLUMNA_COMPAT[tipo];
-  if(!col) return null;
-  const m = normTexto(marca), mo = normTexto(modelo);
-  return compatCargada.find(c => c[col] && normTexto(c.marca) === m && normTexto(c.modelo) === mo) || null;
-}
-
 let timeoutCoincidencia = null;
 function onCambioMarcaModelo(){
   clearTimeout(timeoutCoincidencia);
@@ -570,11 +457,6 @@ async function verificarCoincidenciaYCatalogo(){
   } else {
     partes.push('<div>Primera vez que se registra este modelo.</div>');
   }
-  const compat = compatibilidadExistente(tipo, marca, modelo);
-  if(compat){
-    const sku = compat[COLUMNA_COMPAT[tipo]];
-    partes.unshift(`<div><span class="ok">✅ Este modelo ya está asociado en la base de compatibilidad del sitio:</span> SKU <b>${escapeHtml(sku)}</b> <button type="button" class="btn-mini" onclick="usarProductoSugerido('${escapeHtml(sku)}')">Es este</button> -- puedes ofrecérselo al cliente.</div>`);
-  }
   partes.push('<div id="wrapCatalogoCheck">🔎 Buscando en el catálogo...</div>');
   wrap.innerHTML = `<div class="coincidencia-box">${partes.join('')}</div>`;
 
@@ -591,7 +473,7 @@ async function verificarCoincidenciaYCatalogo(){
     if(data.error){
       el.textContent = 'No se pudo revisar el catálogo (' + data.error + ').';
     } else if(encontrado){
-      el.innerHTML = `<span class="alerta">⚠ Ya existe algo parecido en el catálogo:</span> ${encontrado.url ? `<a href="${encontrado.url}" target="_blank" rel="noopener">${escapeHtml(encontrado.titulo)}</a>` : escapeHtml(encontrado.titulo)}${encontrado.sku ? ` (SKU ${escapeHtml(encontrado.sku)})` : ''} -- confianza ${encontrado.confianza}%. <button type="button" class="btn-mini" onclick="usarProductoSugerido('${escapeHtml(encontrado.url || encontrado.sku || '')}')">Es este</button> si le sirve al cliente; si no, sigue y regístralo.`;
+      el.innerHTML = `<span class="alerta">⚠ Ya existe algo parecido en el catálogo:</span> ${encontrado.url ? `<a href="${encontrado.url}" target="_blank" rel="noopener">${escapeHtml(encontrado.titulo)}</a>` : escapeHtml(encontrado.titulo)}${encontrado.sku ? ` (SKU ${escapeHtml(encontrado.sku)})` : ''} -- confianza ${encontrado.confianza}%. Puede que no valga la pena integrarlo de nuevo.`;
     } else {
       el.innerHTML = '<span class="ok">✓ No se encontró en el catálogo actual</span> -- buen candidato para evaluar.';
     }
@@ -608,37 +490,26 @@ async function guardarRegistro(){
   const modelo = $('fModelo').value.trim();
   const cantidad = parseInt($('fCantidad').value, 10) || 1;
   const notas = $('fNotas').value.trim();
-  const producto = $('fProducto').value.trim();
   const mensaje = $('mensajeGuardado');
 
-  if(!$('qTexto').value.trim() && !marca && !modelo){ mensaje.innerHTML = '<div class="mensaje-guardado err">Escribe qué te pidió el cliente (por ejemplo: batería asus B31N1911).</div>'; $('qTexto').focus(); return; }
-  if(!marca || !modelo){
-    mensaje.innerHTML = `<div class="mensaje-guardado err">Me falta ${!marca ? 'la <b>marca</b>' : 'el <b>modelo</b>'}: complétala en "Entendí" y presiona Enter otra vez.</div>`;
-    (!marca ? $('fMarca') : $('fModelo')).focus();
-    return;
-  }
+  if(!marca || !modelo){ mensaje.innerHTML = '<div class="mensaje-guardado err">Falta la marca o el modelo.</div>'; return; }
 
   const btn = $('btnGuardar');
   btn.disabled = true;
   try{
     const res = await fetch('/api/negocio?recurso=productos-nuevos-registro', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fecha, tipo, marca, modelo, cantidad, notas, producto }),
+      body: JSON.stringify({ fecha, tipo, marca, modelo, cantidad, notas }),
     });
     const data = await res.json();
     if(!res.ok || data.error){ mensaje.innerHTML = `<div class="mensaje-guardado err">${escapeHtml(data.error || 'No se pudo guardar.')}</div>`; return; }
-    $('qTexto').value = '';
-    $('fMarca').value = ''; $('fModelo').value = '';
-    $('fMarca').classList.remove('falta'); $('fModelo').classList.remove('falta');
-    $('fCantidad').value = '1'; $('fNotas').value = '';
-    $('fProducto').value = ''; $('wrapProducto').textContent = '';
+    mensaje.innerHTML = '<div class="mensaje-guardado ok">✓ Registrado.</div>';
+    $('fMarca').value = '';
+    $('fModelo').value = '';
+    $('fCantidad').value = '1';
+    $('fNotas').value = '';
     $('wrapCoincidencia').innerHTML = '';
     await cargarTodo();
-    const m = resumenCargado.find(x => x.tipo === tipo && x.marcaNorm === marca.toUpperCase() && x.modeloNorm === modelo.toUpperCase());
-    const veces = m ? m.vecesRegistrado : 1;
-    mensaje.innerHTML = `<div class="mensaje-guardado ok">✓ Listo, gracias. <b>${escapeHtml(marca)} ${escapeHtml(modelo)}</b> ${veces > 1 ? `ya se ha pedido <b>${veces}</b> veces` : 'quedó registrado'}.${producto ? ' El producto que indicaste queda para que un administrador lo confirme.' : ''} Puedes escribir el siguiente.</div>`;
-    setTimeout(() => { if(mensaje.querySelector('.ok')) mensaje.innerHTML = ''; }, 9000);
-    $('qTexto').focus();
   }catch(err){
     mensaje.innerHTML = `<div class="mensaje-guardado err">Error: ${escapeHtml(err.message)}</div>`;
   }finally{
@@ -770,51 +641,19 @@ async function eliminarRegistro(id){
 // ---------- Funcionalidad 3: estado de seguimiento por modelo
 // (pendiente/evaluando/integrado/descartado), con SKU cuando se integra --
 // cierra el ciclo entre "esto se pide mucho" y "ya se agregó al catálogo".
-async function enviarEstado(tipo, marcaNorm, modeloNorm, estado, extra){
-  const res = await fetch('/api/negocio?recurso=productos-nuevos-estado', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(Object.assign({ tipo, marca: marcaNorm, modelo: modeloNorm, estado }, extra || {})),
-  });
-  const data = await res.json();
-  if(!res.ok || data.error){ alert(data.error || 'No se pudo actualizar.'); return false; }
-  return true;
-}
 async function cambiarEstadoResumen(tipo, marcaNorm, modeloNorm, marca, modelo, nuevoEstado){
-  const m = resumenCargado.find(x => x.tipo === tipo && x.marcaNorm === marcaNorm && x.modeloNorm === modeloNorm) || {};
-  let producto = '';
-  if(nuevoEstado === 'integrado' && !m.skuIntegrado){
-    producto = prompt(`¿Qué producto sirve para ${marca} ${modelo}? Pega el link de la tienda o el SKU (opcional, puedes dejarlo en blanco):`, '') || '';
+  let skuIntegrado = '';
+  if(nuevoEstado === 'integrado'){
+    skuIntegrado = prompt(`SKU asignado en Bsale para ${marca} ${modelo} (opcional, puedes dejarlo en blanco):`, '') || '';
   }
   try{
-    if(await enviarEstado(tipo, marcaNorm, modeloNorm, nuevoEstado, producto ? { producto } : {})) await cargarResumen();
-  }catch(err){ alert('Error: ' + err.message); }
-}
-// Indicar o cambiar el producto que sirve para un modelo (link de la tienda o SKU)
-async function editarProductoModelo(tipo, marcaNorm, modeloNorm){
-  const m = resumenCargado.find(x => x.tipo === tipo && x.marcaNorm === marcaNorm && x.modeloNorm === modeloNorm);
-  if(!m) return;
-  const entrada = prompt(`¿Qué producto nuestro sirve para ${m.marca} ${m.modelo}?\nPega el link de indexstore.cl o escribe el SKU (déjalo en blanco para quitarlo):`, m.linkProducto || m.skuIntegrado || '');
-  if(entrada === null) return;
-  try{
-    const ok = entrada.trim()
-      ? await enviarEstado(tipo, marcaNorm, modeloNorm, m.estado === 'pendiente' ? 'evaluando' : m.estado, { producto: entrada.trim() })
-      : await enviarEstado(tipo, marcaNorm, modeloNorm, m.estado, { limpiarProducto: true });
-    if(ok) await cargarResumen();
-  }catch(err){ alert('Error: ' + err.message); }
-}
-// Administradores: agrega el SKU a la base de compatibilidad del sitio (la que usan el buscador y la categorización) y deja el modelo como integrado
-async function asociarModelo(tipo, marcaNorm, modeloNorm){
-  const m = resumenCargado.find(x => x.tipo === tipo && x.marcaNorm === marcaNorm && x.modeloNorm === modeloNorm);
-  if(!m) return;
-  if(!confirm(`¿Asociar ${m.marca} ${m.modelo} con el SKU ${m.skuIntegrado} en la base de compatibilidad del sitio?\n\nDesde ahí lo usan el buscador y la categorización.`)) return;
-  try{
-    const res = await fetch('/api/negocio?recurso=productos-nuevos-asociar', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tipo, marca: marcaNorm, modelo: modeloNorm }),
+    const res = await fetch('/api/negocio?recurso=productos-nuevos-estado', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo, marca: marcaNorm, modelo: modeloNorm, estado: nuevoEstado, skuIntegrado }),
     });
     const data = await res.json();
-    if(!res.ok || data.error){ alert(data.error || 'No se pudo asociar.'); return; }
-    await Promise.all([cargarResumen(), cargarCompat()]);
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo actualizar el estado.'); return; }
+    await cargarResumen();
   }catch(err){ alert('Error: ' + err.message); }
 }
 
@@ -854,24 +693,6 @@ function resumenFiltrado(){
   });
 }
 
-function celdaProductoModelo(m){
-  const args = `'${m.tipo}','${m.marcaNorm.replace(/'/g, "\\'")}','${m.modeloNorm.replace(/'/g, "\\'")}'`;
-  if(!m.skuIntegrado && !m.linkProducto){
-    return m.tipo === 'otro' ? '<span class="empty-note">—</span>' : `<button type="button" class="btn-mini" onclick="editarProductoModelo(${args})" title="Pega el link de la tienda o el SKU del producto que le sirve">➕ Indicar producto</button>`;
-  }
-  const nombre = escapeHtml(m.productoTitulo || m.skuIntegrado || 'Ver producto');
-  return `<div class="prod-celda">${m.linkProducto ? `<a href="${escapeHtml(m.linkProducto)}" target="_blank" rel="noopener">${nombre}</a>` : `<span>${nombre}</span>`}${m.skuIntegrado ? `<span class="amount">SKU ${escapeHtml(m.skuIntegrado)}</span>` : ''}<button type="button" class="btn-mini" style="align-self:flex-start;" onclick="editarProductoModelo(${args})">✏️ Cambiar</button></div>`;
-}
-function celdaAccionModelo(m){
-  if(m.tipo === 'otro') return '';
-  const args = `'${m.tipo}','${m.marcaNorm.replace(/'/g, "\\'")}','${m.modeloNorm.replace(/'/g, "\\'")}'`;
-  if(m.estado === 'integrado') return '<span class="ok" style="color:var(--green);font-weight:600;font-size:11.5px;">✓ En compatibilidad</span>';
-  if(!m.skuIntegrado) return '';
-  return rolActual === 'admin'
-    ? `<button type="button" class="btn-primary btn-compact" style="padding:6px 12px;font-size:11.5px;" onclick="asociarModelo(${args})" title="Agrega este SKU a la base de compatibilidad del sitio (buscador y categorización)">✅ Asociar</button>`
-    : '<span class="empty-note" style="font-size:11px;white-space:normal;">Un administrador lo confirma</span>';
-}
-
 function renderResumenTabla(){
   const wrap = $('wrapResumen');
   const filas = resumenFiltrado();
@@ -893,11 +714,10 @@ function renderResumenTabla(){
           ${Object.entries(ESTADO_LABEL).map(([valor,label]) => `<option value="${valor}" ${m.estado===valor?'selected':''}>${label}</option>`).join('')}
         </select>
       </td>
-      <td>${celdaProductoModelo(m)}</td>
-      <td>${celdaAccionModelo(m)}</td>
+      <td>${m.skuIntegrado ? `<span class="amount">${escapeHtml(m.skuIntegrado)}</span>` : '<span class="empty-note">—</span>'}</td>
     </tr>`).join('');
   wrap.innerHTML = `<div class="tabla-wrap"><table>
-    <thead><tr><th>Tipo</th><th>Marca</th><th>Modelo</th><th>Cant. total</th><th>Veces</th><th>Última vez</th><th>Estado</th><th>Producto que sirve</th><th></th></tr></thead>
+    <thead><tr><th>Tipo</th><th>Marca</th><th>Modelo</th><th>Cant. total</th><th>Veces</th><th>Última vez</th><th>Estado</th><th>SKU</th></tr></thead>
     <tbody>${tbody}</tbody>
   </table></div>`;
 }
