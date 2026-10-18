@@ -36,6 +36,7 @@ import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from 
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
 import { asegurarTablaComprasProveedorAsignado } from '../lib/db.js';
+import { resolverEntradaProducto, datosProductoIdentificado, columnaCompatibilidad } from '../lib/productos-nuevos.js';
 import { analizarGoogleAds, validarRango as validarRangoGoogleAds } from '../lib/google-ads-analisis.js';
 import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
@@ -185,6 +186,8 @@ export default async function handler(req, res) {
   if (recurso === 'productos-nuevos-registro') return manejarProductosNuevosRegistro(req, res, sesion);
   if (recurso === 'productos-nuevos-resumen') return manejarProductosNuevosResumen(req, res, sesion);
   if (recurso === 'productos-nuevos-estado') return manejarProductosNuevosEstado(req, res, sesion);
+  if (recurso === 'productos-nuevos-resolver') return manejarProductosNuevosResolver(req, res, sesion);
+  if (recurso === 'productos-nuevos-asociar') return manejarProductosNuevosAsociar(req, res, sesion);
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
@@ -9254,38 +9257,42 @@ async function manejarBsaleSombra(req, res, sesion) {
 // onlineStoreUrl viene vacío cuando el producto está en borrador/archivado o sin canal de tienda online: en ese caso
 // la página muestra solo el enlace al admin.
 let cacheUrlsShopify = null; // { ts, urls }
+// Devuelve { urls: { SKU: { url, adminUrl, status, titulo, handle } } } (o { error, urls: {} }), con la caché de 30 minutos.
+async function obtenerUrlsShopify(forzar) {
+  if (!forzar && cacheUrlsShopify && Date.now() - cacheUrlsShopify.ts < 30 * 60000) return { urls: cacheUrlsShopify.urls, cache: true };
+  const acceso = await obtenerAccesoShopify();
+  if (!acceso) return { error: 'Shopify no está configurado en el servidor (SHOPIFY_STORE_DOMAIN / SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET)', urls: {} };
+  const { domain, accessToken } = acceso;
+  const query = `
+    query($cursor: String) {
+      products(first: 100, after: $cursor) {
+        edges { node { id status handle title onlineStoreUrl variants(first: 100) { edges { node { sku } } } } }
+        pageInfo { hasNextPage endCursor }
+      }
+    }`;
+  const urls = {};
+  let cursor = null;
+  for (let pagina = 0; pagina < 60; pagina++) { // tope de seguridad: ~6.000 productos
+    const body = await shopifyGraphQLConReintento(domain, accessToken, query, { cursor });
+    const conexion = body.data?.products;
+    if (!conexion) break;
+    for (const { node: p } of conexion.edges) {
+      const idNumerico = p.id.split('/').pop();
+      for (const { node: v } of (p.variants?.edges || [])) {
+        if (!v.sku) continue;
+        urls[v.sku] = { url: p.onlineStoreUrl || null, adminUrl: `https://${domain}/admin/products/${idNumerico}`, status: (p.status || '').toLowerCase(), titulo: p.title || null, handle: p.handle || null };
+      }
+    }
+    if (!conexion.pageInfo.hasNextPage) break;
+    cursor = conexion.pageInfo.endCursor;
+  }
+  cacheUrlsShopify = { ts: Date.now(), urls };
+  return { urls };
+}
 async function manejarShopifyUrlsSku(req, res, _sesion) {
   try {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-    if (!req.query.forzar && cacheUrlsShopify && Date.now() - cacheUrlsShopify.ts < 30 * 60000) return res.status(200).json({ urls: cacheUrlsShopify.urls, cache: true });
-    const acceso = await obtenerAccesoShopify();
-    if (!acceso) return res.status(200).json({ error: 'Shopify no está configurado en el servidor (SHOPIFY_STORE_DOMAIN / SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET)', urls: {} });
-    const { domain, accessToken } = acceso;
-    const query = `
-      query($cursor: String) {
-        products(first: 100, after: $cursor) {
-          edges { node { id status onlineStoreUrl variants(first: 100) { edges { node { sku } } } } }
-          pageInfo { hasNextPage endCursor }
-        }
-      }`;
-    const urls = {};
-    let cursor = null;
-    for (let pagina = 0; pagina < 60; pagina++) { // tope de seguridad: ~6.000 productos
-      const body = await shopifyGraphQLConReintento(domain, accessToken, query, { cursor });
-      const conexion = body.data?.products;
-      if (!conexion) break;
-      for (const { node: p } of conexion.edges) {
-        const idNumerico = p.id.split('/').pop();
-        for (const { node: v } of (p.variants?.edges || [])) {
-          if (!v.sku) continue;
-          urls[v.sku] = { url: p.onlineStoreUrl || null, adminUrl: `https://${domain}/admin/products/${idNumerico}`, status: (p.status || '').toLowerCase() };
-        }
-      }
-      if (!conexion.pageInfo.hasNextPage) break;
-      cursor = conexion.pageInfo.endCursor;
-    }
-    cacheUrlsShopify = { ts: Date.now(), urls };
-    return res.status(200).json({ urls });
+    return res.status(200).json(await obtenerUrlsShopify(Boolean(req.query.forzar)));
   } catch (err) {
     return res.status(200).json({ error: 'No se pudo consultar Shopify', detail: String(err.message || err), urls: {} });
   }
@@ -13367,7 +13374,33 @@ function mapearProductoNuevoLog(r) {
   return {
     id: r.id, fecha: fecha.slice(0, 10), tipo: r.tipo, marca: r.marca, modelo: r.modelo,
     cantidad: r.cantidad, notas: r.notas || '', creadoPor: r.creado_por, createdAt: r.created_at,
+    skuIdentificado: r.sku_identificado || '', linkProducto: r.link_producto || '',
   };
+}
+
+// El vendedor pega UN dato (link de la tienda o SKU) y de ahí salen el SKU, el link y el título. Si Shopify no responde, se conserva lo escrito.
+async function resolverProductoIdentificado(entrada) {
+  const texto = String(entrada || '').trim();
+  if (!texto) return { sku: null, link: null, titulo: null };
+  let resuelto = null;
+  try { resuelto = resolverEntradaProducto(texto, (await obtenerUrlsShopify(false)).urls); } catch (e) { resuelto = null; }
+  return datosProductoIdentificado(texto, resuelto);
+}
+
+// Deja el producto identificado como lo vigente para ese modelo y, si el modelo todavía no estaba integrado ni descartado, lo pasa a "evaluando"
+// (propuesta del vendedor: un administrador la confirma con "Asociar"). Lo ya integrado no se pisa.
+async function guardarProductoIdentificadoModelo(sql, { tipo, marca, modelo, datos, autor }) {
+  if (!datos.sku && !datos.link) return;
+  await sql`
+    INSERT INTO productos_nuevos_estado (tipo, marca_norm, modelo_norm, estado, sku_integrado, link_producto, producto_titulo, actualizado_por)
+    VALUES (${tipo}, ${String(marca).trim().toUpperCase()}, ${String(modelo).trim().toUpperCase()}, 'evaluando', ${datos.sku}, ${datos.link}, ${datos.titulo}, ${autor})
+    ON CONFLICT (tipo, marca_norm, modelo_norm) DO UPDATE SET
+      sku_integrado = CASE WHEN productos_nuevos_estado.estado = 'integrado' THEN productos_nuevos_estado.sku_integrado ELSE EXCLUDED.sku_integrado END,
+      link_producto = CASE WHEN productos_nuevos_estado.estado = 'integrado' THEN productos_nuevos_estado.link_producto ELSE EXCLUDED.link_producto END,
+      producto_titulo = CASE WHEN productos_nuevos_estado.estado = 'integrado' THEN productos_nuevos_estado.producto_titulo ELSE EXCLUDED.producto_titulo END,
+      estado = CASE WHEN productos_nuevos_estado.estado IN ('integrado', 'descartado') THEN productos_nuevos_estado.estado ELSE 'evaluando' END,
+      actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();
+  `;
 }
 
 // Un solo registro validado + insertado -- usado tanto por el alta manual
@@ -13377,7 +13410,7 @@ function mapearProductoNuevoLog(r) {
 // una excepción con mensaje en español si algo no es válido, en vez de
 // devolver un objeto de error -- el llamador decide si aborta todo (alta
 // simple) o sigue con las demás filas y junta los errores (importación).
-async function insertarProductoNuevoRegistro(sql, { fecha, tipo, marca, modelo, cantidad, notas }, autor) {
+async function insertarProductoNuevoRegistro(sql, { fecha, tipo, marca, modelo, cantidad, notas, producto }, autor) {
   const marcaLimpia = String(marca || '').trim();
   const modeloLimpio = String(modelo || '').trim();
   if (!marcaLimpia || !modeloLimpio) throw new Error('Falta la marca o el modelo');
@@ -13391,11 +13424,13 @@ async function insertarProductoNuevoRegistro(sql, { fecha, tipo, marca, modelo, 
   const fechaFinal = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : hoyChile;
   const notasLimpias = notas ? (String(notas).trim() || null) : null;
 
+  const datos = await resolverProductoIdentificado(producto);
   const { rows } = await sql`
-    INSERT INTO productos_nuevos_registro (fecha, tipo, marca, modelo, cantidad, notas, creado_por)
-    VALUES (${fechaFinal}, ${tipo}, ${marcaLimpia}, ${modeloLimpio}, ${cantidadNum}, ${notasLimpias}, ${autor})
+    INSERT INTO productos_nuevos_registro (fecha, tipo, marca, modelo, cantidad, notas, creado_por, sku_identificado, link_producto)
+    VALUES (${fechaFinal}, ${tipo}, ${marcaLimpia}, ${modeloLimpio}, ${cantidadNum}, ${notasLimpias}, ${autor}, ${datos.sku}, ${datos.link})
     RETURNING *;
   `;
+  await guardarProductoIdentificadoModelo(sql, { tipo, marca: marcaLimpia, modelo: modeloLimpio, datos, autor });
   return mapearProductoNuevoLog(rows[0]);
 }
 
@@ -13478,7 +13513,7 @@ async function manejarProductosNuevosResumen(req, res, sesion) {
         FROM productos_nuevos_registro
         GROUP BY tipo, UPPER(TRIM(marca)), UPPER(TRIM(modelo))
       )
-      SELECT r.*, COALESCE(e.estado, 'pendiente') AS estado, e.sku_integrado, e.notas_estado,
+      SELECT r.*, COALESCE(e.estado, 'pendiente') AS estado, e.sku_integrado, e.link_producto, e.producto_titulo, e.notas_estado,
              e.actualizado_por AS estado_actualizado_por, e.actualizado_en AS estado_actualizado_en
       FROM resumen r
       LEFT JOIN productos_nuevos_estado e
@@ -13491,7 +13526,7 @@ async function manejarProductosNuevosResumen(req, res, sesion) {
         marca: r.marca, modelo: r.modelo,
         cantidadTotal: r.cantidad_total, vecesRegistrado: r.veces_registrado,
         ultimaFecha: String(r.ultima_fecha).slice(0, 10), primeraFecha: String(r.primera_fecha).slice(0, 10),
-        estado: r.estado, skuIntegrado: r.sku_integrado || '', notasEstado: r.notas_estado || '',
+        estado: r.estado, skuIntegrado: r.sku_integrado || '', linkProducto: r.link_producto || '', productoTitulo: r.producto_titulo || '', notasEstado: r.notas_estado || '',
         estadoActualizadoPor: r.estado_actualizado_por, estadoActualizadoEn: r.estado_actualizado_en,
       })),
     });
@@ -13505,7 +13540,7 @@ async function manejarProductosNuevosEstado(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaProductosNuevos(sql);
-    const { tipo, marca, modelo, estado, skuIntegrado, notas } = req.body || {};
+    const { tipo, marca, modelo, estado, skuIntegrado, producto, notas, limpiarProducto } = req.body || {};
     if (!TIPOS_PRODUCTO_NUEVO.includes(tipo)) return res.status(400).json({ error: 'Tipo de producto inválido' });
     if (!ESTADOS_PRODUCTO_NUEVO.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
     // El frontend ya manda marca/modelo normalizados (marcaNorm/modeloNorm
@@ -13515,20 +13550,92 @@ async function manejarProductosNuevosEstado(req, res, sesion) {
     const modeloNorm = String(modelo || '').trim().toUpperCase();
     if (!marcaNorm || !modeloNorm) return res.status(400).json({ error: 'Falta marca o modelo' });
     const autor = sesion.nombre || sesion.email;
-    const sku = skuIntegrado ? String(skuIntegrado).trim() || null : null;
     const notasLimpias = notas ? String(notas).trim() || null : null;
-
+    // "producto" = link de la tienda o SKU (se resuelven entre sí); skuIntegrado queda por compatibilidad. Si no viene ninguno, NO se borra lo que había
+    // (cambiar solo el estado no debe perder el SKU); para quitarlo a propósito: limpiarProducto = true.
+    const datos = await resolverProductoIdentificado(producto || skuIntegrado);
+    const hayProducto = Boolean(datos.sku || datos.link);
     const { rows } = await sql`
-      INSERT INTO productos_nuevos_estado (tipo, marca_norm, modelo_norm, estado, sku_integrado, notas_estado, actualizado_por)
-      VALUES (${tipo}, ${marcaNorm}, ${modeloNorm}, ${estado}, ${sku}, ${notasLimpias}, ${autor})
+      INSERT INTO productos_nuevos_estado (tipo, marca_norm, modelo_norm, estado, sku_integrado, link_producto, producto_titulo, notas_estado, actualizado_por)
+      VALUES (${tipo}, ${marcaNorm}, ${modeloNorm}, ${estado}, ${limpiarProducto ? null : datos.sku}, ${limpiarProducto ? null : datos.link}, ${limpiarProducto ? null : datos.titulo}, ${notasLimpias}, ${autor})
       ON CONFLICT (tipo, marca_norm, modelo_norm) DO UPDATE SET
-        estado = EXCLUDED.estado, sku_integrado = EXCLUDED.sku_integrado, notas_estado = EXCLUDED.notas_estado,
+        estado = EXCLUDED.estado,
+        sku_integrado = CASE WHEN ${limpiarProducto ? true : false}::boolean THEN NULL WHEN ${hayProducto}::boolean THEN EXCLUDED.sku_integrado ELSE productos_nuevos_estado.sku_integrado END,
+        link_producto = CASE WHEN ${limpiarProducto ? true : false}::boolean THEN NULL WHEN ${hayProducto}::boolean THEN EXCLUDED.link_producto ELSE productos_nuevos_estado.link_producto END,
+        producto_titulo = CASE WHEN ${limpiarProducto ? true : false}::boolean THEN NULL WHEN ${hayProducto}::boolean THEN EXCLUDED.producto_titulo ELSE productos_nuevos_estado.producto_titulo END,
+        notas_estado = COALESCE(EXCLUDED.notas_estado, productos_nuevos_estado.notas_estado),
         actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now()
       RETURNING *;
     `;
     return res.status(200).json({ ok: true, estado: rows[0].estado, skuIntegrado: rows[0].sku_integrado });
   } catch (err) {
     return res.status(500).json({ error: 'Error actualizando el estado del producto', detail: String(err) });
+  }
+}
+
+// Resuelve lo que pegó el vendedor (link de la tienda o SKU) a producto de Shopify: { producto: { sku, url, titulo, estado, variantes } | null }.
+// Lo usa Productos Nuevos para mostrar "✓ Pantalla Notebook... (SKU ...)" apenas se pega el dato.
+async function manejarProductosNuevosResolver(req, res, _sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'Falta el link o el SKU' });
+  try {
+    const m = await obtenerUrlsShopify(false);
+    if (m.error) return res.status(200).json({ producto: null, error: m.error });
+    return res.status(200).json({ producto: resolverEntradaProducto(q, m.urls) });
+  } catch (err) {
+    return res.status(200).json({ producto: null, error: 'No se pudo consultar Shopify: ' + String(err.message || err).slice(0, 160) });
+  }
+}
+
+// Asocia el producto identificado a un modelo en la base de compatibilidad del sitio (notebook_compatibilidad, la que usan el buscador y la
+// categorización): pone el SKU en la columna que corresponde al tipo (batería/pantalla/cargador) SIN tocar las otras, y deja el modelo como
+// "integrado". Solo administradores: esa base es curada a mano y alimenta el sitio.
+async function asociarSkuACompatibilidad(sql, { tipo, marca, modelo, sku, autor }) {
+  const col = columnaCompatibilidad(tipo);
+  if (!col) throw new Error('Solo se pueden asociar cargadores, baterías y pantallas');
+  const marcaN = String(marca).trim().toUpperCase(), modeloN = String(modelo).trim().toUpperCase();
+  const { rows: ex } = await sql`SELECT id FROM notebook_compatibilidad WHERE UPPER(TRIM(marca)) = ${marcaN} AND UPPER(TRIM(modelo)) = ${modeloN} LIMIT 1;`;
+  if (ex[0]) {
+    const id = ex[0].id;
+    const r = col === 'sku_bateria'
+      ? await sql`UPDATE notebook_compatibilidad SET sku_bateria = ${sku}, actualizado_por = ${autor}, updated_at = now() WHERE id = ${id} RETURNING *;`
+      : col === 'sku_pantalla'
+        ? await sql`UPDATE notebook_compatibilidad SET sku_pantalla = ${sku}, actualizado_por = ${autor}, updated_at = now() WHERE id = ${id} RETURNING *;`
+        : await sql`UPDATE notebook_compatibilidad SET sku_cargador = ${sku}, actualizado_por = ${autor}, updated_at = now() WHERE id = ${id} RETURNING *;`;
+    return { fila: r.rows[0], nueva: false };
+  }
+  const r = await sql`
+    INSERT INTO notebook_compatibilidad (marca, modelo, sku_bateria, sku_pantalla, sku_cargador, actualizado_por)
+    VALUES (${String(marca).trim()}, ${String(modelo).trim()}, ${col === 'sku_bateria' ? sku : null}, ${col === 'sku_pantalla' ? sku : null}, ${col === 'sku_cargador' ? sku : null}, ${autor})
+    RETURNING *;
+  `;
+  return { fila: r.rows[0], nueva: true };
+}
+
+async function manejarProductosNuevosAsociar(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede asociar un modelo a la base de compatibilidad' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaProductosNuevos(sql);
+    await asegurarTablaCompatibilidadNotebook(sql);
+    const { tipo, marca, modelo } = req.body || {};
+    if (!columnaCompatibilidad(tipo)) return res.status(400).json({ error: 'Solo se pueden asociar cargadores, baterías y pantallas' });
+    const marcaNorm = String(marca || '').trim().toUpperCase(), modeloNorm = String(modelo || '').trim().toUpperCase();
+    if (!marcaNorm || !modeloNorm) return res.status(400).json({ error: 'Falta marca o modelo' });
+    const { rows: est } = await sql`SELECT sku_integrado FROM productos_nuevos_estado WHERE tipo = ${tipo} AND marca_norm = ${marcaNorm} AND modelo_norm = ${modeloNorm};`;
+    const sku = est[0]?.sku_integrado;
+    if (!sku) return res.status(400).json({ error: 'Primero indica qué producto sirve (SKU o link) para este modelo' });
+    // marca y modelo como se escribieron (la fila más reciente), no en mayúsculas
+    const { rows: disp } = await sql`SELECT marca, modelo FROM productos_nuevos_registro WHERE tipo = ${tipo} AND UPPER(TRIM(marca)) = ${marcaNorm} AND UPPER(TRIM(modelo)) = ${modeloNorm} ORDER BY created_at DESC LIMIT 1;`;
+    const autor = sesion.nombre || sesion.email;
+    const { fila, nueva } = await asociarSkuACompatibilidad(sql, { tipo, marca: disp[0]?.marca || marca, modelo: disp[0]?.modelo || modelo, sku, autor });
+    await sql`UPDATE productos_nuevos_estado SET estado = 'integrado', actualizado_por = ${autor}, actualizado_en = now() WHERE tipo = ${tipo} AND marca_norm = ${marcaNorm} AND modelo_norm = ${modeloNorm};`;
+    return res.status(200).json({ ok: true, nueva, compatibilidad: mapearModeloCompat(fila) });
+  } catch (err) {
+    if (String(err).includes('23505') || /duplicate key|unique constraint/i.test(String(err))) return res.status(400).json({ error: 'Ya existe una fila para esa marca y modelo' });
+    return res.status(500).json({ error: 'Error asociando el modelo a la compatibilidad', detail: String(err.message || err).slice(0, 200) });
   }
 }
 
