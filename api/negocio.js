@@ -8593,6 +8593,10 @@ async function manejarCotizacionWebAdmin(req, res, sesion) {
       const hasta = new Date(Date.now() + 60000), desde = new Date(Date.now() - dias * 86400000);
       return res.status(200).json({ dias, uso: await resumenUsoCotizacion(sql, { desdeISO: desde.toISOString(), hastaISO: hasta.toISOString() }) });
     }
+    if (req.method === 'GET' && req.query && req.query.config) { // configuración (datos bancarios y correos de aviso): solo administradores; la edita Usuarios > Integraciones
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores' });
+      return res.status(200).json({ config: await leerConfigCotizacionWeb(sql) });
+    }
     if (req.method === 'GET' && req.query && req.query.comprobante) { // descarga del comprobante (cualquier usuario con acceso a la página)
       const { rows } = await sql.query('SELECT comprobante, comprobante_tipo, comprobante_nombre FROM cotizaciones_web WHERE id = $1', [Number(req.query.comprobante) || 0]);
       const c = rows[0];
@@ -8614,11 +8618,13 @@ async function manejarCotizacionWebAdmin(req, res, sesion) {
       } else {
         if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores pueden cambiar la configuración de cotizaciones' });
         await guardarConfigCotizacionWeb(sql, { estado: b.estado, correos: b.correos, datos_transferencia: b.datos_transferencia, correos_aviso: b.correos_aviso });
+        return res.status(200).json({ ok: true, config: await leerConfigCotizacionWeb(sql) });
       }
     } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     const { rows } = await sql.query(`SELECT id, estado, bsale_numero, bsale_url, email, nombre, telefono, rut, razon_social, comuna, metodo_pago, envio_nombre, envio_precio, total, correo_enviado, creado_en, vence_en, pago_iniciado_en, vistas, items, pago, comprobante_nombre, comprobante_tipo, comprobante_en, pago_revisado_por, pago_revisado_en, pago_motivo, (comprobante IS NOT NULL) AS tiene_comprobante FROM cotizaciones_web ORDER BY creado_en DESC LIMIT 200`);
+    const configCompleta = await leerConfigCotizacionWeb(sql);
     return res.status(200).json({
-      config: await leerConfigCotizacionWeb(sql),
+      config: sesion.rol === 'admin' ? configCompleta : { estado: configCompleta.estado }, // datos bancarios y correos solo para administradores
       cotizaciones: rows.map(f => ({ ...f, estado: estadoCotizacionWeb(f), items: (f.items || []).map(l => ({ sku: l.sku, titulo: l.titulo, cantidad: l.cantidad })) })),
     });
   } catch (err) {

@@ -280,6 +280,7 @@
         <button class="tab activa" data-tab="usuarios" onclick="cambiarTab('usuarios')">👤 Usuarios <span class="cuenta" id="cuentaUsuarios">0</span></button>
         <button class="tab" data-tab="perfiles" id="tabPerfiles" onclick="cambiarTab('perfiles')" style="display:none;">🛡️ Perfiles de acceso <span class="cuenta" id="cuentaPerfiles">0</span></button>
         <button class="tab" data-tab="notificaciones" id="tabNotificaciones" onclick="cambiarTab('notificaciones')" style="display:none;">🔔 Notificaciones <span class="cuenta" id="cuentaNotificaciones">0</span></button>
+        <button class="tab" data-tab="integraciones" id="tabIntegraciones" onclick="cambiarTab('integraciones')" style="display:none;">🔌 Integraciones <span class="nueva">nueva</span></button>
 
       </div>
     </div>
@@ -313,6 +314,22 @@
   <section class="panel" id="panel-notificaciones">
     <div class="sub empty-note" style="margin-bottom:10px;">Quién recibe cada aviso automático y cada cuánto. La hora exacta de envío la fija el servidor; aquí solo se decide si corresponde mandarlo hoy.</div>
     <div class="card"><div class="tabla-wrap" id="wrapNotificaciones"><p class="empty-note" style="padding:14px;">Cargando...</p></div></div>
+  </section>
+
+  <!-- ===================== Integraciones (solo administradores) ===================== -->
+  <section class="panel" id="panel-integraciones">
+    <style>.int-label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600;margin-bottom:4px;}.int-area{width:100%;font-family:'IBM Plex Mono',monospace;font-size:12px;border:1.5px solid var(--line);border-radius:9px;padding:8px 10px;resize:vertical;background:var(--surface);color:var(--text);}.nueva{background:var(--primary);color:#fff;border-radius:999px;padding:1px 7px;font-size:10px;margin-left:4px;}.nota{border-radius:12px;padding:10px 14px;font-size:12.5px;background:var(--blue-bg,#E4ECFD);}.nota.ok{background:var(--green-bg,#E3F6E8);}.nota.err{background:var(--red-bg,#FCE8E8);}</style>
+    <div class="sub empty-note" style="margin-bottom:10px;">Datos sensibles de las integraciones del ERP con la tienda y otros servicios. Solo los ven y los cambian los administradores.</div>
+    <div class="card" style="padding:18px 20px;">
+      <h2 style="margin:0 0 4px 0;">Cotizaciones web · Pago por transferencia</h2>
+      <p class="empty-note" style="margin:0 0 12px 0;">Si completas los datos bancarios, la cotización le ofrece al cliente «Generar compra por transferencia»: ve estos datos y sube su comprobante. Vacío = la opción no se ofrece. El aviso al equipo no incluye montos.</p>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+        <div style="flex:1;min-width:260px;"><label for="intDatosTransf" class="int-label">Datos bancarios (se muestran tal cual al cliente, una línea por dato)</label><textarea id="intDatosTransf" rows="5" class="int-area" placeholder="Banco BCI&#10;Cuenta corriente N° …&#10;SERVICIOS INFORMATICOS INDEXPRO LIMITADA&#10;RUT 76.200.548-4&#10;Correo de pagos: …"></textarea></div>
+        <div style="flex:1;min-width:260px;"><label for="intCorreosAviso" class="int-label">Correos que reciben el aviso «comprobante por revisar»</label><textarea id="intCorreosAviso" rows="2" class="int-area" placeholder="ventas@indexstore.cl"></textarea></div>
+        <div><button class="btn-primary" id="btnGuardarInt" type="button" onclick="guardarIntegraciones()">Guardar</button></div>
+      </div>
+      <div id="msgInt" style="margin-top:10px;"></div>
+    </div>
   </section>
 
 </div>
@@ -436,14 +453,16 @@ async function cargarSesion(){
     } else {
       $('tabPerfiles').style.display = '';
       $('tabNotificaciones').style.display = '';
+      $('tabIntegraciones').style.display = '';
       $('navActualizaciones').style.display = '';
       $('navMercadoLibre').style.display = '';
       await Promise.all([cargarPerfiles(), cargarNotificaciones()]);
+      cargarIntegraciones();
     }
     cargarUsuarios();
     const inicial = (location.hash || '').replace('#', '');
     if(inicial === 'cambios'){ location.replace('actualizaciones-erp.html#cambios'); return; }
-    if(['usuarios', 'perfiles', 'notificaciones'].includes(inicial)) cambiarTab(inicial, true);
+    if(['usuarios', 'perfiles', 'notificaciones', 'integraciones'].includes(inicial)) cambiarTab(inicial, true);
     // Atrás/Adelante recorren las pestañas por las que se pasó, antes de salir de la página
     Nav.iniciar({
       dimensiones: { tab: { actual: () => (document.querySelector('.tab.activa') || {}).dataset.tab || 'usuarios', aplicar: v => cambiarTab(v, true) } },
@@ -462,6 +481,27 @@ function cambiarTab(tab, sinHash){
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('activa', b.dataset.tab === tab));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('activa', p.id === 'panel-' + tab));
   cerrarMenuFila();
+}
+
+// ---------------- Integraciones (solo administradores) ----------------
+async function cargarIntegraciones(){
+  try{
+    const r = await fetch('/api/negocio?recurso=cotizacion-web-admin&config=1');
+    const d = await r.json();
+    if(d.error){ $('msgInt').innerHTML = `<div class="nota err">${esc(d.error)}</div>`; return; }
+    $('intDatosTransf').value = d.config.datos_transferencia || '';
+    $('intCorreosAviso').value = (d.config.correos_aviso || []).join(', ');
+  }catch(e){ $('msgInt').innerHTML = `<div class="nota err">No se pudo cargar: ${esc(e.message)}</div>`; }
+}
+async function guardarIntegraciones(){
+  $('btnGuardarInt').disabled = true;
+  try{
+    const r = await fetch('/api/negocio?recurso=cotizacion-web-admin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ datos_transferencia: $('intDatosTransf').value, correos_aviso: $('intCorreosAviso').value }) });
+    const d = await r.json();
+    $('msgInt').innerHTML = d.error ? `<div class="nota err">${esc(d.error)}</div>` : '<div class="nota ok">Guardado.</div>';
+    if(d.config){ $('intDatosTransf').value = d.config.datos_transferencia || ''; $('intCorreosAviso').value = (d.config.correos_aviso || []).join(', '); }
+  }catch(e){ $('msgInt').innerHTML = `<div class="nota err">No se pudo guardar: ${esc(e.message)}</div>`; }
+  $('btnGuardarInt').disabled = false;
 }
 
 // ---------------- Perfiles de acceso ----------------

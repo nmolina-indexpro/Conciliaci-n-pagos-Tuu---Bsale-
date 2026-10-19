@@ -64,28 +64,7 @@
 <h1>Cotizaciones <span>web</span></h1>
 <p class="sub">Los clientes arman su cotización en indexstore.cl (<code>/pages/cotizar</code>); se crea una cotización real en Bsale, reciben un correo y tienen 3 días para pagarla desde el enlace. Prototipo.</p>
 
-<div class="seccion">
-  <h2>Quién puede cotizar</h2>
-  <p class="sub" style="margin:2px 0 0">Mientras sea prototipo déjalo en «Solo pruebas»: únicamente los correos de la lista pueden generar cotizaciones (las crean de verdad en Bsale y les llega el correo).</p>
-  <div class="fila">
-    <div><label for="estado">Estado</label>
-      <select id="estado"><option value="apagado">Apagado (nadie)</option><option value="prototipo">Solo pruebas (lista de correos)</option><option value="abierto">Abierto a todos los clientes</option></select></div>
-    <div style="flex:1;min-width:260px"><label for="correos">Correos de prueba (separados por coma o espacio)</label><textarea id="correos" placeholder="nmolina@indexpro.cl, vendedor@indexstore.cl"></textarea></div>
-    <div><button id="guardar" type="button">Guardar</button></div>
-  </div>
-  <div id="msg" style="margin-top:10px"></div>
-</div>
-
-<div class="seccion">
-  <h2>Pago por transferencia</h2>
-  <p class="sub" style="margin:2px 0 0">Si completas los datos bancarios, la cotización le ofrece al cliente «Generar compra por transferencia»: ve estos datos y sube su comprobante. Vacío = la opción no se ofrece. El aviso al equipo no incluye montos.</p>
-  <div class="fila">
-    <div style="flex:1;min-width:260px"><label for="datos-transf">Datos bancarios (se muestran tal cual, una línea por dato)</label><textarea id="datos-transf" rows="5" placeholder="Banco BCI&#10;Cuenta corriente N° …&#10;SERVICIOS INFORMATICOS INDEXPRO LIMITADA&#10;RUT 76.200.548-4&#10;Correo de pagos: …"></textarea></div>
-    <div style="flex:1;min-width:260px"><label for="correos-aviso">Correos que reciben el aviso «comprobante por revisar»</label><textarea id="correos-aviso" rows="2" placeholder="ventas@indexstore.cl"></textarea></div>
-    <div><button id="guardar-transf" type="button">Guardar</button></div>
-  </div>
-  <div id="msg-transf" style="margin-top:10px"></div>
-</div>
+<div id="msg" style="margin-bottom:10px"></div>
 
 <div class="kpis" id="kpis"></div>
 
@@ -122,10 +101,6 @@ const fh = iso => iso ? new Date(iso).toLocaleString('es-CL', { timeZone: 'Ameri
 if (/[?&]embed=1/.test(location.search)) $('volver').style.display = 'none';
 
 function pintar(d) {
-  $('estado').value = d.config.estado;
-  if (document.activeElement !== $('correos')) $('correos').value = d.config.correos.join(', ');
-  if (document.activeElement !== $('datos-transf')) $('datos-transf').value = d.config.datos_transferencia || '';
-  if (document.activeElement !== $('correos-aviso')) $('correos-aviso').value = (d.config.correos_aviso || []).join(', ');
   const c = d.cotizaciones;
   const vig = c.filter(x => x.estado === 'vigente').length, venc = c.filter(x => x.estado === 'vencida').length, pago = c.filter(x => x.pago_iniciado_en).length, porRevisar = c.filter(x => x.pago === 'comprobante').length;
   $('kpis').innerHTML = [['Creadas', c.length], ['Vigentes', vig], ['Vencidas', venc], ['Con pago iniciado', pago], ['Comprobantes por revisar', porRevisar]].map(([l, v]) => `<div class="kpi"><div class="lbl">${l}</div><div class="big">${fmt(v)}</div></div>`).join('');
@@ -163,18 +138,6 @@ async function cargar(cuerpo) {
     pintar(d); return d;
   } catch (e) { $('msg').innerHTML = `<div class="nota err">No se pudo cargar: ${esc(e.message)}</div>`; }
 }
-$('guardar').addEventListener('click', async () => {
-  $('guardar').disabled = true;
-  const d = await cargar({ estado: $('estado').value, correos: $('correos').value });
-  if (d) $('msg').innerHTML = '<div class="nota ok">Guardado.</div>';
-  $('guardar').disabled = false;
-});
-$('guardar-transf').addEventListener('click', async () => {
-  $('guardar-transf').disabled = true;
-  const d = await cargar({ datos_transferencia: $('datos-transf').value, correos_aviso: $('correos-aviso').value });
-  $('msg-transf').innerHTML = d ? '<div class="nota ok">Guardado.</div>' : '';
-  $('guardar-transf').disabled = false;
-});
 async function cargarUso() {
   $('uso-msg').innerHTML = '';
   try {
