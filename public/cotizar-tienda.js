@@ -7,8 +7,11 @@
   // El tema envuelve las páginas en contenedores angostos: se les quita el tope de ancho para que el formulario use el espacio de la pantalla.
   (function () { var n = raiz.parentElement, i = 0; while (n && n !== document.body && i++ < 8) { if (n.tagName !== 'MAIN' || true) { n.style.maxWidth = 'none'; n.style.width = '100%'; } n = n.parentElement; } })();
   var LS = 'ctz_mis_cotizaciones';
-  var estado = { items: [], comunas: null, f: { metodo: 'transferencia' }, envio: { opciones: [], sel: null, cargando: false, error: '' }, errores: {}, enviando: false, error: '', sug: [], vista: null, confirmar: null, comprando: false, modo: null, autocompletado: null, revisado: false };
+  var estado = { items: [], comunas: null, f: { metodo: 'transferencia' }, envio: { opciones: [], sel: null, cargando: false, error: '' }, errores: {}, enviando: false, error: '', sug: [], vista: null, confirmar: null, comprando: false, modo: null, autocompletado: null, revisado: false, retiro: false, hist: { fase: '', msg: '', error: '' } };
   var temporizador = null, tEnvio = null;
+  // Retiro en la tienda de Providencia (datos de la ubicación en Shopify). Es gratis y no necesita tarifa.
+  var RETIRO = { nombre: 'Retiro en tienda', precio: 0, retiro: true, detalle: 'La Concepción 81, of. 1904, piso 19, Providencia (cerca del metro Pedro de Valdivia). Listo en 1 hora. Lun a Jue 9:30 a 18:30 · Vie 9:30 a 17:30 · Sáb 10:00 a 14:00.' };
+  function envioElegido() { return estado.retiro ? RETIRO : estado.envio.sel; }
 
   function clp(n) { return '$' + Math.round(Number(n) || 0).toLocaleString('es-CL'); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -52,7 +55,7 @@
     return tareas.reduce(function (p, t) { return p.then(function () { return t; }); }, Promise.resolve());
   }
   function subtotal() { return estado.items.reduce(function (s, i) { return s + i.precio * i.cantidad; }, 0); }
-  function totalFinal() { return subtotal() + (estado.envio.sel ? estado.envio.sel.precio : 0); }
+  function totalFinal() { var e = envioElegido(); return subtotal() + (e ? e.precio : 0); }
 
   // ───── Envío ─────
   function pedirEnvio() {
@@ -75,11 +78,12 @@
   function pintarEnvio() {
     var el = document.getElementById('ctz-envio'); if (!el) return;
     var e = estado.envio, h = '';
-    if (!estado.f.comuna) h = '<p class="ctz-sub">Elige región y comuna para ver las opciones de envío.</p>';
-    else if (e.cargando) h = '<p class="ctz-sub">Calculando envío a ' + esc(estado.f.comuna) + '…</p>';
-    else if (e.error) h = '<div class="ctz-mal">' + esc(e.error) + '</div>';
-    else h = e.opciones.map(function (o, i) {
-      var sel = e.sel && e.sel.nombre === o.nombre;
+    h += '<label class="ctz-opcion' + (estado.retiro ? ' sel' : '') + '"><input type="radio" name="ctz-envio" data-envio="retiro"' + (estado.retiro ? ' checked' : '') + '><span><span class="n">' + esc(RETIRO.nombre) + '</span><br><span class="l">' + esc(RETIRO.detalle) + '</span></span><span class="pr">Gratis</span></label>';
+    if (!estado.f.comuna) h += '<p class="ctz-sub">Elige región y comuna para ver también las opciones de despacho a domicilio.</p>';
+    else if (e.cargando) h += '<p class="ctz-sub">Calculando envío a ' + esc(estado.f.comuna) + '…</p>';
+    else if (e.error) h += '<div class="ctz-mal">' + esc(e.error) + '</div>';
+    else h += e.opciones.map(function (o, i) {
+      var sel = !estado.retiro && e.sel && e.sel.nombre === o.nombre;
       return '<label class="ctz-opcion' + (sel ? ' sel' : '') + '"><input type="radio" name="ctz-envio" data-envio="' + i + '"' + (sel ? ' checked' : '') + '><span><span class="n">' + esc(o.nombre) + '</span>' + (o.llega ? '<br><span class="l">' + esc(o.llega) + '</span>' : '') + '</span><span class="pr">' + (o.precio ? clp(o.precio) : 'Gratis') + '</span></label>';
     }).join('');
     if (estado.errores.envio) h += '<div class="ctz-error">' + esc(estado.errores.envio) + '</div>';
@@ -98,7 +102,7 @@
   }
   function pintarResumen() {
     var el = document.getElementById('ctz-resumen'); if (!el) return;
-    var e = estado.envio.sel;
+    var e = envioElegido();
     el.innerHTML = '<h2>Resumen</h2><div class="ctz-fila"><span>Productos (' + estado.items.reduce(function (s, i) { return s + i.cantidad; }, 0) + ')</span><span>' + clp(subtotal()) + '</span></div>' +
       '<div class="ctz-fila"><span>Envío' + (e ? ' · ' + esc(e.nombre) : '') + '</span><span>' + (e ? (e.precio ? clp(e.precio) : 'Gratis') : 'Por elegir') + '</span></div>' +
       '<div class="ctz-fila total"><span>Total</span><span>' + clp(totalFinal()) + '</span></div><p class="ctz-sub" style="font-size:12px;margin:2px 0 0">Precios con IVA incluido.</p>' +
@@ -126,7 +130,7 @@
       '<section class="ctz-card"><h2>Productos</h2><label for="ctz-buscar">Agregar producto</label><input id="ctz-buscar" type="search" placeholder="Busca por nombre, marca o modelo" autocomplete="off"><div id="ctz-sug"></div><div id="ctz-items" style="margin-top:10px"></div></section>' +
       '<section class="ctz-card"><h2>Tus datos</h2><div class="ctz-campos">' + campo('nombre', 'Nombre de contacto', 'text', { auto: 'name' }) + campo('email', 'Correo', 'email', { auto: 'email' }) + campo('telefono', 'Teléfono', 'tel', { auto: 'tel', ph: '+56 9 ...' }) + '</div><div id="ctz-perfil"></div></section>' +
       '<section class="ctz-card"><h2>Datos de facturación</h2><div class="ctz-campos">' + campo('rut', 'RUT empresa', 'text', { ph: '76.123.456-7' }) + campo('razon', 'Razón social', 'text') + campo('giro', 'Giro', 'text', { ancho: true }) + '</div></section>' +
-      '<section class="ctz-card"><h2>Dirección de despacho</h2><div class="ctz-campos">' + selectRegion() + selectComuna() + campo('calle', 'Calle y número', 'text', { ancho: true, auto: 'address-line1' }) + '</div></section>' +
+      '<section class="ctz-card"><h2>Dirección de despacho y facturación</h2><p class="ctz-sub" style="font-size:13px;margin:-6px 0 12px">Si retiras en tienda, es la dirección de facturación de tu empresa.</p><div class="ctz-campos">' + selectRegion() + selectComuna() + campo('calle', 'Calle y número', 'text', { ancho: true, auto: 'address-line1' }) + '</div></section>' +
       '<section class="ctz-card"><h2>Método de envío</h2><div id="ctz-envio"></div></section>' +
       '<section class="ctz-card"><h2>Método de pago preferido</h2>' +
       ['transferencia', 'tarjeta'].map(function (m) { return '<label class="ctz-opcion' + (estado.f.metodo === m ? ' sel' : '') + '"><input type="radio" name="ctz-metodo" data-metodo="' + m + '"' + (estado.f.metodo === m ? ' checked' : '') + '><span class="n">' + (m === 'transferencia' ? 'Transferencia bancaria' : 'Tarjeta de crédito o débito') + '</span></label>'; }).join('') +
@@ -146,7 +150,7 @@
       '<p class="ctz-sub">' + (vigente ? 'Válida hasta el ' + esc(fecha(c.vence)) + '. Pide el producto antes de que venza para mantener esta cotización.' : 'Venció el ' + esc(fecha(c.vence)) + '.') + '</p>' +
       (estado.avisoCreada ? '<div class="ctz-ok">¡Listo! Creamos tu cotización y te enviamos el detalle a <b>' + esc(c.cliente.email) + '</b>' + (estado.correoFallo ? ' (no pudimos enviar el correo, guarda este enlace)' : '') + '.</div>' : '') +
       '<div class="ctz-grid"><div><section class="ctz-card"><h2>Productos</h2><div class="ctz-tabla"><table><thead><tr><th>Producto</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th></tr></thead><tbody>' + filas + '</tbody></table></div></section>' +
-      '<section class="ctz-card"><h2>Datos</h2><dl><dt>Cliente</dt><dd>' + esc(c.cliente.razon_social) + ' (' + esc(c.cliente.rut) + ')</dd><dt>Giro</dt><dd>' + esc(c.cliente.giro) + '</dd><dt>Contacto</dt><dd>' + esc(c.cliente.nombre) + ' · ' + esc(c.cliente.telefono) + '</dd><dt>Despacho</dt><dd>' + esc(c.direccion.calle) + ', ' + esc(c.direccion.comuna) + '</dd><dt>Envío</dt><dd>' + esc(c.envio.nombre) + '</dd></dl></section></div>' +
+      '<section class="ctz-card"><h2>Datos</h2><dl><dt>Cliente</dt><dd>' + esc(c.cliente.razon_social) + ' (' + esc(c.cliente.rut) + ')</dd><dt>Giro</dt><dd>' + esc(c.cliente.giro) + '</dd><dt>Contacto</dt><dd>' + esc(c.cliente.nombre) + ' · ' + esc(c.cliente.telefono) + '</dd>' + (c.envio.nombre === RETIRO.nombre ? '<dt>Entrega</dt><dd>' + esc(RETIRO.nombre) + ' · ' + esc(RETIRO.detalle) + '</dd><dt>Facturación</dt><dd>' + esc(c.direccion.calle) + ', ' + esc(c.direccion.comuna) + '</dd>' : '<dt>Despacho</dt><dd>' + esc(c.direccion.calle) + ', ' + esc(c.direccion.comuna) + '</dd><dt>Envío</dt><dd>' + esc(c.envio.nombre) + '</dd>') + '</dl></section></div>' +
       '<aside><div class="ctz-card resumen"><h2>Resumen</h2><div class="ctz-fila"><span>Productos</span><span>' + clp(c.total_productos) + '</span></div><div class="ctz-fila"><span>Envío</span><span>' + (c.envio.precio ? clp(c.envio.precio) : 'Gratis') + '</span></div><div class="ctz-fila total"><span>Total</span><span>' + clp(c.total) + '</span></div>' +
       '<div class="ctz-aviso">Esta cotización no garantiza disponibilidad de stock; se confirma al pagar.</div>' + conf +
       (estado.error ? '<div class="ctz-mal">' + esc(estado.error) + '</div>' : '') +
@@ -173,7 +177,7 @@
     var el = document.getElementById('ctz-acceso'); if (!el) return;
     var s = window.CTZ_SESION, h = '';
     if (s && s.conectado) {
-      h = '<div class="ctz-ok" style="margin-top:0">Sesión iniciada como <b>' + esc((s.cliente || {}).email || '') + '</b>. ' + (estado.autocompletado ? 'Completamos tus datos con lo que tienes guardado en tu cuenta.' : 'No tenemos más datos guardados en tu cuenta: completa el formulario.') + '</div>';
+      h = '<div class="ctz-ok" style="margin-top:0">Sesión iniciada como <b>' + esc((s.cliente || {}).email || '') + '</b>. ' + (estado.autocompletado ? 'Completamos tus datos con lo que tienes guardado en tu cuenta.' : 'Tu cuenta no trae todos los datos de facturación: completa el formulario o búscalos en tus compras anteriores.') + '</div>' + (estado.autocompletado ? '' : htmlHistorial());
     } else if (s && estado.modo === 'invitado') {
       h = '<p class="ctz-sub" style="margin:0 0 12px">Cotizando como invitado. <button type="button" class="ctz-link" data-acceso="sesion">Mejor iniciar sesión</button></p>';
     } else if (s) {
@@ -181,7 +185,30 @@
         '<button type="button" class="ctz-opc" data-acceso="invitado"><b>Cotizar como invitado</b><span>Solo escribes los datos de esta cotización.</span></button>' +
         '<button type="button" class="ctz-opc" data-acceso="sesion"><b>Iniciar sesión</b><span>Usa tu cuenta de IndexStore y completamos tus datos por ti. Tus productos se mantienen.</span></button></div></section>';
     }
+    if (/[?&]ctz_debug=1/.test(location.search)) h += '<pre style="font-size:11px;white-space:pre-wrap;background:#f3f6fb;padding:8px;border-radius:8px">' + esc(JSON.stringify(window.CTZ_SESION === undefined ? 'sin bloque del tema (CTZ_SESION no existe)' : window.CTZ_SESION, null, 1)) + '</pre>';
     el.innerHTML = h;
+  }
+  function htmlHistorial() {
+    var p = estado.hist;
+    if (p.fase === 'codigo') {
+      return '<div class="ctz-aviso" style="margin-top:0">' + esc(p.msg) + '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center"><input id="ctz-codigo" type="text" inputmode="numeric" maxlength="6" placeholder="Código de 6 dígitos" style="max-width:200px" autocomplete="one-time-code"><button type="button" class="ctz-btn" id="ctz-hist-verificar" style="width:auto">Verificar</button></div>' + (p.error ? '<div class="ctz-error">' + esc(p.error) + '</div>' : '') + '</div>';
+    }
+    return '<p style="margin:0 0 12px;font-size:13px">¿Ya compraste o cotizaste antes? <button type="button" class="ctz-link" id="ctz-hist-pedir">Completar con mis compras anteriores (te enviamos un código a tu correo)</button></p>' + (p.error ? '<div class="ctz-error" style="margin:-6px 0 12px">' + esc(p.error) + '</div>' : '');
+  }
+  function pedirHistorial() {
+    var email = String(((window.CTZ_SESION || {}).cliente || {}).email || estado.f.email || '').trim();
+    api('/cotizacion', { accion: 'perfil_solicitar', email: email }).then(function (r) {
+      estado.hist = r.error ? { fase: '', msg: '', error: r.error } : { fase: 'codigo', msg: r.mensaje, error: '' };
+      pintarAcceso();
+    });
+  }
+  function verificarHistorial() {
+    var email = String(((window.CTZ_SESION || {}).cliente || {}).email || estado.f.email || '').trim();
+    api('/cotizacion', { accion: 'perfil_verificar', email: email, codigo: (document.getElementById('ctz-codigo') || {}).value || '' }).then(function (r) {
+      if (!r.perfil) { estado.hist.error = r.error || 'No pudimos verificar el código.'; return pintarAcceso(); }
+      estado.hist = { fase: '', msg: '', error: '' };
+      aplicarPerfil(r.perfil);
+    });
   }
   function irALogin() {
     try { localStorage.setItem(BORRADOR, JSON.stringify({ t: Date.now(), p: estado.items.map(function (i) { return encodeURIComponent(i.handle) + ':' + i.variante + ':' + i.cantidad; }).join(',') })); } catch (e) {}
@@ -226,7 +253,7 @@
     if (!f.region) e.region = 'Elige la región.';
     if (!f.comuna) e.comuna = 'Elige la comuna.';
     if (String(f.calle || '').trim().length < 4) e.calle = 'Indica calle y número.';
-    if (!estado.envio.sel) e.envio = 'Elige un método de envío.';
+    if (!envioElegido()) e.envio = 'Elige un método de envío o el retiro en tienda.';
     if (estado.autocompletado && !estado.revisado) e.revisado = 'Confirma que revisaste tus datos antes de continuar.';
     estado.errores = e;
     return !Object.keys(e).length;
@@ -235,12 +262,13 @@
     estado.error = '';
     if (!validar()) { pintarCrear(); estado.error = estado.errores.items || 'Revisa los campos marcados.'; pintarResumen(); var m = raiz.querySelector('.mal, .ctz-error'); if (m && m.scrollIntoView) m.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
     estado.enviando = true; pintarResumen();
-    var f = estado.f, s = estado.envio.sel;
+    var f = estado.f, s = envioElegido();
+    var regionNombre = ((estado.comunas || []).filter(function (r) { return r.codigo === f.region; })[0] || {}).nombre || estado.envio.region;
     api('/cotizacion', { accion: 'crear', metodo_pago: f.metodo,
       items: estado.items.map(function (i) { return { variante: i.variante, cantidad: i.cantidad }; }),
       cliente: { nombre: f.nombre, email: f.email, telefono: f.telefono, rut: f.rut, razon_social: f.razon, giro: f.giro },
-      direccion: { region: estado.envio.region, comuna: f.comuna, calle: f.calle },
-      envio: { nombre: s.nombre, precio: s.precio, region: estado.envio.region, comuna: f.comuna, exp: s.exp, firma: s.firma } }).then(function (r) {
+      direccion: { region: regionNombre, comuna: f.comuna, calle: f.calle },
+      envio: s.retiro ? { tipo: 'retiro' } : { nombre: s.nombre, precio: s.precio, region: regionNombre, comuna: f.comuna, exp: s.exp, firma: s.firma } }).then(function (r) {
       estado.enviando = false;
       if (r.error || !r.cotizacion) { estado.error = r.error || 'No pudimos generar la cotización.'; if (r._status === 400 && /envío/i.test(estado.error)) pedirEnvio(); return pintarResumen(); }
       guardarLS(r.cotizacion); estado.vista = r.cotizacion; estado.avisoCreada = true; estado.correoFallo = !r.correo_enviado; estado.error = '';
@@ -281,7 +309,10 @@
     var t = ev.target;
     if (t.dataset.campo === 'region') { estado.f.region = t.value; estado.f.comuna = ''; delete estado.errores.region; estado.envio = { opciones: [], sel: null, cargando: false, error: '' }; var rr = document.getElementById('ctz-comuna'); if (rr) { var r = estado.comunas.filter(function (x) { return x.codigo === t.value; })[0]; rr.innerHTML = '<option value="">Elige comuna</option>' + (r ? r.comunas.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('') : ''); rr.disabled = !r; } pintarEnvio(); }
     else if (t.dataset.campo === 'comuna') { estado.f.comuna = t.value; delete estado.errores.comuna; pedirEnvio(); }
-    else if (t.dataset.envio !== undefined) { estado.envio.sel = estado.envio.opciones[Number(t.dataset.envio)]; delete estado.errores.envio; pintarEnvio(); pintarResumen(); }
+    else if (t.dataset.envio !== undefined) {
+      if (t.dataset.envio === 'retiro') { estado.retiro = true; estado.envio.sel = null; } else { estado.retiro = false; estado.envio.sel = estado.envio.opciones[Number(t.dataset.envio)]; }
+      delete estado.errores.envio; pintarEnvio(); pintarResumen();
+    }
     else if (t.dataset.revisado !== undefined) { estado.revisado = t.checked; if (t.checked) delete estado.errores.revisado; pintarPerfil(); }
     else if (t.dataset.metodo) { estado.f.metodo = t.dataset.metodo; Array.prototype.forEach.call(raiz.querySelectorAll('input[name=ctz-metodo]'), function (x) { x.closest('.ctz-opcion').classList.toggle('sel', x.checked); }); }
     else if (t.dataset.variante !== undefined) {
@@ -296,6 +327,8 @@
     if (t.id === 'ctz-comprar') return comprar(false);
     if (t.id === 'ctz-aceptar') return comprar(true);
     var d = t.dataset || {};
+    if (t.id === 'ctz-hist-pedir') return pedirHistorial();
+    if (t.id === 'ctz-hist-verificar') return verificarHistorial();
     if (d.acceso === 'invitado') { estado.modo = 'invitado'; return pintarAcceso(); }
     if (d.acceso === 'sesion') return irALogin();
     if (d.mas !== undefined) { var a = estado.items[Number(d.mas)]; a.cantidad = Math.min(50, a.cantidad + 1); pintarItems(); pintarResumen(); pedirEnvio(); }
