@@ -1,5 +1,5 @@
 // Generado por indexstore-buscador-ia/cotizaciones/construir-tienda.cjs desde pagina-cotizar.html. No editar a mano.
-(function(){var s=document.createElement('style');s.textContent="\r\n  .ctz { --az: #004fc7; --az-osc: #003a96; --borde: #d6dbe4; --suave: #f3f6fb; --txt-suave: #5b6577; --ok: #15803d; --mal: #b42318; --aviso: #8a5a00; max-width: 1240px; width: 100%; margin: 0 auto; padding: 8px 16px 40px; color: inherit; font-size: 15px; line-height: 1.45; }\r\n  .ctz * { box-sizing: border-box; }\r\n  .ctz h1 { font-size: 26px; margin: 8px 0 4px; }\r\n  .ctz h2 { font-size: 17px; margin: 0 0 12px; }\r\n  .ctz .ctz-sub { color: var(--txt-suave); margin: 0 0 18px; }\r\n  .ctz-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start; }\r\n  @media (max-width: 860px) { .ctz-grid { grid-template-columns: minmax(0, 1fr); } }\r\n  .ctz-card { border: 1px solid var(--borde); border-radius: 12px; padding: 16px; margin-bottom: 16px; background: #fff; color: #1b2230; }\r\n  .ctz-card.resumen { position: sticky; top: 12px; }\r\n  .ctz-campos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }\r\n  .ctz-campos .ancho { grid-column: 1 / -1; }\r\n  @media (max-width: 520px) { .ctz-campos { grid-template-columns: minmax(0, 1fr); } }\r\n  .ctz label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }\r\n  .ctz input[type=text], .ctz input[type=email], .ctz input[type=tel], .ctz input[type=search], .ctz select { width: 100%; min-height: 44px; padding: 9px 11px; border: 1px solid var(--borde); border-radius: 8px; font: inherit; background: #fff; color: #1b2230; }\r\n  .ctz input:focus, .ctz select:focus, .ctz button:focus-visible, .ctz a:focus-visible { outline: 2px solid var(--az); outline-offset: 1px; }\r\n  .ctz input.mal, .ctz select.mal { border-color: var(--mal); }\r\n  .ctz .ctz-error { color: var(--mal); font-size: 13px; margin-top: 4px; }\r\n  .ctz-item { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--borde); }\r\n  .ctz-item:last-child { border-bottom: 0; }\r\n  .ctz-item img { width: 64px; height: 64px; object-fit: contain; border-radius: 8px; background: var(--suave); }\r\n  .ctz-item .t { font-weight: 600; font-size: 14px; }\r\n  .ctz-item .p { color: var(--txt-suave); font-size: 13px; }\r\n  .ctz-item .acc { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }\r\n  .ctz-item .sub { font-weight: 700; white-space: nowrap; text-align: right; }\r\n  .ctz-cant { display: inline-flex; border: 1px solid var(--borde); border-radius: 8px; overflow: hidden; }\r\n  .ctz-cant button { width: 36px; min-height: 36px; border: 0; background: var(--suave); font-size: 18px; cursor: pointer; color: #1b2230; }\r\n  .ctz-cant span { min-width: 38px; text-align: center; align-self: center; font-weight: 600; }\r\n  .ctz-link { background: none; border: 0; color: var(--az); cursor: pointer; padding: 6px 4px; font: inherit; text-decoration: underline; }\r\n  .ctz-btn { display: inline-block; width: 100%; min-height: 48px; padding: 12px 18px; border: 0; border-radius: 10px; background: var(--az); color: #fff; font: inherit; font-weight: 700; cursor: pointer; text-align: center; text-decoration: none; }\r\n  .ctz-btn:hover { background: var(--az-osc); }\r\n  .ctz-btn[disabled] { opacity: .55; cursor: not-allowed; }\r\n  .ctz-btn.sec { background: #fff; color: var(--az); border: 1.5px solid var(--az); }\r\n  .ctz-opcion { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--borde); border-radius: 10px; margin-bottom: 8px; cursor: pointer; }\r\n  .ctz-opcion.sel { border-color: var(--az); background: #eef4ff; }\r\n  .ctz-opcion input { margin-top: 3px; }\r\n  .ctz-opcion .n { font-weight: 600; }\r\n  .ctz-opcion .l { font-size: 13px; color: var(--txt-suave); }\r\n  .ctz-opcion .pr { margin-left: auto; font-weight: 700; white-space: nowrap; }\r\n  .ctz-fila { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }\r\n  .ctz-fila.total { border-top: 1px solid var(--borde); margin-top: 8px; padding-top: 10px; font-size: 18px; font-weight: 800; }\r\n  .ctz-aviso { background: #fff8e6; border: 1px solid #f0d58a; color: var(--aviso); border-radius: 8px; padding: 9px 11px; font-size: 13px; margin: 12px 0; }\r\n  .ctz-ok { background: #effaf3; border: 1px solid #bfe5cc; color: #14532d; border-radius: 8px; padding: 9px 11px; margin: 12px 0; }\r\n  .ctz-mal { background: #fff1f0; border: 1px solid #f3b8b3; color: var(--mal); border-radius: 8px; padding: 9px 11px; margin: 12px 0; }\r\n  .ctz-pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }\r\n  .ctz-pill.vigente { background: #e7f6ec; color: var(--ok); } .ctz-pill.vencida, .ctz-pill.anulada { background: #fde8e6; color: var(--mal); } .ctz-pill.comprada { background: #e6eefc; color: var(--az); }\r\n  .ctz-sug { border: 1px solid var(--borde); border-radius: 10px; margin-top: 6px; max-height: 300px; overflow: auto; }\r\n  .ctz-sug button { display: flex; gap: 10px; align-items: center; width: 100%; padding: 8px 10px; border: 0; border-bottom: 1px solid var(--borde); background: #fff; cursor: pointer; text-align: left; font: inherit; color: #1b2230; }\r\n  .ctz-sug button:hover { background: var(--suave); }\r\n  .ctz-sug img { width: 40px; height: 40px; object-fit: contain; }\r\n  .ctz-mis { list-style: none; margin: 0; padding: 0; }\r\n  .ctz-mis li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--borde); }\r\n  .ctz dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; font-size: 14px; }\r\n  .ctz dt { color: var(--txt-suave); } .ctz dd { margin: 0; }\r\n  .ctz-tabla { overflow-x: auto; }\r\n  .ctz-tabla table { width: 100%; border-collapse: collapse; font-size: 14px; }\r\n  .ctz-tabla th, .ctz-tabla td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--borde); }\r\n  .ctz-tabla td.num, .ctz-tabla th.num { text-align: right; white-space: nowrap; }\r\n  @media (prefers-reduced-motion: reduce) { .ctz * { transition: none !important; } }\r\n";document.head.appendChild(s);})();
+(function(){var s=document.createElement('style');s.textContent="\r\n  .ctz { --az: #004fc7; --az-osc: #003a96; --borde: #d6dbe4; --suave: #f3f6fb; --txt-suave: #5b6577; --ok: #15803d; --mal: #b42318; --aviso: #8a5a00; max-width: 1240px; width: 100%; margin: 0 auto; padding: 8px 16px 40px; color: inherit; font-size: 15px; line-height: 1.45; }\r\n  .ctz * { box-sizing: border-box; }\r\n  .ctz h1 { font-size: 26px; margin: 8px 0 4px; }\r\n  .ctz h2 { font-size: 17px; margin: 0 0 12px; }\r\n  .ctz .ctz-sub { color: var(--txt-suave); margin: 0 0 18px; }\r\n  .ctz-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start; }\r\n  @media (max-width: 860px) { .ctz-grid { grid-template-columns: minmax(0, 1fr); } }\r\n  .ctz-card { border: 1px solid var(--borde); border-radius: 12px; padding: 16px; margin-bottom: 16px; background: #fff; color: #1b2230; }\r\n  .ctz-card.resumen { position: sticky; top: 12px; }\r\n  .ctz-campos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }\r\n  .ctz-campos .ancho { grid-column: 1 / -1; }\r\n  @media (max-width: 520px) { .ctz-campos { grid-template-columns: minmax(0, 1fr); } }\r\n  .ctz label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }\r\n  .ctz input[type=text], .ctz input[type=email], .ctz input[type=tel], .ctz input[type=search], .ctz select { width: 100%; min-height: 44px; padding: 9px 11px; border: 1px solid var(--borde); border-radius: 8px; font: inherit; background: #fff; color: #1b2230; }\r\n  .ctz input:focus, .ctz select:focus, .ctz button:focus-visible, .ctz a:focus-visible { outline: 2px solid var(--az); outline-offset: 1px; }\r\n  .ctz input.mal, .ctz select.mal { border-color: var(--mal); }\r\n  .ctz .ctz-error { color: var(--mal); font-size: 13px; margin-top: 4px; }\r\n  .ctz-item { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--borde); }\r\n  .ctz-item:last-child { border-bottom: 0; }\r\n  .ctz-item img { width: 64px; height: 64px; object-fit: contain; border-radius: 8px; background: var(--suave); }\r\n  .ctz-item .t { font-weight: 600; font-size: 14px; }\r\n  .ctz-item .p { color: var(--txt-suave); font-size: 13px; }\r\n  .ctz-item .acc { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }\r\n  .ctz-item .sub { font-weight: 700; white-space: nowrap; text-align: right; }\r\n  .ctz-cant { display: inline-flex; border: 1px solid var(--borde); border-radius: 8px; overflow: hidden; }\r\n  .ctz-cant button { width: 36px; min-height: 36px; border: 0; background: var(--suave); font-size: 18px; cursor: pointer; color: #1b2230; }\r\n  .ctz-cant span { min-width: 38px; text-align: center; align-self: center; font-weight: 600; }\r\n  .ctz-link { background: none; border: 0; color: var(--az); cursor: pointer; padding: 6px 4px; font: inherit; text-decoration: underline; }\r\n  .ctz-btn { display: inline-block; width: 100%; min-height: 48px; padding: 12px 18px; border: 0; border-radius: 10px; background: var(--az); color: #fff; font: inherit; font-weight: 700; cursor: pointer; text-align: center; text-decoration: none; }\r\n  .ctz-btn:hover { background: var(--az-osc); }\r\n  .ctz-btn[disabled] { opacity: .55; cursor: not-allowed; }\r\n  .ctz-btn.sec { background: #fff; color: var(--az); border: 1.5px solid var(--az); }\r\n  .ctz-opcion { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--borde); border-radius: 10px; margin-bottom: 8px; cursor: pointer; }\r\n  .ctz-opcion.sel { border-color: var(--az); background: #eef4ff; }\r\n  .ctz-opcion input { margin-top: 3px; }\r\n  .ctz-opcion .n { font-weight: 600; }\r\n  .ctz-opcion .l { font-size: 13px; color: var(--txt-suave); }\r\n  .ctz-opcion .pr { margin-left: auto; font-weight: 700; white-space: nowrap; }\r\n  .ctz-fila { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }\r\n  .ctz-fila.total { border-top: 1px solid var(--borde); margin-top: 8px; padding-top: 10px; font-size: 18px; font-weight: 800; }\r\n  .ctz-aviso { background: #fff8e6; border: 1px solid #f0d58a; color: var(--aviso); border-radius: 8px; padding: 9px 11px; font-size: 13px; margin: 12px 0; }\r\n  .ctz-ok { background: #effaf3; border: 1px solid #bfe5cc; color: #14532d; border-radius: 8px; padding: 9px 11px; margin: 12px 0; }\r\n  .ctz-mal { background: #fff1f0; border: 1px solid #f3b8b3; color: var(--mal); border-radius: 8px; padding: 9px 11px; margin: 12px 0; }\r\n  .ctz-pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }\r\n  .ctz-pill.vigente { background: #e7f6ec; color: var(--ok); } .ctz-pill.vencida, .ctz-pill.anulada { background: #fde8e6; color: var(--mal); } .ctz-pill.comprada { background: #e6eefc; color: var(--az); }\r\n  .ctz-sug { border: 1px solid var(--borde); border-radius: 10px; margin-top: 6px; max-height: 300px; overflow: auto; }\r\n  .ctz-sug button { display: flex; gap: 10px; align-items: center; width: 100%; padding: 8px 10px; border: 0; border-bottom: 1px solid var(--borde); background: #fff; cursor: pointer; text-align: left; font: inherit; color: #1b2230; }\r\n  .ctz-sug button:hover { background: var(--suave); }\r\n  .ctz-sug img { width: 40px; height: 40px; object-fit: contain; }\r\n  .ctz-acceso { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }\r\n  @media (max-width: 520px) { .ctz-acceso { grid-template-columns: minmax(0, 1fr); } }\r\n  .ctz-opc { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; padding: 14px; border: 1.5px solid var(--borde); border-radius: 12px; background: #fff; color: #1b2230; font: inherit; cursor: pointer; min-height: 44px; }\r\n  .ctz-opc:hover { border-color: var(--az); background: #eef4ff; }\r\n  .ctz-opc b { font-size: 15px; } .ctz-opc span { font-size: 13px; color: var(--txt-suave); }\r\n  .ctz-mis { list-style: none; margin: 0; padding: 0; }\r\n  .ctz-mis li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--borde); }\r\n  .ctz dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; font-size: 14px; }\r\n  .ctz dt { color: var(--txt-suave); } .ctz dd { margin: 0; }\r\n  .ctz-tabla { overflow-x: auto; }\r\n  .ctz-tabla table { width: 100%; border-collapse: collapse; font-size: 14px; }\r\n  .ctz-tabla th, .ctz-tabla td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--borde); }\r\n  .ctz-tabla td.num, .ctz-tabla th.num { text-align: right; white-space: nowrap; }\r\n  @media (prefers-reduced-motion: reduce) { .ctz * { transition: none !important; } }\r\n";document.head.appendChild(s);})();
 
 (function () {
   var WORKER = 'https://indexstore-buscador-ia.nmolina.workers.dev';
@@ -7,7 +7,7 @@
   // El tema envuelve las páginas en contenedores angostos: se les quita el tope de ancho para que el formulario use el espacio de la pantalla.
   (function () { var n = raiz.parentElement, i = 0; while (n && n !== document.body && i++ < 8) { if (n.tagName !== 'MAIN' || true) { n.style.maxWidth = 'none'; n.style.width = '100%'; } n = n.parentElement; } })();
   var LS = 'ctz_mis_cotizaciones';
-  var estado = { items: [], comunas: null, f: { metodo: 'transferencia' }, envio: { opciones: [], sel: null, cargando: false, error: '' }, errores: {}, enviando: false, error: '', sug: [], vista: null, confirmar: null, comprando: false, perfil: { fase: '', msg: '', error: '' }, autocompletado: null, revisado: false };
+  var estado = { items: [], comunas: null, f: { metodo: 'transferencia' }, envio: { opciones: [], sel: null, cargando: false, error: '' }, errores: {}, enviando: false, error: '', sug: [], vista: null, confirmar: null, comprando: false, modo: null, autocompletado: null, revisado: false };
   var temporizador = null, tEnvio = null;
 
   function clp(n) { return '$' + Math.round(Number(n) || 0).toLocaleString('es-CL'); }
@@ -122,7 +122,7 @@
   function pintarCrear() {
     var mis = leerLS();
     raiz.innerHTML = '<h1>Cotización express</h1><p class="ctz-sub">Arma tu cotización, la generamos en nuestro sistema y la recibes por correo. Tienes 3 días para pagarla desde el enlace.</p>' +
-      '<div class="ctz-grid"><div>' +
+      '<div class="ctz-grid"><div><div id="ctz-acceso"></div>' +
       '<section class="ctz-card"><h2>Productos</h2><label for="ctz-buscar">Agregar producto</label><input id="ctz-buscar" type="search" placeholder="Busca por nombre, marca o modelo" autocomplete="off"><div id="ctz-sug"></div><div id="ctz-items" style="margin-top:10px"></div></section>' +
       '<section class="ctz-card"><h2>Tus datos</h2><div class="ctz-campos">' + campo('nombre', 'Nombre de contacto', 'text', { auto: 'name' }) + campo('email', 'Correo', 'email', { auto: 'email' }) + campo('telefono', 'Teléfono', 'tel', { auto: 'tel', ph: '+56 9 ...' }) + '</div><div id="ctz-perfil"></div></section>' +
       '<section class="ctz-card"><h2>Datos de facturación</h2><div class="ctz-campos">' + campo('rut', 'RUT empresa', 'text', { ph: '76.123.456-7' }) + campo('razon', 'Razón social', 'text') + campo('giro', 'Giro', 'text', { ancho: true }) + '</div></section>' +
@@ -133,7 +133,7 @@
       '<p class="ctz-sub" style="font-size:12px;margin:6px 0 0">El medio de pago definitivo se elige al pagar.</p></section>' +
       (mis.length ? '<section class="ctz-card"><h2>Mis cotizaciones en este navegador</h2><ul class="ctz-mis">' + mis.map(function (m) { return '<li><a href="?t=' + encodeURIComponent(m.token) + '">N° ' + esc(m.numero) + '</a><span>' + clp(m.total) + ' · vence ' + esc(fecha(m.vence)) + '</span></li>'; }).join('') + '</ul></section>' : '') +
       '</div><aside><div class="ctz-card resumen" id="ctz-resumen"></div></aside></div>';
-    pintarItems(); pintarEnvio(); pintarResumen(); pintarPerfil();
+    pintarItems(); pintarEnvio(); pintarResumen(); pintarPerfil(); pintarAcceso();
   }
 
   function pintarVista() {
@@ -156,48 +156,58 @@
       '<p style="text-align:center;margin:6px 0 0"><a href="/pages/cotizar">Hacer otra cotización</a></p></div></aside></div>';
   }
 
-  // ───── Autocompletar con código al correo ─────
+  // ───── Acceso: invitado o con la cuenta de IndexStore ─────
+  // window.CTZ_SESION lo deja el bloque Liquid del tema (cotizar-sesion.liquid): sabe si hay un cliente con sesión y sus datos guardados.
+  // Los datos solo sirven para rellenar el formulario; lo que se cotiza siempre se valida en el servidor.
+  var BORRADOR = 'ctz_borrador';
   function sinTildes(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim(); }
   function formatoRut(r) { var s = rutLimpio(r); return s.length < 2 ? String(r || '') : s.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + '-' + s.slice(-1); }
-  function pintarPerfil() {
-    var el = document.getElementById('ctz-perfil'); if (!el) return;
-    var p = estado.perfil, h = '';
-    if (estado.autocompletado) {
-      h = '<div class="ctz-aviso"><b>Completamos tus datos con tu ' + esc(estado.autocompletado) + '.</b> Revísalos con calma antes de generar la cotización: si algo cambió, corrígelo.' +
-        '<label style="display:flex;gap:8px;align-items:center;margin:10px 0 0;font-weight:600"><input type="checkbox" id="ctz-revisado" data-revisado' + (estado.revisado ? ' checked' : '') + '> Revisé que mis datos están correctos</label>' +
-        (estado.errores.revisado ? '<div class="ctz-error">' + esc(estado.errores.revisado) + '</div>' : '') + '</div>';
-    } else if (p.fase === 'codigo') {
-      h = '<div class="ctz-aviso">' + esc(p.msg) + '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center"><input id="ctz-codigo" type="text" inputmode="numeric" maxlength="6" placeholder="Código de 6 dígitos" style="max-width:200px" autocomplete="one-time-code"><button type="button" class="ctz-btn" id="ctz-perfil-verificar" style="width:auto">Verificar</button></div>' +
-        (p.error ? '<div class="ctz-error">' + esc(p.error) + '</div>' : '') + '</div>';
-    } else {
-      h = '<p style="margin:12px 0 0;font-size:13px">¿Ya compraste o cotizaste antes? <button type="button" class="ctz-link" id="ctz-perfil-pedir">Autocompleta mis datos con un código a mi correo</button></p>' + (p.error ? '<div class="ctz-error">' + esc(p.error) + '</div>' : '');
+  function perfilDeSesion(s) {
+    var c = s.cliente || {}, d = c.direccion || {}, pe = c.pedido || {}, a = pe.atributos || {}, e = pe.envio || {};
+    function primero() { for (var i = 0; i < arguments.length; i++) if (arguments[i]) return arguments[i]; return ''; }
+    return { origen: 'cuenta de IndexStore', email: c.email, nombre: primero(c.nombre, e.nombre), telefono: primero(a.telefono, c.telefono, e.telefono),
+      rut: a.rut, razon_social: primero(a.razon_social, d.empresa), giro: a.giro,
+      region: primero(a.region, e.region, d.region), comuna: primero(a.comuna, e.comuna, d.comuna), calle: primero(a.direccion_tributaria, e.calle, d.calle) };
+  }
+  function pintarAcceso() {
+    var el = document.getElementById('ctz-acceso'); if (!el) return;
+    var s = window.CTZ_SESION, h = '';
+    if (s && s.conectado) {
+      h = '<div class="ctz-ok" style="margin-top:0">Sesión iniciada como <b>' + esc((s.cliente || {}).email || '') + '</b>. ' + (estado.autocompletado ? 'Completamos tus datos con lo que tienes guardado en tu cuenta.' : 'No tenemos más datos guardados en tu cuenta: completa el formulario.') + '</div>';
+    } else if (s && estado.modo === 'invitado') {
+      h = '<p class="ctz-sub" style="margin:0 0 12px">Cotizando como invitado. <button type="button" class="ctz-link" data-acceso="sesion">Mejor iniciar sesión</button></p>';
+    } else if (s) {
+      h = '<section class="ctz-card"><h2>¿Cómo quieres cotizar?</h2><div class="ctz-acceso">' +
+        '<button type="button" class="ctz-opc" data-acceso="invitado"><b>Cotizar como invitado</b><span>Solo escribes los datos de esta cotización.</span></button>' +
+        '<button type="button" class="ctz-opc" data-acceso="sesion"><b>Iniciar sesión</b><span>Usa tu cuenta de IndexStore y completamos tus datos por ti. Tus productos se mantienen.</span></button></div></section>';
     }
     el.innerHTML = h;
   }
-  function pedirPerfil() {
-    var email = String(estado.f.email || '').trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { estado.perfil = { fase: '', msg: '', error: 'Escribe primero tu correo arriba.' }; return pintarPerfil(); }
-    api('/cotizacion', { accion: 'perfil_solicitar', email: email }).then(function (r) {
-      estado.perfil = r.error ? { fase: '', msg: '', error: r.error } : { fase: 'codigo', msg: r.mensaje, error: '' };
-      pintarPerfil();
-    });
+  function irALogin() {
+    try { localStorage.setItem(BORRADOR, JSON.stringify({ t: Date.now(), p: estado.items.map(function (i) { return encodeURIComponent(i.handle) + ':' + i.variante + ':' + i.cantidad; }).join(',') })); } catch (e) {}
+    var s = window.CTZ_SESION || {};
+    location.href = (s.login || '/account/login') + '?return_to=' + encodeURIComponent('/pages/cotizar' + (location.search || ''));
   }
-  function verificarPerfil() {
-    var cod = (document.getElementById('ctz-codigo') || {}).value || '';
-    api('/cotizacion', { accion: 'perfil_verificar', email: String(estado.f.email || '').trim(), codigo: cod }).then(function (r) {
-      if (!r.perfil) { estado.perfil.error = r.error || 'No pudimos verificar el código.'; return pintarPerfil(); }
-      aplicarPerfil(r.perfil);
-    });
+  function borradorGuardado() {
+    try { var b = JSON.parse(localStorage.getItem(BORRADOR) || 'null'); localStorage.removeItem(BORRADOR); return b && Date.now() - b.t < 3 * 3600000 ? b.p : ''; } catch (e) { return ''; }
+  }
+  function pintarPerfil() {
+    var el = document.getElementById('ctz-perfil'); if (!el) return;
+    el.innerHTML = estado.autocompletado ?
+      '<div class="ctz-aviso"><b>Completamos tus datos con tu ' + esc(estado.autocompletado) + '.</b> Revísalos con calma antes de generar la cotización: si algo cambió, corrígelo.' +
+      '<label style="display:flex;gap:8px;align-items:center;margin:10px 0 0;font-weight:600"><input type="checkbox" id="ctz-revisado" data-revisado' + (estado.revisado ? ' checked' : '') + '> Revisé que mis datos están correctos</label>' +
+      (estado.errores.revisado ? '<div class="ctz-error">' + esc(estado.errores.revisado) + '</div>' : '') + '</div>' : '';
   }
   function aplicarPerfil(p) {
     var f = estado.f;
-    if (p.nombre) f.nombre = p.nombre; if (p.telefono) f.telefono = p.telefono; if (p.rut) f.rut = formatoRut(p.rut);
+    if (p.email) f.email = p.email; if (p.nombre) f.nombre = p.nombre; if (p.telefono) f.telefono = p.telefono; if (p.rut) f.rut = formatoRut(p.rut);
     if (p.razon_social) f.razon = p.razon_social; if (p.giro) f.giro = p.giro; if (p.calle) f.calle = p.calle;
     var rn = sinTildes(p.region);
     var reg = (estado.comunas || []).filter(function (r) { var n = sinTildes(r.nombre); return rn && (n === rn || n.indexOf(rn) >= 0 || rn.indexOf(n) >= 0); })[0];
     if (reg) { f.region = reg.codigo; var cn = sinTildes(p.comuna); f.comuna = reg.comunas.filter(function (c) { return sinTildes(c) === cn; })[0] || ''; }
-    estado.autocompletado = p.origen || 'historial'; estado.revisado = false; estado.errores = {}; estado.error = '';
-    estado.envio = { opciones: [], sel: null, cargando: false, error: '' }; estado.perfil = { fase: '', msg: '', error: '' };
+    estado.autocompletado = (p.rut || p.calle || p.razon_social) ? (p.origen || 'cuenta') : null; estado.revisado = false;
+    estado.errores = {}; estado.error = '';
+    estado.envio = { opciones: [], sel: null, cargando: false, error: '' };
     pintarCrear();
     if (f.region && f.comuna) pedirEnvio();
   }
@@ -282,11 +292,11 @@
   raiz.addEventListener('click', function (ev) {
     var t = ev.target.closest('button, a'); if (!t) return;
     if (t.id === 'ctz-enviar') return enviar();
-    if (t.id === 'ctz-perfil-pedir') return pedirPerfil();
-    if (t.id === 'ctz-perfil-verificar') return verificarPerfil();
     if (t.id === 'ctz-comprar') return comprar(false);
     if (t.id === 'ctz-aceptar') return comprar(true);
     var d = t.dataset || {};
+    if (d.acceso === 'invitado') { estado.modo = 'invitado'; return pintarAcceso(); }
+    if (d.acceso === 'sesion') return irALogin();
     if (d.mas !== undefined) { var a = estado.items[Number(d.mas)]; a.cantidad = Math.min(50, a.cantidad + 1); pintarItems(); pintarResumen(); pedirEnvio(); }
     else if (d.menos !== undefined) { var b = estado.items[Number(d.menos)]; b.cantidad = Math.max(1, b.cantidad - 1); pintarItems(); pintarResumen(); pedirEnvio(); }
     else if (d.quitar !== undefined) { estado.items.splice(Number(d.quitar), 1); pintarItems(); pintarResumen(); pedirEnvio(); }
@@ -306,7 +316,10 @@
   } else {
     fetch(WORKER + '/comunas').then(function (r) { return r.json(); }).catch(function () { return { regiones: [] }; }).then(function (j) {
       estado.comunas = j.regiones || [];
-      return cargarDesdeUrl(q.get('p'));
-    }).then(function () { pintarCrear(); });
+      return cargarDesdeUrl(q.get('p') || borradorGuardado());
+    }).then(function () {
+      var ses = window.CTZ_SESION;
+      if (ses && ses.conectado) aplicarPerfil(perfilDeSesion(ses)); else pintarCrear();
+    });
   }
 })();
