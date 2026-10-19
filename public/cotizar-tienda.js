@@ -186,7 +186,8 @@
   function irALogin() {
     try { localStorage.setItem(BORRADOR, JSON.stringify({ t: Date.now(), p: estado.items.map(function (i) { return encodeURIComponent(i.handle) + ':' + i.variante + ':' + i.cantidad; }).join(',') })); } catch (e) {}
     var s = window.CTZ_SESION || {};
-    location.href = (s.login || '/account/login') + '?return_to=' + encodeURIComponent('/pages/cotizar' + (location.search || ''));
+    var base = s.login || '/account/login';
+    location.href = base + (base.indexOf('?') >= 0 ? '&' : '?') + 'return_to=' + encodeURIComponent('/pages/cotizar' + (location.search || ''));
   }
   function borradorGuardado() {
     try { var b = JSON.parse(localStorage.getItem(BORRADOR) || 'null'); localStorage.removeItem(BORRADOR); return b && Date.now() - b.t < 3 * 3600000 ? b.p : ''; } catch (e) { return ''; }
