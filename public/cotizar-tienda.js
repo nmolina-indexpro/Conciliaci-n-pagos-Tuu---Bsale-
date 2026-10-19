@@ -169,8 +169,10 @@
   function perfilDeSesion(s) {
     var c = s.cliente || {}, d = c.direccion || {}, pe = c.pedido || {}, a = pe.atributos || {}, e = pe.envio || {};
     function primero() { for (var i = 0; i < arguments.length; i++) if (arguments[i]) return arguments[i]; return ''; }
+    // Mucha gente escribe el RUT en el campo "Empresa" de la dirección: si lo es, va como RUT y no como razón social.
+    var empresaEsRut = d.empresa && rutValido(d.empresa);
     return { origen: 'cuenta de IndexStore', email: c.email, nombre: primero(c.nombre, e.nombre), telefono: primero(a.telefono, c.telefono, e.telefono),
-      rut: a.rut, razon_social: primero(a.razon_social, d.empresa), giro: a.giro,
+      rut: primero(a.rut, empresaEsRut ? d.empresa : ''), razon_social: primero(a.razon_social, empresaEsRut ? '' : d.empresa), giro: a.giro,
       region: primero(a.region, e.region, d.region), comuna: primero(a.comuna, e.comuna, d.comuna), calle: primero(a.direccion_tributaria, e.calle, d.calle) };
   }
   function pintarAcceso() {
