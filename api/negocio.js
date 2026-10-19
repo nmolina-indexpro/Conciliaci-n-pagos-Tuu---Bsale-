@@ -30,6 +30,7 @@ import { calcularControlEjecutivos, aplicarFirmas, detectarFirmaEnTexto, claveUs
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
+import { registrarEventoCotizacion, resumenUsoCotizacion } from '../lib/cotizacion-web-uso.js';
 import { asegurarTablaCotizacionesWeb, crearCotizacion, verCotizacion, comprarCotizacion, transferenciaCotizacion, subirComprobante as subirComprobanteCotizacionWeb, revisarComprobante as revisarComprobanteCotizacionWeb, solicitarPerfil as solicitarPerfilCotizacionWeb, verificarPerfil as verificarPerfilCotizacionWeb, leerConfig as leerConfigCotizacionWeb, guardarConfig as guardarConfigCotizacionWeb, estadoEfectivo as estadoCotizacionWeb } from '../lib/cotizacion-web.js';
 import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, productosConEtiqueta, estadoDescuentoEnvio, crearDescuentoEnvioGratis } from '../lib/envio-gratis-shopify.js';
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
@@ -8550,6 +8551,10 @@ async function manejarCotizacionWeb(req, res) {
     const claveEsperada = process.env.BUSCADOR_IA_KEY;
     if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
     if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) return res.status(401).json({ error: 'Clave inválida' });
+    if ((req.body || {}).accion === 'evento') { // aviso de uso (ficha / formulario): liviano, sin Bsale ni Shopify
+      const r = await registrarEventoCotizacion(await getSql(), req.body);
+      return res.status(r.status || 200).json(r.error ? { error: r.error } : { ok: true });
+    }
     const token = process.env.BSALE_ACCESS_TOKEN;
     if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
     const sql = await getSql();
@@ -8583,6 +8588,11 @@ async function manejarCotizacionWebAdmin(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaCotizacionesWeb(sql);
+    if (req.method === 'GET' && req.query && req.query.uso) { // estadísticas de uso del enlace de la ficha y del formulario
+      const dias = Math.min(365, Math.max(1, Number(req.query.dias) || 30));
+      const hasta = new Date(Date.now() + 60000), desde = new Date(Date.now() - dias * 86400000);
+      return res.status(200).json({ dias, uso: await resumenUsoCotizacion(sql, { desdeISO: desde.toISOString(), hastaISO: hasta.toISOString() }) });
+    }
     if (req.method === 'GET' && req.query && req.query.comprobante) { // descarga del comprobante (cualquier usuario con acceso a la página)
       const { rows } = await sql.query('SELECT comprobante, comprobante_tipo, comprobante_nombre FROM cotizaciones_web WHERE id = $1', [Number(req.query.comprobante) || 0]);
       const c = rows[0];

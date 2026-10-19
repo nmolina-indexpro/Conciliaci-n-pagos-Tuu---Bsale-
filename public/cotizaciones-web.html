@@ -51,6 +51,9 @@
   .btn-pago{font:inherit;font-size:12px;padding:4px 10px;border-radius:8px;border:1px solid var(--border,#cbd5e1);background:var(--surface,#fff);color:inherit;cursor:pointer;margin-top:4px;}
   .btn-pago:hover{border-color:var(--blue,#2563eb);}
   .vacio{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  .uso-cols{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+  @media (max-width:1000px){.uso-cols{grid-template-columns:1fr;}}
+  .barra{display:inline-block;height:8px;background:var(--primary);border-radius:4px;vertical-align:middle;min-width:2px;}
   small{color:var(--muted);}
   html.embebido body{padding-top:0;}
 </style>
@@ -85,6 +88,24 @@
 </div>
 
 <div class="kpis" id="kpis"></div>
+
+<div class="seccion">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+    <div>
+      <h2>Uso del enlace de la ficha y del formulario</h2>
+      <p class="sub" style="margin:2px 0 0">Cuántas personas ven el enlace «Cotización express» en la ficha del producto, lo tocan y, después, hacen algo en el formulario. Cuenta personas (huella diaria anónima: quien vuelve otro día cuenta otra vez); los bots y centros de datos van aparte.</p>
+    </div>
+    <div><label for="uso-dias" style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600;margin-bottom:4px">Período</label>
+      <select id="uso-dias"><option value="7">Últimos 7 días</option><option value="30" selected>Últimos 30 días</option><option value="90">Últimos 90 días</option></select></div>
+  </div>
+  <div id="uso-msg" style="margin-top:10px"></div>
+  <div class="tabla-wrap" style="margin-top:12px"><table id="uso-embudo" data-sin-orden></table></div>
+  <div class="uso-cols">
+    <div><h2 style="margin-top:18px">Qué hacen en el formulario</h2><p class="sub" style="margin:2px 0 8px">Personas que hicieron cada cosa al menos una vez (una persona puede hacer varias).</p><div class="tabla-wrap"><table id="uso-acciones"></table></div></div>
+    <div><h2 style="margin-top:18px">Productos desde cuya ficha se usó el enlace</h2><p class="sub" style="margin:2px 0 8px">Personas que vieron el enlace y que lo tocaron, por producto.</p><div class="tabla-wrap"><table id="uso-productos"></table></div></div>
+  </div>
+  <div id="uso-pie" class="sub" style="margin-top:12px"></div>
+</div>
 
 <div class="seccion">
   <h2>Cotizaciones creadas</h2>
@@ -154,7 +175,33 @@ $('guardar-transf').addEventListener('click', async () => {
   $('msg-transf').innerHTML = d ? '<div class="nota ok">Guardado.</div>' : '';
   $('guardar-transf').disabled = false;
 });
+async function cargarUso() {
+  $('uso-msg').innerHTML = '';
+  try {
+    const r = await fetch('/api/negocio?recurso=cotizacion-web-admin&uso=1&dias=' + $('uso-dias').value);
+    const d = await r.json();
+    if (d.error) { $('uso-msg').innerHTML = `<div class="nota err">${esc(d.error)}</div>`; return; }
+    pintarUso(d.uso);
+  } catch (e) { $('uso-msg').innerHTML = `<div class="nota err">No se pudieron cargar las estadísticas: ${esc(e.message)}</div>`; }
+}
+function pintarUso(u) {
+  const e = u.embudo, max = Math.max(1, ...e.map(x => x.personas));
+  const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+  $('uso-embudo').innerHTML = '<thead><tr><th>Paso</th><th class="amount">Personas</th><th></th><th class="amount">% del paso anterior</th><th class="amount">% de los que vieron el enlace</th></tr></thead><tbody>' +
+    e.map((x, i) => `<tr><td>${esc(x.nombre)}${x.desde_ficha ? `<br><small>${fmt(x.desde_ficha)} llegaron desde la ficha</small>` : ''}${x.clave === 'creadas' || x.clave === 'con_pago' ? '<br><small>cotizaciones, no personas</small>' : ''}</td><td class="amount">${fmt(x.personas)}</td><td style="width:34%"><span class="barra" style="width:${Math.round(x.personas / max * 100)}%"></span></td><td class="amount">${i ? pct(x.personas, e[i - 1].personas) : '—'}</td><td class="amount">${i ? pct(x.personas, e[0].personas) : '100%'}</td></tr>`).join('') + '</tbody>';
+  $('uso-acciones').innerHTML = u.acciones.length ? '<thead><tr><th>Acción</th><th class="amount">Personas</th><th class="amount">Veces</th></tr></thead><tbody>' + u.acciones.map(a => `<tr><td>${esc(a.nombre)}</td><td class="amount">${fmt(a.personas)}</td><td class="amount">${fmt(a.veces)}</td></tr>`).join('') + '</tbody>' : '<tbody><tr><td class="vacio">Todavía nadie hizo algo en el formulario en este período.</td></tr></tbody>';
+  $('uso-productos').innerHTML = u.productos.length ? '<thead><tr><th>Producto (ficha)</th><th class="amount">Vieron el enlace</th><th class="amount">Lo tocaron</th></tr></thead><tbody>' + u.productos.map(p => `<tr><td>${esc(p.producto)}</td><td class="amount">${fmt(p.vistas)}</td><td class="amount">${fmt(p.clics)}</td></tr>`).join('') + '</tbody>' : '<tbody><tr><td class="vacio">Sin datos todavía: el enlace de la ficha avisa cuando se ve y cuando se toca.</td></tr></tbody>';
+  const orig = { ficha: 'desde la ficha', directo: 'directo', correo: 'desde el correo', login: 'al volver de iniciar sesión' };
+  const nombreDisp = { movil: 'celular', escritorio: 'computador', 'sin dato': 'sin dato' };
+  const disp = (tipo) => u.dispositivos.filter(x => x.tipo === tipo).map(x => `${nombreDisp[x.dispositivo] || x.dispositivo}: ${fmt(x.personas)}`).join(' · ') || '—';
+  const fallidos = u.intentos.filter(x => x.valor === 'con_errores').reduce((s, x) => s + x.personas, 0);
+  $('uso-pie').innerHTML = `<b>Cómo llegan al formulario:</b> ${u.origenes.map(o => `${orig[o.valor] || o.valor} ${fmt(o.personas)}`).join(' · ') || '—'}.<br>` +
+    `<b>Enlace de la ficha:</b> lo ven (${disp('ficha_vista')}) · lo tocan (${disp('ficha_clic')}).<br>` +
+    `<b>Intentos de generar con datos incompletos:</b> ${fmt(fallidos)} persona(s). <b>Avisos descartados por parecer bots o centros de datos:</b> ${fmt(u.bots)}.`;
+}
+$('uso-dias').addEventListener('change', cargarUso);
 cargar();
+cargarUso();
 </script>
 <script src="tablas-ordenables.js"></script>
 </body>
