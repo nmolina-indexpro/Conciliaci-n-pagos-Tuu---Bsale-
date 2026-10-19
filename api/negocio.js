@@ -2278,7 +2278,19 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
         // igual queda guardada aquí y se puede reintentar con "Sincronizar etiquetas".
         const cambioEnvio = cambios.find(([campo]) => campo === 'envio_gratis');
         if (cambioEnvio) {
-          try { etiquetaShopify = await aplicarEtiquetaEnvioGratis(await descuentosWebGql(), sku, cambioEnvio[1]); }
+          try {
+            const gqlEnvio = await descuentosWebGql();
+            let aplicado = cambioEnvio[1];
+            etiquetaShopify = await aplicarEtiquetaEnvioGratis(gqlEnvio, sku, aplicado);
+            // Si mientras tanto la marca cambió otra vez (un doble clic, otro usuario), vale la última: se vuelve a aplicar lo que dice la base.
+            for (let i = 0; i < 2; i++) {
+              const { rows: ahora } = await sql`SELECT envio_gratis FROM ventas_sku_comentarios WHERE sku = ${sku};`;
+              const vigente = !!(ahora[0] && ahora[0].envio_gratis);
+              if (vigente === aplicado) break;
+              aplicado = vigente;
+              etiquetaShopify = await aplicarEtiquetaEnvioGratis(gqlEnvio, sku, aplicado);
+            }
+          }
           catch (e) { etiquetaShopify = { error: String(e.message || e).slice(0, 160) }; }
         }
       }

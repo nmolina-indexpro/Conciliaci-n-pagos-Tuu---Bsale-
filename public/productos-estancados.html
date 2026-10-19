@@ -730,10 +730,16 @@ async function sincronizarEnvioGratis(){
   }catch(err){ alert('Error: ' + err.message); }
   finally{ b.disabled = false; b.textContent = 'Sincronizar etiquetas'; }
 }
-async function toggleVentaBajaFlag(sku, campo, valor){
+// Los cambios de un mismo SKU se mandan de a uno, en el orden en que se hicieron (marcar y desmarcar seguido ya no se cruza en el servidor).
+const colaFlagsPorSku = {};
+function toggleVentaBajaFlag(sku, campo, valor){
   const p = buscarProductoPorSku(sku);
   const anterior = p ? p[campo] : undefined;
   if(p) p[campo] = valor; // optimista -- el checkbox ya cambió en pantalla
+  colaFlagsPorSku[sku] = (colaFlagsPorSku[sku] || Promise.resolve()).then(() => enviarFlagVentaBaja(sku, campo, valor, p, anterior));
+  return colaFlagsPorSku[sku];
+}
+async function enviarFlagVentaBaja(sku, campo, valor, p, anterior){
   try{
     const body = { sku, [campo]: valor };
     const res = await fetch('/api/negocio?recurso=ventas-sku-tendencia', {
