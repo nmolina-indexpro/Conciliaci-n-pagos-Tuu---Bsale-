@@ -7,7 +7,7 @@
   // El tema envuelve las páginas en contenedores angostos: se les quita el tope de ancho para que el formulario use el espacio de la pantalla.
   (function () { var n = raiz.parentElement, i = 0; while (n && n !== document.body && i++ < 8) { if (n.tagName !== 'MAIN' || true) { n.style.maxWidth = 'none'; n.style.width = '100%'; } n = n.parentElement; } })();
   var LS = 'ctz_mis_cotizaciones';
-  var estado = { items: [], comunas: null, f: { metodo: 'transferencia' }, envio: { opciones: [], sel: null, cargando: false, error: '' }, errores: {}, enviando: false, error: '', sug: [], vista: null, confirmar: null, comprando: false };
+  var estado = { items: [], comunas: null, f: { metodo: 'transferencia' }, envio: { opciones: [], sel: null, cargando: false, error: '' }, errores: {}, enviando: false, error: '', sug: [], vista: null, confirmar: null, comprando: false, perfil: { fase: '', msg: '', error: '' }, autocompletado: null, revisado: false };
   var temporizador = null, tEnvio = null;
 
   function clp(n) { return '$' + Math.round(Number(n) || 0).toLocaleString('es-CL'); }
@@ -124,7 +124,7 @@
     raiz.innerHTML = '<h1>Cotización express</h1><p class="ctz-sub">Arma tu cotización, la generamos en nuestro sistema y la recibes por correo. Tienes 3 días para pagarla desde el enlace.</p>' +
       '<div class="ctz-grid"><div>' +
       '<section class="ctz-card"><h2>Productos</h2><label for="ctz-buscar">Agregar producto</label><input id="ctz-buscar" type="search" placeholder="Busca por nombre, marca o modelo" autocomplete="off"><div id="ctz-sug"></div><div id="ctz-items" style="margin-top:10px"></div></section>' +
-      '<section class="ctz-card"><h2>Tus datos</h2><div class="ctz-campos">' + campo('nombre', 'Nombre de contacto', 'text', { auto: 'name' }) + campo('email', 'Correo', 'email', { auto: 'email' }) + campo('telefono', 'Teléfono', 'tel', { auto: 'tel', ph: '+56 9 ...' }) + '</div></section>' +
+      '<section class="ctz-card"><h2>Tus datos</h2><div class="ctz-campos">' + campo('nombre', 'Nombre de contacto', 'text', { auto: 'name' }) + campo('email', 'Correo', 'email', { auto: 'email' }) + campo('telefono', 'Teléfono', 'tel', { auto: 'tel', ph: '+56 9 ...' }) + '</div><div id="ctz-perfil"></div></section>' +
       '<section class="ctz-card"><h2>Datos de facturación</h2><div class="ctz-campos">' + campo('rut', 'RUT empresa', 'text', { ph: '76.123.456-7' }) + campo('razon', 'Razón social', 'text') + campo('giro', 'Giro', 'text', { ancho: true }) + '</div></section>' +
       '<section class="ctz-card"><h2>Dirección de despacho</h2><div class="ctz-campos">' + selectRegion() + selectComuna() + campo('calle', 'Calle y número', 'text', { ancho: true, auto: 'address-line1' }) + '</div></section>' +
       '<section class="ctz-card"><h2>Método de envío</h2><div id="ctz-envio"></div></section>' +
@@ -133,7 +133,7 @@
       '<p class="ctz-sub" style="font-size:12px;margin:6px 0 0">El medio de pago definitivo se elige al pagar.</p></section>' +
       (mis.length ? '<section class="ctz-card"><h2>Mis cotizaciones en este navegador</h2><ul class="ctz-mis">' + mis.map(function (m) { return '<li><a href="?t=' + encodeURIComponent(m.token) + '">N° ' + esc(m.numero) + '</a><span>' + clp(m.total) + ' · vence ' + esc(fecha(m.vence)) + '</span></li>'; }).join('') + '</ul></section>' : '') +
       '</div><aside><div class="ctz-card resumen" id="ctz-resumen"></div></aside></div>';
-    pintarItems(); pintarEnvio(); pintarResumen();
+    pintarItems(); pintarEnvio(); pintarResumen(); pintarPerfil();
   }
 
   function pintarVista() {
@@ -156,6 +156,52 @@
       '<p style="text-align:center;margin:6px 0 0"><a href="/pages/cotizar">Hacer otra cotización</a></p></div></aside></div>';
   }
 
+  // ───── Autocompletar con código al correo ─────
+  function sinTildes(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim(); }
+  function formatoRut(r) { var s = rutLimpio(r); return s.length < 2 ? String(r || '') : s.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + '-' + s.slice(-1); }
+  function pintarPerfil() {
+    var el = document.getElementById('ctz-perfil'); if (!el) return;
+    var p = estado.perfil, h = '';
+    if (estado.autocompletado) {
+      h = '<div class="ctz-aviso"><b>Completamos tus datos con tu ' + esc(estado.autocompletado) + '.</b> Revísalos con calma antes de generar la cotización: si algo cambió, corrígelo.' +
+        '<label style="display:flex;gap:8px;align-items:center;margin:10px 0 0;font-weight:600"><input type="checkbox" id="ctz-revisado" data-revisado' + (estado.revisado ? ' checked' : '') + '> Revisé que mis datos están correctos</label>' +
+        (estado.errores.revisado ? '<div class="ctz-error">' + esc(estado.errores.revisado) + '</div>' : '') + '</div>';
+    } else if (p.fase === 'codigo') {
+      h = '<div class="ctz-aviso">' + esc(p.msg) + '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center"><input id="ctz-codigo" type="text" inputmode="numeric" maxlength="6" placeholder="Código de 6 dígitos" style="max-width:200px" autocomplete="one-time-code"><button type="button" class="ctz-btn" id="ctz-perfil-verificar" style="width:auto">Verificar</button></div>' +
+        (p.error ? '<div class="ctz-error">' + esc(p.error) + '</div>' : '') + '</div>';
+    } else {
+      h = '<p style="margin:12px 0 0;font-size:13px">¿Ya compraste o cotizaste antes? <button type="button" class="ctz-link" id="ctz-perfil-pedir">Autocompleta mis datos con un código a mi correo</button></p>' + (p.error ? '<div class="ctz-error">' + esc(p.error) + '</div>' : '');
+    }
+    el.innerHTML = h;
+  }
+  function pedirPerfil() {
+    var email = String(estado.f.email || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { estado.perfil = { fase: '', msg: '', error: 'Escribe primero tu correo arriba.' }; return pintarPerfil(); }
+    api('/cotizacion', { accion: 'perfil_solicitar', email: email }).then(function (r) {
+      estado.perfil = r.error ? { fase: '', msg: '', error: r.error } : { fase: 'codigo', msg: r.mensaje, error: '' };
+      pintarPerfil();
+    });
+  }
+  function verificarPerfil() {
+    var cod = (document.getElementById('ctz-codigo') || {}).value || '';
+    api('/cotizacion', { accion: 'perfil_verificar', email: String(estado.f.email || '').trim(), codigo: cod }).then(function (r) {
+      if (!r.perfil) { estado.perfil.error = r.error || 'No pudimos verificar el código.'; return pintarPerfil(); }
+      aplicarPerfil(r.perfil);
+    });
+  }
+  function aplicarPerfil(p) {
+    var f = estado.f;
+    if (p.nombre) f.nombre = p.nombre; if (p.telefono) f.telefono = p.telefono; if (p.rut) f.rut = formatoRut(p.rut);
+    if (p.razon_social) f.razon = p.razon_social; if (p.giro) f.giro = p.giro; if (p.calle) f.calle = p.calle;
+    var rn = sinTildes(p.region);
+    var reg = (estado.comunas || []).filter(function (r) { var n = sinTildes(r.nombre); return rn && (n === rn || n.indexOf(rn) >= 0 || rn.indexOf(n) >= 0); })[0];
+    if (reg) { f.region = reg.codigo; var cn = sinTildes(p.comuna); f.comuna = reg.comunas.filter(function (c) { return sinTildes(c) === cn; })[0] || ''; }
+    estado.autocompletado = p.origen || 'historial'; estado.revisado = false; estado.errores = {}; estado.error = '';
+    estado.envio = { opciones: [], sel: null, cargando: false, error: '' }; estado.perfil = { fase: '', msg: '', error: '' };
+    pintarCrear();
+    if (f.region && f.comuna) pedirEnvio();
+  }
+
   // ───── Acciones ─────
   function validar() {
     var f = estado.f, e = {};
@@ -170,6 +216,7 @@
     if (!f.comuna) e.comuna = 'Elige la comuna.';
     if (String(f.calle || '').trim().length < 4) e.calle = 'Indica calle y número.';
     if (!estado.envio.sel) e.envio = 'Elige un método de envío.';
+    if (estado.autocompletado && !estado.revisado) e.revisado = 'Confirma que revisaste tus datos antes de continuar.';
     estado.errores = e;
     return !Object.keys(e).length;
   }
@@ -224,6 +271,7 @@
     if (t.dataset.campo === 'region') { estado.f.region = t.value; estado.f.comuna = ''; delete estado.errores.region; estado.envio = { opciones: [], sel: null, cargando: false, error: '' }; var rr = document.getElementById('ctz-comuna'); if (rr) { var r = estado.comunas.filter(function (x) { return x.codigo === t.value; })[0]; rr.innerHTML = '<option value="">Elige comuna</option>' + (r ? r.comunas.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('') : ''); rr.disabled = !r; } pintarEnvio(); }
     else if (t.dataset.campo === 'comuna') { estado.f.comuna = t.value; delete estado.errores.comuna; pedirEnvio(); }
     else if (t.dataset.envio !== undefined) { estado.envio.sel = estado.envio.opciones[Number(t.dataset.envio)]; delete estado.errores.envio; pintarEnvio(); pintarResumen(); }
+    else if (t.dataset.revisado !== undefined) { estado.revisado = t.checked; if (t.checked) delete estado.errores.revisado; pintarPerfil(); }
     else if (t.dataset.metodo) { estado.f.metodo = t.dataset.metodo; Array.prototype.forEach.call(raiz.querySelectorAll('input[name=ctz-metodo]'), function (x) { x.closest('.ctz-opcion').classList.toggle('sel', x.checked); }); }
     else if (t.dataset.variante !== undefined) {
       var it = estado.items[Number(t.dataset.variante)], v = it.variantes.filter(function (x) { return String(x.id) === t.value; })[0];
@@ -234,6 +282,8 @@
   raiz.addEventListener('click', function (ev) {
     var t = ev.target.closest('button, a'); if (!t) return;
     if (t.id === 'ctz-enviar') return enviar();
+    if (t.id === 'ctz-perfil-pedir') return pedirPerfil();
+    if (t.id === 'ctz-perfil-verificar') return verificarPerfil();
     if (t.id === 'ctz-comprar') return comprar(false);
     if (t.id === 'ctz-aceptar') return comprar(true);
     var d = t.dataset || {};

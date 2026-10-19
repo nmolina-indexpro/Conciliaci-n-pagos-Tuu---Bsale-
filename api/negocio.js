@@ -30,7 +30,7 @@ import { calcularControlEjecutivos, aplicarFirmas, detectarFirmaEnTexto, claveUs
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
-import { asegurarTablaCotizacionesWeb, crearCotizacion, verCotizacion, comprarCotizacion, leerConfig as leerConfigCotizacionWeb, guardarConfig as guardarConfigCotizacionWeb, estadoEfectivo as estadoCotizacionWeb } from '../lib/cotizacion-web.js';
+import { asegurarTablaCotizacionesWeb, crearCotizacion, verCotizacion, comprarCotizacion, solicitarPerfil as solicitarPerfilCotizacionWeb, verificarPerfil as verificarPerfilCotizacionWeb, leerConfig as leerConfigCotizacionWeb, guardarConfig as guardarConfigCotizacionWeb, estadoEfectivo as estadoCotizacionWeb } from '../lib/cotizacion-web.js';
 import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, productosConEtiqueta, estadoDescuentoEnvio, crearDescuentoEnvioGratis } from '../lib/envio-gratis-shopify.js';
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
@@ -8564,6 +8564,8 @@ async function manejarCotizacionWeb(req, res) {
     if (b.accion === 'crear') r = await crearCotizacion(deps, b);
     else if (b.accion === 'ver') r = await verCotizacion(deps, b.token);
     else if (b.accion === 'comprar') r = await comprarCotizacion(deps, b.token, b.acepta === true);
+    else if (b.accion === 'perfil_solicitar') r = await solicitarPerfilCotizacionWeb(deps, b);
+    else if (b.accion === 'perfil_verificar') r = await verificarPerfilCotizacionWeb(deps, b);
     else return res.status(400).json({ error: 'Acción no válida' });
     if (r.interno) console.error('cotizacion-web:', JSON.stringify(r.interno));
     const { status, interno, ...cuerpo } = r;
