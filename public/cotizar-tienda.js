@@ -4,6 +4,16 @@
 (function () {
   var WORKER = 'https://indexstore-buscador-ia.nmolina.workers.dev';
   var raiz = document.getElementById('ctz');
+  // El tema pone el título "Cotizar" de la página encima del formulario y deja un margen grande: la propia página ya trae su título,
+  // así que se oculta el del tema y se acorta el espacio de arriba.
+  (function () {
+    try {
+      var hs = document.querySelectorAll('h1.page-title, main h1');
+      for (var i = 0; i < hs.length; i++) if (!raiz.contains(hs[i]) && /^\s*cotizar\s*$/i.test(hs[i].textContent)) hs[i].style.display = 'none';
+      var sec = raiz.closest('.block-section');
+      if (sec) { sec.style.marginTop = '8px'; sec.style.marginBottom = '40px'; }
+    } catch (e) {}
+  })();
   // El tema envuelve las páginas en contenedores angostos: se les quita el tope de ancho para que el formulario use el espacio de la pantalla.
   (function () { var n = raiz.parentElement, i = 0; while (n && n !== document.body && i++ < 8) { if (n.tagName !== 'MAIN' || true) { n.style.maxWidth = 'none'; n.style.width = '100%'; } n = n.parentElement; } })();
   var LS = 'ctz_mis_cotizaciones';
