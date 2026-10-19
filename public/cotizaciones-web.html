@@ -47,6 +47,9 @@
   th.amount, td.amount{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;white-space:nowrap;}
   .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;display:inline-block;}
   .badge.verde{background:var(--green-bg);color:var(--green);} .badge.gris{background:var(--surface-2);color:var(--muted);} .badge.azul{background:var(--blue-bg);color:var(--blue);} .badge.rojo{background:var(--red-bg);color:var(--red);}
+  .badge.amarillo{background:#fff4d6;color:#7a5200;}
+  .btn-pago{font:inherit;font-size:12px;padding:4px 10px;border-radius:8px;border:1px solid var(--border,#cbd5e1);background:var(--surface,#fff);color:inherit;cursor:pointer;margin-top:4px;}
+  .btn-pago:hover{border-color:var(--blue,#2563eb);}
   .vacio{color:var(--muted);font-size:12.5px;padding:10px 0;}
   small{color:var(--muted);}
   html.embebido body{padding-top:0;}
@@ -70,6 +73,17 @@
   <div id="msg" style="margin-top:10px"></div>
 </div>
 
+<div class="seccion">
+  <h2>Pago por transferencia</h2>
+  <p class="sub" style="margin:2px 0 0">Si completas los datos bancarios, la cotización le ofrece al cliente «Generar compra por transferencia»: ve estos datos y sube su comprobante. Vacío = la opción no se ofrece. El aviso al equipo no incluye montos.</p>
+  <div class="fila">
+    <div style="flex:1;min-width:260px"><label for="datos-transf">Datos bancarios (se muestran tal cual, una línea por dato)</label><textarea id="datos-transf" rows="5" placeholder="Banco BCI&#10;Cuenta corriente N° …&#10;SERVICIOS INFORMATICOS INDEXPRO LIMITADA&#10;RUT 76.200.548-4&#10;Correo de pagos: …"></textarea></div>
+    <div style="flex:1;min-width:260px"><label for="correos-aviso">Correos que reciben el aviso «comprobante por revisar»</label><textarea id="correos-aviso" rows="2" placeholder="ventas@indexstore.cl"></textarea></div>
+    <div><button id="guardar-transf" type="button">Guardar</button></div>
+  </div>
+  <div id="msg-transf" style="margin-top:10px"></div>
+</div>
+
 <div class="kpis" id="kpis"></div>
 
 <div class="seccion">
@@ -89,15 +103,37 @@ if (/[?&]embed=1/.test(location.search)) $('volver').style.display = 'none';
 function pintar(d) {
   $('estado').value = d.config.estado;
   if (document.activeElement !== $('correos')) $('correos').value = d.config.correos.join(', ');
+  if (document.activeElement !== $('datos-transf')) $('datos-transf').value = d.config.datos_transferencia || '';
+  if (document.activeElement !== $('correos-aviso')) $('correos-aviso').value = (d.config.correos_aviso || []).join(', ');
   const c = d.cotizaciones;
-  const vig = c.filter(x => x.estado === 'vigente').length, venc = c.filter(x => x.estado === 'vencida').length, pago = c.filter(x => x.pago_iniciado_en).length;
-  $('kpis').innerHTML = [['Creadas', c.length], ['Vigentes', vig], ['Vencidas', venc], ['Con pago iniciado', pago]].map(([l, v]) => `<div class="kpi"><div class="lbl">${l}</div><div class="big">${fmt(v)}</div></div>`).join('');
+  const vig = c.filter(x => x.estado === 'vigente').length, venc = c.filter(x => x.estado === 'vencida').length, pago = c.filter(x => x.pago_iniciado_en).length, porRevisar = c.filter(x => x.pago === 'comprobante').length;
+  $('kpis').innerHTML = [['Creadas', c.length], ['Vigentes', vig], ['Vencidas', venc], ['Con pago iniciado', pago], ['Comprobantes por revisar', porRevisar]].map(([l, v]) => `<div class="kpi"><div class="lbl">${l}</div><div class="big">${fmt(v)}</div></div>`).join('');
   if (!c.length) { $('tabla').innerHTML = '<tbody><tr><td class="vacio">Todavía no hay cotizaciones.</td></tr></tbody>'; return; }
   const badge = e => ({ vigente: 'verde', vencida: 'gris', comprada: 'azul', anulada: 'rojo' }[e] || 'gris');
-  $('tabla').innerHTML = '<thead><tr><th>N° Bsale</th><th>Creada</th><th>Cliente</th><th>Productos</th><th>Comuna</th><th class="amount">Total</th><th>Estado</th><th>Vence</th><th>Pago iniciado</th><th>Correo</th><th>Vistas</th></tr></thead><tbody>' +
+  $('tabla').innerHTML = '<thead><tr><th>N° Bsale</th><th>Creada</th><th>Cliente</th><th>Productos</th><th>Comuna</th><th class="amount">Total</th><th>Estado</th><th>Vence</th><th>Pago iniciado</th><th>Pago por transferencia</th><th>Correo</th><th>Vistas</th></tr></thead><tbody>' +
     c.map(x => `<tr><td>${x.bsale_url ? `<a href="${esc(x.bsale_url)}" target="_blank" rel="noopener">${esc(x.bsale_numero)}</a>` : esc(x.bsale_numero)}</td><td>${fh(x.creado_en)}</td><td>${esc(x.razon_social)}<br><small>${esc(x.nombre)} · ${esc(x.email)}</small></td>` +
-      `<td>${x.items.map(i => `${i.cantidad} × ${esc(i.titulo)}`).join('<br>')}</td><td>${esc(x.comuna)}<br><small>${esc(x.envio_nombre)}</small></td><td class="amount">$${fmt(x.total)}</td><td><span class="badge ${badge(x.estado)}">${esc(x.estado)}</span></td><td>${fh(x.vence_en)}</td><td>${fh(x.pago_iniciado_en)}</td><td>${x.correo_enviado ? '✓' : '<span class="badge rojo">No salió</span>'}</td><td class="amount">${x.vistas}</td></tr>`).join('') + '</tbody>';
+      `<td>${x.items.map(i => `${i.cantidad} × ${esc(i.titulo)}`).join('<br>')}</td><td>${esc(x.comuna)}<br><small>${esc(x.envio_nombre)}</small></td><td class="amount">$${fmt(x.total)}</td><td><span class="badge ${badge(x.estado)}">${esc(x.estado)}</span></td><td>${fh(x.vence_en)}</td><td>${fh(x.pago_iniciado_en)}</td><td>${celdaPago(x)}</td><td>${x.correo_enviado ? '✓' : '<span class="badge rojo">No salió</span>'}</td><td class="amount">${x.vistas}</td></tr>`).join('') + '</tbody>';
 }
+function celdaPago(x) {
+  const p = x.pago || '';
+  if (!p) return '<span class="sub">—</span>';
+  const ver = x.tiene_comprobante ? `<a href="/api/negocio?recurso=cotizacion-web-admin&comprobante=${x.id}" target="_blank" rel="noopener">Ver comprobante</a>` : '';
+  if (p === 'transferencia') return '<span class="badge gris">Esperando comprobante</span>';
+  if (p === 'comprobante') return `<span class="badge amarillo">Por revisar</span><br><small>${fh(x.comprobante_en)}</small><br>${ver}<br><button type="button" class="btn-pago" data-id="${x.id}" data-dec="aprobar">Aprobar</button> <button type="button" class="btn-pago" data-id="${x.id}" data-dec="rechazar">Rechazar</button>`;
+  if (p === 'aprobado') return `<span class="badge verde">Aprobado</span><br><small>${esc(x.pago_revisado_por || '')} · ${fh(x.pago_revisado_en)}</small><br>${ver}<br><small>Falta emitir la factura</small>`;
+  if (p === 'rechazado') return `<span class="badge rojo">Rechazado</span><br><small>${esc(x.pago_motivo || '')}</small><br>${ver}`;
+  return esc(p);
+}
+document.addEventListener('click', async ev => {
+  const b = ev.target.closest('.btn-pago'); if (!b) return;
+  const aprobar = b.dataset.dec === 'aprobar';
+  let motivo = '';
+  if (aprobar) { if (!confirm('¿Confirmas que la transferencia llegó al banco y que el monto es correcto? Se le avisará al cliente.')) return; }
+  else { motivo = prompt('Motivo del rechazo (el cliente lo verá en su correo y en la cotización):'); if (!motivo) return; }
+  b.disabled = true;
+  const d = await cargar({ revisar: b.dataset.dec, id: Number(b.dataset.id), motivo });
+  if (d) $('msg').innerHTML = '<div class="nota ok">' + (aprobar ? 'Pago aprobado y cliente avisado.' : 'Comprobante rechazado y cliente avisado.') + '</div>';
+});
 async function cargar(cuerpo) {
   try {
     const r = await fetch('/api/negocio?recurso=cotizacion-web-admin', cuerpo ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) } : undefined);
@@ -111,6 +147,12 @@ $('guardar').addEventListener('click', async () => {
   const d = await cargar({ estado: $('estado').value, correos: $('correos').value });
   if (d) $('msg').innerHTML = '<div class="nota ok">Guardado.</div>';
   $('guardar').disabled = false;
+});
+$('guardar-transf').addEventListener('click', async () => {
+  $('guardar-transf').disabled = true;
+  const d = await cargar({ datos_transferencia: $('datos-transf').value, correos_aviso: $('correos-aviso').value });
+  $('msg-transf').innerHTML = d ? '<div class="nota ok">Guardado.</div>' : '';
+  $('guardar-transf').disabled = false;
 });
 cargar();
 </script>

@@ -30,7 +30,7 @@ import { calcularControlEjecutivos, aplicarFirmas, detectarFirmaEnTexto, claveUs
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
 import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
-import { asegurarTablaCotizacionesWeb, crearCotizacion, verCotizacion, comprarCotizacion, solicitarPerfil as solicitarPerfilCotizacionWeb, verificarPerfil as verificarPerfilCotizacionWeb, leerConfig as leerConfigCotizacionWeb, guardarConfig as guardarConfigCotizacionWeb, estadoEfectivo as estadoCotizacionWeb } from '../lib/cotizacion-web.js';
+import { asegurarTablaCotizacionesWeb, crearCotizacion, verCotizacion, comprarCotizacion, transferenciaCotizacion, subirComprobante as subirComprobanteCotizacionWeb, revisarComprobante as revisarComprobanteCotizacionWeb, solicitarPerfil as solicitarPerfilCotizacionWeb, verificarPerfil as verificarPerfilCotizacionWeb, leerConfig as leerConfigCotizacionWeb, guardarConfig as guardarConfigCotizacionWeb, estadoEfectivo as estadoCotizacionWeb } from '../lib/cotizacion-web.js';
 import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, productosConEtiqueta, estadoDescuentoEnvio, crearDescuentoEnvioGratis } from '../lib/envio-gratis-shopify.js';
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
@@ -8564,6 +8564,8 @@ async function manejarCotizacionWeb(req, res) {
     if (b.accion === 'crear') r = await crearCotizacion(deps, b);
     else if (b.accion === 'ver') r = await verCotizacion(deps, b.token);
     else if (b.accion === 'comprar') r = await comprarCotizacion(deps, b.token, b.acepta === true);
+    else if (b.accion === 'transferencia') r = await transferenciaCotizacion(deps, b.token, b.acepta === true);
+    else if (b.accion === 'comprobante') r = await subirComprobanteCotizacionWeb(deps, b);
     else if (b.accion === 'perfil_solicitar') r = await solicitarPerfilCotizacionWeb(deps, b);
     else if (b.accion === 'perfil_verificar') r = await verificarPerfilCotizacionWeb(deps, b);
     else return res.status(400).json({ error: 'Acción no válida' });
@@ -8581,11 +8583,30 @@ async function manejarCotizacionWebAdmin(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaCotizacionesWeb(sql);
+    if (req.method === 'GET' && req.query && req.query.comprobante) { // descarga del comprobante (cualquier usuario con acceso a la página)
+      const { rows } = await sql.query('SELECT comprobante, comprobante_tipo, comprobante_nombre FROM cotizaciones_web WHERE id = $1', [Number(req.query.comprobante) || 0]);
+      const c = rows[0];
+      if (!c || !c.comprobante) return res.status(404).json({ error: 'Esa cotización no tiene comprobante' });
+      res.setHeader('Content-Type', c.comprobante_tipo || 'application/octet-stream');
+      res.setHeader('Content-Disposition', 'inline; filename="' + String(c.comprobante_nombre || 'comprobante').replace(/[^\w.\-]+/g, '_') + '"');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      if (c.comprobante_tipo !== 'application/pdf') res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox");
+      res.setHeader('Cache-Control', 'private, no-store');
+      return res.status(200).send(Buffer.from(c.comprobante));
+    }
     if (req.method === 'POST') {
-      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores pueden cambiar quién puede cotizar' });
-      await guardarConfigCotizacionWeb(sql, { estado: req.body && req.body.estado, correos: req.body && req.body.correos });
+      const b = req.body || {};
+      if (b.revisar) { // aprobar o rechazar un comprobante
+        if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores pueden aprobar o rechazar un pago' });
+        const deps = { sql, enviarCorreo };
+        const r = await revisarComprobanteCotizacionWeb(deps, { id: b.id, decision: b.revisar, motivo: b.motivo, usuario: sesion.nombre || sesion.email });
+        if (r.error) return res.status(200).json({ error: r.error });
+      } else {
+        if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores pueden cambiar la configuración de cotizaciones' });
+        await guardarConfigCotizacionWeb(sql, { estado: b.estado, correos: b.correos, datos_transferencia: b.datos_transferencia, correos_aviso: b.correos_aviso });
+      }
     } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-    const { rows } = await sql.query(`SELECT id, estado, bsale_numero, bsale_url, email, nombre, telefono, rut, razon_social, comuna, metodo_pago, envio_nombre, envio_precio, total, correo_enviado, creado_en, vence_en, pago_iniciado_en, vistas, items FROM cotizaciones_web ORDER BY creado_en DESC LIMIT 200`);
+    const { rows } = await sql.query(`SELECT id, estado, bsale_numero, bsale_url, email, nombre, telefono, rut, razon_social, comuna, metodo_pago, envio_nombre, envio_precio, total, correo_enviado, creado_en, vence_en, pago_iniciado_en, vistas, items, pago, comprobante_nombre, comprobante_tipo, comprobante_en, pago_revisado_por, pago_revisado_en, pago_motivo, (comprobante IS NOT NULL) AS tiene_comprobante FROM cotizaciones_web ORDER BY creado_en DESC LIMIT 200`);
     return res.status(200).json({
       config: await leerConfigCotizacionWeb(sql),
       cotizaciones: rows.map(f => ({ ...f, estado: estadoCotizacionWeb(f), items: (f.items || []).map(l => ({ sku: l.sku, titulo: l.titulo, cantidad: l.cantidad })) })),
