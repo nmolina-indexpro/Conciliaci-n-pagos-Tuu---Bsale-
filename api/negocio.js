@@ -39,6 +39,7 @@ import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from 
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
 import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas } from '../lib/db.js';
+import { referenciaDesdeMensaje } from '../lib/whatsapp-referencia.js';
 import { armarCorreoModelosPendientes } from '../lib/compat-recordatorio.js';
 import { resolverEntradaProducto, datosProductoIdentificado, columnaCompatibilidad } from '../lib/compat-propuestas.js';
 import { analizarGoogleAds, validarRango as validarRangoGoogleAds } from '../lib/google-ads-analisis.js';
@@ -6554,12 +6555,15 @@ async function manejarWhatsappWebhook(req, res) {
           // (nunca pisa un origen ya registrado con un mensaje posterior
           // que no lo traiga).
           if (m.referral) {
+            const refMeta = referenciaDesdeMensaje(m);
             await sql`
               UPDATE whatsapp_conversaciones SET
                 fuente_tipo = COALESCE(fuente_tipo, ${m.referral.source_type || 'ad'}),
                 fuente_titulo = COALESCE(fuente_titulo, ${m.referral.headline || null}),
                 fuente_url = COALESCE(fuente_url, ${m.referral.source_url || null}),
-                fuente_id = COALESCE(fuente_id, ${m.referral.source_id || m.referral.ctwa_clid || null})
+                fuente_id = COALESCE(fuente_id, ${m.referral.source_id || m.referral.ctwa_clid || null}),
+                fuente_clid = COALESCE(fuente_clid, ${refMeta ? refMeta.clid : null}),
+                fuente_ref = COALESCE(fuente_ref, ${refMeta ? refMeta.ref : null})
               WHERE id = ${conversacion.id};
             `;
           }
@@ -7312,7 +7316,7 @@ function armarFiltrosConversacionesWhatsapp(query, sesion) {
     const condId = Number.isInteger(idNum) ? ` OR c.id = ${p(idNum)}` : '';
     cond.push(`(
       ct.nombre ILIKE ${qParam} OR ct.telefono ILIKE ${qParam} OR c.producto ILIKE ${qParam}
-      OR c.marca ILIKE ${qParam} OR c.modelo ILIKE ${qParam} OR c.pedido_asociado ILIKE ${qParam}
+      OR c.marca ILIKE ${qParam} OR c.modelo ILIKE ${qParam} OR c.pedido_asociado ILIKE ${qParam} OR c.fuente_ref ILIKE ${qParam}
       OR EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.contenido_texto ILIKE ${qParam})
       ${condId}
     )`);
@@ -7386,7 +7390,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
            c.responsable_id, c.vendedor_detectado, c.campos_editados_manualmente,
            c.shopify_producto_url, c.shopify_producto_titulo, c.shopify_producto_confianza,
            c.bsale_documento_numero, c.bsale_documento_tipo, c.bsale_documento_monto, c.bsale_documento_fecha, c.bsale_documento_url,
-           c.fuente_tipo, c.fuente_titulo, c.fuente_url, c.fuente_id, c.fuente_utm_source,
+           c.fuente_tipo, c.fuente_titulo, c.fuente_url, c.fuente_id, c.fuente_ref, c.fuente_utm_source,
            c.shopify_journey_fuente, c.shopify_journey_medio, c.shopify_journey_campana, c.shopify_journey_landing_page,
            ${sqlOrigenGoogleAds('c')} AS ads_origen,
            ct.nombre AS cliente_nombre, ct.telefono AS cliente_telefono,
@@ -7557,6 +7561,7 @@ function mapearConversacionWhatsapp(r) {
     fuenteTitulo: r.fuente_titulo,
     fuenteUrl: r.fuente_url,
     fuenteId: r.fuente_id,
+    fuenteRef: r.fuente_ref || null, // número de referencia de las conversaciones que llegan desde Meta (M-XXXXXX)
     fuenteUtmSource: r.fuente_utm_source,
     // Origen medido de Google Ads (toque con código vinculado a esta conversación): campaña, tipo, grupo, palabra clave, red, hora del toque.
     googleAds: r.ads_origen || null,
