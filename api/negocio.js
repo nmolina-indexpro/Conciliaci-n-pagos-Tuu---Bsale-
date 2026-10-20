@@ -10388,12 +10388,13 @@ const WHATSAPP_VENDEDORES = ['Stefanie', 'David', 'Nathalia', 'Fernando', 'Nicol
 // Email real de la cuenta ERP de cada vendedor (dado por el usuario) --
 // ver ejecutarAnalisisIA, evita depender de que el nombre "oficial" de
 // arriba (el que la IA está obligada a usar) calce por texto con el
-// nombre guardado en la cuenta. Los que faltan acá (Fernando/Nicolas)
-// siguen resolviéndose por nombre mientras no se sepa su email.
+// nombre guardado en la cuenta. Fernando sigue resolviéndose por nombre mientras no se sepa su email.
+// Nicolás se incorporó como ejecutivo de WhatsApp el 16-oct-2026; si su cuenta no usa ese correo, igual se encuentra por el nombre.
 const WHATSAPP_VENDEDORES_EMAIL = {
   Stefanie: 'snunez@indexstore.cl',
   David: 'dtorres@indexstore.cl',
   Nathalia: 'nathalia@indexstore.cl',
+  Nicolas: 'nmolina@indexstore.cl',
 };
 
 // Series/líneas reales de notebooks por marca -- ayuda a la IA a leer bien
@@ -11617,7 +11618,7 @@ async function manejarWhatsappActualizarVentasBsale(req, res, sesion) {
 // ══════════════════════════════════════════════════════════════════════
 // Analítica de WhatsApp por ejecutivo -- pedido del usuario
 // ══════════════════════════════════════════════════════════════════════
-// Cuatro indicadores por ejecutivo (David, Stephanie, Nathalia, Fernando),
+// Cuatro indicadores por ejecutivo (David, Stephanie, Nathalia, Fernando y Nicolás, que se suma desde el 16-oct-2026),
 // derivados de las 2 variables reales que SÍ se pueden saber de cada
 // conversación: quién la tiene asignada (responsable_id) y, cruzando esas
 // dos preguntas (quién escribió el PRIMER mensaje de la conversación,
@@ -11639,7 +11640,7 @@ async function manejarWhatsappActualizarVentasBsale(req, res, sesion) {
 // por nombre detectado con IA en la firma -- ver WHATSAPP_VENDEDORES_EMAIL
 // más abajo en este archivo) -- un ejecutivo que responde desde su
 // celular sin que la IA detecte su firma puede quedar sin asignar.
-const WHATSAPP_EJECUTIVOS_REPORTE = ['Stefanie', 'David', 'Nathalia', 'Fernando'];
+const WHATSAPP_EJECUTIVOS_REPORTE = ['Stefanie', 'David', 'Nathalia', 'Fernando', 'Nicolas'];
 
 async function calcularWhatsappAnaliticaEjecutivos(sql, desde, hasta) {
   const { rows: usuariosActivos } = await sql`SELECT id, nombre, email FROM usuarios WHERE activo = true;`;
@@ -11781,8 +11782,8 @@ async function manejarWhatsappAnaliticaEjecutivos(req, res, sesion) {
 }
 
 // "Recontacta" del correo diario: seguimientos sin respuesta que mandó cada ejecutivo en el período (ver lib/whatsapp-seguimientos.js para la regla).
-// Solo se cuentan David, Stephanie y Nathalia. Se atribuye por usuario verificado del ERP o, si no, por la firma del texto (aplicarFirmas).
-const WHATSAPP_EJECUTIVOS_SEGUIMIENTO = ['Stefanie', 'David', 'Nathalia'];
+// Solo se cuentan David, Stephanie, Nathalia y Nicolás (desde el 16-oct-2026). Se atribuye por usuario verificado del ERP o, si no, por la firma del texto (aplicarFirmas).
+const WHATSAPP_EJECUTIVOS_SEGUIMIENTO = ['Stefanie', 'David', 'Nathalia', 'Nicolas'];
 async function calcularSeguimientosWhatsapp(sql, desdeTs, hastaTs) {
   const { rows: usuariosActivos } = await sql`SELECT id, nombre, email FROM usuarios WHERE activo = true ORDER BY nombre ASC;`;
   const { ejecutivosFirma } = construirRosterEjecutivos(usuariosActivos);
@@ -11880,7 +11881,7 @@ async function manejarWhatsappEjecutivosNotificarDiario(req, res) {
     );
     const { ejecutivos, sinAsignar, reasignadasPorFirma } = await calcularWhatsappAnaliticaEjecutivos(sql, rangoRows[0].desde_ts, rangoRows[0].hasta_ts);
 
-    // "Recontacta": seguimientos sin respuesta por ejecutivo (solo David, Stephanie y Nathalia)
+    // "Recontacta": seguimientos sin respuesta por ejecutivo (David, Stephanie, Nathalia y Nicolás)
     let seguimientos = null;
     try {
       seguimientos = await calcularSeguimientosWhatsapp(sql, rangoRows[0].desde_ts, rangoRows[0].hasta_ts);
