@@ -37,6 +37,7 @@ import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from 
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
 import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas } from '../lib/db.js';
+import { armarCorreoModelosPendientes } from '../lib/compat-recordatorio.js';
 import { resolverEntradaProducto, datosProductoIdentificado, columnaCompatibilidad } from '../lib/compat-propuestas.js';
 import { analizarGoogleAds, validarRango as validarRangoGoogleAds } from '../lib/google-ads-analisis.js';
 import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
@@ -130,6 +131,9 @@ export default async function handler(req, res) {
   // Cron semanal (domingo) del resumen de Google Ads. Ver vercel.json,
   // middleware.ts (esGoogleAdsResumenSemanalPublico) y lib/google-ads-resumen.js.
   if (req.query.recurso === 'google-ads-resumen-semanal') return manejarGoogleAdsResumenSemanal(req, res);
+  // Cron semanal (lunes) del recordatorio de propuestas de Modelos compatibles sin aprobar. Ver vercel.json, middleware.ts
+  // (esModelosCompatiblesRecordatorioPublico) y lib/compat-recordatorio.js.
+  if (req.query.recurso === 'modelos-compatibles-recordatorio') return manejarModelosCompatiblesRecordatorio(req, res);
   if (req.query.recurso === 'resumen-cambios-enviar') return manejarResumenCambiosEnviar(req, res);
   if (req.query.recurso === 'resumen-cambios-recordatorio') return manejarResumenCambiosRecordatorio(req, res);
   if (req.query.recurso === 'mercadolibre-sync') return manejarMercadoLibreSyncCron(req, res);
@@ -4559,6 +4563,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'productos-estancados-flags': manejarProductosEstancadosFlagsNotificar,
       'whatsapp-ejecutivos-diario': manejarWhatsappEjecutivosNotificarDiario,
       'google-ads-resumen-semanal': manejarGoogleAdsResumenSemanal,
+      'modelos-compatibles-pendientes': manejarModelosCompatiblesRecordatorio,
     };
     let r;
     if (tipo === 'resumen-cambios-diario') r = await enviarResumenCambios(sql, { para: destino });
@@ -4716,6 +4721,39 @@ async function manejarGoogleAdsResumenSemanal(req, res) {
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Google Ads', detail: String(err) });
+  }
+}
+
+// Recordatorio semanal (todos los lunes) de las propuestas de "Modelos compatibles" que ya se crearon y siguen sin aprobar ni rechazar -- pedido del
+// usuario. Mismo patrón que los otros correos programados (CRON_SECRET, sin sesión, suscriptores en Usuarios > Notificaciones:
+// TIPOS_NOTIFICACION['modelos-compatibles-pendientes']). Si no hay ninguna pendiente NO se manda nada (no tiene sentido un correo vacío).
+// ?solo_ver=1 devuelve el correo armado sin enviarlo; ?probar=1&para=... lo manda solo a esa persona con [PRUEBA].
+async function manejarModelosCompatiblesRecordatorio(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    await asegurarTablaCompatPropuestas(sql);
+    const soloVer = req.query.solo_ver === '1';
+    if (!soloVer && !esPruebaNotif(req) && !(await notificacionDebeEnviarse(sql, 'modelos-compatibles-pendientes'))) {
+      return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    }
+    const { rows } = await sql`SELECT creado_en, tipo, marca, modelo, sku, titulo, creado_por, veces FROM compat_propuestas WHERE estado = 'pendiente' ORDER BY creado_en ASC;`;
+    if (!rows.length) return res.status(200).json({ ok: true, enviado: false, motivo: 'no hay propuestas de modelos compatibles pendientes de revisión' });
+    const { asunto, html, total, nuevas, antiguas } = armarCorreoModelosPendientes(rows);
+    if (soloVer) return res.status(200).json({ ok: true, enviado: false, asunto, html, total, nuevas, antiguas });
+
+    const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'modelos-compatibles-pendientes');
+    const envios = [];
+    for (const para of destinatarios) {
+      envios.push({ para, ...(await enviarCorreo({ para, asunto: asuntoDePrueba(req, asunto), html })) });
+    }
+    if (envios.length > 0 && !esPruebaNotif(req)) await marcarNotificacionEnviada(sql, 'modelos-compatibles-pendientes', { asunto, html });
+    return res.status(200).json({ ok: true, enviado: envios.length > 0, total, envios });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error armando o enviando el recordatorio de modelos compatibles', detail: String(err.message || err) });
   }
 }
 

@@ -94,6 +94,11 @@ function esWhatsappEjecutivosNotificarDiarioPublico(pathname, searchParams) {
 
 // Cron semanal (domingo) del resumen de Google Ads -- mismo motivo y mismo
 // patrón que los de arriba (la seguridad real es el CRON_SECRET del handler).
+// Cron semanal (lunes) del recordatorio de propuestas de Modelos compatibles sin aprobar -- mismo patrón (la seguridad real es el CRON_SECRET del handler).
+function esModelosCompatiblesRecordatorioPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'modelos-compatibles-recordatorio';
+}
+
 function esGoogleAdsResumenSemanalPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'google-ads-resumen-semanal';
 }
@@ -187,6 +192,7 @@ export default async function middleware(req) {
     esCotizacionesCorreosAnalizarRespuestasPublico(pathname, url.searchParams) ||
     esWhatsappEjecutivosNotificarDiarioPublico(pathname, url.searchParams) ||
     esGoogleAdsResumenSemanalPublico(pathname, url.searchParams) ||
+    esModelosCompatiblesRecordatorioPublico(pathname, url.searchParams) ||
     esIndexscalePixelPublico(pathname, url.searchParams) ||
     esBuscadorIaRegistrarPublico(pathname, url.searchParams) ||
     esAuthRecuperarPasswordPublico(pathname, url.searchParams) ||
