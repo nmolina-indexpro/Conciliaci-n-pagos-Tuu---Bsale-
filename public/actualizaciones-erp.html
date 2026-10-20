@@ -57,6 +57,12 @@
   .tab:hover{color:var(--text);}
   .tab.activa{color:var(--primary);border-bottom-color:var(--primary);}
   .tab .cuenta{background:var(--surface-2);color:var(--muted);border-radius:999px;font-size:10.5px;padding:1px 7px;}
+  .tab .cuenta.aviso{background:#fff1d6;color:#8a5a00;font-weight:700;}
+  .chip-estado{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;white-space:nowrap;}
+  .rel{display:inline-block;min-width:26px;text-align:center;padding:2px 6px;border-radius:8px;font-size:12px;font-weight:800;background:#eef2f9;color:#0b2a5b;}
+  .commits a{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted);margin-right:6px;text-decoration:none;}
+  .commits a:hover{text-decoration:underline;}
+  tr.fila-descartada td{opacity:.55;}
   .tab.activa .cuenta{background:var(--primary-dim);color:var(--primary);}
   .panel{display:none;}
   .panel.activa{display:block;}
@@ -262,6 +268,7 @@
       <h1>Actualizaciones ERP</h1>
       <div class="tabs" id="tabs">
         <button class="tab activa" data-tab="resumen" onclick="cambiarTab('resumen')">✉ Resumen de hoy</button>
+        <button class="tab" data-tab="propuesta" id="tabPropuesta" onclick="cambiarTab('propuesta')">💡 Propuesta del día <span class="cuenta" id="cuentaPropuesta">0</span></button>
         <button class="tab" data-tab="cambios" id="tabCambios" onclick="cambiarTab('cambios')">📝 Cambios <span class="cuenta" id="cuentaCambios">0</span></button>
         <button class="tab" data-tab="bsale" id="tabBsale" onclick="cambiarTab('bsale')">🧾 Bsale (modo sombra)</button>
       </div>
@@ -271,8 +278,24 @@
 
   <!-- ===================== Resumen de hoy ===================== -->
   <section class="panel activa" id="panel-resumen">
-    <div class="sub empty-note" style="margin-bottom:10px;">Resumen de lo que cambió en la tienda, el ERP y el buscador. El correo sale cada día a las 19:00 con el texto que quede guardado para hoy; si no hay texto, no se envía. Quién lo recibe y cada cuánto se define en Usuarios &gt; Notificaciones.</div>
+    <div class="sub empty-note" style="margin-bottom:10px;">Resumen de lo que cambió en la tienda, el ERP y el buscador. El correo sale cada día a las 19:00 con el texto que quede guardado para hoy; si no hay texto, se envían los cambios aprobados en "Propuesta del día", y si tampoco hay, no se envía. Quién lo recibe y cada cuánto se define en Usuarios &gt; Notificaciones.</div>
     <div class="card" style="padding:14px 16px;" id="cardResumen"><p class="empty-note">Cargando...</p></div>
+  </section>
+
+  <!-- ===================== Propuesta del día ===================== -->
+  <section class="panel" id="panel-propuesta">
+    <div class="sub empty-note" style="margin-bottom:10px;">Cada noche (23:30) el sistema revisa lo que se publicó ese día y propone hasta <b>10 cambios relevantes</b>, redactados para el equipo y sin datos financieros. Quedan guardados por fecha. Tú los revisas, los editas si hace falta y los <b>apruebas</b>: los aprobados se envían en el correo diario de cambios del <b>día siguiente</b> (19:00) y pasan al historial de la pestaña Cambios. Si para ese día hay un resumen escrito a mano en "Resumen de hoy", ese texto tiene prioridad.</div>
+    <div class="barra">
+      <select id="fechaPropuesta" onchange="cargarPropuesta(this.value)" title="Día en que se hicieron los cambios"></select>
+      <button class="btn-ghost" id="btnProponer" onclick="proponerAhora()" title="Vuelve a leer los cambios de ese día y rehace los que están por revisar. Lo aprobado o descartado no se toca.">↻ Proponer ahora</button>
+      <span class="espacio"></span>
+      <button class="btn-ghost" onclick="descartarPropuestas()">Descartar seleccionados</button>
+      <button class="btn-ghost" onclick="aprobarPropuestas(false)">✓ Aprobar seleccionados</button>
+      <button class="btn-primary" onclick="aprobarPropuestas(true)">✓ Aprobar todos los por revisar</button>
+    </div>
+    <div class="card"><div class="tabla-wrap" id="wrapPropuesta"><p class="empty-note" style="padding:14px;">Cargando...</p></div></div>
+    <h3 style="font-family:'Space Grotesk',sans-serif;font-size:14px;margin:18px 0 8px;">Propuestas por fecha</h3>
+    <div class="card"><div class="tabla-wrap" id="wrapPropuestaFechas"></div></div>
   </section>
 
   <section class="panel" id="panel-bsale"></section>
@@ -430,9 +453,9 @@ async function cargarSesion(){
     }
     $('navActualizaciones').style.display = '';
     $('navMercadoLibre').style.display = '';
-    await Promise.all([cargarNotificaciones(), cargarCambios()]);
+    await Promise.all([cargarNotificaciones(), cargarCambios(), cargarPropuesta()]);
     const inicial = (location.hash || '').replace('#', '');
-    if(['resumen', 'cambios', 'bsale'].includes(inicial)) cambiarTab(inicial, true);
+    if(['resumen', 'propuesta', 'cambios', 'bsale'].includes(inicial)) cambiarTab(inicial, true);
     // Atrás/Adelante recorren las pestañas por las que se pasó, antes de salir de la página
     Nav.iniciar({
       dimensiones: { tab: { actual: () => (document.querySelector('.tab.activa') || {}).dataset.tab || 'resumen', aplicar: v => cambiarTab(v, true) } },
@@ -669,6 +692,100 @@ function cambiarTab(tab, sinHash){
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('activa', p.id === 'panel-' + tab));
 }
 
+// ---------------- Propuesta del día ----------------
+let propuesta = { hoy: '', fecha: '', fechas: [], items: [], repo: '' };
+const seleccionPropuesta = new Set();
+function mas1(iso){ const d = new Date(iso.slice(0, 10) + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); }
+// Día y hora (Chile) en que saldrá el correo con lo aprobado: el 19:00 siguiente al día del cambio.
+function cuandoSale(fecha){
+  const hoy = hoyISO();
+  const hora = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago', hour: 'numeric', hour12: false })) % 24;
+  let dia = mas1(fecha);
+  if(dia < hoy) dia = hoy;
+  if(dia === hoy && hora >= 19) dia = mas1(hoy);
+  return dia === hoy ? 'hoy 19:00' : (dia === mas1(hoy) ? 'mañana 19:00' : fechaCL(dia) + ' 19:00');
+}
+async function cargarPropuesta(fecha){
+  try{
+    const res = await fetch('/api/negocio?recurso=cambios-propuesta' + (fecha ? '&fecha=' + encodeURIComponent(fecha) : ''));
+    const data = await res.json();
+    if(!res.ok){ $('wrapPropuesta').innerHTML = '<p class="empty-note" style="padding:14px;">' + esc(data.error || 'No se pudo cargar') + '</p>'; return; }
+    propuesta = data; seleccionPropuesta.clear();
+    const c = $('cuentaPropuesta'); c.textContent = data.pendientes || 0; c.classList.toggle('aviso', (data.pendientes || 0) > 0);
+    renderPropuesta();
+  }catch(err){
+    $('wrapPropuesta').innerHTML = '<p class="empty-note" style="padding:14px;">Error: ' + esc(err.message) + '</p>';
+  }
+}
+function chipEstadoPropuesta(it){
+  if(it.aprobacion === 'descartado') return '<span class="chip-estado" style="background:#eceeea;color:#5b6358;">Descartado</span>';
+  if(it.aprobacion === 'aprobado'){
+    return it.enviado_en
+      ? '<span class="chip-estado" style="background:#e3f6ea;color:#12713a;">Enviado el ' + fechaCL(String(it.enviado_en).slice(0, 10)) + '</span>'
+      : '<span class="chip-estado" style="background:#e1effe;color:#0b57d0;">Aprobado · sale ' + cuandoSale(it.fecha) + '</span>';
+  }
+  return '<span class="chip-estado" style="background:#fff1d6;color:#8a5a00;">Por revisar</span>';
+}
+function renderPropuesta(){
+  // selector de fechas: las que tienen propuestas + hoy y ayer (para poder proponer ese día)
+  const fechas = new Map((propuesta.fechas || []).map(f => [f.fecha, f]));
+  [propuesta.hoy, propuesta.hoy && (() => { const d = new Date(propuesta.hoy + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); })(), propuesta.fecha].filter(Boolean).forEach(f => { if(!fechas.has(f)) fechas.set(f, { fecha: f, propuestos: 0, aprobados: 0, descartados: 0, enviados: 0 }); });
+  const orden = [...fechas.values()].sort((a, b) => b.fecha.localeCompare(a.fecha));
+  $('fechaPropuesta').innerHTML = orden.map(f => '<option value="' + f.fecha + '"' + (f.fecha === propuesta.fecha ? ' selected' : '') + '>' + fechaCL(f.fecha) + (f.fecha === propuesta.hoy ? ' (hoy)' : '') + (f.propuestos ? ' · ' + f.propuestos + ' por revisar' : '') + '</option>').join('');
+
+  const items = propuesta.items || [];
+  if(items.length === 0){
+    $('wrapPropuesta').innerHTML = '<p class="empty-note" style="padding:14px;">No hay cambios propuestos para el ' + fechaCL(propuesta.fecha) + '. Se generan solos cada noche; también puedes usar "Proponer ahora".</p>';
+  }else{
+    $('wrapPropuesta').innerHTML = '<table><thead><tr><th data-sin-orden></th><th title="Qué tan importante es para el equipo (1 a 10)">Relevancia</th><th>Sitio</th><th>Área</th><th style="width:46%;">Qué cambió</th><th>Estado</th><th data-sin-orden></th></tr></thead><tbody>' +
+      items.map(it => {
+        const pend = it.aprobacion === 'propuesto';
+        const commits = String(it.commits || '').split(',').filter(Boolean).map(s => '<a href="https://github.com/' + esc(propuesta.repo) + '/commit/' + esc(s) + '" target="_blank" rel="noopener" title="Ver el cambio técnico">' + esc(s) + '</a>').join('');
+        let acciones = '';
+        if(pend) acciones = '<button class="btn-ghost btn-sm" onclick="abrirModalCambio(' + it.id + ')">Editar</button> <button class="btn-primary btn-sm" onclick="accionPropuesta(&quot;aprobar&quot;, [' + it.id + '])">✓ Aprobar</button> <button class="btn-ghost btn-sm" onclick="accionPropuesta(&quot;descartar&quot;, [' + it.id + '])" title="Descartar">✕</button>';
+        else if(it.aprobacion === 'descartado') acciones = '<button class="btn-ghost btn-sm" onclick="accionPropuesta(&quot;reabrir&quot;, [' + it.id + '])">Reabrir</button>';
+        else if(!it.enviado_en) acciones = '<button class="btn-ghost btn-sm" onclick="abrirModalCambio(' + it.id + ')">Editar</button> <button class="btn-ghost btn-sm" onclick="accionPropuesta(&quot;reabrir&quot;, [' + it.id + '])" title="Quitar la aprobación: no se enviará">Quitar aprobación</button>';
+        return '<tr class="' + (it.aprobacion === 'descartado' ? 'fila-descartada' : '') + '"><td>' + (pend ? '<input type="checkbox" onchange="alternarSeleccionPropuesta(' + it.id + ', this.checked)">' : '') + '</td>' +
+          '<td><span class="rel">★ ' + (it.relevancia == null ? '–' : it.relevancia) + '</span></td><td>' + insigniaSitio(it.sitio) + '</td><td><b>' + esc(it.area) + '</b></td>' +
+          '<td>' + esc(it.descripcion) + (commits ? '<div class="commits" style="margin-top:4px;">' + commits + '</div>' : '') + '</td><td>' + chipEstadoPropuesta(it) + '</td><td style="white-space:nowrap;">' + acciones + '</td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+  const hist = [...fechas.values()].filter(f => f.propuestos + f.aprobados + f.descartados > 0).sort((a, b) => b.fecha.localeCompare(a.fecha));
+  $('wrapPropuestaFechas').innerHTML = hist.length === 0 ? '<p class="empty-note" style="padding:14px;">Todavía no hay propuestas guardadas.</p>' :
+    '<table><thead><tr><th>Fecha</th><th>Por revisar</th><th>Aprobados</th><th>Enviados</th><th>Descartados</th><th data-sin-orden></th></tr></thead><tbody>' +
+    hist.map(f => '<tr><td style="white-space:nowrap;"><b>' + fechaCL(f.fecha) + '</b></td><td>' + f.propuestos + '</td><td>' + f.aprobados + '</td><td>' + f.enviados + '</td><td>' + f.descartados + '</td><td><button class="btn-ghost btn-sm" onclick="cargarPropuesta(&quot;' + f.fecha + '&quot;)">Ver</button></td></tr>').join('') + '</tbody></table>';
+}
+function alternarSeleccionPropuesta(id, marcado){ if(marcado) seleccionPropuesta.add(id); else seleccionPropuesta.delete(id); }
+async function accionPropuesta(accion, ids, todos){
+  try{
+    const res = await fetch('/api/negocio?recurso=cambios-propuesta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion, ids, todos: !!todos, fecha: propuesta.fecha }) });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error || 'No se pudo completar'); return; }
+    toast(accion === 'aprobar' ? 'Aprobado: ' + data.actualizados + (data.actualizados === 1 ? ' cambio' : ' cambios') : accion === 'descartar' ? 'Descartado' : 'Listo');
+    cargarPropuesta(propuesta.fecha); cargarCambios();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+function aprobarPropuestas(todos){
+  if(todos){ accionPropuesta('aprobar', [], true); return; }
+  if(seleccionPropuesta.size === 0){ alert('Marca primero los cambios que quieres aprobar.'); return; }
+  accionPropuesta('aprobar', [...seleccionPropuesta]);
+}
+function descartarPropuestas(){
+  if(seleccionPropuesta.size === 0){ alert('Marca primero los cambios que quieres descartar.'); return; }
+  accionPropuesta('descartar', [...seleccionPropuesta]);
+}
+async function proponerAhora(){
+  const btn = $('btnProponer'); btn.disabled = true; const original = btn.textContent; btn.textContent = 'Analizando…';
+  try{
+    const res = await fetch('/api/negocio?recurso=cambios-propuesta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'proponer', fecha: propuesta.fecha }) });
+    const data = await res.json();
+    if(!res.ok){ alert((data.error || 'No se pudo proponer') + (data.detail ? ' (' + data.detail + ')' : '')); return; }
+    toast(data.cantidad ? 'Se propusieron ' + data.cantidad + (data.cantidad === 1 ? ' cambio' : ' cambios') + (data.usoIA ? '' : ' (sin IA: agrupado por área)') : (data.motivo || 'No hay cambios para proponer'));
+    cargarPropuesta(propuesta.fecha);
+  }catch(err){ alert('Error: ' + err.message); }
+  finally{ btn.disabled = false; btn.textContent = original; }
+}
+
 // ---------------- Resumen de hoy ----------------
 async function cargarNotificaciones(){
   try{
@@ -701,7 +818,7 @@ function haceTiempo(iso){
 })();
 function renderResumen(){
   const noti = listaNotificaciones.find(n => n.tipo === 'resumen-cambios-diario');
-  const estado = !resumenHoy.contenido ? 'Aún no hay resumen guardado para hoy: el correo de las 19:00 no se enviará.'
+  const estado = !resumenHoy.contenido ? 'Aún no hay resumen escrito para hoy: a las 19:00 se enviarán los cambios aprobados en "Propuesta del día" (si hay).'
     : (resumenHoy.enviadoEn ? `Enviado ${haceTiempo(resumenHoy.enviadoEn)}.` : 'Guardado: se enviará hoy a las 19:00.');
   const quienes = noti && noti.suscriptores.length
     ? noti.suscriptores.map(s => esc(s.nombre)).join(', ')
@@ -824,10 +941,10 @@ document.addEventListener('paste', e => {
 });
 function abrirModalCambio(id){
   cambioEditandoId = id || null;
-  const c = id ? listaCambios.find(x => x.id === id) : null;
+  const c = id ? (listaCambios.find(x => x.id === id) || (propuesta.items || []).find(x => x.id === id)) : null;
   $('tituloModalCambio').textContent = c ? 'Editar cambio' : 'Nuevo cambio';
   $('cFecha').value = c ? c.fecha : hoyISO();
-  $('cEstado').value = c ? c.estado : 'publicado';
+  $('cEstado').value = c ? (c.estado || 'publicado') : 'publicado';
   $('cSitio').value = c ? (c.sitio || 'web') : 'web';
   $('cUrl').value = c ? (c.url || '') : '';
   $('cDestacado').checked = !!(c && c.destacado);
@@ -850,6 +967,7 @@ async function guardarCambio(){
     cerrarModalCambio();
     toast('Cambio guardado');
     cargarCambios();
+    cargarPropuesta(propuesta.fecha);
   }catch(err){
     $('errorCambio').innerHTML = '<div class="error-box">' + esc(err.message) + '</div>';
   }finally{ $('btnGuardarCambio').disabled = false; }

@@ -333,7 +333,7 @@ async function manejarCambios(req, res, sql) {
   if (req.method === 'GET') {
     const { rows } = await sql`
       SELECT id, fecha::text AS fecha, area, descripcion, estado, sitio, url, destacado, imagen_token, creado_por, actualizado_en
-      FROM cambios_registro ORDER BY fecha DESC, id DESC;`;
+      FROM cambios_registro WHERE aprobacion = 'aprobado' ORDER BY fecha DESC, id DESC;`;
     return res.status(200).json({ cambios: rows });
   }
   if (req.method === 'POST') {
@@ -442,7 +442,7 @@ async function manejarNotificaciones(req, res, sql) {
       const ayer = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
       const { rows: filas } = await sql`
         SELECT fecha::text AS fecha, area, descripcion, estado, sitio, url, destacado, imagen_token
-        FROM cambios_registro WHERE fecha >= ${ayer}::date ORDER BY fecha DESC, id DESC;`;
+        FROM cambios_registro WHERE fecha >= ${ayer}::date AND aprobacion = 'aprobado' ORDER BY fecha DESC, id DESC;`;
       if (filas.length === 0) return res.status(200).json({ ok: false, error: 'No hay cambios registrados con fecha de ayer u hoy. Agrégalos en la pestaña Cambios.' });
       const texto = sanitizarHtmlResumen(armarContenidoCambios(filas));
       await asegurarConfigYSuscriptoresPorDefecto(sql, TIPO_RESUMEN_CAMBIOS);

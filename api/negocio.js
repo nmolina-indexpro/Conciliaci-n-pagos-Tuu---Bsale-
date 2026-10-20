@@ -28,7 +28,9 @@ import { seleccionarPorRecontactar,armarCorreoRecontacto, ESTADOS_A_RECONTACTAR 
 import { prepararCotizaciones as prepararCotizacionesSeguimiento, armarCorreoSeguimiento } from '../lib/cotizaciones-seguimiento.js';
 import { calcularControlEjecutivos, aplicarFirmas, detectarFirmaEnTexto, claveUsuario, CLAVE_NO_VERIFICADO, CLAVE_SIN_ASIGNAR, PAUSA_RECONTACTO_MS, VENTANA_RESPUESTA_MS, VENTANA_RESPUESTA_TARDIA_MS, MOTIVOS_SEGUIMIENTO } from '../lib/whatsapp-ejecutivos.js';
 import { emparejarLineaCotizacion, decidirProveedor, parsearTextoCotizacion } from '../lib/comparadorProveedores.js';
-import { enviarResumenCambios, enviarRecordatorioResumen } from '../lib/resumen-cambios.js';
+import { enviarResumenCambios, enviarRecordatorioResumen, fechaHoyChile } from '../lib/resumen-cambios.js';
+import { asegurarCambiosRegistro } from '../lib/cambios-registro.js';
+import { leerCommitsDelDia, armarEntradaIA, normalizarPropuestas, propuestasSinIA, extraerJson, PROMPT_PROPUESTA, REPO_POR_DEFECTO } from '../lib/cambios-propuesta.js';
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
 import { registrarEventoCotizacion, resumenUsoCotizacion } from '../lib/cotizacion-web-uso.js';
 import { asegurarTablaCotizacionesWeb, crearCotizacion, verCotizacion, comprarCotizacion, transferenciaCotizacion, subirComprobante as subirComprobanteCotizacionWeb, revisarComprobante as revisarComprobanteCotizacionWeb, solicitarPerfil as solicitarPerfilCotizacionWeb, verificarPerfil as verificarPerfilCotizacionWeb, leerConfig as leerConfigCotizacionWeb, guardarConfig as guardarConfigCotizacionWeb, estadoEfectivo as estadoCotizacionWeb } from '../lib/cotizacion-web.js';
@@ -136,6 +138,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'modelos-compatibles-recordatorio') return manejarModelosCompatiblesRecordatorio(req, res);
   if (req.query.recurso === 'resumen-cambios-enviar') return manejarResumenCambiosEnviar(req, res);
   if (req.query.recurso === 'resumen-cambios-recordatorio') return manejarResumenCambiosRecordatorio(req, res);
+  if (req.query.recurso === 'resumen-cambios-proponer') return manejarCambiosProponerCron(req, res);
   if (req.query.recurso === 'mercadolibre-sync') return manejarMercadoLibreSyncCron(req, res);
   if (req.query.recurso === 'cambio-imagen') return manejarCambioImagen(req, res);
   if (req.query.recurso === 'bsale-webhook') return manejarBsaleWebhook(req, res);
@@ -180,6 +183,7 @@ export default async function handler(req, res) {
 
   const recurso = req.query.recurso;
   if (recurso === 'notificacion-probar') return manejarNotificacionProbar(req, res, sesion);
+  if (recurso === 'cambios-propuesta') return manejarCambiosPropuesta(req, res, sesion);
   if (recurso === 'criticos') return manejarCriticos(req, res, sesion);
   if (recurso === 'alertas-stock-shopify') return manejarAlertasStockShopify(req, res, sesion);
   if (recurso === 'mercadolibre') return manejarMercadoLibre(req, res, sesion);
@@ -10616,7 +10620,7 @@ async function llamarGeminiAnalisis(systemPrompt, contenido) {
 // borrador para que manejarWhatsappSugerirRespuesta lo entregue al
 // frontend, que lo muestra como propuesta a revisar (ver composer en
 // clientes-whatsapp.js).
-async function llamarGeminiTexto(systemPrompt, prompt) {
+async function llamarGeminiTexto(systemPrompt, prompt, { maxTokens = 300, timeoutMs = 20000 } = {}) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('sin_gemini_api_key');
   const respuesta = await fetchConTimeout(
@@ -10627,10 +10631,10 @@ async function llamarGeminiTexto(systemPrompt, prompt) {
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: [{ role: 'user', parts: typeof prompt === 'string' ? [{ text: prompt }] : mapearContenidoAGemini(prompt) }],
-        generationConfig: { maxOutputTokens: 300 },
+        generationConfig: { maxOutputTokens: maxTokens },
       }),
     },
-    20000
+    timeoutMs
   );
   if (!respuesta.ok) {
     const texto = await respuesta.text().catch(() => '');
@@ -11931,6 +11935,120 @@ async function manejarCambioImagen(req, res) {
     return res.status(200).send(Buffer.from(rows[0].imagen_b64, 'base64'));
   } catch {
     return res.status(404).end();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Propuesta diaria de cambios relevantes (Actualizaciones ERP > "Propuesta del día"). Ver lib/cambios-propuesta.js.
+// ══════════════════════════════════════════════════════════════════════
+// Cada noche (cron resumen-cambios-proponer) y a pedido (botón "Proponer ahora") se leen los commits del día, la IA (Gemini) los agrupa y redacta
+// hasta 10 cambios relevantes y quedan guardados POR FECHA en cambios_registro como "propuesto". El administrador los edita y aprueba; los aprobados
+// se envían en el correo diario de cambios del día siguiente (enviarResumenCambios en lib/resumen-cambios.js). Lo que se aprueba o descarta no se
+// vuelve a proponer al regenerar.
+async function proponerCambiosDelDia(sql, fecha) {
+  await asegurarCambiosRegistro(sql);
+  const { rows: rg } = await sql.query(
+    `SELECT ($1::date)::timestamp AT TIME ZONE 'America/Santiago' AS desde_ts, (($1::date + 1))::timestamp AT TIME ZONE 'America/Santiago' AS hasta_ts;`,
+    [fecha]
+  );
+  const desdeIso = new Date(rg[0].desde_ts).toISOString(), hastaIso = new Date(rg[0].hasta_ts).toISOString();
+  const repo = process.env.GITHUB_REPO || REPO_POR_DEFECTO;
+  let commits = await leerCommitsDelDia({ desdeIso, hastaIso, repo, token: process.env.GITHUB_TOKEN || null, fetchFn: fetchConTimeout });
+  // Los cambios ya aprobados o descartados de ese día no se vuelven a proponer
+  const { rows: decididos } = await sql`
+    SELECT commits FROM cambios_registro WHERE fecha = ${fecha}::date AND origen = 'propuesta' AND aprobacion IN ('aprobado', 'descartado') AND commits IS NOT NULL;`;
+  const usados = new Set(decididos.flatMap(r => String(r.commits).split(',').filter(Boolean)));
+  const totalCommits = commits.length;
+  commits = commits.filter(c => !usados.has(c.corto));
+  await sql`DELETE FROM cambios_registro WHERE fecha = ${fecha}::date AND origen = 'propuesta' AND aprobacion = 'propuesto';`;
+  if (!commits.length) return { cantidad: 0, commits: totalCommits, usoIA: false, motivo: totalCommits ? 'Todos los commits de ese día ya estaban aprobados o descartados' : 'Ese día no hubo commits' };
+
+  const { rows: yaRegistrados } = await sql`SELECT area, descripcion FROM cambios_registro WHERE fecha = ${fecha}::date AND aprobacion = 'aprobado' AND origen <> 'propuesta' ORDER BY id;`;
+  let filas = null, usoIA = false;
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const texto = await llamarGeminiTexto(PROMPT_PROPUESTA, armarEntradaIA(commits, yaRegistrados), { maxTokens: 4000, timeoutMs: 45000 });
+      const arr = extraerJson(texto);
+      if (arr !== null) { filas = normalizarPropuestas(arr, commits); usoIA = true; }
+    } catch (err) {
+      console.warn('[proponerCambiosDelDia]', err.message);
+    }
+  }
+  if (filas === null) filas = propuestasSinIA(commits);
+  for (const f of filas) {
+    await sql`
+      INSERT INTO cambios_registro (fecha, area, descripcion, estado, sitio, creado_por, origen, aprobacion, relevancia, commits)
+      VALUES (${fecha}::date, ${f.area}, ${f.descripcion}, 'publicado', ${f.sitio}, ${usoIA ? 'IA' : 'automático'}, 'propuesta', 'propuesto', ${f.relevancia}, ${f.commits.join(',')});`;
+  }
+  return { cantidad: filas.length, commits: totalCommits, usoIA };
+}
+
+// Cron de cada noche: propone los cambios del día (hora de Chile). Mismo patrón de los demás crons (CRON_SECRET, sin sesión).
+async function manejarCambiosProponerCron(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.fecha || '')) ? req.query.fecha : fechaHoyChile();
+    return res.status(200).json({ ok: true, fecha, ...(await proponerCambiosDelDia(sql, fecha)) });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error proponiendo los cambios del día', detail: String(err.message || err) });
+  }
+}
+
+// Pestaña "Propuesta del día" (solo administradores).
+//   GET  ?recurso=cambios-propuesta[&fecha=AAAA-MM-DD] -> { hoy, fecha, fechas: [resumen por día], items, repo }
+//   POST { accion: 'proponer' | 'aprobar' | 'descartar' | 'reabrir', fecha?, ids?, todos? }
+async function manejarCambiosPropuesta(req, res, sesion) {
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo para administradores' });
+  const RE_DIA = /^\d{4}-\d{2}-\d{2}$/;
+  try {
+    const sql = await getSql();
+    await asegurarCambiosRegistro(sql);
+    const hoy = fechaHoyChile();
+    if (req.method === 'GET') {
+      const { rows: fechas } = await sql`
+        SELECT fecha::text AS fecha,
+               COUNT(*) FILTER (WHERE aprobacion = 'propuesto')::int AS propuestos,
+               COUNT(*) FILTER (WHERE aprobacion = 'aprobado')::int AS aprobados,
+               COUNT(*) FILTER (WHERE aprobacion = 'descartado')::int AS descartados,
+               COUNT(*) FILTER (WHERE aprobacion = 'aprobado' AND enviado_en IS NOT NULL)::int AS enviados
+        FROM cambios_registro WHERE origen = 'propuesta' GROUP BY fecha ORDER BY fecha DESC LIMIT 60;`;
+      const fecha = RE_DIA.test(String(req.query.fecha || '')) ? req.query.fecha : (fechas[0] ? fechas[0].fecha : hoy);
+      const { rows: items } = await sql`
+        SELECT id, fecha::text AS fecha, area, descripcion, sitio, relevancia, commits, aprobacion, aprobado_por, aprobado_en, enviado_en, creado_por
+        FROM cambios_registro WHERE origen = 'propuesta' AND fecha = ${fecha}::date
+        ORDER BY (aprobacion = 'descartado'), relevancia DESC NULLS LAST, id;`;
+      return res.status(200).json({ hoy, fecha, fechas, items, repo: process.env.GITHUB_REPO || REPO_POR_DEFECTO, pendientes: fechas.reduce((s, f) => s + f.propuestos, 0) });
+    }
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const { accion, fecha, ids, todos } = req.body || {};
+    const autor = sesion.nombre || sesion.email || 'admin';
+    if (accion === 'proponer') {
+      if (!RE_DIA.test(String(fecha || ''))) return res.status(400).json({ error: 'Fecha inválida' });
+      return res.status(200).json({ ok: true, ...(await proponerCambiosDelDia(sql, fecha)) });
+    }
+    const lista = Array.isArray(ids) ? ids.map(Number).filter(n => Number.isInteger(n) && n > 0) : [];
+    if (!['aprobar', 'descartar', 'reabrir'].includes(accion)) return res.status(400).json({ error: 'Acción inválida' });
+    if (todos === true && !RE_DIA.test(String(fecha || ''))) return res.status(400).json({ error: 'Fecha inválida' });
+    if (todos !== true && lista.length === 0) return res.status(400).json({ error: 'No hay cambios seleccionados' });
+    let r;
+    if (accion === 'aprobar') {
+      r = todos === true
+        ? await sql`UPDATE cambios_registro SET aprobacion = 'aprobado', aprobado_por = ${autor}, aprobado_en = now() WHERE origen = 'propuesta' AND aprobacion = 'propuesto' AND fecha = ${fecha}::date RETURNING id;`
+        : await sql`UPDATE cambios_registro SET aprobacion = 'aprobado', aprobado_por = ${autor}, aprobado_en = now() WHERE origen = 'propuesta' AND aprobacion IN ('propuesto', 'descartado') AND id = ANY(${lista}::int[]) RETURNING id;`;
+    } else if (accion === 'descartar') {
+      r = todos === true
+        ? await sql`UPDATE cambios_registro SET aprobacion = 'descartado', aprobado_por = ${autor}, aprobado_en = now() WHERE origen = 'propuesta' AND aprobacion = 'propuesto' AND fecha = ${fecha}::date RETURNING id;`
+        : await sql`UPDATE cambios_registro SET aprobacion = 'descartado', aprobado_por = ${autor}, aprobado_en = now() WHERE origen = 'propuesta' AND aprobacion = 'propuesto' AND id = ANY(${lista}::int[]) RETURNING id;`;
+    } else {
+      // Volver a "propuesto": solo lo que todavía no se envió
+      r = await sql`UPDATE cambios_registro SET aprobacion = 'propuesto', aprobado_por = NULL, aprobado_en = NULL WHERE origen = 'propuesta' AND enviado_en IS NULL AND id = ANY(${lista}::int[]) RETURNING id;`;
+    }
+    return res.status(200).json({ ok: true, actualizados: r.rows.length });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en la propuesta de cambios', detail: String(err.message || err) });
   }
 }
 
