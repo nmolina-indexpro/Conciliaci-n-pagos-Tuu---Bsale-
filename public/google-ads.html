@@ -108,6 +108,7 @@
   .badge-ads.si{background:var(--green-bg);color:var(--green);} .badge-ads.no{background:var(--red-bg);color:var(--red);}
   .mejor{color:var(--green);font-weight:700;} .peor{color:var(--red);font-weight:700;}
   .ads-pie{font-size:11.5px;color:var(--muted);margin:4px 0 0;}
+  .sub-titulo{font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:18px 0 8px;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -236,6 +237,19 @@
     <p class="ads-pie" id="adsPie"></p>
   </div>
 
+  <section class="ads-bloque" id="bloque6">
+    <div class="ads-cab"><span class="ads-num">6</span><div><h2>Clics que cuestan: consultas que no iban a comprar</h2><div class="sub">Cruza todas las conversaciones de WhatsApp con lo que concluyó la IA de cada una (motivo de pérdida, intención, categoría) y con su origen. Muestra cuánta atención se va en gente que pide algo que no vendemos, un servicio que no es compra o un producto incompatible, y qué palabras la traen: candidatas a <b>palabras clave negativas</b>. No depende del período de arriba.</div></div></div>
+    <div class="filtros">
+      <button class="btn-ghost btn-compact" id="btnPerd30" onclick="setPeriodoPerdidas(30)">Últimos 30 días</button>
+      <button class="btn-ghost btn-compact" id="btnPerd90" onclick="setPeriodoPerdidas(90)">Últimos 90 días</button>
+      <button class="btn-ghost btn-compact active" id="btnPerdTodo" onclick="setPeriodoPerdidas(0)">Todo el historial</button>
+      <div class="date-field"><label for="perdMinutos" title="Tiempo que toma atender una consulta que no termina en venta">Minutos por consulta sin salida</label><input type="number" id="perdMinutos" min="1" max="30" step="1" value="3" style="width:64px;" onchange="cargarPerdidas()"></div>
+      <button class="btn-ghost btn-compact" onclick="cargarPerdidas()">↻ Actualizar</button>
+    </div>
+    <div id="perdidasEstado" class="empty-note">Cargando…</div>
+    <div id="perdidasContenido" style="display:none;"></div>
+  </section>
+
 </div>
 
 <script src="restriccion-usuario.js"></script>
@@ -257,6 +271,7 @@ async function cargarSesionUsuario(){
     if(!res.ok) return;
     const u = await res.json();
     $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    rolActual = u.rol;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     if(u.rol === 'admin'){
@@ -409,6 +424,113 @@ function bloque5(d){
   return html + lectura(`Revisa esta lista: las que no tengan relación con lo que vendes (gratis, reparación, otra marca...) se pueden agregar como palabras clave negativas en Google Ads.${mas}`, b.gasto_sin_convertir > 0) + `<p class="ads-pie">${escapeHtml(b.nota)}</p>`;
 }
 
+// ---------- Bloque 6: clics que cuestan (conversaciones de WhatsApp sin posibilidad de venta) ----------
+let periodoPerdidas = 0, tokenPerdidas = 0, datosPerdidas = null, rolActual = null;
+function setPeriodoPerdidas(dias){
+  periodoPerdidas = dias;
+  [[30, 'btnPerd30'], [90, 'btnPerd90'], [0, 'btnPerdTodo']].forEach(([k, id]) => $(id).classList.toggle('active', k === dias));
+  cargarPerdidas();
+}
+const fmtHoras = min => min >= 120 ? fmtDec(min / 60, 1) + ' horas' : fmtNum(min) + ' min';
+const pctTxt = n => (n == null ? '—' : Number(n).toFixed(1).replace('.', ',').replace(',0', '') + '%');
+function celdaPct(p, clase){ return `<td data-orden="${p}">${barra(p / 100, clase)}${pctTxt(p)}</td>`; }
+function tablaClases(r){
+  return '<div class="tabla-wrap"><table><thead><tr><th>Qué pasó con la conversación</th><th class="amount">Conversaciones</th><th>% del total</th><th>¿Atención perdida?</th></tr></thead><tbody>' +
+    r.clases.map(c => `<tr><td>${escapeHtml(c.nombre)}</td><td class="amount">${fmtNum(c.n)}</td>${celdaPct(c.pct, c.desperdicio ? 'rojo' : '')}<td>${c.desperdicio ? '<span class="badge-ads no">Sí</span>' : ''}</td></tr>`).join('') + '</tbody></table></div>';
+}
+function tablaOrigenes(r){
+  return '<div class="tabla-wrap"><table><thead><tr><th>Origen de la conversación</th><th class="amount">Conversaciones</th><th class="amount">Ventas o cotizaciones</th><th class="amount">Sin salida</th><th>% sin salida</th><th class="amount">Tiempo perdido</th></tr></thead><tbody>' +
+    r.origenes.map(o => `<tr><td>${escapeHtml(o.nombre)}</td><td class="amount">${fmtNum(o.n)}</td><td class="amount">${fmtNum(o.ganada)}</td><td class="amount">${fmtNum(o.desperdicio)}</td>${celdaPct(o.pct_desperdicio, 'rojo')}<td class="amount" data-orden="${o.minutos_perdidos}">${fmtHoras(o.minutos_perdidos)}</td></tr>`).join('') + '</tbody></table></div>';
+}
+function tablaCampanasPerdidas(r){
+  if(!r.campanas.length) return '<div class="empty-note">Todavía no hay conversaciones vinculadas a un clic de Google Ads (el ERP las vincula desde el 15-10-2026).</div>';
+  return '<div class="tabla-wrap"><table><thead><tr><th>Campaña</th><th class="amount">Conversaciones</th><th class="amount">Ventas o cotizaciones</th><th class="amount">Sin salida</th><th>% sin salida</th><th class="amount">Tiempo perdido</th></tr></thead><tbody>' +
+    r.campanas.map(c => `<tr><td>${escapeHtml(c.campana)}</td><td class="amount">${fmtNum(c.n)}</td><td class="amount">${fmtNum(c.ganada)}</td><td class="amount">${fmtNum(c.desperdicio)}</td>${celdaPct(c.pct_desperdicio, 'rojo')}<td class="amount" data-orden="${c.minutos_perdidos}">${fmtHoras(c.minutos_perdidos)}</td></tr>`).join('') + '</tbody></table></div>';
+}
+function tablaPalabrasPerdidas(r){
+  if(!r.palabras.length) return '';
+  return '<h3 class="sub-titulo">Palabras clave que traen consultas sin salida</h3><div class="tabla-wrap"><table><thead><tr><th>Palabra clave (de la campaña)</th><th>Campaña</th><th class="amount">Conversaciones</th><th class="amount">Ventas o cotizaciones</th><th class="amount">Sin salida</th><th>% sin salida</th><th>Sugerencia</th></tr></thead><tbody>' +
+    r.palabras.map(p => `<tr><td>${escapeHtml(p.palabra)}</td><td>${escapeHtml(p.campana)}</td><td class="amount">${fmtNum(p.n)}</td><td class="amount">${fmtNum(p.ganada)}</td><td class="amount">${fmtNum(p.desperdicio)}</td>${celdaPct(p.pct_desperdicio, 'rojo')}<td>${p.revisar ? '<span class="badge-ads no">Revisar o pausar</span>' : ''}</td></tr>`).join('') + '</tbody></table></div>';
+}
+function tablaCandidatas(r){
+  if(!r.candidatas.length) return '<div class="empty-note">Todavía no hay palabras que se repitan en al menos 2 consultas sin salida y que nunca aparezcan en clientes que sí compraron.</div>';
+  return '<div class="tabla-wrap"><table><thead><tr><th>Término</th><th>Tipo</th><th>Concordancia</th><th class="amount">Conversaciones</th><th class="amount">Google Ads</th><th class="amount">Botón del sitio</th><th>Campañas</th><th>Ejemplo de lo que escribieron</th></tr></thead><tbody>' +
+    r.candidatas.map(c => `<tr><td><b>${escapeHtml(c.termino)}</b></td><td>${escapeHtml(c.tipo)}</td><td>${c.concordancia === 'frase' ? 'de frase' : 'amplia'}</td><td class="amount">${fmtNum(c.conversaciones)}</td><td class="amount">${fmtNum(c.google_ads)}</td><td class="amount">${fmtNum(c.boton_sitio)}</td><td>${c.campanas.map(x => escapeHtml(x.nombre) + ' (' + x.n + ')').join(', ')}</td><td style="max-width:320px;color:var(--muted);">${escapeHtml(c.ejemplo)}</td></tr>`).join('') + '</tbody></table></div>';
+}
+function tablaPedidosSinVender(r){
+  if(!r.pedidos.length) return '';
+  return '<h3 class="sub-titulo">Lo que más piden y no vendemos</h3><div class="tabla-wrap"><table><thead><tr><th>Marca · producto · modelo</th><th class="amount">Conversaciones</th><th>% de lo que no vendemos</th></tr></thead><tbody>' +
+    r.pedidos.map(p => `<tr><td>${escapeHtml(p.etiqueta)}</td><td class="amount">${fmtNum(p.n)}</td>${celdaPct(p.pct, '')}</tr>`).join('') + '</tbody></table></div>';
+}
+function lecturaPerdidas(r){
+  const s = r.resumen;
+  if(!s.n) return 'No hay conversaciones de WhatsApp en este período.';
+  const partes = [];
+  partes.push(`De <b>${fmtNum(s.analizadas)}</b> conversaciones analizadas por la IA, <b>${fmtNum(s.desperdicio)}</b> (${pctTxt(s.pct_desperdicio)} del total) no tenían posibilidad de venta: pedían algo que no vendemos, un producto incompatible o no era una compra. A ${fmtNum(r.minutos_por_conversacion)} min cada una son <b>${fmtHoras(s.minutos_perdidos)}</b> de atención.`);
+  const g = r.origenes.find(o => o.origen === 'google_ads');
+  if(g && g.n) partes.push(`Entre las vinculadas a un clic de Google Ads (${fmtNum(g.n)}), el <b>${pctTxt(g.pct_desperdicio)}</b> no tenía salida.`);
+  const malas = r.campanas.filter(c => c.desperdicio >= 3 && c.ganada === 0);
+  if(malas.length) partes.push(`Sin ninguna venta y con varias consultas perdidas: <b>${malas.slice(0, 3).map(c => escapeHtml(c.campana)).join(', ')}</b>.`);
+  if(r.candidatas.length) partes.push(`Hay <b>${fmtNum(r.candidatas.length)}</b> términos candidatos a palabra negativa; el primero es <b>${escapeHtml(r.candidatas[0].termino)}</b> (${fmtNum(r.candidatas[0].conversaciones)} conversaciones).`);
+  return partes.join(' ');
+}
+function textoCandidatas(r){ return r.candidatas.map(c => c.formato_google).join('\n'); }
+async function copiarNegativas(){
+  if(!datosPerdidas || !datosPerdidas.candidatas.length) return;
+  const txt = textoCandidatas(datosPerdidas), btn = $('btnCopiarNeg');
+  try{ await navigator.clipboard.writeText(txt); btn.textContent = '✓ Copiado'; }
+  catch(e){ const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); btn.textContent = '✓ Copiado'; }catch(_){ btn.textContent = 'No se pudo copiar'; } ta.remove(); }
+  setTimeout(() => { btn.textContent = '📋 Copiar lista para Google Ads'; }, 2500);
+}
+function descargarNegativasCsv(){
+  if(!datosPerdidas || !datosPerdidas.candidatas.length) return;
+  const esc = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const filas = [['Término', 'Tipo', 'Concordancia', 'Conversaciones', 'Google Ads', 'Botón del sitio', 'Campañas', 'Ejemplo']].concat(
+    datosPerdidas.candidatas.map(c => [c.formato_google, c.tipo, c.concordancia, c.conversaciones, c.google_ads, c.boton_sitio, c.campanas.map(x => x.nombre).join(' | '), c.ejemplo]));
+  const blob = new Blob(['﻿' + filas.map(f => f.map(esc).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'candidatas-negativas-' + hoyAds + '.csv';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function dibujarPerdidas(r){
+  const s = r.resumen;
+  let html = kpis([
+    ['Conversaciones analizadas', fmtNum(s.analizadas), `de ${fmtNum(s.n)} en total (${pctTxt(s.pct_analizadas)} ya pasó por la IA)`],
+    ['Sin posibilidad de venta', fmtNum(s.desperdicio), `${pctTxt(s.pct_desperdicio)} del total: no vendemos eso, es incompatible o no era una compra`],
+    ['Atención perdida', fmtHoras(s.minutos_perdidos), `a ${fmtNum(r.minutos_por_conversacion)} min por consulta` + (s.mediana_minutos_reales != null ? ` · en la práctica la mediana fue ${fmtDec(s.mediana_minutos_reales)} min` : '')],
+    ['Vinculadas a Google Ads', fmtNum(s.google_vinculadas), 'con campaña y palabra clave identificadas'],
+  ]);
+  html += lectura(lecturaPerdidas(r), s.desperdicio > 0);
+  html += '<h3 class="sub-titulo">Qué pasó con cada conversación</h3>' + tablaClases(r);
+  html += '<h3 class="sub-titulo">De dónde llegaron</h3>' + tablaOrigenes(r);
+  html += '<h3 class="sub-titulo">Campañas de Google Ads</h3>' + tablaCampanasPerdidas(r) + tablaPalabrasPerdidas(r);
+  html += '<h3 class="sub-titulo">Candidatas a palabras clave negativas</h3><div class="filtros"><button class="btn-ghost btn-compact btn-exportar" id="btnCopiarNeg" onclick="copiarNegativas()">📋 Copiar lista para Google Ads</button><button class="btn-ghost btn-compact btn-exportar" onclick="descargarNegativasCsv()">Descargar CSV</button></div>' + tablaCandidatas(r);
+  html += tablaPedidosSinVender(r);
+  const desde = r.primera_conversacion ? new Date(r.primera_conversacion).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) : null;
+  html += `<p class="ads-pie">${desde ? 'Primera conversación del período: ' + desde + '. ' : ''}${r.truncado ? '<b>Se analizaron solo las 12.000 conversaciones más recientes.</b> ' : ''}La clasificación sale de lo que la IA concluyó de cada conversación (no es una cifra exacta) y las conversaciones sin analizar no se cuentan. El vínculo entre un clic de Google y la conversación existe solo desde el 15-10-2026: antes, quien llegó por el botón del sitio aparece como "Botón de WhatsApp del sitio (sin campaña)". Los términos candidatos son <b>sugerencias para revisar</b>, no se aplican solos: salen de las primeras palabras del cliente y se excluyen las que también aparecen en clientes que compraron o se perdieron por precio, stock o respuesta. Esta página solo lee: las negativas se agregan a mano en Google Ads.</p>`;
+  return html;
+}
+async function cargarPerdidas(){
+  const tk = ++tokenPerdidas;
+  const estado = $('perdidasEstado'), contenido = $('perdidasContenido');
+  const minutos = Math.min(30, Math.max(1, Number($('perdMinutos').value) || 3));
+  const desde = periodoPerdidas ? sumarDiasAds(hoyAds, -(periodoPerdidas - 1)) : '';
+  estado.className = 'empty-note'; estado.textContent = 'Analizando las conversaciones de WhatsApp…'; estado.style.display = '';
+  contenido.style.opacity = '0.45';
+  try{
+    const res = await fetch(`/api/negocio?recurso=whatsapp-perdidas-ads&minutos=${minutos}` + (desde ? `&desde=${desde}&hasta=${hoyAds}` : ''));
+    const d = await res.json();
+    if(tk !== tokenPerdidas) return;
+    if(d.error){ estado.className = 'ads-error'; estado.textContent = d.error + (d.detail ? ' — ' + d.detail : ''); contenido.style.display = 'none'; return; }
+    datosPerdidas = d;
+    estado.style.display = 'none'; contenido.style.display = ''; contenido.style.opacity = '';
+    contenido.innerHTML = dibujarPerdidas(d);
+    if(rolActual === 'usuario') contenido.querySelectorAll('.btn-exportar').forEach(b => { b.disabled = true; b.title = 'Tu perfil no tiene permiso para descargar información.'; b.style.opacity = '0.5'; b.style.cursor = 'not-allowed'; });
+  }catch(err){
+    if(tk !== tokenPerdidas) return;
+    estado.className = 'ads-error'; estado.textContent = 'No se pudo analizar: ' + err.message; contenido.style.display = 'none';
+  }
+}
+
 // ---------- Carga ----------
 let tokenAds = 0;
 async function cargarAds(){
@@ -432,6 +554,7 @@ async function cargarAds(){
 
 cargarSesionUsuario();
 setRangoAds('mes');
+cargarPerdidas();
 </script>
 <script src="tablas-ordenables.js"></script>
 </body>

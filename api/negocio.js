@@ -40,6 +40,7 @@ import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
 import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas } from '../lib/db.js';
 import { referenciaDesdeMensaje } from '../lib/whatsapp-referencia.js';
+import { armarAnalisis as armarAnalisisDesperdicio, MINUTOS_POR_DEFECTO as MINUTOS_DESPERDICIO, MAX_MENSAJES_CLIENTE as MAX_MENSAJES_DESPERDICIO } from '../lib/whatsapp-desperdicio-ads.js';
 import { armarCorreoModelosPendientes } from '../lib/compat-recordatorio.js';
 import { resolverEntradaProducto, datosProductoIdentificado, columnaCompatibilidad } from '../lib/compat-propuestas.js';
 import { analizarGoogleAds, validarRango as validarRangoGoogleAds } from '../lib/google-ads-analisis.js';
@@ -221,6 +222,7 @@ export default async function handler(req, res) {
   if (recurso === 'envio-gratis-shopify') return manejarEnvioGratisShopify(req, res, sesion);
   if (recurso === 'wa-clic-ads-resumen') return manejarWaClicAdsResumen(req, res, sesion);
   if (recurso === 'google-ads-analisis') return manejarGoogleAdsAnalisis(req, res, sesion);
+  if (recurso === 'whatsapp-perdidas-ads') return manejarWhatsappPerdidasAds(req, res, sesion);
   if (recurso === 'descuentos-web') return manejarDescuentosWeb(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
@@ -15857,6 +15859,57 @@ async function manejarWaClicAdsCron(req, res) {
     return res.status(200).json({ ok: true, vinculo, atribucion, subida });
   } catch (err) {
     return res.status(500).json({ error: 'Error en la conversión de WhatsApp para Google Ads', detail: String(err.message || err).slice(0, 300) });
+  }
+}
+
+// Página Análisis > Google Ads, bloque 6 "Clics que cuestan": cruza TODAS las conversaciones de WhatsApp (y lo que la IA concluyó de cada una: resultado, motivo de
+// pérdida, intención, categoría) con su origen (clic de Google Ads vinculado, botón del sitio, Meta...) para ver cuánta atención se va en gente que no iba a comprar y
+// qué palabras la traen (candidatas a negativas). GET ?recurso=whatsapp-perdidas-ads&desde=&hasta=&minutos=3 (sin fechas: todo el historial). Ver lib/whatsapp-desperdicio-ads.js.
+const TOPE_CONVERSACIONES_DESPERDICIO = 12000;
+async function manejarWhatsappPerdidasAds(req, res, _sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const esFecha = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const desde = esFecha(req.query.desde) ? req.query.desde : '2000-01-01';
+    const hasta = esFecha(req.query.hasta) ? req.query.hasta : hoy;
+    if (desde > hasta) return res.status(400).json({ error: 'La fecha "desde" no puede ser posterior a "hasta"' });
+    const minutos = Math.min(30, Math.max(1, Number(req.query.minutos) || MINUTOS_DESPERDICIO));
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    await asegurarTablaWaClicsAds(sql);
+    const { rows: convs } = await sql.query(
+      `SELECT c.id, c.iniciada_en, c.resultado, c.motivo_perdida, c.intencion, c.categoria, c.producto, c.marca, c.modelo, c.venta_detectada,
+              c.fuente_tipo, c.fuente_titulo, c.fuente_utm_source, c.fuente_utm_campaign, NULLIF(c.bsale_documento_numero, '') AS bsale_doc,
+              ${sqlOrigenGoogleAds('c')} AS ads_origen, d.dur AS duracion_seg
+       FROM whatsapp_conversaciones c
+       JOIN whatsapp_contactos ct ON ct.id = c.contacto_id AND ct.es_demo = false
+       LEFT JOIN (SELECT conversacion_id, EXTRACT(EPOCH FROM (MAX(marca_tiempo) - MIN(marca_tiempo))) AS dur FROM whatsapp_mensajes GROUP BY conversacion_id) d ON d.conversacion_id = c.id
+       WHERE c.cantidad_mensajes > 0
+         AND c.iniciada_en >= ($1::date)::timestamp AT TIME ZONE 'America/Santiago'
+         AND c.iniciada_en < (($2::date + 1))::timestamp AT TIME ZONE 'America/Santiago'
+       ORDER BY c.iniciada_en DESC LIMIT ${TOPE_CONVERSACIONES_DESPERDICIO};`,
+      [desde, hasta],
+    );
+    const mensajesPorConv = new Map();
+    if (convs.length) {
+      const { rows: msgs } = await sql.query(
+        `SELECT conversacion_id, left(contenido_texto, 300) AS texto FROM whatsapp_mensajes
+         WHERE conversacion_id = ANY($1::int[]) AND direccion = 'in' AND contenido_texto IS NOT NULL AND contenido_texto <> ''
+         ORDER BY conversacion_id, marca_tiempo LIMIT 90000;`,
+        [convs.map((c) => c.id)],
+      );
+      for (const m of msgs) {
+        const lista = mensajesPorConv.get(m.conversacion_id) || [];
+        if (lista.length < MAX_MENSAJES_DESPERDICIO) lista.push({ dir: 'in', texto: m.texto });
+        mensajesPorConv.set(m.conversacion_id, lista);
+      }
+    }
+    const analisis = armarAnalisisDesperdicio({ conversaciones: convs, mensajesPorConv, minutosPorConversacion: minutos });
+    const primera = convs.length ? convs[convs.length - 1].iniciada_en : null;
+    return res.status(200).json({ desde, hasta, primera_conversacion: primera, truncado: convs.length >= TOPE_CONVERSACIONES_DESPERDICIO, ...analisis });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo analizar las conversaciones de WhatsApp', detail: String(err.message || err).slice(0, 300) });
   }
 }
 
