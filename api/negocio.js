@@ -10091,12 +10091,20 @@ async function buscarProductoShopify(producto, categoria, marca, modelo, especif
     // De más específico (todo junto) a más amplio (solo marca+modelo, o
     // solo marca). Cada nivel intermedio va soltando el término que
     // menos ayuda a identificar el producto exacto.
+    // Niveles de "familia": si el modelo exacto no está ("EliteBook 840 G2" cuando el título dice "840 G1, G3, G4"), se va soltando la ÚLTIMA palabra del
+    // modelo mientras quede alguna con números ("EliteBook 840"). Es un producto parecido, no una coincidencia: sale con 50% y un aviso para confirmar.
+    const palModelo = palabrasBuscables(modeloParaBusqueda || '');
     const niveles = [
       { palabras: palabrasBuscables([producto, marca, modeloParaBusqueda, especificaciones].filter(Boolean).join(' ')), confianza: 90 },
       { palabras: palabrasBuscables([producto, marca, modeloParaBusqueda].filter(Boolean).join(' ')), confianza: 75 },
       { palabras: palabrasBuscables([marca, modeloParaBusqueda].filter(Boolean).join(' ')), confianza: 60 },
-      { palabras: palabrasBuscables([producto, marca].filter(Boolean).join(' ')), confianza: 40 },
     ];
+    for (let n = palModelo.length - 1; n >= 1; n--) {
+      const parcial = palModelo.slice(0, n);
+      if (!parcial.some(p => /\d/.test(p))) break;
+      niveles.push({ palabras: palabrasBuscables([producto, marca, ...parcial].filter(Boolean).join(' ')), confianza: 50, familia: true, omitido: palModelo.slice(n).join(' ') });
+    }
+    niveles.push({ palabras: palabrasBuscables([producto, marca].filter(Boolean).join(' ')), confianza: 40 });
 
     const vistos = new Set();
     for (const nivel of niveles) {
@@ -10115,6 +10123,7 @@ async function buscarProductoShopify(producto, categoria, marca, modelo, especif
       return {
         titulo: elegido.node.title, url: elegido.node.onlineStoreUrl, confianza: nivel.confianza,
         sku: elegido.node.variants?.edges?.[0]?.node?.sku || null,
+        ...(nivel.familia ? { aviso: `Es de la misma familia, pero el título no menciona "${nivel.omitido}" (buscaste "${modelo}"): confirma que sirve para ese modelo exacto antes de aprobarlo.` } : {}),
       };
     }
 
