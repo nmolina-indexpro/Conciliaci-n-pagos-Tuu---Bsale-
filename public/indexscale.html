@@ -1069,7 +1069,8 @@ function renderPlan(){
   const hoy = planIndexscale.gestionadosHoy || 0;
   const filtro = 'Solo Santiago y Región Metropolitana: ' + dosFmt(pl.poolTotal) + ' clientes disponibles'
     + (pl.fueraRm || pl.sinComuna || pl.excluidosRubro ? ' (quedan fuera ' + [pl.fueraRm ? dosFmt(pl.fueraRm) + ' de otras regiones' : '', pl.sinComuna ? dosFmt(pl.sinComuna) + ' sin comuna' : '', pl.excluidosRubro ? dosFmt(pl.excluidosRubro) + ' de informática o tecnología' : ''].filter(Boolean).join(', ') + ')' : '') + '. Nunca se ofrece a empresas de informática, computación, electrónica o soporte TI.';
-  prog.innerHTML = '<div style="font-size:13px"><b>' + hechos.length + ' de ' + items.length + ' gestionados</b> (' + pct + '%) · hoy llevas ' + hoy + ' ' + (hoy === 1 ? 'contacto' : 'contactos') + '</div>'
+  const avisoPlan = pl.aviso ? '<div class="pl-aviso">⚠️ ' + escLead(pl.aviso) + '</div>' : '';
+  prog.innerHTML = avisoPlan + '<div style="font-size:13px"><b>' + hechos.length + ' de ' + items.length + ' gestionados</b> (' + pct + '%) · hoy llevas ' + hoy + ' ' + (hoy === 1 ? 'contacto' : 'contactos') + '</div>'
     + '<div class="pl-prog"><div style="width:' + pct + '%"></div></div>'
     + '<div class="sub">Lista generada ' + fechaCorta(pl.generadoEn) + ' por ' + escLead(pl.generadoPor || '') + ' · ' + (pl.origen === 'ia' ? 'elegida por IA (Gemini)' : 'ordenada por puntaje automático') + (pl.resumen ? ' · “' + escLead(pl.resumen) + '”' : '') + '<br>' + filtro + '</div>';
   let html = '';

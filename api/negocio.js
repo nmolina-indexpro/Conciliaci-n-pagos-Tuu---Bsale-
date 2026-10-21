@@ -6112,12 +6112,13 @@ const PLAN_CANDIDATOS_POR_SEGMENTO = 20; // la IA ve hasta 40 candidatos (20 por
 
 async function leerItemsPlanIndexscale(sql, planId) {
   const { rows } = await sql.query(
-    `SELECT i.*, o.empresa, o.cliente_nombre, o.telefono, o.email, o.segmento, o.estado AS estado_oportunidad, o.rut, o.sitio_verificado_en,
+    `SELECT i.*, o.empresa, o.cliente_nombre, o.telefono, o.email, o.segmento, o.estado AS estado_oportunidad, o.rut, o.sitio_verificado_en, bp.giro,
             (SELECT COALESCE(json_agg(json_build_object('canal', c.canal, 'resultado', c.resultado, 'nota', c.nota, 'por', c.por, 'en', c.en) ORDER BY c.en DESC), '[]'::json)
                FROM (SELECT * FROM indexscale_contactos WHERE oportunidad_id = i.oportunidad_id ORDER BY en DESC LIMIT 4) c) AS historial,
             i.proximo_contacto::text AS proximo_contacto_txt
      FROM indexscale_plan_items i
      JOIN indexscale_oportunidades o ON o.id = i.oportunidad_id
+     LEFT JOIN bsale_clientes_puntos bp ON bp.id = o.bsale_cliente_id
      WHERE i.plan_id = $1
      ORDER BY i.orden ASC, i.id ASC;`,
     [planId]
@@ -6136,6 +6137,8 @@ async function leerItemsPlanIndexscale(sql, planId) {
       motivo: r.motivo,
       origen: r.origen,
       empresa: limpiarRazonSocial(r.empresa) || r.empresa,
+      empresaCompleta: r.empresa,
+      giro: r.giro || null,
       contacto: r.cliente_nombre,
       saludo: nombre,
       telefono: telefonoChilenoIndexscale(r.telefono),
@@ -6166,14 +6169,23 @@ async function leerPlanIndexscale(sql, sesion) {
   const { rows } = await sql`SELECT * FROM indexscale_planes ORDER BY id DESC LIMIT 1;`;
   if (rows.length === 0) return { plan: null, items: [] };
   const p = rows[0];
-  const items = await leerItemsPlanIndexscale(sql, p.id);
+  let items = await leerItemsPlanIndexscale(sql, p.id);
+  // Una lista generada antes de un cambio de criterio puede traer empresas de informática/tecnología sin gestionar: se sacan solas con el criterio actual.
+  const ti = items.filter((i) => i.resultado === 'pendiente' && rubroTecnologicoIndexscale({ empresa: i.empresaCompleta, giro: i.giro, email: i.email }).nivel === 'fuerte');
+  if (ti.length) {
+    for (const i of ti) {
+      await sql.query(`INSERT INTO indexscale_descartes (oportunidad_id, motivo, origen, por) VALUES ($1, 'Rubro informático/tecnológico (detectado automáticamente)', 'regla', 'Sistema') ON CONFLICT (oportunidad_id) DO NOTHING;`, [i.oportunidadId]);
+      await sql.query(`UPDATE indexscale_plan_items SET resultado = 'no_corresponde', nota = 'Rubro informático/tecnológico (detectado automáticamente)', resultado_por = 'Sistema', resultado_en = now() WHERE id = $1 AND resultado = 'pendiente';`, [i.id]);
+    }
+    items = await leerItemsPlanIndexscale(sql, p.id);
+  }
   const { rows: hoy } = await sql.query(
     `SELECT COUNT(*)::int AS n FROM indexscale_contactos
      WHERE por = $1 AND (en AT TIME ZONE 'America/Santiago')::date = (now() AT TIME ZONE 'America/Santiago')::date;`,
     [sesion.nombre || sesion.email]
   );
   return {
-    plan: { id: p.id, generadoPor: p.generado_por, generadoEn: p.generado_en, origen: p.origen, resumen: p.resumen, poolTotal: p.pool_total, fueraRm: p.fuera_rm, sinComuna: p.sin_comuna, excluidosRubro: p.excl_rubro || 0 },
+    plan: { id: p.id, generadoPor: p.generado_por, generadoEn: p.generado_en, origen: p.origen, resumen: p.resumen, poolTotal: p.pool_total, fueraRm: p.fuera_rm, sinComuna: p.sin_comuna, excluidosRubro: p.excl_rubro || 0, aviso: p.aviso || null },
     items,
     gestionadosHoy: hoy[0] ? hoy[0].n : 0,
   };
@@ -6320,8 +6332,8 @@ async function generarPlanIndexscale(sql, sesion, cantidad) {
   });
 
   const { rows: cab } = await sql.query(
-    `INSERT INTO indexscale_planes (generado_por, origen, resumen, pool_total, fuera_rm, sin_comuna, excl_rubro) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id;`,
-    [sesion.nombre || sesion.email, origen, bruto && bruto.resumen ? String(bruto.resumen).replace(/\s+/g, ' ').slice(0, 300) : null, elegibles.length, fueraRm, sinComuna, excluidosRubro + descartadosIa.size]
+    `INSERT INTO indexscale_planes (generado_por, origen, resumen, pool_total, fuera_rm, sin_comuna, excl_rubro, aviso) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id;`,
+    [sesion.nombre || sesion.email, origen, bruto && bruto.resumen ? String(bruto.resumen).replace(/\s+/g, ' ').slice(0, 300) : null, elegibles.length, fueraRm, sinComuna, excluidosRubro + descartadosIa.size, aviso]
   );
   const planId = cab[0].id;
   const porId = new Map(aptos.map((c) => [c.id, c]));
