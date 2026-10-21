@@ -39,7 +39,7 @@ import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from 
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
 import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas, asegurarTablaIndexscalePlan, asegurarTablaIndiceModelosMeta } from '../lib/db.js';
-import { encontrarDefinicion, textoPlanoMetacampo, tipoDeProducto, mejorProductoPorMetacampo } from '../lib/modelos-metacampo.js';
+import { encontrarDefinicion, textoPlanoMetacampo, tipoDeProducto, mejorProductoPorMetacampo, buscarModelosEnItems } from '../lib/modelos-metacampo.js';
 import { esRegionMetropolitana as esRegionMetropolitanaIndexscale, telefonoChileno as telefonoChilenoIndexscale, primerNombre as primerNombreIndexscale, personalizarTexto as personalizarTextoIndexscale, puntuarCandidato as puntuarCandidatoIndexscale, validarSeleccionIA as validarSeleccionIAIndexscale, guiaRespaldo as guiaRespaldoIndexscale, SISTEMA_PLAN_IA, HERRAMIENTA_PLAN_IA, rubroTecnologico as rubroTecnologicoIndexscale, perfilRepuestos as perfilRepuestosIndexscale, enlacesSitio as enlacesSitioIndexscale, RESULTADOS_PLAN as RESULTADOS_PLAN_INDEXSCALE, ESTADO_POR_RESULTADO as ESTADO_POR_RESULTADO_INDEXSCALE } from '../lib/indexscale-plan.js';
 import { revisarSitio as revisarSitioIndexscale, TEXTO_ESTADO_SITIO as TEXTO_ESTADO_SITIO_INDEXSCALE } from '../lib/indexscale-sitio.js';
 import { referenciaDesdeMensaje } from '../lib/whatsapp-referencia.js';
@@ -141,6 +141,9 @@ export default async function handler(req, res) {
   // Cron semanal (lunes) del recordatorio de propuestas de Modelos compatibles sin aprobar. Ver vercel.json, middleware.ts
   // (esModelosCompatiblesRecordatorioPublico) y lib/compat-recordatorio.js.
   if (req.query.recurso === 'modelos-compatibles-recordatorio') return manejarModelosCompatiblesRecordatorio(req, res);
+  // Buscador con IA (Worker): búsqueda libre en el metacampo "modelos compatibles" (clave x-api-key) y su cron diario que arma el índice (CRON_SECRET).
+  if (req.query.recurso === 'buscador-ia-modelos') return manejarBuscadorIaModelos(req, res);
+  if (req.query.recurso === 'modelos-meta-indice-cron') return manejarModelosMetaIndiceCron(req, res);
   if (req.query.recurso === 'resumen-cambios-enviar') return manejarResumenCambiosEnviar(req, res);
   if (req.query.recurso === 'resumen-cambios-recordatorio') return manejarResumenCambiosRecordatorio(req, res);
   if (req.query.recurso === 'resumen-cambios-proponer') return manejarCambiosProponerCron(req, res);
@@ -10589,6 +10592,40 @@ async function avanzarIndiceModelosMeta(sql, { presupuestoMs = 20000, forzar = f
   await sql`UPDATE shopify_modelos_meta_indice SET items_nuevos = ${JSON.stringify(nuevos)}::jsonb, cursor_pagina = ${cursor}, paginas = ${paginas} WHERE id = 1;`;
   fila = { ...fila, paginas };
   return estado();
+}
+
+// Buscador con IA (Worker de Cloudflare): ¿qué productos listan en "modelos compatibles" lo que escribió el cliente? ("Acer Aspire E1 422" -> la pantalla E1-422,
+// que enumera E1-422-3431 y E1-422-5433). Solo lee el índice ya armado; si aún no existe, lo empieza y responde vacío para no hacer esperar al cliente.
+async function manejarBuscadorIaModelos(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const claveEsperada = process.env.BUSCADOR_IA_KEY;
+  if (!claveEsperada) return res.status(200).json({ error: 'BUSCADOR_IA_KEY no está configurada en Vercel' });
+  if (!claveBuscadorIaValida(req.headers['x-api-key'], claveEsperada)) return res.status(401).json({ error: 'Clave inválida' });
+  const q = String(req.body?.q ?? '').trim().slice(0, 200);
+  if (q.length < 3) return res.status(400).json({ error: 'Consulta muy corta' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndiceModelosMeta(sql);
+    let items = await leerItemsMeta(sql);
+    if (!items.length) {
+      try { await avanzarIndiceModelosMeta(sql, { presupuestoMs: 6000 }); items = await leerItemsMeta(sql); } catch { /* sin índice: el buscador sigue sin esta capa */ }
+    }
+    return res.status(200).json({ ok: true, productos: items.length, resultados: buscarModelosEnItems(items, q, { max: 10 }).map(r => ({ titulo: r.titulo, url: r.url, tipo: r.tipo, nivel: r.nivel, fragmentos: r.fragmentos })) });
+  } catch (e) {
+    return res.status(200).json({ ok: false, resultados: [], error: String(e.message || e).slice(0, 160) });
+  }
+}
+
+// Cron diario (ver vercel.json): arma o renueva el índice del metacampo. Se programa varias veces seguidas porque el armado es por tandas y retoma donde quedó.
+async function manejarModelosMetaIndiceCron(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const estado = await avanzarIndiceModelosMeta(await getSql(), { presupuestoMs: 45000 });
+    return res.status(200).json({ ok: true, ...estado });
+  } catch (e) {
+    return res.status(500).json({ error: 'No se pudo avanzar el índice de modelos compatibles', detail: String(e.message || e) });
+  }
 }
 
 // Busca el producto cuyo metacampo de modelos compatibles menciona ese modelo. Solo lee el índice ya armado (no llama a Shopify).

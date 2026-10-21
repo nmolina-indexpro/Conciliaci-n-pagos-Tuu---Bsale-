@@ -96,7 +96,7 @@ function esWhatsappEjecutivosNotificarDiarioPublico(pathname, searchParams) {
 // patrón que los de arriba (la seguridad real es el CRON_SECRET del handler).
 // Cron semanal (lunes) del recordatorio de propuestas de Modelos compatibles sin aprobar -- mismo patrón (la seguridad real es el CRON_SECRET del handler).
 function esModelosCompatiblesRecordatorioPublico(pathname, searchParams) {
-  return pathname === '/api/negocio' && searchParams.get('recurso') === 'modelos-compatibles-recordatorio';
+  return pathname === '/api/negocio' && ['modelos-compatibles-recordatorio', 'modelos-meta-indice-cron'].includes(searchParams.get('recurso'));
 }
 
 function esGoogleAdsResumenSemanalPublico(pathname, searchParams) {
@@ -120,7 +120,7 @@ function esIndexscalePixelPublico(pathname, searchParams) {
 // completa. La seguridad real la hace la clave BUSCADOR_IA_KEY (header
 // x-api-key) dentro del propio handler.
 function esBuscadorIaRegistrarPublico(pathname, searchParams) {
-  return pathname === '/api/negocio' && ['buscador-ia-registrar', 'buscador-ia-evento', 'buscador-ia-ranking', 'buscador-ia-envio', 'buscador-ia-embudo', 'buscador-ia-filtro', 'buscador-ia-descuento', 'wa-clic-ads', 'wa-clic-ads-cron', 'descuentos-web-aviso', 'descuentos-web-cron', 'resumen-cambios-enviar', 'resumen-cambios-recordatorio', 'resumen-cambios-proponer', 'mercadolibre-sync', 'cambio-imagen', 'bsale-webhook', 'indexscale-lead-web-registrar', 'cotizacion-web'].includes(searchParams.get('recurso'));
+  return pathname === '/api/negocio' && ['buscador-ia-registrar', 'buscador-ia-evento', 'buscador-ia-ranking', 'buscador-ia-envio', 'buscador-ia-embudo', 'buscador-ia-filtro', 'buscador-ia-descuento', 'buscador-ia-modelos', 'wa-clic-ads', 'wa-clic-ads-cron', 'descuentos-web-aviso', 'descuentos-web-cron', 'resumen-cambios-enviar', 'resumen-cambios-recordatorio', 'resumen-cambios-proponer', 'mercadolibre-sync', 'cambio-imagen', 'bsale-webhook', 'indexscale-lead-web-registrar', 'cotizacion-web'].includes(searchParams.get('recurso'));
 }
 
 // Recuperación de contraseña (ver recuperar-password.html /
