@@ -6308,6 +6308,7 @@ function textoSitioParaIAIndexscale(c) {
 
 // planExistenteId: si viene, los contactos nuevos se AGREGAN a esa lista (conservando los pendientes) en vez de crear una lista nueva.
 async function generarPlanIndexscale(sql, sesion, cantidad, planExistenteId = null) {
+  const inicioGenerar = Date.now();
   const { elegibles, fueraRm, sinComuna, excluidosGestion, excluidosRubro, excluidosTecnico, total } = await candidatosPlanIndexscale(sql);
   if (elegibles.length === 0) return { error: 'No quedan clientes de Santiago / Región Metropolitana disponibles para contactar. Revisa los estados o espera a los seguimientos.' };
 
@@ -6350,7 +6351,19 @@ async function generarPlanIndexscale(sql, sesion, cantidad, planExistenteId = nu
 
   let bruto = null; let aviso = null; let origen = 'ia';
   try {
-    bruto = await llamarGeminiEstructurado(SISTEMA_PLAN_IA, 'Cantidad de clientes a elegir: ' + cantidad + '\nClientes candidatos (todos de Santiago / Región Metropolitana):\n' + JSON.stringify(paraIA), HERRAMIENTA_PLAN_IA, { maxTokens: 12000, timeoutMs: 38000 });
+    // Gemini a veces responde 503 ("alta demanda") o se cae un instante: se reintenta hasta 3 veces mientras alcance el tiempo (la función tiene 60 s en total).
+    const textoIA = 'Cantidad de clientes a elegir: ' + cantidad + '\nClientes candidatos (todos de Santiago / Región Metropolitana):\n' + JSON.stringify(paraIA);
+    for (let intento = 0; ; intento++) {
+      const restante = 53000 - (Date.now() - inicioGenerar);
+      try {
+        bruto = await llamarGeminiEstructurado(SISTEMA_PLAN_IA, textoIA, HERRAMIENTA_PLAN_IA, { maxTokens: 12000, timeoutMs: Math.min(30000, restante - 1000) });
+        break;
+      } catch (e) {
+        const transitorio = /HTTP (500|502|503|504)|high demand|UNAVAILABLE|overloaded|abort|timeout/i.test(String(e && e.message));
+        if (!transitorio || intento >= 2 || restante < 14000) throw e;
+        await new Promise((r) => setTimeout(r, 1500 * (intento + 1)));
+      }
+    }
   } catch (err) {
     origen = 'respaldo';
     aviso = err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada: la lista se armó con el puntaje automático.' : 'La IA no respondió (' + String(err.message || err).slice(0, 160) + '): la lista se armó con el puntaje automático.';
