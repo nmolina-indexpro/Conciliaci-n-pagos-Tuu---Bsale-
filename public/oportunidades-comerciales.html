@@ -645,8 +645,14 @@ async function iniciarSincronizacion(){
     let totalListado = 0;
     let totalCorreos = 0;
     while(!completo){
-      wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${fmtNum(totalListado)} clientes revisados. Esto puede tardar varios minutos, no cierres la página.</div>`;
-      const res = await fetch('/api/negocio?recurso=sync-clientes-puntos', { method: 'POST' }).then(r=>r.json());
+      // Cada tanda tarda hasta ~50 s sin devolver nada: el contador deja claro que sigue trabajando.
+      const baseMsg = `⏳ Sincronizando con Bsale... ${fmtNum(totalListado)} clientes revisados. Esto puede tardar varios minutos, no cierres la página.`;
+      const t0 = Date.now();
+      wrap.innerHTML = `<div class="note-box">${baseMsg} <b>Tanda en curso: 0 s</b> (cada tanda demora hasta ~1 minuto)</div>`;
+      const timerSync = setInterval(() => { wrap.innerHTML = `<div class="note-box">${baseMsg} <b>Tanda en curso: ${Math.round((Date.now() - t0) / 1000)} s</b> (cada tanda demora hasta ~1 minuto)</div>`; }, 1000);
+      let res;
+      try{ res = await fetch('/api/negocio?recurso=sync-clientes-puntos', { method: 'POST' }).then(r=>r.json()); }
+      finally{ clearInterval(timerSync); }
       if(res.error){
         wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${res.detail || res.error}</div>`;
         break;
