@@ -767,7 +767,7 @@ async function manejarReportes(req, res, sesion) {
 const BSALE_BASE = 'https://api.bsale.io/v1';
 // Compartidas por manejarSyncClientesPuntos y manejarSyncCotizaciones (misma
 // cuenta de Bsale, mismo rate limit de ~8 req/s aplicado en todo /v1/*).
-const PUNTOS_SYNC_PRESUPUESTO_MS = 50000; // deja margen bajo el tope de 60s de Vercel Hobby
+const PUNTOS_SYNC_PRESUPUESTO_MS = 40000; // deja margen bajo el tope de 60s de Vercel Hobby
 const PUNTOS_SYNC_INTERVALO_MIN_MS = 130; // ritmo ~7.7 req/s, bajo el límite de Bsale (8 req/s) con margen
 const PUNTOS_SYNC_LIMIT = 50; // máximo permitido por página en clients.json / documents.json
 
@@ -873,7 +873,19 @@ function extraerEmailDetalle(data) {
 
 // Solo un admin puede disparar la sincronización (golpea la API de Bsale
 // repetidamente y puede tardar varios minutos en tandas encadenadas).
+// Cada tanda tiene un reloj de seguridad: si algo se queda esperando (Bsale, un bloqueo en la base...) se responde ANTES de que Vercel corte la función
+// y se informa en qué etapa estaba, en vez de dejar la pantalla "pegada" sin explicación.
 async function manejarSyncClientesPuntos(req, res, sesion) {
+  let etapa = 'iniciando';
+  let respondido = false;
+  const resSeguro = { status(c) { return { json(o) { if (respondido) return; respondido = true; clearTimeout(reloj); return res.status(c).json(o); } }; } };
+  const reloj = setTimeout(() => {
+    console.error('sync-clientes-puntos: cortada por tiempo en la etapa: ' + etapa);
+    resSeguro.status(200).json({ error: 'La tanda se quedó esperando y se cortó a los 54 segundos. Etapa en que estaba: ' + etapa + '. El avance ya guardado se conserva: vuelve a presionar "Sincronizar con Bsale".', detail: etapa });
+  }, 54000);
+  await sincronizarClientesPuntos(req, resSeguro, sesion, (e) => { etapa = e; });
+}
+async function sincronizarClientesPuntos(req, res, sesion, marcar) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sincronizar clientes con Bsale' });
 
@@ -882,9 +894,12 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
 
   const inicio = Date.now();
   try {
+    marcar('conectando con la base de datos');
     const sql = await getSql();
+    marcar('preparando la tabla de clientes (si se queda aquí, otra sincronización la tiene bloqueada)');
     await asegurarTablaBsalePuntos(sql);
 
+    marcar('leyendo el avance guardado');
     const { rows: estadoRows } = await sql`SELECT * FROM bsale_puntos_sync_estado WHERE id = 1;`;
     const estado = estadoRows[0] || {};
     let offset = estado.offset_actual || 0;
@@ -905,6 +920,7 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
     while (!pasadaListadoTerminada && presupuestoRestante() > 0) {
       await esperarRitmo();
 
+      marcar('esperando la respuesta de Bsale (clientes desde el N° ' + offset + ')');
       const url = `${BSALE_BASE}/clients.json?limit=${PUNTOS_SYNC_LIMIT}&offset=${offset}&state=0`;
       const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
       if (!r.ok) {
@@ -916,6 +932,7 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
       if (typeof data.count === 'number') total = data.count;
 
       if (items.length > 0) {
+        marcar('guardando clientes en la base (desde el N° ' + offset + ')');
         await sql.query(
           `INSERT INTO bsale_clientes_puntos (id, nombre, rut, telefono, email, empresa, ciudad, puntos, acumula_puntos, puntos_actualizado, sincronizado_en, giro, comuna)
            SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::int[], $9::bool[], $10::date[], $11::timestamptz[], $12::text[], $13::text[])
@@ -946,6 +963,7 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
       offset += items.length;
       procesados += items.length;
       pasadaListadoTerminada = items.length < PUNTOS_SYNC_LIMIT || (total != null && offset >= total);
+      marcar('guardando el avance (N° ' + offset + ')');
       await sql`UPDATE bsale_puntos_sync_estado SET offset_actual = ${offset}, total_clientes = ${total}, actualizado_en = now() WHERE id = 1;`;
     }
 
@@ -977,6 +995,7 @@ async function manejarSyncClientesPuntos(req, res, sesion) {
       if (presupuestoRestante() <= 0) break;
       await esperarRitmo();
 
+      marcar('completando el correo del cliente ' + id + ' en Bsale');
       const url = `${BSALE_BASE}/clients/${id}.json?expand=contacts`;
       const r = await fetchConTimeout(url, { headers: { access_token: token } }, 15000);
       if (!r.ok) {
@@ -4793,17 +4812,24 @@ async function manejarCotizacionesSeguimientoDiario(req, res) {
     await asegurarTablaCotizacionesContactos(sql);
     await asegurarTablaCotizacionesCorreos(sql);
 
-    // Último contacto real (correo saliente o contacto registrado) y último mensaje del cliente, para contar los días y detectar al cliente que espera.
+    // Último contacto real (contacto registrado, correo enviado por esta cotización o correo al mismo cliente por otra gestión) y último mensaje del cliente, para
+    // contar los días y detectar al cliente que espera. NADA anterior a la emisión de la cotización cuenta (un correo viejo al mismo cliente no la "revive").
     const { rows } = await sql`
       SELECT c.id, c.numero, c.url_cotizacion, c.cliente_nombre, c.monto, c.fecha, c.estado, c.actualizado_en, c.vendedor_nombre, ug.nombre AS responsable,
-             (SELECT MAX(x.fecha) FROM (
-                SELECT fecha FROM bsale_cotizaciones_contactos WHERE cotizacion_id = c.id
-                UNION ALL
-                SELECT fecha FROM cotizaciones_correos WHERE direccion = 'saliente' AND (cotizacion_id = c.id OR (cliente_email IS NOT NULL AND cliente_email <> '' AND cliente_email = c.cliente_email))
-              ) x) AS ultimo_contacto,
-             (SELECT MAX(fecha) FROM cotizaciones_correos WHERE direccion = 'entrante' AND (cotizacion_id = c.id OR (cliente_email IS NOT NULL AND cliente_email <> '' AND cliente_email = c.cliente_email))) AS ultimo_entrante
+             uc.fecha AS ultimo_contacto, uc.tipo AS ultimo_contacto_tipo,
+             (SELECT MAX(fecha) FROM cotizaciones_correos WHERE direccion = 'entrante' AND (cotizacion_id = c.id OR (cliente_email IS NOT NULL AND cliente_email <> '' AND cliente_email = c.cliente_email AND fecha >= c.fecha::timestamptz))) AS ultimo_entrante
       FROM bsale_cotizaciones c
       LEFT JOIN usuarios ug ON ug.id = c.responsable_gestion_id
+      LEFT JOIN LATERAL (
+        SELECT x.fecha, x.tipo FROM (
+          SELECT fecha, 'registro' AS tipo FROM bsale_cotizaciones_contactos WHERE cotizacion_id = c.id
+          UNION ALL
+          SELECT fecha, 'correo' AS tipo FROM cotizaciones_correos WHERE direccion = 'saliente' AND cotizacion_id = c.id
+          UNION ALL
+          SELECT fecha, 'correo_cliente' AS tipo FROM cotizaciones_correos
+           WHERE direccion = 'saliente' AND cotizacion_id IS DISTINCT FROM c.id AND cliente_email IS NOT NULL AND cliente_email <> '' AND cliente_email = c.cliente_email AND fecha >= c.fecha::timestamptz
+        ) x ORDER BY x.fecha DESC LIMIT 1
+      ) uc ON true
       WHERE c.estado NOT IN ('facturada', 'perdida');`;
 
     const prep = prepararCotizacionesSeguimiento(rows);
