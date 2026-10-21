@@ -39,7 +39,7 @@ import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from 
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
 import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas, asegurarTablaIndexscalePlan, asegurarTablaIndiceModelosMeta } from '../lib/db.js';
-import { encontrarDefinicion, textoPlanoMetacampo, tipoDeProducto, mejorProductoPorMetacampo, buscarModelosEnItems } from '../lib/modelos-metacampo.js';
+import { encontrarDefinicion, textoPlanoMetacampo, tipoDeProducto, mejorProductoPorMetacampo, buscarModelosEnItems, lineasModelosDescripcion } from '../lib/modelos-metacampo.js';
 import { esRegionMetropolitana as esRegionMetropolitanaIndexscale, telefonoChileno as telefonoChilenoIndexscale, primerNombre as primerNombreIndexscale, personalizarTexto as personalizarTextoIndexscale, puntuarCandidato as puntuarCandidatoIndexscale, validarSeleccionIA as validarSeleccionIAIndexscale, guiaRespaldo as guiaRespaldoIndexscale, SISTEMA_PLAN_IA, HERRAMIENTA_PLAN_IA, rubroTecnologico as rubroTecnologicoIndexscale, perfilRepuestos as perfilRepuestosIndexscale, enlacesSitio as enlacesSitioIndexscale, RESULTADOS_PLAN as RESULTADOS_PLAN_INDEXSCALE, ESTADO_POR_RESULTADO as ESTADO_POR_RESULTADO_INDEXSCALE } from '../lib/indexscale-plan.js';
 import { revisarSitio as revisarSitioIndexscale, TEXTO_ESTADO_SITIO as TEXTO_ESTADO_SITIO_INDEXSCALE } from '../lib/indexscale-sitio.js';
 import { referenciaDesdeMensaje } from '../lib/whatsapp-referencia.js';
@@ -10563,14 +10563,16 @@ async function avanzarIndiceModelosMeta(sql, { presupuestoMs = 20000, forzar = f
     while (hayMas && Date.now() + ultimaPaginaMs < limite) {
       const t0 = Date.now();
       const body = await shopifyGraphQLConReintento(domain, accessToken,
-        'query($c: String, $ns: String!, $key: String!) { products(first: 100, after: $c, query: "status:active") { nodes { title handle onlineStoreUrl variants(first: 1) { nodes { sku } } meta: metafield(namespace: $ns, key: $key) { value } } pageInfo { hasNextPage endCursor } } }',
+        'query($c: String, $ns: String!, $key: String!) { products(first: 100, after: $c, query: "status:active") { nodes { title handle onlineStoreUrl descriptionHtml variants(first: 1) { nodes { sku } } meta: metafield(namespace: $ns, key: $key) { value } } pageInfo { hasNextPage endCursor } } }',
         { c: cursor, ns: def.namespace, key: def.key });
       const con = body.data && body.data.products;
       if (!con) throw new Error('Shopify no devolvió productos');
       for (const p of con.nodes) {
         const texto = textoPlanoMetacampo(p.meta && p.meta.value);
-        if (!texto.trim()) continue;
-        nuevos.push({ titulo: p.title, url: p.onlineStoreUrl || null, sku: (p.variants && p.variants.nodes && p.variants.nodes[0] && p.variants.nodes[0].sku) || null, tipo: tipoDeProducto(p.title), texto: texto.slice(0, 6000) });
+        // Solo las líneas de la descripción que parecen modelos de notebook (unas 200 fichas); no se guarda la descripción completa para que el índice siga liviano.
+        const desc = lineasModelosDescripcion(p.descriptionHtml).join('\n').slice(0, 6000);
+        if (!texto.trim() && !desc) continue;
+        nuevos.push({ titulo: p.title, url: p.onlineStoreUrl || null, sku: (p.variants && p.variants.nodes && p.variants.nodes[0] && p.variants.nodes[0].sku) || null, tipo: tipoDeProducto(p.title), texto: texto.slice(0, 6000), ...(desc ? { desc } : {}) });
       }
       paginas++;
       hayMas = Boolean(con.pageInfo && con.pageInfo.hasNextPage);
@@ -10610,7 +10612,7 @@ async function manejarBuscadorIaModelos(req, res) {
     if (!items.length) {
       try { await avanzarIndiceModelosMeta(sql, { presupuestoMs: 6000 }); items = await leerItemsMeta(sql); } catch { /* sin índice: el buscador sigue sin esta capa */ }
     }
-    return res.status(200).json({ ok: true, productos: items.length, resultados: buscarModelosEnItems(items, q, { max: 10 }).map(r => ({ titulo: r.titulo, url: r.url, tipo: r.tipo, nivel: r.nivel, fragmentos: r.fragmentos })) });
+    return res.status(200).json({ ok: true, productos: items.length, resultados: buscarModelosEnItems(items, q, { max: 10 }).map(r => ({ titulo: r.titulo, url: r.url, tipo: r.tipo, nivel: r.nivel, fuente: r.fuente, fragmentos: r.fragmentos })) });
   } catch (e) {
     return res.status(200).json({ ok: false, resultados: [], error: String(e.message || e).slice(0, 160) });
   }
