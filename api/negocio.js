@@ -42,7 +42,7 @@ import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas } 
 import { referenciaDesdeMensaje } from '../lib/whatsapp-referencia.js';
 import { armarAnalisis as armarAnalisisDesperdicio, MINUTOS_POR_DEFECTO as MINUTOS_DESPERDICIO, MAX_MENSAJES_CLIENTE as MAX_MENSAJES_DESPERDICIO } from '../lib/whatsapp-desperdicio-ads.js';
 import { armarCorreoModelosPendientes } from '../lib/compat-recordatorio.js';
-import { resolverEntradaProducto, datosProductoIdentificado, columnaCompatibilidad } from '../lib/compat-propuestas.js';
+import { resolverEntradaProducto, datosProductoIdentificado, columnaCompatibilidad, esLink, handleDesdeLink, skuValidoParaBuscar, productoDesdeShopify, productoDesdeVariantes } from '../lib/compat-propuestas.js';
 import { analizarGoogleAds, validarRango as validarRangoGoogleAds } from '../lib/google-ads-analisis.js';
 import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
@@ -13768,11 +13768,34 @@ async function manejarProductosNuevosEstado(req, res, sesion) {
 // (tipo + marca + modelo + SKU o link del producto). Un administrador lo aprueba y entra a notebook_compatibilidad (la base que usan el buscador y la
 // categorización). NO es Productos Nuevos (modelos que no trabajamos, que se analizan mes a mes): son tablas y páginas distintas.
 // El vendedor pega UN dato (link de la tienda o SKU) y de ahí salen el SKU, el link y el título. Si Shopify no responde, se conserva lo escrito.
+// Una sola consulta a Shopify por el producto pedido (no el catálogo completo, que tarda decenas de segundos). Si el catálogo ya está en caché se usa primero.
+async function resolverProductoShopify(entrada) {
+  const texto = String(entrada || '').trim();
+  if (!texto) return null;
+  if (cacheUrlsShopify && Date.now() - cacheUrlsShopify.ts < 30 * 60000) {
+    const r = resolverEntradaProducto(texto, cacheUrlsShopify.urls);
+    if (r) return r;
+  }
+  const acceso = await obtenerAccesoShopify();
+  if (!acceso) throw new Error('Shopify no está configurado en el servidor');
+  const { domain, accessToken } = acceso;
+  if (esLink(texto)) {
+    const handle = handleDesdeLink(texto);
+    if (!handle) return null;
+    const body = await shopifyGraphQLConReintento(domain, accessToken,
+      'query($h: String!) { productByHandle(handle: $h) { handle title status onlineStoreUrl variants(first: 50) { nodes { sku } } } }', { h: handle });
+    return productoDesdeShopify(body.data && body.data.productByHandle, 'link');
+  }
+  if (!skuValidoParaBuscar(texto)) return null;
+  const body = await shopifyGraphQLConReintento(domain, accessToken,
+    'query($q: String!) { productVariants(first: 10, query: $q) { nodes { sku product { handle title status onlineStoreUrl } } } }', { q: `sku:'${texto}'` });
+  return productoDesdeVariantes(body.data && body.data.productVariants && body.data.productVariants.nodes, texto);
+}
 async function resolverProductoIdentificado(entrada) {
   const texto = String(entrada || '').trim();
   if (!texto) return { sku: null, link: null, titulo: null };
   let resuelto = null;
-  try { resuelto = resolverEntradaProducto(texto, (await obtenerUrlsShopify(false)).urls); } catch (e) { resuelto = null; }
+  try { resuelto = await resolverProductoShopify(texto); } catch (e) { resuelto = null; }
   return datosProductoIdentificado(texto, resuelto);
 }
 
@@ -13783,9 +13806,7 @@ async function manejarCompatResolver(req, res, _sesion) {
   const q = String(req.query.q || '').trim();
   if (!q) return res.status(400).json({ error: 'Falta el link o el SKU' });
   try {
-    const m = await obtenerUrlsShopify(false);
-    if (m.error) return res.status(200).json({ producto: null, error: m.error });
-    return res.status(200).json({ producto: resolverEntradaProducto(q, m.urls) });
+    return res.status(200).json({ producto: await resolverProductoShopify(q) });
   } catch (err) {
     return res.status(200).json({ producto: null, error: 'No se pudo consultar Shopify: ' + String(err.message || err).slice(0, 160) });
   }

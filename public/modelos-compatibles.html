@@ -469,7 +469,10 @@ async function resolverProductoEscrito(){
   if(!q){ el.className = 'producto-resuelto'; el.textContent = ''; return; }
   el.className = 'producto-resuelto'; el.textContent = 'Buscando el producto…';
   try{
-    const d = await (await fetch('/api/negocio?recurso=compat-propuestas-resolver&q=' + encodeURIComponent(q))).json();
+    const ctl = new AbortController(); const corte = setTimeout(() => ctl.abort(), 15000);
+    let d;
+    try{ d = await (await fetch('/api/negocio?recurso=compat-propuestas-resolver&q=' + encodeURIComponent(q), { signal: ctl.signal })).json(); }
+    finally{ clearTimeout(corte); }
     if(tk !== tokenProducto) return;
     const pr = d.producto;
     if(pr){
