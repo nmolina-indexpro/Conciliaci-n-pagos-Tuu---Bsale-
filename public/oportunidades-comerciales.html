@@ -651,8 +651,14 @@ async function iniciarSincronizacion(){
       wrap.innerHTML = `<div class="note-box">${baseMsg} <b>Tanda en curso: 0 s</b> (cada tanda demora hasta ~1 minuto)</div>`;
       const timerSync = setInterval(() => { wrap.innerHTML = `<div class="note-box">${baseMsg} <b>Tanda en curso: ${Math.round((Date.now() - t0) / 1000)} s</b> (cada tanda demora hasta ~1 minuto)</div>`; }, 1000);
       let res;
-      try{ res = await fetch('/api/negocio?recurso=sync-clientes-puntos', { method: 'POST' }).then(r=>r.json()); }
-      finally{ clearInterval(timerSync); }
+      const ctl = new AbortController();
+      const corte = setTimeout(() => ctl.abort(), 90000);
+      try{ res = await fetch('/api/negocio?recurso=sync-clientes-puntos', { method: 'POST', signal: ctl.signal }).then(r=>r.json()); }
+      catch(errTanda){
+        wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">La tanda no respondió en 90 segundos (${errTanda.name === 'AbortError' ? 'sin respuesta del servidor' : errTanda.message}). El avance ya guardado se conserva: vuelve a presionar "Sincronizar con Bsale".</div>`;
+        break;
+      }
+      finally{ clearInterval(timerSync); clearTimeout(corte); }
       if(res.error){
         wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${res.detail || res.error}</div>`;
         break;
