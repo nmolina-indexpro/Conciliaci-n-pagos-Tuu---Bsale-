@@ -6306,7 +6306,8 @@ function textoSitioParaIAIndexscale(c) {
   return TEXTO_ESTADO_SITIO_INDEXSCALE[c.sitioEstado] || 'dominio propio, sitio sin revisar';
 }
 
-async function generarPlanIndexscale(sql, sesion, cantidad) {
+// planExistenteId: si viene, los contactos nuevos se AGREGAN a esa lista (conservando los pendientes) en vez de crear una lista nueva.
+async function generarPlanIndexscale(sql, sesion, cantidad, planExistenteId = null) {
   const { elegibles, fueraRm, sinComuna, excluidosGestion, excluidosRubro, excluidosTecnico, total } = await candidatosPlanIndexscale(sql);
   if (elegibles.length === 0) return { error: 'No quedan clientes de Santiago / Región Metropolitana disponibles para contactar. Revisa los estados o espera a los seguimientos.' };
 
@@ -6377,13 +6378,25 @@ async function generarPlanIndexscale(sql, sesion, cantidad) {
     return a._i - b._i; // el orden que dio la IA (o, si no respondió, por puntaje)
   });
 
-  const { rows: cab } = await sql.query(
-    `INSERT INTO indexscale_planes (generado_por, origen, resumen, pool_total, fuera_rm, sin_comuna, excl_rubro, aviso) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id;`,
-    [sesion.nombre || sesion.email, origen, bruto && bruto.resumen ? String(bruto.resumen).replace(/\s+/g, ' ').slice(0, 300) : null, elegibles.length, fueraRm, sinComuna, excluidosRubro + descartadosIa.size, aviso]
-  );
-  const planId = cab[0].id;
+  const resumenIa = bruto && bruto.resumen ? String(bruto.resumen).replace(/\s+/g, ' ').slice(0, 300) : null;
+  let planId; let n = 0;
+  if (planExistenteId) {
+    // Se agregan al final de la lista actual: los pendientes siguen primero y lo ya gestionado se conserva a la vista.
+    planId = planExistenteId;
+    await sql.query(
+      `UPDATE indexscale_planes SET pool_total = $2, fuera_rm = $3, sin_comuna = $4, excl_rubro = $5, aviso = $6, resumen = COALESCE($7, resumen), origen = CASE WHEN origen = 'ia' OR $8 = 'ia' THEN 'ia' ELSE $8 END WHERE id = $1;`,
+      [planId, elegibles.length, fueraRm, sinComuna, excluidosRubro + descartadosIa.size, aviso, resumenIa, origen]
+    );
+    const { rows: mx } = await sql.query(`SELECT COALESCE(MAX(orden) + 1, 0)::int AS n FROM indexscale_plan_items WHERE plan_id = $1;`, [planId]);
+    n = mx[0].n;
+  } else {
+    const { rows: cab } = await sql.query(
+      `INSERT INTO indexscale_planes (generado_por, origen, resumen, pool_total, fuera_rm, sin_comuna, excl_rubro, aviso) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id;`,
+      [sesion.nombre || sesion.email, origen, resumenIa, elegibles.length, fueraRm, sinComuna, excluidosRubro + descartadosIa.size, aviso]
+    );
+    planId = cab[0].id;
+  }
   const porId = new Map(aptos.map((c) => [c.id, c]));
-  let n = 0;
   for (const s of seleccion) {
     const c = porId.get(s.id);
     if (!c) continue;
@@ -6420,14 +6433,15 @@ async function manejarIndexscalePlan(req, res, sesion) {
       cantidad = Math.max(PLAN_CANTIDAD_MIN, Math.min(PLAN_CANTIDAD_MAX, cantidad));
       // Una lista nueva reemplaza a la actual: lo que quedó pendiente se marca "omitido" (no vuelve a salir por 3 días) y queda en el historial.
       const { rows: ultimo } = await sql`SELECT id FROM indexscale_planes ORDER BY id DESC LIMIT 1;`;
-      if (ultimo.length && !b.reemplazar) {
+      const conservar = !!b.conservar && ultimo.length > 0;
+      if (ultimo.length && !b.reemplazar && !conservar) {
         const { rows: pend } = await sql.query(`SELECT COUNT(*)::int AS n FROM indexscale_plan_items WHERE plan_id = $1 AND resultado = 'pendiente';`, [ultimo[0].id]);
         if (pend[0].n > 0) return res.status(409).json({ error: 'Todavía hay ' + pend[0].n + ' contactos pendientes en la lista actual.', pendientes: pend[0].n });
       }
-      if (ultimo.length) {
+      if (ultimo.length && !conservar) {
         await sql.query(`UPDATE indexscale_plan_items SET resultado = 'omitido', resultado_por = $2, resultado_en = now() WHERE plan_id = $1 AND resultado = 'pendiente';`, [ultimo[0].id, sesion.nombre || sesion.email]);
       }
-      const r = await generarPlanIndexscale(sql, sesion, cantidad);
+      const r = await generarPlanIndexscale(sql, sesion, cantidad, conservar ? ultimo[0].id : null);
       if (r.error) return res.status(200).json({ error: r.error });
       const out = await leerPlanIndexscale(sql, sesion);
       return res.status(200).json({ ...out, aviso: r.aviso || null, estadisticas: r.estadisticas });

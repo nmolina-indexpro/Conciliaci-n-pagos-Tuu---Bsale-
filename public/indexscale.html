@@ -953,17 +953,40 @@ async function cargarPlanIndexscale(){
   }catch(err){ $('planCuerpo').innerHTML = '<p class="empty-note err">No se pudo cargar tu lista: ' + escLead(err.message) + '</p>'; }
 }
 
-async function generarPlanIndexscale(reemplazar){
+// Si quedan contactos sin gestionar, se pregunta qué hacer con ellos: conservarlos y agregar nuevos, o reemplazarlos por una lista nueva.
+function preguntarPendientesPlan(n){
+  return new Promise((resolve) => {
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    ov.innerHTML = '<div style="background:var(--surface);border-radius:14px;padding:20px 22px;max-width:480px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">'
+      + '<h2 style="margin:0 0 6px">Te quedan ' + n + (n === 1 ? ' contacto' : ' contactos') + ' sin gestionar</h2>'
+      + '<div class="sub" style="margin-bottom:14px">¿Qué hacemos con ellos al pedir más contactos?</div>'
+      + '<div style="display:flex;flex-direction:column;gap:8px">'
+      + '<button class="pl-btn" data-m="conservar">➕ Conservarlos y agregar contactos nuevos</button>'
+      + '<button class="pl-btn mail" data-m="reemplazar">🔄 Reemplazarlos por una lista nueva</button>'
+      + '<div class="sub" style="margin:-2px 2px 4px">Al reemplazar, los pendientes quedan como «omitidos» y no vuelven a salir por 3 días.</div>'
+      + '<button class="pl-btn mail" data-m="">Cancelar</button></div></div>';
+    const cerrar = (m) => { document.removeEventListener('keydown', tecla); ov.remove(); resolve(m || null); };
+    const tecla = (e) => { if(e.key === 'Escape') cerrar(null); };
+    document.addEventListener('keydown', tecla);
+    ov.addEventListener('click', (e) => { if(e.target === ov) cerrar(null); });
+    ov.querySelectorAll('button').forEach(b => b.addEventListener('click', () => cerrar(b.dataset.m)));
+    document.body.appendChild(ov);
+  });
+}
+
+async function generarPlanIndexscale(modo){
   if(generandoPlan) return;
   const sel = $('planCantidad');
   const cantidad = sel ? parseInt(sel.value, 10) : 12;
   generandoPlan = true; renderPlan();
   try{
-    const r = await fetch('/api/negocio?recurso=indexscale-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'generar', cantidad, reemplazar: !!reemplazar }) });
+    const r = await fetch('/api/negocio?recurso=indexscale-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'generar', cantidad, reemplazar: modo === 'reemplazar', conservar: modo === 'conservar' }) });
     const d = await r.json();
     if(r.status === 409){
       generandoPlan = false; renderPlan();
-      if(confirm('Te quedan ' + d.pendientes + ' contactos sin gestionar. Si pides otra lista, esos quedan como "omitidos" y no volverán a salir por 3 días. ¿Continuar?')) return generarPlanIndexscale(true);
+      const elegido = await preguntarPendientesPlan(d.pendientes);
+      if(elegido) return generarPlanIndexscale(elegido);
       return;
     }
     if(d.error){ generandoPlan = false; $('planAviso').innerHTML = '<div class="pl-aviso err">' + escLead(d.error) + '</div>'; renderPlan(); return; }
@@ -1067,7 +1090,7 @@ function renderPlan(){
   const pendientes = items.filter(i => i.resultado === 'pendiente');
   const hechos = items.filter(i => i.resultado !== 'pendiente');
   const pct = items.length ? Math.round(hechos.length / items.length * 100) : 0;
-  acc.innerHTML = opciones + '<button class="pl-btn" ' + (generandoPlan ? 'disabled' : '') + ' onclick="generarPlanIndexscale(false)">' + (generandoPlan ? '⏳ Analizando con IA…' : (pendientes.length ? '🔄 Pedir otra lista' : '✨ Generar la siguiente lista')) + '</button>';
+  acc.innerHTML = opciones + '<button class="pl-btn" ' + (generandoPlan ? 'disabled' : '') + ' onclick="generarPlanIndexscale(false)">' + (generandoPlan ? '⏳ Analizando con IA…' : (pendientes.length ? '➕ Pedir más contactos' : '✨ Generar la siguiente lista')) + '</button>';
   if($('planCantidad')) $('planCantidad').value = cantPrev;
   const hoy = planIndexscale.gestionadosHoy || 0;
   const filtro = 'Solo Santiago y Región Metropolitana: ' + dosFmt(pl.poolTotal) + ' clientes disponibles'
