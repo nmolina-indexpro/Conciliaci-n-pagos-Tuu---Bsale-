@@ -38,7 +38,8 @@ import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, product
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
-import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas } from '../lib/db.js';
+import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas, asegurarTablaIndexscalePlan } from '../lib/db.js';
+import { esRegionMetropolitana as esRegionMetropolitanaIndexscale, telefonoChileno as telefonoChilenoIndexscale, primerNombre as primerNombreIndexscale, personalizarTexto as personalizarTextoIndexscale, puntuarCandidato as puntuarCandidatoIndexscale, validarSeleccionIA as validarSeleccionIAIndexscale, guiaRespaldo as guiaRespaldoIndexscale, SISTEMA_PLAN_IA, HERRAMIENTA_PLAN_IA, RESULTADOS_PLAN as RESULTADOS_PLAN_INDEXSCALE, ESTADO_POR_RESULTADO as ESTADO_POR_RESULTADO_INDEXSCALE } from '../lib/indexscale-plan.js';
 import { referenciaDesdeMensaje } from '../lib/whatsapp-referencia.js';
 import { armarAnalisis as armarAnalisisDesperdicio, MINUTOS_POR_DEFECTO as MINUTOS_DESPERDICIO, MAX_MENSAJES_CLIENTE as MAX_MENSAJES_DESPERDICIO } from '../lib/whatsapp-desperdicio-ads.js';
 import { armarCorreoModelosPendientes } from '../lib/compat-recordatorio.js';
@@ -250,6 +251,7 @@ export default async function handler(req, res) {
   if (recurso === 'indexscale-oportunidades') return manejarIndexscaleOportunidades(req, res, sesion);
   if (recurso === 'indexscale-leads-web') return manejarIndexscaleLeadsWeb(req, res, sesion);
   if (recurso === 'indexscale-estado') return manejarIndexscaleEstado(req, res, sesion);
+  if (recurso === 'indexscale-plan') return manejarIndexscalePlan(req, res, sesion);
   if (recurso === 'indexscale-enviar-presentacion') return manejarIndexscaleEnviarPresentacion(req, res, sesion);
   if (recurso === 'indexscale-verificar-sitios') return manejarIndexscaleVerificarSitios(req, res, sesion);
   if (recurso === 'indexscale-enviar-recontacto') return manejarIndexscaleEnviarRecontacto(req, res, sesion);
@@ -6066,6 +6068,293 @@ async function manejarIndexscaleEstado(req, res, sesion) {
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: 'Error actualizando el estado', detail: String(err) });
+  }
+}
+
+// ==================== IndexScale: lista de contacto guiada para el vendedor ====================
+// El vendedor no tiene que decidir "por dónde partir" entre miles de clientes: el ERP arma una lista de 10-15 (solo Santiago / Región Metropolitana),
+// elegida por la IA (Gemini) entre los mejores candidatos según el historial de compras, y le deja el mensaje de WhatsApp, la apertura de llamada,
+// las preguntas y las respuestas a objeciones. El vendedor anota el resultado de cada contacto y eso alimenta la próxima lista (no se repite a quien
+// ya está gestionado, se reintenta a quien no contestó, se vuelve a llamar cuando quedó de hacerlo). Lógica pura en lib/indexscale-plan.js.
+const PLAN_CANTIDAD_DEFECTO = 12;
+const PLAN_CANTIDAD_MIN = 10;
+const PLAN_CANTIDAD_MAX = 15;
+const PLAN_CANDIDATOS_POR_SEGMENTO = 20; // la IA ve hasta 40 candidatos (20 por segmento) y elige entre ellos
+
+async function leerItemsPlanIndexscale(sql, planId) {
+  const { rows } = await sql.query(
+    `SELECT i.*, o.empresa, o.cliente_nombre, o.telefono, o.email, o.segmento, o.estado AS estado_oportunidad, o.rut,
+            (SELECT COALESCE(json_agg(json_build_object('canal', c.canal, 'resultado', c.resultado, 'nota', c.nota, 'por', c.por, 'en', c.en) ORDER BY c.en DESC), '[]'::json)
+               FROM (SELECT * FROM indexscale_contactos WHERE oportunidad_id = i.oportunidad_id ORDER BY en DESC LIMIT 4) c) AS historial,
+            i.proximo_contacto::text AS proximo_contacto_txt
+     FROM indexscale_plan_items i
+     JOIN indexscale_oportunidades o ON o.id = i.oportunidad_id
+     WHERE i.plan_id = $1
+     ORDER BY i.orden ASC, i.id ASC;`,
+    [planId]
+  );
+  return rows.map((r) => {
+    const nombre = primerNombreIndexscale(r.cliente_nombre);
+    const guia = r.guia || {};
+    return {
+      id: r.id,
+      oportunidadId: r.oportunidad_id,
+      orden: r.orden,
+      puntaje: r.puntaje,
+      comuna: r.comuna,
+      prioridad: r.prioridad,
+      oferta: r.oferta,
+      motivo: r.motivo,
+      origen: r.origen,
+      empresa: limpiarRazonSocial(r.empresa) || r.empresa,
+      contacto: r.cliente_nombre,
+      saludo: nombre,
+      telefono: telefonoChilenoIndexscale(r.telefono),
+      email: r.email,
+      segmento: r.segmento,
+      estadoOportunidad: r.estado_oportunidad,
+      datos: r.datos || {},
+      guia: {
+        mensaje: personalizarTextoIndexscale(guia.mensaje_whatsapp, nombre),
+        apertura: personalizarTextoIndexscale(guia.apertura_llamada, nombre),
+        preguntas: guia.preguntas || [],
+        objeciones: guia.objeciones || [],
+      },
+      resultado: r.resultado,
+      nota: r.nota,
+      canal: r.canal,
+      proximoContacto: r.proximo_contacto_txt,
+      resultadoPor: r.resultado_por,
+      resultadoEn: r.resultado_en,
+      historial: r.historial || [],
+    };
+  });
+}
+
+async function leerPlanIndexscale(sql, sesion) {
+  const { rows } = await sql`SELECT * FROM indexscale_planes ORDER BY id DESC LIMIT 1;`;
+  if (rows.length === 0) return { plan: null, items: [] };
+  const p = rows[0];
+  const items = await leerItemsPlanIndexscale(sql, p.id);
+  const { rows: hoy } = await sql.query(
+    `SELECT COUNT(*)::int AS n FROM indexscale_contactos
+     WHERE por = $1 AND (en AT TIME ZONE 'America/Santiago')::date = (now() AT TIME ZONE 'America/Santiago')::date;`,
+    [sesion.nombre || sesion.email]
+  );
+  return {
+    plan: { id: p.id, generadoPor: p.generado_por, generadoEn: p.generado_en, origen: p.origen, resumen: p.resumen, poolTotal: p.pool_total, fueraRm: p.fuera_rm, sinComuna: p.sin_comuna },
+    items,
+    gestionadosHoy: hoy[0] ? hoy[0].n : 0,
+  };
+}
+
+// Candidatos elegibles + conteos del filtro geográfico. Aplica las reglas de "a quién no volver a ofrecer" según los resultados anteriores.
+async function candidatosPlanIndexscale(sql) {
+  const { rows } = await sql.query(
+    `SELECT o.id, o.segmento, o.empresa, o.cliente_nombre, o.telefono, o.email, o.ciudad, o.puntos, o.estado,
+            COALESCE(h.c12, 0)::int AS c12, COALESCE(h.ct, 0)::int AS ct, h.dias AS dias_ultima,
+            COALESCE(h.m12, 0)::float AS m12, COALESCE(h.s12, 0)::float AS s12
+     FROM indexscale_oportunidades o
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*) FILTER (WHERE fecha >= (now() AT TIME ZONE 'America/Santiago')::date - 365) AS c12,
+              COUNT(*) AS ct,
+              ((now() AT TIME ZONE 'America/Santiago')::date - MAX(fecha)) AS dias,
+              SUM(monto) FILTER (WHERE fecha >= (now() AT TIME ZONE 'America/Santiago')::date - 365) AS m12,
+              SUM(monto_servicios) FILTER (WHERE fecha >= (now() AT TIME ZONE 'America/Santiago')::date - 365) AS s12
+       FROM analisis_compras WHERE cliente_id = o.bsale_cliente_id
+     ) h ON true
+     WHERE NOT o.es_prueba AND o.estado NOT IN ('ganado', 'perdido');`
+  );
+  const { rows: previos } = await sql.query(
+    `SELECT DISTINCT ON (oportunidad_id) oportunidad_id, resultado, nota,
+            EXTRACT(EPOCH FROM (now() - COALESCE(resultado_en, created_at))) / 86400.0 AS dias,
+            (proximo_contacto IS NOT NULL AND proximo_contacto <= (now() AT TIME ZONE 'America/Santiago')::date) AS vencido,
+            (proximo_contacto IS NOT NULL AND proximo_contacto > (now() AT TIME ZONE 'America/Santiago')::date) AS futuro
+     FROM indexscale_plan_items ORDER BY oportunidad_id, created_at DESC, id DESC;`
+  );
+  const { rows: sinResp } = await sql.query(`SELECT oportunidad_id, COUNT(*)::int AS n FROM indexscale_contactos WHERE resultado = 'sin_respuesta' GROUP BY oportunidad_id;`);
+  const intentos = new Map(sinResp.map((r) => [r.oportunidad_id, r.n]));
+  const previo = new Map(previos.map((r) => [r.oportunidad_id, r]));
+
+  let fueraRm = 0; let sinComuna = 0; let excluidosGestion = 0;
+  const elegibles = [];
+  for (const r of rows) {
+    const geo = esRegionMetropolitanaIndexscale(r.ciudad);
+    if (!geo.ok) { if (geo.motivo === 'sin_comuna') sinComuna++; else fueraRm++; continue; }
+    const p = previo.get(r.id);
+    let vencido = false;
+    let notaSeguimiento = '';
+    if (p) {
+      const dias = Number(p.dias) || 0;
+      const nIntentos = intentos.get(r.id) || 0;
+      if (['interesado', 'reunion', 'no_interesa', 'dato_incorrecto'].includes(p.resultado)) { excluidosGestion++; continue; }
+      if (p.resultado === 'pendiente' && dias < 7) { excluidosGestion++; continue; }
+      if (p.resultado === 'omitido' && dias < 3) { excluidosGestion++; continue; }
+      if (p.resultado === 'sin_respuesta' && (dias < 2 || nIntentos >= 3)) { excluidosGestion++; continue; }
+      if (p.resultado === 'volver_a_llamar') {
+        if (p.futuro) { excluidosGestion++; continue; }
+        vencido = !!p.vencido; notaSeguimiento = p.nota || '';
+      }
+    }
+    const c = {
+      id: r.id, segmento: r.segmento, empresa: r.empresa, clienteNombre: r.cliente_nombre, telefono: r.telefono, email: r.email, comuna: geo.comuna, puntos: r.puntos,
+      compras12m: r.c12, comprasTotal: r.ct, diasUltimaCompra: r.dias_ultima == null ? null : Number(r.dias_ultima),
+      montoTotal12m: r.m12, montoServicios12m: r.s12, seguimientoVencido: vencido, notaSeguimiento, intentosSinRespuesta: intentos.get(r.id) || 0,
+    };
+    const pt = puntuarCandidatoIndexscale(c);
+    c.puntaje = pt.puntaje; c.razones = pt.razones;
+    elegibles.push(c);
+  }
+  elegibles.sort((a, b) => b.puntaje - a.puntaje);
+  return { elegibles, fueraRm, sinComuna, excluidosGestion, total: rows.length };
+}
+
+function nivelGastoIndexscale(m) { return m >= 3000000 ? 'alto' : m >= 800000 ? 'medio' : m > 0 ? 'bajo' : 'sin compras en el año'; }
+
+async function generarPlanIndexscale(sql, sesion, cantidad) {
+  const { elegibles, fueraRm, sinComuna, excluidosGestion, total } = await candidatosPlanIndexscale(sql);
+  if (elegibles.length === 0) return { error: 'No quedan clientes de Santiago / Región Metropolitana disponibles para contactar. Revisa los estados o espera a los seguimientos.' };
+
+  // Candidatos para la IA: los mejores de cada segmento (así no se llena solo de uno), con los seguimientos vencidos siempre adentro.
+  const vistos = new Set();
+  const candidatos = [];
+  const agregar = (c) => { if (!vistos.has(c.id)) { vistos.add(c.id); candidatos.push(c); } };
+  elegibles.filter((c) => c.seguimientoVencido).slice(0, 6).forEach(agregar);
+  for (const seg of ['sin_sitio', 'potenciar']) elegibles.filter((c) => c.segmento === seg).slice(0, PLAN_CANDIDATOS_POR_SEGMENTO).forEach(agregar);
+  candidatos.sort((a, b) => b.puntaje - a.puntaje);
+
+  const paraIA = candidatos.map((c) => ({
+    id: c.id,
+    empresa: limpiarRazonSocial(c.empresa) || c.empresa,
+    contacto: primerNombreIndexscale(c.clienteNombre) || null,
+    comuna: c.comuna,
+    correo: c.segmento === 'potenciar' ? 'dominio propio (' + String(c.email || '').split('@')[1] + ')' : 'personal (' + String(c.email || '').split('@')[1] + ')',
+    tiene_celular: !!telefonoChilenoIndexscale(c.telefono).wa,
+    compras_ultimos_12_meses: c.compras12m,
+    compras_totales: c.comprasTotal,
+    dias_desde_ultima_compra: c.diasUltimaCompra,
+    nivel_de_compra: nivelGastoIndexscale(c.montoTotal12m),
+    compro_servicio_tecnico: c.montoServicios12m > 0,
+    seguimiento_vencido: c.seguimientoVencido ? (c.notaSeguimiento ? 'sí: ' + c.notaSeguimiento : 'sí') : undefined,
+    intentos_sin_respuesta: c.intentosSinRespuesta || undefined,
+    puntaje_previo: c.puntaje,
+  }));
+
+  let bruto = null; let aviso = null; let origen = 'ia';
+  try {
+    bruto = await llamarGeminiEstructurado(SISTEMA_PLAN_IA, 'Cantidad de clientes a elegir: ' + cantidad + '\nClientes candidatos (todos de Santiago / Región Metropolitana):\n' + JSON.stringify(paraIA), HERRAMIENTA_PLAN_IA, { maxTokens: 12000, timeoutMs: 50000 });
+  } catch (err) {
+    origen = 'respaldo';
+    aviso = err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada: la lista se armó con el puntaje automático.' : 'La IA no respondió (' + String(err.message || err).slice(0, 160) + '): la lista se armó con el puntaje automático.';
+  }
+  let seleccion = validarSeleccionIAIndexscale(bruto, candidatos, cantidad);
+  // Los seguimientos vencidos siempre van (hasta 5), aunque la IA no los haya elegido.
+  const vencidos = candidatos.filter((c) => c.seguimientoVencido).slice(0, 5);
+  for (const v of vencidos) {
+    if (seleccion.some((s) => s.id === v.id)) continue;
+    const quitar = [...seleccion].reverse().findIndex((s) => !vencidos.some((x) => x.id === s.id));
+    if (quitar >= 0) seleccion.splice(seleccion.length - 1 - quitar, 1);
+    seleccion.push({ id: v.id, origen: 'respaldo', ...guiaRespaldoIndexscale(v) });
+  }
+  seleccion = seleccion.map((s, i) => ({ ...s, _i: i })).sort((a, b) => {
+    const va = vencidos.some((x) => x.id === a.id) ? 0 : 1; const vb = vencidos.some((x) => x.id === b.id) ? 0 : 1;
+    if (va !== vb) return va - vb;
+    return a._i - b._i; // el orden que dio la IA (o, si no respondió, por puntaje)
+  });
+
+  const { rows: cab } = await sql.query(
+    `INSERT INTO indexscale_planes (generado_por, origen, resumen, pool_total, fuera_rm, sin_comuna) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;`,
+    [sesion.nombre || sesion.email, origen, bruto && bruto.resumen ? String(bruto.resumen).replace(/\s+/g, ' ').slice(0, 300) : null, elegibles.length, fueraRm, sinComuna]
+  );
+  const planId = cab[0].id;
+  const porId = new Map(candidatos.map((c) => [c.id, c]));
+  let n = 0;
+  for (const s of seleccion) {
+    const c = porId.get(s.id);
+    if (!c) continue;
+    const datos = { compras12m: c.compras12m, comprasTotal: c.comprasTotal, diasUltimaCompra: c.diasUltimaCompra, nivelCompra: nivelGastoIndexscale(c.montoTotal12m), servicioTecnico: c.montoServicios12m > 0, seguimientoVencido: c.seguimientoVencido, notaSeguimiento: c.notaSeguimiento || null, intentosSinRespuesta: c.intentosSinRespuesta || 0 };
+    const guia = { mensaje_whatsapp: s.mensaje_whatsapp, apertura_llamada: s.apertura_llamada, preguntas: s.preguntas, objeciones: s.objeciones };
+    await sql.query(
+      `INSERT INTO indexscale_plan_items (plan_id, oportunidad_id, orden, puntaje, comuna, prioridad, oferta, motivo, datos, guia, origen)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11);`,
+      [planId, c.id, n++, c.puntaje, c.comuna, s.prioridad, s.oferta, s.motivo, JSON.stringify(datos), JSON.stringify(guia), s.origen]
+    );
+  }
+  return { planId, aviso, estadisticas: { total, elegibles: elegibles.length, fueraRm, sinComuna, excluidosGestion } };
+}
+
+async function manejarIndexscalePlan(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndexscale(sql);
+    await asegurarTablaIndexscalePlan(sql);
+    await asegurarTablaAnalisis(sql);
+
+    if (req.method === 'GET') {
+      const out = await leerPlanIndexscale(sql, sesion);
+      // Cuántos clientes de la RM hay disponibles, para mostrar el tamaño del universo aunque todavía no haya lista.
+      return res.status(200).json(out);
+    }
+
+    if (req.method === 'POST') {
+      const b = req.body || {};
+      if (b.accion !== 'generar') return res.status(400).json({ error: 'Acción no válida' });
+      let cantidad = parseInt(b.cantidad, 10);
+      if (!Number.isFinite(cantidad)) cantidad = PLAN_CANTIDAD_DEFECTO;
+      cantidad = Math.max(PLAN_CANTIDAD_MIN, Math.min(PLAN_CANTIDAD_MAX, cantidad));
+      // Una lista nueva reemplaza a la actual: lo que quedó pendiente se marca "omitido" (no vuelve a salir por 3 días) y queda en el historial.
+      const { rows: ultimo } = await sql`SELECT id FROM indexscale_planes ORDER BY id DESC LIMIT 1;`;
+      if (ultimo.length && !b.reemplazar) {
+        const { rows: pend } = await sql.query(`SELECT COUNT(*)::int AS n FROM indexscale_plan_items WHERE plan_id = $1 AND resultado = 'pendiente';`, [ultimo[0].id]);
+        if (pend[0].n > 0) return res.status(409).json({ error: 'Todavía hay ' + pend[0].n + ' contactos pendientes en la lista actual.', pendientes: pend[0].n });
+      }
+      if (ultimo.length) {
+        await sql.query(`UPDATE indexscale_plan_items SET resultado = 'omitido', resultado_por = $2, resultado_en = now() WHERE plan_id = $1 AND resultado = 'pendiente';`, [ultimo[0].id, sesion.nombre || sesion.email]);
+      }
+      const r = await generarPlanIndexscale(sql, sesion, cantidad);
+      if (r.error) return res.status(200).json({ error: r.error });
+      const out = await leerPlanIndexscale(sql, sesion);
+      return res.status(200).json({ ...out, aviso: r.aviso || null, estadisticas: r.estadisticas });
+    }
+
+    if (req.method === 'PUT') {
+      const b = req.body || {};
+      const itemId = parseInt(b.itemId, 10);
+      const resultado = String(b.resultado || '');
+      if (!Number.isFinite(itemId)) return res.status(400).json({ error: 'Falta el contacto' });
+      if (!RESULTADOS_PLAN_INDEXSCALE.includes(resultado)) return res.status(400).json({ error: 'Resultado no válido' });
+      const nota = b.nota ? String(b.nota).replace(/\s+/g, ' ').trim().slice(0, 500) : null;
+      const canal = ['whatsapp', 'llamada', 'correo', 'otro'].includes(b.canal) ? b.canal : null;
+      const quien = sesion.nombre || sesion.email;
+      const { rows: it } = await sql.query(`SELECT id, oportunidad_id FROM indexscale_plan_items WHERE id = $1;`, [itemId]);
+      if (it.length === 0) return res.status(404).json({ error: 'No encontrado' });
+      let proximo = null;
+      if (resultado === 'volver_a_llamar') proximo = esFechaDia(b.proximoContacto) ? b.proximoContacto : null;
+      await sql.query(
+        `UPDATE indexscale_plan_items SET resultado = $2, nota = $3, canal = $4, resultado_por = $5, resultado_en = now(),
+           proximo_contacto = CASE WHEN $2 = 'volver_a_llamar' THEN COALESCE($6::date, (now() AT TIME ZONE 'America/Santiago')::date + 2) ELSE NULL END
+         WHERE id = $1;`,
+        [itemId, resultado, nota, canal, quien, proximo]
+      );
+      if (resultado !== 'pendiente') {
+        await sql.query(`INSERT INTO indexscale_contactos (oportunidad_id, item_id, canal, resultado, nota, por) VALUES ($1, $2, $3, $4, $5, $6);`, [it[0].oportunidad_id, itemId, canal, resultado, nota, quien]);
+      }
+      const nuevoEstado = ESTADO_POR_RESULTADO_INDEXSCALE[resultado];
+      if (nuevoEstado) {
+        await sql.query(
+          `UPDATE indexscale_oportunidades SET estado = $2, actualizado_por = $3, actualizado_en = now()
+           WHERE id = $1 AND estado NOT IN ('ganado', 'cotizado') AND estado <> $2;`,
+          [it[0].oportunidad_id, nuevoEstado, quien]
+        );
+      }
+      const { rows: fila } = await sql.query(`SELECT plan_id FROM indexscale_plan_items WHERE id = $1;`, [itemId]);
+      const items = await leerItemsPlanIndexscale(sql, fila[0].plan_id);
+      return res.status(200).json({ ok: true, item: items.find((x) => x.id === itemId) || null });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en la lista de contacto de IndexScale', detail: String(err) });
   }
 }
 

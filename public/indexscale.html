@@ -85,6 +85,58 @@
   .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);text-decoration:none;font-size:13px;cursor:pointer;transition:all .15s;}
   .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
   .btn-icono.deshabilitado{opacity:0.3;pointer-events:none;}
+
+  /* ===== Mi lista de contacto (vendedor) ===== */
+  .pl-cta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .pl-btn{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;border:none;border-radius:10px;padding:11px 18px;cursor:pointer;background:var(--primary);color:#fff;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;}
+  .pl-btn:hover:not(:disabled){background:var(--primary-dark);}
+  .pl-btn.wa{background:#16A34A;} .pl-btn.wa:hover:not(:disabled){background:#15803D;}
+  .pl-btn.tel{background:var(--blue);} .pl-btn.tel:hover:not(:disabled){background:#1D4ED8;}
+  .pl-btn.mail{background:var(--surface);color:var(--text);border:1.5px solid var(--line);} .pl-btn.mail:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .pl-btn.off,.pl-btn:disabled{opacity:.4;pointer-events:none;}
+  .pl-prog{height:10px;background:var(--surface-2);border-radius:999px;overflow:hidden;margin:6px 0 4px;}
+  .pl-prog > div{height:100%;background:var(--primary);border-radius:999px;transition:width .3s;}
+  .pl-aviso{background:var(--amber-dim);border:1px solid #F3D9A4;color:#7A4A06;border-radius:10px;padding:8px 12px;font-size:12.5px;margin:8px 0;}
+  .pl-lista{display:flex;flex-direction:column;gap:14px;margin-top:12px;}
+  .pl-card{border:1.5px solid var(--line);border-radius:14px;padding:14px 16px;background:var(--surface);}
+  .pl-card.siguiente{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-dim);}
+  .pl-top{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;}
+  .pl-num{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:15px;background:var(--primary-dim);color:var(--primary-dark);border-radius:999px;min-width:32px;height:32px;display:flex;align-items:center;justify-content:center;}
+  .pl-quien{flex:1 1 220px;min-width:0;}
+  .pl-quien b{font-family:'Space Grotesk',sans-serif;font-size:17px;display:block;overflow-wrap:anywhere;}
+  .pl-contacto{font-size:13px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere;}
+  .pl-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+  .pl-chip{font-size:11px;font-weight:600;border-radius:999px;padding:3px 9px;background:var(--surface-2);color:var(--muted);}
+  .pl-chip.alta{background:var(--red-bg);color:var(--red);} .pl-chip.media{background:var(--amber-dim);color:var(--amber);} .pl-chip.baja{background:var(--surface-2);color:var(--muted);}
+  .pl-chip.oferta{background:var(--primary-dim);color:var(--primary-dark);} .pl-chip.alerta{background:var(--amber-dim);color:#92400E;}
+  .pl-motivo{margin:10px 0 2px;font-size:14px;line-height:1.45;}
+  .pl-motivo small{display:block;color:var(--muted);font-size:12px;margin-top:3px;}
+  .pl-acciones{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px;}
+  .pl-guia{margin-top:8px;border-top:1px dashed var(--line);padding-top:8px;}
+  .pl-guia summary{cursor:pointer;font-weight:700;font-size:13px;color:var(--primary-dark);padding:4px 0;}
+  .pl-guia h4{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:12px 0 4px;}
+  .pl-guia textarea{width:100%;min-height:92px;border:1.5px solid var(--line);border-radius:10px;padding:9px 11px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13.5px;resize:vertical;}
+  .pl-guia ul{margin:0;padding-left:20px;font-size:13.5px;line-height:1.5;}
+  .pl-obj{font-size:13.5px;line-height:1.45;margin-bottom:6px;} .pl-obj em{color:var(--muted);font-style:normal;font-weight:600;}
+  .pl-res{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;}
+  .pl-res .pl-ask{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;}
+  .pl-res-btns{display:flex;gap:6px;flex-wrap:wrap;}
+  .pl-r{font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:12.5px;border:1.5px solid var(--line);background:var(--surface);color:var(--text);border-radius:9px;padding:9px 12px;cursor:pointer;min-height:40px;}
+  .pl-r:hover:not(:disabled){border-color:var(--primary);background:var(--primary-dim);}
+  .pl-r.mal:hover:not(:disabled){border-color:var(--red);background:var(--red-bg);}
+  .pl-nota{width:100%;margin-bottom:8px;border:1.5px solid var(--line);border-radius:9px;padding:8px 10px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;}
+  .pl-volver{display:none;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;font-size:13px;}
+  .pl-volver.on{display:flex;}
+  .pl-hist{font-size:11.5px;color:var(--muted);margin-top:8px;}
+  .pl-hecho{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;padding:8px 0;border-bottom:1px solid var(--line);}
+  .pl-hecho:last-child{border-bottom:none;}
+  .pl-badge{font-size:11px;font-weight:700;border-radius:999px;padding:3px 10px;background:var(--surface-2);}
+  .pl-badge.interesado,.pl-badge.reunion{background:var(--green-bg);color:var(--green);} .pl-badge.no_interesa,.pl-badge.dato_incorrecto{background:var(--red-bg);color:var(--red);} .pl-badge.volver_a_llamar{background:var(--blue-bg);color:var(--blue);} .pl-badge.sin_respuesta{background:var(--amber-dim);color:var(--amber);}
+  .pl-vacio{text-align:center;padding:26px 10px;}
+  .pl-vacio p{max-width:560px;margin:6px auto 14px;color:var(--muted);font-size:13.5px;line-height:1.5;}
+  .pl-pasos{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 0;}
+  .pl-paso{flex:1 1 180px;background:var(--surface-2);border-radius:10px;padding:9px 12px;font-size:12.5px;line-height:1.4;}
+  @media (max-width:900px){ .pl-btn{flex:1 1 calc(50% - 8px);} .pl-r{flex:1 1 calc(50% - 6px);} .pl-card{padding:12px;} }
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -194,6 +246,20 @@
     <div class="sub">Prospección de clientes Bsale para ofrecerles IndexScale (diseño web / optimización de e-commerce, indexscale.cl) — separados en dos listas según si ya parecen tener un sitio propio o no.</div>
   </div>
 
+
+  <!-- ============ Mi lista de contacto: guía para el vendedor ============ -->
+  <div class="seccion" id="seccionPlan">
+    <div class="seccion-head">
+      <div>
+        <h2>🎯 Mi lista de contacto</h2>
+        <div class="sub" id="planSub">Cada día la IA elige, entre todos los clientes de Santiago y la Región Metropolitana, a quiénes conviene ofrecerles IndexScale, y te deja listo el mensaje y la guía de conversación. Tú solo contactas y anotas cómo te fue.</div>
+      </div>
+      <div class="pl-cta" id="planAcciones"></div>
+    </div>
+    <div id="planAviso"></div>
+    <div id="planProgreso"></div>
+    <div id="planCuerpo"><p class="empty-note">Cargando...</p></div>
+  </div>
 
   <!-- ============ Leads entrantes: formularios de indexscale.cl ============ -->
   <div class="seccion" id="seccionLeadsWeb">
@@ -713,6 +779,8 @@ async function cargarSesionUsuario(){
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     esAdmin = u.rol === 'admin';
+    nombreVendedor = String(u.nombre || u.email || '').split(' ')[0];
+    if(planIndexscale) renderPlan();
     if(esAdmin){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
@@ -859,6 +927,201 @@ function exportarLeadsWeb(){
   filtrarLeadsWeb().forEach(l => filas.push([l.creado_en, tipoLead(l), l.nombre, l.empresa, l.email, l.telefono, l.preferencia_contacto, esLeadAds(l) ? 'Google Ads' : 'Otro', l.pagina_origen, l.utm_campaign, l.utm_term, l.estado, l.notas || '']));
   descargarCsv(filas, 'leads-indexscale-web.csv');
 }
+
+// ---------- Mi lista de contacto (vendedor) ----------
+let planIndexscale = null;
+let nombreVendedor = '';
+let generandoPlan = false;
+const mensajesPlan = {};
+const canalPlan = {};
+const OFERTA_TXT = { crear_tienda: '🛒 Crear su tienda online', optimizar_tienda: '📈 Mejorar su sitio / tienda', diagnostico_gratis: '🔎 Diagnóstico gratis' };
+const RESULTADO_TXT = { interesado: '✅ Le interesa', reunion: '📅 Reunión agendada', volver_a_llamar: '🔁 Volver a llamar', sin_respuesta: '📵 No contestó', no_interesa: '❌ No le interesa', dato_incorrecto: '⚠️ Dato incorrecto', omitido: '⏭ Omitido' };
+const CANAL_TXT = { whatsapp: 'WhatsApp', llamada: 'llamada', correo: 'correo', otro: '' };
+
+function textoVendedor(t){ return String(t || '').split('{vendedor}').join(nombreVendedor || 'tu ejecutivo de IndexStore'); }
+function fechaCorta(iso){ if(!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('es-CL', { day: 'numeric', month: 'short', timeZone: 'America/Santiago' }); }
+function fechaDiaMas(n){ const d = new Date(Date.now() + n * 86400000); return d.toLocaleDateString('en-CA', { timeZone: 'America/Santiago' }); }
+function dosFmt(n){ return Number(n || 0).toLocaleString('es-CL'); }
+
+async function cargarPlanIndexscale(){
+  try{
+    const r = await fetch('/api/negocio?recurso=indexscale-plan');
+    const d = await r.json();
+    if(!r.ok || d.error){ $('planCuerpo').innerHTML = '<p class="empty-note err">No se pudo cargar tu lista: ' + escLead(d.error || r.status) + '</p>'; return; }
+    planIndexscale = d;
+    renderPlan();
+  }catch(err){ $('planCuerpo').innerHTML = '<p class="empty-note err">No se pudo cargar tu lista: ' + escLead(err.message) + '</p>'; }
+}
+
+async function generarPlanIndexscale(reemplazar){
+  if(generandoPlan) return;
+  const sel = $('planCantidad');
+  const cantidad = sel ? parseInt(sel.value, 10) : 12;
+  generandoPlan = true; renderPlan();
+  try{
+    const r = await fetch('/api/negocio?recurso=indexscale-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'generar', cantidad, reemplazar: !!reemplazar }) });
+    const d = await r.json();
+    if(r.status === 409){
+      generandoPlan = false; renderPlan();
+      if(confirm('Te quedan ' + d.pendientes + ' contactos sin gestionar. Si pides otra lista, esos quedan como "omitidos" y no volverán a salir por 3 días. ¿Continuar?')) return generarPlanIndexscale(true);
+      return;
+    }
+    if(d.error){ generandoPlan = false; $('planAviso').innerHTML = '<div class="pl-aviso err">' + escLead(d.error) + '</div>'; renderPlan(); return; }
+    planIndexscale = d;
+    $('planAviso').innerHTML = d.aviso ? '<div class="pl-aviso">⚠️ ' + escLead(d.aviso) + '</div>' : '';
+  }catch(err){
+    $('planAviso').innerHTML = '<div class="pl-aviso err">No se pudo generar la lista: ' + escLead(err.message) + '</div>';
+  }
+  generandoPlan = false; renderPlan();
+}
+
+function chipsDatos(it){
+  const d = it.datos || {};
+  const c = [];
+  if(d.seguimientoVencido) c.push('<span class="pl-chip alerta">🔔 Quedó de volver a llamar' + (d.notaSeguimiento ? ': ' + escLead(d.notaSeguimiento) : '') + '</span>');
+  if(d.compras12m) c.push('<span class="pl-chip">' + d.compras12m + (d.compras12m === 1 ? ' compra' : ' compras') + ' en 12 meses</span>');
+  else if(d.comprasTotal) c.push('<span class="pl-chip">Compró antes (' + d.comprasTotal + ' en total)</span>');
+  if(d.diasUltimaCompra != null) c.push('<span class="pl-chip">Última compra hace ' + (d.diasUltimaCompra === 0 ? 'hoy' : d.diasUltimaCompra + (d.diasUltimaCompra === 1 ? ' día' : ' días')) + '</span>');
+  if(d.servicioTecnico) c.push('<span class="pl-chip">Usó servicio técnico</span>');
+  if(d.intentosSinRespuesta) c.push('<span class="pl-chip alerta">' + d.intentosSinRespuesta + (d.intentosSinRespuesta === 1 ? ' intento sin respuesta' : ' intentos sin respuesta') + '</span>');
+  c.push('<span class="pl-chip">' + (it.segmento === 'potenciar' ? 'Correo con dominio propio' : 'Correo personal') + '</span>');
+  return c.join('');
+}
+
+function tarjetaPlan(it, esSiguiente){
+  const tel = it.telefono || {};
+  const msg = mensajesPlan[it.id] != null ? mensajesPlan[it.id] : textoVendedor(it.guia.mensaje);
+  const quien = it.contacto && it.contacto.toLowerCase() !== (it.empresa || '').toLowerCase() ? escLead(it.contacto) : '';
+  const hist = (it.historial || []).filter(h => h.resultado).slice(0, 3).map(h => (RESULTADO_TXT[h.resultado] || h.resultado) + ' · ' + fechaCorta(h.en) + (h.por ? ' · ' + escLead(h.por) : '') + (h.nota ? ' — ' + escLead(h.nota) : '')).join('<br>');
+  const pregs = (it.guia.preguntas || []).map(p => '<li>' + escLead(p) + '</li>').join('');
+  const objs = (it.guia.objeciones || []).map(o => '<div class="pl-obj"><em>“' + escLead(o.objecion) + '”</em><br>→ ' + escLead(o.respuesta) + '</div>').join('');
+  return `
+  <div class="pl-card${esSiguiente ? ' siguiente' : ''}" id="plcard-${it.id}">
+    <div class="pl-top">
+      <div class="pl-num">${it.orden + 1}</div>
+      <div class="pl-quien">
+        <b>${escLead(it.empresa)}</b>
+        <div class="pl-contacto">${quien ? 'Hablar con <b style="display:inline;font-size:13px;color:var(--text)">' + quien + '</b> · ' : ''}${escLead(tel.mostrar || 'sin teléfono')}${it.email ? ' · ' + escLead(it.email) : ''}</div>
+        <div class="pl-chips"><span class="pl-chip ${escLead(it.prioridad)}">Prioridad ${escLead(it.prioridad)}</span><span class="pl-chip oferta">${OFERTA_TXT[it.oferta] || ''}</span><span class="pl-chip">📍 ${escLead(it.comuna || '')}</span></div>
+      </div>
+      ${esSiguiente ? '<span class="pl-chip oferta" style="align-self:flex-start">👉 Parte por aquí</span>' : ''}
+    </div>
+    <div class="pl-motivo">${escLead(it.motivo)}<small>${chipsDatos(it)}</small></div>
+    <div class="pl-acciones">
+      <a class="pl-btn wa${tel.wa ? '' : ' off'}" ${tel.wa ? 'href="#" onclick="return abrirWhatsAppPlan(' + it.id + ')"' : 'title="Es un teléfono fijo: sin WhatsApp"'}>💬 WhatsApp</a>
+      <a class="pl-btn tel${tel.tel ? '' : ' off'}" ${tel.tel ? 'href="tel:' + escLead(tel.tel) + '" onclick="canalPlan[' + it.id + ']=\'llamada\'"' : ''}>📞 Llamar</a>
+      <a class="pl-btn mail${it.email ? '' : ' off'}" ${it.email ? 'href="#" onclick="return abrirCorreoPlan(' + it.id + ')"' : ''}>✉️ Correo</a>
+    </div>
+    <details class="pl-guia"${esSiguiente ? ' open' : ''}>
+      <summary>📋 Guía de la conversación</summary>
+      <h4>Mensaje de WhatsApp (puedes editarlo)</h4>
+      <textarea id="plmsg-${it.id}" oninput="mensajesPlan[${it.id}]=this.value">${escLead(msg)}</textarea>
+      <h4>Si llamas, parte así</h4>
+      <div style="font-size:13.5px;line-height:1.45">${escLead(textoVendedor(it.guia.apertura))}</div>
+      <h4>Preguntas para entender qué necesita</h4><ul>${pregs}</ul>
+      <h4>Si pone una objeción</h4>${objs}
+      <h4>Cómo cerrar</h4>
+      <div style="font-size:13.5px;line-height:1.45">Ofrécele el <b>diagnóstico gratuito</b> (sin compromiso) y deja agendada una llamada corta para mostrárselo. No hables de precios en el primer contacto.</div>
+    </details>
+    <div class="pl-res">
+      <div class="pl-ask">¿Cómo te fue? Anótalo para que no se pierda:</div>
+      <input class="pl-nota" id="plnota-${it.id}" type="text" maxlength="300" placeholder="Nota rápida (opcional): qué dijo, qué quedó pendiente...">
+      <div class="pl-res-btns">
+        <button class="pl-r" onclick="resultadoPlan(${it.id},'interesado')">✅ Le interesa</button>
+        <button class="pl-r" onclick="resultadoPlan(${it.id},'reunion')">📅 Reunión agendada</button>
+        <button class="pl-r" onclick="document.getElementById('plvolver-${it.id}').classList.toggle('on')">🔁 Volver a llamar</button>
+        <button class="pl-r" onclick="resultadoPlan(${it.id},'sin_respuesta')">📵 No contestó</button>
+        <button class="pl-r mal" onclick="resultadoPlan(${it.id},'no_interesa')">❌ No le interesa</button>
+        <button class="pl-r mal" onclick="resultadoPlan(${it.id},'dato_incorrecto')">⚠️ Dato incorrecto</button>
+      </div>
+      <div class="pl-volver" id="plvolver-${it.id}">Volver a llamar el <input type="date" id="plfecha-${it.id}" value="${fechaDiaMas(2)}" min="${fechaDiaMas(0)}"> <button class="pl-r" onclick="resultadoPlan(${it.id},'volver_a_llamar')">Guardar</button></div>
+    </div>
+    ${hist ? '<div class="pl-hist">Antes: ' + hist + '</div>' : ''}
+  </div>`;
+}
+
+function renderPlan(){
+  const acc = $('planAcciones'); const cuerpo = $('planCuerpo'); const prog = $('planProgreso');
+  const pl = planIndexscale && planIndexscale.plan; const items = (planIndexscale && planIndexscale.items) || [];
+  const opciones = '<select id="planCantidad" title="Cuántos contactos quieres en la lista"' + (generandoPlan ? ' disabled' : '') + '><option value="10">10 contactos</option><option value="12" selected>12 contactos</option><option value="15">15 contactos</option></select>';
+  const cantPrev = $('planCantidad') ? $('planCantidad').value : '12';
+  if(!pl){
+    acc.innerHTML = '';
+    cuerpo.innerHTML = generandoPlan
+      ? '<div class="pl-vacio"><div style="font-size:30px">⏳</div><p><b>Analizando tus clientes con IA…</b><br>Está revisando las compras de los clientes de Santiago y la Región Metropolitana y preparando tu lista. Puede tardar hasta 30 segundos.</p></div>'
+      : '<div class="pl-vacio"><div style="font-size:34px">🎯</div><h2>Genera tu lista de hoy</h2><p>No tienes que revisar miles de clientes: el sistema elige entre 10 y 15 con más probabilidad de interesarse (solo Santiago y Región Metropolitana) y te deja el mensaje, las preguntas y las respuestas a objeciones.</p>'
+        + '<div class="pl-cta" style="justify-content:center">' + opciones + '<button class="pl-btn" onclick="generarPlanIndexscale(false)">✨ Generar mi lista</button></div>'
+        + '<div class="pl-pasos"><div class="pl-paso"><b>1.</b> Mira el primer cliente: ahí dice por qué.</div><div class="pl-paso"><b>2.</b> Toca WhatsApp o Llamar: el mensaje ya está escrito.</div><div class="pl-paso"><b>3.</b> Anota cómo te fue con un botón.</div><div class="pl-paso"><b>4.</b> Cuando termines, pide una lista nueva.</div></div></div>';
+    prog.innerHTML = '';
+    if($('planCantidad')) $('planCantidad').value = cantPrev;
+    return;
+  }
+  const pendientes = items.filter(i => i.resultado === 'pendiente');
+  const hechos = items.filter(i => i.resultado !== 'pendiente');
+  const pct = items.length ? Math.round(hechos.length / items.length * 100) : 0;
+  acc.innerHTML = opciones + '<button class="pl-btn" ' + (generandoPlan ? 'disabled' : '') + ' onclick="generarPlanIndexscale(false)">' + (generandoPlan ? '⏳ Analizando con IA…' : (pendientes.length ? '🔄 Pedir otra lista' : '✨ Generar la siguiente lista')) + '</button>';
+  if($('planCantidad')) $('planCantidad').value = cantPrev;
+  const hoy = planIndexscale.gestionadosHoy || 0;
+  const filtro = 'Solo Santiago y Región Metropolitana: ' + dosFmt(pl.poolTotal) + ' clientes disponibles'
+    + (pl.fueraRm || pl.sinComuna ? ' (' + dosFmt(pl.fueraRm) + ' de otras regiones y ' + dosFmt(pl.sinComuna) + ' sin comuna quedan fuera)' : '') + '.';
+  prog.innerHTML = '<div style="font-size:13px"><b>' + hechos.length + ' de ' + items.length + ' gestionados</b> (' + pct + '%) · hoy llevas ' + hoy + ' ' + (hoy === 1 ? 'contacto' : 'contactos') + '</div>'
+    + '<div class="pl-prog"><div style="width:' + pct + '%"></div></div>'
+    + '<div class="sub">Lista generada ' + fechaCorta(pl.generadoEn) + ' por ' + escLead(pl.generadoPor || '') + ' · ' + (pl.origen === 'ia' ? 'elegida por IA (Gemini)' : 'ordenada por puntaje automático') + (pl.resumen ? ' · “' + escLead(pl.resumen) + '”' : '') + '<br>' + filtro + '</div>';
+  let html = '';
+  if(generandoPlan) html += '<div class="pl-aviso">⏳ Analizando clientes con IA para armar la nueva lista… puede tardar hasta 30 segundos.</div>';
+  if(pendientes.length === 0) html += '<div class="pl-vacio"><div style="font-size:34px">🎉</div><h2>¡Terminaste la lista!</h2><p>Gestionaste los ' + items.length + ' contactos. Pide la siguiente cuando quieras: no se repetirán los que ya atendiste.</p></div>';
+  else html += '<div class="pl-lista">' + pendientes.map((it, k) => tarjetaPlan(it, k === 0)).join('') + '</div>';
+  if(hechos.length){
+    html += '<details class="pl-guia" style="margin-top:16px"><summary>Ya gestionados (' + hechos.length + ')</summary>'
+      + hechos.map(it => '<div class="pl-hecho"><b>' + escLead(it.empresa) + '</b><span class="pl-badge ' + it.resultado + '">' + (RESULTADO_TXT[it.resultado] || it.resultado) + '</span>'
+        + (it.proximoContacto && it.resultado === 'volver_a_llamar' ? '<span class="sub">para el ' + escLead(it.proximoContacto) + '</span>' : '')
+        + (it.nota ? '<span class="sub">— ' + escLead(it.nota) + '</span>' : '') + (it.resultadoPor ? '<span class="sub">' + escLead(it.resultadoPor) + '</span>' : '')
+        + (it.resultado !== 'omitido' ? ' <button class="btn-ghost btn-compact" onclick="resultadoPlan(' + it.id + ',\'pendiente\')">Deshacer</button>' : '') + '</div>').join('')
+      + '</details>';
+  }
+  cuerpo.innerHTML = html;
+}
+
+function itemPlan(id){ return ((planIndexscale && planIndexscale.items) || []).find(i => i.id === id); }
+function abrirWhatsAppPlan(id){
+  const it = itemPlan(id); if(!it || !it.telefono.wa) return false;
+  const ta = $('plmsg-' + id);
+  const texto = ta ? ta.value : textoVendedor(it.guia.mensaje);
+  canalPlan[id] = 'whatsapp';
+  window.open('https://wa.me/' + it.telefono.wa + '?text=' + encodeURIComponent(texto), '_blank', 'noopener');
+  return false;
+}
+function abrirCorreoPlan(id){
+  const it = itemPlan(id); if(!it || !it.email) return false;
+  const ta = $('plmsg-' + id);
+  const texto = ta ? ta.value : textoVendedor(it.guia.mensaje);
+  canalPlan[id] = 'correo';
+  window.location.href = 'mailto:' + it.email + '?subject=' + encodeURIComponent('Diagnóstico gratuito de tu presencia online') + '&body=' + encodeURIComponent(texto);
+  return false;
+}
+async function resultadoPlan(id, resultado){
+  const notaEl = $('plnota-' + id); const fechaEl = $('plfecha-' + id);
+  const body = { itemId: id, resultado, nota: notaEl ? notaEl.value : '', canal: canalPlan[id] || null };
+  if(resultado === 'volver_a_llamar' && fechaEl) body.proximoContacto = fechaEl.value;
+  const card = $('plcard-' + id);
+  if(card) card.querySelectorAll('button').forEach(b => b.disabled = true);
+  try{
+    const r = await fetch('/api/negocio?recurso=indexscale-plan', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if(!r.ok || d.error) throw new Error(d.error || r.status);
+    const i = planIndexscale.items.findIndex(x => x.id === id);
+    if(i >= 0 && d.item) planIndexscale.items[i] = d.item;
+    if(resultado !== 'pendiente') planIndexscale.gestionadosHoy = (planIndexscale.gestionadosHoy || 0) + 1;
+    delete canalPlan[id]; delete mensajesPlan[id];
+    renderPlan();
+    cargarIndexscale('sin_sitio'); cargarIndexscale('potenciar');
+  }catch(err){
+    alert('No se pudo guardar: ' + err.message);
+    if(card) card.querySelectorAll('button').forEach(b => b.disabled = false);
+  }
+}
+
+cargarPlanIndexscale();
 cargarLeadsWeb();
 setInterval(cargarLeadsWeb, 60000);
 
