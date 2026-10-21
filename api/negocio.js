@@ -10502,6 +10502,8 @@ async function manejarAlertasSitioWebNotificar(req, res) {
 // Cada batería/pantalla/cargador de Shopify lista en ese metacampo los modelos de notebook a los que sirve (el motor de búsqueda del sitio ya lo lee).
 // Aquí se arma un índice por tandas (tabla shopify_modelos_meta_indice) y buscarProductoShopify lo consulta ANTES de buscar por el título.
 const INDICE_META_VIGENCIA_MS = 24 * 3600 * 1000;
+// Sube cuando cambia lo que guarda el índice (2 = incluye las líneas de modelos de la descripción): un índice de esquema anterior se rehace en la próxima pasada, sin esperar las 24 h.
+const ESQUEMA_INDICE_META = 2;
 const INDICE_META_REINTENTO_ERROR_MS = 3600 * 1000;
 let cacheItemsMeta = null; // { ts, items } -- por instancia, 10 minutos
 
@@ -10524,7 +10526,8 @@ async function avanzarIndiceModelosMeta(sql, { presupuestoMs = 20000, forzar = f
     progreso: fila.iniciado_en && fila.total_productos ? Math.min(99, Math.round((fila.paginas * 100) / Math.max(1, Math.ceil(fila.total_productos / 100)))) : null,
     productos: fila.n_items || 0, actualizadoEn: fila.actualizado_en, error: fila.error || null, definicion: fila.definicion || null, ...extra,
   });
-  const vencido = !fila.actualizado_en || ahora - new Date(fila.actualizado_en).getTime() > INDICE_META_VIGENCIA_MS;
+  const esquemaViejo = !(fila.definicion && fila.definicion.esquema === ESQUEMA_INDICE_META);
+  const vencido = !fila.actualizado_en || esquemaViejo || ahora - new Date(fila.actualizado_en).getTime() > INDICE_META_VIGENCIA_MS;
   if (!fila.iniciado_en) {
     if (!forzar && !vencido) return estado();
     if (fila.error_en && ahora - new Date(fila.error_en).getTime() < INDICE_META_REINTENTO_ERROR_MS && !forzar) return estado(); // falló hace poco: no insistir en cada búsqueda
@@ -10551,7 +10554,7 @@ async function avanzarIndiceModelosMeta(sql, { presupuestoMs = 20000, forzar = f
       const c = await shopifyGraphQLConReintento(domain, accessToken, 'query { productsCount(query: "status:active") { count } }', {});
       total = (c.data && c.data.productsCount && c.data.productsCount.count) || null;
     } catch (e) { total = null; }
-    await sql`UPDATE shopify_modelos_meta_indice SET definicion = ${JSON.stringify(definicion)}::jsonb, items_nuevos = '[]'::jsonb, cursor_pagina = NULL, paginas = 0, total_productos = ${total}, iniciado_en = now(), error = NULL, error_en = NULL WHERE id = 1;`;
+    await sql`UPDATE shopify_modelos_meta_indice SET definicion = ${JSON.stringify({ ...definicion, esquema: ESQUEMA_INDICE_META })}::jsonb, items_nuevos = '[]'::jsonb, cursor_pagina = NULL, paginas = 0, total_productos = ${total}, iniciado_en = now(), error = NULL, error_en = NULL WHERE id = 1;`;
     ({ rows: [fila] } = await sql`SELECT definicion, actualizado_en, iniciado_en, cursor_pagina, paginas, total_productos, error, error_en, jsonb_array_length(items) AS n_items FROM shopify_modelos_meta_indice WHERE id = 1;`);
   }
 
