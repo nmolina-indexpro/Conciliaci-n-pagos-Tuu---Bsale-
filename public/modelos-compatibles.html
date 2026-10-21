@@ -444,8 +444,8 @@ async function verificarModelo(){
     const el = $('wrapCatalogoCheck'); if(!el) return;
     const enc = data && data[tipo];
     if(data.error) el.textContent = 'No se pudo revisar el catálogo (' + data.error + ').';
-    else if(enc) el.innerHTML = `💡 Algo que podría servir: ${enc.url ? `<a href="${escapeHtml(enc.url)}" target="_blank" rel="noopener">${escapeHtml(enc.titulo)}</a>` : escapeHtml(enc.titulo)}${enc.sku ? ` (SKU ${escapeHtml(enc.sku)})` : ''} -- confianza ${enc.confianza}%.${enc.aviso ? ` <b>⚠ ${escapeHtml(enc.aviso)}</b>` : ''} <button type="button" class="btn-mini" onclick="usarProductoSugerido('${escapeHtml(enc.url || enc.sku || '')}')">Es este</button> si le sirve; si no, pega el correcto abajo.`;
-    else el.textContent = 'No encontré un producto parecido en el catálogo: pega el link o el SKU del que sirve.';
+    else if(enc) el.innerHTML = `💡 Algo que podría servir: ${enc.url ? `<a href="${escapeHtml(enc.url)}" target="_blank" rel="noopener">${escapeHtml(enc.titulo)}</a>` : escapeHtml(enc.titulo)}${enc.sku ? ` (SKU ${escapeHtml(enc.sku)})` : ''} -- confianza ${enc.confianza}%${enc.origen === 'metacampo' ? ' (según el metacampo de modelos compatibles)' : ''}.${enc.aviso ? ` <b>⚠ ${escapeHtml(enc.aviso)}</b>` : ''} <button type="button" class="btn-mini" onclick="usarProductoSugerido('${escapeHtml(enc.url || enc.sku || '')}')">Es este</button> si le sirve; si no, pega el correcto abajo.`;
+    else el.textContent = (data.indice && data.indice.enProgreso ? 'Todavía estoy leyendo el metacampo de modelos compatibles de Shopify' + (data.indice.progreso != null ? ' (' + data.indice.progreso + '%)' : '') + '; ' : '') + 'No encontré un producto parecido en el catálogo: pega el link o el SKU del que sirve.';
   }catch(err){
     const el = $('wrapCatalogoCheck'); if(el) el.textContent = 'No se pudo revisar el catálogo.';
   }

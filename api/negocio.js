@@ -38,7 +38,8 @@ import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, product
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
-import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas, asegurarTablaIndexscalePlan } from '../lib/db.js';
+import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas, asegurarTablaIndexscalePlan, asegurarTablaIndiceModelosMeta } from '../lib/db.js';
+import { encontrarDefinicion, textoPlanoMetacampo, tipoDeProducto, mejorProductoPorMetacampo } from '../lib/modelos-metacampo.js';
 import { esRegionMetropolitana as esRegionMetropolitanaIndexscale, telefonoChileno as telefonoChilenoIndexscale, primerNombre as primerNombreIndexscale, personalizarTexto as personalizarTextoIndexscale, puntuarCandidato as puntuarCandidatoIndexscale, validarSeleccionIA as validarSeleccionIAIndexscale, guiaRespaldo as guiaRespaldoIndexscale, SISTEMA_PLAN_IA, HERRAMIENTA_PLAN_IA, rubroTecnologico as rubroTecnologicoIndexscale, perfilRepuestos as perfilRepuestosIndexscale, enlacesSitio as enlacesSitioIndexscale, RESULTADOS_PLAN as RESULTADOS_PLAN_INDEXSCALE, ESTADO_POR_RESULTADO as ESTADO_POR_RESULTADO_INDEXSCALE } from '../lib/indexscale-plan.js';
 import { referenciaDesdeMensaje } from '../lib/whatsapp-referencia.js';
 import { armarAnalisis as armarAnalisisDesperdicio, MINUTOS_POR_DEFECTO as MINUTOS_DESPERDICIO, MAX_MENSAJES_CLIENTE as MAX_MENSAJES_DESPERDICIO } from '../lib/whatsapp-desperdicio-ads.js';
@@ -10419,7 +10420,122 @@ async function manejarAlertasSitioWebNotificar(req, res) {
   }
 }
 
+// ---------------- Metacampo "Descripción - modelos_compatibles" ----------------
+// Cada batería/pantalla/cargador de Shopify lista en ese metacampo los modelos de notebook a los que sirve (el motor de búsqueda del sitio ya lo lee).
+// Aquí se arma un índice por tandas (tabla shopify_modelos_meta_indice) y buscarProductoShopify lo consulta ANTES de buscar por el título.
+const INDICE_META_VIGENCIA_MS = 24 * 3600 * 1000;
+const INDICE_META_REINTENTO_ERROR_MS = 3600 * 1000;
+let cacheItemsMeta = null; // { ts, items } -- por instancia, 10 minutos
+
+async function leerItemsMeta(sql) {
+  if (cacheItemsMeta && Date.now() - cacheItemsMeta.ts < 10 * 60000) return cacheItemsMeta.items;
+  const { rows } = await sql`SELECT items FROM shopify_modelos_meta_indice WHERE id = 1;`;
+  const items = (rows[0] && Array.isArray(rows[0].items)) ? rows[0].items : [];
+  cacheItemsMeta = { ts: Date.now(), items };
+  return items;
+}
+
+// Avanza (o empieza) el armado del índice hasta agotar el presupuesto de tiempo. Devuelve el estado: { completo, enProgreso, progreso, productos, actualizadoEn, error, definicion }.
+async function avanzarIndiceModelosMeta(sql, { presupuestoMs = 20000, forzar = false } = {}) {
+  await asegurarTablaIndiceModelosMeta(sql);
+  await sql`INSERT INTO shopify_modelos_meta_indice (id) VALUES (1) ON CONFLICT (id) DO NOTHING;`;
+  let { rows: [fila] } = await sql`SELECT definicion, actualizado_en, iniciado_en, cursor_pagina, paginas, total_productos, error, error_en, jsonb_array_length(items) AS n_items FROM shopify_modelos_meta_indice WHERE id = 1;`;
+  const ahora = Date.now();
+  const estado = (extra = {}) => ({
+    completo: Boolean(fila.actualizado_en) && !fila.error, enProgreso: Boolean(fila.iniciado_en),
+    progreso: fila.iniciado_en && fila.total_productos ? Math.min(99, Math.round((fila.paginas * 100) / Math.max(1, Math.ceil(fila.total_productos / 100)))) : null,
+    productos: fila.n_items || 0, actualizadoEn: fila.actualizado_en, error: fila.error || null, definicion: fila.definicion || null, ...extra,
+  });
+  const vencido = !fila.actualizado_en || ahora - new Date(fila.actualizado_en).getTime() > INDICE_META_VIGENCIA_MS;
+  if (!fila.iniciado_en) {
+    if (!forzar && !vencido) return estado();
+    if (fila.error_en && ahora - new Date(fila.error_en).getTime() < INDICE_META_REINTENTO_ERROR_MS && !forzar) return estado(); // falló hace poco: no insistir en cada búsqueda
+  }
+  const acceso = await obtenerAccesoShopify();
+  if (!acceso) return estado({ error: 'Shopify no está configurado en el servidor' });
+  const { domain, accessToken } = acceso;
+  const limite = ahora + presupuestoMs;
+
+  if (!fila.iniciado_en) {
+    // Empieza un índice nuevo: se ubica el metacampo (por su clave o nombre) y se cuenta cuántos productos hay para poder mostrar el avance.
+    let definicion = null, total = null;
+    try {
+      const defs = await shopifyGraphQLConReintento(domain, accessToken, 'query { metafieldDefinitions(ownerType: PRODUCT, first: 250) { nodes { name namespace key } } }', {});
+      definicion = encontrarDefinicion(defs.data && defs.data.metafieldDefinitions && defs.data.metafieldDefinitions.nodes);
+    } catch (e) { definicion = null; }
+    if (!definicion) {
+      const msg = 'No encontré en Shopify el metacampo de productos "modelos compatibles" (Descripción - modelos_compatibles). Revisa su nombre en Configuración > Datos personalizados.';
+      await sql`UPDATE shopify_modelos_meta_indice SET error = ${msg}, error_en = now(), iniciado_en = NULL WHERE id = 1;`;
+      fila = { ...fila, error: msg, error_en: new Date(), iniciado_en: null };
+      return estado();
+    }
+    try {
+      const c = await shopifyGraphQLConReintento(domain, accessToken, 'query { productsCount(query: "status:active") { count } }', {});
+      total = (c.data && c.data.productsCount && c.data.productsCount.count) || null;
+    } catch (e) { total = null; }
+    await sql`UPDATE shopify_modelos_meta_indice SET definicion = ${JSON.stringify(definicion)}::jsonb, items_nuevos = '[]'::jsonb, cursor_pagina = NULL, paginas = 0, total_productos = ${total}, iniciado_en = now(), error = NULL, error_en = NULL WHERE id = 1;`;
+    ({ rows: [fila] } = await sql`SELECT definicion, actualizado_en, iniciado_en, cursor_pagina, paginas, total_productos, error, error_en, jsonb_array_length(items) AS n_items FROM shopify_modelos_meta_indice WHERE id = 1;`);
+  }
+
+  const def = fila.definicion;
+  const { rows: [pend] } = await sql`SELECT items_nuevos FROM shopify_modelos_meta_indice WHERE id = 1;`;
+  let cursor = fila.cursor_pagina || null, paginas = fila.paginas || 0, nuevos = Array.isArray(pend && pend.items_nuevos) ? pend.items_nuevos : [];
+  let hayMas = true, ultimaPaginaMs = 4000;
+  try {
+    while (hayMas && Date.now() + ultimaPaginaMs < limite) {
+      const t0 = Date.now();
+      const body = await shopifyGraphQLConReintento(domain, accessToken,
+        'query($c: String, $ns: String!, $key: String!) { products(first: 100, after: $c, query: "status:active") { nodes { title handle onlineStoreUrl variants(first: 1) { nodes { sku } } meta: metafield(namespace: $ns, key: $key) { value } } pageInfo { hasNextPage endCursor } } }',
+        { c: cursor, ns: def.namespace, key: def.key });
+      const con = body.data && body.data.products;
+      if (!con) throw new Error('Shopify no devolvió productos');
+      for (const p of con.nodes) {
+        const texto = textoPlanoMetacampo(p.meta && p.meta.value);
+        if (!texto.trim()) continue;
+        nuevos.push({ titulo: p.title, url: p.onlineStoreUrl || null, sku: (p.variants && p.variants.nodes && p.variants.nodes[0] && p.variants.nodes[0].sku) || null, tipo: tipoDeProducto(p.title), texto: texto.slice(0, 6000) });
+      }
+      paginas++;
+      hayMas = Boolean(con.pageInfo && con.pageInfo.hasNextPage);
+      cursor = hayMas ? con.pageInfo.endCursor : null;
+      ultimaPaginaMs = Math.max(2000, Date.now() - t0);
+    }
+  } catch (e) {
+    const msg = 'No se pudo leer el metacampo de modelos compatibles desde Shopify: ' + String(e.message || e).slice(0, 160);
+    await sql`UPDATE shopify_modelos_meta_indice SET error = ${msg}, error_en = now(), iniciado_en = NULL, cursor_pagina = NULL, items_nuevos = '[]'::jsonb, paginas = 0 WHERE id = 1;`;
+    fila = { ...fila, error: msg, error_en: new Date(), iniciado_en: null };
+    return estado();
+  }
+  if (!hayMas) {
+    await sql`UPDATE shopify_modelos_meta_indice SET items = ${JSON.stringify(nuevos)}::jsonb, actualizado_en = now(), items_nuevos = '[]'::jsonb, cursor_pagina = NULL, paginas = 0, iniciado_en = NULL, error = NULL, error_en = NULL WHERE id = 1;`;
+    cacheItemsMeta = { ts: Date.now(), items: nuevos };
+    ({ rows: [fila] } = await sql`SELECT definicion, actualizado_en, iniciado_en, cursor_pagina, paginas, total_productos, error, error_en, jsonb_array_length(items) AS n_items FROM shopify_modelos_meta_indice WHERE id = 1;`);
+    return estado();
+  }
+  await sql`UPDATE shopify_modelos_meta_indice SET items_nuevos = ${JSON.stringify(nuevos)}::jsonb, cursor_pagina = ${cursor}, paginas = ${paginas} WHERE id = 1;`;
+  fila = { ...fila, paginas };
+  return estado();
+}
+
+// Busca el producto cuyo metacampo de modelos compatibles menciona ese modelo. Solo lee el índice ya armado (no llama a Shopify).
+async function productoPorMetacampo(categoria, marca, modelo) {
+  if (!['bateria', 'pantalla', 'cargador'].includes(categoria) || !modelo) return null;
+  try {
+    const sql = await getSql();
+    await asegurarTablaIndiceModelosMeta(sql);
+    return mejorProductoPorMetacampo(await leerItemsMeta(sql), categoria, marca, modelo);
+  } catch (e) { return null; }
+}
+
+// Busca el producto de Shopify para ese modelo: primero por el metacampo de modelos compatibles (lo que lista cada producto) y, si no, por el título.
 async function buscarProductoShopify(producto, categoria, marca, modelo, especificaciones) {
+  const porMeta = await productoPorMetacampo(categoria, marca, modelo);
+  if (porMeta && porMeta.confianza >= 90) return porMeta;
+  const porTitulo = await buscarProductoShopifyPorTitulo(producto, categoria, marca, modelo, especificaciones);
+  if (porMeta && (!porTitulo || porTitulo.confianza < porMeta.confianza)) return porMeta; // coincidencia por familia del metacampo, mejor que lo que dio el título
+  return porTitulo;
+}
+
+async function buscarProductoShopifyPorTitulo(producto, categoria, marca, modelo, especificaciones) {
   // Los cargadores no se catalogan por modelo de notebook (un mismo
   // cargador cubre muchos modelos distintos) -- lo que realmente
   // distingue el producto correcto es la potencia/voltaje/conector, que
@@ -10520,7 +10636,10 @@ async function manejarBuscarRepuestosModelo(req, res, sesion) {
   const modelo = String(req.query.modelo || '').trim();
   if (!marca || !modelo) return res.status(400).json({ error: 'Falta marca o modelo' });
   try {
-    return res.status(200).json(await buscarSkusModeloNotebook(marca, modelo));
+    // El índice del metacampo "modelos compatibles" se arma por tandas: cada búsqueda lo avanza un poco (y avisa cuánto falta).
+    let indice = null;
+    try { indice = await avanzarIndiceModelosMeta(await getSql(), { presupuestoMs: 18000 }); } catch (e) { indice = { error: String(e.message || e).slice(0, 160) }; }
+    return res.status(200).json({ ...(await buscarSkusModeloNotebook(marca, modelo)), indice });
   } catch (err) {
     return res.status(200).json({ error: 'Error buscando en Shopify', detail: String(err) });
   }

@@ -1754,11 +1754,18 @@ async function buscarEnShopifyCompat(automatico){
       const encontrado = data[cat];
       if(encontrado?.sku){
         $(campoId).value = encontrado.sku;
-        return `<li>${etiquetaPorCategoria[cat]}: <b>${encontrado.sku}</b> — ${encontrado.titulo} (${encontrado.confianza}% de confianza)</li>`;
+        const porMeta = encontrado.origen === 'metacampo' ? ', según el metacampo de modelos compatibles' : '';
+        const aviso = encontrado.aviso ? `<br><span style="color:var(--amber, #b45309);">⚠ ${encontrado.aviso}</span>` : '';
+        return `<li>${etiquetaPorCategoria[cat]}: <b>${encontrado.sku}</b> — ${encontrado.titulo} (${encontrado.confianza}% de confianza${porMeta})${aviso}</li>`;
       }
       return `<li>${etiquetaPorCategoria[cat]}: <span class="empty-note">no se encontró un match en Shopify -- complétalo a mano.</span></li>`;
     });
-    $('resultadoBusquedaCompat').innerHTML = `<div class="note-box">🔍 Resultado de la búsqueda en Shopify:<ul style="margin:6px 0 0 0;padding-left:18px;">${filas.join('')}</ul></div>`;
+    // Estado del índice del metacampo "Descripción - modelos_compatibles": la primera vez se arma por tandas (Shopify no permite buscar por su valor).
+    const ind = data.indice;
+    let notaIndice = '';
+    if(ind?.enProgreso) notaIndice = `<p class="empty-note" style="margin:8px 0 0;">⏳ Leyendo el metacampo de modelos compatibles de Shopify${ind.progreso != null ? `: ${ind.progreso}%` : ''}. Los resultados pueden mejorar: vuelve a buscar en unos segundos.</p>`;
+    else if(ind?.error) notaIndice = `<p class="empty-note" style="margin:8px 0 0;color:var(--red);">No pude usar el metacampo de modelos compatibles: ${ind.error}</p>`;
+    $('resultadoBusquedaCompat').innerHTML = `<div class="note-box">🔍 Resultado de la búsqueda en Shopify:<ul style="margin:6px 0 0 0;padding-left:18px;">${filas.join('')}</ul>${notaIndice}</div>`;
   }catch(err){
     $('errorCompat').innerHTML = `<p class="empty-note" style="color:var(--red);">Error: ${err.message}</p>`;
   }finally{
