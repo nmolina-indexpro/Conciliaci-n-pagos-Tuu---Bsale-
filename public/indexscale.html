@@ -935,7 +935,7 @@ let generandoPlan = false;
 const mensajesPlan = {};
 const canalPlan = {};
 const OFERTA_TXT = { crear_tienda: '🛒 Crear su tienda online', optimizar_tienda: '📈 Mejorar su sitio / tienda', diagnostico_gratis: '🔎 Diagnóstico gratis' };
-const RESULTADO_TXT = { interesado: '✅ Le interesa', reunion: '📅 Reunión agendada', volver_a_llamar: '🔁 Volver a llamar', sin_respuesta: '📵 No contestó', no_interesa: '❌ No le interesa', dato_incorrecto: '⚠️ Dato incorrecto', no_corresponde: '🚫 No corresponde', omitido: '⏭ Omitido' };
+const RESULTADO_TXT = { interesado: '✅ Le interesa', reunion: '📅 Reunión agendada', volver_a_llamar: '🔁 Volver a llamar', sin_respuesta: '📵 No contestó', no_interesa: '❌ No le interesa', dato_incorrecto: '⚠️ Dato incorrecto', no_corresponde: '🚫 No corresponde', sitio_optimizado: '✅ Ya tiene página optimizada', omitido: '⏭ Omitido' };
 const CANAL_TXT = { whatsapp: 'WhatsApp', llamada: 'llamada', correo: 'correo', otro: '' };
 
 function textoVendedor(t){ return String(t || '').split('{vendedor}').join(nombreVendedor || 'tu ejecutivo de IndexStore'); }
@@ -984,8 +984,10 @@ function chipsDatos(it){
   if(d.diasUltimaCompra != null) c.push('<span class="pl-chip">Última compra hace ' + (d.diasUltimaCompra === 0 ? 'hoy' : d.diasUltimaCompra + (d.diasUltimaCompra === 1 ? ' día' : ' días')) + '</span>');
   if(d.servicioTecnico) c.push('<span class="pl-chip">Usó servicio técnico</span>');
   if(d.intentosSinRespuesta) c.push('<span class="pl-chip alerta">' + d.intentosSinRespuesta + (d.intentosSinRespuesta === 1 ? ' intento sin respuesta' : ' intentos sin respuesta') + '</span>');
-  c.push('<span class="pl-chip">' + (it.segmento === 'potenciar' ? 'Correo con dominio propio' : 'Correo personal') + '</span>');
-  if(it.sitioVerificado) c.push('<span class="pl-chip">Sitio web con contenido</span>');
+  const SITIO_TXT = { sin_dominio: '🚫 Su dominio no existe', no_carga: '⚠️ Su sitio no carga', estacionado: '🚧 Dominio sin página (estacionado / en construcción)', basico: '📄 Sitio web básico', con_sitio: '🌐 Tiene sitio con contenido', tienda: '🛒 Ya vende online' };
+  if(!it.dominio) c.push('<span class="pl-chip oferta" title="Usa un correo personal (Gmail, Hotmail...): no se le conoce un sitio propio">✉️ Sin sitio propio conocido</span>');
+  else if(it.sitioEstado) c.push('<span class="pl-chip ' + (['con_sitio', 'tienda'].includes(it.sitioEstado) ? '' : 'oferta') + '" title="Revisión automática del sitio: confírmala abriéndolo con «Ver su sitio web»">' + SITIO_TXT[it.sitioEstado] + ' (automático)</span>');
+  else c.push('<span class="pl-chip" title="Todavía no se revisa su sitio: ábrelo con «Ver su sitio web»">🌐 Sitio sin revisar</span>');
   return c.join('');
 }
 
@@ -1015,6 +1017,7 @@ function tarjetaPlan(it, esSiguiente){
       ${it.sitio
         ? '<a class="pl-btn mail" href="' + escLead(it.sitio) + '" target="_blank" rel="noopener" title="Abre su sitio web actual en otra pestaña">🌐 Ver su sitio web</a>'
         : '<a class="pl-btn mail" href="' + escLead(it.busqueda) + '" target="_blank" rel="noopener" title="Usa correo personal: probablemente no tiene sitio. Búscalo en Google">🔎 Buscar su sitio en Google</a>'}
+      <button class="pl-btn mail" style="color:var(--green)" title="Ya revisaste su sitio y está bien optimizado: no es un cliente para IndexScale. No vuelve a salir." onclick="if(confirm('¿Marcar que ya tiene una página optimizada? No volverá a salir en ninguna lista.'))resultadoPlan(${it.id},'sitio_optimizado')">✅ Ya tiene página optimizada</button>
     </div>
     <details class="pl-guia"${esSiguiente ? ' open' : ''}>
       <summary>📋 Guía de la conversación</summary>

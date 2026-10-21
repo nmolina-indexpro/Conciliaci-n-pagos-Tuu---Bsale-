@@ -41,6 +41,7 @@ import { efectoAcciones } from '../lib/efecto-acciones.js';
 import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas, asegurarTablaIndexscalePlan, asegurarTablaIndiceModelosMeta } from '../lib/db.js';
 import { encontrarDefinicion, textoPlanoMetacampo, tipoDeProducto, mejorProductoPorMetacampo } from '../lib/modelos-metacampo.js';
 import { esRegionMetropolitana as esRegionMetropolitanaIndexscale, telefonoChileno as telefonoChilenoIndexscale, primerNombre as primerNombreIndexscale, personalizarTexto as personalizarTextoIndexscale, puntuarCandidato as puntuarCandidatoIndexscale, validarSeleccionIA as validarSeleccionIAIndexscale, guiaRespaldo as guiaRespaldoIndexscale, SISTEMA_PLAN_IA, HERRAMIENTA_PLAN_IA, rubroTecnologico as rubroTecnologicoIndexscale, perfilRepuestos as perfilRepuestosIndexscale, enlacesSitio as enlacesSitioIndexscale, RESULTADOS_PLAN as RESULTADOS_PLAN_INDEXSCALE, ESTADO_POR_RESULTADO as ESTADO_POR_RESULTADO_INDEXSCALE } from '../lib/indexscale-plan.js';
+import { revisarSitio as revisarSitioIndexscale, TEXTO_ESTADO_SITIO as TEXTO_ESTADO_SITIO_INDEXSCALE } from '../lib/indexscale-sitio.js';
 import { referenciaDesdeMensaje } from '../lib/whatsapp-referencia.js';
 import { armarAnalisis as armarAnalisisDesperdicio, MINUTOS_POR_DEFECTO as MINUTOS_DESPERDICIO, MAX_MENSAJES_CLIENTE as MAX_MENSAJES_DESPERDICIO } from '../lib/whatsapp-desperdicio-ads.js';
 import { armarCorreoModelosPendientes } from '../lib/compat-recordatorio.js';
@@ -6113,7 +6114,7 @@ const PLAN_CANDIDATOS_POR_SEGMENTO = 20; // la IA ve hasta 40 candidatos (20 por
 
 async function leerItemsPlanIndexscale(sql, planId) {
   const { rows } = await sql.query(
-    `SELECT i.*, o.empresa, o.cliente_nombre, o.telefono, o.email, o.segmento, o.estado AS estado_oportunidad, o.rut, o.sitio_verificado_en, bp.giro,
+    `SELECT i.*, o.empresa, o.cliente_nombre, o.telefono, o.email, o.segmento, o.estado AS estado_oportunidad, o.rut, o.sitio_verificado_en, o.sitio_estado, o.sitio_revisado_en, bp.giro,
             (SELECT COALESCE(json_agg(json_build_object('canal', c.canal, 'resultado', c.resultado, 'nota', c.nota, 'por', c.por, 'en', c.en) ORDER BY c.en DESC), '[]'::json)
                FROM (SELECT * FROM indexscale_contactos WHERE oportunidad_id = i.oportunidad_id ORDER BY en DESC LIMIT 4) c) AS historial,
             i.proximo_contacto::text AS proximo_contacto_txt
@@ -6146,6 +6147,8 @@ async function leerItemsPlanIndexscale(sql, planId) {
       email: r.email,
       ...enlacesSitioIndexscale({ email: r.email, empresa: r.empresa, comuna: r.comuna }),
       sitioVerificado: !!r.sitio_verificado_en,
+      sitioEstado: r.sitio_estado || null,
+      sitioRevisadoEn: r.sitio_revisado_en || null,
       segmento: r.segmento,
       estadoOportunidad: r.estado_oportunidad,
       datos: r.datos || {},
@@ -6195,7 +6198,7 @@ async function leerPlanIndexscale(sql, sesion) {
 // Candidatos elegibles + conteos del filtro geográfico. Aplica las reglas de "a quién no volver a ofrecer" según los resultados anteriores.
 async function candidatosPlanIndexscale(sql) {
   const { rows } = await sql.query(
-    `SELECT o.id, o.segmento, o.empresa, o.cliente_nombre, o.telefono, o.email, o.ciudad, o.puntos, o.estado, bp.giro, bp.comuna AS comuna_bsale,
+    `SELECT o.id, o.segmento, o.empresa, o.cliente_nombre, o.telefono, o.email, o.ciudad, o.puntos, o.estado, bp.giro, bp.comuna AS comuna_bsale, o.sitio_estado, (o.sitio_revisado_en IS NOT NULL AND o.sitio_revisado_en > now() - interval '30 days') AS sitio_reciente,
             (d.oportunidad_id IS NOT NULL) AS descartada,
             COALESCE(h.c12, 0)::int AS c12, COALESCE(h.ct, 0)::int AS ct, h.dias AS dias_ultima,
             COALESCE(h.m12, 0)::float AS m12, COALESCE(h.s12, 0)::float AS s12,
@@ -6245,7 +6248,7 @@ async function candidatosPlanIndexscale(sql) {
     if (p) {
       const dias = Number(p.dias) || 0;
       const nIntentos = intentos.get(r.id) || 0;
-      if (['interesado', 'reunion', 'no_interesa', 'dato_incorrecto', 'no_corresponde'].includes(p.resultado)) { excluidosGestion++; continue; }
+      if (['interesado', 'reunion', 'no_interesa', 'dato_incorrecto', 'no_corresponde', 'sitio_optimizado'].includes(p.resultado)) { excluidosGestion++; continue; }
       if (p.resultado === 'pendiente' && dias < 7) { excluidosGestion++; continue; }
       if (p.resultado === 'omitido' && dias < 3) { excluidosGestion++; continue; }
       if (p.resultado === 'sin_respuesta' && (dias < 2 || nIntentos >= 3)) { excluidosGestion++; continue; }
@@ -6259,6 +6262,7 @@ async function candidatosPlanIndexscale(sql) {
       compras12m: r.c12, comprasTotal: r.ct, diasUltimaCompra: r.dias_ultima == null ? null : Number(r.dias_ultima),
       montoTotal12m: r.m12, montoServicios12m: r.s12, seguimientoVencido: vencido, notaSeguimiento, intentosSinRespuesta: intentos.get(r.id) || 0,
       giro: r.giro || '', rubroDudoso: rubro.nivel === 'dudoso', compraRepuestosParcial: perfil.parcial,
+      dominio: enlacesSitioIndexscale({ email: r.email, empresa: r.empresa, comuna: geo.comuna }).dominio || '', sitioEstado: r.sitio_reciente ? r.sitio_estado : null,
     };
     const pt = puntuarCandidatoIndexscale(c);
     c.puntaje = pt.puntaje; c.razones = pt.razones;
@@ -6270,16 +6274,56 @@ async function candidatosPlanIndexscale(sql) {
 
 function nivelGastoIndexscale(m) { return m >= 3000000 ? 'alto' : m >= 800000 ? 'medio' : m > 0 ? 'bajo' : 'sin compras en el año'; }
 
+
+// Revisa (en paralelo y con tope de tiempo) el sitio web de los candidatos con dominio propio que no se han revisado en los últimos 30 días, y guarda el resultado.
+// Se usa para llegar primero a quienes no tienen un sitio utilizable (ver lib/indexscale-sitio.js). Lo que no alcanza a revisarse en esta pasada se revisa en la siguiente.
+async function revisarSitiosIndexscale(sql, lista, topeMs = 9000) {
+  const limite = Date.now() + topeMs;
+  let i = 0; let hechos = 0;
+  const obtener = async (url) => {
+    const r = await fetchConTimeout(url, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; IndexStoreBot/1.0)', accept: 'text/html,*/*' }, redirect: 'follow' }, 4500);
+    const text = r.ok ? String(await r.text()).slice(0, 300000) : '';
+    return { ok: r.ok, status: r.status, text, url: r.url };
+  };
+  const trabajador = async () => {
+    while (i < lista.length && Date.now() < limite) {
+      const c = lista[i++];
+      try {
+        const res = await Promise.race([revisarSitioIndexscale(c.dominio, obtener), new Promise((r) => setTimeout(() => r(null), Math.max(300, limite - Date.now())))]);
+        if (!res) continue;
+        c.sitioEstado = res.estado;
+        await sql.query(`UPDATE indexscale_oportunidades SET sitio_estado = $2, sitio_senales = $3::jsonb, sitio_revisado_en = now() WHERE id = $1;`, [c.id, res.estado, JSON.stringify(res.senales || {})]);
+        hechos++;
+      } catch (err) { /* un sitio que falla no detiene a los demás */ }
+    }
+  };
+  await Promise.all(Array.from({ length: 10 }, trabajador));
+  return hechos;
+}
+
+function textoSitioParaIAIndexscale(c) {
+  if (!c.dominio) return 'sin sitio propio (correo personal)';
+  return TEXTO_ESTADO_SITIO_INDEXSCALE[c.sitioEstado] || 'dominio propio, sitio sin revisar';
+}
+
 async function generarPlanIndexscale(sql, sesion, cantidad) {
   const { elegibles, fueraRm, sinComuna, excluidosGestion, excluidosRubro, excluidosTecnico, total } = await candidatosPlanIndexscale(sql);
   if (elegibles.length === 0) return { error: 'No quedan clientes de Santiago / Región Metropolitana disponibles para contactar. Revisa los estados o espera a los seguimientos.' };
+
+  // Antes de elegir: revisar el sitio web de los mejores candidatos con dominio propio (los que ya tienen sitio con contenido o tienda bajan en el puntaje).
+  const porRevisar = elegibles.filter((c) => c.dominio && !c.sitioEstado).slice(0, 40);
+  const sitiosRevisados = porRevisar.length ? await revisarSitiosIndexscale(sql, porRevisar) : 0;
+  if (sitiosRevisados) {
+    for (const c of porRevisar) { if (c.sitioEstado) { const pt = puntuarCandidatoIndexscale(c); c.puntaje = pt.puntaje; c.razones = pt.razones; } }
+    elegibles.sort((a, b) => b.puntaje - a.puntaje);
+  }
 
   // Candidatos para la IA: los mejores de cada segmento (así no se llena solo de uno), con los seguimientos vencidos siempre adentro.
   const vistos = new Set();
   const candidatos = [];
   const agregar = (c) => { if (!vistos.has(c.id)) { vistos.add(c.id); candidatos.push(c); } };
   elegibles.filter((c) => c.seguimientoVencido).slice(0, 6).forEach(agregar);
-  for (const seg of ['sin_sitio', 'potenciar']) elegibles.filter((c) => c.segmento === seg).slice(0, PLAN_CANDIDATOS_POR_SEGMENTO).forEach(agregar);
+  elegibles.slice(0, PLAN_CANDIDATOS_POR_SEGMENTO * 2).forEach(agregar);
   candidatos.sort((a, b) => b.puntaje - a.puntaje);
 
   const paraIA = candidatos.map((c) => ({
@@ -6287,7 +6331,8 @@ async function generarPlanIndexscale(sql, sesion, cantidad) {
     empresa: limpiarRazonSocial(c.empresa) || c.empresa,
     contacto: primerNombreIndexscale(c.clienteNombre) || null,
     comuna: c.comuna,
-    correo: c.segmento === 'potenciar' ? 'dominio propio (' + String(c.email || '').split('@')[1] + ')' : 'personal (' + String(c.email || '').split('@')[1] + ')',
+    correo: c.dominio ? 'dominio propio (' + c.dominio + ')' : 'personal (' + String(c.email || '').split('@')[1] + ')',
+    sitio: textoSitioParaIAIndexscale(c),
     tiene_celular: !!telefonoChilenoIndexscale(c.telefono).wa,
     compras_ultimos_12_meses: c.compras12m,
     compras_totales: c.comprasTotal,
@@ -6304,7 +6349,7 @@ async function generarPlanIndexscale(sql, sesion, cantidad) {
 
   let bruto = null; let aviso = null; let origen = 'ia';
   try {
-    bruto = await llamarGeminiEstructurado(SISTEMA_PLAN_IA, 'Cantidad de clientes a elegir: ' + cantidad + '\nClientes candidatos (todos de Santiago / Región Metropolitana):\n' + JSON.stringify(paraIA), HERRAMIENTA_PLAN_IA, { maxTokens: 12000, timeoutMs: 50000 });
+    bruto = await llamarGeminiEstructurado(SISTEMA_PLAN_IA, 'Cantidad de clientes a elegir: ' + cantidad + '\nClientes candidatos (todos de Santiago / Región Metropolitana):\n' + JSON.stringify(paraIA), HERRAMIENTA_PLAN_IA, { maxTokens: 12000, timeoutMs: 38000 });
   } catch (err) {
     origen = 'respaldo';
     aviso = err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada: la lista se armó con el puntaje automático.' : 'La IA no respondió (' + String(err.message || err).slice(0, 160) + '): la lista se armó con el puntaje automático.';
@@ -6342,7 +6387,7 @@ async function generarPlanIndexscale(sql, sesion, cantidad) {
   for (const s of seleccion) {
     const c = porId.get(s.id);
     if (!c) continue;
-    const datos = { compras12m: c.compras12m, comprasTotal: c.comprasTotal, diasUltimaCompra: c.diasUltimaCompra, nivelCompra: nivelGastoIndexscale(c.montoTotal12m), servicioTecnico: c.montoServicios12m > 0, seguimientoVencido: c.seguimientoVencido, notaSeguimiento: c.notaSeguimiento || null, intentosSinRespuesta: c.intentosSinRespuesta || 0 };
+    const datos = { sitioEstado: c.sitioEstado || null, compras12m: c.compras12m, comprasTotal: c.comprasTotal, diasUltimaCompra: c.diasUltimaCompra, nivelCompra: nivelGastoIndexscale(c.montoTotal12m), servicioTecnico: c.montoServicios12m > 0, seguimientoVencido: c.seguimientoVencido, notaSeguimiento: c.notaSeguimiento || null, intentosSinRespuesta: c.intentosSinRespuesta || 0 };
     const guia = { mensaje_whatsapp: s.mensaje_whatsapp, apertura_llamada: s.apertura_llamada, preguntas: s.preguntas, objeciones: s.objeciones };
     await sql.query(
       `INSERT INTO indexscale_plan_items (plan_id, oportunidad_id, orden, puntaje, comuna, prioridad, oferta, motivo, datos, guia, origen)
@@ -6350,7 +6395,7 @@ async function generarPlanIndexscale(sql, sesion, cantidad) {
       [planId, c.id, n++, c.puntaje, c.comuna, s.prioridad, s.oferta, s.motivo, JSON.stringify(datos), JSON.stringify(guia), s.origen]
     );
   }
-  return { planId, aviso, estadisticas: { total, elegibles: elegibles.length, fueraRm, sinComuna, excluidosGestion, excluidosRubro, excluidosTecnico, descartadosIa: descartadosIa.size } };
+  return { planId, aviso, estadisticas: { sitiosRevisados, total, elegibles: elegibles.length, fueraRm, sinComuna, excluidosGestion, excluidosRubro, excluidosTecnico, descartadosIa: descartadosIa.size } };
 }
 
 async function manejarIndexscalePlan(req, res, sesion) {
@@ -6412,6 +6457,9 @@ async function manejarIndexscalePlan(req, res, sesion) {
       }
       if (resultado === 'no_corresponde') {
         await sql.query(`INSERT INTO indexscale_descartes (oportunidad_id, motivo, origen, por) VALUES ($1, $2, 'vendedor', $3) ON CONFLICT (oportunidad_id) DO NOTHING;`, [it[0].oportunidad_id, nota || 'Marcado por el vendedor: no corresponde (rubro informático u otro)', quien]);
+      }
+      if (resultado === 'sitio_optimizado') {
+        await sql.query(`INSERT INTO indexscale_descartes (oportunidad_id, motivo, origen, por) VALUES ($1, $2, 'vendedor', $3) ON CONFLICT (oportunidad_id) DO NOTHING;`, [it[0].oportunidad_id, nota || 'Ya tiene una página web optimizada', quien]);
       }
       const nuevoEstado = ESTADO_POR_RESULTADO_INDEXSCALE[resultado];
       if (nuevoEstado) {
