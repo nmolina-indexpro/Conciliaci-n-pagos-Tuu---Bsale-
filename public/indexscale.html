@@ -252,7 +252,7 @@
     <div class="seccion-head">
       <div>
         <h2>🎯 Mi lista de contacto</h2>
-        <div class="sub" id="planSub">Cada día la IA elige, entre todos los clientes de Santiago y la Región Metropolitana, a quiénes conviene ofrecerles IndexScale, y te deja listo el mensaje y la guía de conversación. Tú solo contactas y anotas cómo te fue.</div>
+        <div class="sub" id="planSub">Cada día la IA elige, entre todos los clientes de Santiago y la Región Metropolitana, a quiénes conviene ofrecerles IndexScale, y te deja listo el mensaje y la guía de conversación. Nunca incluye empresas de informática, computación o tecnología. Tú solo contactas y anotas cómo te fue.</div>
       </div>
       <div class="pl-cta" id="planAcciones"></div>
     </div>
@@ -935,7 +935,7 @@ let generandoPlan = false;
 const mensajesPlan = {};
 const canalPlan = {};
 const OFERTA_TXT = { crear_tienda: '🛒 Crear su tienda online', optimizar_tienda: '📈 Mejorar su sitio / tienda', diagnostico_gratis: '🔎 Diagnóstico gratis' };
-const RESULTADO_TXT = { interesado: '✅ Le interesa', reunion: '📅 Reunión agendada', volver_a_llamar: '🔁 Volver a llamar', sin_respuesta: '📵 No contestó', no_interesa: '❌ No le interesa', dato_incorrecto: '⚠️ Dato incorrecto', omitido: '⏭ Omitido' };
+const RESULTADO_TXT = { interesado: '✅ Le interesa', reunion: '📅 Reunión agendada', volver_a_llamar: '🔁 Volver a llamar', sin_respuesta: '📵 No contestó', no_interesa: '❌ No le interesa', dato_incorrecto: '⚠️ Dato incorrecto', no_corresponde: '🚫 No corresponde', omitido: '⏭ Omitido' };
 const CANAL_TXT = { whatsapp: 'WhatsApp', llamada: 'llamada', correo: 'correo', otro: '' };
 
 function textoVendedor(t){ return String(t || '').split('{vendedor}').join(nombreVendedor || 'tu ejecutivo de IndexStore'); }
@@ -985,6 +985,7 @@ function chipsDatos(it){
   if(d.servicioTecnico) c.push('<span class="pl-chip">Usó servicio técnico</span>');
   if(d.intentosSinRespuesta) c.push('<span class="pl-chip alerta">' + d.intentosSinRespuesta + (d.intentosSinRespuesta === 1 ? ' intento sin respuesta' : ' intentos sin respuesta') + '</span>');
   c.push('<span class="pl-chip">' + (it.segmento === 'potenciar' ? 'Correo con dominio propio' : 'Correo personal') + '</span>');
+  if(it.sitioVerificado) c.push('<span class="pl-chip">Sitio web con contenido</span>');
   return c.join('');
 }
 
@@ -1001,7 +1002,7 @@ function tarjetaPlan(it, esSiguiente){
       <div class="pl-num">${it.orden + 1}</div>
       <div class="pl-quien">
         <b>${escLead(it.empresa)}</b>
-        <div class="pl-contacto">${quien ? 'Hablar con <b style="display:inline;font-size:13px;color:var(--text)">' + quien + '</b> · ' : ''}${escLead(tel.mostrar || 'sin teléfono')}${it.email ? ' · ' + escLead(it.email) : ''}</div>
+        <div class="pl-contacto">${quien ? 'Hablar con <b style="display:inline;font-size:13px;color:var(--text)">' + quien + '</b> · ' : ''}${escLead(tel.mostrar || 'sin teléfono')}${it.email ? ' · ' + escLead(it.email) : ''}${it.dominio ? '<br>Sitio: <a href="' + escLead(it.sitio) + '" target="_blank" rel="noopener">' + escLead(it.dominio) + ' ↗</a> · <a href="' + escLead(it.busqueda) + '" target="_blank" rel="noopener">buscar en Google ↗</a>' : ''}</div>
         <div class="pl-chips"><span class="pl-chip ${escLead(it.prioridad)}">Prioridad ${escLead(it.prioridad)}</span><span class="pl-chip oferta">${OFERTA_TXT[it.oferta] || ''}</span><span class="pl-chip">📍 ${escLead(it.comuna || '')}</span></div>
       </div>
       ${esSiguiente ? '<span class="pl-chip oferta" style="align-self:flex-start">👉 Parte por aquí</span>' : ''}
@@ -1011,6 +1012,9 @@ function tarjetaPlan(it, esSiguiente){
       <a class="pl-btn wa${tel.wa ? '' : ' off'}" ${tel.wa ? 'href="#" onclick="return abrirWhatsAppPlan(' + it.id + ')"' : 'title="Es un teléfono fijo: sin WhatsApp"'}>💬 WhatsApp</a>
       <a class="pl-btn tel${tel.tel ? '' : ' off'}" ${tel.tel ? 'href="tel:' + escLead(tel.tel) + '" onclick="canalPlan[' + it.id + ']=\'llamada\'"' : ''}>📞 Llamar</a>
       <a class="pl-btn mail${it.email ? '' : ' off'}" ${it.email ? 'href="#" onclick="return abrirCorreoPlan(' + it.id + ')"' : ''}>✉️ Correo</a>
+      ${it.sitio
+        ? '<a class="pl-btn mail" href="' + escLead(it.sitio) + '" target="_blank" rel="noopener" title="Abre su sitio web actual en otra pestaña">🌐 Ver su sitio web</a>'
+        : '<a class="pl-btn mail" href="' + escLead(it.busqueda) + '" target="_blank" rel="noopener" title="Usa correo personal: probablemente no tiene sitio. Búscalo en Google">🔎 Buscar su sitio en Google</a>'}
     </div>
     <details class="pl-guia"${esSiguiente ? ' open' : ''}>
       <summary>📋 Guía de la conversación</summary>
@@ -1033,6 +1037,7 @@ function tarjetaPlan(it, esSiguiente){
         <button class="pl-r" onclick="resultadoPlan(${it.id},'sin_respuesta')">📵 No contestó</button>
         <button class="pl-r mal" onclick="resultadoPlan(${it.id},'no_interesa')">❌ No le interesa</button>
         <button class="pl-r mal" onclick="resultadoPlan(${it.id},'dato_incorrecto')">⚠️ Dato incorrecto</button>
+        <button class="pl-r mal" title="Es una empresa de informática, computación, servicio técnico u otro rubro al que no se le ofrece. No vuelve a salir." onclick="if(confirm('¿Marcar como que NO corresponde (informática, tecnología u otro rubro)? No volverá a salir en ninguna lista.'))resultadoPlan(${it.id},'no_corresponde')">🚫 No corresponde</button>
       </div>
       <div class="pl-volver" id="plvolver-${it.id}">Volver a llamar el <input type="date" id="plfecha-${it.id}" value="${fechaDiaMas(2)}" min="${fechaDiaMas(0)}"> <button class="pl-r" onclick="resultadoPlan(${it.id},'volver_a_llamar')">Guardar</button></div>
     </div>
@@ -1063,7 +1068,7 @@ function renderPlan(){
   if($('planCantidad')) $('planCantidad').value = cantPrev;
   const hoy = planIndexscale.gestionadosHoy || 0;
   const filtro = 'Solo Santiago y Región Metropolitana: ' + dosFmt(pl.poolTotal) + ' clientes disponibles'
-    + (pl.fueraRm || pl.sinComuna ? ' (' + dosFmt(pl.fueraRm) + ' de otras regiones y ' + dosFmt(pl.sinComuna) + ' sin comuna quedan fuera)' : '') + '.';
+    + (pl.fueraRm || pl.sinComuna || pl.excluidosRubro ? ' (quedan fuera ' + [pl.fueraRm ? dosFmt(pl.fueraRm) + ' de otras regiones' : '', pl.sinComuna ? dosFmt(pl.sinComuna) + ' sin comuna' : '', pl.excluidosRubro ? dosFmt(pl.excluidosRubro) + ' de informática o tecnología' : ''].filter(Boolean).join(', ') + ')' : '') + '. Nunca se ofrece a empresas de informática, computación, electrónica o soporte TI.';
   prog.innerHTML = '<div style="font-size:13px"><b>' + hechos.length + ' de ' + items.length + ' gestionados</b> (' + pct + '%) · hoy llevas ' + hoy + ' ' + (hoy === 1 ? 'contacto' : 'contactos') + '</div>'
     + '<div class="pl-prog"><div style="width:' + pct + '%"></div></div>'
     + '<div class="sub">Lista generada ' + fechaCorta(pl.generadoEn) + ' por ' + escLead(pl.generadoPor || '') + ' · ' + (pl.origen === 'ia' ? 'elegida por IA (Gemini)' : 'ordenada por puntaje automático') + (pl.resumen ? ' · “' + escLead(pl.resumen) + '”' : '') + '<br>' + filtro + '</div>';
