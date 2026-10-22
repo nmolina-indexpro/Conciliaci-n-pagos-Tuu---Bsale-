@@ -233,7 +233,7 @@
   <div id="wrapEnvios"><p class="empty-note">Cargando...</p></div>
 </div>
 
-<div class="modal-backdrop" id="modalEnvio" onclick="if(event.target===this) cerrarModalEnvio()">
+<div class="modal-backdrop" id="modalEnvio">
   <div class="modal-box">
     <div class="modal-head">
       <h2 id="modalEnvioTitulo">Nuevo envío</h2>
@@ -421,8 +421,24 @@ async function cargarEnvios(){
     $('wrapEnvios').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
   }
 }
+// Del que llega más pronto al que llega más tarde (por ETA). Los que no tienen ETA van después de los que sí, y los ya entregados al final
+// (los entregados más recientes primero). Se ordena aquí, no solo en el servidor, para que quede igual al crear o editar un envío sin recargar.
+function ordenarEnviosPorLlegada(lista){
+  const dia = (e) => (e.fecha_eta ? String(e.fecha_eta).slice(0, 10) : null);
+  return [...lista].sort((a, b) => {
+    const ea = a.estado === 'entregado', eb = b.estado === 'entregado';
+    if(ea !== eb) return ea ? 1 : -1;
+    const da = dia(a), db = dia(b);
+    if(da !== db){
+      if(da === null) return 1;
+      if(db === null) return -1;
+      return ea ? (da < db ? 1 : -1) : (da < db ? -1 : 1);
+    }
+    return (b.id || 0) - (a.id || 0);
+  });
+}
 function renderEnvios(){
-  const lista = filtroEstadoActual === 'activos' ? enviosActuales.filter(e => e.estado !== 'entregado') : enviosActuales;
+  const lista = ordenarEnviosPorLlegada(filtroEstadoActual === 'activos' ? enviosActuales.filter(e => e.estado !== 'entregado') : enviosActuales);
   if(lista.length === 0){
     $('wrapEnvios').innerHTML = `<p class="empty-note">${filtroEstadoActual==='activos' ? 'No hay envíos en camino ahora mismo.' : 'Todavía no se ha registrado ningún envío.'}</p>`;
     return;
@@ -438,7 +454,7 @@ function envioHtml(e){
     <div class="card">
       <div class="envio-head">
         <div class="envio-titulo">
-          <span class="icono">🚢</span>
+          <span class="icono">${e.tipo_transporte === 'aereo' ? '✈️' : '🚢'}</span>
           <div>
             <h2>${escapeHtml(e.referencia)}</h2>
             <div class="peso">${e.peso_kg != null ? fmtNum(e.peso_kg) + ' KG' : ''}</div>
