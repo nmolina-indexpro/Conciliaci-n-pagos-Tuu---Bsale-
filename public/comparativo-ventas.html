@@ -243,6 +243,17 @@
       <div id="cmpGrafico"></div>
     </section>
 
+    <section class="ads-bloque" id="bloqueMp" style="display:none;">
+      <div class="ads-cab"><div><h2>Margen perdido por quiebre de stock</h2>
+        <div class="sub">Cuánto margen se habría ganado si los productos hubieran tenido stock todos los días. Es el mismo cálculo de Alertas de Stock: días sin stock × lo que vendía cada día con stock × margen unitario (precio neto promedio menos último costo comprado). <b>Estimación, no ventas reales.</b></div></div></div>
+      <div class="filtros">
+        <div class="date-field"><label for="mpPeriodo">Período</label><select id="mpPeriodo"><option value="mes">El mes elegido (hasta hoy)</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option></select></div>
+        <button class="btn-ghost btn-compact" id="btnMp" onclick="calcularMargenPerdido()">Calcular margen perdido</button>
+        <span class="empty-note" id="mpEstado"></span>
+      </div>
+      <div id="mpContenido"></div>
+    </section>
+
     <div class="ga-tabs cmp-tabs">
       <button class="ga-tab active" id="tabCategorias" onclick="setVistaCmp('categorias')"><span class="ga-tab-icono">🗂️</span><span class="ga-tab-titulo">Categorías</span><div class="ga-tab-sub">Tipo de producto en Bsale</div></button>
       <button class="ga-tab" id="tabMarcas" onclick="setVistaCmp('marcas')"><span class="ga-tab-icono">🏷️</span><span class="ga-tab-titulo">Marcas</span><div class="ga-tab-sub">Detectadas por el nombre del producto</div></button>
@@ -273,6 +284,7 @@ function escapeHtml(texto){
 const fmtNum = n => new Intl.NumberFormat('es-CL').format(Math.round(n || 0));
 const fmtClp = n => n == null ? '—' : (n < 0 ? '−$' : '$') + new Intl.NumberFormat('es-CL').format(Math.abs(Math.round(n)));
 const fmtPct = (n, signo) => n == null ? '—' : ((signo && n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n).toFixed(1).replace('.', ',') + '%');
+const fmtDec = (n) => n == null ? '—' : Number(n).toFixed(1).replace('.', ',');
 const fmtDif = (n) => n == null ? '—' : (n > 0 ? '+' : n < 0 ? '−' : '') + fmtNum(Math.abs(n));
 const fmtDifClp = (n) => n == null ? '—' : (n > 0 ? '+' : n < 0 ? '−' : '') + '$' + fmtNum(Math.abs(n));
 const clase = n => n == null || n === 0 ? '' : (n > 0 ? 'mejor' : 'peor');
@@ -293,6 +305,7 @@ async function cargarSesionUsuario(){
     if(u.rol === 'admin'){
       ['navUsuarios', 'navActualizaciones', 'navMercadoLibre'].forEach(id => { const n = $(id); if(n) n.style.display = ''; });
       $('btnSyncCmp').style.display = '';
+      $('bloqueMp').style.display = '';
     }
   }catch(err){ /* silencioso */ }
 }
@@ -482,6 +495,59 @@ function dibujarVistaCmp(){
       `<td><b>${escapeHtml(f.clave)}</b></td><td class="amount">${fmtNum(f.skusActual)}</td><td class="amount">${fmtNum(f.skusBase)}</td>`)).join('')}</tbody></table>`;
   }
   $('cmpTabla').innerHTML = html;
+}
+
+// ---------- Margen perdido por quiebre de stock ----------
+const hoyChileTxt = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+async function calcularMargenPerdido(){
+  if(!datos) return;
+  const per = $('mpPeriodo').value, btn = $('btnMp');
+  const hoy = hoyChileTxt();
+  let q;
+  if(per === 'mes'){ const ultimo = datos.mes + '-' + String(datos.diasMes).padStart(2, '0'); q = 'startDate=' + datos.mes + '-01&endDate=' + (ultimo < hoy ? ultimo : hoy); }
+  else q = 'days=' + per;
+  btn.disabled = true; $('mpEstado').textContent = 'Calculando con el stock y las compras de Bsale… puede tardar hasta un minuto.'; $('mpContenido').innerHTML = '';
+  try{
+    const res = await (await fetch('/api/bsale-sku-report?' + q)).json();
+    if(res.error){ $('mpEstado').innerHTML = '<span class="peor">' + escapeHtml(res.error) + (res.detail ? ' — ' + escapeHtml(res.detail) : '') + '</span>'; return; }
+    $('mpEstado').textContent = '';
+    dibujarMargenPerdido(res, per);
+  }catch(err){
+    $('mpEstado').innerHTML = '<span class="peor">No se pudo calcular: ' + escapeHtml(err.message) + '</span>';
+  }finally{ btn.disabled = false; }
+}
+function dibujarMargenPerdido(res, per){
+  const porSku = new Map(datos.productos.map(p => [p.sku, p]));
+  const filas = (res.skus || []).map(s => {
+    const dq = s.diasQuiebreHistorico || 0, conStock = Math.max(1, res.dias - dq);
+    const vd = (s.unidadesVendidas || 0) / conStock;                 // venta diaria en los días con stock
+    const precio = s.unidadesVendidas > 0 ? s.montoVentas / s.unidadesVendidas : 0;
+    const perdU = dq * vd, cmp = porSku.get(String(s.code).toUpperCase());
+    return { code: s.code, nombre: s.nombre, categoria: s.categoria, stock: s.stockActual, dq, vd, perdU, perdV: perdU * precio, mu: s.margenUnitario, mp: s.margenPerdidoPorQuiebre || 0, varVentas: cmp ? cmp.varMonto : null };
+  }).filter(f => f.dq > 0 && f.vd > 0).sort((a, b) => b.mp - a.mp);
+  const totalMp = filas.reduce((t, f) => t + f.mp, 0), totalV = filas.reduce((t, f) => t + f.perdV, 0);
+  const sinStock = filas.filter(f => f.stock <= 0);
+  const margenDiario = sinStock.reduce((t, f) => t + f.vd * (f.mu || 0), 0);
+  const top5 = filas.slice(0, 5), top5Mp = top5.reduce((t, f) => t + f.mp, 0);
+  const caida = datos.totales.varMonto < 0 ? -datos.totales.varMonto : 0;
+  const explica = per === 'mes' && caida > 0 ? Math.round((totalV / caida) * 100) : null;
+  const caidas5 = [...datos.productos].filter(p => p.varMonto < 0).sort((a, b) => a.varMonto - b.varMonto).slice(0, 5);
+  const filaCaida = p => { const q = filas.find(f => String(f.code).toUpperCase() === p.sku); return '<tr><td>' + escapeHtml(p.sku) + '</td><td>' + escapeHtml(p.nombre) + '</td><td class="amount peor">' + fmtDifClp(p.varMonto) + '</td><td class="amount">' + (q ? fmtNum(q.dq) + ' días' : '—') + '</td><td class="amount">' + (q ? fmtClp(q.mp) : '—') + '</td><td>' + (q ? (q.stock <= 0 ? '⛔ Sin stock hoy: caída por abastecimiento' : '⚠ Tuvo quiebre; hoy hay stock') : '✔ Sin quiebre registrado: revisar precio o demanda') + '</td></tr>'; };
+  $('mpContenido').innerHTML =
+    '<div class="cmp-kpis">' +
+      '<div class="card destacada"><div class="lbl">Margen perdido estimado</div><div class="big">' + fmtClp(totalMp) + '</div><div class="nota">' + fmtNum(filas.length) + ' productos con días sin stock en ' + res.dias + ' días (' + res.startDate + ' a ' + res.endDate + ')</div></div>' +
+      '<div class="card"><div class="lbl">Ventas perdidas estimadas</div><div class="big">' + fmtClp(totalV) + '</div><div class="nota">' + fmtNum(filas.reduce((t, f) => t + f.perdU, 0)) + ' unidades' + (explica != null ? (explica >= 100 ? '<br>Más que toda la caída del mes: sin quiebres, las ventas habrían superado a las del año pasado' : '<br>≈ ' + explica + '% de la caída de ventas del mes') : '') + '</div></div>' +
+      '<div class="card"><div class="lbl">Top 5 concentra</div><div class="big">' + (totalMp > 0 ? Math.round((top5Mp / totalMp) * 100) : 0) + '%</div><div class="nota">' + fmtClp(top5Mp) + ' del margen perdido</div></div>' +
+      '<div class="card"><div class="lbl">Sin stock hoy</div><div class="big">' + fmtNum(sinStock.length) + '</div><div class="nota">productos que vendían y hoy no tienen</div></div>' +
+      '<div class="card"><div class="lbl">Cada día sin reponer</div><div class="big">' + fmtClp(margenDiario) + '</div><div class="nota">margen que se deja de ganar por día<br>Con 60 días de espera: <b>' + fmtClp(margenDiario * 60) + '</b></div></div>' +
+    '</div>' +
+    '<div class="sub-titulo">Las 5 mayores caídas de ventas: ¿fue por quiebre?</div>' +
+    '<div class="tabla-wrap"><table data-sin-orden><thead><tr><th>SKU</th><th>Producto</th><th class="amount">Cambio en ventas</th><th class="amount">Días sin stock</th><th class="amount">Margen perdido</th><th>Lectura</th></tr></thead><tbody>' + (caidas5.map(filaCaida).join('') || '<tr><td colspan="6" class="empty-note">No hay productos con caída en este mes.</td></tr>') + '</tbody></table></div>' +
+    '<div class="sub-titulo">Todos los productos con quiebre (mayor margen perdido primero)</div>' +
+    '<div class="tabla-wrap"><table><thead><tr><th>SKU</th><th>Producto</th><th>Categoría</th><th class="amount">Stock hoy</th><th class="amount">Días sin stock</th><th class="amount">Venta diaria con stock</th><th class="amount">Unid. perdidas</th><th class="amount">Ventas perdidas</th><th class="amount">Margen unit.</th><th class="amount">Margen perdido</th><th class="amount">Cambio en ventas vs año ant.</th></tr></thead><tbody>' +
+      filas.slice(0, 300).map(f => '<tr><td>' + escapeHtml(f.code) + '</td><td>' + escapeHtml(f.nombre) + '</td><td>' + escapeHtml(f.categoria) + '</td><td class="amount">' + fmtNum(f.stock) + '</td><td class="amount">' + fmtNum(f.dq) + '</td><td class="amount">' + fmtDec(f.vd) + '</td><td class="amount">' + fmtNum(f.perdU) + '</td><td class="amount">' + fmtClp(f.perdV) + '</td><td class="amount">' + (f.mu != null ? fmtClp(f.mu) : '—') + '</td><td class="amount peor">' + fmtClp(f.mp) + '</td><td class="amount ' + clase(f.varVentas) + '">' + (f.varVentas == null ? '—' : fmtDifClp(f.varVentas)) + '</td></tr>').join('') +
+    '</tbody></table></div>' +
+    '<p class="ads-pie">Lectura: los días sin stock vienen del stock actual y los movimientos de Bsale (se reconstruye hacia atrás, no es un registro diario). El margen usa el <b>último costo comprado</b>: si la reposición sale más cara, el margen real será menor. Lo que pidas hoy llega recién en ~2 meses.' + (res.ventasTruncadas ? ' <span class="peor">El movimiento fue muy grande y la consulta se truncó: prueba un período más corto.</span>' : '') + '</p>';
 }
 
 cargarSesionUsuario();
