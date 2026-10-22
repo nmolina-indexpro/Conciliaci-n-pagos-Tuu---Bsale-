@@ -223,6 +223,19 @@
     </div>
   </details>
 
+  <details class="orden-col-panel" id="panelOrdenColecciones" ontoggle="if(this.open) cargarOrdenColecciones()" style="margin:12px 0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;">
+    <summary style="cursor:pointer;font-weight:700;">📦 Orden de las colecciones por stock <span class="sub" style="font-weight:400;">— más stock primero, agotados al final, en todas las colecciones de Shopify</span></summary>
+    <div class="sub" style="margin:8px 0;">Shopify no trae ese orden, así que el ERP deja cada colección en <b>orden manual</b> y la reordena solo 4 veces al día (y con el botón de abajo). A igual stock se respeta el orden que ya tenía la colección. Los productos sin inventario controlado (servicios) van después de los que tienen stock y antes de los agotados. No se tocan las colecciones técnicas de las apps de búsqueda.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+      <button class="btn-ghost" onclick="cargarOrdenColecciones()">↻ Ver estado</button>
+      <button class="btn-ghost" id="btnSimularOrden" onclick="correrOrdenColecciones('simular')">Simular (no cambia nada)</button>
+      <button class="btn-primary" id="btnEjecutarOrden" onclick="correrOrdenColecciones('ejecutar')">Ordenar ahora</button>
+      <label class="sub" style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="chkOrdenActivo" onchange="activarOrdenColecciones(this.checked)"> Orden automático activado</label>
+      <span id="estadoOrdenColecciones" class="sub"></span>
+    </div>
+    <div id="wrapOrdenColecciones"></div>
+  </details>
+
   <div id="ventasBajaResumen" class="sub" style="margin:10px 0 14px;"></div>
   <div id="wrapVentasBaja"><p class="empty-note">Cargando...</p></div>
   <div id="syncStatus"></div>
@@ -699,6 +712,49 @@ async function cargarEnvioGratisShopify(){
       (d.sobrantes.length ? '<p class="sub" style="margin-top:10px;"><b>Con la etiqueta, pero su SKU ya no está marcado</b> (se quitan al sincronizar):</p><table><thead><tr><th>Producto</th><th>SKU</th></tr></thead><tbody>' + d.sobrantes.map(p => '<tr><td>' + escapeHtml(p.title) + '</td><td>' + escapeHtml(p.skus.join(', ')) + '</td></tr>').join('') + '</tbody></table>' : '');
   }catch(err){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; }
 }
+// ───── Orden de las colecciones por stock ─────
+function fechaHoraOC(iso){ return iso ? new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'; }
+function tablaOrdenColecciones(filas, conUltima){
+  if(!filas.length) return '<p class="empty-note">Todavía no se ha revisado ninguna colección.</p>';
+  return '<div class="tabla-wrap"><table id="tablaOrdenColecciones"><thead><tr><th>Colección</th><th>Productos</th><th>Movimientos</th><th>Estado</th>' + (conUltima ? '<th>Última revisión</th>' : '') + '</tr></thead><tbody>' +
+    filas.map(x => {
+      const est = x.error ? '<span style="color:#a11d1d;">' + escapeHtml(x.error) + '</span>' : (x.completa === false ? '<span style="color:#8a5a00;">Incompleta: sigue en la próxima vuelta</span>' : (x.movimientos ? '<span style="color:#12713a;">' + (x.cambioOrden ? 'Pasará a orden manual y se reordena' : 'Reordenada') + '</span>' : '<span class="sub">Ya estaba en orden</span>'));
+      return '<tr><td><b>' + escapeHtml(x.handle) + '</b></td><td>' + fmtNum(x.productos || 0) + '</td><td>' + fmtNum(x.hechos != null && x.hechos ? x.hechos : (x.movimientos || 0)) + '</td><td>' + est + '</td>' + (conUltima ? '<td>' + fechaHoraOC(x.revisada_en) + '</td>' : '') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+}
+async function cargarOrdenColecciones(){
+  const wrap = document.getElementById('wrapOrdenColecciones'), est = document.getElementById('estadoOrdenColecciones');
+  wrap.innerHTML = '<p class="empty-note">Consultando...</p>'; est.textContent = '';
+  try{
+    const res = await fetch('/api/negocio?recurso=orden-colecciones'); const d = await res.json();
+    if(!res.ok || d.error){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(d.error || 'Error') + '</p>'; return; }
+    document.getElementById('chkOrdenActivo').checked = !!d.activo;
+    est.textContent = d.estado.length + (d.total ? ' de ' + d.total : '') + ' colecciones revisadas' + (d.activo ? '' : ' · orden automático APAGADO');
+    wrap.innerHTML = tablaOrdenColecciones(d.estado, true);
+  }catch(err){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; }
+}
+async function correrOrdenColecciones(accion){
+  const wrap = document.getElementById('wrapOrdenColecciones'), est = document.getElementById('estadoOrdenColecciones');
+  if(accion === 'ejecutar' && !confirm('Esto deja las colecciones de Shopify en orden manual y las reordena por stock (puede tardar y cambia lo que ven los clientes). ¿Continuar?')) return;
+  ['btnSimularOrden','btnEjecutarOrden'].forEach(id => document.getElementById(id).disabled = true);
+  est.textContent = accion === 'simular' ? 'Simulando…' : 'Ordenando…'; wrap.innerHTML = '';
+  try{
+    const res = await fetch('/api/negocio?recurso=orden-colecciones', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion }) }); const d = await res.json();
+    if(!res.ok || d.error){ est.textContent = ''; wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(d.error || 'Error') + '</p>'; return; }
+    const movs = d.resultados.reduce((s, x) => s + (accion === 'ejecutar' ? (x.hechos || 0) : (x.movimientos || 0)), 0);
+    est.textContent = (accion === 'simular' ? 'Simulación: ' : '') + d.resultados.length + ' colecciones revisadas · ' + fmtNum(movs) + ' movimientos' + (d.pendientes ? ' · quedan ' + d.pendientes + ' para la próxima vuelta (vuelve a pulsar o espera al automático)' : '');
+    wrap.innerHTML = tablaOrdenColecciones(d.resultados, false);
+  }catch(err){ est.textContent = ''; wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; }
+  finally{ ['btnSimularOrden','btnEjecutarOrden'].forEach(id => document.getElementById(id).disabled = false); }
+}
+async function activarOrdenColecciones(activo){
+  try{
+    const res = await fetch('/api/negocio?recurso=orden-colecciones', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'activar', activo }) }); const d = await res.json();
+    if(!res.ok || d.error){ alert(d.error || 'No se pudo cambiar'); }
+  }catch(err){ alert(err.message); }
+  cargarOrdenColecciones();
+}
+
 function pintarDescuentoEnvio(ds){
   const est = document.getElementById('estadoDescuentoEnvio'), btn = document.getElementById('btnCrearDescuentoEnvio');
   if(!ds){ est.textContent = ''; btn.style.display = 'none'; return; }

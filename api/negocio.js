@@ -33,6 +33,7 @@ import { asegurarCambiosRegistro } from '../lib/cambios-registro.js';
 import { leerCommitsDelDia, armarEntradaIA, normalizarPropuestas, propuestasSinIA, extraerJson, PROMPT_PROPUESTA, REPO_POR_DEFECTO } from '../lib/cambios-propuesta.js';
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
 import { registrarEventoCotizacion, resumenUsoCotizacion } from '../lib/cotizacion-web-uso.js';
+import { ordenarColecciones, listarColecciones } from '../lib/orden-colecciones.js';
 import { asegurarTablaCotizacionesWeb, crearCotizacion, verCotizacion, comprarCotizacion, transferenciaCotizacion, subirComprobante as subirComprobanteCotizacionWeb, revisarComprobante as revisarComprobanteCotizacionWeb, solicitarPerfil as solicitarPerfilCotizacionWeb, verificarPerfil as verificarPerfilCotizacionWeb, leerConfig as leerConfigCotizacionWeb, guardarConfig as guardarConfigCotizacionWeb, estadoEfectivo as estadoCotizacionWeb } from '../lib/cotizacion-web.js';
 import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, productosConEtiqueta, estadoDescuentoEnvio, crearDescuentoEnvioGratis } from '../lib/envio-gratis-shopify.js';
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
@@ -179,6 +180,8 @@ export default async function handler(req, res) {
   // Descuentos web: el aviso de stock de Shopify y la revisión diaria entran sin sesión (clave en la URL / CRON_SECRET, ver handler).
   if (req.query.recurso === 'descuentos-web-aviso') return manejarDescuentosWebAviso(req, res);
   if (req.query.recurso === 'descuentos-web-cron') return manejarDescuentosWebCron(req, res);
+  // Orden de las colecciones por stock: cron (CRON_SECRET, sin sesión). La administración (sesión) es el recurso orden-colecciones.
+  if (req.query.recurso === 'orden-colecciones-cron') return manejarOrdenColeccionesCron(req, res);
   // Recuperación de contraseña (ver recuperar-password.html /
   // reset-password.html): por definición corre SIN sesión -- quien la usa
   // es justamente alguien que no puede entrar. La seguridad real la hace el
@@ -246,6 +249,7 @@ export default async function handler(req, res) {
   if (recurso === 'shopify-permisos') return manejarShopifyPermisos(req, res, sesion);
   if (recurso === 'bsale-prueba-cotizacion') return manejarBsalePruebaCotizacion(req, res, sesion);
   if (recurso === 'cotizacion-web-admin') return manejarCotizacionWebAdmin(req, res, sesion);
+  if (recurso === 'orden-colecciones') return manejarOrdenColecciones(req, res, sesion);
   if (recurso === 'zoho-servicio-tecnico-metricas') return manejarZohoServicioTecnicoMetricas(req, res, sesion);
   if (recurso === 'calendario-pagos') return manejarCalendarioPagos(req, res, sesion);
   if (recurso === 'calendario-pagos-importar') return manejarCalendarioPagosImportar(req, res, sesion);
@@ -16989,6 +16993,70 @@ function manejarDescuentosWebCron(req, res) {
   return descuentosWebAutomatico(req, res, 'revisión diaria');
 }
 // ===================== DESCUENTOS WEB (fin) =====================
+
+// ===================== ORDEN DE COLECCIONES POR STOCK =====================
+// Deja cada colección de Shopify con los productos de más stock primero y los agotados al final (lógica en lib/orden-colecciones.js).
+// Shopify no trae ese orden: las colecciones pasan a orden MANUAL y se reordenan aquí, varias veces al día (cron) y con un botón.
+async function asegurarTablaOrdenColecciones(sql) {
+  await sql.query(`CREATE TABLE IF NOT EXISTS orden_colecciones_estado (
+    handle TEXT PRIMARY KEY, titulo TEXT, revisada_en TIMESTAMPTZ NOT NULL DEFAULT now(), productos INTEGER NOT NULL DEFAULT 0,
+    movimientos INTEGER NOT NULL DEFAULT 0, hechos INTEGER NOT NULL DEFAULT 0, completa BOOLEAN NOT NULL DEFAULT true, error TEXT)`);
+  await sql.query(`CREATE TABLE IF NOT EXISTS orden_colecciones_config (id INTEGER PRIMARY KEY, activo BOOLEAN NOT NULL DEFAULT true)`);
+  await sql.query('INSERT INTO orden_colecciones_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
+}
+async function ejecutarOrdenColecciones(sql, { aplicar, soloHandle, presupuestoMs }) {
+  const gql = await descuentosWebGql();
+  const { rows } = await sql.query('SELECT handle, revisada_en FROM orden_colecciones_estado');
+  const estado = Object.fromEntries(rows.map(r => [r.handle, new Date(r.revisada_en).getTime()]));
+  const r = await ordenarColecciones(gql, { aplicar, presupuestoMs, estado, soloHandle });
+  if (aplicar) {
+    for (const x of r.resultados) {
+      await sql.query(
+        `INSERT INTO orden_colecciones_estado (handle, revisada_en, productos, movimientos, hechos, completa, error) VALUES ($1, now(), $2, $3, $4, $5, $6)
+         ON CONFLICT (handle) DO UPDATE SET revisada_en = now(), productos = EXCLUDED.productos, movimientos = EXCLUDED.movimientos, hechos = EXCLUDED.hechos, completa = EXCLUDED.completa, error = EXCLUDED.error`,
+        [x.handle, x.productos || 0, x.movimientos || 0, x.hechos || 0, x.error ? false : x.completa !== false, x.error || null]);
+    }
+  }
+  return r;
+}
+async function manejarOrdenColeccionesCron(req, res) {
+  const secreto = process.env.CRON_SECRET;
+  if (!secreto || (req.headers.authorization || '') !== `Bearer ${secreto}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaOrdenColecciones(sql);
+    const { rows } = await sql.query('SELECT activo FROM orden_colecciones_config WHERE id = 1');
+    if (!rows[0] || !rows[0].activo) return res.status(200).json({ ok: true, omitido: 'desactivado' });
+    const r = await ejecutarOrdenColecciones(sql, { aplicar: true, presupuestoMs: 48000 });
+    return res.status(200).json({ ok: true, revisadas: r.resultados.length, pendientes: r.pendientes, movimientos: r.resultados.reduce((s, x) => s + (x.hechos || 0), 0), errores: r.resultados.filter(x => x.error).length });
+  } catch (e) {
+    return res.status(200).json({ error: e.message });
+  }
+}
+// Administración: GET estado; POST { accion: 'simular' | 'ejecutar' | 'activar', handle?, activo? } (solo administradores).
+async function manejarOrdenColecciones(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaOrdenColecciones(sql);
+    if (req.method === 'POST') {
+      if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores pueden ordenar las colecciones' });
+      const b = req.body || {};
+      if (b.accion === 'activar') {
+        await sql.query('UPDATE orden_colecciones_config SET activo = $1 WHERE id = 1', [b.activo === true]);
+      } else if (b.accion === 'simular' || b.accion === 'ejecutar') {
+        const r = await ejecutarOrdenColecciones(sql, { aplicar: b.accion === 'ejecutar', soloHandle: b.handle ? String(b.handle) : null, presupuestoMs: 45000 });
+        return res.status(200).json({ ok: true, accion: b.accion, ...r, resultados: r.resultados.map(x => ({ handle: x.handle, productos: x.productos, movimientos: x.movimientos, hechos: x.hechos, completa: x.completa, cambioOrden: x.cambioOrden, error: x.error })) });
+      } else return res.status(400).json({ error: 'Acción desconocida' });
+    } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const { rows: estado } = await sql.query('SELECT handle, revisada_en, productos, movimientos, hechos, completa, error FROM orden_colecciones_estado ORDER BY revisada_en DESC');
+    const { rows: cfg } = await sql.query('SELECT activo FROM orden_colecciones_config WHERE id = 1');
+    let total = null; try { total = (await listarColecciones(await descuentosWebGql())).length; } catch {}
+    return res.status(200).json({ activo: !!(cfg[0] && cfg[0].activo), total, estado });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo leer el orden de las colecciones: ' + e.message });
+  }
+}
+// ===================== ORDEN DE COLECCIONES (fin) =====================
 
 // Resumen para la página Sitio Web: cuánta gente usa el cotizador, desde qué comunas
 // y cuánto les sale el envío. SE CUENTA POR PERSONA, no por cálculo: la ficha vuelve a
