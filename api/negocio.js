@@ -4634,6 +4634,7 @@ async function manejarComparadorConfig(req, res, sesion) {
 // para filtrar la lista (en tránsito vs ya llegó) -- el detalle real del
 // avance vive en el historial de eventos (productos_transito_eventos),
 // mismo criterio que un historial de tracking de naviera.
+const tipoTransporteValido = (v) => (v === 'maritimo' || v === 'aereo' ? v : null);
 async function manejarTransitoEnvios(req, res, sesion) {
   try {
     const sql = await getSql();
@@ -4657,11 +4658,11 @@ async function manejarTransitoEnvios(req, res, sesion) {
       const productos = Array.isArray(b.productos) ? b.productos.filter(p => p.nombre && p.nombre.trim()) : [];
       const { rows } = await sql`
         INSERT INTO productos_transito_envios (
-          referencia, contenedor, house_bill, total_bultos, peso_kg, service_level,
+          referencia, contenedor, house_bill, total_bultos, peso_kg, service_level, tipo_transporte,
           puerto_origen, puerto_destino, modo_contenedor, buque, voyage, estado,
           fecha_salida, fecha_eta, productos, creado_por
         ) VALUES (
-          ${b.referencia.trim()}, ${b.contenedor || null}, ${b.houseBill || null}, ${b.totalBultos || null}, ${b.pesoKg || null}, ${b.serviceLevel || null},
+          ${b.referencia.trim()}, ${b.contenedor || null}, ${b.houseBill || null}, ${b.totalBultos || null}, ${b.pesoKg || null}, ${b.serviceLevel || null}, ${tipoTransporteValido(b.tipoTransporte)},
           ${b.puertoOrigen || null}, ${b.puertoDestino || null}, ${b.modoContenedor || null}, ${b.buque || null}, ${b.voyage || null}, ${b.estado || 'en_transito'},
           ${b.fechaSalida || null}, ${b.fechaEta || null}, ${JSON.stringify(productos)}, ${sesion.nombre || sesion.email}
         ) RETURNING *;
@@ -4677,7 +4678,7 @@ async function manejarTransitoEnvios(req, res, sesion) {
       const { rows } = await sql`
         UPDATE productos_transito_envios SET
           referencia = ${b.referencia.trim()}, contenedor = ${b.contenedor || null}, house_bill = ${b.houseBill || null},
-          total_bultos = ${b.totalBultos || null}, peso_kg = ${b.pesoKg || null}, service_level = ${b.serviceLevel || null},
+          total_bultos = ${b.totalBultos || null}, peso_kg = ${b.pesoKg || null}, service_level = ${b.serviceLevel || null}, tipo_transporte = ${tipoTransporteValido(b.tipoTransporte)},
           puerto_origen = ${b.puertoOrigen || null}, puerto_destino = ${b.puertoDestino || null}, modo_contenedor = ${b.modoContenedor || null},
           buque = ${b.buque || null}, voyage = ${b.voyage || null}, estado = ${b.estado || 'en_transito'},
           fecha_salida = ${b.fechaSalida || null}, fecha_eta = ${b.fechaEta || null}, productos = ${JSON.stringify(productos)},

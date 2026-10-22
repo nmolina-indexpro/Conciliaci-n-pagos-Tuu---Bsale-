@@ -247,15 +247,15 @@
         <button class="btn-ghost btn-compact" type="button" onclick="togglePegarDatosEnvio()">📝 Pegar texto (llenar formulario)</button>
         <div id="pegarDatosEnvioWrap" hidden style="margin-top:8px;">
           <div class="empty-note" style="margin:0 0 6px;">Una línea por dato, en formato <b>Campo: Valor</b> (el orden no importa, y no hace falta poner todos). Ejemplo:</div>
-          <textarea id="pegarDatosEnvioInput" placeholder="Referencia: SSCL010035&#10;N.° de contenedor: UETU8843786&#10;House bill: SSCL0010035&#10;Total de bultos: 15&#10;Peso: 201.5 KG&#10;Service level: Standard&#10;Puerto de origen: CNYTN&#10;Destination port: CLVAP&#10;Modo de contenedor: LCL&#10;Buque: EVER LISSOME&#10;Voyage / flight # / truck ref: 0075E&#10;Salió: 08-Sep-26&#10;ETA: 19-Oct-26&#10;Estado: En tránsito" style="min-height:180px;font-size:11.5px;font-family:'IBM Plex Mono',monospace;"></textarea>
+          <textarea id="pegarDatosEnvioInput" placeholder="Referencia: SSCL010035&#10;Total de bultos: 15&#10;Peso: 201.5 KG&#10;Tipo de transporte: Marítimo&#10;Puerto de origen: CNYTN&#10;Destination port: CLVAP&#10;Voyage / flight # / truck ref: 0075E&#10;Salió: 08-Sep-26&#10;ETA: 19-Oct-26&#10;Estado: En tránsito" style="min-height:180px;font-size:11.5px;font-family:'IBM Plex Mono',monospace;"></textarea>
           <button class="btn-primary btn-compact" onclick="procesarPegadoDatosEnvio()" style="margin-top:4px;">Completar formulario con el texto pegado</button>
         </div>
       </div>
 
       <div class="grid-form">
         <div class="campo"><label>Referencia / tracking *</label><input type="text" id="fReferencia" placeholder="Ej: SSCL010035"></div>
-        <div class="campo"><label>N° de contenedor</label><input type="text" id="fContenedor" placeholder="Ej: UETU8843786"></div>
-        <div class="campo"><label>House bill</label><input type="text" id="fHouseBill"></div>
+        <div class="campo" id="wContenedor" style="display:none;"><label>N° de contenedor</label><input type="text" id="fContenedor"></div>
+        <div class="campo" id="wHouseBill" style="display:none;"><label>House bill</label><input type="text" id="fHouseBill"></div>
         <div class="campo"><label>Estado</label>
           <select id="fEstado">
             <option value="en_transito">En tránsito</option>
@@ -265,11 +265,18 @@
         </div>
         <div class="campo"><label>Total de bultos</label><input type="number" id="fTotalBultos" min="0"></div>
         <div class="campo"><label>Peso (KG)</label><input type="number" id="fPesoKg" min="0" step="0.1"></div>
-        <div class="campo"><label>Service level</label><input type="text" id="fServiceLevel" placeholder="Ej: Standard"></div>
-        <div class="campo"><label>Modo de contenedor</label><input type="text" id="fModoContenedor" placeholder="Ej: LCL / FCL"></div>
+        <div class="campo"><label>Tipo de transporte</label>
+          <select id="fTipoTransporte">
+            <option value="">Selecciona…</option>
+            <option value="maritimo">Marítimo</option>
+            <option value="aereo">Aéreo</option>
+          </select>
+        </div>
+        <div class="campo" id="wServiceLevel" style="display:none;"><label>Service level (envío anterior)</label><input type="text" id="fServiceLevel"></div>
+        <div class="campo" id="wModoContenedor" style="display:none;"><label>Modo de contenedor</label><input type="text" id="fModoContenedor"></div>
         <div class="campo"><label>Puerto de origen</label><input type="text" id="fPuertoOrigen" placeholder="Ej: CNYTN"></div>
         <div class="campo"><label>Puerto de destino</label><input type="text" id="fPuertoDestino" placeholder="Ej: CLVAP"></div>
-        <div class="campo"><label>Buque</label><input type="text" id="fBuque"></div>
+        <div class="campo" id="wBuque" style="display:none;"><label>Buque</label><input type="text" id="fBuque"></div>
         <div class="campo"><label>Voyage / flight # / truck ref</label><input type="text" id="fVoyage"></div>
         <div class="campo"><label>Fecha de salida (ATD)</label><input type="date" id="fFechaSalida"></div>
         <div class="campo"><label>ETA</label><input type="date" id="fFechaEta"></div>
@@ -451,12 +458,13 @@ function envioHtml(e){
       </div>
 
       <div class="detalle-grid">
-        <div class="detalle-item"><div class="lbl">N° de contenedor</div><div class="val">${escapeHtml(e.contenedor || '—')}</div></div>
-        <div class="detalle-item"><div class="lbl">House bill</div><div class="val">${escapeHtml(e.house_bill || '—')}</div></div>
+        <div class="detalle-item"><div class="lbl">Tipo de transporte</div><div class="val">${escapeHtml(TIPO_TRANSPORTE_LABEL[e.tipo_transporte] || '—')}</div></div>
         <div class="detalle-item"><div class="lbl">Total de bultos</div><div class="val">${e.total_bultos ?? '—'}</div></div>
-        <div class="detalle-item"><div class="lbl">Service level</div><div class="val">${escapeHtml(e.service_level || '—')}</div></div>
-        <div class="detalle-item"><div class="lbl">Modo de contenedor</div><div class="val">${escapeHtml(e.modo_contenedor || '—')}</div></div>
-        <div class="detalle-item"><div class="lbl">Buque</div><div class="val">${escapeHtml(e.buque || '—')}</div></div>
+        ${e.contenedor ? `<div class="detalle-item"><div class="lbl">N° de contenedor</div><div class="val">${escapeHtml(e.contenedor)}</div></div>` : ''}
+        ${e.house_bill ? `<div class="detalle-item"><div class="lbl">House bill</div><div class="val">${escapeHtml(e.house_bill)}</div></div>` : ''}
+        ${e.service_level ? `<div class="detalle-item"><div class="lbl">Service level</div><div class="val">${escapeHtml(e.service_level)}</div></div>` : ''}
+        ${e.modo_contenedor ? `<div class="detalle-item"><div class="lbl">Modo de contenedor</div><div class="val">${escapeHtml(e.modo_contenedor)}</div></div>` : ''}
+        ${e.buque ? `<div class="detalle-item"><div class="lbl">Buque</div><div class="val">${escapeHtml(e.buque)}</div></div>` : ''}
         <div class="detalle-item"><div class="lbl">Voyage / flight / truck</div><div class="val">${escapeHtml(e.voyage || '—')}</div></div>
       </div>
 
@@ -569,6 +577,7 @@ const TRANSITO_CAMPO_ALIAS = {
   'total de bultos': 'totalBultos', 'total bultos': 'totalBultos', 'bultos': 'totalBultos',
   'packages': 'totalBultos', 'total packages': 'totalBultos', 'pieces': 'totalBultos',
   'peso': 'pesoKg', 'weight': 'pesoKg', 'peso bruto': 'pesoKg', 'gross weight': 'pesoKg',
+  'tipo de transporte': 'tipoTransporte', 'modo de transporte': 'tipoTransporte', 'transport mode': 'tipoTransporte', 'transporte': 'tipoTransporte', 'mode': 'tipoTransporte',
   'service level': 'serviceLevel', 'nivel de servicio': 'serviceLevel',
   'puerto de origen': 'puertoOrigen', 'origin port': 'puertoOrigen', 'port of loading': 'puertoOrigen', 'pol': 'puertoOrigen',
   'destination port': 'puertoDestino', 'puerto de destino': 'puertoDestino', 'port of discharge': 'puertoDestino', 'pod': 'puertoDestino',
@@ -609,6 +618,13 @@ function parsearEstadoTransito(str){
   if(/arribad|arrived/.test(norm)) return 'arribado';
   return 'en_transito';
 }
+// "Marítimo" / "Maritime" / "Sea" / "Ocean" -> maritimo; "Aéreo" / "Air" / "Flight" -> aereo; otra cosa (ej. "Standard"): no se adivina.
+function parsearTipoTransporte(str){
+  const norm = normalizarEtiquetaTransito(str);
+  if(/maritim|\bsea\b|ocean|\bfcl\b|\blcl\b|vessel|buque/.test(norm)) return 'maritimo';
+  if(/aere|\bair\b|flight|avion|cargo aereo/.test(norm)) return 'aereo';
+  return null;
+}
 function togglePegarDatosEnvio(){
   const wrap = $('pegarDatosEnvioWrap');
   wrap.hidden = !wrap.hidden;
@@ -628,21 +644,19 @@ function procesarPegadoDatosEnvio(){
     const campo = TRANSITO_CAMPO_ALIAS[etiqueta];
     if(campo) campos[campo] = valor;
   }
+  // Estos datos ya no se piden en envíos nuevos: si vienen en el texto pegado, se ignoran.
+  for(const ignorado of ['contenedor', 'houseBill', 'modoContenedor', 'buque', 'serviceLevel']) delete campos[ignorado];
   if(Object.keys(campos).length === 0){
     alert('No se reconoció ningún campo -- revisa que el formato sea "Campo: Valor", una línea por dato.');
     return;
   }
 
   if(campos.referencia) $('fReferencia').value = campos.referencia;
-  if(campos.contenedor) $('fContenedor').value = campos.contenedor;
-  if(campos.houseBill) $('fHouseBill').value = campos.houseBill;
   if(campos.totalBultos != null){ const n = parsearNumeroTransito(campos.totalBultos); if(n != null) $('fTotalBultos').value = n; }
   if(campos.pesoKg != null){ const n = parsearNumeroTransito(campos.pesoKg); if(n != null) $('fPesoKg').value = n; }
-  if(campos.serviceLevel) $('fServiceLevel').value = campos.serviceLevel;
+  if(campos.tipoTransporte){ const t = parsearTipoTransporte(campos.tipoTransporte); if(t) $('fTipoTransporte').value = t; }
   if(campos.puertoOrigen) $('fPuertoOrigen').value = campos.puertoOrigen;
   if(campos.puertoDestino) $('fPuertoDestino').value = campos.puertoDestino;
-  if(campos.modoContenedor) $('fModoContenedor').value = campos.modoContenedor;
-  if(campos.buque) $('fBuque').value = campos.buque;
   if(campos.voyage) $('fVoyage').value = campos.voyage;
   if(campos.fechaSalida){ const f = parsearFechaTransito(campos.fechaSalida); if(f) $('fFechaSalida').value = f; }
   if(campos.fechaEta){ const f = parsearFechaTransito(campos.fechaEta); if(f) $('fFechaEta').value = f; }
@@ -754,6 +768,7 @@ function procesarPegadoProductosEnvio(){
   $('pegarProductosEnvioWrap').hidden = true;
 }
 
+const TIPO_TRANSPORTE_LABEL = { maritimo: 'Marítimo', aereo: 'Aéreo' };
 function abrirModalEnvio(id){
   editandoEnvioId = id || null;
   $('errorModalEnvio').innerHTML = '';
@@ -762,6 +777,7 @@ function abrirModalEnvio(id){
   $('fReferencia').value = envio?.referencia || '';
   $('fContenedor').value = envio?.contenedor || '';
   $('fHouseBill').value = envio?.house_bill || '';
+  $('fTipoTransporte').value = envio?.tipo_transporte || '';
   $('fEstado').value = envio?.estado || 'en_transito';
   $('fTotalBultos').value = envio?.total_bultos ?? '';
   $('fPesoKg').value = envio?.peso_kg ?? '';
@@ -773,6 +789,9 @@ function abrirModalEnvio(id){
   $('fVoyage').value = envio?.voyage || '';
   $('fFechaSalida').value = envio?.fecha_salida ? envio.fecha_salida.slice(0,10) : '';
   $('fFechaEta').value = envio?.fecha_eta ? envio.fecha_eta.slice(0,10) : '';
+  // Envíos nuevos: sin N° de contenedor, house bill, service level, modo de contenedor ni buque. Un envío anterior que ya los tenía los sigue mostrando (y conservando) al editarlo.
+  [['wContenedor', 'fContenedor'], ['wHouseBill', 'fHouseBill'], ['wServiceLevel', 'fServiceLevel'], ['wModoContenedor', 'fModoContenedor'], ['wBuque', 'fBuque']]
+    .forEach(([w, f]) => { $(w).style.display = $(f).value ? '' : 'none'; });
   filasProductosEnvio = envio && envio.productos && envio.productos.length
     ? envio.productos.map(p => ({ sku: p.sku || '', nombre: p.nombre, cantidad: p.cantidad || 1 }))
     : [{ sku: '', nombre: '', cantidad: 1 }];
@@ -795,6 +814,7 @@ async function guardarEnvio(){
     totalBultos: $('fTotalBultos').value ? parseInt($('fTotalBultos').value, 10) : null,
     pesoKg: $('fPesoKg').value ? parseFloat($('fPesoKg').value) : null,
     serviceLevel: $('fServiceLevel').value.trim(),
+    tipoTransporte: $('fTipoTransporte').value,
     modoContenedor: $('fModoContenedor').value.trim(),
     puertoOrigen: $('fPuertoOrigen').value.trim(),
     puertoDestino: $('fPuertoDestino').value.trim(),
