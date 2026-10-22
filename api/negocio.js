@@ -20,6 +20,7 @@ import { armarComunicacionZoho, filasCorreosDesdeZoho, ticketEnVentana, CASILLA_
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
+import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { contarSeguimientos, PAUSA_SEGUIMIENTO_MS } from '../lib/whatsapp-seguimientos.js';
 import { corregirCorreo } from '../lib/correos-corregidos.js';
 import { sqlOfertaLateral, PARAMS_OFERTA, sqlSolicitudLateral, PARAM_SOLICITUD, mejorNivelOferta, nivelConversacion, esConversion, esOfertaCompleta, nivelDesdeFilaSql, resumirConversionComercial } from '../lib/whatsapp-oferta.js';
@@ -2707,30 +2708,7 @@ async function manejarProductosEstancadosFlagsNotificar(req, res) {
     );
     const nombrePorSku = Object.fromEntries(nombresRows.map(r => [r.sku, r.nombre]));
 
-    const porCampo = new Map();
-    for (const r of rows) {
-      if (!porCampo.has(r.campo)) porCampo.set(r.campo, []);
-      porCampo.get(r.campo).push(r);
-    }
-
-    const urlPagina = `${URL_BASE_APP}/productos-estancados.html`;
-    const bloques = [...porCampo.entries()].map(([campo, filas]) => {
-      const info = PRODUCTOS_ESTANCADOS_FLAGS_CAMPO_INFO[campo] || { titulo: campo, activado: 'Se activó.', desactivado: 'Se desactivó.' };
-      const items = filas.map(f => {
-        const nombre = nombrePorSku[f.sku] || f.sku;
-        const accion = f.valor_nuevo ? info.activado : info.desactivado;
-        return `<li><b>${f.sku}</b> — ${nombre}: ${accion} <span style="color:#999;font-size:11px;">(${f.cambiado_por || 'Desconocido'}, ${new Date(f.cambiado_en).toLocaleString('es-CL')})</span></li>`;
-      }).join('');
-      return `<h3>${info.titulo} (${filas.length})</h3><ul>${items}</ul>`;
-    }).join('');
-
-    const html = `
-      <h2>📋 Cambios en Productos estancados</h2>
-      <p style="color:#666;">${rows.length} ${rows.length === 1 ? 'cambio' : 'cambios'} en las últimas 24 horas.</p>
-      ${bloques}
-      <p><a href="${urlPagina}">Ver en el ERP -- Productos estancados</a></p>
-    `;
-    const asunto = `📋 Productos estancados -- ${rows.length} ${rows.length === 1 ? 'cambio' : 'cambios'} en las últimas 24h`;
+    const { asunto, html } = armarCorreoProductosEstancados({ filas: rows, nombrePorSku, camposInfo: PRODUCTOS_ESTANCADOS_FLAGS_CAMPO_INFO, urlBase: URL_BASE_APP });
     const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'productos-estancados-flags');
     const envios = [];
     for (const para of destinatarios) {
@@ -6158,35 +6136,7 @@ function textoLead(v, max) {
 
 // Aviso inmediato por correo (notificación 'indexscale-lead-web', se administra en Usuarios > Notificaciones) cuando entra un lead nuevo del sitio.
 // Nunca hace fallar el registro: si el correo no está configurado o falla, el lead igual queda guardado en el ERP.
-function htmlLead(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-function armarCorreoLeadWeb(l) {
-  const tipo = (l.mensaje || '').includes('[Formulario rápido]') ? 'Contacto rápido'
-    : ({ demo: 'Demo gratis', express: 'Diagnóstico Express', general: 'Diagnóstico / contacto' }[l.tipo] || 'Formulario');
-  const ads = !!(l.gclid || (l.utm_source === 'google' && l.utm_medium === 'cpc'));
-  const tel = String(l.telefono || '').replace(/\D/g, '');
-  const waNum = tel ? (tel.startsWith('56') ? tel : '56' + tel) : '';
-  const fila = (k, v) => v ? `<tr><td style="padding:4px 14px 4px 0;color:#666;vertical-align:top;">${k}</td><td style="padding:4px 0;">${v}</td></tr>` : '';
-  const d = l.datos || {};
-  const extra = [d.tipo_sitio && 'Tipo de sitio: ' + d.tipo_sitio, d.rubro && 'Rubro: ' + d.rubro, d.dominio_deseado && 'Dominio: ' + d.dominio_deseado, d.sitio && 'Sitio: ' + d.sitio]
-    .filter(Boolean).map(htmlLead).join('<br>');
-  const asunto = `Lead nuevo en indexscale.cl: ${l.nombre || 'sin nombre'} — ${tipo}${ads ? ' (Google Ads)' : ''}`;
-  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111;">
-    <h2 style="margin:0 0 6px;">Lead nuevo en indexscale.cl</h2>
-    <p style="margin:0 0 12px;color:#555;">${htmlLead(tipo)}${ads ? ' · <b>vino de un anuncio de Google Ads</b>' : ''}. Responde pronto: se prometió contestar en pocas horas.</p>
-    <table style="border-collapse:collapse;">
-      ${fila('Nombre', htmlLead(l.nombre))}
-      ${fila('WhatsApp', waNum ? `<a href="https://wa.me/${waNum}">${htmlLead(l.telefono)}</a>` : '')}
-      ${fila('Correo', l.email ? `<a href="mailto:${htmlLead(l.email)}">${htmlLead(l.email)}</a>` : '')}
-      ${fila('Prefiere ser contactado por', htmlLead(l.preferencia_contacto))}
-      ${fila('Página', htmlLead(l.pagina_origen))}
-      ${fila('Campaña', htmlLead(l.utm_campaign))}
-      ${fila('Palabra clave', htmlLead(l.utm_term))}
-      ${fila('Detalle', extra)}
-    </table>
-    <p style="margin:16px 0 0;"><a href="https://erp.indexstore.cl/indexscale.html" style="background:#0F766E;color:#fff;padding:9px 16px;border-radius:6px;text-decoration:none;">Abrir en el ERP</a></p>
-  </div>`;
-  return { asunto, html };
-}
+// El correo se arma en lib/correos-notificaciones.js (diseño estándar de las notificaciones).
 async function avisarLeadWebNuevo(sql, l) {
   try {
     await asegurarTablaNotificaciones(sql);
@@ -10678,19 +10628,7 @@ async function manejarAlertasSitioWebNotificar(req, res) {
     // página, no para el correo diario).
     if (!hayPrecios && !hayDesincronizados) return res.status(200).json({ ok: true, enviado: false, motivo: 'Sin diferencias de precio detectadas hoy' });
 
-    const filaStock = p => `<li><b>${p.sku}</b> — ${p.nombre || ''} · Stock: ${p.stock} · ${p.estado === 'draft' ? 'Borrador' : 'Archivado'} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
-    const filaPrecio = p => `<li><b>${p.sku}</b> — ${p.nombre || ''} · Bsale: $${Math.round(p.precioBsale).toLocaleString('es-CL')} · Shopify: $${Math.round(p.precioShopify).toLocaleString('es-CL')} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
-    const filaDesincronizado = p => `<li>${p.titulo || ''} (apunta a <b>${p.skuBase}</b>) · Este listado: $${Math.round(p.precioPropio).toLocaleString('es-CL')} · Bsale: $${Math.round(p.precioCanonico).toLocaleString('es-CL')} · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
-    const filaSkuIncorrecto = p => `<li>${p.titulo || ''} · El metacampo dice <b>${p.skuBase}</b> pero el producto real vinculado es <b>${p.skuProductoReal}</b> · <a href="${p.adminUrl}">Ver en Shopify</a></li>`;
-    const html = `
-      <h2>Alertas de Sitio Web -- IndexStore</h2>
-      ${haySkusIncorrectos ? `<h3>⚠ ${skusIncorrectosReferencia.length} producto(s) "de referencia" con el SKU base mal cargado</h3><ul>${skusIncorrectosReferencia.slice(0, 30).map(filaSkuIncorrecto).join('')}</ul><p style="color:#666;font-size:12px;">El metacampo (probablemente copiado de otra plantilla) apunta a un producto distinto al real -- hay que corregir el metacampo en Shopify, no el precio.</p>` : ''}
-      ${hayStock ? `<h3>⚠ ${stockNoVisible.length} producto(s) con stock disponible pero no visibles en la tienda</h3><ul>${stockNoVisible.slice(0, 30).map(filaStock).join('')}</ul>` : ''}
-      ${hayPrecios ? `<h3>💲 ${preciosDistintos.length} producto(s) con precio distinto entre Bsale y Shopify</h3><ul>${preciosDistintos.slice(0, 30).map(filaPrecio).join('')}</ul><p style="color:#666;font-size:12px;">Precio de Bsale (con IVA) según la lista "${listaPrecioBsaleNombre || '—'}".</p>` : ''}
-      ${hayDesincronizados ? `<h3>💲 ${preciosDesincronizados.length} producto(s) "de referencia" (pantalla/batería/cargador por modelo) con precio distinto al de Bsale para el SKU que representan</h3><ul>${preciosDesincronizados.slice(0, 30).map(filaDesincronizado).join('')}</ul><p style="color:#666;font-size:12px;">Precio de Bsale (con IVA) según la lista "${listaPrecioBsaleNombre || '—'}".</p>` : ''}
-      <p><a href="https://erp.indexstore.cl/sitio-web.html">Revisar en el ERP -- página Sitio Web</a></p>
-    `;
-    const asunto = `⚠ Alertas Sitio Web IndexStore -- ${stockNoVisible?.length || 0} sin stock visible, ${(preciosDistintos?.length || 0) + (preciosDesincronizados?.length || 0)} con precio distinto${haySkusIncorrectos ? `, ${skusIncorrectosReferencia.length} SKU mal vinculado` : ''}`;
+    const { asunto, html } = armarCorreoAlertasSitioWeb({ stockNoVisible, preciosDistintos, preciosDesincronizados, skusIncorrectosReferencia, listaPrecioBsaleNombre, urlBase: URL_BASE_APP });
 
     const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sqlNotif, 'alertas-sitio-web');
     const envios = [];
