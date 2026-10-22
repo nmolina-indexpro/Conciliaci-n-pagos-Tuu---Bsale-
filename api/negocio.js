@@ -16564,6 +16564,28 @@ async function llamarGeminiEstructurado(systemPrompt, texto, herramienta, { maxT
 // GET  -> por cada SKU marcado: cuántas publicaciones tiene en Shopify y cuántas ya tienen la etiqueta; más las publicaciones con la
 //         etiqueta cuyo SKU ya no está marcado (sobrantes).
 // POST { accion: 'sincronizar' } -> pone la etiqueta donde falta y la quita de los sobrantes.
+// Último cambio que se hizo a cada SKU dentro del ERP (cualquiera de las marcas de Productos estancados: Envío gratis, Variación de precio, Mercado Libre; activada o
+// quitada) y lo que se vendió desde ese día, junto al mismo número de días anteriores para comparar. Solo unidades y documentos, sin montos.
+// Devuelve { [sku]: { campo, activado, desde, por, dias, unidades, documentos, antes_unidades, antes_documentos } }; un SKU sin historial no aparece (se marcó antes de existir).
+async function ventaDespuesDelCambio(sql, skus, hoy) {
+  if (!skus.length) return {};
+  await asegurarTablaVentasSku(sql); await asegurarTablaVentasSkuEstado(sql);
+  const { rows } = await sql.query(
+    `WITH u AS (
+       SELECT DISTINCT ON (h.sku) h.sku, h.campo, h.valor_nuevo AS activado, h.cambiado_por AS por, (h.cambiado_en AT TIME ZONE 'America/Santiago')::date AS desde
+         FROM ventas_sku_flags_historial h WHERE h.sku = ANY($1::text[]) ORDER BY h.sku, h.cambiado_en DESC, h.id DESC
+     ), p AS (SELECT u.*, ($2::date - u.desde + 1)::int AS dias FROM u)
+     SELECT p.sku, p.campo, p.activado, p.por, p.desde::text AS desde, p.dias,
+            COALESCE(sum(v.cantidad) FILTER (WHERE v.fecha >= p.desde), 0)::float AS unidades,
+            count(DISTINCT v.documento_id) FILTER (WHERE v.fecha >= p.desde)::int AS documentos,
+            COALESCE(sum(v.cantidad) FILTER (WHERE v.fecha < p.desde), 0)::float AS antes_unidades,
+            count(DISTINCT v.documento_id) FILTER (WHERE v.fecha < p.desde)::int AS antes_documentos
+       FROM p LEFT JOIN bsale_ventas_sku v ON v.sku = p.sku AND v.fecha >= p.desde - p.dias AND v.fecha <= $2::date
+      GROUP BY p.sku, p.campo, p.activado, p.por, p.desde, p.dias`,
+    [skus, hoy]);
+  return Object.fromEntries(rows.map(r => [r.sku, r]));
+}
+
 async function manejarEnvioGratisShopify(req, res, sesion) {
   try {
     const sql = await getSql();
@@ -16594,9 +16616,10 @@ async function manejarEnvioGratisShopify(req, res, sesion) {
       return res.status(200).json({ ok: true, puestas: resultados.reduce((t, r) => t + r.cambiadas, 0), quitadas, errores: errores.slice(0, 5), por: sesion.nombre || sesion.email });
     }
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const ventaTrasCambio = await ventaDespuesDelCambio(sql, marcados.map(m => m.sku), fechaHoyChile());
     const items = await conLimite(marcados, 4, async m => {
-      try { return { sku: m.sku, nombre: m.nombre || '', ...(await estadoDeSku(gql, m.sku)) }; }
-      catch (e) { return { sku: m.sku, nombre: m.nombre || '', error: String(e.message || e).slice(0, 80) }; }
+      try { return { sku: m.sku, variante: m.nombre || '', nombre: m.nombre || '', ...(await estadoDeSku(gql, m.sku)), cambio: ventaTrasCambio[m.sku] || null }; }
+      catch (e) { return { sku: m.sku, variante: m.nombre || '', nombre: m.nombre || '', error: String(e.message || e).slice(0, 80), cambio: ventaTrasCambio[m.sku] || null }; }
     });
     const descuento = await estadoDescuentoEnvio(gql);
     return res.status(200).json({ etiqueta: ETIQUETA_ENVIO_GRATIS, descuento, items, sobrantes: sobrantes.map(p => ({ handle: p.handle, title: p.title, skus: p.skus })), truncado: rows.length > marcados.length });

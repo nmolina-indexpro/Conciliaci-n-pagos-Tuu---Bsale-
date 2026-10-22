@@ -694,6 +694,20 @@ function avisoEnvioGratis(texto){
   el.textContent = texto; el.style.display = '';
   clearTimeout(el._t); el._t = setTimeout(() => { el.style.display = 'none'; }, 4500);
 }
+// Últimos cambios hechos al SKU en el ERP (marcas de esta página) y lo que se vendió desde entonces, frente al mismo número de días anteriores (solo unidades).
+const NOMBRE_MARCA_ERP = { envio_gratis: 'Envío gratis', variacion_precio: 'Variación de precio', mercado_libre: 'Mercado Libre' };
+function celdasCambioEnvio(c){
+  if(!c) return '<td data-valor="" title="Se marcó antes de que el ERP guardara el historial de cambios"><span class="sub">Sin registro</span></td><td data-valor=""><span class="sub">—</span></td>';
+  const fecha = String(c.desde).split('-').reverse().join('-');
+  const que = (NOMBRE_MARCA_ERP[c.campo] || c.campo) + (c.campo === 'variacion_precio' ? (c.activado ? ' activada' : ' quitada') : (c.activado ? ' activado' : ' quitado'));
+  const dias = c.dias || 1, pronto = dias < 7;
+  const dif = c.unidades - c.antes_unidades;
+  const cls = c.unidades > 0 ? 'color:#12713a;font-weight:700;' : (pronto ? 'color:#8a5a00;' : 'color:#a11d1d;font-weight:700;');
+  const flecha = c.unidades > c.antes_unidades ? ' ▲' : (c.unidades < c.antes_unidades ? ' ▼' : '');
+  return '<td data-valor="' + escapeHtml(c.desde) + '">' + escapeHtml(que) + '<br><span class="sub">' + fecha + (c.por ? ' · ' + escapeHtml(c.por) : '') + '</span></td>' +
+    '<td data-valor="' + c.unidades + '"><span style="' + cls + '">' + fmtNum(c.unidades) + ' un.</span> en ' + dias + (dias === 1 ? ' día' : ' días') + flecha +
+    '<br><span class="sub">antes: ' + fmtNum(c.antes_unidades) + ' un. en ' + (dias === 1 ? 'el día previo' : 'los ' + dias + ' días previos') + (pronto ? ' · aún es pronto para concluir' : '') + '</span></td>';
+}
 async function cargarEnvioGratisShopify(){
   const wrap = document.getElementById('wrapEnvioGratis'), est = document.getElementById('estadoEnvioGratis');
   wrap.innerHTML = '<p class="empty-note">Consultando Shopify...</p>'; est.textContent = '';
@@ -704,10 +718,11 @@ async function cargarEnvioGratisShopify(){
     pintarDescuentoEnvio(d.descuento);
     const pendientes = d.items.filter(i => !i.error && i.etiquetadas < i.publicaciones).length;
     est.textContent = d.items.length + ' SKU marcados · ' + pendientes + ' con publicaciones sin etiquetar' + (d.sobrantes.length ? ' · ' + d.sobrantes.length + ' etiquetadas que ya no están marcadas' : '') + (d.truncado ? ' · (se muestran los primeros 80)' : '');
-    wrap.innerHTML = '<table><thead><tr><th>SKU</th><th>Producto</th><th>Publicaciones en Shopify</th><th>Con etiqueta</th><th>Estado</th></tr></thead><tbody>' +
+    wrap.innerHTML = '<table><thead><tr><th>SKU</th><th>Producto</th><th>Variante</th><th>Publicaciones en Shopify</th><th>Con etiqueta</th><th>Estado</th><th>Último cambio en el ERP</th><th>Venta después del cambio</th></tr></thead><tbody>' +
       d.items.map(i => {
         const estado = i.error ? '<span style="color:#a11d1d;">' + escapeHtml(i.error) + '</span>' : (i.publicaciones === 0 ? '<span style="color:#8a5a00;">No está en Shopify</span>' : (i.etiquetadas === i.publicaciones ? '<span style="color:#12713a;font-weight:700;">✔ Al día</span>' : '<span style="color:#8a5a00;font-weight:700;">⚠ Faltan ' + (i.publicaciones - i.etiquetadas) + '</span>'));
-        return '<tr><td><b>' + escapeHtml(i.sku) + '</b></td><td>' + escapeHtml(i.nombre) + '</td><td>' + fmtNum(i.publicaciones || 0) + '</td><td>' + fmtNum(i.etiquetadas || 0) + '</td><td>' + estado + '</td></tr>';
+        const prod = (i.productos && i.productos.length) ? escapeHtml(i.productos[0]) + (i.productos.length > 1 ? ' <span class="sub" title="' + escapeHtml(i.productos.slice(1).join(' | ')) + '">(+' + (i.productos.length - 1) + ' publicaciones más)</span>' : '') : '<span class="sub">—</span>';
+        return '<tr><td><b>' + escapeHtml(i.sku) + '</b></td><td>' + prod + '</td><td>' + escapeHtml(i.variante || i.nombre || '') + '</td><td>' + fmtNum(i.publicaciones || 0) + '</td><td>' + fmtNum(i.etiquetadas || 0) + '</td><td>' + estado + '</td>' + celdasCambioEnvio(i.cambio) + '</tr>';
       }).join('') + '</tbody></table>' +
       (d.sobrantes.length ? '<p class="sub" style="margin-top:10px;"><b>Con la etiqueta, pero su SKU ya no está marcado</b> (se quitan al sincronizar):</p><table><thead><tr><th>Producto</th><th>SKU</th></tr></thead><tbody>' + d.sobrantes.map(p => '<tr><td>' + escapeHtml(p.title) + '</td><td>' + escapeHtml(p.skus.join(', ')) + '</td></tr>').join('') + '</tbody></table>' : '');
   }catch(err){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; }

@@ -20,6 +20,8 @@
   document.head.appendChild(css);
 
   function texto(td) {
+    // Una celda puede traer su valor de orden aparte (data-valor), para cuando el texto visible es largo o lleva varias cifras.
+    if (td.hasAttribute && td.hasAttribute('data-valor')) return String(td.getAttribute('data-valor')).trim();
     var inp = td.querySelector('input, select');
     var t = inp ? (inp.tagName === 'SELECT' ? (inp.options[inp.selectedIndex] || {}).text : inp.value) : td.textContent;
     return String(t == null ? '' : t).replace(/ /g, ' ').replace(/−/g, '-').trim();
