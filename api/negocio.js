@@ -38,6 +38,8 @@ import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, product
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
+import { armarComparativo as armarComparativoVentas, parsearMes as parsearMesComparativo, mesAnterior12 as mesAnterior12Comparativo, diasDelMes as diasDelMesComparativo, rangoEpochMes as rangoEpochMesComparativo } from '../lib/comparativo-ventas.js';
+import { asegurarTablaComparativoVentas } from '../lib/db.js';
 import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas, asegurarTablaIndexscalePlan, asegurarTablaIndiceModelosMeta } from '../lib/db.js';
 import { encontrarDefinicion, textoPlanoMetacampo, tipoDeProducto, mejorProductoPorMetacampo, buscarModelosEnItems, lineasModelosDescripcion } from '../lib/modelos-metacampo.js';
 import { esRegionMetropolitana as esRegionMetropolitanaIndexscale, telefonoChileno as telefonoChilenoIndexscale, primerNombre as primerNombreIndexscale, personalizarTexto as personalizarTextoIndexscale, puntuarCandidato as puntuarCandidatoIndexscale, validarSeleccionIA as validarSeleccionIAIndexscale, guiaRespaldo as guiaRespaldoIndexscale, SISTEMA_PLAN_IA, HERRAMIENTA_PLAN_IA, rubroTecnologico as rubroTecnologicoIndexscale, perfilRepuestos as perfilRepuestosIndexscale, enlacesSitio as enlacesSitioIndexscale, RESULTADOS_PLAN as RESULTADOS_PLAN_INDEXSCALE, ESTADO_POR_RESULTADO as ESTADO_POR_RESULTADO_INDEXSCALE } from '../lib/indexscale-plan.js';
@@ -263,6 +265,8 @@ export default async function handler(req, res) {
   if (recurso === 'analisis-clientes') return manejarAnalisisClientes(req, res, sesion);
   if (recurso === 'sync-analisis') return manejarSyncAnalisis(req, res, sesion);
   if (recurso === 'ventas-sku-tendencia') return manejarVentasSkuTendencia(req, res, sesion);
+  if (recurso === 'comparativo-ventas') return manejarComparativoVentas(req, res, sesion);
+  if (recurso === 'comparativo-ventas-sync') return manejarComparativoVentasSync(req, res, sesion);
   if (recurso === 'precios-sku-variacion') return manejarPreciosSkuVariacion(req, res, sesion);
   if (recurso === 'ventas-horario-extendido') return manejarVentasHorarioExtendido(req, res, sesion);
   if (recurso === 'servicios-por-mes') return manejarServiciosPorMes(req, res, sesion);
@@ -2183,6 +2187,203 @@ async function manejarSyncAnalisis(req, res, sesion) {
     return res.status(200).json({ error: 'Error sincronizando el análisis de clientes con Bsale', detail: String(err) });
   }
 }
+
+// ---------- Comparativo de ventas: un mes contra el mismo mes del año anterior (monto, unidades, categoría, marca) ----------
+// bsale_ventas_sku solo retiene 12 meses, así que el mes del año pasado se lee directo de Bsale y se guarda aparte (comparativo_*).
+const COMPARATIVO_PESO = { catalogo: 15, base: 45, actual: 40 }; // para el % de avance de la sincronización
+const COMPARATIVO_JOBS_CATALOGO = [
+  { clave: 'cat-tipos', url: (o) => `${BSALE_BASE}/product_types.json?limit=${PUNTOS_SYNC_LIMIT}&offset=${o}`, opcional: false },
+  { clave: 'cat-productos-0', url: (o) => `${BSALE_BASE}/products.json?limit=${PUNTOS_SYNC_LIMIT}&offset=${o}`, opcional: false },
+  { clave: 'cat-variantes-0', url: (o) => `${BSALE_BASE}/variants.json?limit=${PUNTOS_SYNC_LIMIT}&offset=${o}`, opcional: false },
+  // Productos dados de baja: Bsale los lista aparte (state=1); sin ellos sus ventas del año pasado quedarían "Sin categoría". Si Bsale rechaza el filtro se omite.
+  { clave: 'cat-productos-1', url: (o) => `${BSALE_BASE}/products.json?state=1&limit=${PUNTOS_SYNC_LIMIT}&offset=${o}`, opcional: true },
+  { clave: 'cat-variantes-1', url: (o) => `${BSALE_BASE}/variants.json?state=1&limit=${PUNTOS_SYNC_LIMIT}&offset=${o}`, opcional: true },
+];
+const mesActualChile = () => new Date(Date.now() - 4 * 3600000).toISOString().slice(0, 7);
+const diaActualChile = () => Number(new Date(Date.now() - 4 * 3600000).toISOString().slice(8, 10));
+
+// Avanza un trabajo paginado de Bsale (por tandas en paralelo) hasta agotar el presupuesto de tiempo; guarda el offset para continuar en la próxima llamada.
+async function comparativoAvanzar(sql, clave, urlPagina, procesar, ctx, opcional) {
+  await sql`INSERT INTO comparativo_estado (clave) VALUES (${clave}) ON CONFLICT (clave) DO NOTHING;`;
+  const { rows } = await sql`SELECT offset_a, total_a, completo FROM comparativo_estado WHERE clave = ${clave};`;
+  let offset = rows[0].offset_a, total = rows[0].total_a, terminado = rows[0].completo;
+  while (!terminado && ctx.restante() > 0) {
+    const offsets = [];
+    for (let i = 0; i < 6; i++) { const off = offset + i * PUNTOS_SYNC_LIMIT; if (total != null && off >= total) break; offsets.push(off); }
+    if (!offsets.length) { terminado = true; break; }
+    await ctx.ritmo(offsets.length);
+    let respuestas;
+    try {
+      respuestas = await Promise.all(offsets.map(async (off) => {
+        const r = await fetchConTimeout(urlPagina(off), { headers: { access_token: ctx.token } }, 15000);
+        if (!r.ok) { const t = await r.text().catch(() => ''); throw new Error(`Bsale HTTP ${r.status} (${clave}): ${t.slice(0, 200)}`); }
+        return r.json();
+      }));
+    } catch (err) {
+      if (!opcional) throw err;
+      await sql`UPDATE comparativo_estado SET completo = true, total_a = 0, actualizado_en = now() WHERE clave = ${clave};`;
+      return { completo: true, hecho: 0, total: 0, omitido: true };
+    }
+    const items = []; let incompleta = false;
+    for (const data of respuestas) {
+      if (typeof data.count === 'number') total = data.count;
+      const its = data.items || []; items.push(...its);
+      if (its.length < PUNTOS_SYNC_LIMIT) incompleta = true;
+    }
+    await procesar(items);
+    offset += offsets.length * PUNTOS_SYNC_LIMIT;
+    terminado = incompleta || (total != null && offset >= total);
+    await sql`UPDATE comparativo_estado SET offset_a = ${offset}, total_a = ${total}, completo = ${terminado}, actualizado_en = now() WHERE clave = ${clave};`;
+  }
+  return { completo: terminado, hecho: total != null ? Math.min(offset, total) : offset, total };
+}
+
+async function comparativoProcesarCatalogo(sql, clave, items) {
+  if (clave === 'cat-tipos') {
+    const m = new Map(items.filter((t) => t.id != null).map((t) => [t.id, t.name || '']));
+    if (m.size) await sql.query(`INSERT INTO comparativo_tipos (id, nombre) SELECT * FROM UNNEST ($1::int[], $2::text[]) ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre;`, [[...m.keys()], [...m.values()]]);
+  } else if (clave.startsWith('cat-productos')) {
+    const m = new Map();
+    for (const p of items) if (p.id != null) m.set(p.id, { nombre: p.name || null, tipo: p.product_type?.id ?? p.productTypeId ?? null, servicio: p.classification === 1 });
+    if (m.size) await sql.query(`INSERT INTO comparativo_productos (id, nombre, tipo_id, es_servicio) SELECT * FROM UNNEST ($1::int[], $2::text[], $3::int[], $4::boolean[]) ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre, tipo_id = EXCLUDED.tipo_id, es_servicio = EXCLUDED.es_servicio;`,
+      [[...m.keys()], [...m.values()].map((v) => v.nombre), [...m.values()].map((v) => v.tipo), [...m.values()].map((v) => v.servicio)]);
+  } else if (clave.startsWith('cat-variantes')) {
+    const m = new Map();
+    for (const v of items) { const code = String(v.code || '').trim().toUpperCase(); if (code && v.product?.id != null) m.set(code, v.product.id); }
+    if (m.size) await sql.query(`INSERT INTO comparativo_catalogo (sku, producto_id) SELECT * FROM UNNEST ($1::text[], $2::int[]) ON CONFLICT (sku) DO UPDATE SET producto_id = EXCLUDED.producto_id;`, [[...m.keys()], [...m.values()]]);
+  }
+}
+
+async function comparativoProcesarDocumentos(sql, periodo, items) {
+  const filas = new Map(); // `${doc}|${sku}` -> fila
+  for (const doc of items) {
+    if (doc.state !== 0 || doc.cancellationStatus || !esVentaReal(doc.document_type)) continue;
+    const fecha = doc.emissionDate ? new Date(doc.emissionDate * 1000).toISOString().slice(0, 10) : null;
+    if (!fecha || !fecha.startsWith(periodo)) continue; // el rango trae un margen: solo cuenta el mes pedido
+    for (const det of doc.details?.items || []) {
+      const codigo = (det.variant?.code || '').toUpperCase();
+      if (!codigo || CODIGO_ENVIO_NUMERICO_REGEX.test(codigo)) continue;
+      const nombre = det.variant?.description || det.comment || det.note || codigo;
+      if (LINEA_ENVIO_EXCLUIDA_REGEX.test(nombre) || categoriaLinea(codigo, nombre) === 'servicios') continue; // envíos y servicios no son productos
+      const k = `${doc.id}|${codigo}`;
+      const f = filas.get(k) || { documento: doc.id, sku: codigo, fecha, nombre, cantidad: 0, monto: 0 };
+      const cant = Number(det.quantity) || 0;
+      f.cantidad += cant; f.monto += cant * (Number(det.netUnitValue) || 0); // neto, sin IVA (mismo criterio que bsale_ventas_sku)
+      filas.set(k, f);
+    }
+  }
+  const lista = [...filas.values()];
+  if (!lista.length) return;
+  await sql.query(
+    `INSERT INTO comparativo_lineas (documento_id, sku, periodo, fecha, nombre, cantidad, monto)
+     SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::date[], $5::text[], $6::numeric[], $7::numeric[])
+     ON CONFLICT (documento_id, sku) DO UPDATE SET periodo = EXCLUDED.periodo, fecha = EXCLUDED.fecha, nombre = EXCLUDED.nombre, cantidad = EXCLUDED.cantidad, monto = EXCLUDED.monto;`,
+    [lista.map((f) => f.documento), lista.map((f) => f.sku), lista.map(() => periodo), lista.map((f) => f.fecha), lista.map((f) => f.nombre), lista.map((f) => f.cantidad), lista.map((f) => f.monto)]
+  );
+}
+
+async function comparativoEstadoResumen(sql, mes, base) {
+  const { rows } = await sql`SELECT clave, offset_a, total_a, completo, actualizado_en FROM comparativo_estado;`;
+  const por = Object.fromEntries(rows.map((r) => [r.clave, r]));
+  const avance = (r) => (!r ? 0 : r.completo ? 1 : r.total_a ? Math.min(1, r.offset_a / r.total_a) : 0);
+  const cat = COMPARATIVO_JOBS_CATALOGO.map((j) => por[j.clave]);
+  const catAvance = cat.reduce((s, r) => s + avance(r), 0) / COMPARATIVO_JOBS_CATALOGO.length;
+  const docA = por[`docs-${mes}`], docB = por[`docs-${base}`];
+  const porcentaje = Math.round(100 * (COMPARATIVO_PESO.catalogo * catAvance + COMPARATIVO_PESO.base * avance(docB) + COMPARATIVO_PESO.actual * avance(docA)) / 100);
+  return {
+    porcentaje,
+    catalogo: { completo: cat.every((r) => r?.completo), actualizadoEn: cat.map((r) => r?.actualizado_en).filter(Boolean).sort().pop() || null },
+    actual: { completo: !!docA?.completo, actualizadoEn: docA?.actualizado_en || null, documentos: docA?.offset_a || 0, total: docA?.total_a ?? null },
+    base: { completo: !!docB?.completo, actualizadoEn: docB?.actualizado_en || null, documentos: docB?.offset_a || 0, total: docB?.total_a ?? null },
+    completo: cat.every((r) => r?.completo) && !!docA?.completo && !!docB?.completo,
+  };
+}
+
+async function manejarComparativoVentasSync(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sincronizar el comparativo de ventas' });
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+  const mes = parsearMesComparativo(req.query.mes) ? req.query.mes : mesActualChile();
+  const base = mesAnterior12Comparativo(mes);
+  const inicio = Date.now();
+  try {
+    const sql = await getSql();
+    await asegurarTablaComparativoVentas(sql);
+    if (req.query.refrescar === '1') await sql`UPDATE comparativo_estado SET offset_a = 0, total_a = NULL, completo = false, actualizado_en = now() WHERE clave = ${'docs-' + mes};`;
+    // El catálogo cambia poco: se vuelve a leer cada 14 días.
+    await sql`UPDATE comparativo_estado SET offset_a = 0, total_a = NULL, completo = false WHERE clave LIKE 'cat-%' AND completo AND actualizado_en < now() - interval '14 days';`;
+    let ultima = 0;
+    const ctx = {
+      token, restante: () => PUNTOS_SYNC_PRESUPUESTO_MS - (Date.now() - inicio),
+      ritmo: async (n) => { const espera = n * PUNTOS_SYNC_INTERVALO_MIN_MS - (Date.now() - ultima); if (espera > 0) await new Promise((r) => setTimeout(r, espera)); ultima = Date.now(); },
+    };
+    let fase = 'catalogo';
+    for (const j of COMPARATIVO_JOBS_CATALOGO) {
+      const r = await comparativoAvanzar(sql, j.clave, j.url, (items) => comparativoProcesarCatalogo(sql, j.clave, items), ctx, j.opcional);
+      if (!r.completo) break;
+    }
+    const estCat = await comparativoEstadoResumen(sql, mes, base);
+    if (estCat.catalogo.completo) {
+      const rango = (m) => { const r = rangoEpochMesComparativo(m); return `${BSALE_BASE}/documents.json?emissiondaterange=[${r.desde},${r.hasta}]&expand=[document_type,details]&limit=${PUNTOS_SYNC_LIMIT}&offset=`; };
+      for (const p of [base, mes]) {
+        fase = `ventas de ${p}`;
+        const urlBase = rango(p);
+        const r = await comparativoAvanzar(sql, `docs-${p}`, (o) => urlBase + o, (items) => comparativoProcesarDocumentos(sql, p, items), ctx, false);
+        if (!r.completo) break;
+      }
+    }
+    const estado = await comparativoEstadoResumen(sql, mes, base);
+    if (estado.completo) fase = 'listo';
+    return res.status(200).json({ mes, mesBase: base, fase, ...estado });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error sincronizando el comparativo de ventas con Bsale', detail: String(err.message || err) });
+  }
+}
+
+async function manejarComparativoVentas(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const actualMes = mesActualChile();
+  const mes = parsearMesComparativo(req.query.mes) ? req.query.mes : actualMes;
+  const base = mesAnterior12Comparativo(mes);
+  const diasMes = diasDelMesComparativo(mes);
+  // Un mes en curso no se compara contra el mes completo del año anterior: por defecto se cortan ambos en el día de hoy.
+  const diaTope = mes === actualMes ? Math.min(diaActualChile(), diasMes) : diasMes;
+  const hastaDia = req.query.completo === '1' ? diasMes : Math.max(1, Math.min(diasMes, Number(req.query.hastaDia) || diaTope));
+  try {
+    const sql = await getSql();
+    await asegurarTablaComparativoVentas(sql);
+    const estado = await comparativoEstadoResumen(sql, mes, base);
+    const { rows } = await sql.query(
+      `SELECT l.periodo, l.sku, COALESCE(MAX(p.nombre), MAX(l.nombre)) AS nombre, COALESCE(MAX(t.nombre), 'Sin categoría') AS categoria,
+              SUM(l.cantidad)::float AS unidades, SUM(l.monto)::float AS monto, BOOL_OR(COALESCE(p.es_servicio, false)) AS es_servicio
+         FROM comparativo_lineas l
+         LEFT JOIN comparativo_catalogo c ON c.sku = l.sku
+         LEFT JOIN comparativo_productos p ON p.id = c.producto_id
+         LEFT JOIN comparativo_tipos t ON t.id = p.tipo_id
+        WHERE l.periodo = ANY($1::text[]) AND EXTRACT(DAY FROM l.fecha) <= $2
+        GROUP BY l.periodo, l.sku;`, [[mes, base], hastaDia]);
+    const filas = rows.filter((r) => !r.es_servicio && !categoriaLineaEsServicio(r.sku, r.nombre));
+    const FILTRO_PRODUCTOS = `FROM comparativo_lineas l LEFT JOIN comparativo_catalogo c ON c.sku = l.sku LEFT JOIN comparativo_productos p ON p.id = c.producto_id WHERE l.periodo = ANY($1::text[]) AND EXTRACT(DAY FROM l.fecha) <= $2 AND NOT COALESCE(p.es_servicio, false)`;
+    const { rows: docs } = await sql.query(`SELECT l.periodo, COUNT(DISTINCT l.documento_id)::int AS n ${FILTRO_PRODUCTOS} GROUP BY l.periodo;`, [[mes, base], hastaDia]);
+    const { rows: dias } = await sql.query(`SELECT l.periodo, EXTRACT(DAY FROM l.fecha)::int AS dia, SUM(l.monto)::float AS monto, SUM(l.cantidad)::float AS unidades ${FILTRO_PRODUCTOS} GROUP BY l.periodo, dia ORDER BY dia;`, [[mes, base], hastaDia]);
+    const cmp = armarComparativoVentas(filas, { actual: mes, base });
+    const n = (p) => docs.find((d) => d.periodo === p)?.n || 0;
+    return res.status(200).json({
+      mes, base, hastaDia, diasMes, parcial: hastaDia < diasMes, estado,
+      documentos: { actual: n(mes), base: n(base) },
+      porDia: Array.from({ length: hastaDia }, (_, i) => {
+        const d = i + 1, a = dias.find((x) => x.periodo === mes && x.dia === d), b = dias.find((x) => x.periodo === base && x.dia === d);
+        return { dia: d, montoActual: Math.round(a?.monto || 0), montoBase: Math.round(b?.monto || 0), unidadesActual: Math.round(a?.unidades || 0), unidadesBase: Math.round(b?.unidades || 0) };
+      }),
+      ...cmp,
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo armar el comparativo de ventas', detail: String(err.message || err) });
+  }
+}
+// Un SKU de servicio que no esté marcado como tal en el catálogo (código SER... o texto de servicio): mismo criterio que usa el resto del ERP.
+function categoriaLineaEsServicio(sku, nombre) { return categoriaLinea(sku, nombre) === 'servicios'; }
 
 // Historial de comentarios compartido (ver asegurarTablaComentariosLog en
 // lib/db.js) -- un comentario nuevo se AGREGA al historial, nunca

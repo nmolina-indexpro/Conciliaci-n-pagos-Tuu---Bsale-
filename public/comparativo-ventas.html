@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Comparativo de ventas — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  @media (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:18px 20px;}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:var(--text);}
+  .card .pct{font-size:13px;font-weight:700;color:var(--primary);margin-top:2px;}
+  .card.destacada{background:var(--primary-dim);border-color:var(--primary);}
+  .card .ver-detalle{font-size:11px;color:var(--muted);margin-top:6px;}
+
+  .ga-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0;}
+  @media (max-width:900px){.ga-tabs{grid-template-columns:repeat(2,1fr);}}
+  .ga-tab{background:var(--surface-2);border:1.5px solid var(--line);border-radius:12px;padding:16px 14px;text-align:left;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:box-shadow .15s,transform .15s,border-color .15s,background .15s;}
+  .ga-tab:hover{box-shadow:var(--shadow);transform:translateY(-1px);}
+  .ga-tab.active{background:var(--primary-dim);border-color:var(--primary);}
+  .ga-tab-icono{font-size:20px;margin-bottom:6px;display:block;}
+  .ga-tab-titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;color:var(--text);}
+  .ga-tab-sub{font-size:11px;color:var(--muted);margin-top:2px;}
+
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-top:16px;color:var(--text);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:12px;padding:7px 13px;}
+
+  .filtros{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+  input[type=date]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:6px 10px;border-radius:9px;font-size:12.5px;}
+  .date-field{display:flex;align-items:center;gap:5px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  .filtro-rango-fechas{display:flex;align-items:center;gap:7px;}
+
+  .chart-legend{display:flex;gap:16px;margin:2px 0 14px;flex-wrap:wrap;}
+  .chart-legend-item{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);}
+  .chart-legend-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+
+  .canal-chart{max-height:420px;overflow-y:auto;padding-right:4px;}
+  .canal-grupo{margin-bottom:14px;}
+  .canal-titulo{font-size:12px;color:var(--text);margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .canal-fila{display:flex;align-items:center;gap:8px;margin-bottom:3px;}
+  .canal-pista{flex:1;background:var(--surface-2);border-radius:5px;height:12px;overflow:hidden;}
+  .canal-relleno{height:100%;border-radius:5px;min-width:3px;}
+  .canal-valor{width:56px;flex-shrink:0;text-align:right;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text);}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  th.amount, td.amount{text-align:right;}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+
+  .ads-bloque{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:0 0 18px;box-shadow:var(--shadow);}
+  .ads-cab{display:flex;gap:14px;align-items:flex-start;margin-bottom:12px;}
+  .ads-num{flex:none;width:30px;height:30px;border-radius:50%;background:var(--primary);color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;}
+  .ads-cab h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0 0 3px;}
+  .ads-cab .sub{margin:0;font-size:12.5px;}
+  .ads-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:12px 0 14px;}
+  .ads-kpis .card{padding:12px 14px;} .ads-kpis .card .big{font-size:21px;} .ads-kpis .card .nota{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.35;}
+  .ads-lectura{margin-top:12px;padding:10px 14px;border-radius:10px;background:var(--primary-dim);border:1px solid #BFE0DB;font-size:12.5px;line-height:1.5;}
+  .ads-lectura.alerta{background:var(--amber-dim);border-color:#F3D9A8;}
+  .ads-error{margin:8px 0;padding:10px 14px;border-radius:10px;background:var(--red-bg);border:1px solid #F4C5C5;color:var(--red);font-size:12.5px;}
+  .ads-barra{display:inline-block;width:90px;height:8px;border-radius:5px;background:var(--surface-2);vertical-align:middle;margin-right:7px;overflow:hidden;}
+  .ads-barra i{display:block;height:100%;background:var(--primary);border-radius:5px;} .ads-barra i.rojo{background:var(--red);} .ads-barra i.ambar{background:var(--amber);}
+  .badge-ads{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;}
+  .badge-ads.si{background:var(--green-bg);color:var(--green);} .badge-ads.no{background:var(--red-bg);color:var(--red);}
+  .mejor{color:var(--green);font-weight:700;} .peor{color:var(--red);font-weight:700;}
+  .ads-pie{font-size:11.5px;color:var(--muted);margin:4px 0 0;}
+  .sub-titulo{font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:18px 0 8px;}
+  .cmp-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:4px 0 14px;}
+  .cmp-kpis .card{padding:12px 14px;} .cmp-kpis .card .big{font-size:21px;} .cmp-kpis .card .nota{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.35;}
+  .cmp-tabs{grid-template-columns:repeat(3,1fr);}
+  .cmp-check{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);}
+  .cmp-sync{margin:0 0 14px;padding:10px 14px;border-radius:10px;background:var(--amber-dim);border:1px solid #F3D9A8;font-size:12.5px;line-height:1.5;}
+  input[type=search]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:7px 12px;border-radius:9px;font-size:12.5px;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
+          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html">Modelos compatibles</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="comparativo-ventas.html" class="active">Comparativo de ventas</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+  <h1>📊 Comparativo de ventas</h1>
+  <div class="sub">Un mes contra el mismo mes del año anterior, leído directo de Bsale: <b>ventas netas ($), unidades, categorías y marcas</b>. Es un prototipo para decidir dónde está creciendo o cayendo el negocio. Los montos son <b>netos (sin IVA)</b>, sin notas de crédito, servicios ni envíos.</div>
+
+  <div class="filtros">
+    <div class="date-field"><label for="cmpMes">Mes</label><select id="cmpMes" onchange="cargarComparativo()"></select></div>
+    <label class="cmp-check" id="cmpParejoWrap" style="display:none;"><input type="checkbox" id="cmpParejo" checked onchange="cargarComparativo()"> <span id="cmpParejoTxt">Comparar solo hasta el mismo día en ambos años</span></label>
+    <button class="btn-ghost btn-compact" onclick="cargarComparativo()">↻ Actualizar pantalla</button>
+    <button class="btn-ghost btn-compact" id="btnSyncCmp" onclick="sincronizarComparativo(true)" style="display:none;" title="Vuelve a leer de Bsale las ventas del mes elegido (el año anterior solo se lee la primera vez)">⇩ Traer datos de Bsale</button>
+  </div>
+  <div id="cmpSync" class="cmp-sync" style="display:none;"></div>
+  <div id="cmpEstado" class="empty-note">Cargando…</div>
+
+  <div id="cmpContenido" style="display:none;">
+    <div class="cmp-kpis" id="cmpKpis"></div>
+    <div class="ads-lectura" id="cmpLectura"></div>
+
+    <section class="ads-bloque">
+      <div class="ads-cab"><div><h2>Venta acumulada día a día</h2><div class="sub" id="cmpGrafSub"></div></div></div>
+      <div class="filtros">
+        <button class="btn-ghost btn-compact active" id="btnGrafMonto" onclick="setMetricaGrafico('monto')">Ventas $</button>
+        <button class="btn-ghost btn-compact" id="btnGrafUni" onclick="setMetricaGrafico('unidades')">Unidades</button>
+      </div>
+      <div id="cmpGrafico"></div>
+    </section>
+
+    <div class="ga-tabs cmp-tabs">
+      <button class="ga-tab active" id="tabCategorias" onclick="setVistaCmp('categorias')"><span class="ga-tab-icono">🗂️</span><span class="ga-tab-titulo">Categorías</span><div class="ga-tab-sub">Tipo de producto en Bsale</div></button>
+      <button class="ga-tab" id="tabMarcas" onclick="setVistaCmp('marcas')"><span class="ga-tab-icono">🏷️</span><span class="ga-tab-titulo">Marcas</span><div class="ga-tab-sub">Detectadas por el nombre del producto</div></button>
+      <button class="ga-tab" id="tabProductos" onclick="setVistaCmp('productos')"><span class="ga-tab-icono">📦</span><span class="ga-tab-titulo">Productos (SKU)</span><div class="ga-tab-sub">Qué más creció y qué más cayó</div></button>
+    </div>
+
+    <section class="ads-bloque">
+      <div id="cmpVistaNota" class="sub" style="margin-bottom:10px;"></div>
+      <div class="filtros" id="cmpFiltrosProd" style="display:none;">
+        <select id="cmpEstadoProd" onchange="dibujarVistaCmp()">
+          <option value="">Todos</option><option value="nuevo">Nuevos (sin venta el año pasado)</option><option value="sin_ventas">Sin ventas este año</option><option value="crece">Crecen</option><option value="cae">Caen</option>
+        </select>
+        <input type="search" id="cmpBuscaProd" placeholder="Buscar SKU, producto, marca o categoría…" oninput="dibujarVistaCmp()" style="min-width:260px;">
+      </div>
+      <div class="tabla-wrap" id="cmpTabla"></div>
+    </section>
+    <p class="ads-pie">Cómo se calcula: ventas netas = cantidad × precio neto de cada línea de boleta/factura vigente de Bsale. Se excluyen notas de crédito, documentos anulados, cotizaciones, servicios y líneas de envío. La categoría es el "tipo de producto" de Bsale; la marca se reconoce por el nombre del producto (Bsale no tiene un campo de marca), por eso puede haber productos "Sin marca identificada".</p>
+  </div>
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function escapeHtml(texto){
+  return String(texto ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+const fmtNum = n => new Intl.NumberFormat('es-CL').format(Math.round(n || 0));
+const fmtClp = n => n == null ? '—' : (n < 0 ? '−$' : '$') + new Intl.NumberFormat('es-CL').format(Math.abs(Math.round(n)));
+const fmtPct = (n, signo) => n == null ? '—' : ((signo && n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n).toFixed(1).replace('.', ',') + '%');
+const fmtDif = (n) => n == null ? '—' : (n > 0 ? '+' : n < 0 ? '−' : '') + fmtNum(Math.abs(n));
+const fmtDifClp = (n) => n == null ? '—' : (n > 0 ? '+' : n < 0 ? '−' : '') + '$' + fmtNum(Math.abs(n));
+const clase = n => n == null || n === 0 ? '' : (n > 0 ? 'mejor' : 'peor');
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const etiquetaMes = m => { const [a, n] = m.split('-'); return MESES[Number(n) - 1] + ' ' + a; };
+const etiquetaCorta = m => { const [a, n] = m.split('-'); return MESES[Number(n) - 1].slice(0, 3) + ' ' + a; };
+let rolActual = null, datos = null, vista = 'categorias', metricaGrafico = 'monto', sincronizando = false;
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    rolActual = u.rol;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){
+      ['navUsuarios', 'navActualizaciones', 'navMercadoLibre'].forEach(id => { const n = $(id); if(n) n.style.display = ''; });
+      $('btnSyncCmp').style.display = '';
+    }
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Selector de mes (últimos 24, hora de Chile) ----------
+(function llenarMeses(){
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+  let a = Number(hoy.slice(0, 4)), m = Number(hoy.slice(5, 7));
+  const opts = [];
+  for(let i = 0; i < 24; i++){
+    const v = a + '-' + String(m).padStart(2, '0');
+    opts.push(`<option value="${v}">${etiquetaMes(v)}</option>`);
+    m--; if(m === 0){ m = 12; a--; }
+  }
+  $('cmpMes').innerHTML = opts.join('');
+})();
+
+async function cargarComparativo(){
+  const mes = $('cmpMes').value;
+  $('cmpEstado').style.display = ''; $('cmpEstado').className = 'empty-note'; $('cmpEstado').textContent = 'Cargando…';
+  try{
+    // El mes en curso se compara por defecto solo hasta el día de hoy en ambos años (si no, el año pasado completo siempre gana).
+    const hoyChile = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const enCurso = mes === hoyChile.slice(0, 7);
+    $('cmpParejoWrap').style.display = enCurso ? '' : 'none';
+    $('cmpParejoTxt').textContent = 'Comparar solo hasta el día ' + Number(hoyChile.slice(8, 10)) + ' en ambos años (el mes está en curso)';
+    const res = await fetch(`/api/negocio?recurso=comparativo-ventas&mes=${mes}${enCurso && !$('cmpParejo').checked ? '&completo=1' : ''}`);
+    const d = await res.json();
+    if(d.error){ $('cmpEstado').className = 'ads-error'; $('cmpEstado').textContent = d.error + (d.detail ? ' — ' + d.detail : ''); $('cmpContenido').style.display = 'none'; return; }
+    datos = d;
+    pintarEstadoSync(d.estado);
+    if(!d.estado.actual.documentos && !d.estado.base.documentos){
+      $('cmpEstado').className = 'note-box'; $('cmpEstado').style.display = '';
+      $('cmpEstado').innerHTML = `Todavía no hay datos de ${etiquetaMes(d.mes)} ni de ${etiquetaMes(d.base)}. ${rolActual === 'admin' ? 'Pulsa <b>⇩ Traer datos de Bsale</b>: lee los dos meses y el catálogo (tarda unos minutos la primera vez).' : 'Pídele a un administrador que los traiga de Bsale.'}`;
+      $('cmpContenido').style.display = 'none';
+      return;
+    }
+    $('cmpEstado').style.display = 'none';
+    $('cmpContenido').style.display = '';
+    dibujarComparativo();
+  }catch(err){
+    $('cmpEstado').className = 'ads-error'; $('cmpEstado').textContent = 'No se pudo cargar: ' + err.message;
+  }
+}
+
+function pintarEstadoSync(est){
+  const caja = $('cmpSync');
+  if(sincronizando) return;
+  if(est.completo){ caja.style.display = 'none'; return; }
+  caja.style.display = '';
+  const falta = [];
+  if(!est.catalogo.completo) falta.push('el catálogo de productos');
+  if(!est.base.completo) falta.push('las ventas de ' + etiquetaMes(datos.base) + (est.base.total ? ` (${Math.round(100 * est.base.documentos / est.base.total)}%)` : ''));
+  if(!est.actual.completo) falta.push('las ventas de ' + etiquetaMes(datos.mes) + (est.actual.total ? ` (${Math.round(100 * est.actual.documentos / est.actual.total)}%)` : ''));
+  caja.innerHTML = `⚠ Los datos están <b>incompletos</b>: falta traer ${falta.join(', ')}. Las cifras de abajo pueden quedar cortas. ${rolActual === 'admin' ? 'Usa <b>⇩ Traer datos de Bsale</b> para completarlos.' : ''}`;
+}
+
+// Trae de Bsale lo que falte, por tandas, mostrando el avance en %.
+async function sincronizarComparativo(refrescar){
+  if(sincronizando) return;
+  sincronizando = true;
+  const mes = $('cmpMes').value, btn = $('btnSyncCmp'), caja = $('cmpSync');
+  btn.disabled = true; caja.style.display = '';
+  let primera = refrescar;
+  try{
+    for(let i = 0; i < 400; i++){
+      const res = await fetch(`/api/negocio?recurso=comparativo-ventas-sync&mes=${mes}${primera ? '&refrescar=1' : ''}`, { method: 'POST' });
+      primera = false;
+      const d = await res.json();
+      if(d.error){ caja.innerHTML = `<span class="peor">${escapeHtml(d.error)}</span>${d.detail ? ' — ' + escapeHtml(d.detail) : ''}`; break; }
+      const detalle = d.fase === 'catalogo' ? 'leyendo el catálogo de productos' : d.fase === 'listo' ? 'listo' : escapeHtml(d.fase);
+      caja.innerHTML = `<b>${d.porcentaje}%</b> — ${detalle}. <span class="ads-barra" style="width:160px;"><i style="width:${d.porcentaje}%"></i></span>`;
+      if(d.completo) break;
+    }
+  }catch(err){
+    caja.innerHTML = `<span class="peor">Se cortó la sincronización: ${escapeHtml(err.message)}.</span> Pulsa de nuevo para continuar donde quedó.`;
+  }finally{
+    sincronizando = false; btn.disabled = false;
+  }
+  await cargarComparativo();
+}
+
+// ---------- Resumen ----------
+function tarjeta(titulo, actual, base, dif, difPct, fmt, nota){
+  return `<div class="card"><div class="lbl">${titulo}</div><div class="big">${fmt(actual)}</div>
+    <div class="pct ${clase(dif)}">${fmtPct(difPct, true)} <span style="font-weight:500;color:var(--muted);">(${fmt === fmtClp ? fmtDifClp(dif) : fmtDif(dif)})</span></div>
+    <div class="nota">${etiquetaCorta(datos.base)}: ${fmt(base)}${nota ? '<br>' + nota : ''}</div></div>`;
+}
+function dibujarComparativo(){
+  const d = datos, t = d.totales;
+  const ticketA = d.documentos.actual ? t.actual.monto / d.documentos.actual : null, ticketB = d.documentos.base ? t.base.monto / d.documentos.base : null;
+  const precioA = t.actual.unidades ? t.actual.monto / t.actual.unidades : null, precioB = t.base.unidades ? t.base.monto / t.base.unidades : null;
+  const pct = (a, b) => (b > 0 ? Math.round(((a - b) / b) * 1000) / 10 : null);
+  const tramo = d.parcial ? ` · 1 al ${d.hastaDia}` : '';
+  $('cmpKpis').innerHTML =
+    tarjeta(`Ventas netas — ${etiquetaCorta(d.mes)}${tramo}`, t.actual.monto, t.base.monto, t.varMonto, t.varMontoPct, fmtClp, '') +
+    tarjeta('Unidades vendidas', t.actual.unidades, t.base.unidades, t.varUnidades, t.varUnidadesPct, fmtNum, '') +
+    tarjeta('Documentos con venta', d.documentos.actual, d.documentos.base, d.documentos.actual - d.documentos.base, pct(d.documentos.actual, d.documentos.base), fmtNum, '') +
+    tarjeta('Ticket promedio', ticketA, ticketB, ticketA != null && ticketB != null ? ticketA - ticketB : null, ticketA != null ? pct(ticketA, ticketB) : null, fmtClp, 'Monto neto por documento') +
+    tarjeta('Precio promedio por unidad', precioA, precioB, precioA != null && precioB != null ? precioA - precioB : null, precioA != null ? pct(precioA, precioB) : null, fmtClp, 'Sube si vende más caro o cambia el mix') +
+    tarjeta('Productos distintos vendidos', t.actual.skus, t.base.skus, t.actual.skus - t.base.skus, pct(t.actual.skus, t.base.skus), fmtNum, '');
+  $('cmpLectura').innerHTML = lecturaRapida();
+  $('cmpGrafSub').textContent = `${etiquetaMes(d.mes)} contra ${etiquetaMes(d.base)}${d.parcial ? `, del día 1 al ${d.hastaDia} en ambos` : ''}.`;
+  dibujarGrafico();
+  dibujarVistaCmp();
+}
+function lecturaRapida(){
+  const d = datos, t = d.totales, partes = [];
+  const sentido = t.varMonto >= 0 ? 'subieron' : 'bajaron';
+  partes.push(`Las ventas netas <b>${sentido} ${fmtPct(Math.abs(t.varMontoPct ?? 0))}</b> (${fmtDifClp(t.varMonto)}) y las unidades <b>${t.varUnidades >= 0 ? 'subieron' : 'bajaron'} ${fmtPct(Math.abs(t.varUnidadesPct ?? 0))}</b> frente a ${etiquetaMes(d.base)}.`);
+  const conBase = d.categorias.filter(c => c.montoBase > 0 || c.montoActual > 0);
+  const sube = [...conBase].sort((a, b) => b.varMonto - a.varMonto)[0], baja = [...conBase].sort((a, b) => a.varMonto - b.varMonto)[0];
+  if(sube && sube.varMonto > 0) partes.push(`Categoría que más aporta: <b>${escapeHtml(sube.clave)}</b> (${fmtDifClp(sube.varMonto)}).`);
+  if(baja && baja.varMonto < 0) partes.push(`Categoría que más resta: <b>${escapeHtml(baja.clave)}</b> (${fmtDifClp(baja.varMonto)}).`);
+  const marcas = d.marcas.filter(m => m.clave !== 'Sin marca identificada');
+  const mSube = [...marcas].sort((a, b) => b.varMonto - a.varMonto)[0], mBaja = [...marcas].sort((a, b) => a.varMonto - b.varMonto)[0];
+  if(mSube && mSube.varMonto > 0) partes.push(`Marca que más crece: <b>${escapeHtml(mSube.clave)}</b> (${fmtDifClp(mSube.varMonto)}).`);
+  if(mBaja && mBaja.varMonto < 0) partes.push(`Marca que más cae: <b>${escapeHtml(mBaja.clave)}</b> (${fmtDifClp(mBaja.varMonto)}).`);
+  const nuevos = d.productos.filter(p => p.estado === 'nuevo'), sin = d.productos.filter(p => p.estado === 'sin_ventas');
+  partes.push(`<b>${fmtNum(nuevos.length)}</b> productos se vendieron este año y no el pasado (${fmtDifClp(nuevos.reduce((s, p) => s + p.montoActual, 0))}); <b>${fmtNum(sin.length)}</b> vendieron el año pasado y este año nada (${fmtDifClp(-sin.reduce((s, p) => s + p.montoBase, 0))}).`);
+  if(d.sinMarca.actualPct > 15) partes.push(`<span class="peor">Ojo:</span> ${fmtPct(d.sinMarca.actualPct)} de las ventas actuales no tiene marca reconocida; la tabla de marcas es referencial.`);
+  return partes.join('<br>');
+}
+
+// ---------- Gráfico acumulado ----------
+function setMetricaGrafico(m){ metricaGrafico = m; $('btnGrafMonto').classList.toggle('active', m === 'monto'); $('btnGrafUni').classList.toggle('active', m === 'unidades'); dibujarGrafico(); }
+function dibujarGrafico(){
+  const d = datos, W = 760, H = 240, ml = 62, mr = 14, mt = 12, mb = 28;
+  const campoA = metricaGrafico === 'monto' ? 'montoActual' : 'unidadesActual', campoB = metricaGrafico === 'monto' ? 'montoBase' : 'unidadesBase';
+  let a = 0, b = 0;
+  const serieA = d.porDia.map(x => (a += x[campoA])), serieB = d.porDia.map(x => (b += x[campoB]));
+  const max = Math.max(1, ...serieA, ...serieB), n = d.porDia.length;
+  const x = i => ml + (n <= 1 ? 0 : (i * (W - ml - mr)) / (n - 1)), y = v => mt + (1 - v / max) * (H - mt - mb);
+  const ruta = s => s.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
+  const fmtEje = v => metricaGrafico === 'monto' ? (v >= 1e6 ? '$' + (v / 1e6).toFixed(v >= 1e7 ? 0 : 1).replace('.', ',') + ' M' : '$' + fmtNum(v)) : fmtNum(v);
+  let ejes = '';
+  for(let k = 0; k <= 4; k++){ const v = (max * k) / 4, yy = y(v); ejes += `<line x1="${ml}" x2="${W - mr}" y1="${yy}" y2="${yy}" stroke="var(--line)"/><text x="${ml - 6}" y="${yy + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${fmtEje(v)}</text>`; }
+  const paso = n > 20 ? 5 : n > 10 ? 2 : 1;
+  for(let i = 0; i < n; i += paso) ejes += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="var(--muted)">${d.porDia[i].dia}</text>`;
+  const puntos = (s, col) => s.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="9" fill="transparent"><title>Día ${d.porDia[i].dia}: ${fmtEje(v)} acumulado</title></circle>`).join('');
+  $('cmpGrafico').innerHTML = `<div class="chart-legend"><span class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--primary)"></span>${etiquetaMes(d.mes)}: ${fmtEje(serieA[n - 1] || 0)}</span><span class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--amber)"></span>${etiquetaMes(d.base)}: ${fmtEje(serieB[n - 1] || 0)}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;" role="img" aria-label="Venta acumulada por día">${ejes}
+    <path d="${ruta(serieB)}" fill="none" stroke="var(--amber)" stroke-width="2.2"/><path d="${ruta(serieA)}" fill="none" stroke="var(--primary)" stroke-width="2.4"/>${puntos(serieB)}${puntos(serieA)}</svg>`;
+}
+
+// ---------- Tablas ----------
+function setVistaCmp(v){
+  vista = v;
+  [['categorias', 'tabCategorias'], ['marcas', 'tabMarcas'], ['productos', 'tabProductos']].forEach(([k, id]) => $(id).classList.toggle('active', k === v));
+  dibujarVistaCmp();
+}
+const barra = (pct, color) => `<span class="ads-barra" style="width:60px;"><i style="width:${Math.min(100, pct)}%;${color ? 'background:' + color : ''}"></i></span>`;
+function filaCmp(f, cols){
+  return `<tr>${cols}
+    <td class="amount">${fmtClp(f.montoActual)}</td><td class="amount">${fmtClp(f.montoBase)}</td>
+    <td class="amount ${clase(f.varMonto)}">${fmtDifClp(f.varMonto)}</td><td class="amount ${clase(f.varMonto)}">${f.varMontoPct == null ? (f.montoActual > 0 ? 'nuevo' : '—') : fmtPct(f.varMontoPct, true)}</td>
+    <td class="amount">${fmtNum(f.unidadesActual)}</td><td class="amount">${fmtNum(f.unidadesBase)}</td>
+    <td class="amount ${clase(f.varUnidades)}">${fmtDif(f.varUnidades)}</td><td class="amount ${clase(f.varUnidades)}">${f.varUnidadesPct == null ? (f.unidadesActual > 0 ? 'nuevo' : '—') : fmtPct(f.varUnidadesPct, true)}</td>
+    <td class="amount">${fmtClp(f.precioActual)}</td><td class="amount">${fmtClp(f.precioBase)}</td>
+    <td class="amount">${barra(f.partActual)}${fmtPct(f.partActual)}</td><td class="amount">${fmtPct(f.partBase)}</td></tr>`;
+}
+function dibujarVistaCmp(){
+  if(!datos) return;
+  const d = datos, a = etiquetaCorta(d.mes), b = etiquetaCorta(d.base);
+  const cabeceraNum = `<th class="amount">Ventas ${a}</th><th class="amount">Ventas ${b}</th><th class="amount">Var. $</th><th class="amount">Var. %</th><th class="amount">Unid. ${a}</th><th class="amount">Unid. ${b}</th><th class="amount">Var. unid.</th><th class="amount">Var. % unid.</th><th class="amount">Precio prom. ${a}</th><th class="amount">Precio prom. ${b}</th><th class="amount">Part. ${a}</th><th class="amount">Part. ${b}</th>`;
+  $('cmpFiltrosProd').style.display = vista === 'productos' ? '' : 'none';
+  let html = '';
+  if(vista === 'productos'){
+    const est = $('cmpEstadoProd').value, q = $('cmpBuscaProd').value.trim().toLowerCase();
+    $('cmpVistaNota').textContent = 'Ordenados por la mayor diferencia en $ (sube o baja). Haz clic en un encabezado para ordenar por otra columna.';
+    let lista = d.productos.filter(p => (!est || p.estado === est) && (!q || [p.sku, p.nombre, p.marca, p.categoria].join(' ').toLowerCase().includes(q)));
+    lista.sort((x, y) => Math.abs(y.varMonto) - Math.abs(x.varMonto));
+    const total = lista.length; lista = lista.slice(0, 300);
+    html = `<table><thead><tr><th>SKU</th><th>Producto</th><th>Categoría</th><th>Marca</th><th>Estado</th>${cabeceraNum}</tr></thead><tbody>${lista.map(p => filaCmp(p,
+      `<td>${escapeHtml(p.sku)}</td><td>${escapeHtml(p.nombre)}</td><td>${escapeHtml(p.categoria)}</td><td>${escapeHtml(p.marca)}</td><td>${{ nuevo: '🆕 Nuevo', sin_ventas: '⛔ Sin ventas', crece: '▲ Crece', cae: '▼ Cae' }[p.estado]}</td>`)).join('')}</tbody></table>`
+      + (total > 300 ? `<p class="ads-pie">Mostrando los 300 con mayor diferencia de ${fmtNum(total)}; usa el buscador para ver otros.</p>` : '');
+  }else{
+    const lista = vista === 'categorias' ? d.categorias : d.marcas;
+    $('cmpVistaNota').textContent = vista === 'categorias'
+      ? 'Categoría = tipo de producto en Bsale. Ordenadas por ventas del mes elegido.'
+      : `Marca detectada por el nombre del producto. "Sin marca identificada" pesa ${fmtPct(d.sinMarca.actualPct)} este mes y ${fmtPct(d.sinMarca.basePct)} el año pasado.`;
+    html = `<table><thead><tr><th>${vista === 'categorias' ? 'Categoría' : 'Marca'}</th><th class="amount">Productos ${a}</th><th class="amount">Productos ${b}</th>${cabeceraNum}</tr></thead><tbody>${lista.map(f => filaCmp(f,
+      `<td><b>${escapeHtml(f.clave)}</b></td><td class="amount">${fmtNum(f.skusActual)}</td><td class="amount">${fmtNum(f.skusBase)}</td>`)).join('')}</tbody></table>`;
+  }
+  $('cmpTabla').innerHTML = html;
+}
+
+cargarSesionUsuario();
+cargarComparativo();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>
