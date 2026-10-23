@@ -72,11 +72,15 @@
     },
     {
       "path": "/api/negocio?recurso=resumen-cambios-enviar",
-      "schedule": "0 22 * * *"
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/negocio?recurso=resumen-cambios-enviar",
+      "schedule": "0 18 * * *"
     },
     {
       "path": "/api/negocio?recurso=resumen-cambios-recordatorio",
-      "schedule": "0 21 * * *"
+      "schedule": "0 15 * * *"
     },
     {
       "path": "/api/negocio?recurso=resumen-cambios-proponer",

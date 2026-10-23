@@ -279,13 +279,13 @@
 
   <!-- ===================== Resumen de hoy ===================== -->
   <section class="panel activa" id="panel-resumen">
-    <div class="sub empty-note" style="margin-bottom:10px;">Resumen de lo que cambió en la tienda, el ERP y el buscador. El correo sale cada día a las 19:00 con el texto que quede guardado para hoy; si no hay texto, se envían los cambios aprobados en "Propuesta del día", y si tampoco hay, no se envía. Quién lo recibe y cada cuánto se define en Usuarios &gt; Notificaciones.</div>
+    <div class="sub empty-note" style="margin-bottom:10px;">Resumen de lo que cambió en la tienda, el ERP y el buscador. El correo sale cada día a las 14:00 con el texto que quede guardado para hoy; si no hay texto, se envían los cambios aprobados en "Propuesta del día", y si tampoco hay, no se envía. Quién lo recibe y cada cuánto se define en Usuarios &gt; Notificaciones.</div>
     <div class="card" style="padding:14px 16px;" id="cardResumen"><p class="empty-note">Cargando...</p></div>
   </section>
 
   <!-- ===================== Propuesta del día ===================== -->
   <section class="panel" id="panel-propuesta">
-    <div class="sub empty-note" style="margin-bottom:10px;">Cada noche (23:30) el sistema revisa lo que se publicó ese día y propone hasta <b>10 cambios relevantes</b>, redactados para el equipo y sin datos financieros. Quedan guardados por fecha. Tú los revisas, los editas si hace falta y los <b>apruebas</b>: los aprobados se envían en el correo diario de cambios del <b>día siguiente</b> (19:00) y pasan al historial de la pestaña Cambios. Si para ese día hay un resumen escrito a mano en "Resumen de hoy", ese texto tiene prioridad.</div>
+    <div class="sub empty-note" style="margin-bottom:10px;">Cada noche (23:30) el sistema revisa lo que se publicó ese día y propone hasta <b>10 cambios relevantes</b>, redactados para el equipo y sin datos financieros. Quedan guardados por fecha. Tú los revisas, los editas si hace falta y los <b>apruebas</b>: los aprobados se envían en el correo diario de cambios del <b>día siguiente</b> (14:00) y pasan al historial de la pestaña Cambios. Si para ese día hay un resumen escrito a mano en "Resumen de hoy", ese texto tiene prioridad.</div>
     <div class="barra">
       <select id="fechaPropuesta" onchange="cargarPropuesta(this.value)" title="Día en que se hicieron los cambios"></select>
       <button class="btn-ghost" id="btnProponer" onclick="proponerAhora()" title="Vuelve a leer los cambios de ese día y rehace los que están por revisar. Lo aprobado o descartado no se toca.">↻ Proponer ahora</button>
@@ -698,14 +698,14 @@ function cambiarTab(tab, sinHash){
 let propuesta = { hoy: '', fecha: '', fechas: [], items: [], repo: '' };
 const seleccionPropuesta = new Set();
 function mas1(iso){ const d = new Date(iso.slice(0, 10) + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); }
-// Día y hora (Chile) en que saldrá el correo con lo aprobado: el 19:00 siguiente al día del cambio.
+// Día y hora (Chile) en que saldrá el correo con lo aprobado: el 14:00 siguiente al día del cambio.
 function cuandoSale(fecha){
   const hoy = hoyISO();
   const hora = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago', hour: 'numeric', hour12: false })) % 24;
   let dia = mas1(fecha);
   if(dia < hoy) dia = hoy;
-  if(dia === hoy && hora >= 19) dia = mas1(hoy);
-  return dia === hoy ? 'hoy 19:00' : (dia === mas1(hoy) ? 'mañana 19:00' : fechaCL(dia) + ' 19:00');
+  if(dia === hoy && hora >= 14) dia = mas1(hoy);
+  return dia === hoy ? 'hoy 14:00' : (dia === mas1(hoy) ? 'mañana 14:00' : fechaCL(dia) + ' 14:00');
 }
 async function cargarPropuesta(fecha){
   try{
@@ -832,7 +832,7 @@ function haceTiempo(iso){
   if(d < 30) return `hace ${d} día${d === 1 ? '' : 's'}`;
   return new Date(iso).toLocaleDateString('es-CL');
 }
-// Editor del texto del "Resumen diario de cambios": el correo de las 19:00 manda lo que quede guardado para HOY (si no hay texto, no manda).
+// Editor del texto del "Resumen diario de cambios": el correo de las 14:00 manda lo que quede guardado para HOY (si no hay texto, no manda).
 (function(){
   const st = document.createElement('style');
   st.textContent = '#textoResumen:empty::before{content:attr(data-ph);color:#8a96ab;}#textoResumen table{border-collapse:collapse;width:100%;margin:6px 0;}#textoResumen th,#textoResumen td{border:1px solid #cfd9ea;padding:6px 8px;text-align:left;vertical-align:top;}#textoResumen th{background:#eef4ff;}#textoResumen h3{margin:12px 0 4px;font-size:15px;color:#0b2a5b;}#textoResumen ul{margin:4px 0 6px 18px;padding:0;}';
@@ -841,8 +841,8 @@ function haceTiempo(iso){
 let periodoResumenSel = '24h', incluirEnviadosSel = false;
 function renderResumen(){
   const noti = listaNotificaciones.find(n => n.tipo === 'resumen-cambios-diario');
-  const estado = !resumenHoy.contenido ? 'Aún no hay resumen escrito para hoy: a las 19:00 se enviarán los cambios aprobados en "Propuesta del día" (si hay).'
-    : (resumenHoy.enviadoEn ? `Enviado ${haceTiempo(resumenHoy.enviadoEn)}.` : 'Guardado: se enviará hoy a las 19:00.');
+  const estado = !resumenHoy.contenido ? 'Aún no hay resumen escrito para hoy: a las 14:00 se enviarán los cambios aprobados en "Propuesta del día" (si hay).'
+    : (resumenHoy.enviadoEn ? `Enviado ${haceTiempo(resumenHoy.enviadoEn)}.` : 'Guardado: se enviará hoy a las 14:00.');
   const quienes = noti && noti.suscriptores.length
     ? noti.suscriptores.map(s => esc(s.nombre)).join(', ')
     : '<span title="Nadie recibirá este correo">nadie todavía</span>';

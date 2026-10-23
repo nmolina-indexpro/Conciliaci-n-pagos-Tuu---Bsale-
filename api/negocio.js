@@ -12867,6 +12867,10 @@ async function manejarResumenCambiosEnviar(req, res) {
     return res.status(401).json({ error: 'No autorizado' });
   }
   try {
+    // El correo sale SIEMPRE a las 14:00 de Chile. Vercel programa en UTC y Chile cambia de horario (UTC-3 en verano, UTC-4 en invierno), así que hay dos
+    // programaciones (17:00 y 18:00 UTC) y solo la que cae a las 14:00 en Chile envía. ?forzar=1 (con el mismo secreto) salta esta revisión.
+    const horaChile = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago', hour: 'numeric', hour12: false })) % 24;
+    if (horaChile !== 14 && req.query.forzar !== '1') return res.status(200).json({ ok: true, enviado: false, motivo: `no es la hora de envío (14:00 en Chile; ahora son las ${horaChile}:00)` });
     const sql = await getSql();
     await asegurarTablaNotificaciones(sql);
     return res.status(200).json({ ok: true, ...(await enviarResumenCambios(sql)) });
