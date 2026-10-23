@@ -436,24 +436,38 @@ async function manejarNotificaciones(req, res, sql) {
           enviado_en = CASE WHEN resumen_cambios.contenido = EXCLUDED.contenido THEN resumen_cambios.enviado_en ELSE NULL END;`;
       return res.status(200).json({ ok: true });
     }
-    // Arma el resumen de hoy con los cambios de las últimas 24 horas (fecha de ayer y de hoy), lo guarda y devuelve la vista previa del correo.
+    // Arma el resumen con los cambios NUEVOS (todavía no enviados) de un período -- periodo: 'hoy' | 'ayer' | '24h' (ayer y hoy, por defecto) | 'semana' (últimos 7 días);
+    // incluirEnviados = true agrega también los que ya salieron en un resumen. Lo guarda como resumen de hoy y devuelve la vista previa del correo.
     if (accion === 'generar-resumen') {
       await asegurarCambiosRegistro(sql);
-      const ayer = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
-      const { rows: filas } = await sql`
-        SELECT fecha::text AS fecha, area, descripcion, estado, sitio, url, destacado, imagen_token
-        FROM cambios_registro WHERE fecha >= ${ayer}::date AND aprobacion = 'aprobado' ORDER BY fecha DESC, id DESC;`;
-      if (filas.length === 0) return res.status(200).json({ ok: false, error: 'No hay cambios registrados con fecha de ayer u hoy. Agrégalos en la pestaña Cambios.' });
-      const texto = sanitizarHtmlResumen(armarContenidoCambios(filas));
+      const dia = n => new Date(Date.now() - n * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+      const PERIODOS = {
+        hoy: [0, 0, 'Cambios de hoy', 'de hoy'], ayer: [1, 1, 'Cambios de ayer', 'de ayer'],
+        '24h': [1, 0, 'Cambios de las últimas 24 horas', 'de las últimas 24 horas'], semana: [6, 0, 'Cambios de los últimos 7 días', 'de los últimos 7 días'],
+      };
+      const p = PERIODOS[(req.body || {}).periodo] || PERIODOS['24h'];
+      const incluirEnviados = (req.body || {}).incluirEnviados === true;
+      const { rows: todas } = await sql`
+        SELECT id, fecha::text AS fecha, area, descripcion, estado, sitio, url, destacado, imagen_token, enviado_en IS NOT NULL AS enviado
+        FROM cambios_registro WHERE aprobacion = 'aprobado' AND fecha >= ${dia(p[0])}::date AND fecha <= ${dia(p[1])}::date ORDER BY fecha DESC, id DESC;`;
+      const filas = incluirEnviados ? todas : todas.filter(r => !r.enviado);
+      const yaEnviados = todas.length - filas.length;
+      if (filas.length === 0) {
+        return res.status(200).json({ ok: false, error: todas.length
+          ? `No hay cambios nuevos ${p[3]}: los ${todas.length} que hay ya se enviaron. Marca "Incluir los ya enviados" si quieres verlos igual.`
+          : `No hay cambios registrados ${p[3]}. Agrégalos en la pestaña Cambios o aprueba los de "Propuesta del día".` });
+      }
+      const texto = sanitizarHtmlResumen(armarContenidoCambios(filas, { titulo: p[2] }));
+      const ids = filas.map(r => r.id);
       await asegurarConfigYSuscriptoresPorDefecto(sql, TIPO_RESUMEN_CAMBIOS);
       const quien = usuarioDesdeRequest(req);
       const autor = (quien && (quien.nombre || quien.email)) || 'admin';
       await sql`
-        INSERT INTO resumen_cambios (fecha, contenido, actualizado_por) VALUES (${hoy}::date, ${texto}, ${autor})
-        ON CONFLICT (fecha) DO UPDATE SET contenido = EXCLUDED.contenido, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now(),
+        INSERT INTO resumen_cambios (fecha, contenido, actualizado_por, cambios_ids) VALUES (${hoy}::date, ${texto}, ${autor}, ${ids}::int[])
+        ON CONFLICT (fecha) DO UPDATE SET contenido = EXCLUDED.contenido, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now(), cambios_ids = EXCLUDED.cambios_ids,
           enviado_en = CASE WHEN resumen_cambios.contenido = EXCLUDED.contenido THEN resumen_cambios.enviado_en ELSE NULL END;`;
       const { asunto, html } = armarCorreoResumen(hoy, texto);
-      return res.status(200).json({ ok: true, cantidad: filas.length, contenido: texto, asunto, html });
+      return res.status(200).json({ ok: true, cantidad: filas.length, yaEnviados, periodo: p[3], contenido: texto, asunto, html });
     }
     if (accion === 'enviar-resumen-ahora') {
       const r = await enviarResumenCambios(sql, { forzar: true });

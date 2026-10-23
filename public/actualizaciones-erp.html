@@ -310,7 +310,7 @@
       <select id="filtroSitioCambio" onchange="renderCambios()"><option value="">Sitio: todos</option><option value="web">Web indexstore.cl</option><option value="erp">ERP</option></select>
       <select id="filtroEstadoCambio" onchange="renderCambios()"><option value="">Estado: todos</option><option value="publicado">Publicados</option><option value="pendiente">Pendientes de publicar</option></select>
       <span class="espacio"></span>
-      <button class="btn-ghost" onclick="generarResumenHoy()" title="Arma el resumen con todos los cambios de las últimas 24 horas y muestra cómo se verá el correo">✉ Generar resumen de hoy</button>
+      <button class="btn-ghost" onclick="generarResumenHoy()" title="Arma el resumen del período elegido en la pestaña Resumen de hoy, solo con los cambios nuevos, y muestra cómo se verá el correo">✉ Generar resumen</button>
       <button class="btn-primary" onclick="abrirModalCambio()">+ Nuevo cambio</button>
     </div>
     <div class="card"><div class="tabla-wrap" id="wrapCambios"><p class="empty-note" style="padding:14px;">Cargando...</p></div></div>
@@ -817,6 +817,7 @@ function haceTiempo(iso){
   st.textContent = '#textoResumen:empty::before{content:attr(data-ph);color:#8a96ab;}#textoResumen table{border-collapse:collapse;width:100%;margin:6px 0;}#textoResumen th,#textoResumen td{border:1px solid #cfd9ea;padding:6px 8px;text-align:left;vertical-align:top;}#textoResumen th{background:#eef4ff;}#textoResumen h3{margin:12px 0 4px;font-size:15px;color:#0b2a5b;}#textoResumen ul{margin:4px 0 6px 18px;padding:0;}';
   document.head.appendChild(st);
 })();
+let periodoResumenSel = '24h', incluirEnviadosSel = false;
 function renderResumen(){
   const noti = listaNotificaciones.find(n => n.tipo === 'resumen-cambios-diario');
   const estado = !resumenHoy.contenido ? 'Aún no hay resumen escrito para hoy: a las 19:00 se enviarán los cambios aprobados en "Propuesta del día" (si hay).'
@@ -842,7 +843,14 @@ function renderResumen(){
         <div id="textoResumen" contenteditable="true" data-ph="Escribe o pega aquí el resumen para el equipo (al pegar desde el chat se mantienen negritas, listas y tablas)." style="min-height:220px;max-height:520px;overflow:auto;margin-top:2px;box-sizing:border-box;padding:10px 12px;border:1px solid #cfd9ea;border-radius:8px;background:#fff;line-height:1.45;">${htmlResumenParaEditor(resumenHoy.contenido)}</div>
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-primary btn-sm" onclick="guardarResumenHoy()">Guardar resumen de hoy</button>
-          <button class="btn-primary btn-sm" onclick="generarResumenHoy()" title="Arma el resumen con todos los cambios de las últimas 24 horas y muestra cómo se verá el correo">Generar resumen de hoy</button>
+          <select id="periodoResumen" onchange="periodoResumenSel = this.value" title="Período del que se arma el resumen" style="padding:5px 8px;font-size:12px;">
+            <option value="24h" ${periodoResumenSel === '24h' ? 'selected' : ''}>Últimas 24 horas</option>
+            <option value="hoy" ${periodoResumenSel === 'hoy' ? 'selected' : ''}>Solo hoy</option>
+            <option value="ayer" ${periodoResumenSel === 'ayer' ? 'selected' : ''}>Solo ayer</option>
+            <option value="semana" ${periodoResumenSel === 'semana' ? 'selected' : ''}>Últimos 7 días</option>
+          </select>
+          <button class="btn-primary btn-sm" onclick="generarResumenHoy()" title="Arma el resumen del período elegido solo con los cambios nuevos (los que todavía no se enviaron) y muestra cómo se verá el correo">Generar resumen</button>
+          <label class="empty-note" style="display:flex;align-items:center;gap:4px;font-size:12px;" title="Por defecto el resumen solo trae lo que todavía no se envió"><input type="checkbox" id="incluirEnviadosResumen" ${incluirEnviadosSel ? 'checked' : ''} onchange="incluirEnviadosSel = this.checked"> Incluir los ya enviados</label>
           <button class="btn-ghost btn-sm" onclick="enviarResumenAhora()">Enviar ahora a los destinatarios</button>
         </div>
       </div>`;
@@ -988,14 +996,14 @@ async function eliminarCambio(id){
 // y aquí se muestra cómo se verá el correo (mismo diseño que recibirá cada destinatario) antes de enviarlo.
 async function generarResumenHoy(){
   try{
-    const res = await fetch('/api/usuarios?recurso=notificaciones', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion:'generar-resumen' }) });
+    const res = await fetch('/api/usuarios?recurso=notificaciones', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ accion:'generar-resumen', periodo: periodoResumenSel, incluirEnviados: incluirEnviadosSel }) });
     const data = await res.json();
     if(!res.ok || !data.ok){ alert(data.error || 'No se pudo generar el resumen'); return; }
     resumenHoy.contenido = data.contenido;
     const ed = $('textoResumen'); if(ed) ed.innerHTML = htmlResumenParaEditor(data.contenido);
     const noti = listaNotificaciones.find(n => n.tipo === 'resumen-cambios-diario');
     const quienes = noti ? noti.suscriptores.map(s => s.nombre).join(', ') : '';
-    $('infoResumen').textContent = data.cantidad + (data.cantidad === 1 ? ' cambio' : ' cambios') + ' de las últimas 24 horas. Asunto: ' + data.asunto + '. ' + (quienes ? 'Se enviará a: ' + quienes + '.' : 'Esta notificación no tiene destinatarios todavía: agrégalos en Notificaciones.');
+    $('infoResumen').textContent = data.cantidad + (incluirEnviadosSel ? (data.cantidad === 1 ? ' cambio ' : ' cambios ') : (data.cantidad === 1 ? ' cambio nuevo ' : ' cambios nuevos ')) + data.periodo + (data.yaEnviados ? ' (los ' + data.yaEnviados + ' que ya se enviaron no se incluyen)' : '') + '. Asunto: ' + data.asunto + '. ' + (quienes ? 'Se enviará a: ' + quienes + '.' : 'Esta notificación no tiene destinatarios todavía: agrégalos en Notificaciones.');
     $('vistaResumen').srcdoc = '<!doctype html><meta charset="utf-8">' + data.html;
     $('modalResumen').classList.add('abierto');
   }catch(err){ alert('Error: ' + err.message); }
