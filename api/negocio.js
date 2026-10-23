@@ -22,6 +22,7 @@ import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
+import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadores.js';
 import { contarSeguimientos, PAUSA_SEGUIMIENTO_MS } from '../lib/whatsapp-seguimientos.js';
 import { corregirCorreo } from '../lib/correos-corregidos.js';
 import { sqlOfertaLateral, PARAMS_OFERTA, sqlSolicitudLateral, PARAM_SOLICITUD, mejorNivelOferta, nivelConversacion, esConversion, esOfertaCompleta, nivelDesdeFilaSql, resumirConversionComercial } from '../lib/whatsapp-oferta.js';
@@ -213,6 +214,7 @@ export default async function handler(req, res) {
   if (recurso === 'compat-propuestas') return manejarCompatPropuestas(req, res, sesion);
   if (recurso === 'compat-propuestas-resolver') return manejarCompatResolver(req, res, sesion);
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
+  if (recurso === 'home-indicadores') return manejarHomeIndicadores(req, res, sesion);
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
   if (recurso === 'facturas-compra') return manejarFacturasCompra(req, res, sesion);
@@ -687,6 +689,110 @@ async function manejarModelosCompatibilidad(req, res, sesion) {
 }
 
 // ---------------- Reportes de error / objeciones ----------------
+// Los 12 indicadores del Home (ver lib/home-indicadores.js): atención por WhatsApp, comercial, marketing, sitio web y soporte. Sin finanzas ni compras.
+// Cada bloque se lee por separado: si uno falla, ese indicador sale "sin datos" y los demás se muestran igual.
+async function manejarHomeIndicadores(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const dias = [1, 7, 15, 30, 60, 90].includes(Number(req.query.dias)) ? Number(req.query.dias) : 7;
+  const esAdmin = sesion.rol === 'admin';
+  try {
+    const sql = await getSql();
+    const errores = {};
+    const leer = async (clave, fn) => { try { return await fn(); } catch (e) { errores[clave] = String(e.message || e).slice(0, 160); return null; } };
+    // Inicio del período en hora de Chile (medianoche de "hace dias-1 días") y del período anterior, de la misma duración.
+    const INI = `(date_trunc('day', now() AT TIME ZONE 'America/Santiago') - (($1::int - 1) * interval '1 day')) AT TIME ZONE 'America/Santiago'`;
+
+    const [wa, seguimientos, cotizaciones, leads, ads, buscador, alertasWeb, compat, soporte] = await Promise.all([
+      leer('wa', async () => {
+        await asegurarTablaWhatsapp(sql);
+        const { rows } = await sql.query(`
+          WITH r AS (SELECT ${INI} AS ini), c AS (SELECT c.* FROM whatsapp_conversaciones c, r WHERE c.iniciada_en >= r.ini - ($1::int * interval '1 day'))
+          SELECT
+            COUNT(*) FILTER (WHERE iniciada_en >= r.ini)::int AS nuevas,
+            COUNT(*) FILTER (WHERE iniciada_en < r.ini)::int AS nuevas_prev,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY primera_respuesta_segundos) FILTER (WHERE iniciada_en >= r.ini AND primera_respuesta_segundos IS NOT NULL) AS mediana_seg,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY primera_respuesta_segundos) FILTER (WHERE iniciada_en < r.ini AND primera_respuesta_segundos IS NOT NULL) AS mediana_prev_seg,
+            COUNT(*) FILTER (WHERE iniciada_en >= r.ini AND primera_respuesta_segundos IS NOT NULL)::int AS con_resp,
+            COUNT(*) FILTER (WHERE iniciada_en >= r.ini AND primera_respuesta_segundos < 300)::int AS bajo_5,
+            COUNT(*) FILTER (WHERE iniciada_en >= r.ini AND primera_respuesta_segundos IS NULL AND primer_mensaje_cliente_en IS NOT NULL)::int AS sin_resp,
+            COUNT(*) FILTER (WHERE iniciada_en < r.ini AND primera_respuesta_segundos IS NULL AND primer_mensaje_cliente_en IS NOT NULL)::int AS sin_resp_prev,
+            COUNT(*) FILTER (WHERE iniciada_en >= r.ini AND venta_detectada = true)::int AS ventas,
+            COUNT(*) FILTER (WHERE iniciada_en < r.ini AND venta_detectada = true)::int AS ventas_prev
+          FROM c, r;`, [dias]);
+        return rows[0];
+      }),
+      leer('seguimientos', async () => {
+        const { rows } = await sql.query(`SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones WHERE requiere_seguimiento = true AND (seguimiento_estado IS NULL OR seguimiento_estado = 'pendiente') AND iniciada_en >= now() - interval '30 days';`);
+        return rows[0];
+      }),
+      leer('cotizaciones', async () => {
+        await asegurarTablaCotizaciones(sql); await asegurarTablaCotizacionesEliminadas(sql);
+        const { rows } = await sql.query(`
+          SELECT COUNT(*) FILTER (WHERE estado = 'sin_contactar')::int AS sin_contactar,
+                 COUNT(*) FILTER (WHERE estado = 'sin_contactar' AND fecha <= (now() AT TIME ZONE 'America/Santiago')::date - 3)::int AS mas_3_dias
+            FROM bsale_cotizaciones
+           WHERE fecha >= (now() AT TIME ZONE 'America/Santiago')::date - 30 AND id NOT IN (SELECT id FROM bsale_cotizaciones_eliminadas);`);
+        return rows[0];
+      }),
+      leer('leads', async () => {
+        await asegurarTablaIndexscaleLeadsWeb(sql);
+        const { rows } = await sql.query(`
+          WITH r AS (SELECT ${INI} AS ini)
+          SELECT COUNT(*) FILTER (WHERE estado = 'nuevo')::int AS sin_atender,
+                 COUNT(*) FILTER (WHERE creado_en >= r.ini)::int AS nuevos_periodo,
+                 COUNT(*) FILTER (WHERE creado_en >= r.ini - ($1::int * interval '1 day') AND creado_en < r.ini)::int AS nuevos_prev
+            FROM indexscale_leads_web, r;`, [dias]);
+        return rows[0];
+      }),
+      leer('ads', async () => {
+        await asegurarTablaWaClicsAds(sql);
+        const { rows } = await sql.query(`
+          WITH r AS (SELECT ${INI} AS ini)
+          SELECT COUNT(*) FILTER (WHERE creado_en >= r.ini)::int AS toques,
+                 COUNT(*) FILTER (WHERE creado_en >= r.ini AND mensaje_id IS NOT NULL)::int AS con_mensaje,
+                 COUNT(*) FILTER (WHERE creado_en >= r.ini - ($1::int * interval '1 day') AND creado_en < r.ini AND mensaje_id IS NOT NULL)::int AS con_mensaje_prev
+            FROM wa_clics_ads, r;`, [dias]);
+        return rows[0];
+      }),
+      leer('buscador', async () => {
+        await asegurarTablaBuscadorIa(sql);
+        const { rows } = await sql.query(`
+          WITH r AS (SELECT ${INI} AS ini)
+          SELECT COUNT(*) FILTER (WHERE creado_en >= r.ini)::int AS total,
+                 COUNT(*) FILTER (WHERE creado_en >= r.ini AND sin_resultado)::int AS sin_resultado,
+                 COUNT(*) FILTER (WHERE creado_en >= r.ini - ($1::int * interval '1 day') AND creado_en < r.ini)::int AS total_prev,
+                 COUNT(*) FILTER (WHERE creado_en >= r.ini - ($1::int * interval '1 day') AND creado_en < r.ini AND sin_resultado)::int AS sin_resultado_prev
+            FROM buscador_ia_consultas, r;`, [dias]);
+        return rows[0];
+      }),
+      leer('alertasWeb', async () => {
+        await asegurarTablaAlertasSitioWebCache(sql);
+        const { rows } = await sql`SELECT datos FROM alertas_sitio_web_cache WHERE id = 1;`;
+        const d = rows[0] && rows[0].datos;
+        if (!d || d.error) return null;
+        const cuenta = v => (Array.isArray(v) ? v.length : 0);
+        return { stockNoVisible: cuenta(d.stockNoVisible), preciosDistintos: cuenta(d.preciosDistintos), preciosDesincronizados: cuenta(d.preciosDesincronizados), skusIncorrectos: cuenta(d.skusIncorrectosReferencia) };
+      }),
+      leer('compat', async () => {
+        await asegurarTablaCompatPropuestas(sql);
+        const { rows } = await sql.query(`SELECT COUNT(*)::int AS n, COALESCE(MAX(EXTRACT(DAY FROM now() - creado_en))::int, 0) AS dias_mas_antigua FROM compat_propuestas WHERE estado = 'pendiente';`);
+        return rows[0];
+      }),
+      leer('soporte', async () => {
+        await asegurarTablaReportesError(sql);
+        const { rows } = esAdmin
+          ? await sql.query(`SELECT COUNT(*) FILTER (WHERE estado <> 'resuelto')::int AS pendientes, COUNT(*)::int AS total FROM reportes_error;`)
+          : await sql.query(`SELECT COUNT(*) FILTER (WHERE estado <> 'resuelto')::int AS pendientes, COUNT(*)::int AS total FROM reportes_error WHERE usuario_email = $1;`, [sesion.email]);
+        return rows[0];
+      }),
+    ]);
+    const indicadores = armarIndicadoresHome({ dias, esAdmin, wa, seguimientos, cotizaciones, leads, ads, buscador, alertasWeb, compat, soporte });
+    return res.status(200).json({ dias, actualizado: new Date().toISOString(), indicadores, errores });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudieron calcular los indicadores', detail: String(err.message || err).slice(0, 200) });
+  }
+}
+
 async function manejarReportes(req, res, sesion) {
   try {
     const sql = await getSql();

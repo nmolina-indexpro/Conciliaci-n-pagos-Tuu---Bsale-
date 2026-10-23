@@ -85,6 +85,23 @@
   .acceso-card .titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;margin-bottom:4px;}
   .acceso-card .desc{font-size:11.5px;color:var(--muted);line-height:1.4;}
   body.sin-margenes .solo-admin{display:none !important;}
+  .ind-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:12px;}
+  @media (max-width:1300px){.ind-grid{grid-template-columns:repeat(3,1fr);}}
+  @media (max-width:900px){.ind-grid{grid-template-columns:1fr 1fr;}}
+  @media (max-width:560px){.ind-grid{grid-template-columns:1fr;}}
+  .ind-card{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:14px;padding:16px 18px 14px;box-shadow:var(--shadow);text-decoration:none;color:var(--text);display:flex;flex-direction:column;gap:2px;transition:all .15s;min-height:150px;}
+  .ind-card:hover{border-color:var(--primary);transform:translateY(-2px);}
+  .ind-card.ok{border-left-color:var(--green);} .ind-card.warn{border-left-color:var(--amber);} .ind-card.alert{border-left-color:var(--red);}
+  .ind-area{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:700;}
+  .ind-titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;margin:2px 0 6px;display:flex;gap:6px;align-items:center;}
+  .ind-valor{font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:600;line-height:1.1;}
+  .ind-card.alert .ind-valor{color:var(--red);} .ind-card.warn .ind-valor{color:var(--amber);} .ind-card.ok .ind-valor{color:var(--green);}
+  .ind-fila{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;}
+  .ind-var{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;background:var(--surface-2);color:var(--muted);}
+  .ind-var.bueno{background:var(--green-bg);color:var(--green);} .ind-var.malo{background:var(--red-bg);color:var(--red);}
+  .ind-sub{font-size:11.5px;color:var(--muted);line-height:1.4;margin-top:6px;}
+  .ind-card.sin-datos .ind-valor{color:var(--muted);}
+  .ind-pie{font-size:11.5px;color:var(--muted);margin:0 0 24px;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -192,7 +209,7 @@
   <div class="toolbar">
     <div>
       <h1>Hola <span id="saludoNombre">👋</span></h1>
-      <div class="sub">Lo más importante del negocio, en una sola pantalla.</div>
+      <div class="sub">Los 12 indicadores para atender mejor, vender más y cuidar el sitio web. Sin finanzas ni compras.</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;">
       <select id="diasInput" onchange="cargar()">
@@ -236,48 +253,8 @@
     </a>
   </div>
 
-  <div class="grid" id="kpiWrap">
-    <div class="card solo-admin"><div class="lbl">Margen perdido estimado</div><div class="big">—</div></div>
-    <div class="card"><div class="lbl">SKUs en quiebre ahora</div><div class="big">—</div></div>
-    <div class="card"><div class="lbl">Críticos en riesgo</div><div class="big">—</div></div>
-    <div class="card"><div class="lbl">Cobertura promedio</div><div class="big">—</div></div>
-  </div>
-
-  <div class="dos-columnas">
-    <div class="seccion">
-      <div class="seccion-head">
-        <div><h2>⏳ Quiebre inminente</h2><div class="sub">Top 5 más urgentes.</div></div>
-        <a href="alertas-stock.html">Ver todo →</a>
-      </div>
-      <div id="wrapInminente"><p class="empty-note">Cargando...</p></div>
-    </div>
-
-    <div class="seccion solo-admin">
-      <div class="seccion-head">
-        <div><h2>💸 Mayor margen perdido</h2><div class="sub">Top 5 productos con más venta perdida por quiebre.</div></div>
-        <a href="alertas-stock.html">Ver todo →</a>
-      </div>
-      <div id="wrapPerdidas"><p class="empty-note">Cargando...</p></div>
-    </div>
-  </div>
-
-  <div class="dos-columnas">
-    <div class="seccion">
-      <div class="seccion-head">
-        <div><h2>📅 Próximos pagos a proveedores</h2><div class="sub">Vencen hoy o el próximo día hábil.</div></div>
-        <a href="compras.html">Ver todo →</a>
-      </div>
-      <div id="wrapPagos"><p class="empty-note">Cargando...</p></div>
-    </div>
-
-    <div class="seccion">
-      <div class="seccion-head">
-        <div><h2>🐞 Soporte</h2><div class="sub" id="subSoporte">Tickets de error y objeciones.</div></div>
-        <a href="reportar-error.html">Ver todo →</a>
-      </div>
-      <div id="wrapSoporte"><p class="empty-note">Cargando...</p></div>
-    </div>
-  </div>
+  <div class="ind-grid" id="indWrap"><p class="empty-note">Cargando indicadores...</p></div>
+  <p class="ind-pie" id="indPie"></p>
 
 </div>
 
@@ -285,8 +262,6 @@
 <script src="menu-herramientas.js"></script>
 <script>
 const $ = id => document.getElementById(id);
-function fmt(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
-function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
 
 let rolActual = 'usuario';
 
@@ -312,158 +287,46 @@ async function cerrarSesion(){
   location.href = '/login.html';
 }
 
+const NOMBRE_PERIODO = { 1: 'hoy', 7: 'los últimos 7 días', 15: 'los últimos 15 días', 30: 'los últimos 30 días', 60: 'los últimos 60 días', 90: 'los últimos 90 días' };
+function esc(t){ return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
 async function cargar(){
-  const dias = parseInt($('diasInput').value, 10) || 90;
+  const dias = parseInt($('diasInput').value, 10) || 7;
   const status = $('status');
   status.className = '';
-  status.textContent = `Consultando ${dias} días en Bsale...`;
-
+  status.textContent = 'Calculando los indicadores...';
   try{
-    const [res, soporteRes, facturasRes] = await Promise.all([
-      fetch(`/api/bsale-sku-report?days=${dias}`).then(r=>r.json()),
-      fetch(`/api/negocio?recurso=reportes`).then(r=>r.json()).catch(()=>({reportes:[]})),
-      fetch(`/api/bsale-facturas-por-pagar`).then(r=>r.json()).catch(()=>({facturas:[]}))
-    ]);
-    if(res.error){
-      status.className = 'err';
-      status.textContent = 'Error: ' + (res.detail || res.error);
-      return;
-    }
-
-    renderKpis(res.skus || []);
-    renderInminente(res.skus || []);
-    renderPerdidas(res.skus || []);
-    renderPagos(facturasRes.facturas || [], facturasRes.hoy);
-    renderSoporte(soporteRes.reportes || []);
-
-    status.textContent = `Actualizado — ${res.startDate} a ${res.endDate}`;
+    const res = await fetch('/api/negocio?recurso=home-indicadores&dias=' + dias);
+    const d = await res.json();
+    if(!res.ok || d.error){ status.className = 'err'; status.textContent = 'Error: ' + (d.detail || d.error || 'no se pudieron calcular'); return; }
+    renderIndicadores(d.indicadores || []);
+    const hora = new Date(d.actualizado).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' });
+    status.textContent = 'Actualizado a las ' + hora;
+    const fallas = Object.keys(d.errores || {});
+    $('indPie').textContent = 'Los porcentajes de las flechas comparan con el período anterior de la misma duración. Los conteos "sin atender" y "por aprobar" son el estado de hoy, no del período.' + (fallas.length ? ' No se pudo leer: ' + fallas.join(', ') + '.' : '');
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
   }
 }
 
-function renderKpis(skus){
-  const cards = document.querySelectorAll('#kpiWrap .card');
-  const margenPerdidoTotal = skus.reduce((a,s)=>a+(s.margenPerdidoPorQuiebre||0),0);
-  const enQuiebreAhora = skus.filter(s=>s.stockActual===0 && s.ventaDiariaPromedio>0).length;
-  const criticos = skus.filter(s=>s.esEstrella);
-  const criticosEnRiesgo = criticos.filter(s=>s.stockActual===0 || (s.diasCobertura!=null && s.diasCobertura<=3)).length;
-  const conVenta = skus.filter(s=>s.ventaDiariaPromedio>0 && s.diasCobertura!=null);
-  const coberturaProm = conVenta.length ? Math.round(conVenta.reduce((a,s)=>a+s.diasCobertura,0)/conVenta.length) : null;
-
-  cards[0].querySelector('.big').textContent = fmt(margenPerdidoTotal);
-  cards[0].classList.toggle('alert', margenPerdidoTotal > 0);
-  cards[1].querySelector('.big').textContent = fmtNum(enQuiebreAhora);
-  cards[1].classList.toggle('alert', enQuiebreAhora > 0);
-  cards[2].querySelector('.big').textContent = fmtNum(criticosEnRiesgo) + ' / ' + fmtNum(criticos.length);
-  cards[2].classList.toggle('alert', criticosEnRiesgo > 0);
-  cards[3].querySelector('.big').textContent = coberturaProm != null ? coberturaProm + ' días' : '—';
-  cards[3].classList.toggle('warn', coberturaProm != null && coberturaProm <= 7);
+function chipVariacion(v){
+  if(!v) return '';
+  if(v.nuevo) return '<span class="ind-var" title="El período anterior estaba en cero">nuevo</span>';
+  if(v.pct === 0) return '<span class="ind-var">= igual que antes</span>';
+  const signo = v.pct > 0 ? '▲ +' : '▼ −';
+  return '<span class="ind-var ' + (v.tendencia === 'bueno' ? 'bueno' : v.tendencia === 'malo' ? 'malo' : '') + '" title="Frente al período anterior de la misma duración">' + signo + Math.abs(v.pct).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + '%</span>';
 }
-
-function renderInminente(skus){
-  const lista = skus
-    .filter(s=>s.stockActual>0 && s.ventaDiariaPromedio>0 && s.diasCobertura!=null && s.diasCobertura<=5)
-    .sort((a,b)=>a.diasCobertura-b.diasCobertura)
-    .slice(0,5);
-  if(lista.length===0){ $('wrapInminente').innerHTML = `<p class="empty-note">Nada urgente por ahora. 🎉</p>`; return; }
-  $('wrapInminente').innerHTML = `
-    <div class="tabla-wrap"><table>
-      <thead><tr><th>SKU</th><th>Producto</th><th class="amount">Stock</th><th class="amount">Cobertura</th></tr></thead>
-      <tbody>
-        ${lista.map(s=>`<tr class="riesgo"><td>${s.code}</td><td>${s.nombre}</td><td class="amount">${s.stockActual}</td><td class="amount"><b>${s.diasCobertura} días</b></td></tr>`).join('')}
-      </tbody>
-    </table></div>`;
-}
-
-function renderPerdidas(skus){
-  const lista = skus
-    .filter(s=>s.diasQuiebreHistorico>0 && s.unidadesVendidas>0)
-    .sort((a,b)=>(b.margenPerdidoPorQuiebre||0)-(a.margenPerdidoPorQuiebre||0))
-    .slice(0,5);
-  if(lista.length===0){ $('wrapPerdidas').innerHTML = `<p class="empty-note">Sin quiebres registrados en el período. 🎉</p>`; return; }
-  $('wrapPerdidas').innerHTML = `
-    <div class="tabla-wrap"><table>
-      <thead><tr><th>SKU</th><th>Producto</th><th class="amount">Días quiebre</th><th class="amount">Margen perdido</th></tr></thead>
-      <tbody>
-        ${lista.map(s=>`<tr class="${s.stockActual===0?'quiebre':''}"><td>${s.code}</td><td>${s.nombre}</td><td class="amount">${s.diasQuiebreHistorico}</td><td class="amount">${s.margenPerdidoPorQuiebre!=null?fmt(s.margenPerdidoPorQuiebre):'—'}</td></tr>`).join('')}
-      </tbody>
-    </table></div>`;
-}
-
-function proximoDiaHabil(fechaStr){
-  const [y,m,d] = fechaStr.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m-1, d));
-  dt.setUTCDate(dt.getUTCDate()+1);
-  const dow = dt.getUTCDay(); // 0=domingo, 6=sábado
-  if(dow===6) dt.setUTCDate(dt.getUTCDate()+2);
-  else if(dow===0) dt.setUTCDate(dt.getUTCDate()+1);
-  return dt.toISOString().slice(0,10);
-}
-function formatoFecha(fechaStr){
-  const [y,m,d] = fechaStr.split('-');
-  return `${d}-${m}-${y}`;
-}
-
-function renderPagos(facturas, hoyStr){
-  hoyStr = hoyStr || new Date().toISOString().slice(0,10);
-  const diaHabilSiguiente = proximoDiaHabil(hoyStr);
-
-  const vencenHoy = (facturas||[]).filter(f => f.fechaEstimadaPago === hoyStr);
-  const vencenProximoDia = (facturas||[]).filter(f => f.fechaEstimadaPago === diaHabilSiguiente);
-
-  if(vencenHoy.length===0 && vencenProximoDia.length===0){
-    $('wrapPagos').innerHTML = `<p class="empty-note">Sin pagos a proveedores que venzan hoy (${formatoFecha(hoyStr)}) ni el próximo día hábil (${formatoFecha(diaHabilSiguiente)}). 🎉</p>`;
-    return;
-  }
-
-  const filaFactura = f => `
-    <tr>
-      <td>${f.proveedor}</td>
-      <td>${f.documento}${f.numeroDocumento?' N°'+f.numeroDocumento:''}</td>
-      <td class="amount">${fmt(f.monto)}</td>
-    </tr>`;
-
-  const bloque = (titulo, lista) => {
-    if(lista.length===0) return '';
-    const total = lista.reduce((a,f)=>a+f.monto,0);
-    return `
-      <div style="margin-bottom:14px;">
-        <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;margin-bottom:6px;">${titulo} — <span style="color:var(--primary);">${fmt(total)}</span></div>
-        <div class="tabla-wrap"><table>
-          <thead><tr><th>Proveedor</th><th>Documento</th><th class="amount">Monto</th></tr></thead>
-          <tbody>${lista.map(filaFactura).join('')}</tbody>
-        </table></div>
-      </div>`;
-  };
-
-  $('wrapPagos').innerHTML =
-    bloque(`🔴 Vencen hoy (${formatoFecha(hoyStr)})`, vencenHoy) +
-    bloque(`🟡 Vencen el próximo día hábil (${formatoFecha(diaHabilSiguiente)})`, vencenProximoDia);
-}
-
-function renderSoporte(reportes){
-  const pendientes = reportes.filter(r=>r.estado!=='resuelto');
-  $('subSoporte').textContent = rolActual==='admin'
-    ? `${pendientes.length} sin resolver de ${reportes.length} en total.`
-    : `Tienes ${pendientes.length} ticket(s) sin resolver.`;
-
-  if(reportes.length===0){ $('wrapSoporte').innerHTML = `<p class="empty-note">Sin tickets registrados.</p>`; return; }
-  const lista = reportes.slice(0,5);
-  $('wrapSoporte').innerHTML = `
-    <div class="tabla-wrap"><table>
-      <thead><tr>${rolActual==='admin'?'<th>Usuario</th>':''}<th>Tipo</th><th>Descripción</th><th>Estado</th></tr></thead>
-      <tbody>
-        ${lista.map(r=>`
-          <tr>
-            ${rolActual==='admin'?`<td>${r.usuario_nombre||r.usuario_email}</td>`:''}
-            <td>${r.tipo==='objecion'?'Objeción':'Error'}</td>
-            <td style="max-width:260px;">${r.descripcion}</td>
-            <td><span class="badge ${r.estado.replace(' ','-')}">${r.estado}</span></td>
-          </tr>`).join('')}
-      </tbody>
-    </table></div>`;
+function renderIndicadores(lista){
+  if(!lista.length){ $('indWrap').innerHTML = '<p class="empty-note">No hay indicadores para mostrar.</p>'; return; }
+  $('indWrap').innerHTML = lista.map(i =>
+    '<a class="ind-card ' + (i.tono || '') + (i.sinDatos ? ' sin-datos' : '') + '" href="' + esc(i.enlace) + '">' +
+      '<div class="ind-area">' + esc(i.area) + '</div>' +
+      '<div class="ind-titulo"><span>' + esc(i.icono) + '</span><span>' + esc(i.titulo) + '</span></div>' +
+      '<div class="ind-valor">' + esc(i.valor) + '</div>' +
+      '<div class="ind-fila">' + chipVariacion(i.variacion) + '</div>' +
+      '<div class="ind-sub">' + esc(i.sub) + '</div>' +
+    '</a>').join('');
 }
 
 cargarSesionUsuario();
