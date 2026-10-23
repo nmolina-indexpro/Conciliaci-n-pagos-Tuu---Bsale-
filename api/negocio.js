@@ -21,6 +21,7 @@ import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
+import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
 import { contarSeguimientos, PAUSA_SEGUIMIENTO_MS } from '../lib/whatsapp-seguimientos.js';
 import { corregirCorreo } from '../lib/correos-corregidos.js';
 import { sqlOfertaLateral, PARAMS_OFERTA, sqlSolicitudLateral, PARAM_SOLICITUD, mejorNivelOferta, nivelConversacion, esConversion, esOfertaCompleta, nivelDesdeFilaSql, resumirConversionComercial } from '../lib/whatsapp-oferta.js';
@@ -4613,6 +4614,48 @@ async function manejarComparadorConfig(req, res, sesion) {
 // avance vive en el historial de eventos (productos_transito_eventos),
 // mismo criterio que un historial de tracking de naviera.
 const tipoTransporteValido = (v) => (v === 'maritimo' || v === 'aereo' ? v : null);
+
+// Aviso por correo (notificación 'transito-envio-nuevo', se administra en Usuarios > Notificaciones): una carga nueva viene en camino o se está preparando.
+// Sale una sola vez por envío, cuando ya tiene productos cargados (notificado_en lo recuerda). Nunca hace fallar el guardado del envío.
+async function avisarEnvioTransito(sql, envio) {
+  try {
+    if (!debeAvisarseEnvio(envio) || envio.notificado_en) return { enviado: false, motivo: 'no corresponde avisar' };
+    await asegurarTablaNotificaciones(sql);
+    if (!(await notificacionDebeEnviarse(sql, 'transito-envio-nuevo'))) return { enviado: false, motivo: 'notificación inactiva' };
+    const destinatarios = await obtenerSuscriptoresEmail(sql, 'transito-envio-nuevo');
+    const { asunto, html } = armarCorreoEnvioTransito(envio, { urlBase: URL_BASE_APP, hoy: fechaHoyChile() });
+    let enviados = 0; const errores = [];
+    for (const para of destinatarios) {
+      const r = await enviarCorreo({ para, asunto, html });
+      if (r && r.enviado) enviados++; else errores.push(String((r && r.motivo) || 'sin motivo').slice(0, 200));
+    }
+    // Se marca como avisado aunque no haya destinatarios o falle el envío: es un aviso de evento, no se repite al editar el envío.
+    await sql`UPDATE productos_transito_envios SET notificado_en = now() WHERE id = ${envio.id};`;
+    if (enviados > 0) await marcarNotificacionEnviada(sql, 'transito-envio-nuevo', { asunto, html });
+    return { enviado: enviados > 0, enviados, errores };
+  } catch (e) {
+    return { enviado: false, motivo: String(e.message || e).slice(0, 200) };
+  }
+}
+
+// "Enviar prueba" de Usuarios > Notificaciones: manda a quien lo pidió el aviso del envío más reciente que tenga productos (o un ejemplo si no hay ninguno).
+async function manejarTransitoEnvioNuevoPrueba(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaProductosTransito(sql);
+    const { rows } = await sql`SELECT * FROM productos_transito_envios WHERE jsonb_array_length(productos) > 0 ORDER BY (estado = 'en_transito') DESC, created_at DESC LIMIT 1;`;
+    const hoy = fechaHoyChile();
+    const envio = rows[0] || { referencia: 'EJEMPLO-001', tipo_transporte: 'maritimo', puerto_origen: 'CNYTN', puerto_destino: 'CLVAP', fecha_salida: hoy, estado: 'en_transito', total_bultos: 10, peso_kg: 120,
+      productos: [{ sku: 'EJ-001', nombre: 'Producto de ejemplo', cantidad: 20 }] };
+    const { asunto, html } = armarCorreoEnvioTransito(envio, { urlBase: URL_BASE_APP, hoy, ejemplo: !rows[0] });
+    const r = await enviarCorreo({ para: String(req.query.para || ''), asunto: '[PRUEBA] ' + asunto, html });
+    return res.status(200).json({ ok: true, enviado: !!(r && r.enviado), motivo: r && r.motivo });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo armar el correo de prueba', detail: String(e.message || e).slice(0, 200) });
+  }
+}
 async function manejarTransitoEnvios(req, res, sesion) {
   try {
     const sql = await getSql();
@@ -4645,7 +4688,8 @@ async function manejarTransitoEnvios(req, res, sesion) {
           ${b.fechaSalida || null}, ${b.fechaEta || null}, ${JSON.stringify(productos)}, ${sesion.nombre || sesion.email}
         ) RETURNING *;
       `;
-      return res.status(200).json({ ok: true, envio: { ...rows[0], eventos: [] } });
+      const aviso = await avisarEnvioTransito(sql, rows[0]);
+      return res.status(200).json({ ok: true, envio: { ...rows[0], eventos: [] }, aviso });
     }
 
     if (req.method === 'PUT') {
@@ -4653,6 +4697,7 @@ async function manejarTransitoEnvios(req, res, sesion) {
       if (!b.id) return res.status(400).json({ error: 'Falta id' });
       if (!b.referencia || !b.referencia.trim()) return res.status(400).json({ error: 'Falta la referencia del envío' });
       const productos = Array.isArray(b.productos) ? b.productos.filter(p => p.nombre && p.nombre.trim()) : [];
+      const { rows: previoRows } = await sql`SELECT jsonb_array_length(productos)::int AS n FROM productos_transito_envios WHERE id = ${b.id};`;
       const { rows } = await sql`
         UPDATE productos_transito_envios SET
           referencia = ${b.referencia.trim()}, contenedor = ${b.contenedor || null}, house_bill = ${b.houseBill || null},
@@ -4664,7 +4709,9 @@ async function manejarTransitoEnvios(req, res, sesion) {
         WHERE id = ${b.id} RETURNING *;
       `;
       if (!rows[0]) return res.status(404).json({ error: 'Envío no encontrado' });
-      return res.status(200).json({ ok: true, envio: rows[0] });
+      // Un envío creado sin productos que los recibe después también avisa (solo si antes no tenía ninguno: editar uno ya cargado no repite el aviso).
+      const aviso = previoRows[0] && previoRows[0].n === 0 ? await avisarEnvioTransito(sql, rows[0]) : null;
+      return res.status(200).json({ ok: true, envio: rows[0], aviso });
     }
 
     if (req.method === 'DELETE') {
@@ -4784,6 +4831,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'whatsapp-ejecutivos-diario': manejarWhatsappEjecutivosNotificarDiario,
       'google-ads-resumen-semanal': manejarGoogleAdsResumenSemanal,
       'modelos-compatibles-pendientes': manejarModelosCompatiblesRecordatorio,
+      'transito-envio-nuevo': manejarTransitoEnvioNuevoPrueba,
     };
     let r;
     if (tipo === 'resumen-cambios-diario') r = await enviarResumenCambios(sql, { para: destino });
