@@ -453,9 +453,18 @@ async function manejarNotificaciones(req, res, sql) {
       const filas = incluirEnviados ? todas : todas.filter(r => !r.enviado);
       const yaEnviados = todas.length - filas.length;
       if (filas.length === 0) {
-        return res.status(200).json({ ok: false, error: todas.length
+        // El resumen solo ve los cambios registrados y aprobados; los hechos en el sistema llegan como propuestas (Propuesta del día), que hay que aprobar.
+        const { rows: pend } = await sql`
+          SELECT COUNT(*) FILTER (WHERE aprobacion = 'propuesto')::int AS por_revisar, COUNT(DISTINCT fecha)::int AS dias_analizados
+          FROM cambios_registro WHERE origen = 'propuesta' AND fecha >= ${dia(p[0])}::date AND fecha <= ${dia(p[1])}::date;`;
+        const porRevisar = pend[0] ? pend[0].por_revisar : 0;
+        const base = todas.length
           ? `No hay cambios nuevos ${p[3]}: los ${todas.length} que hay ya se enviaron. Marca "Incluir los ya enviados" si quieres verlos igual.`
-          : `No hay cambios registrados ${p[3]}. Agrégalos en la pestaña Cambios o aprueba los de "Propuesta del día".` });
+          : `No hay cambios registrados ${p[3]}.`;
+        const pista = porRevisar
+          ? ` Hay ${porRevisar} ${porRevisar === 1 ? 'cambio propuesto' : 'cambios propuestos'} sin revisar en "Propuesta del día": apruébalos y vuelve a generar.`
+          : ' Los cambios que se hacen en el sistema entran como propuestas: en "Propuesta del día" usa "Proponer los últimos 7 días", apruébalos y vuelve a generar.';
+        return res.status(200).json({ ok: false, sugerirPropuesta: true, error: base + pista });
       }
       const texto = sanitizarHtmlResumen(armarContenidoCambios(filas, { titulo: p[2] }));
       const ids = filas.map(r => r.id);
