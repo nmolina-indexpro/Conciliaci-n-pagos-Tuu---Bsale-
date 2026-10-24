@@ -114,6 +114,10 @@
   .cmp-tabs{grid-template-columns:repeat(3,1fr);}
   .cmp-check{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);}
   .cmp-sync{margin:0 0 14px;padding:10px 14px;border-radius:10px;background:var(--amber-dim);border:1px solid #F3D9A8;font-size:12.5px;line-height:1.5;}
+  .cmp-celda-exp{cursor:pointer;user-select:none;} .cmp-celda-exp:hover{background:var(--primary-dim);}
+  .cmp-flecha{display:inline-block;width:14px;color:var(--primary);font-weight:700;}
+  tr.fila-detalle > td{background:var(--surface-2);padding:12px 16px 16px;border-bottom:2px solid var(--line);}
+  .cmp-detalle table{background:var(--surface);}
   input[type=search]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:7px 12px;border-radius:9px;font-size:12.5px;}
 </style>
 <meta name="theme-color" content="#0F766E">
@@ -462,8 +466,8 @@ function setVistaCmp(v){
   dibujarVistaCmp();
 }
 const barra = (pct, color) => `<span class="ads-barra" style="width:60px;"><i style="width:${Math.min(100, pct)}%;${color ? 'background:' + color : ''}"></i></span>`;
-function filaCmp(f, cols){
-  return `<tr>${cols}
+function filaCmp(f, cols, attrs = ''){
+  return `<tr ${attrs}>${cols}
     <td class="amount">${fmtClp(f.montoActual)}</td><td class="amount">${fmtClp(f.montoBase)}</td>
     <td class="amount ${clase(f.varMonto)}">${fmtDifClp(f.varMonto)}</td><td class="amount ${clase(f.varMonto)}">${f.varMontoPct == null ? (f.montoActual > 0 ? 'nuevo' : '—') : fmtPct(f.varMontoPct, true)}</td>
     <td class="amount">${fmtNum(f.unidadesActual)}</td><td class="amount">${fmtNum(f.unidadesBase)}</td>
@@ -471,6 +475,45 @@ function filaCmp(f, cols){
     <td class="amount">${fmtClp(f.precioActual)}</td><td class="amount">${fmtClp(f.precioBase)}</td>
     <td class="amount">${barra(f.partActual)}${fmtPct(f.partActual)}</td><td class="amount">${fmtPct(f.partBase)}</td></tr>`;
 }
+// ---------- Despliegue de una categoría o marca: sus productos de mayor a menor variación en $ ----------
+let agrupadoCmp = [];
+const expandidosCmp = new Set();
+function detalleCmp(f){
+  const a = etiquetaCorta(datos.mes), b = etiquetaCorta(datos.base);
+  const campo = vista === 'categorias' ? 'categoria' : 'marca';
+  const items = datos.productos.filter(p => p[campo] === f.clave).sort((x, y) => (y.varMonto - x.varMonto) || (y.montoActual - x.montoActual));
+  const tope = 300, estado = { nuevo: '🆕 Nuevo', sin_ventas: '⛔ Sin ventas', crece: '▲ Crece', cae: '▼ Cae' };
+  const filas = items.slice(0, tope).map(p => `<tr><td>${escapeHtml(p.sku)}</td><td>${escapeHtml(p.nombre)}</td><td>${estado[p.estado] || ''}</td>
+    <td class="amount">${fmtClp(p.montoActual)}</td><td class="amount">${fmtClp(p.montoBase)}</td>
+    <td class="amount ${clase(p.varMonto)}">${fmtDifClp(p.varMonto)}</td><td class="amount ${clase(p.varMonto)}">${p.varMontoPct == null ? (p.montoActual > 0 ? 'nuevo' : '—') : fmtPct(p.varMontoPct, true)}</td>
+    <td class="amount">${fmtNum(p.unidadesActual)}</td><td class="amount">${fmtNum(p.unidadesBase)}</td>
+    <td class="amount ${clase(p.varUnidades)}">${fmtDif(p.varUnidades)}</td>
+    <td class="amount">${fmtClp(p.precioActual)}</td><td class="amount">${fmtClp(p.precioBase)}</td></tr>`).join('');
+  return `<div class="cmp-detalle"><div class="sub" style="margin:0 0 8px;">${fmtNum(items.length)} ${items.length === 1 ? 'producto' : 'productos'} de <b>${escapeHtml(f.clave)}</b>, de mayor a menor variación en $ (puedes ordenarlos por otra columna).</div>
+    <div class="tabla-wrap" style="max-height:440px;overflow:auto;"><table><thead><tr><th>SKU</th><th>Producto</th><th>Estado</th><th class="amount">Ventas ${a}</th><th class="amount">Ventas ${b}</th><th class="amount">Var. $</th><th class="amount">Var. %</th><th class="amount">Unid. ${a}</th><th class="amount">Unid. ${b}</th><th class="amount">Var. unid.</th><th class="amount">Precio prom. ${a}</th><th class="amount">Precio prom. ${b}</th></tr></thead><tbody>${filas}</tbody></table></div>
+    ${items.length > tope ? `<p class="ads-pie">Mostrando los ${tope} con mayor variación de ${fmtNum(items.length)}.</p>` : ''}</div>`;
+}
+function toggleDetalleCmp(k, abrir){
+  const f = agrupadoCmp[k]; if(!f) return;
+  const fila = document.querySelector('tr.fila-detalle[data-detalle-de="' + k + '"]'); if(!fila) return;
+  const clave = vista + '|' + f.clave;
+  const mostrar = abrir === undefined ? fila.style.display === 'none' : abrir;
+  fila.style.display = mostrar ? '' : 'none';
+  $('cmpFlecha' + k).textContent = mostrar ? '▾' : '▸';
+  if(mostrar) expandidosCmp.add(clave); else expandidosCmp.delete(clave);
+}
+function expandirTodoCmp(abrir){ agrupadoCmp.forEach((_, k) => toggleDetalleCmp(k, abrir)); }
+// Al ordenar la tabla de categorías/marcas, cada detalle vuelve a quedar justo bajo su fila (la rutina de orden deja las filas de celda combinada al final).
+$('cmpTabla').addEventListener('tabla-ordenada', ev => {
+  const t = ev.target;
+  if(!t || t.id !== 'tablaCmpAgrupada') return;
+  const cuerpo = t.tBodies[0];
+  [...cuerpo.querySelectorAll(':scope > tr.fila-padre')].forEach(pa => {
+    const det = cuerpo.querySelector(':scope > tr[data-detalle-de="' + pa.dataset.filaPadre + '"]');
+    if(det) cuerpo.insertBefore(det, pa.nextSibling);
+  });
+});
+
 function dibujarVistaCmp(){
   if(!datos) return;
   const d = datos, a = etiquetaCorta(d.mes), b = etiquetaCorta(d.base);
@@ -491,8 +534,13 @@ function dibujarVistaCmp(){
     $('cmpVistaNota').textContent = vista === 'categorias'
       ? 'Categoría = tipo de producto en Bsale. Ordenadas por ventas del mes elegido.'
       : `Marca detectada por el nombre del producto. "Sin marca identificada" pesa ${fmtPct(d.sinMarca.actualPct)} este mes y ${fmtPct(d.sinMarca.basePct)} el año pasado.`;
-    html = `<table><thead><tr><th>${vista === 'categorias' ? 'Categoría' : 'Marca'}</th><th class="amount">Productos ${a}</th><th class="amount">Productos ${b}</th>${cabeceraNum}</tr></thead><tbody>${lista.map(f => filaCmp(f,
-      `<td><b>${escapeHtml(f.clave)}</b></td><td class="amount">${fmtNum(f.skusActual)}</td><td class="amount">${fmtNum(f.skusBase)}</td>`)).join('')}</tbody></table>`;
+    agrupadoCmp = lista;
+    html = `<div class="filtros"><button type="button" class="btn-ghost btn-compact" onclick="expandirTodoCmp(true)">▾ Desplegar todo</button><button type="button" class="btn-ghost btn-compact" onclick="expandirTodoCmp(false)">▸ Contraer todo</button><span class="empty-note">Haz clic en una fila para ver sus productos, de mayor a menor variación en $.</span></div>` +
+      `<table id="tablaCmpAgrupada"><thead><tr><th>${vista === 'categorias' ? 'Categoría' : 'Marca'}</th><th class="amount">Productos ${a}</th><th class="amount">Productos ${b}</th>${cabeceraNum}</tr></thead><tbody>${lista.map((f, k) => {
+        const abierto = expandidosCmp.has(vista + '|' + f.clave);
+        return filaCmp(f, `<td data-valor="${escapeHtml(f.clave)}" class="cmp-celda-exp" onclick="toggleDetalleCmp(${k})"><span class="cmp-flecha" id="cmpFlecha${k}">${abierto ? '▾' : '▸'}</span> <b>${escapeHtml(f.clave)}</b></td><td class="amount">${fmtNum(f.skusActual)}</td><td class="amount">${fmtNum(f.skusBase)}</td>`, `data-fila-padre="${k}" class="fila-padre"`)
+          + `<tr class="fila-detalle" data-detalle-de="${k}" style="${abierto ? '' : 'display:none;'}"><td colspan="15">${detalleCmp(f)}</td></tr>`;
+      }).join('')}</tbody></table>`;
   }
   $('cmpTabla').innerHTML = html;
 }
