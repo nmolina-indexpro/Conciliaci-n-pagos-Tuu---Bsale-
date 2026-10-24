@@ -1047,6 +1047,7 @@ function flechaDM(campo){
 function renderDM(){
   const wrap = $('dmWrap');
   const productosDM = productosDMBase();
+  if(urlsShopifyCompras === null && !cargandoUrlsShopifyCompras && productosDM.length) cargarUrlsShopifyCompras();
   const productos = filtroDMCategoria ? productosDM.filter(filtrosDMCategoria[filtroDMCategoria]) : productosDM;
   if(productos.length === 0){
     wrap.innerHTML = '<p class="empty-note">No se encontraron productos de Comercial Dos Mundos (o todavía no se ha presionado "Analizar").</p>';
@@ -1072,6 +1073,7 @@ function renderDM(){
     <div class="tabla-wrap">
     <table>
       <thead><tr>
+        <th data-sin-orden>Foto</th>
         <th onclick="ordenarDMPor('code')" style="cursor:pointer;">SKU${flechaDM('code')}</th>
         <th onclick="ordenarDMPor('nombre')" style="cursor:pointer;">Producto${flechaDM('nombre')}</th>
         <th onclick="ordenarDMPor('categoria')" style="cursor:pointer;">Categoría${flechaDM('categoria')}</th>
@@ -1095,8 +1097,12 @@ function renderDM(){
           : stockDaxis > 0
             ? `<b style="color:#15803D;">${fmtNum(stockDaxis)} ✓ no comprar</b>`
             : fmtNum(stockDaxis);
+        const fotoHtml = s.imagenUrl
+          ? `<a href="${s.imagenUrl}" target="_blank" rel="noopener noreferrer" title="Ver la foto"><img src="${s.imagenUrl}" alt="" loading="lazy" style="width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--line);display:block;"></a>`
+          : '<span class="empty-note" title="Este SKU no tiene foto en Shopify">—</span>';
         return `<tr>
-          <td>${s.code}</td><td>${s.nombre}</td><td>${s.categoria}</td>
+          <td>${fotoHtml}</td>
+          <td>${s.code}${enlaceShopifyHtml(s.code)}</td><td>${s.nombre}</td><td>${s.categoria}</td>
           <td class="amount">${fmtNum(s.stockActual)}</td>
           <td class="amount">${celdaStockDaxis}</td>
           <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
@@ -1204,6 +1210,7 @@ async function cargarUrlsShopifyCompras(){
   }catch(e){ urlsShopifyCompras = {}; }
   cargandoUrlsShopifyCompras = false;
   if(productosIntcomexBase().length) renderIntcomex();
+  if(productosDMBase().length) renderDM();
 }
 function enlaceShopifyHtml(sku){
   if(urlsShopifyCompras === null) return '';
