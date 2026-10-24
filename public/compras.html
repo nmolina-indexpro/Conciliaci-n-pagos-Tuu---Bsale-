@@ -445,6 +445,7 @@
         <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('funda')">🎒 Fundas</button>
         <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('base-notebook')">💻 Bases</button>
         <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('destornilladores')">🔧 Destornilladores</button>
+        <button class="btn-ghost btn-compact" onclick="filtrarDMCategoria('limpieza')">🧼 Limpieza</button>
       </div>
       <div id="dmWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
     </div>
@@ -886,6 +887,8 @@ const REGEX_PROVEEDOR_DM = /dos\s*(mundos?|mudos)|\bdm\b/i;
 // destornilladores -- "Herramientas" en esta cuenta solo tiene ESE único
 // producto, confirmado en vivo antes de agregarlo entero) -- si aparece
 // una categoría nueva que DM empieza a proveer, agregarla acá.
+// SKU que se compran a DM aunque su categoría/proveedor de la última factura no lo muestre (pedido del usuario): sets de limpieza.
+const SKUS_LIMPIEZA_DM = new Set(['KCL1005', 'KCL1023']);
 const CATEGORIAS_DM = new Set(['CARGADOR ALTERNATIVO', 'BATERIA ALTERNATIVA', 'BATERIA ALTERNATIVA MACBOOK', 'BATERIA ALTERNATIVA NOTEBOOK', 'CELULAR', 'FUNDA NOTEBOOK', 'BASE NOTEBOOK', 'HERRAMIENTAS']);
 
 // Stock del equivalente Daxis (pedido del usuario): un cargador/batería
@@ -921,6 +924,7 @@ const filtrosDMCategoria = {
   funda: s => normalizarCat(s.categoria) === 'funda notebook',
   'base-notebook': s => normalizarCat(s.categoria) === 'base notebook',
   destornilladores: s => normalizarCat(s.categoria) === 'herramientas',
+  limpieza: s => SKUS_LIMPIEZA_DM.has(String(s.code).toUpperCase()),
 };
 let filtroDMCategoria = null;
 let ordenDM = { campo: null, asc: true };
@@ -939,6 +943,7 @@ async function cargarProveedorAsignado(){
 function esProductoDM(s){
   const a = proveedorAsignado[s.code];
   if(a) return a === 'DM';
+  if(SKUS_LIMPIEZA_DM.has(String(s.code).toUpperCase())) return !excluidosDM.has(s.code);
   return CATEGORIAS_DM.has((s.categoria || '').toUpperCase()) && REGEX_PROVEEDOR_DM.test(s.proveedor || '') && !excluidosDM.has(s.code);
 }
 function esProductoIntcomex(s){
@@ -950,6 +955,7 @@ function productosDMBase(){ return datosSkus.filter(esProductoDM); }
 // Lista de compras a la que pertenece hoy el SKU (para la columna y el orden del Catálogo completo)
 function etiquetaProveedorLista(s){ return esProductoDM(s) ? 'DM' : (esProductoIntcomex(s) ? 'Intcomex' : ''); }
 function etiquetaProveedorAuto(s){
+  if(SKUS_LIMPIEZA_DM.has(String(s.code).toUpperCase())) return 'DM';
   if(!s.proveedor) return 'sin compra';
   if(REGEX_PROVEEDOR_DM.test(s.proveedor)) return CATEGORIAS_DM.has((s.categoria || '').toUpperCase()) ? 'DM' : 'DM, categoría fuera de la lista';
   return nombreProveedorUltimaCompra(s.proveedor);
