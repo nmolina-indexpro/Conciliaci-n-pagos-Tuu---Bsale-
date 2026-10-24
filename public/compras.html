@@ -666,7 +666,8 @@ async function cargar(){
     // Venta de los últimos 12 meses, para dimensionar el pedido a Daxis con
     // una base más estable que el período corto elegido arriba (no bloquea
     // el resto de la carga; cuando llegue, vuelve a pintar solo esa sección).
-    fetch(`/api/bsale-sku-report?days=365`).then(r=>r.json())
+    // Las dos consultas secundarias van una detrás de otra (no juntas): Bsale limita las consultas por segundo y juntas con la principal daban error 429.
+    const consulta12m = fetch(`/api/bsale-sku-report?days=365`).then(r=>r.json())
       .then(res12m => {
         mapaVenta12m = Object.fromEntries((res12m.skus || []).map(s => [s.code, s]));
         renderDaxis();
@@ -678,7 +679,7 @@ async function cargar(){
     // to have" — si falla, no bloquea el resto de la página.
     const finAnterior = addDaysStr(res.startDate, -1);
     const inicioAnterior = addDaysStr(finAnterior, -(dias-1));
-    fetch(`/api/bsale-sku-report?startDate=${inicioAnterior}&endDate=${finAnterior}`)
+    consulta12m.then(() => fetch(`/api/bsale-sku-report?startDate=${inicioAnterior}&endDate=${finAnterior}`))
       .then(r=>r.json())
       .then(resAnt => { datosSkusAnterior = resAnt.error ? [] : (resAnt.skus || []); renderTabla(); })
       .catch(() => { datosSkusAnterior = []; });

@@ -33,13 +33,19 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT_MS) {
   }
 }
 
+const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Bsale responde 429 ("rate limit exceeded") si se le pide demasiado seguido. Se reintenta unas pocas veces con una espera corta
+// (la función tiene un tope de duración, así que no se espera el retry_after completo de 60 s).
 async function bsaleGet(path, token) {
-  const r = await fetchWithTimeout(`${BSALE_BASE}${path}`, { headers: { access_token: token } });
-  if (!r.ok) {
+  const ESPERAS_429_MS = [1500, 3000, 6000];
+  for (let intento = 0; ; intento++) {
+    const r = await fetchWithTimeout(`${BSALE_BASE}${path}`, { headers: { access_token: token } });
+    if (r.ok) return r.json();
+    if (r.status === 429 && intento < ESPERAS_429_MS.length) { await esperar(ESPERAS_429_MS[intento]); continue; }
     const text = await r.text().catch(() => '');
     throw new Error(`Bsale HTTP ${r.status} en ${path}: ${text.slice(0, 300)}`);
   }
-  return r.json();
 }
 
 async function fetchAllPages(pathBuilder, token, limit, topeMaximoPaginas) {
@@ -49,10 +55,17 @@ async function fetchAllPages(pathBuilder, token, limit, topeMaximoPaginas) {
   const totalPages = Math.min(Math.ceil(total / limit), topeMaximoPaginas);
 
   if (totalPages > 1) {
-    const promesas = [];
-    for (let p = 1; p < totalPages; p++) promesas.push(bsaleGet(pathBuilder(p * limit, limit), token));
-    const resto = await Promise.all(promesas);
-    for (const r of resto) items.push(...(r.items || []));
+    // Pocas páginas a la vez: lanzar las ~60 juntas es lo que hacía saltar el límite de Bsale.
+    const resultados = new Array(totalPages - 1);
+    let siguiente = 1;
+    const trabajador = async () => {
+      while (siguiente < totalPages) {
+        const p = siguiente++;
+        resultados[p - 1] = await bsaleGet(pathBuilder(p * limit, limit), token);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(5, totalPages - 1) }, trabajador));
+    for (const r of resultados) items.push(...(r.items || []));
   }
   return { items, totalDisponible: total, truncado: totalPages < Math.ceil(total / limit) };
 }
