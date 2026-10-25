@@ -83,6 +83,10 @@
       "schedule": "0 15 * * *"
     },
     {
+      "path": "/api/negocio?recurso=traspaso-stock-notificar",
+      "schedule": "0 12,14,16,18,20,22 * * *"
+    },
+    {
       "path": "/api/negocio?recurso=resumen-cambios-proponer",
       "schedule": "30 2 * * *"
     },

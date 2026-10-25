@@ -20,6 +20,7 @@ import { armarComunicacionZoho, filasCorreosDesdeZoho, ticketEnVentana, CASILLA_
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
+import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidirAvisos, armarCorreoTraspasoStock } from '../lib/traspaso-stock.js';
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
 import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadores.js';
@@ -153,6 +154,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'resumen-cambios-enviar') return manejarResumenCambiosEnviar(req, res);
   if (req.query.recurso === 'resumen-cambios-recordatorio') return manejarResumenCambiosRecordatorio(req, res);
   if (req.query.recurso === 'resumen-cambios-proponer') return manejarCambiosProponerCron(req, res);
+  if (req.query.recurso === 'traspaso-stock-notificar') return manejarTraspasoStockNotificar(req, res);
   if (req.query.recurso === 'mercadolibre-sync') return manejarMercadoLibreSyncCron(req, res);
   if (req.query.recurso === 'cambio-imagen') return manejarCambioImagen(req, res);
   if (req.query.recurso === 'bsale-webhook') return manejarBsaleWebhook(req, res);
@@ -4937,6 +4939,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'whatsapp-ejecutivos-diario': manejarWhatsappEjecutivosNotificarDiario,
       'google-ads-resumen-semanal': manejarGoogleAdsResumenSemanal,
       'modelos-compatibles-pendientes': manejarModelosCompatiblesRecordatorio,
+      'traspaso-stock-modelos': manejarTraspasoStockNotificar,
       'transito-envio-nuevo': manejarTransitoEnvioNuevoPrueba,
     };
     let r;
@@ -5095,6 +5098,69 @@ async function manejarGoogleAdsResumenSemanal(req, res) {
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Google Ads', detail: String(err) });
+  }
+}
+
+// Traspaso de stock entre modelos de pantalla (notificación 'traspaso-stock-modelos', ver lib/traspaso-stock.js): cuando un modelo que NO es el principal de su grupo
+// llega a 0 en Bsale, se avisa por correo para traspasarle stock desde el principal. Se revisa varias veces al día (cron); se avisa apenas se agota y se recuerda cada
+// 24 horas mientras siga sin resolverse (tabla traspaso_stock_estado). Sin cambios, no manda nada. ?probar=1&para=... manda el estado actual completo solo a esa persona;
+// ?solo_ver=1 devuelve el correo armado sin enviarlo.
+async function stockBsaleDeSkus(skus) {
+  return new Map(await Promise.all(skus.map(async s => [s, await stockBsaleDeSku(s)])));
+}
+async function manejarTraspasoStockNotificar(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    const soloVer = req.query.solo_ver === '1';
+    const probar = esPruebaNotif(req) || soloVer;
+    if (!probar && !(await notificacionDebeEnviarse(sql, 'traspaso-stock-modelos'))) {
+      return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    }
+    await sql`CREATE TABLE IF NOT EXISTS traspaso_stock_estado (
+      sku TEXT PRIMARY KEY, agotado_desde TIMESTAMPTZ NOT NULL DEFAULT now(), notificado_en TIMESTAMPTZ NOT NULL DEFAULT now());`;
+
+    const stock = await stockBsaleDeSkus(todosLosSkus());
+    if ([...stock.values()].every(v => v == null)) return res.status(200).json({ ok: false, enviado: false, motivo: 'No se pudo leer el stock de Bsale (¿falta BSALE_ACCESS_TOKEN o Bsale no respondió?)' });
+    const evaluados = evaluarTodos(stock);
+    const resumen = resumirPendientes(evaluados);
+
+    const enviar = async (asunto, html) => {
+      const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'traspaso-stock-modelos');
+      const envios = [];
+      for (const para of destinatarios) envios.push({ para, ...(await enviarCorreo({ para, asunto: asuntoDePrueba(req, asunto), html })) });
+      return envios;
+    };
+    if (probar) {
+      const { asunto, html } = armarCorreoTraspasoStock({ evaluados, urlBase: URL_BASE_APP });
+      if (soloVer) return res.status(200).json({ ok: true, enviado: false, asunto, html, pendientes: resumen.pendientes.length });
+      const envios = await enviar(asunto, html);
+      return res.status(200).json({ ok: true, enviado: envios.some(e => e.enviado !== false), pendientes: resumen.pendientes.length, envios });
+    }
+
+    const { rows: previos } = await sql`SELECT sku, notificado_en FROM traspaso_stock_estado;`;
+    const estado = new Map(previos.map(r => [r.sku, { notificadoEn: r.notificado_en }]));
+    const { avisar, resueltos } = decidirAvisos(resumen.pendientes, estado);
+    // Un modelo se da por resuelto solo si hoy se lee con stock; si no se pudo leer, se conserva su estado para no avisar dos veces.
+    const resueltosSeguros = resueltos.filter(s => (stock.get(s) ?? 0) > 0);
+    if (resueltosSeguros.length) await sql`DELETE FROM traspaso_stock_estado WHERE sku = ANY(${resueltosSeguros}::text[]);`;
+    if (!avisar.length) return res.status(200).json({ ok: true, enviado: false, motivo: resumen.pendientes.length ? 'ya se avisó de los modelos agotados (se recuerda cada 24 h)' : 'ningún modelo no principal está agotado', pendientes: resumen.pendientes.length });
+
+    const { asunto, html } = armarCorreoTraspasoStock({ evaluados, tipos: new Map(avisar.map(a => [a.sku, a.tipo])), urlBase: URL_BASE_APP });
+    const envios = await enviar(asunto, html);
+    if (envios.some(e => e.enviado !== false)) {
+      const skusAvisados = avisar.map(a => a.sku);
+      await sql`
+        INSERT INTO traspaso_stock_estado (sku, agotado_desde, notificado_en) SELECT s, now(), now() FROM unnest(${skusAvisados}::text[]) AS s
+        ON CONFLICT (sku) DO UPDATE SET notificado_en = now();`;
+      await marcarNotificacionEnviada(sql, 'traspaso-stock-modelos', { asunto, html });
+    }
+    return res.status(200).json({ ok: true, enviado: envios.some(e => e.enviado !== false), avisados: avisar, pendientes: resumen.pendientes.length, envios });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error revisando el stock de las pantallas', detail: String(err.message || err) });
   }
 }
 
