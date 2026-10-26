@@ -99,6 +99,8 @@
   .ads-cab .sub{margin:0;font-size:12.5px;}
   .ads-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:12px 0 14px;}
   .ads-kpis .card{padding:12px 14px;} .ads-kpis .card .big{font-size:21px;} .ads-kpis .card .nota{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.35;}
+  .lec-linea{margin-top:7px;} .lec-linea:first-child{margin-top:0;}
+  .lec-skus{font-size:12px;margin:2px 0 0 16px;color:var(--muted);line-height:1.5;} .lec-skus b{color:var(--text);}
   .ads-lectura{margin-top:12px;padding:10px 14px;border-radius:10px;background:var(--primary-dim);border:1px solid #BFE0DB;font-size:12.5px;line-height:1.5;}
   .ads-lectura.alerta{background:var(--amber-dim);border-color:#F3D9A8;}
   .ads-error{margin:8px 0;padding:10px 14px;border-radius:10px;background:var(--red-bg);border:1px solid #F4C5C5;color:var(--red);font-size:12.5px;}
@@ -422,22 +424,41 @@ function dibujarComparativo(){
   dibujarGrafico();
   dibujarVistaCmp();
 }
+// Los SKU que más explican un alza o una baja: hasta 3, de mayor a menor aporte en el sentido pedido (sentido +1 = los que más subieron, -1 = los que más cayeron).
+const recortarTxt = (t, n) => (String(t).length > n ? String(t).slice(0, n - 1) + '…' : String(t));
+function skusResponsables(lista, campo, sentido, max = 3){
+  return lista.filter(p => (sentido > 0 ? p[campo] > 0 : p[campo] < 0)).sort((a, b) => (sentido > 0 ? b[campo] - a[campo] : a[campo] - b[campo])).slice(0, max);
+}
+// campo = lo que se muestra entre paréntesis de cada SKU; fmt = cómo se escribe; titulo = encabezado de la línea de SKU
+function lineaSkus(skus, campo, fmt, titulo = 'SKU a considerar'){
+  if(!skus.length) return '';
+  return `<div class="lec-skus">${titulo}: ` + skus.map(p => `<b>${escapeHtml(p.sku)}</b> <span title="${escapeHtml(p.nombre)}">${escapeHtml(recortarTxt(p.nombre, 36))}</span> <span class="${clase(p[campo])}">(${fmt(p[campo])})</span>`).join(' · ') + '</div>';
+}
 function lecturaRapida(){
   const d = datos, t = d.totales, partes = [];
-  const sentido = t.varMonto >= 0 ? 'subieron' : 'bajaron';
-  partes.push(`Las ventas netas <b>${sentido} ${fmtPct(Math.abs(t.varMontoPct ?? 0))}</b> (${fmtDifClp(t.varMonto)}) y las unidades <b>${t.varUnidades >= 0 ? 'subieron' : 'bajaron'} ${fmtPct(Math.abs(t.varUnidadesPct ?? 0))}</b> frente a ${etiquetaMes(d.base)}.`);
+  const linea = (texto, skus = '') => partes.push(`<div class="lec-linea">${texto}</div>${skus}`);
+  const P = d.productos;
+  const sMonto = t.varMonto >= 0 ? 1 : -1, sUni = t.varUnidades >= 0 ? 1 : -1;
+  linea(`Las ventas netas <b>${t.varMonto >= 0 ? 'subieron' : 'bajaron'} ${fmtPct(Math.abs(t.varMontoPct ?? 0))}</b> (${fmtDifClp(t.varMonto)}) frente a ${etiquetaMes(d.base)}.`,
+    lineaSkus(skusResponsables(P, 'varMonto', sMonto), 'varMonto', fmtDifClp, sMonto > 0 ? 'SKU que más subieron' : 'SKU que más cayeron'));
+  linea(`Las unidades <b>${t.varUnidades >= 0 ? 'subieron' : 'bajaron'} ${fmtPct(Math.abs(t.varUnidadesPct ?? 0))}</b> (${fmtDif(t.varUnidades)}).`,
+    lineaSkus(skusResponsables(P, 'varUnidades', sUni), 'varUnidades', v => fmtDif(v) + ' un.', sUni > 0 ? 'SKU que más subieron' : 'SKU que más cayeron'));
   const conBase = d.categorias.filter(c => c.montoBase > 0 || c.montoActual > 0);
   const sube = [...conBase].sort((a, b) => b.varMonto - a.varMonto)[0], baja = [...conBase].sort((a, b) => a.varMonto - b.varMonto)[0];
-  if(sube && sube.varMonto > 0) partes.push(`Categoría que más aporta: <b>${escapeHtml(sube.clave)}</b> (${fmtDifClp(sube.varMonto)}).`);
-  if(baja && baja.varMonto < 0) partes.push(`Categoría que más resta: <b>${escapeHtml(baja.clave)}</b> (${fmtDifClp(baja.varMonto)}).`);
+  if(sube && sube.varMonto > 0) linea(`Categoría que más aporta: <b>${escapeHtml(sube.clave)}</b> (${fmtDifClp(sube.varMonto)}).`, lineaSkus(skusResponsables(P.filter(p => p.categoria === sube.clave), 'varMonto', 1), 'varMonto', fmtDifClp));
+  if(baja && baja.varMonto < 0) linea(`Categoría que más resta: <b>${escapeHtml(baja.clave)}</b> (${fmtDifClp(baja.varMonto)}).`, lineaSkus(skusResponsables(P.filter(p => p.categoria === baja.clave), 'varMonto', -1), 'varMonto', fmtDifClp));
   const marcas = d.marcas.filter(m => m.clave !== 'Sin marca identificada');
   const mSube = [...marcas].sort((a, b) => b.varMonto - a.varMonto)[0], mBaja = [...marcas].sort((a, b) => a.varMonto - b.varMonto)[0];
-  if(mSube && mSube.varMonto > 0) partes.push(`Marca que más crece: <b>${escapeHtml(mSube.clave)}</b> (${fmtDifClp(mSube.varMonto)}).`);
-  if(mBaja && mBaja.varMonto < 0) partes.push(`Marca que más cae: <b>${escapeHtml(mBaja.clave)}</b> (${fmtDifClp(mBaja.varMonto)}).`);
-  const nuevos = d.productos.filter(p => p.estado === 'nuevo'), sin = d.productos.filter(p => p.estado === 'sin_ventas');
-  partes.push(`<b>${fmtNum(nuevos.length)}</b> productos se vendieron este año y no el pasado (${fmtDifClp(nuevos.reduce((s, p) => s + p.montoActual, 0))}); <b>${fmtNum(sin.length)}</b> vendieron el año pasado y este año nada (${fmtDifClp(-sin.reduce((s, p) => s + p.montoBase, 0))}).`);
-  if(d.sinMarca.actualPct > 15) partes.push(`<span class="peor">Ojo:</span> ${fmtPct(d.sinMarca.actualPct)} de las ventas actuales no tiene marca reconocida; la tabla de marcas es referencial.`);
-  return partes.join('<br>');
+  if(mSube && mSube.varMonto > 0) linea(`Marca que más crece: <b>${escapeHtml(mSube.clave)}</b> (${fmtDifClp(mSube.varMonto)}).`, lineaSkus(skusResponsables(P.filter(p => p.marca === mSube.clave), 'varMonto', 1), 'varMonto', fmtDifClp));
+  if(mBaja && mBaja.varMonto < 0) linea(`Marca que más cae: <b>${escapeHtml(mBaja.clave)}</b> (${fmtDifClp(mBaja.varMonto)}).`, lineaSkus(skusResponsables(P.filter(p => p.marca === mBaja.clave), 'varMonto', -1), 'varMonto', fmtDifClp));
+  const nuevos = P.filter(p => p.estado === 'nuevo'), sin = P.filter(p => p.estado === 'sin_ventas');
+  linea(`<b>${fmtNum(nuevos.length)}</b> productos se vendieron este año y no el pasado (${fmtDifClp(nuevos.reduce((s, p) => s + p.montoActual, 0))}).`,
+    lineaSkus([...nuevos].sort((a, b) => b.montoActual - a.montoActual).slice(0, 3).map(p => ({ ...p, v: p.montoActual })), 'v', fmtDifClp, 'Los que más vendieron'));
+  linea(`<b>${fmtNum(sin.length)}</b> vendieron el año pasado y este año nada (${fmtDifClp(-sin.reduce((s, p) => s + p.montoBase, 0))}).`,
+    lineaSkus([...sin].sort((a, b) => b.montoBase - a.montoBase).slice(0, 3).map(p => ({ ...p, v: -p.montoBase })), 'v', fmtDifClp, 'Los que más vendían'));
+  if(d.sinMarca.actualPct > 15) linea(`<span class="peor">Ojo:</span> ${fmtPct(d.sinMarca.actualPct)} de las ventas actuales no tiene marca reconocida; la tabla de marcas es referencial.`,
+    lineaSkus([...P].filter(p => p.marca === 'Sin marca identificada').sort((a, b) => b.montoActual - a.montoActual).slice(0, 3).map(p => ({ ...p, v: p.montoActual })), 'v', fmtClp, 'Sin marca que más pesan'));
+  return partes.join('');
 }
 
 // ---------- Gráfico acumulado ----------
