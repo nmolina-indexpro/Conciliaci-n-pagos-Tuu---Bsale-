@@ -117,6 +117,7 @@
   .cmp-check{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);}
   .cmp-sync{margin:0 0 14px;padding:10px 14px;border-radius:10px;background:var(--amber-dim);border:1px solid #F3D9A8;font-size:12.5px;line-height:1.5;}
   .cmp-marca{font-size:12px;padding:4px 6px;max-width:150px;} .cmp-marca.sin{border-color:var(--amber);background:var(--amber-dim);} .cmp-marca.manual{border-color:var(--primary);font-weight:700;}
+  .cmp-nota-excl{font-size:12px;color:var(--muted);margin:0 0 10px;} .cmp-nota-excl:empty{display:none;}
   .cmp-celda-exp{cursor:pointer;user-select:none;} .cmp-celda-exp:hover{background:var(--primary-dim);}
   .cmp-flecha{display:inline-block;width:14px;color:var(--primary);font-weight:700;}
   tr.fila-detalle > td{background:var(--surface-2);padding:12px 16px 16px;border-bottom:2px solid var(--line);}
@@ -240,6 +241,7 @@
   <div id="cmpEstado" class="empty-note">Cargando…</div>
 
   <div id="cmpContenido" style="display:none;">
+    <div class="cmp-nota-excl" id="cmpExcluido"></div>
     <div class="cmp-kpis" id="cmpKpis"></div>
     <div class="ads-lectura" id="cmpLectura"></div>
 
@@ -416,7 +418,15 @@ function tarjetaMargen(t){
     <div class="pct ${clase(dif)}">${fmtPct(p, true)} <span style="font-weight:500;color:var(--muted);">(${fmtDifClp(dif)})</span></div>
     <div class="nota">${a.margenPct != null ? fmtPct(a.margenPct) + ' de la venta' : ''} · ${etiquetaCorta(datos.base)}: ${fmtClp(b.margen)}${b.margenPct != null ? ' (' + fmtPct(b.margenPct) + ')' : ''}<br>Costo conocido para el ${String(a.cobertura ?? 0).replace('.', ',')}% de la venta</div></div>`;
 }
+// Las categorías excluidas no entran en ningún análisis de esta página (se definen en lib/comparativo-ventas.js).
+const normCat = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const categoriaFuera = c => { const n = normCat(c); return (datos.excluido ? datos.excluido.categorias : []).some(x => normCat(x) === n) || n === 'pantalla segunda seleccion'; };
+function dibujarExcluido(){
+  const e = datos.excluido;
+  $('cmpExcluido').innerHTML = e && e.categorias.length ? 'No incluye las categorías: <b>' + e.categorias.map(escapeHtml).join(', ') + '</b>' + (e.montoActual || e.montoBase ? ' · se dejaron fuera ' + fmtClp(e.montoActual) + ' de ' + etiquetaCorta(datos.mes) + ' y ' + fmtClp(e.montoBase) + ' de ' + etiquetaCorta(datos.base) + ' de ventas netas.' : '.') : '';
+}
 function dibujarComparativo(){
+  dibujarExcluido();
   const d = datos, t = d.totales;
   const ticketA = d.documentos.actual ? t.actual.monto / d.documentos.actual : null, ticketB = d.documentos.base ? t.base.monto / d.documentos.base : null;
   const precioA = t.actual.unidades ? t.actual.monto / t.actual.unidades : null, precioB = t.base.unidades ? t.base.monto / t.base.unidades : null;
@@ -646,7 +656,7 @@ function dibujarMargenPerdido(res, per){
     const precio = s.unidadesVendidas > 0 ? s.montoVentas / s.unidadesVendidas : 0;
     const perdU = dq * vd, cmp = porSku.get(String(s.code).toUpperCase());
     return { code: s.code, nombre: s.nombre, categoria: s.categoria, stock: s.stockActual, dq, vd, perdU, perdV: perdU * precio, mu: s.margenUnitario, mp: s.margenPerdidoPorQuiebre || 0, varVentas: cmp ? cmp.varMonto : null };
-  }).filter(f => f.dq > 0 && f.vd > 0).sort((a, b) => b.mp - a.mp);
+  }).filter(f => f.dq > 0 && f.vd > 0 && !categoriaFuera(f.categoria)).sort((a, b) => b.mp - a.mp);
   const totalMp = filas.reduce((t, f) => t + f.mp, 0), totalV = filas.reduce((t, f) => t + f.perdV, 0);
   const sinStock = filas.filter(f => f.stock <= 0);
   const margenDiario = sinStock.reduce((t, f) => t + f.vd * (f.mu || 0), 0);

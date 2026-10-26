@@ -46,7 +46,7 @@ import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, product
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
-import { MARCAS_PRINCIPALES as MARCAS_PRINCIPALES_COMPARATIVO, armarComparativo as armarComparativoVentas, costoEnFecha, parsearMes as parsearMesComparativo, mesAnterior12 as mesAnterior12Comparativo, diasDelMes as diasDelMesComparativo, rangoEpochMes as rangoEpochMesComparativo } from '../lib/comparativo-ventas.js';
+import { CATEGORIAS_EXCLUIDAS as CATEGORIAS_EXCLUIDAS_COMPARATIVO, categoriaExcluida as categoriaExcluidaComparativo, MARCAS_PRINCIPALES as MARCAS_PRINCIPALES_COMPARATIVO, armarComparativo as armarComparativoVentas, costoEnFecha, parsearMes as parsearMesComparativo, mesAnterior12 as mesAnterior12Comparativo, diasDelMes as diasDelMesComparativo, rangoEpochMes as rangoEpochMesComparativo } from '../lib/comparativo-ventas.js';
 import { asegurarTablaComparativoVentas } from '../lib/db.js';
 import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas, asegurarTablaIndexscalePlan, asegurarTablaIndiceModelosMeta } from '../lib/db.js';
 import { encontrarDefinicion, textoPlanoMetacampo, tipoDeProducto, mejorProductoPorMetacampo, buscarModelosEnItems, lineasModelosDescripcion } from '../lib/modelos-metacampo.js';
@@ -2676,10 +2676,15 @@ async function manejarComparativoVentas(req, res, sesion) {
          LEFT JOIN comparativo_tipos t ON t.id = p.tipo_id
         WHERE l.periodo = ANY($1::text[]) AND EXTRACT(DAY FROM l.fecha) <= $2
         GROUP BY l.periodo, l.sku;`, [[mes, base], hastaDia]);
-    const filas = rows.filter((r) => !r.es_servicio && !categoriaLineaEsServicio(r.sku, r.nombre));
-    const FILTRO_PRODUCTOS = `FROM comparativo_lineas l LEFT JOIN comparativo_catalogo c ON c.sku = l.sku LEFT JOIN comparativo_productos p ON p.id = c.producto_id WHERE l.periodo = ANY($1::text[]) AND EXTRACT(DAY FROM l.fecha) <= $2 AND NOT COALESCE(p.es_servicio, false)`;
-    const { rows: docs } = await sql.query(`SELECT l.periodo, COUNT(DISTINCT l.documento_id)::int AS n ${FILTRO_PRODUCTOS} GROUP BY l.periodo;`, [[mes, base], hastaDia]);
-    const { rows: dias } = await sql.query(`SELECT l.periodo, EXTRACT(DAY FROM l.fecha)::int AS dia, SUM(l.monto)::float AS monto, SUM(l.cantidad)::float AS unidades ${FILTRO_PRODUCTOS} GROUP BY l.periodo, dia ORDER BY dia;`, [[mes, base], hastaDia]);
+    const delCatalogo = rows.filter((r) => !r.es_servicio && !categoriaLineaEsServicio(r.sku, r.nombre));
+    // Las categorías excluidas no entran en ningún análisis; se informa cuánto se dejó fuera.
+    const filas = delCatalogo.filter((r) => !categoriaExcluidaComparativo(r.categoria));
+    const excluidas = delCatalogo.filter((r) => categoriaExcluidaComparativo(r.categoria));
+    const skusExcluidos = [...new Set(excluidas.map((r) => r.sku))];
+    const ventaExcluida = (per) => Math.round(excluidas.filter((r) => r.periodo === per).reduce((t, r) => t + Number(r.monto), 0));
+    const FILTRO_PRODUCTOS = `FROM comparativo_lineas l LEFT JOIN comparativo_catalogo c ON c.sku = l.sku LEFT JOIN comparativo_productos p ON p.id = c.producto_id WHERE l.periodo = ANY($1::text[]) AND EXTRACT(DAY FROM l.fecha) <= $2 AND NOT COALESCE(p.es_servicio, false) AND NOT (l.sku = ANY($3::text[]))`;
+    const { rows: docs } = await sql.query(`SELECT l.periodo, COUNT(DISTINCT l.documento_id)::int AS n ${FILTRO_PRODUCTOS} GROUP BY l.periodo;`, [[mes, base], hastaDia, skusExcluidos]);
+    const { rows: dias } = await sql.query(`SELECT l.periodo, EXTRACT(DAY FROM l.fecha)::int AS dia, SUM(l.monto)::float AS monto, SUM(l.cantidad)::float AS unidades ${FILTRO_PRODUCTOS} GROUP BY l.periodo, dia ORDER BY dia;`, [[mes, base], hastaDia, skusExcluidos]);
     // Costo de cada SKU en cada mes (última recepción de mercadería hasta fin de ese mes) para estimar el margen.
     const { rows: costosRows } = await sql.query(`SELECT sku, promedio, historial FROM comparativo_costos WHERE NOT sin_costo AND sku = ANY($1::text[]);`, [[...new Set(filas.map((f) => f.sku))]]);
     const costoPorSku = new Map(costosRows.map((r) => [r.sku, { promedio: Number(r.promedio), historial: r.historial }]));
@@ -2689,7 +2694,7 @@ async function manejarComparativoVentas(req, res, sesion) {
     const cmp = armarComparativoVentas(filas, { actual: mes, base, marcasPorSku });
     const n = (p) => docs.find((d) => d.periodo === p)?.n || 0;
     return res.status(200).json({
-      mes, base, hastaDia, diasMes, parcial: hastaDia < diasMes, estado, marcasPrincipales: MARCAS_PRINCIPALES_COMPARATIVO,
+      mes, base, hastaDia, diasMes, parcial: hastaDia < diasMes, estado, marcasPrincipales: MARCAS_PRINCIPALES_COMPARATIVO, excluido: { categorias: CATEGORIAS_EXCLUIDAS_COMPARATIVO, montoActual: ventaExcluida(mes), montoBase: ventaExcluida(base), skus: skusExcluidos.length },
       documentos: { actual: n(mes), base: n(base) },
       porDia: Array.from({ length: hastaDia }, (_, i) => {
         const d = i + 1, a = dias.find((x) => x.periodo === mes && x.dia === d), b = dias.find((x) => x.periodo === base && x.dia === d);
