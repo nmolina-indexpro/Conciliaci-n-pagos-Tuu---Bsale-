@@ -371,6 +371,7 @@ function pintarEstadoSync(est){
   caja.style.display = '';
   const falta = [];
   if(!est.catalogo.completo) falta.push('el catálogo de productos');
+  if(est.costos && !est.costos.completo && est.base.completo && est.actual.completo) falta.push('los costos de los productos (' + (est.costos.hecho || 0) + ' de ' + (est.costos.total || 0) + ')');
   if(!est.base.completo) falta.push('las ventas de ' + etiquetaMes(datos.base) + (est.base.total ? ` (${Math.round(100 * est.base.documentos / est.base.total)}%)` : ''));
   if(!est.actual.completo) falta.push('las ventas de ' + etiquetaMes(datos.mes) + (est.actual.total ? ` (${Math.round(100 * est.actual.documentos / est.actual.total)}%)` : ''));
   caja.innerHTML = `⚠ Los datos están <b>incompletos</b>: falta traer ${falta.join(', ')}. Las cifras de abajo pueden quedar cortas. ${rolActual === 'admin' ? 'Usa <b>⇩ Traer datos de Bsale</b> para completarlos.' : ''}`;
@@ -407,6 +408,14 @@ function tarjeta(titulo, actual, base, dif, difPct, fmt, nota){
     <div class="pct ${clase(dif)}">${fmtPct(difPct, true)} <span style="font-weight:500;color:var(--muted);">(${fmt === fmtClp ? fmtDifClp(dif) : fmtDif(dif)})</span></div>
     <div class="nota">${etiquetaCorta(datos.base)}: ${fmt(base)}${nota ? '<br>' + nota : ''}</div></div>`;
 }
+function tarjetaMargen(t){
+  const a = t.actual, b = t.base;
+  if(!a.cobertura && !b.cobertura) return '<div class="card"><div class="lbl">Margen estimado</div><div class="big">—</div><div class="nota">Falta traer los costos: pulsa «Traer datos de Bsale».</div></div>';
+  const dif = a.margen - b.margen, p = b.margen > 0 ? Math.round(((a.margen - b.margen) / b.margen) * 1000) / 10 : null;
+  return `<div class="card"><div class="lbl">Margen estimado</div><div class="big">${fmtClp(a.margen)}</div>
+    <div class="pct ${clase(dif)}">${fmtPct(p, true)} <span style="font-weight:500;color:var(--muted);">(${fmtDifClp(dif)})</span></div>
+    <div class="nota">${a.margenPct != null ? fmtPct(a.margenPct) + ' de la venta' : ''} · ${etiquetaCorta(datos.base)}: ${fmtClp(b.margen)}${b.margenPct != null ? ' (' + fmtPct(b.margenPct) + ')' : ''}<br>Costo conocido para el ${String(a.cobertura ?? 0).replace('.', ',')}% de la venta</div></div>`;
+}
 function dibujarComparativo(){
   const d = datos, t = d.totales;
   const ticketA = d.documentos.actual ? t.actual.monto / d.documentos.actual : null, ticketB = d.documentos.base ? t.base.monto / d.documentos.base : null;
@@ -419,6 +428,7 @@ function dibujarComparativo(){
     tarjeta('Documentos con venta', d.documentos.actual, d.documentos.base, d.documentos.actual - d.documentos.base, pct(d.documentos.actual, d.documentos.base), fmtNum, '') +
     tarjeta('Ticket promedio', ticketA, ticketB, ticketA != null && ticketB != null ? ticketA - ticketB : null, ticketA != null ? pct(ticketA, ticketB) : null, fmtClp, 'Monto neto por documento') +
     tarjeta('Precio promedio por unidad', precioA, precioB, precioA != null && precioB != null ? precioA - precioB : null, precioA != null ? pct(precioA, precioB) : null, fmtClp, 'Sube si vende más caro o cambia el mix') +
+    tarjetaMargen(t) +
     tarjeta('Productos distintos vendidos', t.actual.skus, t.base.skus, t.actual.skus - t.base.skus, pct(t.actual.skus, t.base.skus), fmtNum, '');
   $('cmpLectura').innerHTML = lecturaRapida();
   $('cmpGrafSub').textContent = `${etiquetaMes(d.mes)} contra ${etiquetaMes(d.base)}${d.parcial ? `, del día 1 al ${d.hastaDia} en ambos` : ''}.`;
@@ -489,6 +499,10 @@ function setVistaCmp(v){
   [['categorias', 'tabCategorias'], ['marcas', 'tabMarcas'], ['productos', 'tabProductos']].forEach(([k, id]) => $(id).classList.toggle('active', k === v));
   dibujarVistaCmp();
 }
+// Margen estimado = venta neta - unidades x costo (Bsale: costo de la última recepción de mercadería hasta fin de cada mes). El % es sobre las ventas que tienen costo.
+const tituloCob = cob => (cob != null && cob < 99.5 ? ' title="El costo se conoce para el ' + String(cob).replace('.', ',') + '% de la venta; el margen cuenta solo esa parte"' : '');
+const celdaMargen = (v, cob) => (cob == null || cob === 0 ? '<td class="amount">—</td>' : '<td class="amount ' + clase(v) + '"' + tituloCob(cob) + '>' + fmtClp(v) + (cob < 99.5 ? '*' : '') + '</td>');
+const celdaMargenPct = (v, cob) => (v == null || cob == null || cob === 0 ? '<td class="amount">—</td>' : '<td class="amount"' + tituloCob(cob) + '>' + fmtPct(v) + (cob < 99.5 ? '*' : '') + '</td>');
 const barra = (pct, color) => `<span class="ads-barra" style="width:60px;"><i style="width:${Math.min(100, pct)}%;${color ? 'background:' + color : ''}"></i></span>`;
 function filaCmp(f, cols, attrs = ''){
   return `<tr ${attrs}>${cols}
@@ -497,6 +511,7 @@ function filaCmp(f, cols, attrs = ''){
     <td class="amount">${fmtNum(f.unidadesActual)}</td><td class="amount">${fmtNum(f.unidadesBase)}</td>
     <td class="amount ${clase(f.varUnidades)}">${fmtDif(f.varUnidades)}</td><td class="amount ${clase(f.varUnidades)}">${f.varUnidadesPct == null ? (f.unidadesActual > 0 ? 'nuevo' : '—') : fmtPct(f.varUnidadesPct, true)}</td>
     <td class="amount">${fmtClp(f.precioActual)}</td><td class="amount">${fmtClp(f.precioBase)}</td>
+    ${celdaMargen(f.margenActual, f.coberturaActual)}${celdaMargen(f.margenBase, f.coberturaBase)}${celdaMargenPct(f.margenPctActual, f.coberturaActual)}${celdaMargenPct(f.margenPctBase, f.coberturaBase)}
     <td class="amount">${barra(f.partActual)}${fmtPct(f.partActual)}</td><td class="amount">${fmtPct(f.partBase)}</td></tr>`;
 }
 // ---------- Marca de cada SKU: se puede elegir a mano (manda sobre la que se detecta por el nombre) ----------
@@ -546,9 +561,10 @@ function detalleCmp(f){
     <td class="amount ${clase(p.varMonto)}">${fmtDifClp(p.varMonto)}</td><td class="amount ${clase(p.varMonto)}">${p.varMontoPct == null ? (p.montoActual > 0 ? 'nuevo' : '—') : fmtPct(p.varMontoPct, true)}</td>
     <td class="amount">${fmtNum(p.unidadesActual)}</td><td class="amount">${fmtNum(p.unidadesBase)}</td>
     <td class="amount ${clase(p.varUnidades)}">${fmtDif(p.varUnidades)}</td>
-    <td class="amount">${fmtClp(p.precioActual)}</td><td class="amount">${fmtClp(p.precioBase)}</td></tr>`).join('');
+    <td class="amount">${fmtClp(p.precioActual)}</td><td class="amount">${fmtClp(p.precioBase)}</td>
+    ${celdaMargen(p.margenActual, p.coberturaActual)}${celdaMargen(p.margenBase, p.coberturaBase)}${celdaMargenPct(p.margenPctActual, p.coberturaActual)}${celdaMargenPct(p.margenPctBase, p.coberturaBase)}</tr>`).join('');
   return `<div class="cmp-detalle"><div class="sub" style="margin:0 0 8px;">${fmtNum(items.length)} ${items.length === 1 ? 'producto' : 'productos'} de <b>${escapeHtml(f.clave)}</b>, de mayor a menor variación en $ (puedes ordenarlos por otra columna).</div>
-    <div class="tabla-wrap" style="max-height:440px;overflow:auto;"><table><thead><tr><th>SKU</th><th>Producto</th><th>Marca</th><th>Estado</th><th class="amount">Ventas ${a}</th><th class="amount">Ventas ${b}</th><th class="amount">Var. $</th><th class="amount">Var. %</th><th class="amount">Unid. ${a}</th><th class="amount">Unid. ${b}</th><th class="amount">Var. unid.</th><th class="amount">Precio prom. ${a}</th><th class="amount">Precio prom. ${b}</th></tr></thead><tbody>${filas}</tbody></table></div>
+    <div class="tabla-wrap" style="max-height:440px;overflow:auto;"><table><thead><tr><th>SKU</th><th>Producto</th><th>Marca</th><th>Estado</th><th class="amount">Ventas ${a}</th><th class="amount">Ventas ${b}</th><th class="amount">Var. $</th><th class="amount">Var. %</th><th class="amount">Unid. ${a}</th><th class="amount">Unid. ${b}</th><th class="amount">Var. unid.</th><th class="amount">Precio prom. ${a}</th><th class="amount">Precio prom. ${b}</th><th class="amount">Margen $ ${a}</th><th class="amount">Margen $ ${b}</th><th class="amount">Margen % ${a}</th><th class="amount">Margen % ${b}</th></tr></thead><tbody>${filas}</tbody></table></div>
     ${items.length > tope ? `<p class="ads-pie">Mostrando los ${tope} con mayor variación de ${fmtNum(items.length)}.</p>` : ''}</div>`;
 }
 function toggleDetalleCmp(k, abrir){
@@ -575,7 +591,7 @@ $('cmpTabla').addEventListener('tabla-ordenada', ev => {
 function dibujarVistaCmp(){
   if(!datos) return;
   const d = datos, a = etiquetaCorta(d.mes), b = etiquetaCorta(d.base);
-  const cabeceraNum = `<th class="amount">Ventas ${a}</th><th class="amount">Ventas ${b}</th><th class="amount">Var. $</th><th class="amount">Var. %</th><th class="amount">Unid. ${a}</th><th class="amount">Unid. ${b}</th><th class="amount">Var. unid.</th><th class="amount">Var. % unid.</th><th class="amount">Precio prom. ${a}</th><th class="amount">Precio prom. ${b}</th><th class="amount">Part. ${a}</th><th class="amount">Part. ${b}</th>`;
+  const cabeceraNum = `<th class="amount">Ventas ${a}</th><th class="amount">Ventas ${b}</th><th class="amount">Var. $</th><th class="amount">Var. %</th><th class="amount">Unid. ${a}</th><th class="amount">Unid. ${b}</th><th class="amount">Var. unid.</th><th class="amount">Var. % unid.</th><th class="amount">Precio prom. ${a}</th><th class="amount">Precio prom. ${b}</th><th class="amount">Margen $ ${a}</th><th class="amount">Margen $ ${b}</th><th class="amount">Margen % ${a}</th><th class="amount">Margen % ${b}</th><th class="amount">Part. ${a}</th><th class="amount">Part. ${b}</th>`;
   $('cmpFiltrosProd').style.display = vista === 'productos' ? '' : 'none';
   let html = '';
   if(vista === 'productos'){
@@ -597,7 +613,7 @@ function dibujarVistaCmp(){
       `<table id="tablaCmpAgrupada"><thead><tr><th>${vista === 'categorias' ? 'Categoría' : 'Marca'}</th><th class="amount">Productos ${a}</th><th class="amount">Productos ${b}</th>${cabeceraNum}</tr></thead><tbody>${lista.map((f, k) => {
         const abierto = expandidosCmp.has(vista + '|' + f.clave);
         return filaCmp(f, `<td data-valor="${escapeHtml(f.clave)}" class="cmp-celda-exp" onclick="toggleDetalleCmp(${k})"><span class="cmp-flecha" id="cmpFlecha${k}">${abierto ? '▾' : '▸'}</span> <b>${escapeHtml(f.clave)}</b></td><td class="amount">${fmtNum(f.skusActual)}</td><td class="amount">${fmtNum(f.skusBase)}</td>`, `data-fila-padre="${k}" class="fila-padre"`)
-          + `<tr class="fila-detalle" data-detalle-de="${k}" style="${abierto ? '' : 'display:none;'}"><td colspan="15">${detalleCmp(f)}</td></tr>`;
+          + `<tr class="fila-detalle" data-detalle-de="${k}" style="${abierto ? '' : 'display:none;'}"><td colspan="19">${detalleCmp(f)}</td></tr>`;
       }).join('')}</tbody></table>`;
   }
   $('cmpTabla').innerHTML = html;

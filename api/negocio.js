@@ -46,7 +46,7 @@ import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, product
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
-import { MARCAS_PRINCIPALES as MARCAS_PRINCIPALES_COMPARATIVO, armarComparativo as armarComparativoVentas, parsearMes as parsearMesComparativo, mesAnterior12 as mesAnterior12Comparativo, diasDelMes as diasDelMesComparativo, rangoEpochMes as rangoEpochMesComparativo } from '../lib/comparativo-ventas.js';
+import { MARCAS_PRINCIPALES as MARCAS_PRINCIPALES_COMPARATIVO, armarComparativo as armarComparativoVentas, costoEnFecha, parsearMes as parsearMesComparativo, mesAnterior12 as mesAnterior12Comparativo, diasDelMes as diasDelMesComparativo, rangoEpochMes as rangoEpochMesComparativo } from '../lib/comparativo-ventas.js';
 import { asegurarTablaComparativoVentas } from '../lib/db.js';
 import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas, asegurarTablaIndexscalePlan, asegurarTablaIndiceModelosMeta } from '../lib/db.js';
 import { encontrarDefinicion, textoPlanoMetacampo, tipoDeProducto, mejorProductoPorMetacampo, buscarModelosEnItems, lineasModelosDescripcion } from '../lib/modelos-metacampo.js';
@@ -2311,7 +2311,7 @@ async function manejarSyncAnalisis(req, res, sesion) {
 
 // ---------- Comparativo de ventas: un mes contra el mismo mes del año anterior (monto, unidades, categoría, marca) ----------
 // bsale_ventas_sku solo retiene 12 meses, así que el mes del año pasado se lee directo de Bsale y se guarda aparte (comparativo_*).
-const COMPARATIVO_PESO = { catalogo: 15, base: 45, actual: 40 }; // para el % de avance de la sincronización
+const COMPARATIVO_PESO = { catalogo: 12, base: 38, actual: 35, costos: 15 }; // para el % de avance de la sincronización
 const COMPARATIVO_JOBS_CATALOGO = [
   { clave: 'cat-tipos', url: (o) => `${BSALE_BASE}/product_types.json?limit=${PUNTOS_SYNC_LIMIT}&offset=${o}`, opcional: false },
   { clave: 'cat-productos-0', url: (o) => `${BSALE_BASE}/products.json?limit=${PUNTOS_SYNC_LIMIT}&offset=${o}`, opcional: false },
@@ -2370,8 +2370,9 @@ async function comparativoProcesarCatalogo(sql, clave, items) {
       [[...m.keys()], [...m.values()].map((v) => v.nombre), [...m.values()].map((v) => v.tipo), [...m.values()].map((v) => v.servicio)]);
   } else if (clave.startsWith('cat-variantes')) {
     const m = new Map();
-    for (const v of items) { const code = String(v.code || '').trim().toUpperCase(); if (code && v.product?.id != null) m.set(code, v.product.id); }
-    if (m.size) await sql.query(`INSERT INTO comparativo_catalogo (sku, producto_id) SELECT * FROM UNNEST ($1::text[], $2::int[]) ON CONFLICT (sku) DO UPDATE SET producto_id = EXCLUDED.producto_id;`, [[...m.keys()], [...m.values()]]);
+    const ids = new Map();
+    for (const v of items) { const code = String(v.code || '').trim().toUpperCase(); if (code && v.product?.id != null) { m.set(code, v.product.id); ids.set(code, v.id ?? null); } }
+    if (m.size) await sql.query(`INSERT INTO comparativo_catalogo (sku, producto_id, variante_id) SELECT * FROM UNNEST ($1::text[], $2::int[], $3::int[]) ON CONFLICT (sku) DO UPDATE SET producto_id = EXCLUDED.producto_id, variante_id = EXCLUDED.variante_id;`, [[...m.keys()], [...m.values()], [...m.keys()].map((k) => ids.get(k))]);
   }
 }
 
@@ -2403,6 +2404,37 @@ async function comparativoProcesarDocumentos(sql, periodo, items) {
   );
 }
 
+// Costos de los SKU que vendieron en los dos meses comparados (Bsale: un llamado por variante, variants/{id}/costs). Se releen a los 30 días.
+async function comparativoCostos(sql, mes, base, ctx) {
+  const consulta = `SELECT s.sku, c.variante_id FROM (SELECT DISTINCT sku FROM comparativo_lineas WHERE periodo = ANY($1::text[])) s
+      LEFT JOIN comparativo_catalogo c ON c.sku = s.sku LEFT JOIN comparativo_costos k ON k.sku = s.sku
+     WHERE k.sku IS NULL OR k.leido_en < now() - interval '30 days' ORDER BY s.sku;`;
+  const { rows: pendientes } = await sql.query(consulta, [[mes, base]]);
+  let i = 0;
+  while (i < pendientes.length && ctx.restante() > 0) {
+    const tanda = pendientes.slice(i, i + 6);
+    await ctx.ritmo(tanda.length);
+    const leidos = await Promise.all(tanda.map(async (p) => {
+      if (!p.variante_id) return { sku: p.sku, id: null, promedio: null, historial: [], sin: true };
+      const r = await fetchConTimeout(`${BSALE_BASE}/variants/${p.variante_id}/costs.json`, { headers: { access_token: ctx.token } }, 15000);
+      if (r.status === 404) return { sku: p.sku, id: p.variante_id, promedio: null, historial: [], sin: true };
+      if (!r.ok) throw new Error(`Bsale HTTP ${r.status} leyendo el costo de ${p.sku}`);
+      const d = await r.json();
+      const h = Array.isArray(d.history) ? d.history : (d.history && d.history.items) || [];
+      const historial = h.map((x) => ({ f: x.admissionDate ? new Date(x.admissionDate * 1000).toISOString().slice(0, 10) : null, c: Number(x.cost) || 0 })).filter((x) => x.f && x.c > 0);
+      const promedio = Number(d.averageCost) || null;
+      return { sku: p.sku, id: p.variante_id, promedio, historial, sin: !promedio && !historial.length };
+    }));
+    await sql.query(
+      `INSERT INTO comparativo_costos (sku, variante_id, promedio, historial, sin_costo, leido_en)
+       SELECT sku, vid, prom, hist::jsonb, sin, now() FROM UNNEST ($1::text[], $2::int[], $3::numeric[], $4::text[], $5::boolean[]) AS t(sku, vid, prom, hist, sin)
+       ON CONFLICT (sku) DO UPDATE SET variante_id = EXCLUDED.variante_id, promedio = EXCLUDED.promedio, historial = EXCLUDED.historial, sin_costo = EXCLUDED.sin_costo, leido_en = now();`,
+      [leidos.map((x) => x.sku), leidos.map((x) => x.id), leidos.map((x) => x.promedio), leidos.map((x) => JSON.stringify(x.historial)), leidos.map((x) => x.sin)]);
+    i += tanda.length;
+  }
+  return { completo: i >= pendientes.length, pendientes: pendientes.length - i };
+}
+
 async function comparativoEstadoResumen(sql, mes, base) {
   const { rows } = await sql`SELECT clave, offset_a, total_a, completo, actualizado_en FROM comparativo_estado;`;
   const por = Object.fromEntries(rows.map((r) => [r.clave, r]));
@@ -2410,13 +2442,17 @@ async function comparativoEstadoResumen(sql, mes, base) {
   const cat = COMPARATIVO_JOBS_CATALOGO.map((j) => por[j.clave]);
   const catAvance = cat.reduce((s, r) => s + avance(r), 0) / COMPARATIVO_JOBS_CATALOGO.length;
   const docA = por[`docs-${mes}`], docB = por[`docs-${base}`];
-  const porcentaje = Math.round(100 * (COMPARATIVO_PESO.catalogo * catAvance + COMPARATIVO_PESO.base * avance(docB) + COMPARATIVO_PESO.actual * avance(docA)) / 100);
+  const { rows: cc } = await sql.query(
+    `SELECT (SELECT COUNT(DISTINCT sku) FROM comparativo_lineas WHERE periodo = ANY($1::text[]))::int AS total,
+            (SELECT COUNT(DISTINCT l.sku) FROM comparativo_lineas l JOIN comparativo_costos k ON k.sku = l.sku AND k.leido_en >= now() - interval '30 days' WHERE l.periodo = ANY($1::text[]))::int AS hecho;`, [[mes, base]]);
+  const costos = { total: cc[0].total, hecho: cc[0].hecho, completo: cc[0].total > 0 && cc[0].hecho >= cc[0].total };
+  const porcentaje = Math.round(COMPARATIVO_PESO.catalogo * catAvance + COMPARATIVO_PESO.base * avance(docB) + COMPARATIVO_PESO.actual * avance(docA) + COMPARATIVO_PESO.costos * (costos.total ? costos.hecho / costos.total : 0));
   return {
-    porcentaje,
+    porcentaje, costos,
     catalogo: { completo: cat.every((r) => r?.completo), actualizadoEn: cat.map((r) => r?.actualizado_en).filter(Boolean).sort().pop() || null },
     actual: { completo: !!docA?.completo, actualizadoEn: docA?.actualizado_en || null, documentos: docA?.offset_a || 0, total: docA?.total_a ?? null },
     base: { completo: !!docB?.completo, actualizadoEn: docB?.actualizado_en || null, documentos: docB?.offset_a || 0, total: docB?.total_a ?? null },
-    completo: cat.every((r) => r?.completo) && !!docA?.completo && !!docB?.completo,
+    completo: cat.every((r) => r?.completo) && !!docA?.completo && !!docB?.completo && costos.completo,
   };
 }
 
@@ -2434,6 +2470,8 @@ async function manejarComparativoVentasSync(req, res, sesion) {
     if (req.query.refrescar === '1') await sql`UPDATE comparativo_estado SET offset_a = 0, total_a = NULL, completo = false, actualizado_en = now() WHERE clave = ${'docs-' + mes};`;
     // El catálogo cambia poco: se vuelve a leer cada 14 días.
     await sql`UPDATE comparativo_estado SET offset_a = 0, total_a = NULL, completo = false WHERE clave LIKE 'cat-%' AND completo AND actualizado_en < now() - interval '14 days';`;
+    // Catálogos leídos antes de que se guardara el id de cada variante (hace falta para leer sus costos): se vuelven a leer una vez.
+    await sql`UPDATE comparativo_estado SET offset_a = 0, total_a = NULL, completo = false WHERE clave LIKE 'cat-variantes%' AND completo AND NOT EXISTS (SELECT 1 FROM comparativo_catalogo WHERE variante_id IS NOT NULL);`;
     let ultima = 0;
     const ctx = {
       token, restante: () => PUNTOS_SYNC_PRESUPUESTO_MS - (Date.now() - inicio),
@@ -2454,7 +2492,12 @@ async function manejarComparativoVentasSync(req, res, sesion) {
         if (!r.completo) break;
       }
     }
-    const estado = await comparativoEstadoResumen(sql, mes, base);
+    let estado = await comparativoEstadoResumen(sql, mes, base);
+    if (estado.actual.completo && estado.base.completo) {
+      fase = 'costos de los productos';
+      await comparativoCostos(sql, mes, base, ctx);
+      estado = await comparativoEstadoResumen(sql, mes, base);
+    }
     if (estado.completo) fase = 'listo';
     return res.status(200).json({ mes, mesBase: base, fase, ...estado });
   } catch (err) {
@@ -2637,6 +2680,10 @@ async function manejarComparativoVentas(req, res, sesion) {
     const FILTRO_PRODUCTOS = `FROM comparativo_lineas l LEFT JOIN comparativo_catalogo c ON c.sku = l.sku LEFT JOIN comparativo_productos p ON p.id = c.producto_id WHERE l.periodo = ANY($1::text[]) AND EXTRACT(DAY FROM l.fecha) <= $2 AND NOT COALESCE(p.es_servicio, false)`;
     const { rows: docs } = await sql.query(`SELECT l.periodo, COUNT(DISTINCT l.documento_id)::int AS n ${FILTRO_PRODUCTOS} GROUP BY l.periodo;`, [[mes, base], hastaDia]);
     const { rows: dias } = await sql.query(`SELECT l.periodo, EXTRACT(DAY FROM l.fecha)::int AS dia, SUM(l.monto)::float AS monto, SUM(l.cantidad)::float AS unidades ${FILTRO_PRODUCTOS} GROUP BY l.periodo, dia ORDER BY dia;`, [[mes, base], hastaDia]);
+    // Costo de cada SKU en cada mes (última recepción de mercadería hasta fin de ese mes) para estimar el margen.
+    const { rows: costosRows } = await sql.query(`SELECT sku, promedio, historial FROM comparativo_costos WHERE NOT sin_costo AND sku = ANY($1::text[]);`, [[...new Set(filas.map((f) => f.sku))]]);
+    const costoPorSku = new Map(costosRows.map((r) => [r.sku, { promedio: Number(r.promedio), historial: r.historial }]));
+    for (const f of filas) f.costoUnitario = costoEnFecha(costoPorSku.get(f.sku), f.periodo + '-' + String(diasDelMesComparativo(f.periodo)).padStart(2, '0'));
     const { rows: marcasRows } = await sql.query(`SELECT sku, marca FROM comparativo_marcas_sku;`);
     const marcasPorSku = Object.fromEntries(marcasRows.map((m) => [m.sku, m.marca]));
     const cmp = armarComparativoVentas(filas, { actual: mes, base, marcasPorSku });
