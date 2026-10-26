@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Instagram — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  @media (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:18px 20px;}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:var(--text);}
+  .card .pct{font-size:13px;font-weight:700;color:var(--primary);margin-top:2px;}
+  .card.destacada{background:var(--primary-dim);border-color:var(--primary);}
+  .card .ver-detalle{font-size:11px;color:var(--muted);margin-top:6px;}
+
+  .ga-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0;}
+  @media (max-width:900px){.ga-tabs{grid-template-columns:repeat(2,1fr);}}
+  .ga-tab{background:var(--surface-2);border:1.5px solid var(--line);border-radius:12px;padding:16px 14px;text-align:left;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:box-shadow .15s,transform .15s,border-color .15s,background .15s;}
+  .ga-tab:hover{box-shadow:var(--shadow);transform:translateY(-1px);}
+  .ga-tab.active{background:var(--primary-dim);border-color:var(--primary);}
+  .ga-tab-icono{font-size:20px;margin-bottom:6px;display:block;}
+  .ga-tab-titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;color:var(--text);}
+  .ga-tab-sub{font-size:11px;color:var(--muted);margin-top:2px;}
+
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-top:16px;color:var(--text);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:12px;padding:7px 13px;}
+
+  .filtros{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+  input[type=date]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:6px 10px;border-radius:9px;font-size:12.5px;}
+  .date-field{display:flex;align-items:center;gap:5px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  .filtro-rango-fechas{display:flex;align-items:center;gap:7px;}
+
+  .chart-legend{display:flex;gap:16px;margin:2px 0 14px;flex-wrap:wrap;}
+  .chart-legend-item{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);}
+  .chart-legend-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+
+  .canal-chart{max-height:420px;overflow-y:auto;padding-right:4px;}
+  .canal-grupo{margin-bottom:14px;}
+  .canal-titulo{font-size:12px;color:var(--text);margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .canal-fila{display:flex;align-items:center;gap:8px;margin-bottom:3px;}
+  .canal-pista{flex:1;background:var(--surface-2);border-radius:5px;height:12px;overflow:hidden;}
+  .canal-relleno{height:100%;border-radius:5px;min-width:3px;}
+  .canal-valor{width:56px;flex-shrink:0;text-align:right;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text);}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  th.amount, td.amount{text-align:right;}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+
+  .ads-bloque{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:0 0 18px;box-shadow:var(--shadow);}
+  .ads-cab{display:flex;gap:14px;align-items:flex-start;margin-bottom:12px;}
+  .ads-num{flex:none;width:30px;height:30px;border-radius:50%;background:var(--primary);color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;}
+  .ads-cab h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0 0 3px;}
+  .ads-cab .sub{margin:0;font-size:12.5px;}
+  .ads-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:12px 0 14px;}
+  .ads-kpis .card{padding:12px 14px;} .ads-kpis .card .big{font-size:21px;} .ads-kpis .card .nota{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.35;}
+  .ads-lectura{margin-top:12px;padding:10px 14px;border-radius:10px;background:var(--primary-dim);border:1px solid #BFE0DB;font-size:12.5px;line-height:1.5;}
+  .ads-lectura.alerta{background:var(--amber-dim);border-color:#F3D9A8;}
+  .ads-error{margin:8px 0;padding:10px 14px;border-radius:10px;background:var(--red-bg);border:1px solid #F4C5C5;color:var(--red);font-size:12.5px;}
+  .ads-barra{display:inline-block;width:90px;height:8px;border-radius:5px;background:var(--surface-2);vertical-align:middle;margin-right:7px;overflow:hidden;}
+  .ads-barra i{display:block;height:100%;background:var(--primary);border-radius:5px;} .ads-barra i.rojo{background:var(--red);} .ads-barra i.ambar{background:var(--amber);}
+  .badge-ads{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;}
+  .badge-ads.si{background:var(--green-bg);color:var(--green);} .badge-ads.no{background:var(--red-bg);color:var(--red);}
+  .mejor{color:var(--green);font-weight:700;} .peor{color:var(--red);font-weight:700;}
+  .ads-pie{font-size:11.5px;color:var(--muted);margin:4px 0 0;}
+  .sub-titulo{font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:18px 0 8px;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+          <a href="contabilidad.html">Contabilidad</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
+          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html">Modelos compatibles</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="search-console.html">Search Console</a>
+          <a href="instagram.html" class="active">Instagram</a>
+          <a href="comparativo-ventas.html">Comparativo de ventas</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <style>
+    .sc-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:0 0 18px;max-width:900px;}
+    @media (max-width:600px){.sc-tabs{grid-template-columns:repeat(1,1fr);}}
+    .sc-tab{background:var(--surface-2);border:1.5px solid var(--line);border-radius:12px;padding:13px 12px;text-align:left;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:var(--text);transition:box-shadow .15s,border-color .15s,background .15s;}
+    .sc-tab:hover{box-shadow:var(--shadow);}
+    .sc-tab.active{background:var(--primary-dim);border-color:var(--primary);}
+    .sc-tab b{display:block;font-family:'Space Grotesk',sans-serif;font-size:13.5px;} .sc-tab span{font-size:11px;color:var(--muted);font-weight:400;}
+    .sc-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:0 0 16px;}
+    .sc-kpis .card .big{font-size:23px;}
+    .dl{font-size:12px;font-weight:700;margin-top:3px;} .dl.mejor{color:var(--green);} .dl.peor{color:var(--red);} .dl.neutro{color:var(--muted);font-weight:500;}
+    .sc-bloque{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:0 0 18px;box-shadow:var(--shadow);}
+    .sc-bloque h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0 0 3px;} .sc-bloque .sub{font-size:12.5px;margin:0 0 12px;}
+    .sc-error{margin:8px 0;padding:10px 14px;border-radius:10px;background:var(--red-bg);border:1px solid #F4C5C5;color:var(--red);font-size:12.5px;line-height:1.5;}
+    .sc-aviso{margin:0 0 14px;padding:12px 16px;border-radius:12px;background:var(--blue-bg);border:1px solid #C3D9FB;font-size:12.5px;line-height:1.55;}
+    .sc-url{color:var(--primary-dark);text-decoration:none;word-break:break-all;} .sc-url:hover{text-decoration:underline;}
+    td.txt{max-width:420px;word-break:break-word;}
+    .mejor{color:var(--green);font-weight:700;} .peor{color:var(--red);font-weight:700;}
+    .ads-pie{font-size:11.5px;color:var(--muted);margin:4px 0 0;}
+    .sc-grafico{display:flex;align-items:flex-end;gap:2px;height:120px;margin:6px 0 4px;}
+    .sc-grafico i{flex:1;background:var(--primary);border-radius:2px 2px 0 0;min-height:2px;opacity:.85;} .sc-grafico i:hover{opacity:1;}
+    .sc-ejes{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);}
+    .ig-perfil{display:flex;align-items:center;gap:14px;margin:0 0 16px;}
+    .ig-perfil img{width:54px;height:54px;border-radius:50%;object-fit:cover;border:1px solid var(--line);}
+    .ig-perfil b{font-family:'Space Grotesk',sans-serif;font-size:16px;} .ig-perfil span{display:block;font-size:12px;color:var(--muted);}
+    .ig-dos{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;} @media (max-width:900px){.ig-dos{grid-template-columns:1fr;}}
+    .ig-barra{display:inline-block;width:110px;height:8px;border-radius:5px;background:var(--surface-2);vertical-align:middle;margin-right:7px;overflow:hidden;} .ig-barra i{display:block;height:100%;background:var(--primary);border-radius:5px;}
+  </style>
+
+  <h1>📸 Instagram</h1>
+  <div class="sub">Cómo le va a la cuenta de Instagram de IndexStore: a cuántas personas llega, cuántas visitan el perfil o el sitio, qué publicaciones funcionan y quién sigue la cuenta. Solo lectura. Los días siguen el horario de Instagram.</div>
+
+  <div class="filtros">
+    <div class="filtro-rango-fechas">
+      <div class="date-field"><label for="igDesde">Desde</label><input type="date" id="igDesde" onchange="cambioManual('desde')"></div>
+      <div class="date-field"><label for="igHasta">Hasta</label><input type="date" id="igHasta" onchange="cambioManual('hasta')"></div>
+    </div>
+    <button class="btn-ghost btn-compact" id="btnDias7" onclick="setDias(7)">7 días</button>
+    <button class="btn-ghost btn-compact active" id="btnDias28" onclick="setDias(28)">28 días</button>
+    <button class="btn-ghost btn-compact" id="btnDias90" onclick="setDias(90)">90 días</button>
+    <button class="btn-ghost btn-compact" onclick="recargar()">↻ Actualizar</button>
+  </div>
+
+  <div class="sc-tabs" id="igTabs">
+    <button class="sc-tab active" data-sec="resumen" onclick="abrir('resumen')"><b>📈 Resumen</b><span>Alcance, visitas al perfil y clics al sitio</span></button>
+    <button class="sc-tab" data-sec="publicaciones" onclick="abrir('publicaciones')"><b>🖼️ Publicaciones</b><span>Cuáles funcionan mejor</span></button>
+    <button class="sc-tab" data-sec="audiencia" onclick="abrir('audiencia')"><b>👥 Audiencia</b><span>Dónde viven, edad y género</span></button>
+  </div>
+
+  <div id="igEstado" class="empty-note">Cargando…</div>
+  <div id="igContenido" style="display:none;"></div>
+  <p class="ads-pie" id="igPie"></p>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function escapeHtml(texto){
+  return String(texto ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+const fmtNum = n => n == null ? '—' : new Intl.NumberFormat('es-CL').format(Math.round(n));
+const fmtPct = (n, d = 1) => n == null ? '—' : (n * 100).toFixed(d).replace('.', ',') + '%';
+const fechaCorta = s => s.split('-').reverse().join('-');
+let rolActual = null;
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    rolActual = u.rol;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){
+      ['navUsuarios', 'navActualizaciones', 'navMercadoLibre'].forEach(id => { const n = $(id); if(n) n.style.display = ''; });
+    }
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Estado y período (Instagram entrega datos hasta ayer) ----------
+const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+function sumarDias(str, n){ const d = new Date(str + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+const topeDatos = sumarDias(hoy, -1);
+const rango = { desde: sumarDias(topeDatos, -27), hasta: topeDatos };
+let seccion = 'resumen', token = 0, cache = {};
+
+function marcarDias(n){ [7, 28, 90].forEach(d => $('btnDias' + d).classList.toggle('active', d === n)); }
+function setDias(n){
+  rango.hasta = topeDatos; rango.desde = sumarDias(topeDatos, -(n - 1));
+  $('igDesde').value = rango.desde; $('igHasta').value = rango.hasta; marcarDias(n); cache = {}; cargar();
+}
+function cambioManual(cual){
+  let d = $('igDesde').value, h = $('igHasta').value;
+  if(!d && !h){ $('igDesde').value = rango.desde; $('igHasta').value = rango.hasta; return; }
+  if(!d) d = h;
+  if(!h) h = d;
+  if(h > topeDatos) h = topeDatos;
+  if(d > topeDatos) d = topeDatos;
+  if(d > h){ if(cual === 'desde') h = d; else d = h; }
+  if((Date.parse(h) - Date.parse(d)) / 86400000 > 89) d = sumarDias(h, -89);
+  rango.desde = d; rango.hasta = h; $('igDesde').value = d; $('igHasta').value = h; marcarDias(null); cache = {}; cargar();
+}
+function recargar(){ cache = {}; cargar(); }
+function abrir(sec){
+  seccion = sec;
+  document.querySelectorAll('.sc-tab').forEach(b => b.classList.toggle('active', b.dataset.sec === sec));
+  try{ history.replaceState(null, '', '#' + sec); }catch(e){}
+  cargar();
+}
+
+// ---------- Utilidades de dibujo ----------
+function delta(v){
+  if(v == null) return '<div class="dl neutro">sin período anterior</div>';
+  if(Math.abs(v) < 0.0005) return '<div class="dl neutro">igual que antes</div>';
+  return `<div class="dl ${v > 0 ? 'mejor' : 'peor'}">${v > 0 ? '▲' : '▼'} ${Math.abs(v * 100).toFixed(1).replace('.', ',')}%</div>`;
+}
+function kpi(lbl, grande, sub){ return `<div class="card"><div class="lbl">${lbl}</div><div class="big">${grande}</div>${sub}</div>`; }
+function bloque(titulo, sub, cuerpo){ return `<section class="sc-bloque"><h2>${titulo}</h2><div class="sub">${sub}</div>${cuerpo}</section>`; }
+function tabla(cols, filas, vacio){
+  if(!filas.length) return `<div class="empty-note">${vacio || 'Sin datos en este período.'}</div>`;
+  return `<div class="tabla-wrap"><table><thead><tr>${cols.map(c => `<th${c.n ? ' class="amount"' : ''}>${c.t}</th>`).join('')}</tr></thead><tbody>${filas.join('')}</tbody></table></div>`;
+}
+function grafico(serie, unidad){
+  if(!serie.length) return '<div class="empty-note">Instagram no entregó datos diarios para este período.</div>';
+  const max = Math.max(1, ...serie.map(s => s.valor));
+  return `<div class="sc-grafico">${serie.map(s => `<i style="height:${Math.max(2, s.valor / max * 100)}%" title="${fechaCorta(s.fecha)}: ${fmtNum(s.valor)} ${unidad}"></i>`).join('')}</div><div class="sc-ejes"><span>${fechaCorta(serie[0].fecha)}</span><span>${fechaCorta(serie[serie.length - 1].fecha)}</span></div>`;
+}
+
+// ---------- Secciones ----------
+function vistaResumen(d){
+  const c = d.cuenta;
+  let html = `<div class="ig-perfil"><div><b>@${escapeHtml(c.usuario)}</b><span>${escapeHtml(c.nombre || '')}${c.pagina ? ' · Página de Facebook: ' + escapeHtml(c.pagina) : ''}</span></div></div>`;
+  html += '<div class="sc-kpis">' + kpi('Seguidores', fmtNum(c.seguidores), `<div class="dl neutro">${fmtNum(d.nuevos_seguidores_total)} nuevos en el período (últimos 30 días como máximo)</div>`) +
+    d.metricas.map(m => m.actual == null
+      ? kpi(escapeHtml(m.nombre), '—', `<div class="dl neutro" title="${escapeHtml(m.error || '')}">Instagram no entrega este dato para la cuenta</div>`)
+      : kpi(escapeHtml(m.nombre), fmtNum(m.actual), delta(m.variacion))).join('') + '</div>';
+  html += bloque('Alcance por día', `Personas distintas que vieron contenido de la cuenta, del ${fechaCorta(d.desde)} al ${fechaCorta(d.hasta)}. Pasa el mouse sobre una barra para ver el día.`, grafico(d.alcance_diario, 'personas'));
+  html += bloque('Nuevos seguidores por día', 'Seguidores nuevos cada día (Instagram solo entrega los últimos 30 días).', grafico(d.nuevos_seguidores_diario, 'seguidores'));
+  html += '<div class="sc-aviso">Cómo leerlo: <b>alcance</b> son personas distintas; <b>vistas</b> cuentan cada vez que se ve el contenido (una persona puede sumar varias). Los clics al sitio y las visitas al perfil muestran cuánta gente pasa de Instagram a actuar. Para saber cuántas de esas visitas terminan en una cotización, hay que mirar los mensajes de WhatsApp y Google Analytics.</div>';
+  return html;
+}
+
+function vistaPublicaciones(d){
+  const filas = d.publicaciones.map(p => `<tr><td>${escapeHtml(fechaCorta(p.fecha))}</td><td>${escapeHtml(p.tipo)}</td><td class="txt">${p.enlace ? `<a class="sc-url" href="${escapeHtml(p.enlace)}" target="_blank" rel="noopener">${escapeHtml(p.texto || '(sin texto)')}</a>` : escapeHtml(p.texto || '(sin texto)')}</td><td class="amount">${fmtNum(p.alcance)}</td><td class="amount">${fmtNum(p.vistas)}</td><td class="amount">${fmtNum(p.me_gusta)}</td><td class="amount">${fmtNum(p.comentarios)}</td><td class="amount">${fmtNum(p.guardados)}</td><td class="amount">${fmtNum(p.compartidos)}</td><td class="amount" data-valor="${p.tasa == null ? '' : p.tasa}">${fmtPct(p.tasa)}</td></tr>`);
+  const tipos = tabla([{t:'Tipo'}, {t:'Publicaciones',n:1}, {t:'Alcance promedio',n:1}, {t:'Interacciones promedio',n:1}],
+    d.por_tipo.map(t => `<tr><td>${escapeHtml(t.tipo)}</td><td class="amount">${fmtNum(t.publicaciones)}</td><td class="amount">${fmtNum(t.alcance_promedio)}</td><td class="amount">${fmtNum(t.interacciones_promedio)}</td></tr>`));
+  return bloque('Publicaciones del período', `${fmtNum(d.total_en_rango)} publicaciones entre el ${fechaCorta(d.desde)} y el ${fechaCorta(d.hasta)}${d.total_en_rango > d.publicaciones.length ? ` (se muestran las ${d.publicaciones.length} más recientes)` : ''}. La tasa de interacción es interacciones ÷ alcance. Las historias no se incluyen.`,
+    tabla([{t:'Fecha'}, {t:'Tipo'}, {t:'Publicación'}, {t:'Alcance',n:1}, {t:'Vistas',n:1}, {t:'Me gusta',n:1}, {t:'Comentarios',n:1}, {t:'Guardados',n:1}, {t:'Compartidos',n:1}, {t:'Tasa de interacción',n:1}], filas, 'No hay publicaciones en este período.')) +
+    bloque('Qué tipo de contenido rinde más', 'Promedio por tipo de publicación en este período.', tipos);
+}
+
+function bloqueAudiencia(titulo, sub, x){
+  if(x.error) return bloque(titulo, sub, `<div class="sc-error">${escapeHtml(x.error)}</div>`);
+  const max = Math.max(0.0001, ...x.filas.map(f => f.pct || 0));
+  return bloque(titulo, sub, tabla([{t:'Grupo'}, {t:'Seguidores',n:1}, {t:'%',n:1}],
+    x.filas.map(f => `<tr><td>${escapeHtml(f.etiqueta)}</td><td class="amount">${fmtNum(f.valor)}</td><td class="amount"><span class="ig-barra"><i style="width:${(f.pct || 0) / max * 100}%"></i></span>${fmtPct(f.pct)}</td></tr>`),
+    'Instagram no entrega este dato (se necesitan al menos 100 seguidores).'));
+}
+function vistaAudiencia(d){
+  return '<div class="sc-aviso">Instagram entrega la audiencia de los seguidores actuales (no cambia con las fechas) y solo si la cuenta tiene al menos 100 seguidores.</div>' +
+    '<div class="ig-dos">' + bloqueAudiencia('País', 'Dónde viven los seguidores.', d.pais) + bloqueAudiencia('Ciudad', 'Las 15 ciudades con más seguidores.', d.ciudad) + '</div>' +
+    '<div class="ig-dos">' + bloqueAudiencia('Edad', 'Rangos de edad.', d.edad) + bloqueAudiencia('Género', 'Según lo que informan los usuarios.', d.genero) + '</div>';
+}
+
+const VISTAS = { resumen: vistaResumen, publicaciones: vistaPublicaciones, audiencia: vistaAudiencia };
+
+async function cargar(){
+  const sec = seccion, tk = ++token, estado = $('igEstado'), cont = $('igContenido');
+  const params = new URLSearchParams({ recurso: 'instagram', seccion: sec, desde: rango.desde, hasta: rango.hasta });
+  const clave = params.toString();
+  try{
+    let d = cache[sec] && cache[sec].clave === clave ? cache[sec].datos : null;
+    if(!d){
+      estado.className = 'empty-note'; estado.style.display = ''; estado.textContent = 'Consultando Instagram…'; cont.style.opacity = '.5';
+      const r = await fetch('/api/negocio?' + clave);
+      if(r.status === 401){ location.href = '/login.html'; return; }
+      d = await r.json();
+      if(tk !== token) return;
+      if(d.error) throw new Error(d.error + (d.detail ? ' — ' + d.detail : ''));
+      cache[sec] = { clave, datos: d };
+    }
+    if(tk !== token) return;
+    estado.style.display = 'none'; cont.style.display = ''; cont.style.opacity = '';
+    cont.innerHTML = VISTAS[sec](d);
+    $('igPie').textContent = (d.desde ? `Período: ${fechaCorta(d.desde)} al ${fechaCorta(d.hasta)} (comparado con ${fechaCorta(d.anterior.desde)} al ${fechaCorta(d.anterior.hasta)}) · ` : '') + `cuenta @${d.cuenta.usuario} · datos de Instagram, leídos ${new Date(d.generado_en).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}`;
+  }catch(err){
+    if(tk !== token) return;
+    cont.style.display = 'none'; estado.style.display = ''; estado.className = 'sc-error'; estado.textContent = 'No se pudo consultar: ' + err.message;
+  }
+}
+
+cargarSesionUsuario();
+$('igDesde').value = rango.desde; $('igHasta').value = rango.hasta;
+const inicial = (location.hash || '').replace('#', '');
+if(VISTAS[inicial]){ seccion = inicial; document.querySelectorAll('.sc-tab').forEach(b => b.classList.toggle('active', b.dataset.sec === inicial)); }
+cargar();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>

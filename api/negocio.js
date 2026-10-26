@@ -57,6 +57,7 @@ import { armarAnalisis as armarAnalisisDesperdicio, MINUTOS_POR_DEFECTO as MINUT
 import { armarCorreoModelosPendientes } from '../lib/compat-recordatorio.js';
 import { resolverEntradaProducto, datosProductoIdentificado, columnaCompatibilidad, esLink, handleDesdeLink, skuValidoParaBuscar, productoDesdeShopify, productoDesdeVariantes } from '../lib/compat-propuestas.js';
 import { analizarGoogleAds, validarRango as validarRangoGoogleAds } from '../lib/google-ads-analisis.js';
+import { consultarInstagram } from '../lib/instagram.js';
 import { consultarSearchConsole, validarRutaExtra as validarRutaExtraSearchConsole } from '../lib/search-console.js';
 import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
@@ -244,6 +245,7 @@ export default async function handler(req, res) {
   if (recurso === 'wa-clic-ads-resumen') return manejarWaClicAdsResumen(req, res, sesion);
   if (recurso === 'google-ads-analisis') return manejarGoogleAdsAnalisis(req, res, sesion);
   if (recurso === 'search-console') return manejarSearchConsole(req, res, sesion);
+  if (recurso === 'instagram') return manejarInstagram(req, res, sesion);
   if (recurso === 'whatsapp-perdidas-ads') return manejarWhatsappPerdidasAds(req, res, sesion);
   if (recurso === 'descuentos-web') return manejarDescuentosWeb(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
@@ -17159,6 +17161,19 @@ async function manejarGoogleAdsAnalisis(req, res, _sesion) {
     return res.status(200).json(r);
   } catch (err) {
     return res.status(200).json({ error: 'No se pudo leer Google Ads', detail: String(err.message || err).slice(0, 300) });
+  }
+}
+
+// Página Análisis > Instagram: alcance, visitas al perfil, clics al sitio, publicaciones y audiencia de la cuenta de Instagram. Solo lectura.
+// GET ?recurso=instagram&seccion=resumen|publicaciones|audiencia&desde=AAAA-MM-DD&hasta=AAAA-MM-DD. Ver lib/instagram.js (INSTAGRAM_ACCESS_TOKEN en Vercel).
+async function manejarInstagram(req, res, _sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const r = await consultarInstagram({ seccion: String(req.query.seccion || 'resumen'), desde: req.query.desde, hasta: req.query.hasta });
+    if (r.sin_configurar) return res.status(200).json({ error: 'Instagram no está configurado: falta INSTAGRAM_ACCESS_TOKEN en las variables de Vercel' });
+    return res.status(200).json(r);
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo leer Instagram', detail: String(err.message || err).slice(0, 500) });
   }
 }
 
