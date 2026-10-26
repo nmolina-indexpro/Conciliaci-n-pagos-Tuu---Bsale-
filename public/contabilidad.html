@@ -135,6 +135,12 @@
   .conta-cat-fila{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;} .conta-cat-fila.sub{font-size:11px;color:var(--muted);margin-top:1px;}
   .conta-barra{height:6px;background:var(--surface-2);border-radius:4px;margin-top:5px;overflow:hidden;} .conta-barra i{display:block;height:100%;background:var(--primary);border-radius:4px;}
   .conta-ingresos{border-style:dashed;background:var(--surface-2);}
+  .conta-filtros-reg{display:contents;}
+  .conta-dos{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:18px;align-items:start;} @media (max-width:1100px){.conta-dos{grid-template-columns:1fr;}}
+  .conta-hall{border-left:4px solid var(--line);border-radius:10px;padding:9px 13px;margin:7px 0;font-size:13px;line-height:1.45;} .conta-hall .sub{font-size:12px;color:var(--muted);}
+  .conta-hall-tag{display:inline-block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;margin-right:8px;}
+  .conta-mes-sel{background:var(--primary-dim);}
+  .cmp-kpis .card .big .peor{color:var(--red);} .cmp-kpis .card .big .mejor{color:var(--green);}
   .cmp-kpis .card.alert .big{color:var(--red);} .cmp-kpis .card.ok .big{color:var(--green);}
 </style>
 <meta name="theme-color" content="#0F766E">
@@ -245,14 +251,60 @@
   <div class="sub">Primera versión: el registro de <b>egresos</b> según las <b>facturas de compra</b> (DTE recibidos) que Bsale guarda de tus proveedores. Categoriza a cada proveedor una vez y todas sus facturas quedan clasificadas. El mes es el del libro de compras.</div>
 
   <div class="filtros">
-    <div class="date-field"><label for="ctMes">Mes</label><select id="ctMes" onchange="cargarConta()"></select></div>
-    <div class="date-field"><label for="ctCat">Categoría</label><select id="ctCat" onchange="dibujarConta()"></select></div>
+    <button class="btn-ghost btn-compact active" id="tabReg" onclick="vistaConta('registro')">📒 Registro</button>
+    <button class="btn-ghost btn-compact" id="tabAna" onclick="vistaConta('analisis')">📊 Análisis</button>
+  </div>
+
+  <div class="filtros">
+    <div class="date-field"><label for="ctMes">Mes</label><select id="ctMes" onchange="cambioMes()"></select></div>
+    <span id="ctFiltrosReg" class="conta-filtros-reg"><div class="date-field"><label for="ctCat">Categoría</label><select id="ctCat" onchange="dibujarConta()"></select></div>
     <input type="search" id="ctBusca" placeholder="Buscar proveedor, RUT o N° de factura…" oninput="dibujarConta()" style="min-width:250px;">
     <label class="cmp-check"><input type="checkbox" id="ctSolo" onchange="dibujarConta()"> Solo sin categorizar</label>
-    <button class="btn-ghost btn-compact" id="btnSyncConta" onclick="traerDeBsale()" title="Lee de Bsale las facturas de compra del mes elegido">⇩ Traer de Bsale</button>
+    <button class="btn-ghost btn-compact" id="btnSyncConta" onclick="traerDeBsale()" title="Lee de Bsale las facturas de compra del mes elegido">⇩ Traer de Bsale</button></span>
   </div>
   <div id="ctSync" class="cmp-sync" style="display:none;"></div>
   <div id="ctEstado" class="empty-note">Cargando…</div>
+
+  <div id="ctAnalisis" style="display:none;">
+    <div class="filtros">
+      <div class="date-field"><label for="ctN">Comparar con</label>
+        <select id="ctN" onchange="cargarAnalisis()"><option value="3">los 3 últimos meses</option><option value="6" selected>los 6 últimos meses</option><option value="12">los 12 últimos meses</option></select></div>
+      <button class="btn-ghost btn-compact" id="btnAnteriores" onclick="traerAnteriores()" title="Lee de Bsale las facturas de compra de los meses que aún no se han traído">⇩ Traer los meses anteriores</button>
+      <span class="empty-note" id="ctAnaNota"></span>
+    </div>
+    <div id="ctAnaSync" class="cmp-sync" style="display:none;"></div>
+    <div id="ctAnaEstado" class="empty-note">Cargando…</div>
+    <div id="ctAnaContenido" style="display:none;">
+      <div class="cmp-kpis" id="anKpis"></div>
+
+      <section class="ads-bloque">
+        <div class="ads-cab"><div><h2>Qué destaca</h2><div class="sub">Lo que el sistema detectó comparando este mes con los anteriores, de lo más importante a lo informativo.</div></div></div>
+        <div id="anHallazgos"></div>
+      </section>
+
+      <section class="ads-bloque">
+        <div class="ads-cab"><div><h2>Egresos mes a mes</h2><div class="sub" id="anGrafSub"></div></div></div>
+        <div id="anGrafico"></div>
+      </section>
+
+      <section class="ads-bloque">
+        <div class="ads-cab"><div><h2>Por categoría</h2><div class="sub">Cuánto se gastó en cada categoría cada mes, contra el promedio de los meses anteriores.</div></div></div>
+        <div class="tabla-wrap" id="anMatriz"></div>
+      </section>
+
+      <div class="conta-dos">
+        <section class="ads-bloque">
+          <div class="ads-cab"><div><h2>Compras relevantes: proveedores del mes</h2><div class="sub">Los que más pesan este mes y cómo se comparan con su promedio mensual anterior.</div></div></div>
+          <div class="tabla-wrap" id="anProveedores"></div>
+        </section>
+        <section class="ads-bloque">
+          <div class="ads-cab"><div><h2>Mayores facturas del mes</h2><div class="sub">Las 8 facturas de compra más grandes.</div></div></div>
+          <div class="tabla-wrap" id="anFacturas"></div>
+        </section>
+      </div>
+      <p class="ads-pie">Cómo se lee: los meses que aún no se han traído de Bsale salen "sin datos" y no entran en los promedios. Los hallazgos son avisos para revisar, no errores confirmados (una "posible duplicada" puede ser dos compras reales iguales). Un gasto recurrente que no llegó, como luz, agua o arriendo, se marca como prioridad alta porque suele significar una factura que falta recibir.</p>
+    </div>
+  </div>
 
   <div id="ctContenido" style="display:none;">
     <div class="cmp-kpis" id="ctKpis"></div>
@@ -320,7 +372,12 @@ async function cerrarSesion(){
   $('ctMes').innerHTML = opts.join('');
 })();
 
+function cambioMes(){ cargarConta(); if(vista === 'analisis') cargarAnalisis(); }
 async function cargarConta(){
+  await cargarContaRegistro();
+  if(vista === 'analisis'){ $('ctContenido').style.display = 'none'; $('ctEstado').style.display = 'none'; }
+}
+async function cargarContaRegistro(){
   const mes = $('ctMes').value;
   $('ctEstado').style.display = ''; $('ctEstado').className = 'empty-note'; $('ctEstado').textContent = 'Cargando…';
   try{
@@ -479,23 +536,24 @@ function recalcularResumen(){
   datos.resumen.sinCategoria = { n: sinN, total: sinTotal };
 }
 
-// ---------- Traer de Bsale por tandas, con % ----------
-async function traerDeBsale(){
+// ---------- Traer de Bsale por tandas, con % (uno o varios meses) ----------
+async function sincronizarMeses(lista, idCaja, idBtn){
   if(sincronizando) return;
   sincronizando = true;
-  const mes = $('ctMes').value, btn = $('btnSyncConta'), caja = $('ctSync');
+  const btn = $(idBtn), caja = $(idCaja);
   btn.disabled = true; caja.style.display = '';
-  let primera = true;
   try{
-    for(let i = 0; i < 200; i++){
-      const res = await fetch('/api/negocio?recurso=contabilidad-sync&mes=' + mes + (primera ? '&refrescar=1' : ''), { method: 'POST' });
-      primera = false;
-      const d = await res.json();
-      if(!res.ok || d.error){ caja.innerHTML = '<span class="peor">' + escapeHtml(d.error || 'Error') + '</span>' + (d.detail ? ' — ' + escapeHtml(d.detail) : ''); return; }
-      caja.innerHTML = d.porcentaje != null
-        ? `<b>${d.porcentaje}%</b> — ${fmtNum(d.hecho)} de ${fmtNum(d.total)} documentos de ${etiquetaMes(mes)} <span class="ads-barra" style="width:160px;"><i style="width:${d.porcentaje}%"></i></span>`
-        : `${fmtNum(d.hecho)} documentos leídos de ${etiquetaMes(mes)}…`;
-      if(d.completo) break;
+    for(let k = 0; k < lista.length; k++){
+      const mes = lista[k]; let primera = true;
+      for(let i = 0; i < 200; i++){
+        const res = await fetch('/api/negocio?recurso=contabilidad-sync&mes=' + mes + (primera ? '&refrescar=1' : ''), { method: 'POST' });
+        primera = false;
+        const d = await res.json();
+        if(!res.ok || d.error){ caja.innerHTML = '<span class="peor">' + escapeHtml(d.error || 'Error') + '</span>' + (d.detail ? ' — ' + escapeHtml(d.detail) : ''); return; }
+        const general = Math.round(((k + (d.completo ? 1 : (d.porcentaje || 0) / 100)) / lista.length) * 100);
+        caja.innerHTML = '<b>' + general + '%</b> — ' + (lista.length > 1 ? 'mes ' + (k + 1) + ' de ' + lista.length + ': ' : '') + etiquetaMes(mes) + (d.total ? ' (' + fmtNum(d.hecho) + ' de ' + fmtNum(d.total) + ' documentos)' : ' (' + fmtNum(d.hecho) + ' documentos leídos)') + ' <span class="ads-barra" style="width:160px;"><i style="width:' + general + '%"></i></span>';
+        if(d.completo) break;
+      }
     }
     caja.style.display = 'none';
   }catch(err){
@@ -503,7 +561,118 @@ async function traerDeBsale(){
   }finally{
     sincronizando = false; btn.disabled = false;
   }
+}
+async function traerDeBsale(){
+  if(sincronizando) return;
+  await sincronizarMeses([$('ctMes').value], 'ctSync', 'btnSyncConta');
   await cargarConta();
+}
+
+// ═════════ Análisis: comparar meses, compras relevantes y hallazgos ═════════
+let vista = 'registro', ana = null;
+function vistaConta(v){
+  vista = v;
+  $('tabReg').classList.toggle('active', v === 'registro'); $('tabAna').classList.toggle('active', v === 'analisis');
+  $('ctFiltrosReg').style.display = v === 'registro' ? '' : 'none';
+  $('ctSync').style.display = v === 'registro' && sincronizando ? '' : 'none';
+  $('ctEstado').style.display = v === 'registro' && $('ctEstado').textContent ? '' : 'none';
+  $('ctContenido').style.display = v === 'registro' && datos && datos.docs.length ? '' : 'none';
+  $('ctAnalisis').style.display = v === 'analisis' ? '' : 'none';
+  if(v === 'analisis') cargarAnalisis();
+}
+const mesCorto = m => { const [a, n] = m.split('-'); return MESES[Number(n) - 1].slice(0, 3) + ' ' + a.slice(2); };
+const chipPct = (v, sinSigno) => v == null ? '—' : (v > 0 ? '▲ +' : v < 0 ? '▼ −' : '') + Math.abs(v).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + '%';
+// Un egreso que sube mucho llama la atención (rojo); que baja mucho, se destaca en verde; lo demás, neutro.
+const claseGasto = v => v == null ? '' : v >= 20 ? 'peor' : v <= -20 ? 'mejor' : '';
+
+async function cargarAnalisis(){
+  const mes = $('ctMes').value, n = $('ctN').value;
+  $('ctAnaEstado').style.display = ''; $('ctAnaEstado').className = 'empty-note'; $('ctAnaEstado').textContent = 'Calculando…';
+  try{
+    const res = await fetch('/api/negocio?recurso=contabilidad-analisis&mes=' + mes + '&n=' + n);
+    const d = await res.json();
+    if(!res.ok || d.error){ $('ctAnaEstado').className = 'ads-error'; $('ctAnaEstado').textContent = (d.error || 'No se pudo calcular') + (d.detail ? ' — ' + d.detail : ''); $('ctAnaContenido').style.display = 'none'; return; }
+    ana = d;
+    const faltan = d.porMes.filter(m => !m.conDatos).map(m => m.mes);
+    $('ctAnaNota').textContent = faltan.length ? faltan.length + (faltan.length === 1 ? ' mes sin traer de Bsale' : ' meses sin traer de Bsale') + ': ' + faltan.map(mesCorto).join(', ') + '.' : 'Todos los meses ya están traídos.';
+    $('btnAnteriores').style.display = faltan.length ? '' : 'none';
+    if(!d.actual.conDatos){
+      $('ctAnaContenido').style.display = 'none'; $('ctAnaEstado').className = 'note-box'; $('ctAnaEstado').style.display = '';
+      $('ctAnaEstado').innerHTML = 'Todavía no se han traído las facturas de ' + etiquetaMes(d.mes) + '. Pulsa <b>⇩ Traer los meses anteriores</b> (trae todos los que falten, incluido este) o ve a la pestaña Registro y usa <b>⇩ Traer de Bsale</b>.';
+      return;
+    }
+    $('ctAnaEstado').style.display = d.mesesBase ? 'none' : '';
+    if(!d.mesesBase){ $('ctAnaEstado').className = 'note-box'; $('ctAnaEstado').innerHTML = 'Para comparar hace falta al menos un mes anterior: pulsa <b>⇩ Traer los meses anteriores</b>. Mientras tanto se muestra solo el mes elegido.'; }
+    $('ctAnaContenido').style.display = '';
+    dibujarAnalisis();
+  }catch(err){ $('ctAnaEstado').className = 'ads-error'; $('ctAnaEstado').textContent = 'No se pudo calcular: ' + err.message; }
+}
+
+function dibujarAnalisis(){
+  const d = ana, a = d.actual;
+  const kpi = (lbl, big, nota, cls = '') => `<div class="card ${cls}"><div class="lbl">${lbl}</div><div class="big">${big}</div><div class="nota">${nota}</div></div>`;
+  const prin = d.proveedores[0];
+  $('anKpis').innerHTML =
+    kpi('Egresos de ' + mesCorto(d.mes), fmtClp(a.total), `${fmtNum(a.documentos)} documentos · neto ${fmtClp(a.neto)}`) +
+    kpi('Contra el promedio anterior', d.variacionVsPromedio != null ? `<span class="${claseGasto(d.variacionVsPromedio)}">${chipPct(d.variacionVsPromedio)}</span>` : '—', d.promedioPrevio != null ? `promedio de ${d.mesesBase} ${d.mesesBase === 1 ? 'mes' : 'meses'}: ${fmtClp(d.promedioPrevio)}` : 'sin meses anteriores traídos') +
+    kpi('Contra el mes anterior', d.variacionVsAnterior != null ? `<span class="${claseGasto(d.variacionVsAnterior)}">${chipPct(d.variacionVsAnterior)}</span>` : '—', d.mesAnterior ? `${mesCorto(d.mesAnterior.mes)}: ${fmtClp(d.mesAnterior.total)}` : 'sin mes anterior traído') +
+    kpi('Proveedor principal', prin ? `${(prin.participacion).toLocaleString('es-CL')}%` : '—', prin ? escapeHtml(prin.proveedor) + ' · ' + fmtClp(prin.total) : 'sin documentos') +
+    kpi('Los 3 mayores concentran', d.concentracionTop3.toLocaleString('es-CL') + '%', 'de los egresos del mes', d.concentracionTop3 >= 60 ? 'alert' : '') +
+    kpi('IVA crédito del mes', fmtClp(a.iva), d.ivaPromedioPrevio != null ? 'promedio anterior ' + fmtClp(d.ivaPromedioPrevio) : 'de las facturas de compra');
+
+  const col = { alta: ['#FCE8E8', 'var(--red)', 'Prioridad alta'], media: ['var(--amber-dim)', 'var(--amber)', 'Revisar'], info: ['var(--blue-bg)', 'var(--blue)', 'Para saber'] };
+  $('anHallazgos').innerHTML = d.hallazgos.length ? d.hallazgos.map(h => `<div class="conta-hall" style="background:${col[h.severidad][0]};border-left-color:${col[h.severidad][1]};"><span class="conta-hall-tag" style="color:${col[h.severidad][1]};">${col[h.severidad][2]}</span><b>${escapeHtml(h.titulo)}</b><br><span class="sub">${escapeHtml(h.detalle)}</span></div>`).join('')
+    : '<p class="empty-note">Nada fuera de lo normal respecto de los meses anteriores. ✔</p>';
+
+  dibujarGraficoAna();
+  dibujarMatrizAna();
+  const cat = x => x.categoria ? nombreCatAna(x.categoria) + (x.detalle ? ' · ' + x.detalle : '') : 'Sin categorizar';
+  $('anProveedores').innerHTML = `<table><thead><tr><th>Proveedor</th><th>Categoría</th><th class="amount">Facturas</th><th class="amount">Total</th><th class="amount">% del mes</th><th class="amount">Prom. mensual anterior</th><th class="amount">Var.</th><th class="amount">Meses presente</th></tr></thead><tbody>` +
+    d.proveedores.map(p => `<tr><td><b>${escapeHtml(p.proveedor)}</b></td><td>${escapeHtml(cat(p))}</td><td class="amount">${fmtNum(p.documentos)}</td><td class="amount">${fmtClp(p.total)}</td><td class="amount">${p.participacion.toLocaleString('es-CL')}%</td>
+      <td class="amount" data-valor="${p.promedioPrevio ?? ''}">${p.promedioPrevio != null ? fmtClp(p.promedioPrevio) : '—'}</td><td class="amount ${claseGasto(p.variacionPct)}" data-valor="${p.variacionPct ?? ''}">${p.mesesPresentes === 0 && d.mesesBase ? 'nuevo' : chipPct(p.variacionPct)}</td>
+      <td class="amount" data-valor="${p.mesesPresentes}">${d.mesesBase ? p.mesesPresentes + ' de ' + d.mesesBase : '—'}</td></tr>`).join('') + '</tbody></table>';
+  $('anFacturas').innerHTML = `<table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Documento</th><th>Categoría</th><th class="amount">Total</th></tr></thead><tbody>` +
+    d.mayoresFacturas.map(f => `<tr><td data-valor="${escapeHtml(f.fecha || '')}">${f.fecha ? f.fecha.split('-').reverse().join('/') : '—'}</td><td><b>${escapeHtml(f.proveedor)}</b></td><td>${escapeHtml(f.tipo)} ${escapeHtml(f.numero || '')}</td><td>${escapeHtml(cat(f))}</td><td class="amount" data-valor="${f.total}">${fmtClp(f.total)}</td></tr>`).join('') + '</tbody></table>';
+}
+const nombreCatAna = id => { const c = (datos && datos.categorias || []).find(x => x.id === id); return c ? c.nombre : (id === 'sin' ? 'Sin categorizar' : id); };
+
+// Barras por mes (el elegido resaltado, los demás atenuados; "sin datos" punteado) y la línea del promedio anterior.
+function dibujarGraficoAna(){
+  const d = ana, W = 760, H = 250, ml = 56, mr = 12, mt = 26, mb = 30, n = d.porMes.length;
+  const max = Math.max(1, ...d.porMes.map(m => m.total), d.promedioPrevio || 0), paso = (W - ml - mr) / n, ancho = Math.min(64, paso * 0.62);
+  const y = v => mt + (1 - v / max) * (H - mt - mb);
+  const fmtEje = v => v >= 1e6 ? '$' + (v / 1e6).toFixed(v >= 1e7 ? 0 : 1).replace('.', ',') + ' M' : '$' + fmtNum(v);
+  let s = '';
+  for(let k = 0; k <= 4; k++){ const v = (max * k) / 4, yy = y(v); s += `<line x1="${ml}" x2="${W - mr}" y1="${yy}" y2="${yy}" stroke="var(--line)"/><text x="${ml - 6}" y="${yy + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${fmtEje(v)}</text>`; }
+  d.porMes.forEach((m, i) => {
+    const x = ml + paso * i + (paso - ancho) / 2, sel = m.mes === d.mes;
+    if(!m.conDatos){ s += `<rect x="${x}" y="${y(max * 0.12)}" width="${ancho}" height="${y(0) - y(max * 0.12)}" fill="none" stroke="var(--muted)" stroke-dasharray="4 3" rx="4"/><text x="${x + ancho / 2}" y="${y(max * 0.06)}" text-anchor="middle" font-size="9.5" fill="var(--muted)">sin datos</text>`; }
+    else s += `<rect x="${x}" y="${y(Math.max(0, m.total))}" width="${ancho}" height="${Math.max(2, y(0) - y(Math.max(0, m.total)))}" rx="4" fill="var(--primary)" fill-opacity="${sel ? 1 : 0.42}"><title>${etiquetaMes(m.mes)}: ${fmtClp(m.total)} · ${m.documentos} documentos${m.variacionPct != null ? ' · ' + chipPct(m.variacionPct) + ' vs el mes anterior' : ''}</title></rect>
+      <text x="${x + ancho / 2}" y="${y(Math.max(0, m.total)) - 6}" text-anchor="middle" font-size="10.5" font-weight="${sel ? 700 : 500}" fill="var(--text)">${fmtEje(m.total)}</text>`;
+    s += `<text x="${x + ancho / 2}" y="${H - 10}" text-anchor="middle" font-size="10.5" fill="${sel ? 'var(--text)' : 'var(--muted)'}" font-weight="${sel ? 700 : 500}">${mesCorto(m.mes)}</text>`;
+  });
+  if(d.promedioPrevio != null) s += `<line x1="${ml}" x2="${W - mr}" y1="${y(d.promedioPrevio)}" y2="${y(d.promedioPrevio)}" stroke="var(--amber)" stroke-width="1.6" stroke-dasharray="6 4"/><text x="${W - mr}" y="${y(d.promedioPrevio) - 5}" text-anchor="end" font-size="10" fill="var(--amber)" font-weight="700">promedio anterior ${fmtEje(d.promedioPrevio)}</text>`;
+  $('anGrafSub').textContent = 'Total con IVA de las facturas de compra, las notas de crédito restadas. El mes elegido va resaltado.';
+  $('anGrafico').innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;" role="img" aria-label="Egresos por mes">${s}</svg>`;
+}
+
+function dibujarMatrizAna(){
+  const d = ana;
+  const celda = v => v ? fmtClp(v) : '<span class="sub">—</span>';
+  $('anMatriz').innerHTML = `<table><thead><tr><th>Categoría</th>${d.periodos.map(p => `<th class="amount">${mesCorto(p)}${(d.porMes.find(m => m.mes === p) || {}).conDatos ? '' : '*'}</th>`).join('')}<th class="amount">Prom. anterior</th><th class="amount">Var. vs prom.</th></tr></thead><tbody>` +
+    d.categorias.map(c => `<tr class="${c.categoria === 'sin' ? 'sin-cat' : ''}"><td data-valor="${escapeHtml(c.nombre)}"><b>${escapeHtml(c.nombre)}</b></td>${d.periodos.map(p => `<td class="amount ${p === d.mes ? 'conta-mes-sel' : ''}" data-valor="${c.porMes[p] || 0}">${celda(c.porMes[p])}</td>`).join('')}
+      <td class="amount" data-valor="${c.promedioPrevio ?? ''}">${c.promedioPrevio != null ? celda(c.promedioPrevio) : '—'}</td><td class="amount ${claseGasto(c.variacionPct)}" data-valor="${c.variacionPct ?? ''}">${c.variacionPct != null ? chipPct(c.variacionPct) : (c.promedioPrevio === 0 && c.actual > 0 ? 'nuevo' : '—')}</td></tr>`).join('') +
+    `<tr class="fila-total"><td>Total</td>${d.periodos.map(p => { const m = d.porMes.find(x => x.mes === p); return `<td class="amount">${m && m.conDatos ? fmtClp(m.total) : '—'}</td>`; }).join('')}<td class="amount">${d.promedioPrevio != null ? fmtClp(d.promedioPrevio) : '—'}</td><td class="amount ${claseGasto(d.variacionVsPromedio)}">${chipPct(d.variacionVsPromedio)}</td></tr></tbody></table>
+    <p class="ads-pie">* mes sin traer de Bsale: no entra en el promedio.</p>`;
+}
+
+// Trae de Bsale, mes por mes, los que falten (más el elegido), con el % general.
+async function traerAnteriores(){
+  if(sincronizando || !ana) return;
+  const lista = ana.periodos.filter(p => { const e = ana.sincronizacion[p]; return !e || !e.completo || p === ana.mes; });
+  if(!lista.length){ return; }
+  await sincronizarMeses(lista, 'ctAnaSync', 'btnAnteriores');
+  await cargarAnalisis();
 }
 
 cargarSesionUsuario();

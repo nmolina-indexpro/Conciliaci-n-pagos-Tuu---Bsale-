@@ -24,7 +24,7 @@ import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidir
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
 import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadores.js';
-import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGORIAS as CATEGORIAS_CONTABILIDAD, CATEGORIA_IDS as CATEGORIA_IDS_CONTABILIDAD, categoriaEfectiva, resumir as resumirContabilidad } from '../lib/contabilidad.js';
+import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGORIAS as CATEGORIAS_CONTABILIDAD, CATEGORIA_IDS as CATEGORIA_IDS_CONTABILIDAD, categoriaEfectiva, resumir as resumirContabilidad, analizarContabilidad } from '../lib/contabilidad.js';
 import { asegurarTablaContabilidad } from '../lib/db.js';
 import { paginasEfectivas } from '../lib/paginas-perfil.js';
 import { contarSeguimientos, PAUSA_SEGUIMIENTO_MS } from '../lib/whatsapp-seguimientos.js';
@@ -280,7 +280,7 @@ export default async function handler(req, res) {
   if (recurso === 'ventas-sku-tendencia') return manejarVentasSkuTendencia(req, res, sesion);
   if (recurso === 'comparativo-ventas') return manejarComparativoVentas(req, res, sesion);
   if (recurso === 'comparativo-ventas-sync') return manejarComparativoVentasSync(req, res, sesion);
-  if (recurso === 'contabilidad' || recurso === 'contabilidad-sync' || recurso === 'contabilidad-categoria') return manejarContabilidad(req, res, sesion);
+  if (recurso === 'contabilidad' || recurso === 'contabilidad-sync' || recurso === 'contabilidad-categoria' || recurso === 'contabilidad-analisis') return manejarContabilidad(req, res, sesion);
   if (recurso === 'precios-sku-variacion') return manejarPreciosSkuVariacion(req, res, sesion);
   if (recurso === 'ventas-horario-extendido') return manejarVentasHorarioExtendido(req, res, sesion);
   if (recurso === 'servicios-por-mes') return manejarServiciosPorMes(req, res, sesion);
@@ -2472,6 +2472,13 @@ async function permisoContabilidad(sql, sesion) {
   } catch { return false; }
 }
 const MES_VALIDO = /^\d{4}-(0[1-9]|1[0-2])$/;
+// Los n meses que terminan en "mes" (incluido), del más antiguo al más reciente: ['2026-05', ..., '2026-10'].
+function mesesHastaContabilidad(mes, n) {
+  let [a, m] = mes.split('-').map(Number);
+  const lista = [];
+  for (let i = 0; i < n; i++) { lista.unshift(a + '-' + String(m).padStart(2, '0')); m--; if (m === 0) { m = 12; a--; } }
+  return lista;
+}
 
 async function contabilidadProcesar(sql, items) {
   const ahora = new Date().toISOString();
@@ -2534,6 +2541,25 @@ async function manejarContabilidad(req, res, sesion) {
       const r = await comparativoAvanzar(sql, clave, (o) => `${BSALE_BASE}/third_party_documents.json?year=${anio}&month=${m}&limit=${PUNTOS_SYNC_LIMIT}&offset=${o}`, (items) => contabilidadProcesar(sql, items), ctx, false);
       const porcentaje = r.completo ? 100 : (r.total ? Math.min(99, Math.round((r.hecho / r.total) * 100)) : null);
       return res.status(200).json({ mes, completo: r.completo, hecho: r.hecho, total: r.total, porcentaje });
+    }
+
+    if (recurso === 'contabilidad-analisis') {
+      if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+      const mes = MES_VALIDO.test(String(req.query.mes || '')) ? req.query.mes : mesActual;
+      const n = Math.min(24, Math.max(2, parseInt(req.query.n, 10) || 6));
+      const periodos = mesesHastaContabilidad(mes, n);
+      const { rows } = await sql.query(
+        `SELECT d.*, p.categoria AS ov_categoria, p.detalle AS ov_detalle
+           FROM contabilidad_dte d LEFT JOIN contabilidad_proveedores p ON p.clave = d.clave
+          WHERE d.periodo = ANY($1::text[]) AND NOT d.anulado AND d.incluir;`, [periodos]);
+      const docs = rows.map(r => {
+        const c = categoriaEfectiva(r.proveedor, r.ov_categoria ? { categoria: r.ov_categoria, detalle: r.ov_detalle } : null);
+        return { periodo: r.periodo, clave: r.clave, proveedor: r.proveedor, numero: r.numero, codigo: r.codigo_sii, tipo: tipoDte(r.codigo_sii), signo: signoDte(r.codigo_sii),
+          fecha: r.fecha ? new Date(r.fecha).toISOString().slice(0, 10) : null, neto: Number(r.neto), iva: Number(r.iva), total: Number(r.total), categoria: c.categoria, detalle: c.detalle };
+      });
+      const { rows: est } = await sql.query(`SELECT clave, completo, offset_a, total_a FROM comparativo_estado WHERE clave = ANY($1::text[]);`, [periodos.map(p => 'dte-' + p)]);
+      const sincronizacion = Object.fromEntries(periodos.map(p => { const e = est.find(x => x.clave === 'dte-' + p); return [p, e ? { completo: e.completo, hecho: e.offset_a, total: e.total_a } : null]; }));
+      return res.status(200).json({ ...analizarContabilidad(docs, periodos, mes), sincronizacion });
     }
 
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
