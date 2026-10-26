@@ -57,6 +57,7 @@ import { armarAnalisis as armarAnalisisDesperdicio, MINUTOS_POR_DEFECTO as MINUT
 import { armarCorreoModelosPendientes } from '../lib/compat-recordatorio.js';
 import { resolverEntradaProducto, datosProductoIdentificado, columnaCompatibilidad, esLink, handleDesdeLink, skuValidoParaBuscar, productoDesdeShopify, productoDesdeVariantes } from '../lib/compat-propuestas.js';
 import { analizarGoogleAds, validarRango as validarRangoGoogleAds } from '../lib/google-ads-analisis.js';
+import { consultarSearchConsole, validarRutaExtra as validarRutaExtraSearchConsole } from '../lib/search-console.js';
 import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
@@ -242,6 +243,7 @@ export default async function handler(req, res) {
   if (recurso === 'envio-gratis-shopify') return manejarEnvioGratisShopify(req, res, sesion);
   if (recurso === 'wa-clic-ads-resumen') return manejarWaClicAdsResumen(req, res, sesion);
   if (recurso === 'google-ads-analisis') return manejarGoogleAdsAnalisis(req, res, sesion);
+  if (recurso === 'search-console') return manejarSearchConsole(req, res, sesion);
   if (recurso === 'whatsapp-perdidas-ads') return manejarWhatsappPerdidasAds(req, res, sesion);
   if (recurso === 'descuentos-web') return manejarDescuentosWeb(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
@@ -17082,6 +17084,22 @@ async function manejarGoogleAdsAnalisis(req, res, _sesion) {
     return res.status(200).json(r);
   } catch (err) {
     return res.status(200).json({ error: 'No se pudo leer Google Ads', detail: String(err.message || err).slice(0, 300) });
+  }
+}
+
+// Página Análisis > Search Console: cómo aparece indexstore.cl en Google (clics, consultas, páginas, oportunidades, landings, indexación). Solo lectura.
+// GET ?recurso=search-console&seccion=resumen|consultas|paginas|oportunidades|landings|indexacion|inspeccion&desde=&hasta=&pais=CHL|todos&extra=/pages/x,/pages/y&url=https://indexstore.cl/...
+// Usa la cuenta de servicio de Google Analytics. Ver lib/search-console.js.
+async function manejarSearchConsole(req, res, _sesion) {
+  try {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const extra = String(req.query.extra || '').split(',').map(validarRutaExtraSearchConsole).filter(Boolean).slice(0, 10);
+    const pais = /^[A-Za-z]{3}$/.test(String(req.query.pais || '')) ? String(req.query.pais).toUpperCase() : (req.query.pais === 'todos' ? 'todos' : 'CHL');
+    const r = await consultarSearchConsole({ seccion: String(req.query.seccion || 'resumen'), desde: req.query.desde, hasta: req.query.hasta, pais, extra, url: req.query.url });
+    if (r.sin_configurar) return res.status(200).json({ error: 'Search Console no está configurado: faltan GOOGLE_ANALYTICS_CLIENT_EMAIL / GOOGLE_ANALYTICS_PRIVATE_KEY en Vercel (se usa la misma cuenta de servicio de Google Analytics)' });
+    return res.status(200).json(r);
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo leer Search Console', detail: String(err.message || err).slice(0, 400) });
   }
 }
 
