@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Contabilidad — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  @media (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:18px 20px;}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:var(--text);}
+  .card .pct{font-size:13px;font-weight:700;color:var(--primary);margin-top:2px;}
+  .card.destacada{background:var(--primary-dim);border-color:var(--primary);}
+  .card .ver-detalle{font-size:11px;color:var(--muted);margin-top:6px;}
+
+  .ga-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0;}
+  @media (max-width:900px){.ga-tabs{grid-template-columns:repeat(2,1fr);}}
+  .ga-tab{background:var(--surface-2);border:1.5px solid var(--line);border-radius:12px;padding:16px 14px;text-align:left;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:box-shadow .15s,transform .15s,border-color .15s,background .15s;}
+  .ga-tab:hover{box-shadow:var(--shadow);transform:translateY(-1px);}
+  .ga-tab.active{background:var(--primary-dim);border-color:var(--primary);}
+  .ga-tab-icono{font-size:20px;margin-bottom:6px;display:block;}
+  .ga-tab-titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;color:var(--text);}
+  .ga-tab-sub{font-size:11px;color:var(--muted);margin-top:2px;}
+
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-top:16px;color:var(--text);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:12px;padding:7px 13px;}
+
+  .filtros{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+  input[type=date]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:6px 10px;border-radius:9px;font-size:12.5px;}
+  .date-field{display:flex;align-items:center;gap:5px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  .filtro-rango-fechas{display:flex;align-items:center;gap:7px;}
+
+  .chart-legend{display:flex;gap:16px;margin:2px 0 14px;flex-wrap:wrap;}
+  .chart-legend-item{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);}
+  .chart-legend-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+
+  .canal-chart{max-height:420px;overflow-y:auto;padding-right:4px;}
+  .canal-grupo{margin-bottom:14px;}
+  .canal-titulo{font-size:12px;color:var(--text);margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .canal-fila{display:flex;align-items:center;gap:8px;margin-bottom:3px;}
+  .canal-pista{flex:1;background:var(--surface-2);border-radius:5px;height:12px;overflow:hidden;}
+  .canal-relleno{height:100%;border-radius:5px;min-width:3px;}
+  .canal-valor{width:56px;flex-shrink:0;text-align:right;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--text);}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  th.amount, td.amount{text-align:right;}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+
+  .ads-bloque{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:0 0 18px;box-shadow:var(--shadow);}
+  .ads-cab{display:flex;gap:14px;align-items:flex-start;margin-bottom:12px;}
+  .ads-num{flex:none;width:30px;height:30px;border-radius:50%;background:var(--primary);color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;}
+  .ads-cab h2{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0 0 3px;}
+  .ads-cab .sub{margin:0;font-size:12.5px;}
+  .ads-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:12px 0 14px;}
+  .ads-kpis .card{padding:12px 14px;} .ads-kpis .card .big{font-size:21px;} .ads-kpis .card .nota{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.35;}
+  .ads-lectura{margin-top:12px;padding:10px 14px;border-radius:10px;background:var(--primary-dim);border:1px solid #BFE0DB;font-size:12.5px;line-height:1.5;}
+  .ads-lectura.alerta{background:var(--amber-dim);border-color:#F3D9A8;}
+  .ads-error{margin:8px 0;padding:10px 14px;border-radius:10px;background:var(--red-bg);border:1px solid #F4C5C5;color:var(--red);font-size:12.5px;}
+  .ads-barra{display:inline-block;width:90px;height:8px;border-radius:5px;background:var(--surface-2);vertical-align:middle;margin-right:7px;overflow:hidden;}
+  .ads-barra i{display:block;height:100%;background:var(--primary);border-radius:5px;} .ads-barra i.rojo{background:var(--red);} .ads-barra i.ambar{background:var(--amber);}
+  .badge-ads{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;}
+  .badge-ads.si{background:var(--green-bg);color:var(--green);} .badge-ads.no{background:var(--red-bg);color:var(--red);}
+  .mejor{color:var(--green);font-weight:700;} .peor{color:var(--red);font-weight:700;}
+  .ads-pie{font-size:11.5px;color:var(--muted);margin:4px 0 0;}
+  .sub-titulo{font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:18px 0 8px;}
+  .cmp-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:4px 0 14px;}
+  .cmp-kpis .card{padding:12px 14px;} .cmp-kpis .card .big{font-size:21px;} .cmp-kpis .card .nota{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.35;}
+  .cmp-tabs{grid-template-columns:repeat(3,1fr);}
+  .cmp-check{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);}
+  .cmp-sync{margin:0 0 14px;padding:10px 14px;border-radius:10px;background:var(--amber-dim);border:1px solid #F3D9A8;font-size:12.5px;line-height:1.5;}
+  .cmp-celda-exp{cursor:pointer;user-select:none;} .cmp-celda-exp:hover{background:var(--primary-dim);}
+  .cmp-flecha{display:inline-block;width:14px;color:var(--primary);font-weight:700;}
+  tr.fila-detalle > td{background:var(--surface-2);padding:12px 16px 16px;border-bottom:2px solid var(--line);}
+  .cmp-detalle table{background:var(--surface);}
+  input[type=search]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:7px 12px;border-radius:9px;font-size:12.5px;}
+
+  .conta-grid{display:grid;grid-template-columns:minmax(0,1.9fr) minmax(280px,1fr);gap:18px;align-items:start;}
+  @media (max-width:1100px){.conta-grid{grid-template-columns:1fr;}}
+  .conta-scroll{max-height:68vh;overflow:auto;}
+  .conta-tabla td{vertical-align:middle;} .conta-tabla .sub{font-size:11px;color:var(--muted);}
+  .conta-tabla tr.sin-cat{background:var(--amber-dim);}
+  .conta-tabla tr.fila-total td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--line);position:sticky;bottom:0;}
+  .conta-sel{max-width:210px;font-size:12px;padding:5px 8px;} .conta-sel.auto{font-style:italic;border-style:dashed;border-color:var(--primary);}
+  .conta-det{width:150px;border:1.5px solid var(--line);border-radius:8px;padding:5px 8px;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif;background:var(--surface);color:var(--text);}
+  .conta-det:disabled{background:var(--surface-2);}
+  .conta-sug{display:block;margin-top:3px;background:none;border:none;padding:0;font-size:10.5px;font-weight:600;color:var(--primary);cursor:pointer;text-decoration:underline;font-family:'Plus Jakarta Sans',sans-serif;}
+  .conta-cat{padding:9px 10px;border-radius:10px;cursor:pointer;margin-bottom:6px;border:1.5px solid transparent;} .conta-cat:hover{background:var(--surface-2);}
+  .conta-cat.sel{border-color:var(--primary);background:var(--primary-dim);} .conta-cat.pend{background:var(--amber-dim);}
+  .conta-cat-fila{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;} .conta-cat-fila.sub{font-size:11px;color:var(--muted);margin-top:1px;}
+  .conta-barra{height:6px;background:var(--surface-2);border-radius:4px;margin-top:5px;overflow:hidden;} .conta-barra i{display:block;height:100%;background:var(--primary);border-radius:4px;}
+  .conta-ingresos{border-style:dashed;background:var(--surface-2);}
+  .cmp-kpis .card.alert .big{color:var(--red);} .cmp-kpis .card.ok .big{color:var(--green);}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+          <a href="contabilidad.html" class="active">Contabilidad</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
+          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html">Modelos compatibles</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="comparativo-ventas.html">Comparativo de ventas</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>🧮 Contabilidad</h1>
+  <div class="sub">Primera versión: el registro de <b>egresos</b> según las <b>facturas de compra</b> (DTE recibidos) que Bsale guarda de tus proveedores. Categoriza a cada proveedor una vez y todas sus facturas quedan clasificadas. El mes es el del libro de compras.</div>
+
+  <div class="filtros">
+    <div class="date-field"><label for="ctMes">Mes</label><select id="ctMes" onchange="cargarConta()"></select></div>
+    <div class="date-field"><label for="ctCat">Categoría</label><select id="ctCat" onchange="dibujarConta()"></select></div>
+    <input type="search" id="ctBusca" placeholder="Buscar proveedor, RUT o N° de factura…" oninput="dibujarConta()" style="min-width:250px;">
+    <label class="cmp-check"><input type="checkbox" id="ctSolo" onchange="dibujarConta()"> Solo sin categorizar</label>
+    <button class="btn-ghost btn-compact" id="btnSyncConta" onclick="traerDeBsale()" title="Lee de Bsale las facturas de compra del mes elegido">⇩ Traer de Bsale</button>
+  </div>
+  <div id="ctSync" class="cmp-sync" style="display:none;"></div>
+  <div id="ctEstado" class="empty-note">Cargando…</div>
+
+  <div id="ctContenido" style="display:none;">
+    <div class="cmp-kpis" id="ctKpis"></div>
+
+    <div class="conta-grid">
+      <section class="ads-bloque conta-libro">
+        <div class="ads-cab"><div><h2>Egresos · facturas de compra</h2><div class="sub" id="ctSubLibro"></div></div></div>
+        <div class="tabla-wrap conta-scroll" id="ctTabla"></div>
+      </section>
+
+      <div class="conta-lado">
+        <section class="ads-bloque">
+          <div class="ads-cab"><div><h2>Egresos por categoría</h2><div class="sub">Haz clic en una categoría para filtrar el registro.</div></div></div>
+          <div id="ctResumen"></div>
+        </section>
+        <section class="ads-bloque conta-ingresos">
+          <div class="ads-cab"><div><h2>📈 Ingresos</h2><div class="sub">Próxima versión: aquí irán las facturas y boletas de venta, para ver el registro completo (ingresos y egresos) y el resultado del mes.</div></div></div>
+        </section>
+      </div>
+    </div>
+    <p class="ads-pie">Cómo se calcula: los montos salen de los documentos de compra de Bsale (neto, IVA y total). Las notas de crédito restan; los documentos anulados o marcados "no considerar" en Bsale no se cuentan. La categoría se guarda por proveedor (su RUT): al categorizar una factura, todas las de ese proveedor quedan igual. Las categorías en cursiva con "sugerida" las propone el sistema según el nombre del proveedor; confírmalas o cámbialas.</p>
+  </div>
+</div>
+<div id="ctToast" style="display:none;position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1F2A24;color:#fff;padding:9px 16px;border-radius:9px;font-size:12.5px;z-index:200;max-width:90vw;"></div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function escapeHtml(texto){
+  return String(texto ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+const fmtNum = n => new Intl.NumberFormat('es-CL').format(Math.round(n || 0));
+const fmtClp = n => (n < 0 ? '−$' : '$') + new Intl.NumberFormat('es-CL').format(Math.abs(Math.round(n || 0)));
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const etiquetaMes = m => { const [a, n] = m.split('-'); return MESES[Number(n) - 1] + ' ' + a; };
+let datos = null, sincronizando = false;
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin') ['navUsuarios', 'navActualizaciones', 'navMercadoLibre'].forEach(id => { const n = $(id); if(n) n.style.display = ''; });
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Selector de mes (últimos 18, hora de Chile) ----------
+(function llenarMeses(){
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+  let a = Number(hoy.slice(0, 4)), m = Number(hoy.slice(5, 7));
+  const opts = [];
+  for(let i = 0; i < 18; i++){
+    const v = a + '-' + String(m).padStart(2, '0');
+    opts.push(`<option value="${v}">${etiquetaMes(v)}</option>`);
+    m--; if(m === 0){ m = 12; a--; }
+  }
+  $('ctMes').innerHTML = opts.join('');
+})();
+
+async function cargarConta(){
+  const mes = $('ctMes').value;
+  $('ctEstado').style.display = ''; $('ctEstado').className = 'empty-note'; $('ctEstado').textContent = 'Cargando…';
+  try{
+    const res = await fetch('/api/negocio?recurso=contabilidad&mes=' + mes);
+    const d = await res.json();
+    if(!res.ok || d.error){ $('ctEstado').className = 'ads-error'; $('ctEstado').textContent = (d.error || 'No se pudo cargar') + (d.detail ? ' — ' + d.detail : ''); $('ctContenido').style.display = 'none'; return; }
+    datos = d;
+    llenarFiltroCategorias();
+    if(!d.docs.length){
+      $('ctContenido').style.display = 'none';
+      $('ctEstado').className = 'note-box'; $('ctEstado').style.display = '';
+      $('ctEstado').innerHTML = d.sincronizacion && d.sincronizacion.completo
+        ? `Bsale no tiene facturas de compra en el libro de ${etiquetaMes(d.mes)}${d.excluidos ? ` (${d.excluidos} documento(s) anulados o marcados "no considerar")` : ''}.`
+        : `Todavía no se han traído las facturas de compra de ${etiquetaMes(d.mes)}. Pulsa <b>⇩ Traer de Bsale</b>.`;
+      return;
+    }
+    $('ctEstado').style.display = 'none'; $('ctContenido').style.display = '';
+    dibujarConta();
+  }catch(err){
+    $('ctEstado').className = 'ads-error'; $('ctEstado').textContent = 'No se pudo cargar: ' + err.message;
+  }
+}
+
+function llenarFiltroCategorias(){
+  const sel = $('ctCat'), previo = sel.value;
+  sel.innerHTML = '<option value="">Todas</option><option value="sin">Sin categorizar</option>' + datos.categorias.map(c => `<option value="${c.id}">${c.icono} ${escapeHtml(c.nombre)}</option>`).join('');
+  sel.value = [...sel.options].some(o => o.value === previo) ? previo : '';
+}
+const nombreCat = id => { const c = datos.categorias.find(x => x.id === id); return c ? c.nombre : 'Sin categorizar'; };
+
+// Documentos que pasan los filtros de arriba.
+function docsVisibles(){
+  const cat = $('ctCat').value, q = $('ctBusca').value.trim().toLowerCase(), solo = $('ctSolo').checked;
+  return datos.docs.filter(d => {
+    if(solo && d.categoria) return false;
+    if(cat === 'sin' && d.categoria) return false;
+    if(cat && cat !== 'sin' && d.categoria !== cat) return false;
+    if(q && ![d.proveedor, d.rut, d.numero, d.tipo].join(' ').toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
+function dibujarConta(){
+  if(!datos) return;
+  const r = datos.resumen;
+  const kpi = (lbl, big, nota, extra = '') => `<div class="card ${extra}"><div class="lbl">${lbl}</div><div class="big">${big}</div><div class="nota">${nota}</div></div>`;
+  $('ctKpis').innerHTML =
+    kpi('Total egresos', fmtClp(r.total), 'con IVA · ' + etiquetaMes(datos.mes)) +
+    kpi('Neto', fmtClp(r.neto), 'sin IVA' + (r.exento ? ' · exento ' + fmtClp(r.exento) : '')) +
+    kpi('IVA crédito', fmtClp(r.iva), 'IVA de las facturas de compra') +
+    kpi('Documentos', fmtNum(r.documentos), datos.excluidos ? fmtNum(datos.excluidos) + ' fuera (anulados o "no considerar")' : 'del libro de compras') +
+    kpi('Sin categorizar', fmtNum(r.sinCategoria.n), r.sinCategoria.n ? fmtClp(r.sinCategoria.total) + ' por clasificar' : 'todo clasificado', r.sinCategoria.n ? 'alert' : 'ok');
+  $('ctSubLibro').textContent = datos.sincronizacion && datos.sincronizacion.actualizadoEn ? 'Leído de Bsale el ' + new Date(datos.sincronizacion.actualizadoEn).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + '. Ordena haciendo clic en un encabezado.' : '';
+  dibujarResumen();
+  dibujarLibro();
+}
+
+function dibujarResumen(){
+  const r = datos.resumen, maxV = Math.max(1, ...r.porCategoria.map(c => Math.abs(c.total)));
+  const actual = $('ctCat').value;
+  $('ctResumen').innerHTML = r.porCategoria.map(c => {
+    const info = datos.categorias.find(x => x.id === c.categoria);
+    const pct = r.total ? Math.round((c.total / r.total) * 1000) / 10 : 0;
+    return `<div class="conta-cat ${actual === c.categoria ? 'sel' : ''} ${c.categoria === 'sin' ? 'pend' : ''}" onclick="filtrarPorCategoria('${c.categoria}')">
+      <div class="conta-cat-fila"><span>${info ? info.icono : '❔'} <b>${escapeHtml(c.nombre)}</b></span><span class="amount">${fmtClp(c.total)}</span></div>
+      <div class="conta-cat-fila sub"><span>${fmtNum(c.documentos)} ${c.documentos === 1 ? 'factura' : 'facturas'}</span><span>${pct.toLocaleString('es-CL')}%</span></div>
+      <div class="conta-barra"><i style="width:${Math.max(2, Math.round((Math.abs(c.total) / maxV) * 100))}%;${c.categoria === 'sin' ? 'background:var(--amber);' : ''}"></i></div></div>`;
+  }).join('') || '<p class="empty-note">Sin documentos.</p>';
+}
+function filtrarPorCategoria(id){
+  $('ctCat').value = $('ctCat').value === id ? '' : id;
+  dibujarConta();
+}
+
+function opcionesCategoria(sel){
+  return '<option value="">Sin categorizar</option>' + datos.categorias.map(c => `<option value="${c.id}" ${sel === c.id ? 'selected' : ''}>${c.icono} ${escapeHtml(c.nombre)}</option>`).join('');
+}
+function dibujarLibro(){
+  const cont = $('ctTabla'), scroll = cont.scrollTop;
+  const lista = docsVisibles();
+  const fecha = f => f ? f.split('-').reverse().join('/') : '—';
+  const filas = lista.map(d => {
+    const i = datos.docs.indexOf(d), neg = d.signo < 0;
+    const monto = v => `<td class="amount ${neg ? 'peor' : ''}" data-valor="${d.signo * v}">${fmtClp(d.signo * v)}</td>`;
+    const sug = d.auto ? `<button type="button" class="conta-sug" onclick="confirmarSugerencia(${i})" title="El sistema la propuso por el nombre del proveedor. Clic para confirmarla.">sugerida · confirmar</button>` : '';
+    return `<tr class="${d.categoria ? '' : 'sin-cat'}">
+      <td data-valor="${escapeHtml(d.fecha || '')}">${fecha(d.fecha)}</td>
+      <td data-valor="${escapeHtml(d.proveedor)}"><b>${escapeHtml(d.proveedor)}</b><br><span class="sub">${escapeHtml(d.rut || 'sin RUT')}</span></td>
+      <td data-valor="${escapeHtml(d.tipo + ' ' + String(d.numero || '').padStart(10, '0'))}">${d.urlPdf ? `<a href="${escapeHtml(d.urlPdf)}" target="_blank" rel="noopener">${escapeHtml(d.tipo)} ${escapeHtml(d.numero || '')} ↗</a>` : escapeHtml(d.tipo + ' ' + (d.numero || ''))}</td>
+      <td data-valor="${escapeHtml(d.categoria ? nombreCat(d.categoria) : 'zzz')}"><select class="conta-sel ${d.auto ? 'auto' : ''}" onchange="cambiarCategoria(${i}, this.value)">${opcionesCategoria(d.categoria)}</select>${sug}</td>
+      <td data-valor="${escapeHtml(d.detalle || '')}"><input type="text" class="conta-det" list="dl-${d.categoria || 'x'}" value="${escapeHtml(d.detalle || '')}" placeholder="${d.categoria ? 'Detalle…' : '—'}" ${d.categoria ? '' : 'disabled'} onchange="cambiarDetalle(${i}, this.value)"></td>
+      ${monto(d.neto)}${monto(d.iva)}${monto(d.total)}</tr>`;
+  }).join('');
+  const t = lista.reduce((a, d) => ({ neto: a.neto + d.signo * d.neto, iva: a.iva + d.signo * d.iva, total: a.total + d.signo * d.total }), { neto: 0, iva: 0, total: 0 });
+  const listas = datos.categorias.map(c => `<datalist id="dl-${c.id}">${c.detalles.map(x => `<option value="${escapeHtml(x)}">`).join('')}</datalist>`).join('');
+  cont.innerHTML = listas + `<table class="conta-tabla"><thead><tr><th>Fecha</th><th>Proveedor</th><th>Documento</th><th>Categoría</th><th>Detalle</th><th class="amount">Neto</th><th class="amount">IVA</th><th class="amount">Total</th></tr></thead>
+    <tbody>${filas || '<tr><td colspan="8" class="empty-note">Ninguna factura coincide con los filtros.</td></tr>'}
+    ${filas ? `<tr class="fila-total"><td>Total · ${fmtNum(lista.length)} ${lista.length === 1 ? 'documento' : 'documentos'}</td><td></td><td></td><td></td><td></td><td class="amount">${fmtClp(t.neto)}</td><td class="amount">${fmtClp(t.iva)}</td><td class="amount">${fmtClp(t.total)}</td></tr>` : ''}</tbody></table>`;
+  cont.scrollTop = scroll;
+}
+
+// ---------- Categorizar (vale para todas las facturas del proveedor) ----------
+function aviso(texto){
+  const el = $('ctToast'); el.textContent = texto; el.style.display = '';
+  clearTimeout(el._t); el._t = setTimeout(() => { el.style.display = 'none'; }, 4500);
+}
+async function guardarCategoria(d, categoria, detalle){
+  const res = await fetch('/api/negocio?recurso=contabilidad-categoria', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clave: d.clave, nombre: d.proveedor, categoria, detalle }) });
+  const r = await res.json();
+  if(!res.ok || r.error) throw new Error(r.error || 'No se pudo guardar');
+  return r;
+}
+async function cambiarCategoria(i, valor){
+  const d = datos.docs[i];
+  try{
+    if(!valor){ await guardarCategoria(d, null, null); aviso('Se quitó la categoría de ' + d.proveedor + '.'); await cargarConta(); return; }
+    // al cambiar de categoría, el detalle de la anterior ya no corresponde: se limpia (salvo que sea la misma)
+    const detalle = valor === d.categoria ? d.detalle : null;
+    const r = await guardarCategoria(d, valor, detalle);
+    const mismos = datos.docs.filter(x => x.clave === d.clave);
+    mismos.forEach(x => { x.categoria = valor; x.detalle = r.detalle || null; x.auto = false; });
+    recalcularResumen();
+    aviso(`${d.proveedor} → ${nombreCat(valor)} (${mismos.length} ${mismos.length === 1 ? 'factura' : 'facturas'})`);
+    dibujarConta();
+  }catch(err){ aviso('No se pudo guardar: ' + err.message); dibujarLibro(); }
+}
+async function cambiarDetalle(i, valor){
+  const d = datos.docs[i];
+  if(!d.categoria) return;
+  try{
+    const r = await guardarCategoria(d, d.categoria, valor);
+    datos.docs.filter(x => x.clave === d.clave).forEach(x => { x.detalle = r.detalle || null; x.auto = false; });
+    aviso('Detalle guardado: ' + (r.detalle || 'sin detalle') + ' · ' + d.proveedor);
+    dibujarLibro();
+  }catch(err){ aviso('No se pudo guardar: ' + err.message); }
+}
+async function confirmarSugerencia(i){
+  const d = datos.docs[i];
+  try{
+    await guardarCategoria(d, d.categoria, d.detalle);
+    datos.docs.filter(x => x.clave === d.clave).forEach(x => { x.auto = false; });
+    aviso('Confirmada: ' + d.proveedor + ' → ' + nombreCat(d.categoria));
+    dibujarLibro();
+  }catch(err){ aviso('No se pudo guardar: ' + err.message); }
+}
+// Vuelve a calcular el resumen por categoría en la pantalla después de categorizar (el servidor lo hace igual al recargar).
+function recalcularResumen(){
+  const mapa = new Map(); let sinN = 0, sinTotal = 0;
+  datos.docs.forEach(d => {
+    const k = d.categoria || 'sin';
+    const c = mapa.get(k) || { categoria: k, nombre: d.categoria ? nombreCat(d.categoria) : 'Sin categorizar', total: 0, neto: 0, documentos: 0 };
+    c.total += d.signo * d.total; c.neto += d.signo * d.neto; c.documentos++; mapa.set(k, c);
+    if(!d.categoria){ sinN++; sinTotal += d.signo * d.total; }
+  });
+  datos.resumen.porCategoria = [...mapa.values()].sort((a, b) => b.total - a.total);
+  datos.resumen.sinCategoria = { n: sinN, total: sinTotal };
+}
+
+// ---------- Traer de Bsale por tandas, con % ----------
+async function traerDeBsale(){
+  if(sincronizando) return;
+  sincronizando = true;
+  const mes = $('ctMes').value, btn = $('btnSyncConta'), caja = $('ctSync');
+  btn.disabled = true; caja.style.display = '';
+  let primera = true;
+  try{
+    for(let i = 0; i < 200; i++){
+      const res = await fetch('/api/negocio?recurso=contabilidad-sync&mes=' + mes + (primera ? '&refrescar=1' : ''), { method: 'POST' });
+      primera = false;
+      const d = await res.json();
+      if(!res.ok || d.error){ caja.innerHTML = '<span class="peor">' + escapeHtml(d.error || 'Error') + '</span>' + (d.detail ? ' — ' + escapeHtml(d.detail) : ''); return; }
+      caja.innerHTML = d.porcentaje != null
+        ? `<b>${d.porcentaje}%</b> — ${fmtNum(d.hecho)} de ${fmtNum(d.total)} documentos de ${etiquetaMes(mes)} <span class="ads-barra" style="width:160px;"><i style="width:${d.porcentaje}%"></i></span>`
+        : `${fmtNum(d.hecho)} documentos leídos de ${etiquetaMes(mes)}…`;
+      if(d.completo) break;
+    }
+    caja.style.display = 'none';
+  }catch(err){
+    caja.innerHTML = '<span class="peor">Se cortó la lectura: ' + escapeHtml(err.message) + '.</span> Pulsa de nuevo para continuar.';
+  }finally{
+    sincronizando = false; btn.disabled = false;
+  }
+  await cargarConta();
+}
+
+cargarSesionUsuario();
+cargarConta();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>

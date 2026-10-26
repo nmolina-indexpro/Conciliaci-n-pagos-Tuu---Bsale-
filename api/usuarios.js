@@ -16,7 +16,7 @@ import { paginasEfectivas, paginasParaGuardar } from '../lib/paginas-perfil.js';
 // exclusivo de rol admin, independiente del perfil) ni login.html/
 // reportar-error.html (siempre accesibles, ver middleware.ts).
 const PAGINAS_DISPONIBLES = [
-  'home.html', 'index.html', 'conciliacion.html', 'compras.html',
+  'home.html', 'index.html', 'conciliacion.html', 'contabilidad.html', 'compras.html',
   'alertas-stock.html', 'productos-en-transito.html', 'oportunidades-comerciales.html', 'cotizaciones-clientes.html', 'compra-agil.html', 'metas-de-venta.html', 'llamadas.html', 'buscador-ia.html', 'descuentos-web.html', 'cotizaciones-web.html', 'sitio-web.html',
   'eficiencia-tickets.html', 'analisis.html', 'servicio-tecnico.html', 'identificacion-modelos.html', 'productos-nuevos.html', 'clientes-whatsapp.html', 'guia-uso.html',
   'indexscale.html', 'productos-estancados.html', 'google-analytics.html', 'ejecutivos-whatsapp.html', 'google-ads.html', 'comparativo-ventas.html', 'insumos-servicio-tecnico.html', 'modelos-compatibles.html',

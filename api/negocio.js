@@ -24,6 +24,9 @@ import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidir
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
 import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadores.js';
+import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGORIAS as CATEGORIAS_CONTABILIDAD, CATEGORIA_IDS as CATEGORIA_IDS_CONTABILIDAD, categoriaEfectiva, resumir as resumirContabilidad } from '../lib/contabilidad.js';
+import { asegurarTablaContabilidad } from '../lib/db.js';
+import { paginasEfectivas } from '../lib/paginas-perfil.js';
 import { contarSeguimientos, PAUSA_SEGUIMIENTO_MS } from '../lib/whatsapp-seguimientos.js';
 import { corregirCorreo } from '../lib/correos-corregidos.js';
 import { sqlOfertaLateral, PARAMS_OFERTA, sqlSolicitudLateral, PARAM_SOLICITUD, mejorNivelOferta, nivelConversacion, esConversion, esOfertaCompleta, nivelDesdeFilaSql, resumirConversionComercial } from '../lib/whatsapp-oferta.js';
@@ -277,6 +280,7 @@ export default async function handler(req, res) {
   if (recurso === 'ventas-sku-tendencia') return manejarVentasSkuTendencia(req, res, sesion);
   if (recurso === 'comparativo-ventas') return manejarComparativoVentas(req, res, sesion);
   if (recurso === 'comparativo-ventas-sync') return manejarComparativoVentasSync(req, res, sesion);
+  if (recurso === 'contabilidad' || recurso === 'contabilidad-sync' || recurso === 'contabilidad-categoria') return manejarContabilidad(req, res, sesion);
   if (recurso === 'precios-sku-variacion') return manejarPreciosSkuVariacion(req, res, sesion);
   if (recurso === 'ventas-horario-extendido') return manejarVentasHorarioExtendido(req, res, sesion);
   if (recurso === 'servicios-por-mes') return manejarServiciosPorMes(req, res, sesion);
@@ -2452,6 +2456,109 @@ async function manejarComparativoVentasSync(req, res, sesion) {
     return res.status(200).json({ mes, mesBase: base, fase, ...estado });
   } catch (err) {
     return res.status(200).json({ error: 'Error sincronizando el comparativo de ventas con Bsale', detail: String(err.message || err) });
+  }
+}
+
+// ---------- Contabilidad (Finanzas): egresos según las facturas de compra (DTE recibidos) de Bsale ----------
+// GET ?recurso=contabilidad&mes=AAAA-MM            -> facturas del libro de compras de ese mes, con su categoría, y el resumen.
+// POST ?recurso=contabilidad-sync&mes=AAAA-MM      -> trae de Bsale (third_party_documents) ese mes, por tandas; vuelve a llamarse hasta completar (con %).
+// PUT  ?recurso=contabilidad-categoria             -> { clave, nombre, categoria, detalle }: categoría de un proveedor (vale para todas sus facturas); categoria null = volver a la sugerencia.
+async function permisoContabilidad(sql, sesion) {
+  if (sesion.rol === 'admin') return true;
+  try {
+    const { rows } = await sql`SELECT p.paginas FROM usuarios u LEFT JOIN perfiles p ON p.id = u.perfil_id WHERE u.id = ${sesion.uid};`;
+    const paginas = rows[0] && Array.isArray(rows[0].paginas) ? paginasEfectivas(rows[0].paginas) : null;
+    return !Array.isArray(paginas) || paginas.includes('contabilidad.html'); // mismo criterio que middleware.ts: sin perfil restringido, se permite
+  } catch { return false; }
+}
+const MES_VALIDO = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+async function contabilidadProcesar(sql, items) {
+  const ahora = new Date().toISOString();
+  const filas = new Map();
+  for (const d of items) {
+    const f = filaContabilidadDesdeBsale(d, ahora);
+    if (f) filas.set(f.id, f);
+  }
+  const l = [...filas.values()];
+  if (!l.length) return;
+  await sql.query(
+    `INSERT INTO contabilidad_dte (id, clave, rut, proveedor, numero, codigo_sii, fecha, periodo, neto, exento, iva, total, anulado, incluir, url_pdf, sincronizado_en)
+     SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::date[], $8::text[], $9::numeric[], $10::numeric[], $11::numeric[], $12::numeric[], $13::boolean[], $14::boolean[], $15::text[], $16::timestamptz[])
+     ON CONFLICT (id) DO UPDATE SET clave = EXCLUDED.clave, rut = EXCLUDED.rut, proveedor = EXCLUDED.proveedor, numero = EXCLUDED.numero, codigo_sii = EXCLUDED.codigo_sii, fecha = EXCLUDED.fecha,
+       periodo = EXCLUDED.periodo, neto = EXCLUDED.neto, exento = EXCLUDED.exento, iva = EXCLUDED.iva, total = EXCLUDED.total, anulado = EXCLUDED.anulado, incluir = EXCLUDED.incluir,
+       url_pdf = EXCLUDED.url_pdf, sincronizado_en = EXCLUDED.sincronizado_en;`,
+    [l.map(f => f.id), l.map(f => f.rut || 'NOMBRE:' + f.proveedor.toLowerCase()), l.map(f => f.rut || null), l.map(f => f.proveedor), l.map(f => f.numero), l.map(f => f.codigo), l.map(f => f.fecha),
+      l.map(f => f.periodo), l.map(f => f.neto), l.map(f => f.exento), l.map(f => f.iva), l.map(f => f.total), l.map(f => f.anulado), l.map(f => f.incluir), l.map(f => f.urlPdf), l.map(f => f.sincronizado)]);
+}
+
+async function manejarContabilidad(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaComparativoVentas(sql); // guarda el avance de la lectura por tandas (comparativo_estado)
+    await asegurarTablaContabilidad(sql);
+    if (!(await permisoContabilidad(sql, sesion))) return res.status(403).json({ error: 'Tu perfil no tiene acceso a Contabilidad' });
+    const recurso = req.query.recurso;
+    const mesActual = mesActualChile();
+
+    if (recurso === 'contabilidad-categoria') {
+      if (req.method !== 'PUT') return res.status(405).json({ error: 'Method not allowed' });
+      const b = req.body || {};
+      const clave = String(b.clave || '').trim().slice(0, 200);
+      if (!clave) return res.status(400).json({ error: 'Falta el proveedor' });
+      if (b.categoria == null || b.categoria === '') {
+        await sql`DELETE FROM contabilidad_proveedores WHERE clave = ${clave};`;
+        return res.status(200).json({ ok: true, categoria: null });
+      }
+      if (!CATEGORIA_IDS_CONTABILIDAD.includes(b.categoria)) return res.status(400).json({ error: 'Categoría inválida' });
+      const detalle = String(b.detalle || '').trim().slice(0, 60) || null;
+      await sql`INSERT INTO contabilidad_proveedores (clave, nombre, categoria, detalle, actualizado_por, actualizado_en)
+        VALUES (${clave}, ${String(b.nombre || '').slice(0, 200) || null}, ${b.categoria}, ${detalle}, ${sesion.nombre || sesion.email}, now())
+        ON CONFLICT (clave) DO UPDATE SET nombre = EXCLUDED.nombre, categoria = EXCLUDED.categoria, detalle = EXCLUDED.detalle, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();`;
+      return res.status(200).json({ ok: true, categoria: b.categoria, detalle });
+    }
+
+    if (recurso === 'contabilidad-sync') {
+      if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+      const token = process.env.BSALE_ACCESS_TOKEN;
+      if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+      const mes = MES_VALIDO.test(String(req.query.mes || '')) ? req.query.mes : mesActual;
+      const clave = 'dte-' + mes;
+      if (req.query.refrescar === '1') await sql`UPDATE comparativo_estado SET offset_a = 0, total_a = NULL, completo = false, actualizado_en = now() WHERE clave = ${clave};`;
+      const inicio = Date.now(); let ultima = 0;
+      const ctx = {
+        token, restante: () => PUNTOS_SYNC_PRESUPUESTO_MS - (Date.now() - inicio),
+        ritmo: async (n) => { const espera = n * PUNTOS_SYNC_INTERVALO_MIN_MS - (Date.now() - ultima); if (espera > 0) await new Promise(r => setTimeout(r, espera)); ultima = Date.now(); },
+      };
+      const [anio, m] = mes.split('-').map(Number);
+      const r = await comparativoAvanzar(sql, clave, (o) => `${BSALE_BASE}/third_party_documents.json?year=${anio}&month=${m}&limit=${PUNTOS_SYNC_LIMIT}&offset=${o}`, (items) => contabilidadProcesar(sql, items), ctx, false);
+      const porcentaje = r.completo ? 100 : (r.total ? Math.min(99, Math.round((r.hecho / r.total) * 100)) : null);
+      return res.status(200).json({ mes, completo: r.completo, hecho: r.hecho, total: r.total, porcentaje });
+    }
+
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const mes = MES_VALIDO.test(String(req.query.mes || '')) ? req.query.mes : mesActual;
+    const { rows } = await sql.query(
+      `SELECT d.*, p.categoria AS ov_categoria, p.detalle AS ov_detalle
+         FROM contabilidad_dte d LEFT JOIN contabilidad_proveedores p ON p.clave = d.clave
+        WHERE d.periodo = $1 ORDER BY d.fecha DESC NULLS LAST, d.numero DESC;`, [mes]);
+    const visibles = rows.filter(r => !r.anulado && r.incluir);
+    const docs = visibles.map(r => {
+      const c = categoriaEfectiva(r.proveedor, r.ov_categoria ? { categoria: r.ov_categoria, detalle: r.ov_detalle } : null);
+      return {
+        id: r.id, clave: r.clave, rut: r.rut, proveedor: r.proveedor, numero: r.numero, codigo: r.codigo_sii, tipo: tipoDte(r.codigo_sii), signo: signoDte(r.codigo_sii),
+        fecha: r.fecha ? new Date(r.fecha).toISOString().slice(0, 10) : null, neto: Number(r.neto), exento: Number(r.exento), iva: Number(r.iva), total: Number(r.total),
+        categoria: c.categoria, detalle: c.detalle, auto: c.auto, urlPdf: r.url_pdf,
+      };
+    });
+    const { rows: est } = await sql`SELECT offset_a, total_a, completo, actualizado_en FROM comparativo_estado WHERE clave = ${'dte-' + mes};`;
+    return res.status(200).json({
+      mes, docs, resumen: resumirContabilidad(docs), categorias: CATEGORIAS_CONTABILIDAD,
+      excluidos: rows.length - visibles.length,
+      sincronizacion: est[0] ? { completo: est[0].completo, hecho: est[0].offset_a, total: est[0].total_a, actualizadoEn: est[0].actualizado_en } : null,
+    });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo leer la contabilidad', detail: String(err.message || err).slice(0, 200) });
   }
 }
 
