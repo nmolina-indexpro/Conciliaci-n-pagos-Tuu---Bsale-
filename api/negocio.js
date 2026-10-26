@@ -46,7 +46,7 @@ import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, product
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
-import { armarComparativo as armarComparativoVentas, parsearMes as parsearMesComparativo, mesAnterior12 as mesAnterior12Comparativo, diasDelMes as diasDelMesComparativo, rangoEpochMes as rangoEpochMesComparativo } from '../lib/comparativo-ventas.js';
+import { MARCAS_PRINCIPALES as MARCAS_PRINCIPALES_COMPARATIVO, armarComparativo as armarComparativoVentas, parsearMes as parsearMesComparativo, mesAnterior12 as mesAnterior12Comparativo, diasDelMes as diasDelMesComparativo, rangoEpochMes as rangoEpochMesComparativo } from '../lib/comparativo-ventas.js';
 import { asegurarTablaComparativoVentas } from '../lib/db.js';
 import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas, asegurarTablaIndexscalePlan, asegurarTablaIndiceModelosMeta } from '../lib/db.js';
 import { encontrarDefinicion, textoPlanoMetacampo, tipoDeProducto, mejorProductoPorMetacampo, buscarModelosEnItems, lineasModelosDescripcion } from '../lib/modelos-metacampo.js';
@@ -282,6 +282,7 @@ export default async function handler(req, res) {
   if (recurso === 'ventas-sku-tendencia') return manejarVentasSkuTendencia(req, res, sesion);
   if (recurso === 'comparativo-ventas') return manejarComparativoVentas(req, res, sesion);
   if (recurso === 'comparativo-ventas-sync') return manejarComparativoVentasSync(req, res, sesion);
+  if (recurso === 'comparativo-marca') return manejarComparativoMarca(req, res, sesion);
   if (recurso === 'contabilidad' || recurso === 'contabilidad-sync' || recurso === 'contabilidad-categoria' || recurso === 'contabilidad-analisis') return manejarContabilidad(req, res, sesion);
   if (recurso === 'precios-sku-variacion') return manejarPreciosSkuVariacion(req, res, sesion);
   if (recurso === 'ventas-horario-extendido') return manejarVentasHorarioExtendido(req, res, sesion);
@@ -2590,6 +2591,26 @@ async function manejarContabilidad(req, res, sesion) {
   }
 }
 
+// PUT ?recurso=comparativo-marca { sku, marca }: asigna a mano la marca de un SKU en el Comparativo de ventas (marca vacía = quitar la asignación y volver a la detectada por el nombre).
+async function manejarComparativoMarca(req, res, sesion) {
+  if (req.method !== 'PUT') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede asignar marcas' });
+  const b = req.body || {};
+  const sku = String(b.sku || '').trim().toUpperCase().slice(0, 80);
+  if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
+  const marca = String(b.marca || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  try {
+    const sql = await getSql();
+    await asegurarTablaComparativoVentas(sql);
+    if (!marca) { await sql`DELETE FROM comparativo_marcas_sku WHERE sku = ${sku};`; return res.status(200).json({ ok: true, sku, marca: null }); }
+    await sql`INSERT INTO comparativo_marcas_sku (sku, marca, actualizado_por, actualizado_en) VALUES (${sku}, ${marca}, ${sesion.nombre || sesion.email}, now())
+      ON CONFLICT (sku) DO UPDATE SET marca = EXCLUDED.marca, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();`;
+    return res.status(200).json({ ok: true, sku, marca });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo guardar la marca', detail: String(err.message || err).slice(0, 200) });
+  }
+}
+
 async function manejarComparativoVentas(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   const actualMes = mesActualChile();
@@ -2616,10 +2637,12 @@ async function manejarComparativoVentas(req, res, sesion) {
     const FILTRO_PRODUCTOS = `FROM comparativo_lineas l LEFT JOIN comparativo_catalogo c ON c.sku = l.sku LEFT JOIN comparativo_productos p ON p.id = c.producto_id WHERE l.periodo = ANY($1::text[]) AND EXTRACT(DAY FROM l.fecha) <= $2 AND NOT COALESCE(p.es_servicio, false)`;
     const { rows: docs } = await sql.query(`SELECT l.periodo, COUNT(DISTINCT l.documento_id)::int AS n ${FILTRO_PRODUCTOS} GROUP BY l.periodo;`, [[mes, base], hastaDia]);
     const { rows: dias } = await sql.query(`SELECT l.periodo, EXTRACT(DAY FROM l.fecha)::int AS dia, SUM(l.monto)::float AS monto, SUM(l.cantidad)::float AS unidades ${FILTRO_PRODUCTOS} GROUP BY l.periodo, dia ORDER BY dia;`, [[mes, base], hastaDia]);
-    const cmp = armarComparativoVentas(filas, { actual: mes, base });
+    const { rows: marcasRows } = await sql.query(`SELECT sku, marca FROM comparativo_marcas_sku;`);
+    const marcasPorSku = Object.fromEntries(marcasRows.map((m) => [m.sku, m.marca]));
+    const cmp = armarComparativoVentas(filas, { actual: mes, base, marcasPorSku });
     const n = (p) => docs.find((d) => d.periodo === p)?.n || 0;
     return res.status(200).json({
-      mes, base, hastaDia, diasMes, parcial: hastaDia < diasMes, estado,
+      mes, base, hastaDia, diasMes, parcial: hastaDia < diasMes, estado, marcasPrincipales: MARCAS_PRINCIPALES_COMPARATIVO,
       documentos: { actual: n(mes), base: n(base) },
       porDia: Array.from({ length: hastaDia }, (_, i) => {
         const d = i + 1, a = dias.find((x) => x.periodo === mes && x.dia === d), b = dias.find((x) => x.periodo === base && x.dia === d);

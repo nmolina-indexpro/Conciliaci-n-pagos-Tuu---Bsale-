@@ -116,6 +116,7 @@
   .cmp-tabs{grid-template-columns:repeat(3,1fr);}
   .cmp-check{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);}
   .cmp-sync{margin:0 0 14px;padding:10px 14px;border-radius:10px;background:var(--amber-dim);border:1px solid #F3D9A8;font-size:12.5px;line-height:1.5;}
+  .cmp-marca{font-size:12px;padding:4px 6px;max-width:150px;} .cmp-marca.sin{border-color:var(--amber);background:var(--amber-dim);} .cmp-marca.manual{border-color:var(--primary);font-weight:700;}
   .cmp-celda-exp{cursor:pointer;user-select:none;} .cmp-celda-exp:hover{background:var(--primary-dim);}
   .cmp-flecha{display:inline-block;width:14px;color:var(--primary);font-weight:700;}
   tr.fila-detalle > td{background:var(--surface-2);padding:12px 16px 16px;border-bottom:2px solid var(--line);}
@@ -498,6 +499,40 @@ function filaCmp(f, cols, attrs = ''){
     <td class="amount">${fmtClp(f.precioActual)}</td><td class="amount">${fmtClp(f.precioBase)}</td>
     <td class="amount">${barra(f.partActual)}${fmtPct(f.partActual)}</td><td class="amount">${fmtPct(f.partBase)}</td></tr>`;
 }
+// ---------- Marca de cada SKU: se puede elegir a mano (manda sobre la que se detecta por el nombre) ----------
+function avisoCmp(texto){
+  let el = document.getElementById('cmpToast');
+  if(!el){ el = document.createElement('div'); el.id = 'cmpToast'; el.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1F2A24;color:#fff;padding:9px 16px;border-radius:9px;font-size:12.5px;z-index:200;max-width:90vw;'; document.body.appendChild(el); }
+  el.textContent = texto; el.style.display = '';
+  clearTimeout(el._t); el._t = setTimeout(() => { el.style.display = 'none'; }, 4500);
+}
+// Las marcas principales primero, luego las demás que ya aparecen en los datos, y al final "otra marca…".
+function opcionesMarca(actual){
+  const fijas = datos.marcasPrincipales || [];
+  const otras = [...new Set([...datos.productos.map(x => x.marca), ...datos.marcas.map(m => m.clave)])].filter(m => m && m !== 'Sin marca identificada' && !fijas.includes(m)).sort((x, y) => x.localeCompare(y, 'es'));
+  const opt = (v, t, sel) => `<option value="${escapeHtml(v)}" ${sel ? 'selected' : ''}>${escapeHtml(t)}</option>`;
+  const sin = actual === 'Sin marca identificada';
+  return opt('', sin ? '— elegir marca —' : '↺ Quitar la marca asignada', sin) + fijas.map(m => opt(m, m, m === actual)).join('') + (otras.length ? '<optgroup label="Otras marcas">' + otras.map(m => opt(m, m, m === actual)).join('') + '</optgroup>' : '') + opt('__otra__', '➕ Otra marca…', false);
+}
+function celdaMarca(p){
+  const dis = rolActual === 'admin' ? '' : 'disabled title="Solo un administrador asigna marcas"';
+  return `<td data-valor="${escapeHtml(p.marca)}"><select class="cmp-marca ${p.marcaManual ? 'manual' : ''} ${p.marca === 'Sin marca identificada' ? 'sin' : ''}" data-sku="${escapeHtml(p.sku)}" ${dis} onchange="cambiarMarca(this)" title="${p.marcaManual ? 'Asignada a mano' : 'Detectada por el nombre del producto'}">${opcionesMarca(p.marca)}</select></td>`;
+}
+async function cambiarMarca(sel){
+  const sku = sel.dataset.sku; let marca = sel.value;
+  if(marca === '__otra__'){
+    marca = (prompt('¿Qué marca es? (por ejemplo Logitech)') || '').trim();
+    if(!marca){ dibujarVistaCmp(); return; }
+  }
+  try{
+    const res = await fetch('/api/negocio?recurso=comparativo-marca', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku, marca }) });
+    const r = await res.json();
+    if(!res.ok || r.error) throw new Error(r.error || 'No se pudo guardar');
+    avisoCmp(r.marca ? sku + ' → ' + r.marca : 'Se quitó la marca asignada a ' + sku);
+    await cargarComparativo();
+  }catch(err){ avisoCmp('No se pudo guardar: ' + err.message); dibujarVistaCmp(); }
+}
+
 // ---------- Despliegue de una categoría o marca: sus productos de mayor a menor variación en $ ----------
 let agrupadoCmp = [];
 const expandidosCmp = new Set();
@@ -506,14 +541,14 @@ function detalleCmp(f){
   const campo = vista === 'categorias' ? 'categoria' : 'marca';
   const items = datos.productos.filter(p => p[campo] === f.clave).sort((x, y) => (y.varMonto - x.varMonto) || (y.montoActual - x.montoActual));
   const tope = 300, estado = { nuevo: '🆕 Nuevo', sin_ventas: '⛔ Sin ventas', crece: '▲ Crece', cae: '▼ Cae' };
-  const filas = items.slice(0, tope).map(p => `<tr><td>${escapeHtml(p.sku)}</td><td>${escapeHtml(p.nombre)}</td><td>${estado[p.estado] || ''}</td>
+  const filas = items.slice(0, tope).map(p => `<tr><td>${escapeHtml(p.sku)}</td><td>${escapeHtml(p.nombre)}</td>${celdaMarca(p)}<td>${estado[p.estado] || ''}</td>
     <td class="amount">${fmtClp(p.montoActual)}</td><td class="amount">${fmtClp(p.montoBase)}</td>
     <td class="amount ${clase(p.varMonto)}">${fmtDifClp(p.varMonto)}</td><td class="amount ${clase(p.varMonto)}">${p.varMontoPct == null ? (p.montoActual > 0 ? 'nuevo' : '—') : fmtPct(p.varMontoPct, true)}</td>
     <td class="amount">${fmtNum(p.unidadesActual)}</td><td class="amount">${fmtNum(p.unidadesBase)}</td>
     <td class="amount ${clase(p.varUnidades)}">${fmtDif(p.varUnidades)}</td>
     <td class="amount">${fmtClp(p.precioActual)}</td><td class="amount">${fmtClp(p.precioBase)}</td></tr>`).join('');
   return `<div class="cmp-detalle"><div class="sub" style="margin:0 0 8px;">${fmtNum(items.length)} ${items.length === 1 ? 'producto' : 'productos'} de <b>${escapeHtml(f.clave)}</b>, de mayor a menor variación en $ (puedes ordenarlos por otra columna).</div>
-    <div class="tabla-wrap" style="max-height:440px;overflow:auto;"><table><thead><tr><th>SKU</th><th>Producto</th><th>Estado</th><th class="amount">Ventas ${a}</th><th class="amount">Ventas ${b}</th><th class="amount">Var. $</th><th class="amount">Var. %</th><th class="amount">Unid. ${a}</th><th class="amount">Unid. ${b}</th><th class="amount">Var. unid.</th><th class="amount">Precio prom. ${a}</th><th class="amount">Precio prom. ${b}</th></tr></thead><tbody>${filas}</tbody></table></div>
+    <div class="tabla-wrap" style="max-height:440px;overflow:auto;"><table><thead><tr><th>SKU</th><th>Producto</th><th>Marca</th><th>Estado</th><th class="amount">Ventas ${a}</th><th class="amount">Ventas ${b}</th><th class="amount">Var. $</th><th class="amount">Var. %</th><th class="amount">Unid. ${a}</th><th class="amount">Unid. ${b}</th><th class="amount">Var. unid.</th><th class="amount">Precio prom. ${a}</th><th class="amount">Precio prom. ${b}</th></tr></thead><tbody>${filas}</tbody></table></div>
     ${items.length > tope ? `<p class="ads-pie">Mostrando los ${tope} con mayor variación de ${fmtNum(items.length)}.</p>` : ''}</div>`;
 }
 function toggleDetalleCmp(k, abrir){
@@ -550,7 +585,7 @@ function dibujarVistaCmp(){
     lista.sort((x, y) => Math.abs(y.varMonto) - Math.abs(x.varMonto));
     const total = lista.length; lista = lista.slice(0, 300);
     html = `<table><thead><tr><th>SKU</th><th>Producto</th><th>Categoría</th><th>Marca</th><th>Estado</th>${cabeceraNum}</tr></thead><tbody>${lista.map(p => filaCmp(p,
-      `<td>${escapeHtml(p.sku)}</td><td>${escapeHtml(p.nombre)}</td><td>${escapeHtml(p.categoria)}</td><td>${escapeHtml(p.marca)}</td><td>${{ nuevo: '🆕 Nuevo', sin_ventas: '⛔ Sin ventas', crece: '▲ Crece', cae: '▼ Cae' }[p.estado]}</td>`)).join('')}</tbody></table>`
+      `<td>${escapeHtml(p.sku)}</td><td>${escapeHtml(p.nombre)}</td><td>${escapeHtml(p.categoria)}</td>${celdaMarca(p)}<td>${{ nuevo: '🆕 Nuevo', sin_ventas: '⛔ Sin ventas', crece: '▲ Crece', cae: '▼ Cae' }[p.estado]}</td>`)).join('')}</tbody></table>`
       + (total > 300 ? `<p class="ads-pie">Mostrando los 300 con mayor diferencia de ${fmtNum(total)}; usa el buscador para ver otros.</p>` : '');
   }else{
     const lista = vista === 'categorias' ? d.categorias : d.marcas;
