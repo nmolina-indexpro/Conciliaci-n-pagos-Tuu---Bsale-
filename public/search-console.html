@@ -412,7 +412,8 @@ function vistaPaginas(d){
 }
 
 function vistaOportunidades(d){
-  let html = d.truncado ? `<div class="sc-aviso">El rango es muy grande: se leyeron las primeras ${fmtNum(d.filas_leidas)} combinaciones consulta + página. Para ver todo, acorta el período.</div>` : '';
+  const m = d.marca_omitida || { impresiones: 0, clics: 0 };
+  let html = `<div class="sc-aviso">Estas tablas no incluyen las búsquedas de la marca (indexstore, index store…): Google las muestra con varias páginas del sitio como enlaces bajo la home y no son oportunidades. Se omitieron ${fmtNum(m.impresiones)} impresiones y ${fmtNum(m.clics)} clics de marca.</div>` + (d.truncado ? `<div class="sc-aviso">El rango es muy grande: se leyeron las primeras ${fmtNum(d.filas_leidas)} combinaciones consulta + página. Para ver todo, acorta el período.</div>` : '');
   html += bloque('1. Se ven pero no las abren (CTR bajo para su posición)',
     `Búsquedas donde la página sale en el top 10 pero recibe menos de 60 % de los clics típicos de esa posición (con al menos ${d.umbrales.ctr_bajo_impresiones} impresiones). Suele arreglarse mejorando el título y la meta descripción. <b>${fmtNum(d.total_ctr_bajo)} casos, unos ${fmtNum(d.clics_perdidos_ctr)} clics que se dejan pasar en el período.</b>`,
     tabla([{t:'Consulta'}, {t:'Página'}, {t:'Impresiones',n:1}, {t:'Clics',n:1}, {t:'CTR',n:1}, {t:'CTR esperado',n:1}, {t:'Posición',n:1}, {t:'Clics perdidos (aprox.)',n:1}],
