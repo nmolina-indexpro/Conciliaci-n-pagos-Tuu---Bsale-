@@ -65,6 +65,11 @@
   th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
   td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap;}
   th.mes, td.mes{text-align:right;}
+  .sel-relev{font-size:12px;padding:5px 8px;max-width:150px;border-width:1.5px;font-weight:600;}
+  .sel-relev.diario{border-color:var(--red);background:var(--red-bg);} .sel-relev.ocasional{border-color:var(--amber);background:var(--amber-dim);} .sel-relev.no_se_utiliza{border-color:var(--line);color:var(--muted);}
+  .inp-coment{width:100%;min-width:190px;border:1.5px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif;background:var(--surface);color:var(--text);}
+  .inp-coment:focus{outline:none;border-color:var(--primary);}
+  .btn-basura:hover{border-color:var(--red);background:var(--red-bg);}
   th.ordenable{cursor:pointer;user-select:none;}
   th.ordenable:hover{color:var(--primary);}
   .marca-peor{color:var(--red);font-weight:700;}
@@ -346,18 +351,22 @@ async function cargarInsumos(){
   $('statusInsumos').textContent = 'Consultando Bsale (puede tardar unos segundos)...';
   $('wrapInsumos').innerHTML = '<p class="empty-note">Cargando...</p>';
   try{
-    const [res, resLinks] = await Promise.all([
+    const [res, resLinks, resConfig] = await Promise.all([
       fetch('/api/bsale-sku-report?days=90').then(r=>r.json()),
       fetch('/api/negocio?recurso=link-compra&contexto=insumos_sku').then(r=>r.json()).catch(()=>({linkPorSku:{}})),
+      fetch('/api/negocio?recurso=insumos-st').then(r=>r.json()).catch(()=>({ config: {}, eliminados: [] })),
     ]);
     const data = res;
     linkCompraPorSku = resLinks.linkPorSku || {};
+    configInsumos = resConfig.config || {};
+    const eliminadosInsumos = new Set(resConfig.eliminados || []);
     if(data.error){
       $('statusInsumos').textContent = 'Error: ' + (data.detail || data.error);
       $('wrapInsumos').innerHTML = '<p class="empty-note">No se pudo cargar el stock de insumos.</p>';
       return;
     }
-    insumosActuales = (data.skus || []).filter(s => normalizarCategoriaInsumo(s.categoria) === 'insumos');
+    // Los insumos eliminados a mano no vuelven a aparecer, aunque Bsale los siga teniendo.
+    insumosActuales = (data.skus || []).filter(s => normalizarCategoriaInsumo(s.categoria) === 'insumos' && !eliminadosInsumos.has(s.code));
     renderInsumos();
     $('statusInsumos').textContent = `Listo — ${fmtNum(insumosActuales.length)} insumos encontrados en Bsale (categoría "Insumos").`;
   }catch(err){
@@ -399,6 +408,79 @@ async function editarLinkInsumo(sku){
   }
 }
 
+// ---------- Relevancia, comentario y eliminación de cada insumo ----------
+// Relevancia (3 niveles): qué tan importante es tener stock. Se guarda por SKU en el ERP (insumos_st_config); los insumos mismos siguen viniendo de Bsale.
+const RELEVANCIAS = [
+  { id: 'diario', texto: 'Uso diario', icono: '🔴', orden: 1 },
+  { id: 'ocasional', texto: 'Uso ocasional', icono: '🟡', orden: 2 },
+  { id: 'no_se_utiliza', texto: 'No se utiliza', icono: '⚪', orden: 3 },
+];
+let configInsumos = {}; // { SKU: { relevancia, comentario, por, en } }
+const relevanciaDe = sku => (configInsumos[sku] || {}).relevancia || null;
+const ordenRelevancia = sku => { const r = RELEVANCIAS.find(x => x.id === relevanciaDe(sku)); return r ? r.orden : 9; }; // sin definir va al final
+function avisoInsumo(texto){
+  let el = document.getElementById('avisoInsumoFlotante');
+  if(!el){ el = document.createElement('div'); el.id = 'avisoInsumoFlotante'; el.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1F2A24;color:#fff;padding:9px 16px;border-radius:9px;font-size:12.5px;z-index:200;max-width:90vw;'; document.body.appendChild(el); }
+  el.textContent = texto; el.style.display = '';
+  clearTimeout(el._t); el._t = setTimeout(() => { el.style.display = 'none'; }, 3500);
+}
+async function guardarConfigInsumo(sku, cambios){
+  const res = await fetch('/api/negocio?recurso=insumos-st', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku, ...cambios }) });
+  const d = await res.json();
+  if(!res.ok || d.error) throw new Error(d.error || 'No se pudo guardar');
+  configInsumos[sku] = { ...(configInsumos[sku] || {}), ...cambios, por: d.por, en: new Date().toISOString() };
+  return d;
+}
+async function cambiarRelevancia(sku, valor){
+  try{
+    await guardarConfigInsumo(sku, { relevancia: valor || null });
+    const r = RELEVANCIAS.find(x => x.id === valor);
+    avisoInsumo(r ? sku + ': ' + r.texto : sku + ': relevancia sin definir');
+    renderInsumos();
+  }catch(err){ avisoInsumo('No se pudo guardar: ' + err.message); renderInsumos(); }
+}
+async function guardarComentarioInsumo(sku, input){
+  const texto = input.value.trim();
+  if(texto === ((configInsumos[sku] || {}).comentario || '')) return; // sin cambios
+  try{
+    await guardarConfigInsumo(sku, { comentario: texto });
+    input.title = 'Guardado ahora por ti';
+    avisoInsumo('Comentario guardado: ' + sku);
+  }catch(err){ avisoInsumo('No se pudo guardar el comentario: ' + err.message); }
+}
+// Eliminar es definitivo: el insumo sale de esta lista para siempre y no vuelve aunque se actualice. NO se borra de Bsale.
+async function eliminarInsumo(sku){
+  const s = insumosActuales.find(x => x.code === sku);
+  const nombre = s ? s.nombre : sku;
+  const ok = confirm('⚠ ELIMINACIÓN DEFINITIVA\n\n¿Eliminar "' + nombre + '" (SKU ' + sku + ') de Insumos de Servicio Técnico?\n\n' +
+    '• Se quita de esta lista para siempre. No se puede deshacer.\n' +
+    '• No volverá a aparecer aunque pulses "Actualizar".\n' +
+    '• Se dejan de ver su relevancia y su comentario.\n' +
+    '• El producto NO se borra de Bsale: solo deja de mostrarse aquí.\n\n' +
+    'Pulsa Aceptar solo si estás seguro.');
+  if(!ok) return;
+  try{
+    const res = await fetch('/api/negocio?recurso=insumos-st&sku=' + encodeURIComponent(sku), { method: 'DELETE' });
+    const d = await res.json();
+    if(!res.ok || d.error){ alert(d.error || 'No se pudo eliminar.'); return; }
+    insumosActuales = insumosActuales.filter(x => x.code !== sku);
+    delete configInsumos[sku];
+    renderInsumos();
+    $('statusInsumos').textContent = 'Eliminado "' + nombre + '". Quedan ' + fmtNum(insumosActuales.length) + ' insumos en la lista.';
+  }catch(err){ alert('Error: ' + err.message); }
+}
+
+function selectRelevancia(sku){
+  const act = relevanciaDe(sku);
+  return '<select class="sel-relev ' + (act || 'sin') + '" onchange="cambiarRelevancia(\'' + escapeHtml(sku) + '\', this.value)" title="Qué tan importante es tener stock de este insumo">' +
+    '<option value="">— sin definir —</option>' + RELEVANCIAS.map(r => '<option value="' + r.id + '" ' + (r.id === act ? 'selected' : '') + '>' + r.icono + ' ' + r.texto + '</option>').join('') + '</select>';
+}
+function inputComentario(sku){
+  const c = configInsumos[sku] || {};
+  const pie = c.comentario && c.por ? 'Último cambio: ' + c.por + (c.en ? ' · ' + new Date(c.en).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '') : 'Escribe un comentario y pulsa Enter o sal del campo para guardarlo';
+  return '<input type="text" class="inp-coment" maxlength="500" value="' + escapeHtml(c.comentario || '') + '" placeholder="Comentario…" title="' + escapeHtml(pie) + '" onchange="guardarComentarioInsumo(\'' + escapeHtml(sku) + '\', this)" onkeydown="if(event.key===\'Enter\') this.blur()">';
+}
+
 function renderInsumos(){
   if(!insumosActuales.length){
     $('wrapInsumos').innerHTML = '<p class="empty-note">Presiona "Actualizar" para traer el stock desde Bsale.</p>';
@@ -411,8 +493,9 @@ function renderInsumos(){
     return;
   }
   const col = sortColInsumos;
+  const valorOrden = (x, c) => (c === 'relevanciaOrden' ? ordenRelevancia(x.code) : x[c]);
   const ordenada = [...lista].sort((a, b) => {
-    let va = a[col], vb = b[col];
+    let va = valorOrden(a, col), vb = valorOrden(b, col);
     if(typeof va === 'string' || typeof vb === 'string'){
       va = va ?? ''; vb = vb ?? '';
       return sortAscInsumos ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
@@ -431,22 +514,28 @@ function renderInsumos(){
     return `
     <tr>
       <td class="servicio">${escapeHtml(s.nombre)}<br><span class="sku-code">SKU: ${escapeHtml(s.code)}</span></td>
+      <td class="mes">${selectRelevancia(s.code)}</td>
       <td class="mes amount">${fmtNum(s.stockActual)}</td>
       <td class="mes amount">${s.fechaUltimaCompra || '—'}</td>
       <td class="mes amount">${s.ultimoCosto != null ? fmtMoneda(s.ultimoCosto) : '—'}</td>
       <td class="mes amount">${s.proveedor ? escapeHtml(s.proveedor) : '—'}</td>
       <td class="mes amount">${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkInsumo('${escapeHtml(s.code)}')">✏️</button></td>
+      <td class="mes">${inputComentario(s.code)}</td>
+      <td class="mes"><button class="btn-icono btn-basura" title="Eliminar este insumo de la lista (definitivo)" onclick="eliminarInsumo('${escapeHtml(s.code)}')">🗑️</button></td>
     </tr>`;
   }).join('');
   $('wrapInsumos').innerHTML = `
     <div class="tabla-wrap"><table>
       <thead><tr>
         <th>Insumo</th>
+        ${th('relevanciaOrden', 'Relevancia')}
         ${th('stockActual', 'Stock actual')}
         ${th('fechaUltimaCompra', 'Última fecha de ingreso')}
         ${th('ultimoCosto', 'Último costo de ingreso')}
         ${th('proveedor', 'Proveedor')}
         <th>Link de compra</th>
+        <th>Comentario</th>
+        <th title="Eliminar de la lista (definitivo)"></th>
       </tr></thead>
       <tbody>${filas}</tbody>
     </table></div>

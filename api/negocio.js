@@ -25,7 +25,7 @@ import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreo
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
 import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadores.js';
 import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGORIAS as CATEGORIAS_CONTABILIDAD, CATEGORIA_IDS as CATEGORIA_IDS_CONTABILIDAD, categoriaEfectiva, resumir as resumirContabilidad, analizarContabilidad } from '../lib/contabilidad.js';
-import { asegurarTablaContabilidad } from '../lib/db.js';
+import { asegurarTablaContabilidad, asegurarTablaInsumosSt } from '../lib/db.js';
 import { paginasEfectivas } from '../lib/paginas-perfil.js';
 import { contarSeguimientos, PAUSA_SEGUIMIENTO_MS } from '../lib/whatsapp-seguimientos.js';
 import { corregirCorreo } from '../lib/correos-corregidos.js';
@@ -291,6 +291,7 @@ export default async function handler(req, res) {
   if (recurso === 'servicios-por-mes') return manejarServiciosPorMes(req, res, sesion);
   if (recurso === 'sync-servicios-tecnico') return manejarSyncServiciosTecnico(req, res, sesion);
   if (recurso === 'link-compra') return manejarLinkCompra(req, res, sesion);
+  if (recurso === 'insumos-st') return manejarInsumosSt(req, res, sesion);
   if (recurso === 'compras-dm-excluidos') return manejarComprasDMExcluidos(req, res, sesion);
   if (recurso === 'compras-proveedor-asignado') return manejarComprasProveedorAsignado(req, res, sesion);
   if (recurso === 'recomendacion-compra-excluidos') return manejarRecomendacionCompraExcluidos(req, res, sesion);
@@ -3945,6 +3946,64 @@ async function manejarSyncServiciosTecnico(req, res, sesion) {
 // link al día -- cada actualización agrega una entrada nueva al historial
 // (nunca reemplaza en el sitio), que de todos modos queda con quién y cuándo.
 const LINK_COMPRA_CONTEXTOS_VALIDOS = new Set(['insumos_sku', 'compras_dm_sku', 'compras_intcomex_sku']);
+// Insumos de Servicio Técnico: relevancia, comentario y eliminación definitiva de la lista (la página insumos-servicio-tecnico.html).
+// GET -> { config: { SKU: { relevancia, comentario, por, en } }, eliminados: [SKU] }
+// PUT { sku, relevancia?, comentario? } -> guarda solo lo que viene (relevancia: 'diario' | 'ocasional' | 'no_se_utiliza' | null)
+// DELETE ?sku= -> saca el insumo de la lista para siempre (no toca Bsale). Quién y cuándo queda registrado.
+const RELEVANCIAS_INSUMO = ['diario', 'ocasional', 'no_se_utiliza'];
+async function permisoPaginaErp(sql, sesion, pagina) {
+  if (sesion.rol === 'admin') return true;
+  try {
+    const { rows } = await sql`SELECT p.paginas FROM usuarios u LEFT JOIN perfiles p ON p.id = u.perfil_id WHERE u.id = ${sesion.uid};`;
+    const paginas = rows[0] && Array.isArray(rows[0].paginas) ? paginasEfectivas(rows[0].paginas) : null;
+    return !Array.isArray(paginas) || paginas.includes(pagina);
+  } catch { return false; }
+}
+async function manejarInsumosSt(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaInsumosSt(sql);
+    if (!(await permisoPaginaErp(sql, sesion, 'insumos-servicio-tecnico.html'))) return res.status(403).json({ error: 'Tu perfil no tiene acceso a Insumos de Servicio Técnico' });
+    const quien = sesion.nombre || sesion.email;
+    if (req.method === 'GET') {
+      const { rows } = await sql`SELECT sku, relevancia, comentario, eliminado, actualizado_por, actualizado_en FROM insumos_st_config;`;
+      return res.status(200).json({
+        config: Object.fromEntries(rows.filter((r) => !r.eliminado).map((r) => [r.sku, { relevancia: r.relevancia, comentario: r.comentario, por: r.actualizado_por, en: r.actualizado_en }])),
+        eliminados: rows.filter((r) => r.eliminado).map((r) => r.sku),
+      });
+    }
+    if (req.method === 'PUT') {
+      const b = req.body || {};
+      const sku = String(b.sku || '').trim().slice(0, 80);
+      if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
+      const tieneRel = Object.prototype.hasOwnProperty.call(b, 'relevancia'), tieneCom = Object.prototype.hasOwnProperty.call(b, 'comentario');
+      if (!tieneRel && !tieneCom) return res.status(400).json({ error: 'No hay nada que guardar' });
+      let relevancia = null;
+      if (tieneRel) {
+        relevancia = b.relevancia ? String(b.relevancia) : null;
+        if (relevancia && !RELEVANCIAS_INSUMO.includes(relevancia)) return res.status(400).json({ error: 'Relevancia inválida' });
+      }
+      const comentario = tieneCom ? (String(b.comentario || '').trim().slice(0, 500) || null) : null;
+      await sql`INSERT INTO insumos_st_config (sku, relevancia, comentario, actualizado_por, actualizado_en) VALUES (${sku}, ${relevancia}, ${comentario}, ${quien}, now())
+        ON CONFLICT (sku) DO UPDATE SET
+          relevancia = CASE WHEN ${tieneRel} THEN EXCLUDED.relevancia ELSE insumos_st_config.relevancia END,
+          comentario = CASE WHEN ${tieneCom} THEN EXCLUDED.comentario ELSE insumos_st_config.comentario END,
+          actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();`;
+      return res.status(200).json({ ok: true, sku, ...(tieneRel ? { relevancia } : {}), ...(tieneCom ? { comentario } : {}), por: quien });
+    }
+    if (req.method === 'DELETE') {
+      const sku = String(req.query.sku || '').trim().slice(0, 80);
+      if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
+      await sql`INSERT INTO insumos_st_config (sku, eliminado, eliminado_por, eliminado_en, actualizado_por, actualizado_en) VALUES (${sku}, true, ${quien}, now(), ${quien}, now())
+        ON CONFLICT (sku) DO UPDATE SET eliminado = true, eliminado_por = EXCLUDED.eliminado_por, eliminado_en = now(), actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();`;
+      return res.status(200).json({ ok: true, sku });
+    }
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo usar la configuración de insumos', detail: String(err.message || err).slice(0, 200) });
+  }
+}
+
 async function manejarLinkCompra(req, res, sesion) {
   try {
     const contexto = req.method === 'GET' ? req.query.contexto : (req.body || {}).contexto;
