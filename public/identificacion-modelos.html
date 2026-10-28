@@ -701,7 +701,8 @@ async function elegirSkuCompatible(id, sku){
 
 document.addEventListener('click', ev => { if(!ev.target.closest('#listaSku')) cerrarListaSku(); });
 document.addEventListener('keydown', ev => { if(ev.key === 'Escape') cerrarListaSku(); });
-window.addEventListener('scroll', cerrarListaSku, true);
+// Se cierra al hacer scroll en la página (el panel quedaría desalineado del botón), pero no al mover la barra de la propia lista.
+window.addEventListener('scroll', ev => { if(!ev.target.closest || !ev.target.closest('#listaSku')) cerrarListaSku(); }, true);
 window.addEventListener('resize', cerrarListaSku);
 
 function renderTabla(){
