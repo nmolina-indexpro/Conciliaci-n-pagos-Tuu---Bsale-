@@ -605,7 +605,7 @@ async function cargarCatalogoSku(){
     if(!enColeccion.size) console.warn('No se pudo leer la colección de pantallas; se usa el nombre del producto.', data.coleccionError || '');
     const esAio = s => SKUS_ALL_IN_ONE.some(a => a.toLowerCase() === s.toLowerCase());
     const valida = (s, p) => {
-      if(p.status === 'archived') return false;
+      if(p.status !== 'active') return false; // sin borradores ni archivados
       if(esAio(s)) return true;
       const t = p.titulo || '';
       if(RE_PANTALLA_NO_VALIDA.test(t) || RE_PANTALLA_CON_MARCA.test(t)) return false;
