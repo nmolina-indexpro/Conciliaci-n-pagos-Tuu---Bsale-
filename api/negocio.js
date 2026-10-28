@@ -23,6 +23,7 @@ import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
 import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidirAvisos, armarCorreoTraspasoStock } from '../lib/traspaso-stock.js';
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
+import { armarCorreoInsumoCritico } from '../lib/correo-insumo.js';
 import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadores.js';
 import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGORIAS as CATEGORIAS_CONTABILIDAD, CATEGORIA_IDS as CATEGORIA_IDS_CONTABILIDAD, categoriaEfectiva, resumir as resumirContabilidad, analizarContabilidad } from '../lib/contabilidad.js';
 import { asegurarTablaContabilidad, asegurarTablaInsumosSt } from '../lib/db.js';
@@ -3959,6 +3960,55 @@ async function permisoPaginaErp(sql, sesion, pagina) {
     return !Array.isArray(paginas) || paginas.includes(pagina);
   } catch { return false; }
 }
+// Aviso por correo (notificación 'insumos-stock-critico', se administra en Usuarios > Notificaciones): un insumo quedó en stock crítico. Nunca hace fallar el guardado.
+async function avisarInsumoCritico(sql, { sku, contexto, sugerencia, por, actualizacion }) {
+  try {
+    await asegurarTablaNotificaciones(sql);
+    if (!(await notificacionDebeEnviarse(sql, 'insumos-stock-critico'))) return { enviado: false, motivo: 'notificación inactiva' };
+    const destinatarios = await obtenerSuscriptoresEmail(sql, 'insumos-stock-critico');
+    await asegurarTablaComentariosLog(sql);
+    const { rows: cfg } = await sql`SELECT relevancia, comentario FROM insumos_st_config WHERE sku = ${sku};`;
+    const { rows: lk } = await sql`SELECT comentario FROM comentarios_log WHERE contexto = 'insumos_sku' AND entidad_id = ${sku} ORDER BY id DESC LIMIT 1;`;
+    const c = contexto && typeof contexto === 'object' ? contexto : {};
+    const insumo = { sku, nombre: String(c.nombre || sku).slice(0, 200), stock: Number(c.stock) || 0, ultimaFecha: c.ultimaFecha ? String(c.ultimaFecha).slice(0, 10) : null, proveedor: c.proveedor ? String(c.proveedor).slice(0, 120) : null,
+      relevancia: cfg[0] ? cfg[0].relevancia : null, comentario: cfg[0] ? cfg[0].comentario : null };
+    const { asunto, html } = armarCorreoInsumoCritico({ insumo, sugerencia, link: lk[0] ? lk[0].comentario : null, por, actualizacion, urlBase: URL_BASE_APP });
+    let enviados = 0; const errores = [];
+    for (const para of destinatarios) {
+      const r = await enviarCorreo({ para, asunto, html });
+      if (r && r.enviado) enviados++; else errores.push(String((r && r.motivo) || 'sin motivo').slice(0, 200));
+    }
+    if (enviados > 0) {
+      await marcarNotificacionEnviada(sql, 'insumos-stock-critico', { asunto, html });
+      await sql`UPDATE insumos_st_config SET critico_avisado_en = now() WHERE sku = ${sku};`;
+    }
+    return { enviado: enviados > 0, enviados, errores };
+  } catch (e) {
+    return { enviado: false, motivo: String(e.message || e).slice(0, 200) };
+  }
+}
+
+// "Enviar prueba" de Usuarios > Notificaciones: manda a quien lo pidió un aviso de ejemplo (o del último insumo marcado como crítico).
+async function manejarInsumoCriticoPrueba(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaInsumosSt(sql); await asegurarTablaComentariosLog(sql);
+    const { rows } = await sql`SELECT sku, relevancia, comentario, sugerencia_compra, critico_por FROM insumos_st_config WHERE stock_critico AND NOT eliminado ORDER BY critico_en DESC NULLS LAST LIMIT 1;`;
+    const r0 = rows[0];
+    const lk = r0 ? (await sql`SELECT comentario FROM comentarios_log WHERE contexto = 'insumos_sku' AND entidad_id = ${r0.sku} ORDER BY id DESC LIMIT 1;`).rows[0] : null;
+    const datosCorreo = r0
+      ? { insumo: { sku: r0.sku, nombre: r0.sku, stock: 0, relevancia: r0.relevancia, comentario: r0.comentario }, sugerencia: r0.sugerencia_compra, link: lk ? lk.comentario : null, por: r0.critico_por, ejemplo: false }
+      : { insumo: { sku: 'INS-EJ', nombre: 'PASTA TERMICA TIPO MASILLA 10G', stock: 0, ultimaFecha: '2026-09-04', proveedor: 'Compra de Aliexpress', relevancia: 'diario', comentario: 'Se acaba cada semana' }, sugerencia: 10, link: 'https://es.aliexpress.com/', por: 'Servicio Técnico', ejemplo: true };
+    const { asunto, html } = armarCorreoInsumoCritico({ ...datosCorreo, urlBase: URL_BASE_APP });
+    const r = await enviarCorreo({ para: String(req.query.para || ''), asunto: '[PRUEBA] ' + asunto, html });
+    return res.status(200).json({ ok: true, enviado: !!(r && r.enviado), motivo: r && r.motivo });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo armar el correo de prueba', detail: String(e.message || e).slice(0, 200) });
+  }
+}
+
 async function manejarInsumosSt(req, res, sesion) {
   try {
     const sql = await getSql();
@@ -3966,9 +4016,9 @@ async function manejarInsumosSt(req, res, sesion) {
     if (!(await permisoPaginaErp(sql, sesion, 'insumos-servicio-tecnico.html'))) return res.status(403).json({ error: 'Tu perfil no tiene acceso a Insumos de Servicio Técnico' });
     const quien = sesion.nombre || sesion.email;
     if (req.method === 'GET') {
-      const { rows } = await sql`SELECT sku, relevancia, comentario, eliminado, actualizado_por, actualizado_en FROM insumos_st_config;`;
+      const { rows } = await sql`SELECT sku, relevancia, comentario, eliminado, actualizado_por, actualizado_en, stock_critico, sugerencia_compra, critico_por, critico_en FROM insumos_st_config;`;
       return res.status(200).json({
-        config: Object.fromEntries(rows.filter((r) => !r.eliminado).map((r) => [r.sku, { relevancia: r.relevancia, comentario: r.comentario, por: r.actualizado_por, en: r.actualizado_en }])),
+        config: Object.fromEntries(rows.filter((r) => !r.eliminado).map((r) => [r.sku, { relevancia: r.relevancia, comentario: r.comentario, por: r.actualizado_por, en: r.actualizado_en, critico: !!r.stock_critico, sugerencia: r.sugerencia_compra, criticoPor: r.critico_por, criticoEn: r.critico_en }])),
         eliminados: rows.filter((r) => r.eliminado).map((r) => r.sku),
       });
     }
@@ -3977,7 +4027,31 @@ async function manejarInsumosSt(req, res, sesion) {
       const sku = String(b.sku || '').trim().slice(0, 80);
       if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
       const tieneRel = Object.prototype.hasOwnProperty.call(b, 'relevancia'), tieneCom = Object.prototype.hasOwnProperty.call(b, 'comentario');
-      if (!tieneRel && !tieneCom) return res.status(400).json({ error: 'No hay nada que guardar' });
+      const tieneCrit = Object.prototype.hasOwnProperty.call(b, 'critico'), tieneSug = Object.prototype.hasOwnProperty.call(b, 'sugerencia');
+      if (!tieneRel && !tieneCom && !tieneCrit && !tieneSug) return res.status(400).json({ error: 'No hay nada que guardar' });
+      // Stock crítico: lo marca el técnico y dice cuántas unidades recomienda comprar; al marcarlo (o cambiar la sugerencia) sale el aviso por correo.
+      if (tieneCrit || tieneSug) {
+        const { rows: previo } = await sql`SELECT stock_critico, sugerencia_compra FROM insumos_st_config WHERE sku = ${sku};`;
+        const yaCritico = !!(previo[0] && previo[0].stock_critico), sugPrevia = previo[0] ? previo[0].sugerencia_compra : null;
+        const quiereCritico = tieneCrit ? !!b.critico : yaCritico;
+        if (!quiereCritico) {
+          if (tieneSug && !tieneCrit) return res.status(400).json({ error: 'Primero marca el insumo como stock crítico' });
+          await sql`INSERT INTO insumos_st_config (sku, stock_critico, actualizado_por, actualizado_en) VALUES (${sku}, false, ${quien}, now())
+            ON CONFLICT (sku) DO UPDATE SET stock_critico = false, sugerencia_compra = NULL, critico_por = NULL, critico_en = NULL, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();`;
+          return res.status(200).json({ ok: true, sku, critico: false, por: quien });
+        }
+        const sug = tieneSug ? Number(b.sugerencia) : sugPrevia;
+        if (!Number.isInteger(sug) || sug < 1 || sug > 100000) return res.status(400).json({ error: 'Indica cuántas unidades recomiendas comprar (un número entero, de 1 en adelante)' });
+        await sql`INSERT INTO insumos_st_config (sku, stock_critico, sugerencia_compra, critico_por, critico_en, actualizado_por, actualizado_en) VALUES (${sku}, true, ${sug}, ${quien}, now(), ${quien}, now())
+          ON CONFLICT (sku) DO UPDATE SET stock_critico = true, sugerencia_compra = EXCLUDED.sugerencia_compra,
+            critico_por = CASE WHEN insumos_st_config.stock_critico THEN insumos_st_config.critico_por ELSE EXCLUDED.critico_por END,
+            critico_en = CASE WHEN insumos_st_config.stock_critico THEN insumos_st_config.critico_en ELSE now() END,
+            actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();`;
+        let aviso = null;
+        if (!yaCritico || sug !== sugPrevia) aviso = await avisarInsumoCritico(sql, { sku, contexto: b.contexto, sugerencia: sug, por: quien, actualizacion: yaCritico });
+        const guardarOtros = tieneRel || tieneCom;
+        if (!guardarOtros) return res.status(200).json({ ok: true, sku, critico: true, sugerencia: sug, por: quien, aviso });
+      }
       let relevancia = null;
       if (tieneRel) {
         relevancia = b.relevancia ? String(b.relevancia) : null;
@@ -5212,6 +5286,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'modelos-compatibles-pendientes': manejarModelosCompatiblesRecordatorio,
       'traspaso-stock-modelos': manejarTraspasoStockNotificar,
       'transito-envio-nuevo': manejarTransitoEnvioNuevoPrueba,
+      'insumos-stock-critico': manejarInsumoCriticoPrueba,
     };
     let r;
     if (tipo === 'resumen-cambios-diario') r = await enviarResumenCambios(sql, { para: destino });

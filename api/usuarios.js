@@ -406,6 +406,7 @@ async function manejarNotificaciones(req, res, sql) {
         diaSemana: c.dia_semana ?? null,
         ultimoEnvioEn: c.ultimo_envio_en || null,
         ultimoAsunto: c.ultimo_asunto || null, tieneVista: Boolean(c.tiene_vista),
+        correosFijos: info.correosFijos || [],
         suscriptores: suscriptoresRows.filter(s => s.tipo === tipo).map(s => ({ id: s.id, nombre: s.nombre, email: s.email, activo: s.activo })),
       };
     });

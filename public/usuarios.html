@@ -775,7 +775,8 @@ function renderNotificaciones(){
             </select>
           </div></td>
           <td><div class="chips">
-            ${n.suscriptores.length === 0 ? '<span class="empty-note" title="Nadie recibirá este correo">Sin destinatarios</span>' : n.suscriptores.map(s => `
+            ${(n.correosFijos || []).map(c => `<span class="chip" title="Siempre recibe este aviso (dirección fija)">✉ ${esc(c)}</span>`).join('')}
+            ${n.suscriptores.length === 0 && !(n.correosFijos || []).length ? '<span class="empty-note" title="Nadie recibirá este correo">Sin destinatarios</span>' : n.suscriptores.map(s => `
               <span class="chip" title="${esc(s.email || '')}">${esc(s.nombre)}${s.activo === false ? ' (inactivo)' : ''}<button title="Quitar" onclick="quitarSuscriptorNotificacion('${n.tipo}', ${s.id})">×</button></span>`).join('')}
             <select class="agregar" onchange="agregarSuscriptorNotificacion('${n.tipo}', this.value)">
               <option value="">+ Agregar</option>
