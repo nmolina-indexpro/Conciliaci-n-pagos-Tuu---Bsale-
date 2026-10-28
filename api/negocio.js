@@ -10529,7 +10529,7 @@ async function obtenerUrlsShopify(forzar) {
   const query = `
     query($cursor: String) {
       products(first: 100, after: $cursor) {
-        edges { node { id status handle title productType onlineStoreUrl variants(first: 100) { edges { node { sku } } } } }
+        edges { node { id status handle title onlineStoreUrl variants(first: 100) { edges { node { sku } } } } }
         pageInfo { hasNextPage endCursor }
       }
     }`;
@@ -10543,7 +10543,7 @@ async function obtenerUrlsShopify(forzar) {
       const idNumerico = p.id.split('/').pop();
       for (const { node: v } of (p.variants?.edges || [])) {
         if (!v.sku) continue;
-        urls[v.sku] = { url: p.onlineStoreUrl || null, adminUrl: `https://${domain}/admin/products/${idNumerico}`, status: (p.status || '').toLowerCase(), titulo: p.title || null, handle: p.handle || null, tipo: p.productType || null };
+        urls[v.sku] = { url: p.onlineStoreUrl || null, adminUrl: `https://${domain}/admin/products/${idNumerico}`, status: (p.status || '').toLowerCase(), titulo: p.title || null, handle: p.handle || null };
       }
     }
     if (!conexion.pageInfo.hasNextPage) break;
@@ -10552,10 +10552,51 @@ async function obtenerUrlsShopify(forzar) {
   cacheUrlsShopify = { ts: Date.now(), urls };
   return { urls };
 }
+// SKU de los productos que están en una colección de Shopify (por handle), con caché de 30 minutos por instancia.
+// Mismo patrón de dos pasos que obtenerProductosDeColeccionPorHandle (collectionByHandle(...).products no trae nada).
+const cacheSkusColeccion = new Map(); // handle -> { ts, skus }
+async function obtenerSkusColeccion(handle, forzar) {
+  const guardado = cacheSkusColeccion.get(handle);
+  if (!forzar && guardado && Date.now() - guardado.ts < 30 * 60000) return guardado.skus;
+  const acceso = await obtenerAccesoShopify();
+  if (!acceso) throw new Error('Shopify no está configurado en el servidor');
+  const { domain, accessToken } = acceso;
+  const bodyId = await shopifyGraphQLConReintento(domain, accessToken, `query($handle: String!) { collectionByHandle(handle: $handle) { id } }`, { handle });
+  const gid = bodyId.data?.collectionByHandle?.id;
+  if (!gid) throw new Error(`No se encontró la colección "${handle}" en Shopify`);
+  const query = `
+    query($id: ID!, $cursor: String) {
+      collection(id: $id) {
+        products(first: 100, after: $cursor) {
+          edges { node { variants(first: 20) { edges { node { sku } } } } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }`;
+  const skus = [];
+  let cursor = null;
+  for (let pagina = 0; pagina < 30; pagina++) {
+    const body = await shopifyGraphQLConReintento(domain, accessToken, query, { id: gid, cursor });
+    const conexion = body.data?.collection?.products;
+    if (!conexion) break;
+    for (const { node: p } of conexion.edges) for (const { node: v } of (p.variants?.edges || [])) if (v.sku) skus.push(v.sku);
+    if (!conexion.pageInfo.hasNextPage) break;
+    cursor = conexion.pageInfo.endCursor;
+  }
+  cacheSkusColeccion.set(handle, { ts: Date.now(), skus });
+  return skus;
+}
 async function manejarShopifyUrlsSku(req, res, _sesion) {
   try {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-    return res.status(200).json(await obtenerUrlsShopify(Boolean(req.query.forzar)));
+    const resultado = await obtenerUrlsShopify(Boolean(req.query.forzar));
+    // ?coleccion=<handle> agrega { coleccionSkus: [...] } con los SKU de esa colección (para listas acotadas a una colección).
+    const handle = String(req.query.coleccion || '').trim();
+    if (handle && /^[a-z0-9-]{1,80}$/.test(handle) && !resultado.error) {
+      try { resultado.coleccionSkus = await obtenerSkusColeccion(handle, Boolean(req.query.forzar)); }
+      catch (err) { resultado.coleccionError = String(err.message || err); }
+    }
+    return res.status(200).json(resultado);
   } catch (err) {
     return res.status(200).json({ error: 'No se pudo consultar Shopify', detail: String(err.message || err), urls: {} });
   }

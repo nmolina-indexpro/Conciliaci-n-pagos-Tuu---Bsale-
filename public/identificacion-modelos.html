@@ -581,37 +581,43 @@ function fmtFechaCorta(fechaStr){
 }
 
 // ---------- Producto compatible: lista desplegable "SKU — nombre" con buscador ----------
-// El catálogo sale de la tienda (?recurso=shopify-urls-sku, con caché de 30 min en el servidor) y se deja solo con las
-// pantallas de notebook y de all-in-one. Al abrir la lista aparece un buscador arriba: si el técnico ya sabe el SKU
-// (o parte del nombre) lo escribe y filtra al tiro; Enter elige el primer resultado.
+// Solo entran las pantallas genéricas (por panel, no por marca de equipo): las de la colección "Pantallas para notebook"
+// de la tienda (PTBEZEL, PSLIM, PTOLED…) y las dos all-in-one definidas abajo. Quedan fuera las pantallas con marca/serie
+// (ej. "Pantalla Asus VivoBook…"), las táctiles y las de MacBook. El catálogo viene de ?recurso=shopify-urls-sku
+// (caché de 30 min en el servidor). Al abrir la lista aparece un buscador arriba: si el técnico ya sabe el SKU (o parte
+// del nombre) lo escribe y filtra al tiro; Enter elige el primer resultado.
 const MAX_RESULTADOS_LISTA = 80;
-const RE_PANTALLA_SKU = /^(PSLIM|PNORMAL|PTBEZEL|FDP)/i;
-const RE_PANTALLA_TEXTO = /pantalla|\d+(\.\d+)?["″]\s*\d+p\b/i;
-const RE_NO_PANTALLA_NOTEBOOK = /monitor|televisor|\btv\b|proyector|tablet|celular|smartphone|iphone|ipad|reloj|protector|l[aá]mina|mica\b|filtro de privacidad/i;
-const RE_ALL_IN_ONE = /all[\s-]?in[\s-]?one|\baio\b/i;
-let catalogoSku = {};        // SKU -> { titulo, url, status, tipo } (todo el catálogo, para resolver nombres)
-let listaPantallas = [];     // solo pantallas de notebook / all-in-one: { sku, titulo, url, equipo, borrador, busqueda }
+const COLECCION_PANTALLAS_NOTEBOOK = 'pantallas-para-notebook';
+const SKUS_ALL_IN_ONE = ['M215HCAL3B', 'LM238WF2SSK1'];
+const RE_PANTALLA_NO_VALIDA = /t[aá]ctil|touch|macbook|\bmac\b|\bapple\b/i;
+const RE_PANTALLA_CON_MARCA = /\b(asus|lenovo|hp|dell|acer|msi|samsung|huawei|toshiba|gigabyte|razer|lg|sony|vivobook|zenbook|ideapad|thinkpad|legion|pavilion|inspiron|latitude|aspire|nitro|predator|probook|elitebook|omen|victus|xps)\b/i;
+const RE_PANTALLA_GENERICA = /^pantalla notebook\b/i; // respaldo si no se pudo leer la colección
+let catalogoSku = {};        // SKU -> { titulo, url, status } (todo el catálogo, para resolver nombres)
+let listaPantallas = [];     // solo las pantallas válidas: { sku, titulo, url, equipo, borrador, busqueda }
 let catalogoEstado = 'cargando'; // cargando | ok | error
-
-function esPantallaDeEquipo(sku, p){
-  const texto = `${p.titulo || ''} ${p.tipo || ''}`;
-  if(RE_NO_PANTALLA_NOTEBOOK.test(texto)) return false;
-  return RE_PANTALLA_SKU.test(sku) || RE_PANTALLA_TEXTO.test(texto);
-}
 
 async function cargarCatalogoSku(){
   try{
-    const data = await (await fetch('/api/negocio?recurso=shopify-urls-sku')).json();
+    const data = await (await fetch('/api/negocio?recurso=shopify-urls-sku&coleccion=' + COLECCION_PANTALLAS_NOTEBOOK)).json();
     if(data.error) throw new Error(data.error);
     catalogoSku = data.urls || {};
+    const enColeccion = new Set(data.coleccionSkus || []);
+    if(!enColeccion.size) console.warn('No se pudo leer la colección de pantallas; se usa el nombre del producto.', data.coleccionError || '');
+    const esAio = s => SKUS_ALL_IN_ONE.some(a => a.toLowerCase() === s.toLowerCase());
+    const valida = (s, p) => {
+      if(p.status === 'archived') return false;
+      if(esAio(s)) return true;
+      const t = p.titulo || '';
+      if(RE_PANTALLA_NO_VALIDA.test(t) || RE_PANTALLA_CON_MARCA.test(t)) return false;
+      return enColeccion.size ? enColeccion.has(s) : RE_PANTALLA_GENERICA.test(t);
+    };
     listaPantallas = Object.keys(catalogoSku)
-      .filter(s => catalogoSku[s].status !== 'archived' && esPantallaDeEquipo(s, catalogoSku[s]))
+      .filter(s => valida(s, catalogoSku[s]))
       .sort((a, b) => a.localeCompare(b))
       .map(s => {
         const p = catalogoSku[s];
         return { sku: s, titulo: p.titulo || '', url: p.url, borrador: p.status !== 'active',
-          equipo: RE_ALL_IN_ONE.test(`${p.titulo || ''} ${p.tipo || ''}`) ? 'All-in-one' : 'Notebook',
-          busqueda: `${s} ${p.titulo || ''}`.toLowerCase() };
+          equipo: esAio(s) ? 'All-in-one' : 'Notebook', busqueda: `${s} ${p.titulo || ''}`.toLowerCase() };
       });
     catalogoEstado = 'ok';
     if(modelosCargados.length) renderTabla();
