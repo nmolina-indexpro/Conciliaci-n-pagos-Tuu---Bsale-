@@ -99,6 +99,27 @@
   td.notas{max-width:220px;white-space:normal;color:var(--muted);font-size:12px;}
   .miniatura{width:34px;height:34px;object-fit:cover;border-radius:6px;border:1.5px solid var(--line);cursor:zoom-in;display:block;}
   .quien{color:var(--muted);font-size:11.5px;white-space:nowrap;}
+  .btn-sku{display:inline-flex;align-items:center;gap:6px;min-width:130px;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-weight:500;font-size:12px;padding:6px 9px;border:1.5px dashed var(--line);border-radius:7px;background:var(--bg);color:var(--muted);}
+  .btn-sku.con-valor{border-style:solid;color:var(--text);background:var(--surface);}
+  .btn-sku:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-sku .flecha{font-size:10px;}
+  .lista-sku{position:fixed;z-index:900;display:none;background:var(--surface);border:1.5px solid var(--primary);border-radius:10px;box-shadow:0 8px 28px rgba(31,42,36,.22);overflow:hidden;}
+  .lista-sku.abierta{display:block;}
+  .lista-sku-buscar{padding:9px;border-bottom:1px solid var(--line);background:var(--surface-2);}
+  .lista-sku-buscar input{width:100%;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);}
+  .lista-sku-buscar input:focus{outline:none;border-color:var(--primary);}
+  .lista-sku-items{max-height:300px;overflow-y:auto;}
+  .lista-sku-item{padding:8px 12px;font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--line);line-height:1.35;}
+  .lista-sku-item:hover{background:var(--primary-dim);}
+  .lista-sku-item.actual{background:var(--green-bg);}
+  .lista-sku-item.quitar{color:var(--red);font-weight:600;}
+  .lista-sku-item b{font-family:'IBM Plex Mono',monospace;font-size:12px;}
+  .lista-sku-vacio{padding:12px;color:var(--muted);font-size:12.5px;}
+  .etq-equipo{display:inline-block;font-size:10px;font-weight:700;color:var(--primary);background:var(--primary-dim);border-radius:999px;padding:1px 7px;margin-left:4px;}
+  .etq-borrador{display:inline-block;font-size:10px;font-weight:700;color:var(--amber);background:var(--amber-dim);border-radius:999px;padding:1px 7px;}
+  td.producto-compat{max-width:280px;white-space:normal;font-size:12px;}
+  td.producto-compat a{color:var(--primary);text-decoration:none;}
+  td.producto-compat a:hover{text-decoration:underline;}
 
   .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;align-items:center;justify-content:center;z-index:999;cursor:zoom-out;padding:24px;}
   .lightbox.abierto{display:flex;}
@@ -301,6 +322,12 @@
     <div id="wrapTabla"><p class="empty-note">Cargando...</p></div>
   </div>
 
+</div>
+
+<div class="lista-sku" id="listaSku">
+  <div class="lista-sku-buscar"><input type="text" id="buscarSku" placeholder="🔍 Buscar por SKU o nombre de la pantalla…" autocomplete="off" oninput="renderListaSku()"
+    onkeydown="if(event.key==='Enter'){event.preventDefault();const it=document.querySelector('#listaSkuItems .lista-sku-item:not(.quitar)');if(it)elegirSkuCompatible(listaSkuModeloId,it.dataset.sku);}"></div>
+  <div class="lista-sku-items" id="listaSkuItems" onclick="const it=event.target.closest('.lista-sku-item');if(it)elegirSkuCompatible(listaSkuModeloId,it.dataset.sku);"></div>
 </div>
 
 <div class="lightbox" id="lightbox" onclick="cerrarLightbox()">
@@ -553,6 +580,130 @@ function fmtFechaCorta(fechaStr){
   return new Date(fechaStr).toLocaleDateString('es-CL', { day:'2-digit', month:'2-digit', year:'2-digit' });
 }
 
+// ---------- Producto compatible: lista desplegable "SKU — nombre" con buscador ----------
+// El catálogo sale de la tienda (?recurso=shopify-urls-sku, con caché de 30 min en el servidor) y se deja solo con las
+// pantallas de notebook y de all-in-one. Al abrir la lista aparece un buscador arriba: si el técnico ya sabe el SKU
+// (o parte del nombre) lo escribe y filtra al tiro; Enter elige el primer resultado.
+const MAX_RESULTADOS_LISTA = 80;
+const RE_PANTALLA_SKU = /^(PSLIM|PNORMAL|PTBEZEL|FDP)/i;
+const RE_PANTALLA_TEXTO = /pantalla|\d+(\.\d+)?["″]\s*\d+p\b/i;
+const RE_NO_PANTALLA_NOTEBOOK = /monitor|televisor|\btv\b|proyector|tablet|celular|smartphone|iphone|ipad|reloj|protector|l[aá]mina|mica\b|filtro de privacidad/i;
+const RE_ALL_IN_ONE = /all[\s-]?in[\s-]?one|\baio\b/i;
+let catalogoSku = {};        // SKU -> { titulo, url, status, tipo } (todo el catálogo, para resolver nombres)
+let listaPantallas = [];     // solo pantallas de notebook / all-in-one: { sku, titulo, url, equipo, borrador, busqueda }
+let catalogoEstado = 'cargando'; // cargando | ok | error
+
+function esPantallaDeEquipo(sku, p){
+  const texto = `${p.titulo || ''} ${p.tipo || ''}`;
+  if(RE_NO_PANTALLA_NOTEBOOK.test(texto)) return false;
+  return RE_PANTALLA_SKU.test(sku) || RE_PANTALLA_TEXTO.test(texto);
+}
+
+async function cargarCatalogoSku(){
+  try{
+    const data = await (await fetch('/api/negocio?recurso=shopify-urls-sku')).json();
+    if(data.error) throw new Error(data.error);
+    catalogoSku = data.urls || {};
+    listaPantallas = Object.keys(catalogoSku)
+      .filter(s => catalogoSku[s].status !== 'archived' && esPantallaDeEquipo(s, catalogoSku[s]))
+      .sort((a, b) => a.localeCompare(b))
+      .map(s => {
+        const p = catalogoSku[s];
+        return { sku: s, titulo: p.titulo || '', url: p.url, borrador: p.status !== 'active',
+          equipo: RE_ALL_IN_ONE.test(`${p.titulo || ''} ${p.tipo || ''}`) ? 'All-in-one' : 'Notebook',
+          busqueda: `${s} ${p.titulo || ''}`.toLowerCase() };
+      });
+    catalogoEstado = 'ok';
+    if(modelosCargados.length) renderTabla();
+  }catch(err){
+    catalogoEstado = 'error';
+    console.warn('No se pudo cargar el catálogo de SKU:', err.message);
+  }
+}
+
+function celdaSkuCompat(m){
+  const sku = m.skuCompatible;
+  return `<button type="button" class="btn-sku${sku ? ' con-valor' : ''}" onclick="abrirListaSku(event, ${m.id})" title="Elegir la pantalla compatible">${sku ? escapeHtml(sku) : 'Elegir SKU…'} <span class="flecha">▾</span></button>`;
+}
+
+function celdaProductoCompat(m){
+  if(!m.skuCompatible) return '<span class="empty-note">—</span>';
+  const info = catalogoSku[m.skuCompatible];
+  const nombre = escapeHtml(m.productoCompatible || (info && info.titulo) || m.skuCompatible);
+  return info && info.url ? `<a href="${escapeHtml(info.url)}" target="_blank" rel="noopener">${nombre}</a>` : nombre;
+}
+
+let listaSkuModeloId = null;
+function cerrarListaSku(){
+  const panel = $('listaSku');
+  panel.classList.remove('abierta');
+  listaSkuModeloId = null;
+}
+function abrirListaSku(ev, id){
+  ev.stopPropagation();
+  const panel = $('listaSku');
+  if(panel.classList.contains('abierta') && listaSkuModeloId === id){ cerrarListaSku(); return; }
+  listaSkuModeloId = id;
+  const r = ev.currentTarget.getBoundingClientRect();
+  const ancho = Math.min(520, window.innerWidth - 16);
+  panel.style.width = ancho + 'px';
+  panel.style.left = Math.max(8, Math.min(r.left, window.innerWidth - ancho - 8)) + 'px';
+  const abajo = window.innerHeight - r.bottom, arriba = r.top;
+  if(abajo < 320 && arriba > abajo){ panel.style.top = 'auto'; panel.style.bottom = (window.innerHeight - r.top + 4) + 'px'; }
+  else { panel.style.bottom = 'auto'; panel.style.top = (r.bottom + 4) + 'px'; }
+  panel.classList.add('abierta');
+  $('buscarSku').value = '';
+  renderListaSku();
+  $('buscarSku').focus();
+}
+
+function resultadosListaSku(){
+  const q = $('buscarSku').value.trim().toLowerCase();
+  if(!q) return listaPantallas;
+  const palabras = q.split(/\s+/);
+  const lista = listaPantallas.filter(p => palabras.every(w => p.busqueda.includes(w)));
+  // Si el técnico escribió justo un SKU, ese va primero.
+  return lista.sort((a, b) => (b.sku.toLowerCase() === q) - (a.sku.toLowerCase() === q) || (b.sku.toLowerCase().startsWith(q)) - (a.sku.toLowerCase().startsWith(q)));
+}
+function renderListaSku(){
+  const el = $('listaSkuItems');
+  if(catalogoEstado === 'cargando'){ el.innerHTML = '<div class="lista-sku-vacio">Cargando productos…</div>'; return; }
+  if(catalogoEstado === 'error'){ el.innerHTML = '<div class="lista-sku-vacio">No se pudo cargar el catálogo de la tienda. Recarga la página para reintentar.</div>'; return; }
+  const m = modelosCargados.find(x => x.id === listaSkuModeloId);
+  const res = resultadosListaSku();
+  const visibles = res.slice(0, MAX_RESULTADOS_LISTA);
+  let html = m && m.skuCompatible ? '<div class="lista-sku-item quitar" data-sku="">✕ Quitar producto compatible</div>' : '';
+  html += visibles.map(p => `<div class="lista-sku-item${m && m.skuCompatible === p.sku ? ' actual' : ''}" data-sku="${escapeHtml(p.sku)}">
+      <b>${escapeHtml(p.sku)}</b>${SEPARADOR_SKU}${escapeHtml(p.titulo)} <span class="etq-equipo">${p.equipo}</span>${p.borrador ? ' <span class="etq-borrador">borrador</span>' : ''}</div>`).join('');
+  if(!visibles.length) html += '<div class="lista-sku-vacio">No hay pantallas con ese SKU o nombre.</div>';
+  else if(res.length > visibles.length) html += `<div class="lista-sku-vacio">Hay ${res.length - visibles.length} más: sigue escribiendo para acotar.</div>`;
+  el.innerHTML = html;
+}
+const SEPARADOR_SKU = ' — ';
+
+async function elegirSkuCompatible(id, sku){
+  const m = modelosCargados.find(x => x.id === id);
+  if(!m) return;
+  cerrarListaSku();
+  if(sku === (m.skuCompatible || '')) return;
+  const producto = sku && catalogoSku[sku] ? (catalogoSku[sku].titulo || '') : '';
+  try{
+    const res = await fetch('/api/negocio?recurso=identificacion-modelos', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, sku, producto }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){ alert(data.error || 'No se pudo guardar el producto compatible.'); return; }
+    m.skuCompatible = data.modelo.skuCompatible; m.productoCompatible = data.modelo.productoCompatible;
+    m.actualizadoPor = data.modelo.actualizadoPor; m.updatedAt = data.modelo.updatedAt;
+    renderTabla();
+  }catch(err){ alert('Error: ' + err.message); }
+}
+
+document.addEventListener('click', ev => { if(!ev.target.closest('#listaSku')) cerrarListaSku(); });
+document.addEventListener('keydown', ev => { if(ev.key === 'Escape') cerrarListaSku(); });
+window.addEventListener('scroll', cerrarListaSku, true);
+window.addEventListener('resize', cerrarListaSku);
+
 function renderTabla(){
   const wrap = $('wrapTabla');
   if(modelosCargados.length === 0){
@@ -566,6 +717,8 @@ function renderTabla(){
       <td><span class="badge-nivel n${m.complejidad}">${NIVEL_LABEL[m.complejidad] || m.complejidad}</span></td>
       <td class="notas">${m.notas ? escapeHtml(m.notas) : '<span class="empty-note">—</span>'}</td>
       <td>${m.imagenBase64 ? `<img class="miniatura" src="${m.imagenBase64}" onclick="abrirLightbox('${m.imagenBase64}')">` : '<span class="empty-note">—</span>'}</td>
+      <td data-valor="${escapeHtml(m.skuCompatible || '')}">${celdaSkuCompat(m)}</td>
+      <td class="producto-compat" data-valor="${escapeHtml(m.productoCompatible || '')}">${celdaProductoCompat(m)}</td>
       <td class="quien">${escapeHtml(m.actualizadoPor || '—')}<br>${fmtFechaCorta(m.updatedAt)}</td>
       <td>
         <button type="button" class="btn-icono" title="Editar" onclick="editarModelo(${m.id})">✏️</button>
@@ -574,12 +727,13 @@ function renderTabla(){
     </tr>`).join('');
   wrap.innerHTML = `
     <div class="tabla-wrap"><table>
-      <thead><tr><th>Marca</th><th>Modelo</th><th>Nivel</th><th>Notas</th><th>Foto</th><th>Actualizado</th><th></th></tr></thead>
+      <thead><tr><th>Marca</th><th>Modelo</th><th>Nivel</th><th>Notas</th><th>Foto</th><th>SKU compatible</th><th>Producto compatible</th><th>Actualizado</th><th></th></tr></thead>
       <tbody>${filas}</tbody>
     </table></div>`;
 }
 
 cargarSesionUsuario();
+cargarCatalogoSku();
 </script>
 <script src="tablas-ordenables.js"></script>
 </body>

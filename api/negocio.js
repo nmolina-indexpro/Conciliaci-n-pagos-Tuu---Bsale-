@@ -10529,7 +10529,7 @@ async function obtenerUrlsShopify(forzar) {
   const query = `
     query($cursor: String) {
       products(first: 100, after: $cursor) {
-        edges { node { id status handle title onlineStoreUrl variants(first: 100) { edges { node { sku } } } } }
+        edges { node { id status handle title productType onlineStoreUrl variants(first: 100) { edges { node { sku } } } } }
         pageInfo { hasNextPage endCursor }
       }
     }`;
@@ -10543,7 +10543,7 @@ async function obtenerUrlsShopify(forzar) {
       const idNumerico = p.id.split('/').pop();
       for (const { node: v } of (p.variants?.edges || [])) {
         if (!v.sku) continue;
-        urls[v.sku] = { url: p.onlineStoreUrl || null, adminUrl: `https://${domain}/admin/products/${idNumerico}`, status: (p.status || '').toLowerCase(), titulo: p.title || null, handle: p.handle || null };
+        urls[v.sku] = { url: p.onlineStoreUrl || null, adminUrl: `https://${domain}/admin/products/${idNumerico}`, status: (p.status || '').toLowerCase(), titulo: p.title || null, handle: p.handle || null, tipo: p.productType || null };
       }
     }
     if (!conexion.pageInfo.hasNextPage) break;
@@ -14829,6 +14829,7 @@ function mapearModeloPantalla(r) {
   return {
     id: r.id, marca: r.marca, modelo: r.modelo, complejidad: r.complejidad,
     notas: r.notas || '', imagenBase64: r.imagen_base64 || null,
+    skuCompatible: r.sku_compatible || null, productoCompatible: r.producto_compatible || null,
     creadoPor: r.creado_por, actualizadoPor: r.actualizado_por,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
@@ -14876,6 +14877,23 @@ async function manejarIdentificacionModelos(req, res, sesion) {
       `;
       const fila = rows[0];
       return res.status(200).json({ ok: true, actualizado: !fila.insertado, modelo: mapearModeloPantalla(fila) });
+    }
+
+    // Define (o quita, con sku vacío) el producto compatible con el modelo; no toca nivel, notas ni foto.
+    if (req.method === 'PUT') {
+      const { id, sku, producto } = req.body || {};
+      const idNum = parseInt(id, 10);
+      if (!idNum) return res.status(400).json({ error: 'Falta id' });
+      const skuLimpio = String(sku || '').trim().slice(0, 80) || null;
+      const productoLimpio = skuLimpio ? (String(producto || '').trim().slice(0, 300) || null) : null;
+      const autor = sesion.nombre || sesion.email;
+      const { rows } = await sql`
+        UPDATE identificacion_modelos_pantalla
+        SET sku_compatible = ${skuLimpio}, producto_compatible = ${productoLimpio}, actualizado_por = ${autor}, updated_at = now()
+        WHERE id = ${idNum} RETURNING *;
+      `;
+      if (!rows.length) return res.status(404).json({ error: 'No existe ese modelo' });
+      return res.status(200).json({ ok: true, modelo: mapearModeloPantalla(rows[0]) });
     }
 
     if (req.method === 'DELETE') {
