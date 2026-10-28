@@ -72,6 +72,14 @@
   tr.fila-critica td{background:var(--red-bg);}
   .crit-lbl{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--red);cursor:pointer;white-space:nowrap;} .crit-lbl input{width:16px;height:16px;cursor:pointer;accent-color:var(--red);}
   .crit-sug{margin-top:5px;font-size:11.5px;color:var(--text);white-space:nowrap;} .crit-sug input{width:62px;border:1.5px solid var(--red);border-radius:7px;padding:4px 6px;font-size:12px;text-align:right;font-family:'IBM Plex Mono',monospace;background:var(--surface);}
+  .en-camino{margin-top:5px;font-size:11.5px;font-weight:700;color:#1d4ed8;background:#E4ECFD;border-radius:7px;padding:3px 7px;white-space:nowrap;}
+  .en-camino.atrasado{color:#b45309;background:var(--amber-dim);}
+  tr.fila-en-camino td{background:#EEF4FF;}
+  .comp-lbl{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--primary);cursor:pointer;white-space:nowrap;} .comp-lbl input{width:16px;height:16px;cursor:pointer;accent-color:var(--primary);}
+  .comp-fecha{margin-top:5px;font-size:11.5px;color:var(--text);white-space:nowrap;} .comp-fecha input{border:1.5px solid var(--line);border-radius:7px;padding:3px 5px;font-size:12px;font-family:'IBM Plex Mono',monospace;background:var(--surface);color:var(--text);}
+  .comp-quien{margin-top:3px;font-size:10.5px;color:var(--muted);}
+  .banner-aviso{margin-top:12px;padding:10px 14px;border-radius:10px;font-size:12.5px;background:var(--amber-dim);color:#7a4a05;line-height:1.5;} .banner-aviso.ok{background:var(--green-bg);color:var(--green);font-weight:600;}
+  .btn-ghost-mini{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;border:1.5px solid currentColor;background:transparent;color:inherit;border-radius:7px;padding:3px 10px;cursor:pointer;margin-left:6px;}
   .btn-basura:hover{border-color:var(--red);background:var(--red-bg);}
   th.ordenable{cursor:pointer;user-select:none;}
   th.ordenable:hover{color:var(--primary);}
@@ -292,6 +300,7 @@
     <div class="toolbar-extra">
       <input type="text" id="buscarInsumoInput" placeholder="Buscar insumo o SKU..." oninput="renderInsumos()">
     </div>
+    <div id="bannerAvisoInsumos"></div>
     <div id="wrapInsumos"><p class="empty-note">Presiona "Actualizar" para traer el stock desde Bsale.</p></div>
     <div id="statusInsumos" style="font-size:12px;color:var(--muted);margin-top:10px;"></div>
   </div>
@@ -362,6 +371,7 @@ async function cargarInsumos(){
     const data = res;
     linkCompraPorSku = resLinks.linkPorSku || {};
     configInsumos = resConfig.config || {};
+    pintarAvisoPendiente(resConfig); iniciarEstadoInsumos();
     const eliminadosInsumos = new Set(resConfig.eliminados || []);
     if(data.error){
       $('statusInsumos').textContent = 'Error: ' + (data.detail || data.error);
@@ -473,7 +483,9 @@ async function eliminarInsumo(sku){
   }catch(err){ alert('Error: ' + err.message); }
 }
 
-// ---------- Stock crítico: lo marca quien usa el insumo y sugiere cuántas unidades comprar; al marcarlo sale un aviso por correo ----------
+// ---------- Stock crítico: lo marca quien usa el insumo y sugiere cuántas unidades comprar ----------
+// El aviso por correo a compras es UNO solo: se junta todo lo que se marca y sale cuando pasan unos minutos sin cambios nuevos (o con "Enviar ahora").
+// Compra: quien compra marca "Comprado" con la fecha estimada de llegada y el técnico ve que viene en camino.
 const contextoInsumo = sku => { const s = insumosActuales.find(x => x.code === sku) || {}; return { nombre: s.nombre || sku, stock: s.stockActual ?? 0, ultimaFecha: s.fechaUltimaCompra || null, proveedor: s.proveedor || null }; };
 async function putCritico(sku, cuerpo){
   const res = await fetch('/api/negocio?recurso=insumos-st', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku, contexto: contextoInsumo(sku), ...cuerpo }) });
@@ -483,31 +495,33 @@ async function putCritico(sku, cuerpo){
 }
 function textoAviso(aviso){
   if(!aviso) return '';
-  if(aviso.enviado) return ' Se avisó por correo a ' + aviso.enviados + (aviso.enviados === 1 ? ' persona.' : ' personas.');
-  return ' ⚠ No se pudo enviar el correo' + (aviso.motivo ? ' (' + aviso.motivo + ')' : '') + ': avisa por otro medio.';
+  if(aviso.agrupado) return ' Compras recibirá un solo correo con todo lo que marques (sale a los ' + aviso.esperaMin + ' min sin cambios).';
+  return '';
 }
+const fmtFechaIso = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); return m ? m[3] + '-' + m[2] + '-' + m[1] : '—'; };
+const hoyIso = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
 async function marcarCritico(sku, chk){
   const nombre = contextoInsumo(sku).nombre;
   if(chk.checked){
     const previa = (configInsumos[sku] || {}).sugerencia || '';
-    const txt = prompt('STOCK CRÍTICO: ' + nombre + '\n\n¿Cuántas unidades recomiendas comprar?\n\nAl aceptar se envía un aviso de compra por correo (con el link de compra).', previa);
+    const txt = prompt('STOCK CRÍTICO: ' + nombre + '\n\n¿Cuántas unidades recomiendas comprar?\n\nCompras recibirá UN solo correo con todo lo que marques (con el link de compra de cada insumo).', previa);
     if(txt === null){ chk.checked = false; return; }
     const n = Number(String(txt).trim());
     if(!Number.isInteger(n) || n < 1){ alert('Escribe un número entero de 1 en adelante.'); chk.checked = false; return; }
     try{
       const d = await putCritico(sku, { critico: true, sugerencia: n });
-      configInsumos[sku] = { ...(configInsumos[sku] || {}), critico: true, sugerencia: n, criticoPor: d.por };
+      configInsumos[sku] = { ...(configInsumos[sku] || {}), critico: true, sugerencia: n, criticoPor: d.por, comprado: false, llegada: null };
       avisoInsumo(sku + ': stock crítico, sugieres comprar ' + n + '.' + textoAviso(d.aviso));
     }catch(err){ avisoInsumo('No se pudo guardar: ' + err.message); chk.checked = false; }
-    renderInsumos();
+    renderInsumos(); refrescarEstadoInsumos();
   }else{
-    if(!confirm('¿Ya se repuso "' + nombre + '"? Se quita la marca de stock crítico y la sugerencia de compra.')){ chk.checked = true; return; }
+    if(!confirm('¿Ya se repuso "' + nombre + '"? Se quita la marca de stock crítico, la sugerencia de compra y la información de compra.')){ chk.checked = true; return; }
     try{
       await putCritico(sku, { critico: false });
-      configInsumos[sku] = { ...(configInsumos[sku] || {}), critico: false, sugerencia: null };
+      configInsumos[sku] = { ...(configInsumos[sku] || {}), critico: false, sugerencia: null, comprado: false, llegada: null };
       avisoInsumo(sku + ': ya no está en stock crítico.');
     }catch(err){ avisoInsumo('No se pudo guardar: ' + err.message); chk.checked = true; }
-    renderInsumos();
+    renderInsumos(); refrescarEstadoInsumos();
   }
 }
 async function cambiarSugerencia(sku, input){
@@ -515,17 +529,129 @@ async function cambiarSugerencia(sku, input){
   const previa = (configInsumos[sku] || {}).sugerencia;
   if(!Number.isInteger(n) || n < 1){ alert('Escribe un número entero de 1 en adelante.'); input.value = previa || ''; return; }
   if(n === previa) return;
+  if((configInsumos[sku] || {}).comprado && !confirm('Este insumo ya figura como comprado. Si cambias la cantidad, vuelve a "por comprar" y se avisa a compras. ¿Continuar?')){ input.value = previa || ''; return; }
   try{
     const d = await putCritico(sku, { sugerencia: n });
-    configInsumos[sku] = { ...(configInsumos[sku] || {}), sugerencia: n };
+    configInsumos[sku] = { ...(configInsumos[sku] || {}), sugerencia: n, comprado: false, llegada: null };
     avisoInsumo(sku + ': sugerencia actualizada a ' + n + '.' + textoAviso(d.aviso));
+    renderInsumos(); refrescarEstadoInsumos();
   }catch(err){ avisoInsumo('No se pudo guardar: ' + err.message); input.value = previa || ''; }
+}
+// Estado de la compra que ve el técnico dentro de la celda de stock crítico
+function textoEnCamino(c){
+  if(!c.comprado) return '';
+  const atrasado = c.llegada && c.llegada < hoyIso();
+  return '<div class="en-camino' + (atrasado ? ' atrasado' : '') + '" title="' + escapeHtml('Lo compró ' + (c.compradoPor || 'compras')) + '">' + (atrasado ? '⏰ Atrasado: debía llegar el ' : '🚚 Comprado · en camino · llega el ') + fmtFechaIso(c.llegada) + '</div>';
 }
 function celdaCritico(sku){
   const c = configInsumos[sku] || {}, crit = !!c.critico;
-  const pie = crit && c.criticoPor ? 'Lo marcó ' + c.criticoPor + (c.criticoEn ? ' · ' + new Date(c.criticoEn).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '') : 'Márcalo cuando quede poco: avisa por correo para comprar';
+  const pie = crit && c.criticoPor ? 'Lo marcó ' + c.criticoPor + (c.criticoEn ? ' · ' + new Date(c.criticoEn).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '') : 'Márcalo cuando quede poco: compras recibe un aviso por correo';
   return '<label class="crit-lbl" title="' + escapeHtml(pie) + '"><input type="checkbox" ' + (crit ? 'checked' : '') + ' onchange="marcarCritico(\'' + escapeHtml(sku) + '\', this)"> ⚠ Crítico</label>' +
-    (crit ? '<div class="crit-sug">Comprar <input type="number" min="1" step="1" value="' + (c.sugerencia ?? '') + '" onchange="cambiarSugerencia(\'' + escapeHtml(sku) + '\', this)" title="Unidades que recomiendas comprar"> un.</div>' : '');
+    (crit ? '<div class="crit-sug">Comprar <input type="number" min="1" step="1" value="' + (c.sugerencia ?? '') + '" onchange="cambiarSugerencia(\'' + escapeHtml(sku) + '\', this)" title="Unidades que recomiendas comprar"> un.</div>' + textoEnCamino(c) : '');
+}
+// Columna Compra: quien compra marca "Comprado" y la fecha estimada de llegada
+async function putCompra(sku, cuerpo){
+  const res = await fetch('/api/negocio?recurso=insumos-st', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku, ...cuerpo }) });
+  const d = await res.json();
+  if(!res.ok || d.error) throw new Error(d.error || 'No se pudo guardar');
+  return d;
+}
+function guardarCompraLocal(sku, d){
+  configInsumos[sku] = { ...(configInsumos[sku] || {}), comprado: !!d.comprado, llegada: d.llegada || null, compradoPor: d.comprado ? d.por : null };
+  renderInsumos(); refrescarEstadoInsumos();
+}
+async function marcarComprado(sku, chk){
+  const fecha = (chk.closest('td').querySelector('input[type="date"]') || {}).value || '';
+  if(chk.checked){
+    if(!fecha){
+      chk.checked = false;
+      const f = chk.closest('td').querySelector('input[type="date"]');
+      avisoInsumo('Indica primero la fecha estimada de llegada y luego marca "Comprado".');
+      if(f){ f.focus(); try{ f.showPicker(); }catch(e){} }
+      return;
+    }
+    try{ guardarCompraLocal(sku, await putCompra(sku, { comprado: true, llegada: fecha })); avisoInsumo(sku + ': comprado, llega el ' + fmtFechaIso(fecha) + '. El técnico ya lo ve en camino.'); }
+    catch(err){ avisoInsumo('No se pudo guardar: ' + err.message); chk.checked = false; }
+  }else{
+    if(!confirm('¿Quitar la marca de comprado de "' + contextoInsumo(sku).nombre + '"? Se borra la fecha de llegada.')){ chk.checked = true; return; }
+    try{ guardarCompraLocal(sku, await putCompra(sku, { comprado: false })); avisoInsumo(sku + ': ya no figura como comprado.'); }
+    catch(err){ avisoInsumo('No se pudo guardar: ' + err.message); chk.checked = true; }
+  }
+}
+async function cambiarLlegada(sku, input){
+  const c = configInsumos[sku] || {};
+  if(!input.value){
+    if(c.comprado){ input.value = c.llegada || ''; avisoInsumo('Para quitar la fecha, desmarca "Comprado".'); }
+    return;
+  }
+  try{
+    if(!c.comprado){
+      if(!confirm('¿Marcar "' + contextoInsumo(sku).nombre + '" como comprado, con llegada estimada el ' + fmtFechaIso(input.value) + '?\n\nEl técnico lo verá como "en camino".')){ input.value = ''; return; }
+      guardarCompraLocal(sku, await putCompra(sku, { comprado: true, llegada: input.value }));
+      avisoInsumo(sku + ': comprado, llega el ' + fmtFechaIso(input.value) + '. El técnico ya lo ve en camino.');
+    }else{
+      guardarCompraLocal(sku, await putCompra(sku, { llegada: input.value }));
+      avisoInsumo(sku + ': nueva fecha de llegada ' + fmtFechaIso(input.value) + '.');
+    }
+  }catch(err){ avisoInsumo('No se pudo guardar: ' + err.message); input.value = c.llegada || ''; }
+}
+function celdaCompra(sku){
+  const c = configInsumos[sku] || {};
+  if(!c.critico) return '<span class="empty-note" title="Solo los insumos en stock crítico tienen compra">—</span>';
+  const s = escapeHtml(sku);
+  return '<label class="comp-lbl"><input type="checkbox" ' + (c.comprado ? 'checked' : '') + ' onchange="marcarComprado(\'' + s + '\', this)"> 📦 Comprado</label>' +
+    '<div class="comp-fecha">Llega <input type="date" value="' + escapeHtml(c.llegada || '') + '" onchange="cambiarLlegada(\'' + s + '\', this)" title="Fecha estimada de llegada"></div>' +
+    (c.comprado && c.compradoPor ? '<div class="comp-quien">Lo compró ' + escapeHtml(c.compradoPor) + '</div>' : '');
+}
+
+// ---------- Aviso agrupado a compras: estado y "Enviar ahora" ----------
+// Mientras la página está abierta consulta cada minuto: de paso el servidor manda el aviso cuando ya pasó la espera, y se ven los cambios de otras personas (compras, técnico).
+let temporizadorEstadoInsumos = null;
+const horaCorta = iso => new Date(iso).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' });
+function pintarAvisoPendiente(d){
+  const el = $('bannerAvisoInsumos');
+  if(!el) return;
+  if(d && d.avisoEnviado){
+    el.innerHTML = '<div class="banner-aviso ok">✓ Se envió a compras el aviso de ' + d.avisoEnviado.insumos + (d.avisoEnviado.insumos === 1 ? ' insumo' : ' insumos') + ' en stock crítico.</div>';
+    clearTimeout(el._t); el._t = setTimeout(() => { el.innerHTML = ''; }, 20000);
+    return;
+  }
+  if(d && d.pendiente){
+    const p = d.pendiente;
+    el.innerHTML = '<div class="banner-aviso">⏳ <b>' + p.cantidad + (p.cantidad === 1 ? ' insumo' : ' insumos') + ' en stock crítico sin avisar a compras.</b> Se enviará UN solo correo' +
+      (p.enviaEn ? ' a eso de las <b>' + horaCorta(p.enviaEn) + '</b> si no marcas nada más' : '') + '. <button type="button" class="btn-ghost-mini" onclick="enviarAvisoAhora(this)">Enviar ahora</button></div>';
+    return;
+  }
+  if(!(el.firstChild && el.firstChild.classList.contains('ok'))) el.innerHTML = '';
+}
+async function enviarAvisoAhora(btn){
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/negocio?recurso=insumos-st-avisar', { method: 'POST' });
+    const d = await res.json();
+    if(!res.ok || d.error) throw new Error(d.error || 'No se pudo enviar');
+    if(d.enviado) pintarAvisoPendiente({ avisoEnviado: { insumos: d.insumos } });
+    else { avisoInsumo(d.pendientes ? 'No se pudo enviar el correo: se reintentará.' : 'No había nada pendiente de avisar.'); refrescarEstadoInsumos(); }
+  }catch(err){ avisoInsumo('No se pudo enviar el aviso: ' + err.message); btn.disabled = false; }
+}
+async function refrescarEstadoInsumos(){
+  try{
+    const d = await (await fetch('/api/negocio?recurso=insumos-st')).json();
+    if(d.error || !d.config) return;
+    const estado = c => [!!c.critico, c.sugerencia ?? null, !!c.comprado, c.llegada || null].join('|');
+    let cambio = false;
+    for(const sku of new Set([...Object.keys(configInsumos), ...Object.keys(d.config)])){
+      const antes = configInsumos[sku] || {}, nuevo = d.config[sku] || {};
+      if(estado(antes) !== estado(nuevo)){ cambio = true; configInsumos[sku] = { ...antes, ...nuevo }; }
+    }
+    const escribiendo = document.activeElement && $('wrapInsumos').contains(document.activeElement) && /input|select|textarea/i.test(document.activeElement.tagName);
+    if(cambio && !escribiendo) renderInsumos();
+    pintarAvisoPendiente(d);
+  }catch(e){ /* sin conexión: se reintenta en un minuto */ }
+}
+function iniciarEstadoInsumos(){
+  clearInterval(temporizadorEstadoInsumos);
+  temporizadorEstadoInsumos = setInterval(refrescarEstadoInsumos, 60000);
 }
 
 function selectRelevancia(sku){
@@ -569,9 +695,9 @@ function renderInsumos(){
     const linkHtml = esLinkValido
       ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">🔗 Comprar</a>`
       : (link ? `<span class="empty-note" title="${escapeHtml(link)}">${escapeHtml(link)}</span>` : '<span class="empty-note">Sin link</span>');
-    const critico = !!(configInsumos[s.code] || {}).critico;
+    const cfgS = configInsumos[s.code] || {}, critico = !!cfgS.critico;
     return `
-    <tr class="${critico ? 'fila-critica' : ''}">
+    <tr class="${critico ? (cfgS.comprado ? 'fila-en-camino' : 'fila-critica') : ''}">
       <td class="servicio">${escapeHtml(s.nombre)}<br><span class="sku-code">SKU: ${escapeHtml(s.code)}</span></td>
       <td class="mes">${selectRelevancia(s.code)}</td>
       <td class="mes amount">${fmtNum(s.stockActual)}</td>
@@ -580,6 +706,7 @@ function renderInsumos(){
       <td class="mes amount">${s.proveedor ? escapeHtml(s.proveedor) : '—'}</td>
       <td class="mes amount">${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkInsumo('${escapeHtml(s.code)}')">✏️</button></td>
       <td class="mes">${celdaCritico(s.code)}</td>
+      <td class="mes">${celdaCompra(s.code)}</td>
       <td class="mes">${inputComentario(s.code)}</td>
       <td class="mes"><button class="btn-icono btn-basura" title="Eliminar este insumo de la lista (definitivo)" onclick="eliminarInsumo('${escapeHtml(s.code)}')">🗑️</button></td>
     </tr>`;
@@ -594,7 +721,8 @@ function renderInsumos(){
         ${th('ultimoCosto', 'Último costo de ingreso')}
         ${th('proveedor', 'Proveedor')}
         <th>Link de compra</th>
-        <th title="Lo marca quien usa el insumo: avisa por correo para comprar">Stock crítico</th>
+        <th title="Lo marca quien usa el insumo y sugiere cuántas unidades comprar; compras recibe un solo correo con todo lo marcado">Stock crítico</th>
+        <th title="Lo marca quien compra: Comprado + fecha estimada de llegada. El técnico lo ve en camino">Compra</th>
         <th>Comentario</th>
         <th title="Eliminar de la lista (definitivo)"></th>
       </tr></thead>

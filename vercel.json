@@ -123,6 +123,14 @@
       "schedule": "0 13 * * 1"
     },
     {
+      "path": "/api/negocio?recurso=insumos-st-avisar-cron",
+      "schedule": "0 15 * * 1-6"
+    },
+    {
+      "path": "/api/negocio?recurso=insumos-st-avisar-cron",
+      "schedule": "0 21 * * 1-6"
+    },
+    {
       "path": "/api/negocio?recurso=google-ads-resumen-semanal",
       "schedule": "0 13 * * 0"
     }

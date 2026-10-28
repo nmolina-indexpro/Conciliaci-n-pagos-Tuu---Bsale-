@@ -23,7 +23,7 @@ import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
 import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidirAvisos, armarCorreoTraspasoStock } from '../lib/traspaso-stock.js';
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
-import { armarCorreoInsumoCritico } from '../lib/correo-insumo.js';
+import { armarCorreoInsumosCriticos } from '../lib/correo-insumo.js';
 import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadores.js';
 import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGORIAS as CATEGORIAS_CONTABILIDAD, CATEGORIA_IDS as CATEGORIA_IDS_CONTABILIDAD, categoriaEfectiva, resumir as resumirContabilidad, analizarContabilidad } from '../lib/contabilidad.js';
 import { asegurarTablaContabilidad, asegurarTablaInsumosSt } from '../lib/db.js';
@@ -154,6 +154,8 @@ export default async function handler(req, res) {
   // Cron semanal (lunes) del recordatorio de propuestas de Modelos compatibles sin aprobar. Ver vercel.json, middleware.ts
   // (esModelosCompatiblesRecordatorioPublico) y lib/compat-recordatorio.js.
   if (req.query.recurso === 'modelos-compatibles-recordatorio') return manejarModelosCompatiblesRecordatorio(req, res);
+  // Cron diario de respaldo del aviso agrupado de insumos en stock crítico (ver enviarAvisoInsumosPendientes y middleware.ts).
+  if (req.query.recurso === 'insumos-st-avisar-cron') return manejarInsumosStAvisarCron(req, res);
   // Buscador con IA (Worker): búsqueda libre en el metacampo "modelos compatibles" (clave x-api-key) y su cron diario que arma el índice (CRON_SECRET).
   if (req.query.recurso === 'buscador-ia-modelos') return manejarBuscadorIaModelos(req, res);
   if (req.query.recurso === 'modelos-meta-indice-cron') return manejarModelosMetaIndiceCron(req, res);
@@ -293,6 +295,7 @@ export default async function handler(req, res) {
   if (recurso === 'sync-servicios-tecnico') return manejarSyncServiciosTecnico(req, res, sesion);
   if (recurso === 'link-compra') return manejarLinkCompra(req, res, sesion);
   if (recurso === 'insumos-st') return manejarInsumosSt(req, res, sesion);
+  if (recurso === 'insumos-st-avisar') return manejarInsumosStAvisar(req, res, sesion);
   if (recurso === 'compras-dm-excluidos') return manejarComprasDMExcluidos(req, res, sesion);
   if (recurso === 'compras-proveedor-asignado') return manejarComprasProveedorAsignado(req, res, sesion);
   if (recurso === 'recomendacion-compra-excluidos') return manejarRecomendacionCompraExcluidos(req, res, sesion);
@@ -3960,48 +3963,99 @@ async function permisoPaginaErp(sql, sesion, pagina) {
     return !Array.isArray(paginas) || paginas.includes(pagina);
   } catch { return false; }
 }
-// Aviso por correo (notificación 'insumos-stock-critico', se administra en Usuarios > Notificaciones): un insumo quedó en stock crítico. Nunca hace fallar el guardado.
-async function avisarInsumoCritico(sql, { sku, contexto, sugerencia, por, actualizacion }) {
+// Aviso por correo (notificación 'insumos-stock-critico', se administra en Usuarios > Notificaciones): insumos de Servicio Técnico en stock crítico.
+// Los avisos se AGRUPAN: cada vez que el técnico marca un insumo (o cambia la cantidad sugerida) queda "pendiente", y compras recibe UN solo correo con todos
+// los pendientes cuando pasan ESPERA_AVISO_INSUMOS_MIN minutos sin cambios nuevos (o, como tope, TOPE_AVISO_INSUMOS_MIN minutos desde el primero).
+// Vercel no tiene tareas de fondo en el plan Hobby (los crons son diarios), así que quien dispara el envío es: la propia página de insumos (revisa cada
+// par de minutos mientras está abierta), el botón "Enviar aviso ahora" y un cron diario de respaldo (insumos-st-avisar-cron). Nunca hace fallar el guardado.
+const ESPERA_AVISO_INSUMOS_MIN = 15;
+const TOPE_AVISO_INSUMOS_MIN = 60;
+async function enviarAvisoInsumosPendientes(sql, { forzar = false } = {}) {
   try {
+    const { rows: pend } = await sql`SELECT sku, aviso_pendiente_primero_en AS primero, aviso_pendiente_en AS ultimo FROM insumos_st_config
+      WHERE aviso_pendiente AND stock_critico AND NOT eliminado AND NOT comprado;`;
+    if (!pend.length) return { enviado: false, pendientes: 0 };
+    const ultimo = Math.max(...pend.map((r) => new Date(r.ultimo || r.primero).getTime()));
+    const primero = Math.min(...pend.map((r) => new Date(r.primero || r.ultimo).getTime()));
+    const enviaEn = Math.min(ultimo + ESPERA_AVISO_INSUMOS_MIN * 60000, primero + TOPE_AVISO_INSUMOS_MIN * 60000);
+    if (!forzar && Date.now() < enviaEn) return { enviado: false, pendientes: pend.length, enviaEn: new Date(enviaEn).toISOString() };
+
     await asegurarTablaNotificaciones(sql);
-    if (!(await notificacionDebeEnviarse(sql, 'insumos-stock-critico'))) return { enviado: false, motivo: 'notificación inactiva' };
+    // Se "reclaman" todos los pendientes de una vez: si otra petición llega al mismo tiempo, no encuentra nada y no manda un segundo correo.
+    const { rows: reclamados } = await sql`UPDATE insumos_st_config SET aviso_pendiente = false WHERE aviso_pendiente
+      RETURNING sku, aviso_actualizacion, aviso_contexto, aviso_pendiente_primero_en, sugerencia_compra, critico_por, relevancia, comentario, stock_critico, eliminado, comprado;`;
+    const validos = reclamados.filter((r) => r.stock_critico && !r.eliminado && !r.comprado && r.sugerencia_compra)
+      .sort((a, b) => new Date(a.aviso_pendiente_primero_en || 0) - new Date(b.aviso_pendiente_primero_en || 0));
+    if (!validos.length) return { enviado: false, pendientes: 0 };
+    const restaurar = async () => { for (const r of validos) await sql`UPDATE insumos_st_config SET aviso_pendiente = true WHERE sku = ${r.sku};`; };
+
+    if (!(await notificacionDebeEnviarse(sql, 'insumos-stock-critico'))) return { enviado: false, pendientes: 0, motivo: 'notificación inactiva' };
     const destinatarios = await obtenerSuscriptoresEmail(sql, 'insumos-stock-critico');
     await asegurarTablaComentariosLog(sql);
-    const { rows: cfg } = await sql`SELECT relevancia, comentario FROM insumos_st_config WHERE sku = ${sku};`;
-    const { rows: lk } = await sql`SELECT comentario FROM comentarios_log WHERE contexto = 'insumos_sku' AND entidad_id = ${sku} ORDER BY id DESC LIMIT 1;`;
-    const c = contexto && typeof contexto === 'object' ? contexto : {};
-    const insumo = { sku, nombre: String(c.nombre || sku).slice(0, 200), stock: Number(c.stock) || 0, ultimaFecha: c.ultimaFecha ? String(c.ultimaFecha).slice(0, 10) : null, proveedor: c.proveedor ? String(c.proveedor).slice(0, 120) : null,
-      relevancia: cfg[0] ? cfg[0].relevancia : null, comentario: cfg[0] ? cfg[0].comentario : null };
-    const { asunto, html } = armarCorreoInsumoCritico({ insumo, sugerencia, link: lk[0] ? lk[0].comentario : null, por, actualizacion, urlBase: URL_BASE_APP });
+    const { rows: lks } = await sql`SELECT DISTINCT ON (entidad_id) entidad_id, comentario FROM comentarios_log WHERE contexto = 'insumos_sku' ORDER BY entidad_id, id DESC;`;
+    const linkPorSku = new Map(lks.map((l) => [l.entidad_id, l.comentario]));
+    const items = validos.map((r) => {
+      const c = r.aviso_contexto && typeof r.aviso_contexto === 'object' ? r.aviso_contexto : {};
+      return { sku: r.sku, nombre: String(c.nombre || r.sku).slice(0, 200), stock: Number(c.stock) || 0, ultimaFecha: c.ultimaFecha || null, proveedor: c.proveedor || null,
+        relevancia: r.relevancia, comentario: r.comentario, sugerencia: r.sugerencia_compra, link: linkPorSku.get(r.sku) || null, por: c.por || r.critico_por, actualizacion: !!r.aviso_actualizacion };
+    });
+    const { asunto, html } = armarCorreoInsumosCriticos({ items, urlBase: URL_BASE_APP });
     let enviados = 0; const errores = [];
     for (const para of destinatarios) {
       const r = await enviarCorreo({ para, asunto, html });
       if (r && r.enviado) enviados++; else errores.push(String((r && r.motivo) || 'sin motivo').slice(0, 200));
     }
-    if (enviados > 0) {
-      await marcarNotificacionEnviada(sql, 'insumos-stock-critico', { asunto, html });
-      await sql`UPDATE insumos_st_config SET critico_avisado_en = now() WHERE sku = ${sku};`;
-    }
-    return { enviado: enviados > 0, enviados, errores };
+    if (enviados === 0) { await restaurar(); return { enviado: false, pendientes: validos.length, errores }; }
+    await marcarNotificacionEnviada(sql, 'insumos-stock-critico', { asunto, html });
+    for (const r of validos) await sql`UPDATE insumos_st_config SET critico_avisado_en = now(), aviso_actualizacion = false WHERE sku = ${r.sku};`;
+    return { enviado: true, insumos: validos.length, enviados, errores };
   } catch (e) {
     return { enviado: false, motivo: String(e.message || e).slice(0, 200) };
   }
 }
+// Cron diario de respaldo (por si nadie tiene abierta la página): manda lo pendiente si ya pasó la espera. Mismo patrón de CRON_SECRET que los demás crons.
+async function manejarInsumosStAvisarCron(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaInsumosSt(sql);
+    return res.status(200).json({ ok: true, ...(await enviarAvisoInsumosPendientes(sql)) });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo revisar el aviso de insumos', detail: String(e.message || e).slice(0, 200) });
+  }
+}
+// Botón "Enviar aviso ahora" de la página: manda ya, sin esperar los minutos de agrupación.
+async function manejarInsumosStAvisar(req, res, sesion) {
+  try {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const sql = await getSql();
+    await asegurarTablaInsumosSt(sql);
+    if (!(await permisoPaginaErp(sql, sesion, 'insumos-servicio-tecnico.html'))) return res.status(403).json({ error: 'Tu perfil no tiene acceso a Insumos de Servicio Técnico' });
+    return res.status(200).json({ ok: true, ...(await enviarAvisoInsumosPendientes(sql, { forzar: true })) });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo enviar el aviso', detail: String(e.message || e).slice(0, 200) });
+  }
+}
 
-// "Enviar prueba" de Usuarios > Notificaciones: manda a quien lo pidió un aviso de ejemplo (o del último insumo marcado como crítico).
+// "Enviar prueba" de Usuarios > Notificaciones: manda a quien lo pidió el correo agrupado con los insumos críticos de hoy (o un ejemplo si no hay ninguno).
 async function manejarInsumoCriticoPrueba(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
   if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
   try {
     const sql = await getSql();
     await asegurarTablaInsumosSt(sql); await asegurarTablaComentariosLog(sql);
-    const { rows } = await sql`SELECT sku, relevancia, comentario, sugerencia_compra, critico_por FROM insumos_st_config WHERE stock_critico AND NOT eliminado ORDER BY critico_en DESC NULLS LAST LIMIT 1;`;
-    const r0 = rows[0];
-    const lk = r0 ? (await sql`SELECT comentario FROM comentarios_log WHERE contexto = 'insumos_sku' AND entidad_id = ${r0.sku} ORDER BY id DESC LIMIT 1;`).rows[0] : null;
-    const datosCorreo = r0
-      ? { insumo: { sku: r0.sku, nombre: r0.sku, stock: 0, relevancia: r0.relevancia, comentario: r0.comentario }, sugerencia: r0.sugerencia_compra, link: lk ? lk.comentario : null, por: r0.critico_por, ejemplo: false }
-      : { insumo: { sku: 'INS-EJ', nombre: 'PASTA TERMICA TIPO MASILLA 10G', stock: 0, ultimaFecha: '2026-09-04', proveedor: 'Compra de Aliexpress', relevancia: 'diario', comentario: 'Se acaba cada semana' }, sugerencia: 10, link: 'https://es.aliexpress.com/', por: 'Servicio Técnico', ejemplo: true };
-    const { asunto, html } = armarCorreoInsumoCritico({ ...datosCorreo, urlBase: URL_BASE_APP });
+    const { rows } = await sql`SELECT sku, relevancia, comentario, sugerencia_compra, critico_por, aviso_contexto FROM insumos_st_config WHERE stock_critico AND NOT eliminado AND NOT comprado AND sugerencia_compra IS NOT NULL ORDER BY critico_en DESC NULLS LAST LIMIT 15;`;
+    const { rows: lks } = await sql`SELECT DISTINCT ON (entidad_id) entidad_id, comentario FROM comentarios_log WHERE contexto = 'insumos_sku' ORDER BY entidad_id, id DESC;`;
+    const linkPorSku = new Map(lks.map((l) => [l.entidad_id, l.comentario]));
+    const reales = rows.map((r) => { const c = r.aviso_contexto && typeof r.aviso_contexto === 'object' ? r.aviso_contexto : {};
+      return { sku: r.sku, nombre: c.nombre || r.sku, stock: Number(c.stock) || 0, relevancia: r.relevancia, comentario: r.comentario, sugerencia: r.sugerencia_compra, link: linkPorSku.get(r.sku) || null, por: c.por || r.critico_por, actualizacion: false }; });
+    const items = reales.length ? reales : [
+      { sku: 'INS-EJ1', nombre: 'PASTA TERMICA TIPO MASILLA 10G', stock: 0, relevancia: 'diario', comentario: 'Se acaba cada semana', sugerencia: 10, link: 'https://es.aliexpress.com/', por: 'Servicio Técnico', actualizacion: false },
+      { sku: 'INS-EJ2', nombre: 'ALCOHOL ISOPROPILICO 1L', stock: 2, relevancia: 'ocasional', comentario: null, sugerencia: 3, link: null, por: 'Servicio Técnico', actualizacion: false },
+      { sku: 'INS-EJ3', nombre: 'CINTA DOBLE CONTACTO 2MM', stock: 0, relevancia: 'diario', comentario: null, sugerencia: 25, link: 'https://example.com/cinta', por: 'Servicio Técnico', actualizacion: true },
+    ];
+    const { asunto, html } = armarCorreoInsumosCriticos({ items, urlBase: URL_BASE_APP, ejemplo: !reales.length });
     const r = await enviarCorreo({ para: String(req.query.para || ''), asunto: '[PRUEBA] ' + asunto, html });
     return res.status(200).json({ ok: true, enviado: !!(r && r.enviado), motivo: r && r.motivo });
   } catch (e) {
@@ -4009,6 +4063,12 @@ async function manejarInsumoCriticoPrueba(req, res) {
   }
 }
 
+function fechaLlegadaInsumoValida(s) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) return false;
+  return d.getTime() > Date.now() - 90 * 86400000 && d.getTime() < Date.now() + 400 * 86400000;
+}
 async function manejarInsumosSt(req, res, sesion) {
   try {
     const sql = await getSql();
@@ -4016,10 +4076,17 @@ async function manejarInsumosSt(req, res, sesion) {
     if (!(await permisoPaginaErp(sql, sesion, 'insumos-servicio-tecnico.html'))) return res.status(403).json({ error: 'Tu perfil no tiene acceso a Insumos de Servicio Técnico' });
     const quien = sesion.nombre || sesion.email;
     if (req.method === 'GET') {
-      const { rows } = await sql`SELECT sku, relevancia, comentario, eliminado, actualizado_por, actualizado_en, stock_critico, sugerencia_compra, critico_por, critico_en FROM insumos_st_config;`;
+      // La página consulta esto cada par de minutos: de paso se revisa si ya toca mandar el aviso agrupado a compras.
+      const envio = await enviarAvisoInsumosPendientes(sql);
+      const { rows } = await sql`SELECT sku, relevancia, comentario, eliminado, actualizado_por, actualizado_en, stock_critico, sugerencia_compra, critico_por, critico_en,
+        comprado, to_char(llegada_estimada, 'YYYY-MM-DD') AS llegada, comprado_por, comprado_en FROM insumos_st_config;`;
       return res.status(200).json({
-        config: Object.fromEntries(rows.filter((r) => !r.eliminado).map((r) => [r.sku, { relevancia: r.relevancia, comentario: r.comentario, por: r.actualizado_por, en: r.actualizado_en, critico: !!r.stock_critico, sugerencia: r.sugerencia_compra, criticoPor: r.critico_por, criticoEn: r.critico_en }])),
+        config: Object.fromEntries(rows.filter((r) => !r.eliminado).map((r) => [r.sku, { relevancia: r.relevancia, comentario: r.comentario, por: r.actualizado_por, en: r.actualizado_en, critico: !!r.stock_critico, sugerencia: r.sugerencia_compra, criticoPor: r.critico_por, criticoEn: r.critico_en,
+          comprado: !!r.comprado, llegada: r.llegada || null, compradoPor: r.comprado_por, compradoEn: r.comprado_en }])),
         eliminados: rows.filter((r) => r.eliminado).map((r) => r.sku),
+        pendiente: envio.pendientes > 0 && !envio.enviado ? { cantidad: envio.pendientes, enviaEn: envio.enviaEn || null } : null,
+        avisoEnviado: envio.enviado ? { insumos: envio.insumos } : null,
+        esperaMin: ESPERA_AVISO_INSUMOS_MIN,
       });
     }
     if (req.method === 'PUT') {
@@ -4028,8 +4095,29 @@ async function manejarInsumosSt(req, res, sesion) {
       if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
       const tieneRel = Object.prototype.hasOwnProperty.call(b, 'relevancia'), tieneCom = Object.prototype.hasOwnProperty.call(b, 'comentario');
       const tieneCrit = Object.prototype.hasOwnProperty.call(b, 'critico'), tieneSug = Object.prototype.hasOwnProperty.call(b, 'sugerencia');
-      if (!tieneRel && !tieneCom && !tieneCrit && !tieneSug) return res.status(400).json({ error: 'No hay nada que guardar' });
-      // Stock crítico: lo marca el técnico y dice cuántas unidades recomienda comprar; al marcarlo (o cambiar la sugerencia) sale el aviso por correo.
+      const tieneComprado = Object.prototype.hasOwnProperty.call(b, 'comprado'), tieneLlegada = Object.prototype.hasOwnProperty.call(b, 'llegada');
+      if (!tieneRel && !tieneCom && !tieneCrit && !tieneSug && !tieneComprado && !tieneLlegada) return res.status(400).json({ error: 'No hay nada que guardar' });
+
+      // Compra: quien compra marca "comprado" con la fecha estimada de llegada; el técnico ve que viene en camino. Solo aplica a insumos en stock crítico.
+      if (tieneComprado || tieneLlegada) {
+        const { rows: previo } = await sql`SELECT stock_critico, comprado, to_char(llegada_estimada, 'YYYY-MM-DD') AS llegada FROM insumos_st_config WHERE sku = ${sku};`;
+        if (!previo[0] || !previo[0].stock_critico) return res.status(400).json({ error: 'Este insumo no está marcado como stock crítico' });
+        const comprado = tieneComprado ? !!b.comprado : !!previo[0].comprado;
+        const llegadaPedida = tieneLlegada ? (String(b.llegada || '').trim() || null) : previo[0].llegada;
+        if (!comprado) {
+          if (tieneLlegada && llegadaPedida) return res.status(400).json({ error: 'Primero marca el insumo como comprado' });
+          await sql`UPDATE insumos_st_config SET comprado = false, llegada_estimada = NULL, comprado_por = NULL, comprado_en = NULL, actualizado_por = ${quien}, actualizado_en = now() WHERE sku = ${sku};`;
+          return res.status(200).json({ ok: true, sku, comprado: false, llegada: null, por: quien });
+        }
+        if (!llegadaPedida) return res.status(400).json({ error: 'Indica la fecha estimada de llegada' });
+        if (!fechaLlegadaInsumoValida(llegadaPedida)) return res.status(400).json({ error: 'La fecha de llegada no es válida' });
+        // Si ya se compró, deja de ser algo por avisar: se saca del correo agrupado que esté pendiente.
+        await sql`UPDATE insumos_st_config SET comprado = true, llegada_estimada = ${llegadaPedida}::date, aviso_pendiente = false,
+          comprado_por = ${quien}, comprado_en = CASE WHEN ${!previo[0].comprado} THEN now() ELSE comprado_en END, actualizado_por = ${quien}, actualizado_en = now() WHERE sku = ${sku};`;
+        return res.status(200).json({ ok: true, sku, comprado: true, llegada: llegadaPedida, por: quien });
+      }
+
+      // Stock crítico: lo marca el técnico y dice cuántas unidades recomienda comprar; el aviso por correo sale agrupado (ver enviarAvisoInsumosPendientes).
       if (tieneCrit || tieneSug) {
         const { rows: previo } = await sql`SELECT stock_critico, sugerencia_compra FROM insumos_st_config WHERE sku = ${sku};`;
         const yaCritico = !!(previo[0] && previo[0].stock_critico), sugPrevia = previo[0] ? previo[0].sugerencia_compra : null;
@@ -4037,18 +4125,31 @@ async function manejarInsumosSt(req, res, sesion) {
         if (!quiereCritico) {
           if (tieneSug && !tieneCrit) return res.status(400).json({ error: 'Primero marca el insumo como stock crítico' });
           await sql`INSERT INTO insumos_st_config (sku, stock_critico, actualizado_por, actualizado_en) VALUES (${sku}, false, ${quien}, now())
-            ON CONFLICT (sku) DO UPDATE SET stock_critico = false, sugerencia_compra = NULL, critico_por = NULL, critico_en = NULL, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();`;
+            ON CONFLICT (sku) DO UPDATE SET stock_critico = false, sugerencia_compra = NULL, critico_por = NULL, critico_en = NULL,
+              comprado = false, llegada_estimada = NULL, comprado_por = NULL, comprado_en = NULL, aviso_pendiente = false, aviso_contexto = NULL,
+              actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();`;
           return res.status(200).json({ ok: true, sku, critico: false, por: quien });
         }
         const sug = tieneSug ? Number(b.sugerencia) : sugPrevia;
         if (!Number.isInteger(sug) || sug < 1 || sug > 100000) return res.status(400).json({ error: 'Indica cuántas unidades recomiendas comprar (un número entero, de 1 en adelante)' });
-        await sql`INSERT INTO insumos_st_config (sku, stock_critico, sugerencia_compra, critico_por, critico_en, actualizado_por, actualizado_en) VALUES (${sku}, true, ${sug}, ${quien}, now(), ${quien}, now())
+        const cambia = !yaCritico || sug !== sugPrevia; // marcarlo o cambiar la cantidad => queda pendiente de avisar
+        const c = b.contexto && typeof b.contexto === 'object' ? b.contexto : null;
+        const ctxJson = c ? JSON.stringify({ nombre: String(c.nombre || sku).slice(0, 200), stock: Number(c.stock) || 0, ultimaFecha: c.ultimaFecha ? String(c.ultimaFecha).slice(0, 10) : null,
+          proveedor: c.proveedor ? String(c.proveedor).slice(0, 120) : null, por: quien }) : null;
+        await sql`INSERT INTO insumos_st_config (sku, stock_critico, sugerencia_compra, critico_por, critico_en, actualizado_por, actualizado_en, aviso_pendiente, aviso_pendiente_primero_en, aviso_pendiente_en, aviso_actualizacion, aviso_contexto)
+          VALUES (${sku}, true, ${sug}, ${quien}, now(), ${quien}, now(), true, now(), now(), false, ${ctxJson}::jsonb)
           ON CONFLICT (sku) DO UPDATE SET stock_critico = true, sugerencia_compra = EXCLUDED.sugerencia_compra,
             critico_por = CASE WHEN insumos_st_config.stock_critico THEN insumos_st_config.critico_por ELSE EXCLUDED.critico_por END,
             critico_en = CASE WHEN insumos_st_config.stock_critico THEN insumos_st_config.critico_en ELSE now() END,
+            comprado = CASE WHEN ${cambia} THEN false ELSE insumos_st_config.comprado END,
+            llegada_estimada = CASE WHEN ${cambia} THEN NULL ELSE insumos_st_config.llegada_estimada END,
+            aviso_pendiente_primero_en = CASE WHEN ${cambia} AND NOT insumos_st_config.aviso_pendiente THEN now() ELSE insumos_st_config.aviso_pendiente_primero_en END,
+            aviso_pendiente_en = CASE WHEN ${cambia} THEN now() ELSE insumos_st_config.aviso_pendiente_en END,
+            aviso_actualizacion = CASE WHEN ${cambia} AND NOT insumos_st_config.aviso_pendiente THEN ${yaCritico} ELSE insumos_st_config.aviso_actualizacion END,
+            aviso_pendiente = insumos_st_config.aviso_pendiente OR ${cambia},
+            aviso_contexto = CASE WHEN ${cambia} THEN COALESCE(EXCLUDED.aviso_contexto, insumos_st_config.aviso_contexto) ELSE insumos_st_config.aviso_contexto END,
             actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();`;
-        let aviso = null;
-        if (!yaCritico || sug !== sugPrevia) aviso = await avisarInsumoCritico(sql, { sku, contexto: b.contexto, sugerencia: sug, por: quien, actualizacion: yaCritico });
+        const aviso = cambia ? { agrupado: true, esperaMin: ESPERA_AVISO_INSUMOS_MIN } : null;
         const guardarOtros = tieneRel || tieneCom;
         if (!guardarOtros) return res.status(200).json({ ok: true, sku, critico: true, sugerencia: sug, por: quien, aviso });
       }
@@ -4069,7 +4170,7 @@ async function manejarInsumosSt(req, res, sesion) {
       const sku = String(req.query.sku || '').trim().slice(0, 80);
       if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
       await sql`INSERT INTO insumos_st_config (sku, eliminado, eliminado_por, eliminado_en, actualizado_por, actualizado_en) VALUES (${sku}, true, ${quien}, now(), ${quien}, now())
-        ON CONFLICT (sku) DO UPDATE SET eliminado = true, eliminado_por = EXCLUDED.eliminado_por, eliminado_en = now(), actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();`;
+        ON CONFLICT (sku) DO UPDATE SET eliminado = true, eliminado_por = EXCLUDED.eliminado_por, eliminado_en = now(), aviso_pendiente = false, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();`;
       return res.status(200).json({ ok: true, sku });
     }
     return res.status(405).json({ error: 'Method not allowed' });
