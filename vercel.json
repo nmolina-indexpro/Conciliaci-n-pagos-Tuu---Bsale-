@@ -63,6 +63,10 @@
       "schedule": "15 12 * * *"
     },
     {
+      "path": "/api/negocio?recurso=nas-backup-correos-sync",
+      "schedule": "30 12 * * *"
+    },
+    {
       "path": "/api/negocio?recurso=cotizaciones-correos-analizar-respuestas",
       "schedule": "30 12 * * *"
     },

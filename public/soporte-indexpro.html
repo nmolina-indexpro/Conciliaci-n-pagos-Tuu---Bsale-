@@ -232,6 +232,7 @@
       <div class="sub">Backups de los NAS QNAP de nuestros clientes — estado de cada job de Hybrid Backup Sync.</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button class="btn-ghost" id="btnSincronizar" style="display:none;" onclick="sincronizarCorreo()" title="Lee el buzón de avisos del NAS (últimos 10 días) y suma los correos nuevos. Además corre solo una vez al día">⟳ Sincronizar correo</button>
       <button class="btn-ghost" id="btnImportar" style="display:none;" onclick="importarHistorial()" title="Carga en el panel el historial que sacamos de los correos del NAS (se puede repetir sin duplicar)">⤓ Cargar historial inicial</button>
       <button class="btn-ghost" onclick="cargar()">↻ Actualizar</button>
     </div>
@@ -321,6 +322,7 @@ async function cargarSesionUsuario(){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
       $('btnImportar').style.display = '';
+      $('btnSincronizar').style.display = '';
     }
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
@@ -559,6 +561,32 @@ async function importarHistorial(){
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
+  }
+}
+
+async function sincronizarCorreo(){
+  const status = $('status');
+  const btn = $('btnSincronizar');
+  status.className = '';
+  status.textContent = 'Leyendo el buzón de avisos del NAS (puede tardar hasta 40 segundos)...';
+  btn.disabled = true;
+  try{
+    const r = await fetch('/api/negocio?recurso=nas-backup-sincronizar', { method: 'POST' }).then(x => x.json());
+    if(r.error && !r.casilla){ status.className = 'err'; status.textContent = 'No se pudo sincronizar: ' + (r.detail || r.error); return; }
+    const total = r.revisados || 0;
+    const hechos = (r.yaCargados || 0) + (r.nuevos || 0) + (r.noReconocidos || 0);
+    const pct = total ? Math.round(hechos / total * 100) : 100;
+    let msg = `${pct}% — ${hechos} de ${total} correos revisados en ${r.casilla}: ${r.nuevos} eventos nuevos, ${r.yaCargados} ya estaban, ${r.noReconocidos} no eran avisos de backup.`;
+    if(r.pendientesPorTiempo) msg += ` Quedaron ${r.pendientesPorTiempo} por leer: vuelve a presionar para continuar.`;
+    if(r.error){ status.className = 'err'; msg = 'Sincronización incompleta: ' + r.error + '. ' + msg; }
+    status.textContent = msg;
+    await cargar();
+    $('status').textContent = msg;
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }finally{
+    btn.disabled = false;
   }
 }
 

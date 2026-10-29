@@ -31,6 +31,14 @@ Límite conocido: un correo ausente NO prueba que el job no corrió (el NAS pued
 "Sin avisos". El panel todavía no se actualiza solo: hay que volver a cargar el historial hasta que exista la fase 2 o un sistema
 que lea el buzón.
 
+## Fase 1b: lectura automática del buzón de avisos
+
+El ERP lee por IMAP el buzón `backups@indexstore.cl` (variable `NAS_BACKUP_BUZON` para cambiarlo; contraseña en `IMAP_PASS_BACKUPS` en Vercel).
+- Cron diario `?recurso=nas-backup-correos-sync` (12:30 UTC, `CRON_SECRET`, mira los últimos 3 días) y botón **Sincronizar correo** (admin, últimos 10 días).
+- Cada correo se interpreta con `parsearCorreoHbs` (`lib/nas-backup.js`); el id del evento es `msg:<Message-ID>`, así que no se duplica. Se reconoce el cliente por el `NAS Name`.
+- El servidor de correo entrega ~8 s por cuerpo: se lee hasta agotar 38 s y lo pendiente queda para la próxima pasada.
+- Límite: solo refleja lo que el NAS avise por correo. El estado real y la salud del hardware siguen requiriendo la fase 2.
+
 ## Fase 2 (pendiente): agente en el NAS que empuja el estado real
 
 Objetivo: dejar de depender de los correos y saber el estado verdadero de cada job y del hardware.
