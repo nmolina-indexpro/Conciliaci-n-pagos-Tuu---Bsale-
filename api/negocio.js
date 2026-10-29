@@ -16481,7 +16481,7 @@ async function manejarNasBackupInforme(req, res, sesion) {
         return res.status(200).json({ informe: { ...resumirFila(rows[0]), html: rows[0].html } });
       }
       const { rows } = await sql.query(`SELECT * FROM nas_informes WHERE cliente = $1 ORDER BY semana_inicio DESC LIMIT 12;`, [clienteId]);
-      return res.status(200).json({ destinatarios: cliente.destinatariosInforme || [], informes: rows.map(resumirFila) });
+      return res.status(200).json({ destinatarios: cliente.destinatariosInforme || [], copia: cliente.copiaInforme || [], informes: rows.map(resumirFila) });
     }
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
     if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede generar, aprobar o enviar el informe' });
@@ -16504,7 +16504,7 @@ async function manejarNasBackupInforme(req, res, sesion) {
       const envios = [];
       for (const para of destinatarios) {
         let envio;
-        try { envio = await conTimeout(enviarCorreoIndexpro({ para, asunto: fila.asunto, html: fila.html }), 30000, 'el servidor de correo de IndexPro no respondió en 30 segundos'); }
+        try { envio = await conTimeout(enviarCorreoIndexpro({ para, asunto: fila.asunto, html: fila.html, cco: cliente.copiaInforme || [] }), 30000, 'el servidor de correo de IndexPro no respondió en 30 segundos'); }
         catch (err) { envio = { enviado: false, motivo: String(err.message || err) }; }
         envios.push({ para, ...envio });
       }

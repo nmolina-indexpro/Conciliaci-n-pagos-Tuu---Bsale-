@@ -613,7 +613,7 @@ function renderInformes(){
   if(!informes || !$('wrapInformes')) return;
   const para = informes.destinatarios.join(', ');
   $('subInforme').textContent = para
-    ? `Se le envía a ${para} solo después de que un administrador lo apruebe aquí. Se prepara cada lunes a las 15:00 y te llega una copia para revisarlo.`
+    ? `Se le envía a ${para}${(informes.copia || []).length ? ` (con copia oculta a ${informes.copia.join(' y ')})` : ''} solo después de que un administrador lo apruebe aquí. Se prepara cada lunes a las 15:00 y te llega una copia para revisarlo.`
     : 'Este cliente no tiene destinatarios configurados para el informe.';
   if(esAdmin) $('btnGenerarInforme').style.display = '';
   if(informes.error){ $('wrapInformes').innerHTML = `<p class="empty-note">No se pudieron leer los informes: ${esc(informes.error)}</p>`; return; }
@@ -659,7 +659,7 @@ async function verInforme(id){
 
 async function decidirInforme(id, accion){
   const para = informes.destinatarios.join(', ');
-  const texto = accion === 'enviar' ? `Se enviará el informe a ${para}. Esto no se puede deshacer. ¿Enviar ahora?` : '¿Marcar este informe como no enviado?';
+  const texto = accion === 'enviar' ? `Se enviará el informe a ${para}${(informes.copia || []).length ? ` (copia oculta: ${informes.copia.join(', ')})` : ''}. Esto no se puede deshacer. ¿Enviar ahora?` : '¿Marcar este informe como no enviado?';
   if(!confirm(texto)) return;
   const status = $('status');
   status.className = '';
