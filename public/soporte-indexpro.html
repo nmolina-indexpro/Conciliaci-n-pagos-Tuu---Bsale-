@@ -414,6 +414,7 @@ function estructuraContenido(){
         <div><h2>📧 Informe semanal al cliente</h2><div class="sub" id="subInforme"></div></div>
         <div class="filtros"><button class="btn-ghost" id="btnGenerarInforme" style="display:none;" onclick="generarInforme()" title="Arma (o actualiza) el informe de la semana que acaba de cerrar, sin enviarlo">Generar informe de esta semana</button></div>
       </div>
+      <div id="msgInforme"></div>
       <div id="wrapInformes"><p class="empty-note">Cargando...</p></div>
       <div id="wrapVistaInforme"></div>
     </div>
@@ -589,6 +590,10 @@ let informeInicialPendiente = new URLSearchParams(location.search).get('informe'
 const TEXTO_INFORME = { pendiente: 'Pendiente de aprobación', enviado: 'Enviado', omitido: 'No enviado' };
 const CLASE_VEREDICTO = { verde: 'ok', amarillo: 'aviso', rojo: 'falla' };
 const TEXTO_VEREDICTO = { verde: 'Todo al día', amarillo: 'Falta confirmación', rojo: 'Requiere atención' };
+function msgInforme(texto, error){
+  const el = $('msgInforme');
+  if(el) el.innerHTML = texto ? `<div class="note-box${error ? ' err' : ''}">${esc(texto)}</div>` : '';
+}
 function fmtDia(iso){ return iso ? iso.split('-').reverse().slice(0, 2).join('-') : '—'; }
 
 async function cargarInformes(){
@@ -659,15 +664,18 @@ async function decidirInforme(id, accion){
   const status = $('status');
   status.className = '';
   status.textContent = accion === 'enviar' ? 'Enviando el informe al cliente...' : 'Guardando...';
+  msgInforme(accion === 'enviar' ? `Enviando el informe a ${para}... (puede tardar hasta 30 segundos)` : 'Guardando...', false);
   try{
     const r = await fetch(`/api/negocio?recurso=nas-backup-informe&cliente=${clienteActual}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion, id }) }).then(x => x.json());
-    if(r.error){ status.className = 'err'; status.textContent = 'No se pudo: ' + (r.detail || r.error); return; }
+    if(r.error){ status.className = 'err'; status.textContent = 'No se pudo: ' + (r.detail || r.error); msgInforme('No se pudo ' + (accion === 'enviar' ? 'enviar el informe' : 'guardar') + ': ' + (r.detail || r.error), true); return; }
     status.textContent = accion === 'enviar' ? `Informe enviado a ${para}.` : 'Informe marcado como no enviado.';
+    msgInforme(status.textContent, false);
     await cargarInformes();
     await verInforme(id);
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
+    msgInforme('Error: ' + err.message + '. No se confirmó el envío: revisa el estado del informe antes de volver a intentarlo.', true);
   }
 }
 

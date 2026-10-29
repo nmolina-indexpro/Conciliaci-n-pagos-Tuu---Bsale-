@@ -16502,7 +16502,12 @@ async function manejarNasBackupInforme(req, res, sesion) {
       const destinatarios = cliente.destinatariosInforme || [];
       if (!destinatarios.length) return res.status(400).json({ error: 'El cliente no tiene destinatarios configurados' });
       const envios = [];
-      for (const para of destinatarios) envios.push({ para, ...(await enviarCorreoIndexpro({ para, asunto: fila.asunto, html: fila.html })) });
+      for (const para of destinatarios) {
+        let envio;
+        try { envio = await conTimeout(enviarCorreoIndexpro({ para, asunto: fila.asunto, html: fila.html }), 30000, 'el servidor de correo de IndexPro no respondió en 30 segundos'); }
+        catch (err) { envio = { enviado: false, motivo: String(err.message || err) }; }
+        envios.push({ para, ...envio });
+      }
       if (!envios.some(e => e.enviado)) return res.status(502).json({ error: 'No se pudo enviar el informe', detail: envios.map(e => `${e.para}: ${e.motivo || 'sin detalle'}`).join(' | ') });
       await sql.query(`UPDATE nas_informes SET estado = 'enviado', enviado_en = now(), enviado_por = $2, para = $3 WHERE id = $1;`, [fila.id, sesion.nombre || sesion.email, envios.filter(e => e.enviado).map(e => e.para).join(', ')]);
       return res.status(200).json({ ok: true, estado: 'enviado', envios });
