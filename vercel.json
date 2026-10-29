@@ -67,6 +67,14 @@
       "schedule": "30 12 * * *"
     },
     {
+      "path": "/api/negocio?recurso=nas-backup-informe-cron",
+      "schedule": "0 18 * * 1"
+    },
+    {
+      "path": "/api/negocio?recurso=nas-backup-informe-cron",
+      "schedule": "0 19 * * 1"
+    },
+    {
       "path": "/api/negocio?recurso=cotizaciones-correos-analizar-respuestas",
       "schedule": "30 12 * * *"
     },

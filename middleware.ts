@@ -96,7 +96,7 @@ function esWhatsappEjecutivosNotificarDiarioPublico(pathname, searchParams) {
 // patrón que los de arriba (la seguridad real es el CRON_SECRET del handler).
 // Cron semanal (lunes) del recordatorio de propuestas de Modelos compatibles sin aprobar -- mismo patrón (la seguridad real es el CRON_SECRET del handler).
 function esModelosCompatiblesRecordatorioPublico(pathname, searchParams) {
-  return pathname === '/api/negocio' && ['modelos-compatibles-recordatorio', 'modelos-meta-indice-cron', 'insumos-st-avisar-cron', 'nas-backup-correos-sync'].includes(searchParams.get('recurso'));
+  return pathname === '/api/negocio' && ['modelos-compatibles-recordatorio', 'modelos-meta-indice-cron', 'insumos-st-avisar-cron', 'nas-backup-correos-sync', 'nas-backup-informe-cron'].includes(searchParams.get('recurso'));
 }
 
 function esGoogleAdsResumenSemanalPublico(pathname, searchParams) {

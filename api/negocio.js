@@ -14,6 +14,7 @@ import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarE
 import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
 import { normalizarConfig as normalizarConfigDW, analizarProducto as analizarProductoDW, permisosShopify as permisosShopifyDW, listarProductos as listarProductosDW, aplicarEtiquetas as aplicarEtiquetasDW, estadoWebhook as estadoWebhookDW, registrarWebhook as registrarWebhookDW, costosBsale as costosBsaleDW, resultadosPedidos as resultadosPedidosDW, rangoResultados as rangoResultadosDW, claveAviso as claveAvisoDW, tieneCambios as tieneCambiosDW, estadoDescuentos as estadoDescuentosDW, crearDescuentoFuncion as crearDescuentoFuncionDW, productosAlCarro as productosAlCarroDW } from '../lib/descuentos-web.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
+import { correoSemanalNasBackup, correoRevisionNasBackup } from '../lib/nas-backup-correo.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
 import { armarComunicacionZoho, filasCorreosDesdeZoho, ticketEnVentana, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
@@ -199,6 +200,8 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'orden-colecciones-cron') return manejarOrdenColeccionesCron(req, res);
   // Lectura diaria del buzón de avisos del NAS (Soporte > IndexPro): cron con CRON_SECRET, sin sesión. La versión con sesión es nas-backup-sincronizar.
   if (req.query.recurso === 'nas-backup-correos-sync') return manejarNasBackupCorreosSync(req, res);
+  // Lunes 15:00 (Chile): arma el informe semanal del cliente y manda la copia de revisión al equipo (CRON_SECRET, sin sesión).
+  if (req.query.recurso === 'nas-backup-informe-cron') return manejarNasBackupInformeCron(req, res);
   // Recuperación de contraseña (ver recuperar-password.html /
   // reset-password.html): por definición corre SIN sesión -- quien la usa
   // es justamente alguien que no puede entrar. La seguridad real la hace el
@@ -248,6 +251,7 @@ export default async function handler(req, res) {
   if (recurso === 'nas-backup') return manejarNasBackup(req, res, sesion);
   if (recurso === 'nas-backup-importar') return manejarNasBackupImportar(req, res, sesion);
   if (recurso === 'nas-backup-sincronizar') return manejarNasBackupSincronizar(req, res, sesion);
+  if (recurso === 'nas-backup-informe') return manejarNasBackupInforme(req, res, sesion);
   if (recurso === 'buscador-ia') return manejarBuscadorIa(req, res, sesion);
   if (recurso === 'envio-estimado') return manejarEnvioEstimado(req, res, sesion);
   if (recurso === 'filtros-uso') return manejarFiltrosUso(req, res, sesion);
@@ -16378,6 +16382,132 @@ async function manejarNasBackupSincronizar(req, res, sesion) {
     return res.status(200).json({ ok: !r.error, ...r });
   } catch (err) {
     return res.status(500).json({ error: 'Error al leer el buzón de avisos del NAS', detail: String(err) });
+  }
+}
+
+// ---- Informe semanal de respaldos para el CLIENTE (lib/nas-backup-correo.js) ----
+// El lunes a las 15:00 (hora de Chile) el cron arma el informe de la semana cerrada y manda una COPIA DE REVISIÓN al equipo (notificación
+// 'nas-informe-revision'). Al cliente solo se le envía cuando un admin lo aprueba en Soporte > IndexPro. Queda un registro en nas_informes.
+const fechaIsoNasBackup = v => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10));
+async function leerDatosNasBackup(sql, clienteId) {
+  const { rows } = await sql.query(
+    `SELECT evento_id, fecha, job, tipo, severidad, categoria, mensaje, carpetas, archivos_total, sin_cambios, omitidos, respaldados, tamano_gb, transferido_gb, ejecucion, velocidad, fuente
+       FROM nas_backup_eventos WHERE cliente = $1 AND fecha >= now() - interval '800 days' ORDER BY fecha ASC;`,
+    [clienteId]
+  );
+  const { rows: alertas } = await sql.query(
+    `SELECT fecha, app, categoria, severidad, mensaje FROM nas_alertas WHERE cliente = $1 AND fecha >= now() - interval '90 days' ORDER BY fecha DESC;`,
+    [clienteId]
+  );
+  return { eventos: consolidarEventosNasBackup(rows.map(normalizarEventoNasBackup)), alertas };
+}
+
+// Arma el informe de la semana que acaba de cerrar y lo deja guardado (pendiente de aprobación). Si ya se envió o se omitió, no lo toca.
+async function generarInformeNasBackup(sql, clienteId, ahora = new Date(), { guardar = true } = {}) {
+  const { eventos, alertas } = await leerDatosNasBackup(sql, clienteId);
+  const resumen = resumirClienteNasBackup(clienteId, eventos, ahora);
+  const r = correoSemanalNasBackup({ resumen, eventos, alertas, ahora });
+  const base = { cliente: clienteId, asunto: r.asunto, html: r.html, veredicto: r.veredicto, semanaInicio: r.semana.ini, semanaFin: r.semana.fin, para: resumen.cliente.destinatariosInforme || [] };
+  if (!guardar) return { id: 0, estado: 'pendiente', revisionEnviadaEn: null, ...base };
+  const { rows } = await sql.query(
+    `INSERT INTO nas_informes (cliente, semana_inicio, semana_fin, asunto, html, veredicto)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (cliente, semana_inicio) DO UPDATE SET asunto = EXCLUDED.asunto, html = EXCLUDED.html, veredicto = EXCLUDED.veredicto, generado_en = now()
+       WHERE nas_informes.estado = 'pendiente'
+     RETURNING id, estado, revision_enviada_en;`,
+    [clienteId, r.semana.ini, r.semana.fin, r.asunto, r.html, r.veredicto]
+  );
+  const fila = rows[0] || (await sql.query(`SELECT id, estado, revision_enviada_en FROM nas_informes WHERE cliente = $1 AND semana_inicio = $2;`, [clienteId, r.semana.ini])).rows[0];
+  return { id: fila.id, estado: fila.estado, revisionEnviadaEn: fila.revision_enviada_en, ...base };
+}
+
+// Copia de revisión para el equipo (suscriptores de 'nas-informe-revision', configurables en Usuarios > Notificaciones).
+async function enviarRevisionInformeNasBackup(sql, informe, destinatarios, { prueba = false } = {}) {
+  const { asunto, html } = correoRevisionNasBackup({ informe, para: informe.para, urlErp: URL_BASE_APP });
+  const envios = [];
+  for (const para of destinatarios) envios.push({ para, ...(await enviarCorreo({ para, asunto: prueba ? `[PRUEBA] ${asunto}` : asunto, html })) });
+  if (!prueba && envios.some(e => e.enviado) && informe.id) {
+    await sql.query(`UPDATE nas_informes SET revision_enviada_en = now() WHERE id = $1;`, [informe.id]);
+    await marcarNotificacionEnviada(sql, 'nas-informe-revision', { asunto, html });
+  }
+  return envios;
+}
+
+// Cron (CRON_SECRET, sin sesión): corre lunes a las 15:00 de Chile. Vercel usa horas UTC fijas, así que se programa a las 18:00 y a las 19:00 UTC (verano e
+// invierno) y solo la pasada que cae a las 15:00 en Chile hace algo. ?forzar=1 salta esa guarda; ?probar=1&para=correo manda una copia de prueba sin guardar nada.
+async function manejarNasBackupInformeCron(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaNasBackup(sql);
+    await asegurarTablaNotificaciones(sql);
+    const prueba = esPruebaNotif(req);
+    const forzar = prueba || req.query.forzar === '1';
+    const ahoraChile = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' }));
+    if (!forzar && !(ahoraChile.getDay() === 1 && ahoraChile.getHours() === 15)) return res.status(200).json({ ok: true, enviado: false, motivo: 'no es lunes a las 15:00 en Chile' });
+    if (!forzar && !(await notificacionDebeEnviarse(sql, 'nas-informe-revision'))) return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    const resultado = [];
+    // Primero se trae lo último del buzón, para que el informe no dependa de la pasada de las 09:30.
+    if (!prueba) { try { await sincronizarBuzonNasBackup(sql, 8); } catch { /* el informe sale igual con lo que ya está cargado */ } }
+    for (const cliente of Object.values(CLIENTES_NAS_BACKUP).filter(c => c.nas && (c.destinatariosInforme || []).length)) {
+      const informe = await generarInformeNasBackup(sql, cliente.id, new Date(), { guardar: !prueba });
+      if (!prueba && informe.revisionEnviadaEn && req.query.forzar !== '1') { resultado.push({ cliente: cliente.id, motivo: 'la copia de revisión de esta semana ya se envió' }); continue; }
+      if (!prueba && informe.estado !== 'pendiente') { resultado.push({ cliente: cliente.id, motivo: `el informe de esta semana ya está ${informe.estado}` }); continue; }
+      const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'nas-informe-revision');
+      resultado.push({ cliente: cliente.id, informeId: informe.id, envios: await enviarRevisionInformeNasBackup(sql, informe, destinatarios, { prueba }) });
+    }
+    return res.status(200).json({ ok: true, resultado });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error generando el informe semanal de respaldos', detail: String(err) });
+  }
+}
+
+// Página Soporte > IndexPro: GET lista los informes (o uno completo con ?id=); POST {accion: generar | enviar | omitir} (solo admin).
+async function manejarNasBackupInforme(req, res, sesion) {
+  const clienteId = String(req.query.cliente || 'magua');
+  const cliente = CLIENTES_NAS_BACKUP[clienteId];
+  if (!cliente) return res.status(400).json({ error: 'Cliente desconocido' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaNasBackup(sql);
+    const resumirFila = f => ({ id: f.id, semanaInicio: fechaIsoNasBackup(f.semana_inicio), semanaFin: fechaIsoNasBackup(f.semana_fin), asunto: f.asunto, veredicto: f.veredicto, estado: f.estado, generadoEn: f.generado_en, revisionEnviadaEn: f.revision_enviada_en, enviadoEn: f.enviado_en, enviadoPor: f.enviado_por, para: f.para });
+    if (req.method === 'GET') {
+      if (req.query.id) {
+        const { rows } = await sql.query(`SELECT * FROM nas_informes WHERE id = $1 AND cliente = $2;`, [Number(req.query.id), clienteId]);
+        if (!rows[0]) return res.status(404).json({ error: 'No existe ese informe' });
+        return res.status(200).json({ informe: { ...resumirFila(rows[0]), html: rows[0].html } });
+      }
+      const { rows } = await sql.query(`SELECT * FROM nas_informes WHERE cliente = $1 ORDER BY semana_inicio DESC LIMIT 12;`, [clienteId]);
+      return res.status(200).json({ destinatarios: cliente.destinatariosInforme || [], informes: rows.map(resumirFila) });
+    }
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede generar, aprobar o enviar el informe' });
+    const accion = String((req.body && req.body.accion) || '');
+    if (accion === 'generar') {
+      const informe = await generarInformeNasBackup(sql, clienteId, new Date());
+      return res.status(200).json({ ok: true, id: informe.id, estado: informe.estado });
+    }
+    const { rows } = await sql.query(`SELECT * FROM nas_informes WHERE id = $1 AND cliente = $2;`, [Number((req.body && req.body.id) || 0), clienteId]);
+    const fila = rows[0];
+    if (!fila) return res.status(404).json({ error: 'No existe ese informe' });
+    if (fila.estado !== 'pendiente') return res.status(409).json({ error: `Este informe ya está ${fila.estado}` });
+    if (accion === 'omitir') {
+      await sql.query(`UPDATE nas_informes SET estado = 'omitido' WHERE id = $1;`, [fila.id]);
+      return res.status(200).json({ ok: true, estado: 'omitido' });
+    }
+    if (accion === 'enviar') {
+      const destinatarios = cliente.destinatariosInforme || [];
+      if (!destinatarios.length) return res.status(400).json({ error: 'El cliente no tiene destinatarios configurados' });
+      const envios = [];
+      for (const para of destinatarios) envios.push({ para, ...(await enviarCorreoIndexpro({ para, asunto: fila.asunto, html: fila.html })) });
+      if (!envios.some(e => e.enviado)) return res.status(502).json({ error: 'No se pudo enviar el informe', detail: envios.map(e => `${e.para}: ${e.motivo || 'sin detalle'}`).join(' | ') });
+      await sql.query(`UPDATE nas_informes SET estado = 'enviado', enviado_en = now(), enviado_por = $2, para = $3 WHERE id = $1;`, [fila.id, sesion.nombre || sesion.email, envios.filter(e => e.enviado).map(e => e.para).join(', ')]);
+      return res.status(200).json({ ok: true, estado: 'enviado', envios });
+    }
+    return res.status(400).json({ error: 'Acción desconocida' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en el informe semanal de respaldos', detail: String(err) });
   }
 }
 

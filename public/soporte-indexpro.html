@@ -323,6 +323,7 @@ async function cargarSesionUsuario(){
       if(nav) nav.style.display = '';
       $('btnImportar').style.display = '';
       $('btnSincronizar').style.display = '';
+      if(informes) renderInformes();
     }
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
@@ -393,6 +394,7 @@ function renderTodo(){
   renderProblemas();
   poblarFiltroJobs();
   renderEventos();
+  cargarInformes();
 }
 
 function estructuraContenido(){
@@ -406,6 +408,14 @@ function estructuraContenido(){
     <div class="seccion">
       <div class="seccion-head"><div><h2>🔴 Fallas y avisos</h2><div class="sub">Todo lo que el NAS reportó con severidad Error o Warning.</div></div></div>
       <div id="wrapProblemas"></div>
+    </div>
+    <div class="seccion" id="seccionInforme">
+      <div class="seccion-head">
+        <div><h2>📧 Informe semanal al cliente</h2><div class="sub" id="subInforme"></div></div>
+        <div class="filtros"><button class="btn-ghost" id="btnGenerarInforme" style="display:none;" onclick="generarInforme()" title="Arma (o actualiza) el informe de la semana que acaba de cerrar, sin enviarlo">Generar informe de esta semana</button></div>
+      </div>
+      <div id="wrapInformes"><p class="empty-note">Cargando...</p></div>
+      <div id="wrapVistaInforme"></div>
     </div>
     <div class="seccion">
       <div class="seccion-head">
@@ -570,6 +580,111 @@ function renderEventos(){
   const job = $('filtroJob') ? $('filtroJob').value : '';
   const lista = datos.eventos.filter(e => !job || e.job === job).slice(0, 150);
   $('wrapEventos').innerHTML = tablaEventos(lista, true);
+}
+
+// ---- Informe semanal al cliente: se prepara el lunes 15:00, llega una copia de revisión al equipo y aquí un admin lo aprueba para enviarlo ----
+let informes = null;
+let informeVistoId = null;
+let informeInicialPendiente = new URLSearchParams(location.search).get('informe');
+const TEXTO_INFORME = { pendiente: 'Pendiente de aprobación', enviado: 'Enviado', omitido: 'No enviado' };
+const CLASE_VEREDICTO = { verde: 'ok', amarillo: 'aviso', rojo: 'falla' };
+const TEXTO_VEREDICTO = { verde: 'Todo al día', amarillo: 'Falta confirmación', rojo: 'Requiere atención' };
+function fmtDia(iso){ return iso ? iso.split('-').reverse().slice(0, 2).join('-') : '—'; }
+
+async function cargarInformes(){
+  if(!datos || !datos.cliente.nas) return;
+  try{
+    const r = await fetch(`/api/negocio?recurso=nas-backup-informe&cliente=${clienteActual}`).then(x => x.json());
+    if(r.error) throw new Error(r.detail || r.error);
+    informes = r;
+  }catch(err){
+    informes = { error: err.message, informes: [], destinatarios: [] };
+  }
+  renderInformes();
+  if(informeInicialPendiente){ const id = Number(informeInicialPendiente); informeInicialPendiente = null; verInforme(id); }
+}
+
+function renderInformes(){
+  if(!informes || !$('wrapInformes')) return;
+  const para = informes.destinatarios.join(', ');
+  $('subInforme').textContent = para
+    ? `Se le envía a ${para} solo después de que un administrador lo apruebe aquí. Se prepara cada lunes a las 15:00 y te llega una copia para revisarlo.`
+    : 'Este cliente no tiene destinatarios configurados para el informe.';
+  if(esAdmin) $('btnGenerarInforme').style.display = '';
+  if(informes.error){ $('wrapInformes').innerHTML = `<p class="empty-note">No se pudieron leer los informes: ${esc(informes.error)}</p>`; return; }
+  if(!informes.informes.length){
+    $('wrapInformes').innerHTML = '<p class="empty-note">Todavía no hay informes. El primero se arma el próximo lunes a las 15:00' + (esAdmin ? ', o ahora mismo con «Generar informe de esta semana».' : '.') + '</p>';
+    return;
+  }
+  $('wrapInformes').innerHTML = `<div class="tabla-wrap"><table><thead><tr><th>Semana</th><th>Resultado</th><th>Estado</th><th>Detalle</th><th></th></tr></thead><tbody>${informes.informes.map(i => {
+    const estadoClase = i.estado === 'enviado' ? 'ok' : (i.estado === 'omitido' ? 'sin_datos' : 'aviso');
+    const detalle = i.estado === 'enviado' ? `${fmtFecha(i.enviadoEn)} a ${esc(i.para || '')} (aprobó ${esc(i.enviadoPor || '—')})` : (i.revisionEnviadaEn ? `Copia de revisión enviada ${fmtFecha(i.revisionEnviadaEn)}` : '—');
+    return `<tr>
+      <td data-valor="${esc(i.semanaInicio)}">${fmtDia(i.semanaInicio)} al ${fmtDia(i.semanaFin)}</td>
+      <td><span class="badge ${CLASE_VEREDICTO[i.veredicto] || 'info'}">${esc(TEXTO_VEREDICTO[i.veredicto] || '—')}</span></td>
+      <td><span class="badge ${estadoClase}">${TEXTO_INFORME[i.estado] || esc(i.estado)}</span></td>
+      <td class="det">${detalle}</td>
+      <td><button class="btn-ghost" onclick="verInforme(${i.id})">Ver</button></td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+
+async function verInforme(id){
+  const cont = $('wrapVistaInforme');
+  cont.innerHTML = '<p class="empty-note">Cargando informe...</p>';
+  try{
+    const r = await fetch(`/api/negocio?recurso=nas-backup-informe&cliente=${clienteActual}&id=${id}`).then(x => x.json());
+    if(r.error) throw new Error(r.detail || r.error);
+    const i = r.informe;
+    informeVistoId = i.id;
+    const acciones = (esAdmin && i.estado === 'pendiente')
+      ? `<div class="filtros" style="margin:12px 0;">
+           <button id="btnEnviarInforme" class="btn-ghost" style="border-color:var(--green);color:var(--green);" onclick="decidirInforme(${i.id}, 'enviar')">✔ Aprobar y enviar a ${esc(informes.destinatarios.join(', '))}</button>
+           <button class="btn-ghost" onclick="decidirInforme(${i.id}, 'omitir')">No enviar esta semana</button>
+         </div>`
+      : `<p class="empty-note">${i.estado === 'pendiente' ? 'Un administrador debe aprobarlo para enviarlo.' : (i.estado === 'enviado' ? 'Este informe ya se envió.' : 'Este informe se marcó como no enviado.')}</p>`;
+    cont.innerHTML = `<h3 style="margin:18px 0 4px;font-size:15px;">${esc(i.asunto)}</h3>${acciones}
+      <iframe id="marcoInforme" style="width:100%;height:900px;border:1px solid var(--line);border-radius:12px;background:#eef2f9;" title="Vista previa del informe"></iframe>`;
+    $('marcoInforme').srcdoc = i.html;
+    cont.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }catch(err){
+    cont.innerHTML = `<p class="empty-note">No se pudo abrir el informe: ${esc(err.message)}</p>`;
+  }
+}
+
+async function decidirInforme(id, accion){
+  const para = informes.destinatarios.join(', ');
+  const texto = accion === 'enviar' ? `Se enviará el informe a ${para}. Esto no se puede deshacer. ¿Enviar ahora?` : '¿Marcar este informe como no enviado?';
+  if(!confirm(texto)) return;
+  const status = $('status');
+  status.className = '';
+  status.textContent = accion === 'enviar' ? 'Enviando el informe al cliente...' : 'Guardando...';
+  try{
+    const r = await fetch(`/api/negocio?recurso=nas-backup-informe&cliente=${clienteActual}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion, id }) }).then(x => x.json());
+    if(r.error){ status.className = 'err'; status.textContent = 'No se pudo: ' + (r.detail || r.error); return; }
+    status.textContent = accion === 'enviar' ? `Informe enviado a ${para}.` : 'Informe marcado como no enviado.';
+    await cargarInformes();
+    await verInforme(id);
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
+}
+
+async function generarInforme(){
+  const status = $('status');
+  status.className = '';
+  status.textContent = 'Armando el informe de la semana...';
+  try{
+    const r = await fetch(`/api/negocio?recurso=nas-backup-informe&cliente=${clienteActual}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'generar' }) }).then(x => x.json());
+    if(r.error){ status.className = 'err'; status.textContent = 'No se pudo generar: ' + (r.detail || r.error); return; }
+    status.textContent = r.estado === 'pendiente' ? 'Informe listo para revisar (todavía no se envió a nadie).' : `El informe de esta semana ya está ${r.estado}.`;
+    await cargarInformes();
+    await verInforme(r.id);
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
 }
 
 async function importarHistorial(){

@@ -49,6 +49,15 @@ Los correos que no son del NAS (pruebas, cPanel) se anotan en `nas_correos_visto
 según el idioma de QTS (`camposCorreoNas` en `lib/nas-backup.js` entiende ambos). Límite: solo avisa cuando algo falla; los valores actuales
 (temperatura, espacio libre, SMART) requieren la fase 2.
 
+### Informe semanal al cliente (con aprobación)
+
+`lib/nas-backup-correo.js` arma un correo corto y en lenguaje simple para el cliente (veredicto verde/amarillo/rojo, respaldo diario y semanal, franja de 7 días,
+alertas del equipo y referencia a su NAS, p. ej. QNAP TS-451+). Flujo: el lunes a las 15:00 de Chile el cron `?recurso=nas-backup-informe-cron` (dos entradas en
+`vercel.json`, 18:00 y 19:00 UTC, y solo corre la que cae a las 15:00 en Chile) sincroniza el buzón, guarda el informe en `nas_informes` y manda una **copia de revisión**
+al equipo (notificación `nas-informe-revision`, Usuarios > Notificaciones; por defecto nmolina@indexpro.cl). Un admin lo aprueba en Soporte > IndexPro >
+**Informe semanal al cliente** ("Aprobar y enviar") y recién ahí sale a `destinatariosInforme` del cliente (`CLIENTES` en `lib/nas-backup.js`) por el SMTP de IndexPro
+(`enviarCorreoIndexpro`, variables `SMTP_INDEXPRO_*`). Nunca se envía solo. `?forzar=1` salta la guarda de hora; `?probar=1&para=correo` manda una copia de prueba sin guardar.
+
 ## Fase 2 (pendiente): agente en el NAS que empuja el estado real
 
 Objetivo: dejar de depender de los correos y saber el estado verdadero de cada job y del hardware.
