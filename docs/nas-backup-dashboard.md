@@ -20,6 +20,13 @@ El NAS manda por Notification Center un correo por cada evento de Hybrid Backup 
 El historial se extrajo de Gmail a `lib/nas-backup-historial.js` y un admin lo carga con el botón **Cargar historial inicial**
 (`?recurso=nas-backup-importar`, idempotente por `cliente + evento_id`).
 
+Además se cargaron a mano las corridas del **historial de trabajos de HBS 3** (capturas del panel, 29-oct-2026): diario #1446-#1476 (29-sep a 29-oct)
+y semanal #151-#156 (18-sep a 23-oct), con archivos procesados y GB transferidos (fuente `hbs-panel`). Horarios confirmados en HBS 3: diario 01:30 y
+semanal viernes 01:00. Un evento del panel y el correo de la misma corrida se fusionan en uno solo (`consolidarEventos`).
+
+Hallazgo: los correos del NAS dejaron de llegar (semanal desde el 14-ago, diario desde el 22-oct) aunque los jobs corrieron todos los días/viernes.
+Conviene revisar la regla de Notification Center y probar el envío de correo del NAS.
+
 Límite conocido: un correo ausente NO prueba que el job no corrió (el NAS puede no haber avisado). Por eso el estado se llama
 "Sin avisos". El panel todavía no se actualiza solo: hay que volver a cargar el historial hasta que exista la fase 2 o un sistema
 que lea el buzón.

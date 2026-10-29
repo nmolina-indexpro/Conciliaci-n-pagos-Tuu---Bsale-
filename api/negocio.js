@@ -16217,7 +16217,7 @@ async function manejarNasBackup(req, res, sesion) {
     const sql = await getSql();
     await asegurarTablaNasBackup(sql);
     const { rows } = await sql.query(
-      `SELECT evento_id, fecha, job, tipo, severidad, categoria, mensaje, carpetas, archivos_total, sin_cambios, omitidos, respaldados, tamano_gb, velocidad, fuente
+      `SELECT evento_id, fecha, job, tipo, severidad, categoria, mensaje, carpetas, archivos_total, sin_cambios, omitidos, respaldados, tamano_gb, transferido_gb, ejecucion, velocidad, fuente
          FROM nas_backup_eventos
         WHERE cliente = $1 AND fecha >= now() - interval '800 days'
         ORDER BY fecha ASC;`,
@@ -16259,16 +16259,17 @@ async function manejarNasBackupImportar(req, res, sesion) {
     for (let i = 0; i < filas.length; i += TAMANO_TANDA) {
       const t = filas.slice(i, i + TAMANO_TANDA);
       const { rows } = await sql.query(
-        `INSERT INTO nas_backup_eventos (cliente, nas, evento_id, fecha, job, tipo, severidad, categoria, mensaje, carpetas, archivos_total, sin_cambios, omitidos, respaldados, tamano_gb, velocidad, fuente)
-         SELECT $1, $2, x.id, (x.f::timestamp AT TIME ZONE 'America/Santiago'), x.job, x.tipo, x.sev, x.cat, x.msg, x.car, x.tot, x.sc, x.om, x.resp, x.gb, x.vel, 'gmail'
-         FROM UNNEST($3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::int[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[], $15::numeric[], $16::text[])
-              AS x(id, f, job, tipo, sev, cat, msg, car, tot, sc, om, resp, gb, vel)
+        `INSERT INTO nas_backup_eventos (cliente, nas, evento_id, fecha, job, tipo, severidad, categoria, mensaje, carpetas, archivos_total, sin_cambios, omitidos, respaldados, tamano_gb, velocidad, fuente, ejecucion, transferido_gb)
+         SELECT $1, $2, x.id, (x.f::timestamp AT TIME ZONE 'America/Santiago'), x.job, x.tipo, x.sev, x.cat, x.msg, x.car, x.tot, x.sc, x.om, x.resp, x.gb, x.vel, x.fte, x.ej, x.tr
+         FROM UNNEST($3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::int[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[], $15::numeric[], $16::text[], $17::text[], $18::int[], $19::numeric[])
+              AS x(id, f, job, tipo, sev, cat, msg, car, tot, sc, om, resp, gb, vel, fte, ej, tr)
          ON CONFLICT (cliente, evento_id) DO NOTHING
          RETURNING id;`,
         [
           clienteId, historial.nas || null,
           t.map(f => f.id), t.map(f => f.fecha), t.map(f => f.job), t.map(f => f.tipo), t.map(f => f.severidad), t.map(f => f.categoria), t.map(f => f.mensaje),
           t.map(f => f.carpetas), t.map(f => f.archivosTotal), t.map(f => f.sinCambios), t.map(f => f.omitidos), t.map(f => f.respaldados), t.map(f => f.tamanoGb), t.map(f => f.velocidad),
+          t.map(f => f.fuente), t.map(f => f.ejecucion), t.map(f => f.transferidoGb),
         ]
       );
       nuevas += rows.length;

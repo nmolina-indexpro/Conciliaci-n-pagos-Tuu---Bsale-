@@ -285,6 +285,11 @@ function fmtFecha(iso){
   return new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 function fmtDiaCorto(dia){ return dia ? dia.split('-').reverse().join('-') : '—'; }
+// Días de calendario (hora de Chile) entre una fecha y hoy: lo de esta madrugada es "hoy", no "ayer".
+function diasCalendario(iso){
+  const dia = f => new Date(f).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+  return Math.max(0, Math.round((Date.parse(dia(new Date()) + 'T00:00:00Z') - Date.parse(dia(iso) + 'T00:00:00Z')) / 86400000));
+}
 function haceTexto(dias){
   if(dias == null) return '—';
   if(dias === 0) return 'hoy';
@@ -374,7 +379,7 @@ function renderTodo(){
     return;
   }
   const aviso = [];
-  aviso.push(`<div class="note-box"><b>Fase 1 — datos desde los correos del NAS.</b> El NAS manda un correo por cada inicio y término de job (Notification Center). Si pasan días sin correos no significa que el job no corrió: puede que el NAS no avisara. En la Fase 2 un agente instalado en el NAS informará el estado real de cada job, el disco USB y el espacio disponible.</div>`);
+  aviso.push(`<div class="note-box"><b>Fase 1 — datos desde los correos del NAS y el historial de trabajos de HBS 3.</b> El NAS manda un correo por cada inicio y término de job (Notification Center), y las últimas corridas semanales se cargaron desde el panel de HBS 3. Si pasan días sin correos no significa que el job no corrió: puede que el NAS no avisara (así ocurrió con el semanal desde el 14-ago). En la Fase 2 un agente instalado en el NAS informará el estado real de cada job, el disco USB y el espacio disponible.</div>`);
   if(!d.totalEventos){
     aviso.push(`<div class="note-box err"><b>Todavía no hay eventos de este cliente en el panel.</b> ${esAdmin ? 'Usa «Cargar historial inicial» (arriba) para traer lo que ya llegó por correo.' : 'Un administrador debe cargar el historial inicial.'}</div>`);
   }
@@ -430,14 +435,15 @@ function renderKpis(){
   const kpiJob = (j, lbl) => {
     if(!j) return tarjeta(lbl, '—', 'Job no configurado');
     const ex = j.ultimoExito;
-    return tarjeta(lbl, ex ? haceTexto(j.diasDesdeExito) : 'Sin registro', ex ? `${fmtFecha(ex.fecha)}${ex.tamanoGb != null ? ` · ${fmtGb(ex.tamanoGb)}` : ''}` : 'No hay correos de término de este job', 'estado-' + j.estado);
+    const extra = ex ? (ex.tamanoGb != null ? ` · ${fmtGb(ex.tamanoGb)}` : (ex.transferidoGb != null ? ` · ${fmtGb(ex.transferidoGb)} transferidos` : '')) : '';
+    return tarjeta(lbl, ex ? haceTexto(j.diasDesdeExito) : 'Sin registro', ex ? `${fmtFecha(ex.fecha)}${extra}` : 'No hay registros de término de este job', 'estado-' + j.estado);
   };
   $('kpiWrap').innerHTML =
     tarjeta('Estado general', TEXTO_ESTADO[d.estadoGeneral] || '—', d.estadoGeneral === 'sin_avisos' ? 'Algún job no ha avisado dentro de su plazo' : (d.estadoGeneral === 'falla' ? 'Hay un job cuyo último evento fue una falla' : ''), 'estado-' + d.estadoGeneral) +
     kpiJob(diario, 'Último backup diario OK') +
     kpiJob(semanal, 'Último backup semanal OK') +
     tarjeta('Fallas (90 días)', fmtNum(fallas90), fallas90 ? 'Revisa la tabla de fallas' : 'Sin fallas reportadas', fallas90 ? 'estado-falla' : 'estado-ok') +
-    tarjeta('Último aviso del NAS', d.ultimoAviso ? haceTexto(Math.max(0, Math.round((Date.now() - new Date(d.ultimoAviso)) / 86400000))) : '—', d.ultimoAviso ? fmtFecha(d.ultimoAviso) : '');
+    tarjeta('Último aviso del NAS', d.ultimoAviso ? haceTexto(diasCalendario(d.ultimoAviso)) : '—', d.ultimoAviso ? fmtFecha(d.ultimoAviso) : '');
 }
 
 function renderJobs(){
@@ -451,6 +457,7 @@ function renderJobs(){
 
 function tarjetaJob(j){
   const ex = j.ultimoExito, fl = j.ultimaFalla;
+  const ultTam = j.serieTamano.length ? j.serieTamano[j.serieTamano.length - 1] : null;
   const msgEstado = {
     ok: 'Backup exitoso dentro del plazo esperado.',
     falla: 'El último evento relevante fue una falla — hay que revisar el NAS.',
@@ -463,15 +470,15 @@ function tarjetaJob(j){
         <div><h3>${esc(j.etiqueta)} — ${esc(j.destino)}</h3><div class="nombre-job">${esc(j.nombre)}</div></div>
         <span class="badge ${claseEstado(j.estado)}">${TEXTO_ESTADO[j.estado]}</span>
       </div>
-      <div class="destino">Cadencia esperada: <b>${esc(j.cadencia)}</b></div>
+      <div class="destino">Cadencia esperada: <b>${esc(j.cadencia)}</b>${j.horario ? ` <small>(${esc(j.horario)}, según HBS 3)</small>` : ''}</div>
       <div class="note-box" style="margin-bottom:14px;${j.estado === 'ok' ? 'background:var(--green-bg);border-color:#BFE3C9;' : ''}${j.estado === 'sin_avisos' ? 'background:var(--amber-dim);border-color:#F1D6A6;' : ''}">${msgEstado}</div>
       <div class="datos">
         <div class="dato"><div class="lbl">Último backup exitoso</div><div class="val">${ex ? fmtFecha(ex.fecha) : '—'} ${ex ? `<small>(${haceTexto(j.diasDesdeExito)})</small>` : ''}</div></div>
         <div class="dato"><div class="lbl">Última falla</div><div class="val">${fl ? fmtFecha(fl.fecha) : 'Ninguna'}</div></div>
         <div class="dato"><div class="lbl">Exitosos (30 / 90 días)</div><div class="val">${j.exitos30} <small>/ ${j.exitos90}</small></div></div>
         <div class="dato"><div class="lbl">Fallas (30 / 90 días)</div><div class="val">${j.fallas30} <small>/ ${j.fallas90}</small></div></div>
-        ${ex && ex.tamanoGb != null ? `<div class="dato"><div class="lbl">Total respaldado (último)</div><div class="val">${fmtGb(ex.tamanoGb)}</div></div>` : ''}
-        ${ex && ex.respaldados != null ? `<div class="dato"><div class="lbl">Archivos nuevos/cambiados (último)</div><div class="val">${fmtNum(ex.respaldados)} <small>de ${fmtNum(ex.archivosTotal)}</small></div></div>` : ''}
+        ${ultTam ? `<div class="dato"><div class="lbl">Total respaldado (${fmtDiaCorto(ultTam.dia)})</div><div class="val">${fmtGb(ultTam.tamanoGb)}</div></div>` : ''}
+        ${ex && ex.transferidoGb != null ? `<div class="dato"><div class="lbl">Última corrida${ex.ejecucion ? ' (#' + ex.ejecucion + ')' : ''}</div><div class="val">${fmtGb(ex.transferidoGb)} <small>· ${fmtNum(ex.respaldados)} archivos</small></div></div>` : (ex && ex.respaldados != null ? `<div class="dato"><div class="lbl">Archivos nuevos/cambiados (último)</div><div class="val">${fmtNum(ex.respaldados)} <small>de ${fmtNum(ex.archivosTotal)}</small></div></div>` : '')}
       </div>
       <div class="cal-wrap">
         <div class="cal-tit"><span>Últimos 60 días</span><span>${esc(j.cadencia)} · día = aviso recibido ese día</span></div>
@@ -513,7 +520,8 @@ function tablaEventos(lista, conJob){
       const sev = e.severidad || '—';
       const clase = e.severidad === 'Error' ? 'falla' : (e.severidad === 'Warning' ? 'aviso' : 'info');
       const evento = { started: 'Inicio', finished: 'Término', failed: 'Falla', warning: 'Advertencia', storage: 'Almacenamiento', otro: 'Otro' }[e.tipo] || e.tipo;
-      const detalle = e.tamanoGb != null ? `${fmtGb(e.tamanoGb)} · ${fmtNum(e.respaldados)} archivos respaldados de ${fmtNum(e.archivosTotal)}` : e.mensaje;
+      const detalle = e.tamanoGb != null ? `${fmtGb(e.tamanoGb)} · ${fmtNum(e.respaldados)} archivos respaldados de ${fmtNum(e.archivosTotal)}`
+        : (e.transferidoGb != null ? `Corrida #${e.ejecucion}: ${fmtGb(e.transferidoGb)} transferidos · ${fmtNum(e.respaldados)} archivos procesados (historial de HBS 3)` : e.mensaje);
       return `<tr>
         <td data-valor="${esc(e.fecha)}">${fmtFecha(e.fecha)}</td>
         ${conJob ? `<td>${esc(e.job || '—')}</td>` : ''}
