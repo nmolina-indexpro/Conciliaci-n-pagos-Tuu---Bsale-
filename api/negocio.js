@@ -27,6 +27,8 @@ import { armarCorreoInsumosCriticos } from '../lib/correo-insumo.js';
 import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadores.js';
 import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGORIAS as CATEGORIAS_CONTABILIDAD, CATEGORIA_IDS as CATEGORIA_IDS_CONTABILIDAD, categoriaEfectiva, resumir as resumirContabilidad, analizarContabilidad } from '../lib/contabilidad.js';
 import { asegurarTablaContabilidad, asegurarTablaInsumosSt } from '../lib/db.js';
+import { asegurarTablaNasBackup } from '../lib/db.js';
+import { CLIENTES as CLIENTES_NAS_BACKUP, consolidarEventos as consolidarEventosNasBackup, normalizarEvento as normalizarEventoNasBackup, resumirCliente as resumirClienteNasBackup, filasDesdeHistorial as filasHistorialNasBackup, esFalla as esFallaNasBackup, esAviso as esAvisoNasBackup } from '../lib/nas-backup.js';
 import { paginasEfectivas } from '../lib/paginas-perfil.js';
 import { contarSeguimientos, PAUSA_SEGUIMIENTO_MS } from '../lib/whatsapp-seguimientos.js';
 import { corregirCorreo } from '../lib/correos-corregidos.js';
@@ -241,6 +243,8 @@ export default async function handler(req, res) {
   if (recurso === 'llamadas') return manejarLlamadas(req, res, sesion);
   if (recurso === 'llamadas-importar') return manejarLlamadasImportar(req, res, sesion);
   if (recurso === 'llamadas-anexo') return manejarLlamadasAnexo(req, res, sesion);
+  if (recurso === 'nas-backup') return manejarNasBackup(req, res, sesion);
+  if (recurso === 'nas-backup-importar') return manejarNasBackupImportar(req, res, sesion);
   if (recurso === 'buscador-ia') return manejarBuscadorIa(req, res, sesion);
   if (recurso === 'envio-estimado') return manejarEnvioEstimado(req, res, sesion);
   if (recurso === 'filtros-uso') return manejarFiltrosUso(req, res, sesion);
@@ -16199,6 +16203,77 @@ async function manejarCotizacionesCorreosAnalizarRespuestas(req, res) {
     return res.status(200).json({ ok: true, revisados: rows.length, analizados, errores });
   } catch (err) {
     return res.status(500).json({ error: 'Error analizando respuestas de correo', detail: String(err) });
+  }
+}
+
+// ================= Soporte > IndexPro: backups de los NAS de clientes =================
+// Fase 1: los eventos salen de los correos de Notification Center del NAS (historial cargado desde lib/nas-backup-historial.js).
+// Fase 2: un agente en el NAS los empujará a la misma tabla (nas_backup_eventos). Ver lib/nas-backup.js y docs/nas-backup-dashboard.md.
+async function manejarNasBackup(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const clienteId = String(req.query.cliente || 'magua');
+  if (!CLIENTES_NAS_BACKUP[clienteId]) return res.status(400).json({ error: 'Cliente desconocido' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaNasBackup(sql);
+    const { rows } = await sql.query(
+      `SELECT evento_id, fecha, job, tipo, severidad, categoria, mensaje, carpetas, archivos_total, sin_cambios, omitidos, respaldados, tamano_gb, velocidad, fuente
+         FROM nas_backup_eventos
+        WHERE cliente = $1 AND fecha >= now() - interval '800 days'
+        ORDER BY fecha ASC;`,
+      [clienteId]
+    );
+    const eventos = consolidarEventosNasBackup(rows.map(normalizarEventoNasBackup));
+    const resumen = resumirClienteNasBackup(clienteId, eventos, new Date());
+    // Tabla de eventos: lo más reciente primero (la página la deja ordenable); las fallas y avisos van completos aparte.
+    const recientes = eventos.slice(-300).reverse();
+    const problemas = eventos.filter(e => esFallaNasBackup(e) || esAvisoNasBackup(e)).reverse();
+    return res.status(200).json({ ...resumen, eventos: recientes, problemas });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al leer los backups del NAS', detail: String(err) });
+  }
+}
+
+// Carga (o recarga) el historial inicial sacado de los correos del NAS. Solo admin; se puede repetir sin duplicar (UNIQUE cliente+evento_id).
+async function manejarNasBackupImportar(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede cargar el historial' });
+  let historial;
+  try {
+    historial = (await import('../lib/nas-backup-historial.js')).default;
+  } catch (err) {
+    return res.status(500).json({ error: 'No encontré el historial inicial en el servidor', detail: String(err) });
+  }
+  const clienteId = String(historial?.cliente || '');
+  if (!CLIENTES_NAS_BACKUP[clienteId]) return res.status(400).json({ error: 'El historial trae un cliente desconocido' });
+  const filas = filasHistorialNasBackup(historial);
+  if (!filas.length) return res.status(400).json({ error: 'El historial no trae eventos' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaNasBackup(sql);
+    let nuevas = 0;
+    const TAMANO_TANDA = 200;
+    for (let i = 0; i < filas.length; i += TAMANO_TANDA) {
+      const t = filas.slice(i, i + TAMANO_TANDA);
+      const { rows } = await sql.query(
+        `INSERT INTO nas_backup_eventos (cliente, nas, evento_id, fecha, job, tipo, severidad, categoria, mensaje, carpetas, archivos_total, sin_cambios, omitidos, respaldados, tamano_gb, velocidad, fuente)
+         SELECT $1, $2, x.id, (x.f::timestamp AT TIME ZONE 'America/Santiago'), x.job, x.tipo, x.sev, x.cat, x.msg, x.car, x.tot, x.sc, x.om, x.resp, x.gb, x.vel, 'gmail'
+         FROM UNNEST($3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::int[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[], $15::numeric[], $16::text[])
+              AS x(id, f, job, tipo, sev, cat, msg, car, tot, sc, om, resp, gb, vel)
+         ON CONFLICT (cliente, evento_id) DO NOTHING
+         RETURNING id;`,
+        [
+          clienteId, historial.nas || null,
+          t.map(f => f.id), t.map(f => f.fecha), t.map(f => f.job), t.map(f => f.tipo), t.map(f => f.severidad), t.map(f => f.categoria), t.map(f => f.mensaje),
+          t.map(f => f.carpetas), t.map(f => f.archivosTotal), t.map(f => f.sinCambios), t.map(f => f.omitidos), t.map(f => f.respaldados), t.map(f => f.tamanoGb), t.map(f => f.velocidad),
+        ]
+      );
+      nuevas += rows.length;
+    }
+    const fechas = filas.map(f => f.fecha).sort();
+    return res.status(200).json({ ok: true, leidos: filas.length, nuevos: nuevas, duplicados: filas.length - nuevas, desde: fechas[0].slice(0, 10), hasta: fechas[fechas.length - 1].slice(0, 10) });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al cargar el historial', detail: String(err) });
   }
 }
 

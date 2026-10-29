@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Soporte IndexPro — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;letter-spacing:0.2px;margin:0 0 5px 0;}
+  h1 span{color:var(--primary);}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin:0 0 4px 0;}
+  .sub{color:var(--muted);font-size:13px;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13px;}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+
+  .toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
+  #status{font-size:12px;color:var(--muted);}
+  #status.err{color:var(--red);}
+
+  .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:24px;}
+  @media (max-width:1200px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;}
+  .card.alert .big{color:var(--red);}
+  .card.warn .big{color:var(--amber);}
+  .card.good .big{color:var(--green);}
+
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+
+  .dos-columnas{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+  @media (max-width:1100px){.dos-columnas{grid-template-columns:1fr;}}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tabla-wrap{overflow-x:auto;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
+  th.amount, td.amount{text-align:right;}
+  td{padding:9px;border-bottom:1px solid var(--line);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  tr.vencido{background:var(--red-bg);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:20px;color:var(--text);}
+  .note-box.err{background:var(--red-bg);border-color:#F5B5B5;}
+
+  /* ---- Soporte > IndexPro: backups de NAS de clientes ---- */
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
+  .tab{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);border-radius:10px;padding:9px 16px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;}
+  .tab:hover{border-color:var(--primary);color:var(--primary);}
+  .tab.activa{background:var(--primary);border-color:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .tab .punto{width:9px;height:9px;border-radius:50%;background:var(--line);display:inline-block;}
+  .tab .punto.ok{background:#22A559;} .tab .punto.falla{background:var(--red);} .tab .punto.sin_avisos{background:var(--amber);}
+  .tab.activa .punto{box-shadow:0 0 0 2px rgba(255,255,255,.7);}
+  .badge{display:inline-block;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700;white-space:nowrap;}
+  .badge.ok{background:var(--green-bg);color:var(--green);}
+  .badge.falla{background:var(--red-bg);color:var(--red);}
+  .badge.sin_avisos{background:var(--amber-dim);color:var(--amber);}
+  .badge.sin_datos{background:var(--surface-2);color:var(--muted);}
+  .badge.aviso{background:var(--amber-dim);color:var(--amber);}
+  .badge.info{background:var(--blue-bg);color:var(--blue);}
+  .card.estado-falla .big{color:var(--red);} .card.estado-sin_avisos .big{color:var(--amber);} .card.estado-ok .big{color:var(--green);}
+  .card .sub2{font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.4;}
+  .job-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:22px;}
+  @media (max-width:1100px){.job-grid{grid-template-columns:1fr;}}
+  .job{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);}
+  .job-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:4px;}
+  .job h3{font-family:'Space Grotesk',sans-serif;font-size:16px;margin:0;}
+  .job .destino{font-size:12.5px;color:var(--muted);margin-bottom:14px;}
+  .job .nombre-job{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);margin-top:2px;}
+  .datos{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;margin-bottom:16px;}
+  .dato .lbl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;margin-bottom:2px;}
+  .dato .val{font-size:13px;font-weight:600;}
+  .dato .val small{font-weight:500;color:var(--muted);}
+  .cal-wrap{margin-bottom:6px;}
+  .cal-tit{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+  .cal{display:grid;grid-template-columns:repeat(30,1fr);gap:3px;}
+  .cal i{aspect-ratio:1;border-radius:3px;background:#E8ECE2;display:block;}
+  .cal i.ok{background:#22A559;} .cal i.falla{background:var(--red);} .cal i.aviso{background:var(--amber);}
+  .leyenda{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:8px;}
+  .leyenda span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;background:#E8ECE2;}
+  .leyenda .l-ok::before{background:#22A559;} .leyenda .l-falla::before{background:var(--red);} .leyenda .l-aviso::before{background:var(--amber);}
+  .grafico{margin-top:16px;border-top:1px solid var(--line);padding-top:14px;}
+  .grafico svg{width:100%;height:150px;display:block;}
+  .vacio-cliente{text-align:center;padding:34px 20px;}
+  .vacio-cliente h2{margin-bottom:6px;}
+  .vacio-cliente ol{text-align:left;max-width:640px;margin:16px auto 0;padding-left:22px;font-size:13px;line-height:1.7;color:var(--text);}
+  .msg-corto{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  td.det{font-size:12px;color:var(--muted);}
+  .filtros{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+          <a href="contabilidad.html">Contabilidad</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
+          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html">Modelos compatibles</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="soporte-indexpro.html" class="active">IndexPro</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="search-console.html">Search Console</a>
+          <a href="instagram.html">Instagram</a>
+          <a href="comparativo-ventas.html">Comparativo de ventas</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <div class="toolbar">
+    <div>
+      <h1 style="margin:0;">Soporte <span>IndexPro</span></h1>
+      <div class="sub">Backups de los NAS QNAP de nuestros clientes — estado de cada job de Hybrid Backup Sync.</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button class="btn-ghost" id="btnImportar" style="display:none;" onclick="importarHistorial()" title="Carga en el panel el historial que sacamos de los correos del NAS (se puede repetir sin duplicar)">⤓ Cargar historial inicial</button>
+      <button class="btn-ghost" onclick="cargar()">↻ Actualizar</button>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabsClientes"></div>
+  <div id="status"></div>
+  <div id="avisoWrap"></div>
+
+  <div id="contenido">
+    <div class="grid" id="kpiWrap">
+      <div class="card"><div class="lbl">Estado general</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Último backup diario OK</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Último backup semanal OK</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Fallas (90 días)</div><div class="big">—</div></div>
+      <div class="card"><div class="lbl">Último aviso del NAS</div><div class="big">—</div></div>
+    </div>
+
+    <div class="job-grid" id="wrapJobs"></div>
+
+    <div class="seccion">
+      <div class="seccion-head">
+        <div><h2>🔴 Fallas y avisos</h2><div class="sub">Todo lo que el NAS reportó con severidad Error o Warning.</div></div>
+      </div>
+      <div id="wrapProblemas"><p class="empty-note">Cargando...</p></div>
+    </div>
+
+    <div class="seccion">
+      <div class="seccion-head">
+        <div><h2>🗒️ Últimos eventos</h2><div class="sub">Lo que llegó desde el NAS (inicio y término de cada job). Haz clic en un encabezado para ordenar.</div></div>
+        <div class="filtros">
+          <select id="filtroJob" onchange="renderEventos()"><option value="">Todos los jobs</option></select>
+        </div>
+      </div>
+      <div id="wrapEventos"><p class="empty-note">Cargando...</p></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script src="tablas-ordenables.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+function fmtGb(n){ return n == null ? '—' : Number(n).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' GB'; }
+function fmtFecha(iso){
+  if(!iso) return '—';
+  return new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+function fmtDiaCorto(dia){ return dia ? dia.split('-').reverse().join('-') : '—'; }
+function haceTexto(dias){
+  if(dias == null) return '—';
+  if(dias === 0) return 'hoy';
+  if(dias === 1) return 'ayer';
+  return `hace ${dias} días`;
+}
+
+// Los clientes se definen en lib/nas-backup.js (CLIENTES); acá solo el nombre para dibujar las pestañas antes de que llegue la respuesta.
+const CLIENTES = [
+  { id: 'magua', nombre: 'Inmobiliaria Magua' },
+  { id: 'mvs', nombre: 'MvS Group' },
+];
+let clienteActual = (new URLSearchParams(location.search).get('cliente')) || 'magua';
+if(!CLIENTES.some(c => c.id === clienteActual)) clienteActual = 'magua';
+let datos = null;
+const estadoPorCliente = {};
+let esAdmin = false;
+
+const TEXTO_ESTADO = { ok: 'Al día', falla: 'Con falla', sin_avisos: 'Sin avisos', sin_datos: 'Sin datos' };
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${esc(u.nombre || u.email)}</b></span>`;
+    if(u.rol === 'admin'){
+      esAdmin = true;
+      const nav = document.getElementById('navUsuarios');
+      if(nav) nav.style.display = '';
+      $('btnImportar').style.display = '';
+    }
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+function renderTabs(){
+  $('tabsClientes').innerHTML = CLIENTES.map(c => {
+    const est = estadoPorCliente[c.id] || 'sin_datos';
+    return `<button class="tab ${c.id === clienteActual ? 'activa' : ''}" onclick="elegirCliente('${c.id}')"><span class="punto ${est}"></span>${esc(c.nombre)}</button>`;
+  }).join('');
+}
+function elegirCliente(id){
+  clienteActual = id;
+  history.replaceState(null, '', `?cliente=${id}`);
+  renderTabs();
+  cargar();
+}
+
+async function cargar(){
+  const status = $('status');
+  status.className = '';
+  status.textContent = 'Consultando backups...';
+  $('avisoWrap').innerHTML = '';
+  renderTabs();
+  try{
+    const res = await fetch(`/api/negocio?recurso=nas-backup&cliente=${clienteActual}`).then(r => r.json());
+    if(res.error){
+      status.className = 'err';
+      status.textContent = 'Error al leer los backups.';
+      $('avisoWrap').innerHTML = `<div class="note-box err"><b>No se pudo leer:</b> ${esc(res.detail || res.error)}</div>`;
+      return;
+    }
+    datos = res;
+    estadoPorCliente[clienteActual] = res.estadoGeneral;
+    renderTabs();
+    renderTodo();
+    status.textContent = res.ultimoAviso
+      ? `Actualizado — ${fmtNum(res.totalEventos)} eventos del NAS, el último el ${fmtFecha(res.ultimoAviso)}`
+      : 'Sin eventos cargados todavía.';
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
+}
+
+function renderTodo(){
+  const d = datos;
+  const sinNas = !d.cliente.nas;
+  if(sinNas){
+    renderClienteSinNas();
+    return;
+  }
+  const aviso = [];
+  aviso.push(`<div class="note-box"><b>Fase 1 — datos desde los correos del NAS.</b> El NAS manda un correo por cada inicio y término de job (Notification Center). Si pasan días sin correos no significa que el job no corrió: puede que el NAS no avisara. En la Fase 2 un agente instalado en el NAS informará el estado real de cada job, el disco USB y el espacio disponible.</div>`);
+  if(!d.totalEventos){
+    aviso.push(`<div class="note-box err"><b>Todavía no hay eventos de este cliente en el panel.</b> ${esAdmin ? 'Usa «Cargar historial inicial» (arriba) para traer lo que ya llegó por correo.' : 'Un administrador debe cargar el historial inicial.'}</div>`);
+  }
+  $('avisoWrap').innerHTML = aviso.join('');
+  $('contenido').innerHTML = estructuraContenido();
+  renderKpis();
+  renderJobs();
+  renderProblemas();
+  poblarFiltroJobs();
+  renderEventos();
+}
+
+function estructuraContenido(){
+  return `
+    <div class="grid" id="kpiWrap"></div>
+    <div class="job-grid" id="wrapJobs"></div>
+    <div class="seccion">
+      <div class="seccion-head"><div><h2>🔴 Fallas y avisos</h2><div class="sub">Todo lo que el NAS reportó con severidad Error o Warning.</div></div></div>
+      <div id="wrapProblemas"></div>
+    </div>
+    <div class="seccion">
+      <div class="seccion-head">
+        <div><h2>🗒️ Últimos eventos</h2><div class="sub">Lo que llegó desde el NAS (inicio y término de cada job). Haz clic en un encabezado para ordenar.</div></div>
+        <div class="filtros"><select id="filtroJob" onchange="renderEventos()"><option value="">Todos los jobs</option></select></div>
+      </div>
+      <div id="wrapEventos"></div>
+    </div>`;
+}
+
+function renderClienteSinNas(){
+  $('avisoWrap').innerHTML = '';
+  $('contenido').innerHTML = `
+    <div class="seccion vacio-cliente">
+      <h2>${esc(datos.cliente.nombre)} — aún sin NAS conectado</h2>
+      <div class="sub">Cuando este cliente tenga un NAS QNAP con backups, aparecerá aquí con la misma vista que Inmobiliaria Magua.</div>
+      <ol>
+        <li>En el NAS: <b>Notification Center → System Notification Rules</b>, crear una regla para <b>Hybrid Backup Sync</b> (Job Status y Custom Job Event) que envíe correo a IndexPro.</li>
+        <li>Registrar en <b>lib/nas-backup.js</b> el nombre del NAS y los jobs de HBS 3 del cliente (con su cadencia y tolerancia).</li>
+        <li>Fase 2: instalar el agente del NAS para recibir el estado real (último run, disco USB, espacio, SMART).</li>
+      </ol>
+    </div>`;
+}
+
+function claseEstado(e){ return e || 'sin_datos'; }
+
+function renderKpis(){
+  const d = datos;
+  const todos = [...d.jobs, ...d.otros];
+  const diario = d.jobs.find(j => /diaria/i.test(j.cadencia));
+  const semanal = d.jobs.find(j => /semanal/i.test(j.cadencia));
+  const fallas90 = todos.reduce((a, j) => a + (j.fallas90 || 0), 0);
+  const tarjeta = (lbl, big, sub, cls) => `<div class="card ${cls || ''}"><div class="lbl">${lbl}</div><div class="big">${big}</div>${sub ? `<div class="sub2">${sub}</div>` : ''}</div>`;
+  const kpiJob = (j, lbl) => {
+    if(!j) return tarjeta(lbl, '—', 'Job no configurado');
+    const ex = j.ultimoExito;
+    return tarjeta(lbl, ex ? haceTexto(j.diasDesdeExito) : 'Sin registro', ex ? `${fmtFecha(ex.fecha)}${ex.tamanoGb != null ? ` · ${fmtGb(ex.tamanoGb)}` : ''}` : 'No hay correos de término de este job', 'estado-' + j.estado);
+  };
+  $('kpiWrap').innerHTML =
+    tarjeta('Estado general', TEXTO_ESTADO[d.estadoGeneral] || '—', d.estadoGeneral === 'sin_avisos' ? 'Algún job no ha avisado dentro de su plazo' : (d.estadoGeneral === 'falla' ? 'Hay un job cuyo último evento fue una falla' : ''), 'estado-' + d.estadoGeneral) +
+    kpiJob(diario, 'Último backup diario OK') +
+    kpiJob(semanal, 'Último backup semanal OK') +
+    tarjeta('Fallas (90 días)', fmtNum(fallas90), fallas90 ? 'Revisa la tabla de fallas' : 'Sin fallas reportadas', fallas90 ? 'estado-falla' : 'estado-ok') +
+    tarjeta('Último aviso del NAS', d.ultimoAviso ? haceTexto(Math.max(0, Math.round((Date.now() - new Date(d.ultimoAviso)) / 86400000))) : '—', d.ultimoAviso ? fmtFecha(d.ultimoAviso) : '');
+}
+
+function renderJobs(){
+  const lista = [...datos.jobs, ...datos.otros];
+  $('wrapJobs').innerHTML = lista.length ? lista.map(tarjetaJob).join('') : '<p class="empty-note">No hay jobs configurados para este cliente.</p>';
+  // Jobs que aparecen en el historial pero sin actividad en 90 días (pruebas viejas): se listan aparte para no mezclarlos con el estado actual.
+  if((datos.antiguos || []).length){
+    $('wrapJobs').insertAdjacentHTML('afterend', `<p class="empty-note" style="margin:-8px 0 22px;">Jobs antiguos en el historial, sin actividad reciente (no cuentan en el estado): ${datos.antiguos.map(a => `<b>${esc(a.nombre)}</b> (último aviso ${fmtDiaCorto(a.ultimoEvento)})`).join(', ')}.</p>`);
+  }
+}
+
+function tarjetaJob(j){
+  const ex = j.ultimoExito, fl = j.ultimaFalla;
+  const msgEstado = {
+    ok: 'Backup exitoso dentro del plazo esperado.',
+    falla: 'El último evento relevante fue una falla — hay que revisar el NAS.',
+    sin_avisos: `Sin avisos de término hace ${j.diasDesdeExito == null ? 'mucho' : j.diasDesdeExito + ' días'} (plazo esperado: ${j.toleranciaDias >= 9999 ? '—' : j.toleranciaDias + ' días'}). Puede que el job no corriera o que el NAS no avisara: confirmar en HBS 3 → Jobs.`,
+    sin_datos: 'No hay eventos de este job en el panel.',
+  }[j.estado];
+  return `
+    <div class="job">
+      <div class="job-top">
+        <div><h3>${esc(j.etiqueta)} — ${esc(j.destino)}</h3><div class="nombre-job">${esc(j.nombre)}</div></div>
+        <span class="badge ${claseEstado(j.estado)}">${TEXTO_ESTADO[j.estado]}</span>
+      </div>
+      <div class="destino">Cadencia esperada: <b>${esc(j.cadencia)}</b></div>
+      <div class="note-box" style="margin-bottom:14px;${j.estado === 'ok' ? 'background:var(--green-bg);border-color:#BFE3C9;' : ''}${j.estado === 'sin_avisos' ? 'background:var(--amber-dim);border-color:#F1D6A6;' : ''}">${msgEstado}</div>
+      <div class="datos">
+        <div class="dato"><div class="lbl">Último backup exitoso</div><div class="val">${ex ? fmtFecha(ex.fecha) : '—'} ${ex ? `<small>(${haceTexto(j.diasDesdeExito)})</small>` : ''}</div></div>
+        <div class="dato"><div class="lbl">Última falla</div><div class="val">${fl ? fmtFecha(fl.fecha) : 'Ninguna'}</div></div>
+        <div class="dato"><div class="lbl">Exitosos (30 / 90 días)</div><div class="val">${j.exitos30} <small>/ ${j.exitos90}</small></div></div>
+        <div class="dato"><div class="lbl">Fallas (30 / 90 días)</div><div class="val">${j.fallas30} <small>/ ${j.fallas90}</small></div></div>
+        ${ex && ex.tamanoGb != null ? `<div class="dato"><div class="lbl">Total respaldado (último)</div><div class="val">${fmtGb(ex.tamanoGb)}</div></div>` : ''}
+        ${ex && ex.respaldados != null ? `<div class="dato"><div class="lbl">Archivos nuevos/cambiados (último)</div><div class="val">${fmtNum(ex.respaldados)} <small>de ${fmtNum(ex.archivosTotal)}</small></div></div>` : ''}
+      </div>
+      <div class="cal-wrap">
+        <div class="cal-tit"><span>Últimos 60 días</span><span>${esc(j.cadencia)} · día = aviso recibido ese día</span></div>
+        <div class="cal">${j.calendario.map(c => `<i class="${c.estado === 'vacio' ? '' : c.estado}" title="${fmtDiaCorto(c.dia)}: ${c.fallas ? c.fallas + ' falla(s)' : (c.exitos ? c.exitos + ' backup(s) exitoso(s)' : 'sin avisos')}"></i>`).join('')}</div>
+        <div class="leyenda"><span class="l-ok">Backup exitoso</span><span class="l-falla">Falla</span><span class="l-aviso">Con advertencia</span><span>Sin avisos</span></div>
+      </div>
+      ${j.serieTamano.length >= 2 ? `<div class="grafico"><div class="cal-tit"><span>Evolución del tamaño respaldado</span><span>GB · un punto por backup terminado</span></div>${graficoLinea(j.serieTamano)}</div>` : ''}
+    </div>`;
+}
+
+// Gráfico de línea simple en SVG (sin librerías): eje X = fecha, eje Y = GB.
+function graficoLinea(serie){
+  const W = 560, H = 150, ml = 46, mr = 10, mt = 10, mb = 22;
+  const xs = serie.map(p => new Date(p.fecha).getTime());
+  const ys = serie.map(p => p.tamanoGb);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  let y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const pad = Math.max((y1 - y0) * 0.15, y1 * 0.01, 1);
+  y0 = Math.max(0, y0 - pad); y1 = y1 + pad;
+  const X = t => ml + (x1 === x0 ? (W - ml - mr) / 2 : (t - x0) / (x1 - x0) * (W - ml - mr));
+  const Y = v => mt + (1 - (v - y0) / (y1 - y0)) * (H - mt - mb);
+  const pts = serie.map(p => `${X(new Date(p.fecha).getTime()).toFixed(1)},${Y(p.tamanoGb).toFixed(1)}`).join(' ');
+  const ticks = [y0, (y0 + y1) / 2, y1];
+  const fx = t => new Date(t).toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: 'short' });
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Evolución del tamaño respaldado">
+    ${ticks.map(v => `<line x1="${ml}" x2="${W - mr}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#E3E7DC" stroke-width="1"/><text x="${ml - 6}" y="${(Y(v) + 3).toFixed(1)}" font-size="9" fill="#6B7568" text-anchor="end">${Math.round(v)}</text>`).join('')}
+    <text x="${ml}" y="${H - 6}" font-size="9" fill="#6B7568">${fx(x0)}</text>
+    <text x="${W - mr}" y="${H - 6}" font-size="9" fill="#6B7568" text-anchor="end">${fx(x1)}</text>
+    <polyline points="${pts}" fill="none" stroke="#0F766E" stroke-width="2" stroke-linejoin="round"/>
+    ${serie.map(p => `<circle cx="${X(new Date(p.fecha).getTime()).toFixed(1)}" cy="${Y(p.tamanoGb).toFixed(1)}" r="2.6" fill="#0F766E"><title>${fmtFecha(p.fecha)} — ${fmtGb(p.tamanoGb)}</title></circle>`).join('')}
+  </svg>`;
+}
+
+function tablaEventos(lista, conJob){
+  if(!lista.length) return '<p class="empty-note">Sin registros.</p>';
+  return `<div class="tabla-wrap"><table><thead><tr>
+      <th>Fecha</th>${conJob ? '<th>Job</th>' : ''}<th>Evento</th><th>Severidad</th><th>Detalle</th>
+    </tr></thead><tbody>${lista.map(e => {
+      const sev = e.severidad || '—';
+      const clase = e.severidad === 'Error' ? 'falla' : (e.severidad === 'Warning' ? 'aviso' : 'info');
+      const evento = { started: 'Inicio', finished: 'Término', failed: 'Falla', warning: 'Advertencia', storage: 'Almacenamiento', otro: 'Otro' }[e.tipo] || e.tipo;
+      const detalle = e.tamanoGb != null ? `${fmtGb(e.tamanoGb)} · ${fmtNum(e.respaldados)} archivos respaldados de ${fmtNum(e.archivosTotal)}` : e.mensaje;
+      return `<tr>
+        <td data-valor="${esc(e.fecha)}">${fmtFecha(e.fecha)}</td>
+        ${conJob ? `<td>${esc(e.job || '—')}</td>` : ''}
+        <td>${evento}</td>
+        <td><span class="badge ${clase}">${esc(sev)}</span></td>
+        <td class="det" title="${esc(e.mensaje)}">${esc(detalle)}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+
+function renderProblemas(){
+  $('wrapProblemas').innerHTML = datos.problemas.length ? tablaEventos(datos.problemas, true) : '<p class="empty-note">El NAS no ha reportado fallas ni advertencias.</p>';
+}
+function poblarFiltroJobs(){
+  const nombres = [...new Set(datos.eventos.map(e => e.job).filter(Boolean))];
+  $('filtroJob').innerHTML = '<option value="">Todos los jobs</option>' + nombres.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+}
+function renderEventos(){
+  const job = $('filtroJob') ? $('filtroJob').value : '';
+  const lista = datos.eventos.filter(e => !job || e.job === job).slice(0, 150);
+  $('wrapEventos').innerHTML = tablaEventos(lista, true);
+}
+
+async function importarHistorial(){
+  if(!confirm('Se cargará en el panel el historial de eventos sacado de los correos del NAS. Se puede repetir sin duplicar. ¿Continuar?')) return;
+  const status = $('status');
+  status.className = '';
+  status.textContent = 'Cargando historial...';
+  try{
+    const r = await fetch('/api/negocio?recurso=nas-backup-importar', { method: 'POST' }).then(x => x.json());
+    if(r.error){ status.className = 'err'; status.textContent = 'No se pudo cargar: ' + (r.detail || r.error); return; }
+    status.textContent = `Historial cargado: ${r.nuevos} eventos nuevos (${r.duplicados} ya estaban), del ${r.desde} al ${r.hasta}.`;
+    await cargar();
+    $('status').textContent = status.textContent;
+  }catch(err){
+    status.className = 'err';
+    status.textContent = 'Error: ' + err.message;
+  }
+}
+
+cargarSesionUsuario();
+cargar();
+</script>
+</body>
+</html>
