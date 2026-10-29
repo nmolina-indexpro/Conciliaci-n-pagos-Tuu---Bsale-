@@ -389,6 +389,7 @@ function renderTodo(){
   $('contenido').innerHTML = estructuraContenido();
   renderKpis();
   renderJobs();
+  renderSalud();
   renderProblemas();
   poblarFiltroJobs();
   renderEventos();
@@ -398,6 +399,10 @@ function estructuraContenido(){
   return `
     <div class="grid" id="kpiWrap"></div>
     <div class="job-grid" id="wrapJobs"></div>
+    <div class="seccion">
+      <div class="seccion-head"><div><h2>🩺 Salud y seguridad del NAS</h2><div class="sub">Alertas de hardware, discos, firmware, antivirus y firewall (últimos 90 días). Haz clic en un encabezado para ordenar.</div></div><div id="chipsSalud"></div></div>
+      <div id="wrapSalud"></div>
+    </div>
     <div class="seccion">
       <div class="seccion-head"><div><h2>🔴 Fallas y avisos</h2><div class="sub">Todo lo que el NAS reportó con severidad Error o Warning.</div></div></div>
       <div id="wrapProblemas"></div>
@@ -534,6 +539,26 @@ function tablaEventos(lista, conJob){
     }).join('')}</tbody></table></div>`;
 }
 
+function renderSalud(){
+  const sal = datos.salud || { alertas: [], errores30: 0, avisos30: 0 };
+  $('chipsSalud').innerHTML = `<span class="badge falla">${sal.errores30} ${sal.errores30 === 1 ? 'error' : 'errores'}</span> <span class="badge aviso">${sal.avisos30} ${sal.avisos30 === 1 ? 'advertencia' : 'advertencias'}</span> <span class="sub">en 30 días</span>`;
+  if(!sal.alertas.length){
+    $('wrapSalud').innerHTML = '<p class="empty-note">Sin alertas de salud ni seguridad en los últimos 90 días. Esta lista se llena con la regla «SALUD NAS PATAGUA» de Notification Center, que solo avisa cuando algo falla (no informa valores actuales como temperatura o espacio libre: eso lo traerá la Fase 2).</p>';
+    return;
+  }
+  $('wrapSalud').innerHTML = `<div class="tabla-wrap"><table><thead><tr>
+      <th>Fecha</th><th>Severidad</th><th>Aplicación</th><th>Categoría</th><th>Mensaje</th>
+    </tr></thead><tbody>${sal.alertas.map(a => {
+      const clase = a.severidad === 'Error' ? 'falla' : (a.severidad === 'Warning' ? 'aviso' : 'info');
+      return `<tr>
+        <td data-valor="${esc(a.fecha)}">${fmtFecha(a.fecha)}</td>
+        <td><span class="badge ${clase}">${esc(a.severidad || '—')}</span></td>
+        <td>${esc(a.app || '—')}</td>
+        <td>${esc(a.categoria || '—')}</td>
+        <td class="det" title="${esc(a.mensaje)}">${esc(a.mensaje)}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+}
 function renderProblemas(){
   $('wrapProblemas').innerHTML = datos.problemas.length ? tablaEventos(datos.problemas, true) : '<p class="empty-note">El NAS no ha reportado fallas ni advertencias.</p>';
 }
@@ -576,7 +601,7 @@ async function sincronizarCorreo(){
     const total = r.revisados || 0;
     const hechos = (r.yaCargados || 0) + (r.nuevos || 0) + (r.noReconocidos || 0);
     const pct = total ? Math.round(hechos / total * 100) : 100;
-    let msg = `${pct}% — ${hechos} de ${total} correos revisados en ${r.casilla}: ${r.nuevos} eventos nuevos, ${r.yaCargados} ya estaban, ${r.noReconocidos} no eran avisos de backup.`;
+    let msg = `${pct}% — ${hechos} de ${total} correos revisados en ${r.casilla}: ${r.nuevos} eventos de backup nuevos, ${r.alertas || 0} alertas de salud nuevas, ${r.yaCargados} ya estaban, ${r.noReconocidos} sin reconocer.`;
     if(r.pendientesPorTiempo) msg += ` Quedaron ${r.pendientesPorTiempo} por leer: vuelve a presionar para continuar.`;
     if(r.error){ status.className = 'err'; msg = 'Sincronización incompleta: ' + r.error + '. ' + msg; }
     status.textContent = msg;

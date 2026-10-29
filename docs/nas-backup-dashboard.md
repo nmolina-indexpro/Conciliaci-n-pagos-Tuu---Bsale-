@@ -39,6 +39,16 @@ El ERP lee por IMAP el buzón `backups@indexstore.cl` (variable `NAS_BACKUP_BUZO
 - El servidor de correo entrega ~8 s por cuerpo: se lee hasta agotar 38 s y lo pendiente queda para la próxima pasada.
 - Límite: solo refleja lo que el NAS avise por correo. El estado real y la salud del hardware siguen requiriendo la fase 2.
 
+### Salud y seguridad del NAS (segunda regla de Notification Center)
+
+Una segunda regla del NAS ("SALUD NAS PATAGUA", solo gravedad Advertencia y Error, mismos destinatarios) manda alertas de hardware, discos/RAID/volumen,
+disco USB externo, energía, firmware, antivirus/ransomware, firewall/seguridad y de la cuenta SMTP del propio NAS. El lector del buzón las guarda en
+`nas_alertas` (aparte de `nas_backup_eventos`, para que un error de hardware no cuente como falla de backup) y la página las muestra en
+**Salud y seguridad del NAS**. Todo correo con formato de Notification Center que no sea un inicio/término/falla de job de backup se trata como alerta.
+Los correos que no son del NAS (pruebas, cPanel) se anotan en `nas_correos_vistos` para no descargarlos otra vez. Los avisos llegan en español o inglés
+según el idioma de QTS (`camposCorreoNas` en `lib/nas-backup.js` entiende ambos). Límite: solo avisa cuando algo falla; los valores actuales
+(temperatura, espacio libre, SMART) requieren la fase 2.
+
 ## Fase 2 (pendiente): agente en el NAS que empuja el estado real
 
 Objetivo: dejar de depender de los correos y saber el estado verdadero de cada job y del hardware.

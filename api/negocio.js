@@ -28,7 +28,7 @@ import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadore
 import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGORIAS as CATEGORIAS_CONTABILIDAD, CATEGORIA_IDS as CATEGORIA_IDS_CONTABILIDAD, categoriaEfectiva, resumir as resumirContabilidad, analizarContabilidad } from '../lib/contabilidad.js';
 import { asegurarTablaContabilidad, asegurarTablaInsumosSt } from '../lib/db.js';
 import { asegurarTablaNasBackup } from '../lib/db.js';
-import { CLIENTES as CLIENTES_NAS_BACKUP, consolidarEventos as consolidarEventosNasBackup, textoDesdeCorreoCrudo as textoCorreoNasBackup, parsearCorreoHbs as parsearCorreoHbsNasBackup, clientePorNas as clientePorNasBackup, normalizarEvento as normalizarEventoNasBackup, resumirCliente as resumirClienteNasBackup, filasDesdeHistorial as filasHistorialNasBackup, esFalla as esFallaNasBackup, esAviso as esAvisoNasBackup } from '../lib/nas-backup.js';
+import { CLIENTES as CLIENTES_NAS_BACKUP, consolidarEventos as consolidarEventosNasBackup, textoDesdeCorreoCrudo as textoCorreoNasBackup, parsearCorreoHbs as parsearCorreoHbsNasBackup, parsearAlertaNas as parsearAlertaNasBackup, clientePorNas as clientePorNasBackup, normalizarEvento as normalizarEventoNasBackup, resumirCliente as resumirClienteNasBackup, filasDesdeHistorial as filasHistorialNasBackup, esFalla as esFallaNasBackup, esAviso as esAvisoNasBackup } from '../lib/nas-backup.js';
 import { paginasEfectivas } from '../lib/paginas-perfil.js';
 import { contarSeguimientos, PAUSA_SEGUIMIENTO_MS } from '../lib/whatsapp-seguimientos.js';
 import { corregirCorreo } from '../lib/correos-corregidos.js';
@@ -16231,7 +16231,20 @@ async function manejarNasBackup(req, res, sesion) {
     // Tabla de eventos: lo más reciente primero (la página la deja ordenable); las fallas y avisos van completos aparte.
     const recientes = eventos.slice(-300).reverse();
     const problemas = eventos.filter(e => esFallaNasBackup(e) || esAvisoNasBackup(e)).reverse();
-    return res.status(200).json({ ...resumen, eventos: recientes, problemas });
+    // Alertas de salud y seguridad (hardware, discos, firmware, firewall...): vienen de otra regla de Notification Center, solo con Advertencia y Error.
+    const { rows: filasAlertas } = await sql.query(
+      `SELECT alerta_id, fecha, app, categoria, severidad, mensaje FROM nas_alertas
+        WHERE cliente = $1 AND fecha >= now() - interval '90 days' ORDER BY fecha DESC LIMIT 200;`,
+      [clienteId]
+    );
+    const hace30 = Date.now() - 30 * 86400000;
+    const recientes30 = filasAlertas.filter(a => new Date(a.fecha).getTime() >= hace30);
+    const salud = {
+      alertas: filasAlertas.map(a => ({ id: a.alerta_id, fecha: a.fecha, app: a.app, categoria: a.categoria, severidad: a.severidad, mensaje: a.mensaje })),
+      errores30: recientes30.filter(a => a.severidad === 'Error').length,
+      avisos30: recientes30.filter(a => a.severidad === 'Warning').length,
+    };
+    return res.status(200).json({ ...resumen, eventos: recientes, problemas, salud });
   } catch (err) {
     return res.status(500).json({ error: 'Error al leer los backups del NAS', detail: String(err) });
   }
@@ -16268,7 +16281,7 @@ async function insertarEventosNasBackup(sql, clienteId, nas, filas) {
 // se toma en la próxima pasada (por eso se mira unos días hacia atrás, no solo desde la última corrida).
 const CASILLA_NAS_BACKUP = { email: process.env.NAS_BACKUP_BUZON || 'backups@indexstore.cl', pass: process.env.IMAP_PASS_BACKUPS };
 async function sincronizarBuzonNasBackup(sql, dias) {
-  const resumen = { casilla: CASILLA_NAS_BACKUP.email, revisados: 0, yaCargados: 0, nuevos: 0, noReconocidos: 0, pendientesPorTiempo: 0, error: null };
+  const resumen = { casilla: CASILLA_NAS_BACKUP.email, revisados: 0, yaCargados: 0, nuevos: 0, alertas: 0, noReconocidos: 0, pendientesPorTiempo: 0, error: null };
   if (!CASILLA_NAS_BACKUP.pass) { resumen.error = 'falta la variable de entorno IMAP_PASS_BACKUPS (contraseña del buzón de avisos del NAS)'; return resumen; }
   const { ImapFlow } = await import('imapflow');
   const client = new ImapFlow({
@@ -16291,18 +16304,43 @@ async function sincronizarBuzonNasBackup(sql, dias) {
       })(), TIMEOUT_CARPETA_MS, 'listar el buzón tardó demasiado');
       resumen.revisados = lista.length;
       const { rows } = lista.length
-        ? await sql.query(`SELECT evento_id FROM nas_backup_eventos WHERE evento_id = ANY($1::text[])`, [lista.map(m => m.id)])
+        ? await sql.query(
+          `SELECT evento_id AS id FROM nas_backup_eventos WHERE evento_id = ANY($1::text[])
+           UNION SELECT alerta_id FROM nas_alertas WHERE alerta_id = ANY($1::text[])
+           UNION SELECT msg_id FROM nas_correos_vistos WHERE msg_id = ANY($1::text[]);`,
+          [lista.map(m => m.id)]
+        )
         : { rows: [] };
-      const conocidos = new Set(rows.map(r => r.evento_id));
+      const conocidos = new Set(rows.map(r => r.id));
       for (const m of lista) {
         if (conocidos.has(m.id)) { resumen.yaCargados++; continue; }
         if (Date.now() - inicio > PRESUPUESTO_MS) { resumen.pendientesPorTiempo++; continue; }
         const msg = await conTimeout(client.fetchOne(String(m.uid), { source: true }, { uid: true }), TIMEOUT_CUERPO_CORREO_MS, 'leer un correo tardó demasiado');
-        const aviso = msg && msg.source ? parsearCorreoHbsNasBackup(textoCorreoNasBackup(msg.source.toString('utf8'))) : null;
-        const cliente = aviso ? clientePorNasBackup(aviso.nas) : null;
-        if (!aviso || !cliente) { resumen.noReconocidos++; continue; }
-        const filas = filasHistorialNasBackup({ eventos: [{ id: m.id, fecha: aviso.fecha, job: aviso.job, tipo: aviso.tipo, severidad: aviso.severidad, categoria: aviso.categoria, mensaje: aviso.mensaje, stats: aviso.stats, fuente: 'correo' }] });
-        resumen.nuevos += await insertarEventosNasBackup(sql, cliente.id, aviso.nas, filas);
+        const texto = msg && msg.source ? textoCorreoNasBackup(msg.source.toString('utf8')) : '';
+        // Aviso de un job de backup (inicio, término, falla) o, si no lo es, alerta de salud/seguridad de cualquier otra aplicación del NAS.
+        const aviso = parsearCorreoHbsNasBackup(texto);
+        const esJob = !!(aviso && aviso.job && ['started', 'finished', 'warning', 'failed'].includes(aviso.tipo) && !/almacenamiento|storage|service|servicio|system|sistema/i.test(aviso.categoria || ''));
+        const alerta = esJob ? null : parsearAlertaNasBackup(texto);
+        const datos = esJob ? aviso : alerta;
+        const cliente = datos ? clientePorNasBackup(datos.nas) : null;
+        if (!cliente) {
+          // Solo se anota como "visto" lo que claramente no es un correo del NAS; un aviso del NAS que no se pudo interpretar se reintenta (por si se ajusta el lector).
+          if (!/NAS Name:|Nombre del NAS:/.test(texto)) await sql.query(`INSERT INTO nas_correos_vistos (msg_id) VALUES ($1) ON CONFLICT DO NOTHING;`, [m.id]);
+          resumen.noReconocidos++;
+          continue;
+        }
+        if (esJob) {
+          const filas = filasHistorialNasBackup({ eventos: [{ id: m.id, fecha: aviso.fecha, job: aviso.job, tipo: aviso.tipo, severidad: aviso.severidad, categoria: aviso.categoria, mensaje: aviso.mensaje, stats: aviso.stats, fuente: 'correo' }] });
+          resumen.nuevos += await insertarEventosNasBackup(sql, cliente.id, aviso.nas, filas);
+        } else {
+          const { rows: nuevaAlerta } = await sql.query(
+            `INSERT INTO nas_alertas (cliente, nas, alerta_id, fecha, app, categoria, severidad, mensaje)
+             VALUES ($1, $2, $3, ($4::timestamp AT TIME ZONE 'America/Santiago'), $5, $6, $7, $8)
+             ON CONFLICT (cliente, alerta_id) DO NOTHING RETURNING id;`,
+            [cliente.id, alerta.nas, m.id, alerta.fecha, alerta.app, alerta.categoria, alerta.severidad, alerta.mensaje]
+          );
+          resumen.alertas += nuevaAlerta.length;
+        }
       }
     } finally {
       lock.release();
