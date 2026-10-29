@@ -16240,7 +16240,10 @@ async function manejarNasBackupImportar(req, res, sesion) {
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede cargar el historial' });
   let historial;
   try {
-    historial = (await import('../lib/nas-backup-historial.js')).default;
+    const modulo = await import('../lib/nas-backup-historial.js');
+    historial = modulo.default;
+    // En Vercel el módulo puede llegar transpilado a CommonJS: ahí "default" es el módulo completo y el dato queda en default.default.
+    if (historial && !historial.eventos && historial.default) historial = historial.default;
   } catch (err) {
     return res.status(500).json({ error: 'No encontré el historial inicial en el servidor', detail: String(err) });
   }
