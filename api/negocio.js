@@ -5399,6 +5399,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'traspaso-stock-modelos': manejarTraspasoStockNotificar,
       'transito-envio-nuevo': manejarTransitoEnvioNuevoPrueba,
       'insumos-stock-critico': manejarInsumoCriticoPrueba,
+      'nas-informe-revision': manejarNasBackupInformeCron,
     };
     let r;
     if (tipo === 'resumen-cambios-diario') r = await enviarResumenCambios(sql, { para: destino });
@@ -16457,7 +16458,8 @@ async function manejarNasBackupInformeCron(req, res) {
       const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'nas-informe-revision');
       resultado.push({ cliente: cliente.id, informeId: informe.id, envios: await enviarRevisionInformeNasBackup(sql, informe, destinatarios, { prueba }) });
     }
-    return res.status(200).json({ ok: true, resultado });
+    const envios = resultado.flatMap(r => r.envios || []);
+    return res.status(200).json({ ok: true, enviado: envios.some(e => e.enviado), envios, resultado });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando el informe semanal de respaldos', detail: String(err) });
   }
