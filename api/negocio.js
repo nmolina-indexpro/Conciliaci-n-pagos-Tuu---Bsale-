@@ -7190,11 +7190,13 @@ async function generarPlanIndexscale(sql, sesion, cantidad, planExistenteId = nu
   let bruto = null; let aviso = null; let origen = 'ia';
   try {
     // Gemini a veces responde 503 ("alta demanda") o se cae un instante: se reintenta hasta 3 veces mientras alcance el tiempo (la función tiene 60 s en total).
+    // El primer intento usa el modelo normal; los reintentos pasan a un modelo de respaldo (GEMINI_MODEL_RESPALDO), porque la alta demanda suele ser de un solo modelo.
+    const modeloRespaldo = (process.env.GEMINI_MODEL_RESPALDO || 'gemini-3.8-flash').trim();
     const textoIA = 'Cantidad de clientes a elegir: ' + cantidad + '\nClientes candidatos (todos de Santiago / Región Metropolitana):\n' + JSON.stringify(paraIA);
     for (let intento = 0; ; intento++) {
       const restante = 53000 - (Date.now() - inicioGenerar);
       try {
-        bruto = await llamarGeminiEstructurado(SISTEMA_PLAN_IA, textoIA, HERRAMIENTA_PLAN_IA, { maxTokens: 12000, timeoutMs: Math.min(30000, restante - 1000) });
+        bruto = await llamarGeminiEstructurado(SISTEMA_PLAN_IA, textoIA, HERRAMIENTA_PLAN_IA, { maxTokens: 12000, timeoutMs: Math.min(30000, restante - 1000), modelo: intento === 0 ? GEMINI_MODEL_ANALISIS : modeloRespaldo });
         break;
       } catch (e) {
         const transitorio = /HTTP (500|502|503|504)|high demand|UNAVAILABLE|overloaded|abort|timeout/i.test(String(e && e.message));
@@ -17547,12 +17549,12 @@ async function manejarBuscadorIaFiltro(req, res) {
 }
 
 // Respuesta estructurada de Gemini (la IA debe llamar a la herramienta). Mismo patrón que llamarGeminiAnalisis, pero con herramienta y tamaño propios.
-async function llamarGeminiEstructurado(systemPrompt, texto, herramienta, { maxTokens = 4096, timeoutMs = 45000 } = {}) {
+async function llamarGeminiEstructurado(systemPrompt, texto, herramienta, { maxTokens = 4096, timeoutMs = 45000, modelo = GEMINI_MODEL_ANALISIS } = {}) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('sin_gemini_api_key');
   const decl = { name: herramienta.name, description: herramienta.description, parameters: convertirSchemaAGemini(herramienta.input_schema) };
   const respuesta = await fetchConTimeout(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ANALISIS}:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`,
     {
       method: 'POST',
       headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
