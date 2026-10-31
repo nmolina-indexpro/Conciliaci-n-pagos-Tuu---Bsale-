@@ -458,6 +458,7 @@
 </div>
 
 <script src="restriccion-usuario.js"></script>
+<script src="sondeo-activo.js"></script>
 <script src="menu-herramientas.js"></script>
 <script src="comercial-movil.js"></script>
 <script>
@@ -1230,7 +1231,8 @@ async function resultadoPlan(id, resultado){
 
 cargarPlanIndexscale();
 cargarLeadsWeb();
-setInterval(cargarLeadsWeb, 60000);
+// Solo con la pestaña a la vista y en uso: cada consulta despierta la base de datos (ver sondeo-activo.js).
+sondeoActivo(cargarLeadsWeb, { ms: 180000, inactividadMin: 15 });
 
 cargarSesionUsuario();
 cargarIndexscale('sin_sitio');

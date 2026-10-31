@@ -309,6 +309,7 @@
 </div>
 
 <script src="restriccion-usuario.js"></script>
+<script src="sondeo-activo.js"></script>
 <script src="menu-herramientas.js"></script>
 <script>
 const $ = id => document.getElementById(id);
@@ -606,8 +607,8 @@ function celdaCompra(sku){
 }
 
 // ---------- Aviso agrupado a compras: estado y "Enviar ahora" ----------
-// Mientras la página está abierta consulta cada minuto: de paso el servidor manda el aviso cuando ya pasó la espera, y se ven los cambios de otras personas (compras, técnico).
-let temporizadorEstadoInsumos = null;
+// Mientras la página está a la vista y en uso (hasta 45 min sin tocarla) consulta cada 2 minutos: de paso el servidor manda el aviso cuando ya pasó la espera, y se ven los cambios de otras personas (compras, técnico).
+let detenerSondeoInsumos = null;
 const horaCorta = iso => new Date(iso).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' });
 function pintarAvisoPendiente(d){
   const el = $('bannerAvisoInsumos');
@@ -648,11 +649,11 @@ async function refrescarEstadoInsumos(){
     const escribiendo = document.activeElement && $('wrapInsumos').contains(document.activeElement) && /input|select|textarea/i.test(document.activeElement.tagName);
     if(cambio && !escribiendo) renderInsumos();
     pintarAvisoPendiente(d);
-  }catch(e){ /* sin conexión: se reintenta en un minuto */ }
+  }catch(e){ /* sin conexión: se reintenta en la próxima consulta */ }
 }
 function iniciarEstadoInsumos(){
-  clearInterval(temporizadorEstadoInsumos);
-  temporizadorEstadoInsumos = setInterval(refrescarEstadoInsumos, 60000);
+  if(detenerSondeoInsumos) detenerSondeoInsumos();
+  detenerSondeoInsumos = sondeoActivo(refrescarEstadoInsumos, { ms: 120000, inactividadMin: 45 });
 }
 
 function selectRelevancia(sku){
