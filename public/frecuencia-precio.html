@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Frecuencia y precio — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  @media (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:18px 20px;}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:var(--text);}
+  .card .pct{font-size:13px;font-weight:700;color:var(--primary);margin-top:2px;}
+  .card.destacada{background:var(--primary-dim);border-color:var(--primary);}
+
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-top:16px;color:var(--text);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  #syncStatus{font-size:12px;color:var(--muted);margin-top:10px;}
+  #syncStatus.err{color:var(--red);}
+
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:12px;padding:7px 13px;}
+
+  .filtros{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  input[type=text]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  th.amount, td.amount{text-align:right;}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);text-decoration:none;font-size:13px;cursor:pointer;transition:all .15s;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+  .sku-code{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);}
+  .badge-caida{display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;font-size:11px;background:var(--red-bg);color:var(--red);}
+  .chk-group{display:flex;flex-direction:column;gap:3px;}
+  .efecto-linea{font-size:11.5px;line-height:1.35;margin-bottom:6px;}
+  .efecto-linea.ok{color:var(--green);} .efecto-linea.mal{color:var(--red);} .efecto-linea.espera{color:var(--muted);} .efecto-linea.aviso{color:#8A5A00;}
+  .efecto-linea .efecto-sub{display:block;color:var(--muted);font-size:10.5px;}
+  .chk-mini{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;}
+  .chk-mini input{margin:0;cursor:pointer;}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:16px;}
+  .modal-overlay.open{display:flex;}
+  .modal-box{background:var(--surface);border-radius:16px;padding:24px 26px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:min(520px,100%);max-height:86vh;overflow-y:auto;}
+  .modal-box h3{margin:0 0 4px 0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;}
+  .comentario-item{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:12.5px;}
+  .comentario-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+  #modalComentarioNuevo{width:100%;margin-top:14px;min-height:70px;padding:10px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;}
+
+  .fp-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:0 0 18px;}
+  @media (max-width:900px){.fp-kpis{grid-template-columns:repeat(2,1fr);}}
+  .fp-panel{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;}
+  .fp-panel label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px;}
+  .fp-campos{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;}
+  .fp-campos select, .fp-campos input[type=number]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 10px;border-radius:9px;font-size:13px;}
+  .fp-campos input[type=number]{width:90px;}
+  .fp-nota{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.45;}
+  .fp-baja{color:var(--red);font-weight:700;} .fp-sube{color:var(--green);font-weight:700;}
+  .fp-prod{min-width:260px;max-width:380px;}
+  .fp-prod b{display:block;font-weight:600;}
+  td.fp-proy{background:var(--primary-dim);}
+  th.fp-proy{background:#D2EAE6;color:var(--primary-dark);}
+  .fp-resumen{font-size:12.5px;color:var(--muted);margin:6px 0 10px;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+          <a href="contabilidad.html">Contabilidad</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
+          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html">Modelos compatibles</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="soporte-indexpro.html">IndexPro</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="frecuencia-precio.html" class="active">Frecuencia y precio</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="search-console.html">Search Console</a>
+          <a href="instagram.html">Instagram</a>
+          <a href="comparativo-ventas.html">Comparativo de ventas</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>📉 Frecuencia y precio</h1>
+  <div class="sub">Todos los productos con stock: cada cuánto se vende cada uno, si va a la baja y cuánto stock hay para cuántos meses. Con <b>📉 Simular precio</b> ves qué pasaría con las ventas si cambias el precio. Es una estimación a partir del historial de 12 meses, no una garantía.</div>
+
+  <div class="fp-kpis" id="fpKpis"></div>
+
+  <div class="fp-panel">
+    <div class="fp-campos">
+      <div><label for="fpBuscar">Buscar</label><input type="text" id="fpBuscar" placeholder="SKU o nombre…" oninput="fpRepintar()" style="width:230px;"></div>
+      <div><label for="fpCategoria">Categoría</label><select id="fpCategoria" onchange="fpRepintar()"><option value="">Todas</option></select></div>
+      <div><label for="fpVista">Mostrar</label>
+        <select id="fpVista" onchange="fpRepintar()">
+          <option value="todos">Todos los productos con stock</option>
+          <option value="lentos">Venden menos de 1 al mes (con ventas)</option>
+          <option value="stockalto">Stock para más de 6 meses</option>
+          <option value="baja">Ventas a la baja (últimos 3 meses)</option>
+          <option value="sinventas">Sin ventas en 12 meses</option>
+          <option value="conventas">Con ventas en 12 meses</option>
+        </select></div>
+      <div style="border-left:1px solid var(--line);padding-left:14px;"><label for="fpBaja">Bajar precio en</label><span><input type="number" id="fpBaja" value="10" min="1" max="60" step="1" oninput="fpRepintar()"> %</span></div>
+      <div><label for="fpElast">Reacción de las ventas</label>
+        <select id="fpElast" onchange="fpRepintar()">
+          <option value="1">Prudente (1% de baja = 1% más de ventas)</option>
+          <option value="2" selected>Media (1% de baja = 2% más)</option>
+          <option value="3">Alta (1% de baja = 3% más)</option>
+        </select></div>
+    </div>
+    <div class="fp-nota">Las columnas verdes proyectan cuántas unidades al mes y cuántos meses de stock quedarían <b>si bajas el precio ese porcentaje</b> con la reacción elegida. Es una vista rápida para elegir candidatos: el detalle (evidencia real de tus bajas anteriores, margen, venta extra necesaria) está en <b>📉 Simular precio</b> de cada fila.</div>
+  </div>
+
+  <div id="fpEstado" class="empty-note">Cargando…</div>
+  <div class="fp-resumen" id="fpResumen"></div>
+  <div class="tabla-wrap" id="fpTabla"></div>
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="menu-herramientas.js"></script>
+<script src="simulador-precio.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let rolActual = 'usuario';
+const IVA_FACTOR = 1.19;
+const DIAS_MES = 30.4;
+const CATEGORIA_LABEL = { cargadores: '🔌 Cargador', baterias: '🔋 Batería', pantallas: '🖥️ Pantalla' };
+// Mismos filtros de ruido que Productos estancados (el catálogo de Bsale trae envíos y servicios)
+const CODIGO_ENVIO_NUMERICO_REGEX = /^\d{8,}$/;
+const LINEA_ENVIO_EXCLUIDA_REGEX = /env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|99\s*minutos|global\s*tracking|^spread$|flete|courier|retiro en tienda|^pagado$|^rec[ií]belo$/i;
+
+function escapeHtml(texto){
+  return String(texto ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function fmtNum(n, d = 0){ return new Intl.NumberFormat('es-CL', { maximumFractionDigits: d }).format(n || 0); }
+function fmtMoneda(n){ return '$' + fmtNum(Math.round(n || 0)); }
+function categoriaLineaCliente(codigo, nombre){
+  const c = (codigo || '').toUpperCase();
+  if(/^CAR/.test(c)) return 'cargadores';
+  if(/^BAT/.test(c)) return 'baterias';
+  if(/^SER/.test(c)) return 'servicios';
+  if(/^(PSLIM|PNORMAL|PTBEZEL|FDP)/.test(c)) return 'pantallas';
+  const n = nombre || '';
+  if(/\d+(\.\d+)?["″]\s*\d+p\b/i.test(n)) return 'pantallas';
+  if(/pantalla/i.test(n)) return 'pantallas';
+  if(/cargador/i.test(n)) return 'cargadores';
+  if(/bater[ií]a/i.test(n)) return 'baterias';
+  if(/servicio|instalaci[oó]n|garant[ií]a|mano de obra|diagn[oó]stico|reparaci[oó]n/i.test(n)) return 'servicios';
+  return null;
+}
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    rolActual = u.rol;
+    $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){
+      const nav = $('navUsuarios');
+      if(nav) nav.style.display = '';
+    }
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Cálculo por producto ----------
+// A partir de las ventas por mes (bsale_ventas_sku, monto neto) de los últimos 12 meses.
+// El mes en curso está incompleto: cuenta como la fracción del mes que ya pasó, y se deja fuera de la tendencia.
+let filas = [];            // un objeto por producto con stock
+let costoPorSku = {};
+function calcularFila(s, p, meses){
+  const n = meses.length;
+  const u = meses.map(m => (p && p.porMes[m] ? p.porMes[m].cantidad : 0));
+  const monto = meses.map(m => (p && p.porMes[m] ? p.porMes[m].monto : 0));
+  const u12 = u.reduce((a, b) => a + b, 0);
+  const primero = u.findIndex(x => x > 0);
+  const hoy = new Date();
+  const fraccion = hoy.getDate() / new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
+  const ventana = primero < 0 ? 0 : Math.max(3, (n - 1 - primero) + fraccion);
+  const unidMes = ventana > 0 ? u12 / ventana : 0;
+  const suma = (a, b) => u.slice(a, b).reduce((x, y) => x + y, 0);
+  const ult3 = suma(n - 4, n - 1), prev3 = suma(n - 7, n - 4);
+  const tend = prev3 > 0 ? (ult3 / prev3 - 1) * 100 : null;
+  // Precio vigente: promedio ponderado de los últimos 3 meses con ventas
+  let sc = 0, sm = 0, cont = 0;
+  for(let i = n - 1; i >= 0 && cont < 3; i--){ if(u[i] > 0){ sc += u[i]; sm += monto[i]; cont++; } }
+  const pn = sc > 0 ? sm / sc : null;
+  const dias = p && p.ultimaVenta ? Math.floor((Date.now() - new Date(p.ultimaVenta + 'T00:00:00').getTime()) / 86400000) : null;
+  return {
+    sku: s.code, nombre: s.nombre || (p && p.nombre) || s.code, categoria: s.categoria || '',
+    linea: categoriaLineaCliente(s.code, s.nombre), stock: s.stockActual || 0,
+    u12, unidMes, tend, precioConIva: pn != null ? pn * IVA_FACTOR : null, ultimaVenta: p ? p.ultimaVenta : null, dias,
+    diasPorUnidad: unidMes > 0 ? DIAS_MES / unidMes : null,
+    mesesStock: unidMes > 0 ? (s.stockActual || 0) / unidMes : null,
+  };
+}
+
+async function cargar(){
+  try{
+    const [resVentas, resStock] = await Promise.all([fetch('/api/negocio?recurso=ventas-sku-tendencia'), fetch('/api/bsale-sku-report')]);
+    const data = await resVentas.json();
+    if(!resVentas.ok || data.error){ $('fpEstado').textContent = data.error || 'No se pudo cargar las ventas.'; return; }
+    const stockData = await resStock.json().catch(() => ({ skus: [] }));
+    const catalogo = stockData.skus || [];
+    if(!catalogo.length){ $('fpEstado').textContent = 'No se pudo leer el stock de Bsale. Prueba de nuevo en un momento.'; return; }
+    const excluidos = new Set(data.excluidos || []);
+    const porSku = new Map((data.productos || []).map(p => [p.sku, p]));
+    costoPorSku = {};
+    filas = [];
+    for(const s of catalogo){
+      if(s.ultimoCosto != null) costoPorSku[s.code] = s.ultimoCosto;
+      if(!s.code || (s.stockActual || 0) <= 0 || excluidos.has(s.code)) continue;
+      if(CODIGO_ENVIO_NUMERICO_REGEX.test(s.code) || LINEA_ENVIO_EXCLUIDA_REGEX.test(s.nombre || '')) continue;
+      const linea = categoriaLineaCliente(s.code, s.nombre);
+      if(linea === 'servicios') continue;
+      const p = porSku.get(s.code);
+      // Sin ventas en 12 meses: solo los de las tres líneas de la tienda (el resto del catálogo es ruido)
+      if(!p && linea !== 'cargadores' && linea !== 'baterias' && linea !== 'pantallas') continue;
+      filas.push(calcularFila(s, p, data.meses));
+    }
+    const cats = [...new Set(filas.map(f => f.categoria).filter(Boolean))].sort();
+    $('fpCategoria').innerHTML = '<option value="">Todas</option>' + cats.map(c => `<option>${escapeHtml(c)}</option>`).join('');
+    $('fpEstado').style.display = 'none';
+    pintarKpis();
+    fpRepintar();
+  }catch(err){
+    $('fpEstado').textContent = 'No se pudo cargar: ' + err.message;
+  }
+}
+
+function pintarKpis(){
+  const conV = filas.filter(f => f.u12 > 0).length;
+  const sinV = filas.length - conV;
+  const baja = filas.filter(f => f.tend != null && f.tend <= -20).length;
+  const stockAlto = filas.filter(f => f.mesesStock != null && f.mesesStock > 6).length;
+  const k = (t, v, s) => `<div class="card"><div class="lbl">${t}</div><div class="big">${fmtNum(v)}</div><div class="pct">${s}</div></div>`;
+  $('fpKpis').innerHTML =
+    k('Productos con stock', filas.length, `${fmtNum(conV)} con ventas en 12 meses`) +
+    k('Sin ventas en 12 meses', sinV, 'stock que no rota') +
+    k('Stock para +6 meses', stockAlto, 'al ritmo de venta actual') +
+    k('Ventas a la baja', baja, 'bajaron 20% o más (3 meses)');
+}
+
+function fpRepintar(){
+  if(!filas.length) return;
+  const q = ($('fpBuscar').value || '').trim().toLowerCase();
+  const cat = $('fpCategoria').value;
+  const vista = $('fpVista').value;
+  const baja = Math.min(60, Math.max(1, Number($('fpBaja').value) || 10)) / 100;
+  const E = Number($('fpElast').value) || 2;
+  const factor = Math.pow(1 - baja, -E);
+  let lista = filas.filter(f => {
+    if(cat && f.categoria !== cat) return false;
+    if(q && !(f.sku.toLowerCase().includes(q) || f.nombre.toLowerCase().includes(q))) return false;
+    if(vista === 'lentos') return f.u12 > 0 && f.unidMes < 1;
+    if(vista === 'stockalto') return f.mesesStock != null && f.mesesStock > 6;
+    if(vista === 'baja') return f.tend != null && f.tend <= -20;
+    if(vista === 'sinventas') return f.u12 === 0;
+    if(vista === 'conventas') return f.u12 > 0;
+    return true;
+  });
+  // Primero lo que más stock acumula respecto de lo que vende (sin ventas arriba, por unidades de stock)
+  lista.sort((a, b) => (b.mesesStock ?? 1e6 + b.stock) - (a.mesesStock ?? 1e6 + a.stock));
+  $('fpResumen').textContent = `${fmtNum(lista.length)} de ${fmtNum(filas.length)} productos · proyección con una baja de ${fmtNum(baja * 100)}% y reacción ${E === 1 ? 'prudente' : E === 2 ? 'media' : 'alta'} (las unidades por mes se multiplican por ${fmtNum(factor, 2)})`;
+  if(!lista.length){ $('fpTabla').innerHTML = '<p class="empty-note">Ningún producto cumple el filtro.</p>'; return; }
+  const fila = f => {
+    const proyUnid = f.unidMes > 0 ? f.unidMes * factor : null;
+    const proyMeses = proyUnid ? f.stock / proyUnid : null;
+    const tend = f.tend == null ? '<span class="empty-note">—</span>' : `<span class="${f.tend <= -20 ? 'fp-baja' : f.tend >= 20 ? 'fp-sube' : ''}">${f.tend > 0 ? '+' : ''}${fmtNum(f.tend)}%</span>`;
+    return `<tr>
+      <td><span class="sku-code">${escapeHtml(f.sku)}</span></td>
+      <td class="fp-prod"><b>${escapeHtml(f.nombre)}</b></td>
+      <td>${escapeHtml(CATEGORIA_LABEL[f.linea] || f.categoria || '—')}</td>
+      <td class="amount" data-valor="${f.stock}">${fmtNum(f.stock)}</td>
+      <td class="amount" data-valor="${f.precioConIva ?? ''}">${f.precioConIva != null ? fmtMoneda(f.precioConIva) : '<span class="empty-note">—</span>'}</td>
+      <td class="amount" data-valor="${f.unidMes.toFixed(3)}">${f.u12 > 0 ? fmtNum(f.unidMes, 1) : '<span class="empty-note">Sin ventas</span>'}</td>
+      <td class="amount" data-valor="${f.diasPorUnidad ?? ''}">${f.diasPorUnidad != null ? 'cada ' + fmtNum(f.diasPorUnidad) + ' d' : '<span class="empty-note">—</span>'}</td>
+      <td class="amount" data-valor="${f.tend ?? ''}">${tend}</td>
+      <td data-valor="${f.dias ?? ''}">${f.dias != null ? 'hace ' + fmtNum(f.dias) + ' d' : '<span class="empty-note">—</span>'}</td>
+      <td class="amount" data-valor="${f.mesesStock ?? ''}">${f.mesesStock != null ? fmtNum(f.mesesStock, 1) + ' m' : '<span class="empty-note">—</span>'}</td>
+      <td class="amount fp-proy" data-valor="${proyUnid ?? ''}">${proyUnid != null ? fmtNum(proyUnid, 1) : '<span class="empty-note">—</span>'}</td>
+      <td class="amount fp-proy" data-valor="${proyMeses ?? ''}">${proyMeses != null ? fmtNum(proyMeses, 1) + ' m' : '<span class="empty-note">—</span>'}</td>
+      <td style="min-width:130px;"><button class="btn-ghost btn-compact" onclick="simular('${escapeHtml(f.sku)}')">📉 Simular precio</button></td>
+    </tr>`;
+  };
+  $('fpTabla').innerHTML = `<table>
+    <thead><tr>
+      <th>SKU</th><th>Producto</th><th>Categoría</th><th class="amount">Stock</th><th class="amount" title="Precio de venta con IVA, promedio de los últimos 3 meses con ventas">Precio vigente</th>
+      <th class="amount" title="Unidades vendidas por mes en los últimos 12 meses (o desde la primera venta)">Unid./mes</th><th class="amount">Frecuencia</th>
+      <th class="amount" title="Últimos 3 meses completos contra los 3 anteriores">Tendencia 3 m</th><th>Última venta</th>
+      <th class="amount" title="Meses que dura el stock al ritmo actual">Stock alcanza</th>
+      <th class="amount fp-proy" title="Unidades por mes con el precio bajado">Unid./mes con baja</th><th class="amount fp-proy" title="Meses que duraría el stock con el precio bajado">Stock alcanzaría</th>
+      <th data-sin-orden></th>
+    </tr></thead><tbody>${lista.map(fila).join('')}</tbody></table>`;
+  if(window.ordenarTablasOrdenables) window.ordenarTablasOrdenables();
+}
+
+function simular(sku){
+  const f = filas.find(x => x.sku === sku) || {};
+  const esAdmin = rolActual === 'admin';
+  abrirSimuladorPrecio({ sku, nombre: f.nombre, stock: f.stock, esAdmin, costoNeto: esAdmin ? (costoPorSku[sku] ?? null) : null });
+}
+
+cargarSesionUsuario();
+cargar();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>
