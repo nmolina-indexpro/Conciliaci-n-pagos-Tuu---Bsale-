@@ -7172,13 +7172,22 @@ function datosParaIAIndexscale(c) {
 async function pedirGuiaIAIndexscale(paraIA, cantidad, inicio) {
   const modeloRespaldo = (process.env.GEMINI_MODEL_RESPALDO || 'gemini-3.8-flash').trim();
   const textoIA = 'Cantidad de clientes a elegir: ' + cantidad + '\nClientes candidatos (todos de Santiago / Región Metropolitana):\n' + JSON.stringify(paraIA);
+  // Intento 1: modelo normal; intento 2: modelo de respaldo; intento 3: otra vez el normal. Si el de respaldo falla por algo que no es pasajero (sin cupo, no existe en la cuenta),
+  // no se da por perdido: se vuelve al modelo normal. El mensaje de error dice qué modelo falló.
+  let errorPrincipal = null;
   for (let intento = 0; ; intento++) {
     const restante = 53000 - (Date.now() - inicio);
+    const esRespaldo = intento === 1;
+    const modelo = esRespaldo ? modeloRespaldo : GEMINI_MODEL_ANALISIS;
     try {
-      return await llamarGeminiEstructurado(SISTEMA_PLAN_IA, textoIA, HERRAMIENTA_PLAN_IA, { maxTokens: 12000, timeoutMs: Math.min(30000, restante - 1000), modelo: intento === 0 ? GEMINI_MODEL_ANALISIS : modeloRespaldo });
+      return await llamarGeminiEstructurado(SISTEMA_PLAN_IA, textoIA, HERRAMIENTA_PLAN_IA, { maxTokens: 12000, timeoutMs: Math.min(30000, restante - 1000), modelo });
     } catch (e) {
+      if (e && e.message && e.message !== 'sin_gemini_api_key' && !/^\[/.test(e.message)) e.message = '[' + modelo + '] ' + e.message;
       const transitorio = /HTTP (500|502|503|504)|high demand|UNAVAILABLE|overloaded|abort|timeout/i.test(String(e && e.message));
-      if (!transitorio || intento >= 2 || restante < 14000) throw e;
+      if (!esRespaldo) errorPrincipal = e;
+      if (esRespaldo && !transitorio) { console.error('IndexScale: el modelo de respaldo falló: ' + e.message); }
+      else if (!transitorio) throw e;
+      if (intento >= 2 || restante < 14000) throw (errorPrincipal || e);
       await new Promise((r) => setTimeout(r, 1500 * (intento + 1)));
     }
   }
@@ -7197,7 +7206,7 @@ async function mejorarGuiasConIAIndexscale(sql, sesion) {
   if (elegibles.length === 0) return { error: 'No se pudo preparar la información de esos contactos.' };
   let bruto;
   try { bruto = await pedirGuiaIAIndexscale(elegibles.map(datosParaIAIndexscale), elegibles.length, inicio); }
-  catch (err) { return { error: err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada.' : 'La IA no respondió (' + String(err.message || err).slice(0, 160) + '). Intenta de nuevo en un minuto.' }; }
+  catch (err) { return { error: err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada.' : 'La IA no respondió (' + String(err.message || err).slice(0, 240) + '). Intenta de nuevo en un minuto.' }; }
   const quien = sesion.nombre || sesion.email;
   // Los que la IA descarta por rubro informático/tecnológico salen de la lista y no vuelven.
   const descartados = new Map(((Array.isArray(bruto.descartados)) ? bruto.descartados : []).map((d) => [Number(d && d.id), String((d && d.motivo) || 'rubro tecnológico').slice(0, 200)]).filter(([i]) => ids.has(i)));
@@ -7251,7 +7260,7 @@ async function generarPlanIndexscale(sql, sesion, cantidad, planExistenteId = nu
     bruto = await pedirGuiaIAIndexscale(paraIA, cantidad, inicioGenerar);
   } catch (err) {
     origen = 'respaldo';
-    aviso = err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada: la lista se armó con el puntaje automático.' : 'La IA no respondió (' + String(err.message || err).slice(0, 160) + '): la lista se armó con el puntaje automático.';
+    aviso = err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada: la lista se armó con el puntaje automático.' : 'La IA no respondió (' + String(err.message || err).slice(0, 240) + '): la lista se armó con el puntaje automático.';
   }
   // Lo que la IA descartó por rubro informático/tecnológico queda registrado para que no vuelva a salir, y se reemplaza por los siguientes mejores.
   const descartadosIa = new Map(((bruto && Array.isArray(bruto.descartados)) ? bruto.descartados : []).map((d) => [Number(d && d.id), String((d && d.motivo) || 'rubro tecnológico').slice(0, 200)]).filter(([i]) => candidatos.some((c) => c.id === i)));
