@@ -1249,13 +1249,14 @@ function celdaMarcaPlan(it, canal, campo, textoOn){
 }
 function renderResumenPlan(){
   const cont = $('planResumen'); if(!cont) return;
-  const items = (planIndexscale && planIndexscale.items) || [];
+  // Solo oportunidades de venta: lo que se descartó (no corresponde / ya tiene página optimizada) no se muestra en el resumen.
+  const items = ((planIndexscale && planIndexscale.items) || []).filter((it) => it.resultado !== 'no_corresponde' && it.resultado !== 'sitio_optimizado');
   if(!items.length){ cont.innerHTML = ''; return; }
-  const filas = items.map((it) => {
+  const filas = items.map((it, k) => {
     const opciones = OPCIONES_RESUMEN.map(([v, txt]) => `<option value="${v}"${it.resultado === v ? ' selected' : ''}>${txt}</option>`).join('')
       + (it.resultado === 'omitido' ? '<option value="omitido" selected disabled>⏭ Omitido</option>' : '');
     return `<tr id="plres-${it.id}">
-      <td>${it.orden + 1}</td>
+      <td>${k + 1}</td>
       <td class="cli"><b>${escLead(it.empresa)}</b><small>${escLead(it.comuna || '')}${it.telefono && it.telefono.mostrar ? ' · ' + escLead(it.telefono.mostrar) : ''}</small></td>
       ${celdaMarcaPlan(it, 'whatsapp', 'waEnviadoEn', 'Enviado')}
       ${celdaMarcaPlan(it, 'llamada', 'llamadoEn', 'Llamado')}
