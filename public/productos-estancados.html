@@ -720,6 +720,16 @@ function celdasCambioEnvio(c){
     '<td data-valor="' + c.unidades + '"><span style="' + cls + '">' + fmtNum(c.unidades) + ' un.</span> en ' + dias + (dias === 1 ? ' día' : ' días') + flecha +
     '<br><span class="sub">antes: ' + fmtNum(c.antes_unidades) + ' un. en ' + (dias === 1 ? 'el día previo' : 'los ' + dias + ' días previos') + (pronto ? ' · aún es pronto para concluir' : '') + '</span></td>';
 }
+// Stock actual por SKU para la tabla de Envío gratis: reutiliza el catálogo que ya trajo la tabla de estancados; si todavía no llegó, lo pide una vez.
+let stockSkuEnvio = null;
+async function stockDeSkus(){
+  if(catalogoSkusGlobal.length) return Object.fromEntries(catalogoSkusGlobal.map(x => [x.code, x.stockActual || 0]));
+  if(!stockSkuEnvio){
+    try{ const r = await (await fetch('/api/bsale-sku-report')).json(); stockSkuEnvio = Object.fromEntries((r.skus || []).map(x => [x.code, x.stockActual || 0])); }
+    catch(e){ return {}; }
+  }
+  return stockSkuEnvio;
+}
 async function cargarEnvioGratisShopify(){
   const wrap = document.getElementById('wrapEnvioGratis'), est = document.getElementById('estadoEnvioGratis');
   wrap.innerHTML = '<p class="empty-note">Consultando Shopify...</p>'; est.textContent = '';
@@ -728,18 +738,20 @@ async function cargarEnvioGratisShopify(){
     if(!res.ok || d.error){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(d.error || 'Error') + (d.detail ? ' — ' + escapeHtml(d.detail) : '') + '</p>'; return; }
     if(!d.items.length && !d.sobrantes.length){ wrap.innerHTML = '<p class="empty-note">Todavía no hay productos marcados con "Envío gratis".</p>'; return; }
     pintarDescuentoEnvio(d.descuento);
+    const stockSku = await stockDeSkus();
     const pendientes = d.items.filter(i => !i.error && i.etiquetadas < i.publicaciones).length;
     est.textContent = d.items.length + ' SKU marcados · ' + pendientes + ' con publicaciones sin etiquetar' + (d.sobrantes.length ? ' · ' + d.sobrantes.length + ' etiquetadas que ya no están marcadas' : '') + (d.truncado ? ' · (se muestran los primeros 80)' : '');
-    wrap.innerHTML = '<table><thead><tr><th>SKU</th><th>Producto</th><th>Variante</th><th>Publicaciones en Shopify</th><th>Con etiqueta</th><th>Estado</th><th>Último cambio en el ERP</th><th>Venta después del cambio</th></tr></thead><tbody>' +
+    wrap.innerHTML = '<table><thead><tr><th>SKU</th><th>Producto</th><th>Variante</th><th class="amount">Stock actual</th><th>Publicaciones en Shopify</th><th>Con etiqueta</th><th>Estado</th><th>Último cambio en el ERP</th><th>Venta después del cambio</th></tr></thead><tbody>' +
       d.items.map(i => {
         const estado = i.error ? '<span style="color:#a11d1d;">' + escapeHtml(i.error) + '</span>' : (i.publicaciones === 0 ? '<span style="color:#8a5a00;">No está en Shopify</span>' : (i.etiquetadas === i.publicaciones ? '<span style="color:#12713a;font-weight:700;">✔ Al día</span>' : '<span style="color:#8a5a00;font-weight:700;">⚠ Faltan ' + (i.publicaciones - i.etiquetadas) + '</span>'));
         const prod = (i.productos && i.productos.length) ? escapeHtml(i.productos[0]) + (i.productos.length > 1 ? ' <span class="sub" title="' + escapeHtml(i.productos.slice(1).join(' | ')) + '">(+' + (i.productos.length - 1) + ' publicaciones más)</span>' : '') : '<span class="sub">—</span>';
-        return '<tr><td><b>' + escapeHtml(i.sku) + '</b></td><td>' + prod + '</td><td>' + escapeHtml(i.variante || i.nombre || '') + '</td><td>' + fmtNum(i.publicaciones || 0) + '</td><td>' + fmtNum(i.etiquetadas || 0) + '</td><td>' + estado + '</td>' + celdasCambioEnvio(i.cambio) + '</tr>';
+        return '<tr><td><b>' + escapeHtml(i.sku) + '</b></td><td>' + prod + '</td><td>' + escapeHtml(i.variante || i.nombre || '') + '</td>' + celdaStockEnvio(stockSku[i.sku]) + '<td>' + fmtNum(i.publicaciones || 0) + '</td><td>' + fmtNum(i.etiquetadas || 0) + '</td><td>' + estado + '</td>' + celdasCambioEnvio(i.cambio) + '</tr>';
       }).join('') + '</tbody></table>' +
       (d.sobrantes.length ? '<p class="sub" style="margin-top:10px;"><b>Con la etiqueta, pero su SKU ya no está marcado</b> (se quitan al sincronizar):</p><table><thead><tr><th>Producto</th><th>SKU</th></tr></thead><tbody>' + d.sobrantes.map(p => '<tr><td>' + escapeHtml(p.title) + '</td><td>' + escapeHtml(p.skus.join(', ')) + '</td></tr>').join('') + '</tbody></table>' : '');
   }catch(err){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; }
 }
 // ───── Orden de las colecciones por stock ─────
+const celdaStockEnvio = n => n == null ? '<td class="amount"><span class="empty-note">—</span></td>' : '<td class="amount" data-valor="' + n + '">' + (n <= 0 ? '<span class="badge-caida">' + fmtNum(n) + '</span>' : fmtNum(n)) + '</td>';
 function fechaHoraOC(iso){ return iso ? new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'; }
 function tablaOrdenColecciones(filas, conUltima){
   if(!filas.length) return '<p class="empty-note">Todavía no se ha revisado ninguna colección.</p>';
