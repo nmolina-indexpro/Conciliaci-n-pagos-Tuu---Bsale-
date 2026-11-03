@@ -106,6 +106,7 @@
   .pl-quien b{font-family:'Space Grotesk',sans-serif;font-size:17px;display:block;overflow-wrap:anywhere;}
   .pl-contacto{font-size:13px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere;}
   .pl-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+  .pl-copiar{border:1px solid var(--border);background:var(--surface-2);color:var(--muted);border-radius:6px;font-size:11px;font-weight:600;padding:1px 7px;cursor:pointer;vertical-align:middle;} .pl-copiar:hover{color:var(--text);border-color:var(--muted);}
   .pl-chip{font-size:11px;font-weight:600;border-radius:999px;padding:3px 9px;background:var(--surface-2);color:var(--muted);}
   .pl-chip.alta{background:var(--red-bg);color:var(--red);} .pl-chip.media{background:var(--amber-dim);color:var(--amber);} .pl-chip.baja{background:var(--surface-2);color:var(--muted);}
   .pl-chip.oferta{background:var(--primary-dim);color:var(--primary-dark);} .pl-chip.alerta{background:var(--amber-dim);color:#92400E;}
@@ -131,7 +132,7 @@
   .pl-hecho{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;padding:8px 0;border-bottom:1px solid var(--line);}
   .pl-hecho:last-child{border-bottom:none;}
   .pl-badge{font-size:11px;font-weight:700;border-radius:999px;padding:3px 10px;background:var(--surface-2);}
-  .pl-badge.interesado,.pl-badge.reunion{background:var(--green-bg);color:var(--green);} .pl-badge.no_interesa,.pl-badge.dato_incorrecto{background:var(--red-bg);color:var(--red);} .pl-badge.volver_a_llamar{background:var(--blue-bg);color:var(--blue);} .pl-badge.sin_respuesta{background:var(--amber-dim);color:var(--amber);}
+  .pl-badge.interesado,.pl-badge.reunion{background:var(--green-bg);color:var(--green);} .pl-badge.no_interesa,.pl-badge.dato_incorrecto{background:var(--red-bg);color:var(--red);} .pl-badge.volver_a_llamar,.pl-badge.contactado{background:var(--blue-bg);color:var(--blue);} .pl-badge.sin_respuesta{background:var(--amber-dim);color:var(--amber);}
   .pl-vacio{text-align:center;padding:26px 10px;}
   .pl-vacio p{max-width:560px;margin:6px auto 14px;color:var(--muted);font-size:13.5px;line-height:1.5;}
   .pl-pasos{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 0;}
@@ -1012,7 +1013,7 @@ let mejorandoIA = false;
 const mensajesPlan = {};
 const canalPlan = {};
 const OFERTA_TXT = { crear_tienda: '🛒 Crear su tienda online', optimizar_tienda: '📈 Mejorar su sitio / tienda', diagnostico_gratis: '🔎 Diagnóstico gratis' };
-const RESULTADO_TXT = { interesado: '✅ Le interesa', reunion: '📅 Reunión agendada', volver_a_llamar: '🔁 Volver a llamar', sin_respuesta: '📵 No contestó', no_interesa: '❌ No le interesa', dato_incorrecto: '⚠️ Dato incorrecto', no_corresponde: '🚫 No corresponde', sitio_optimizado: '✅ Ya tiene página optimizada', omitido: '⏭ Omitido' };
+const RESULTADO_TXT = { interesado: '✅ Le interesa', reunion: '📅 Reunión agendada', volver_a_llamar: '🔁 Volver a llamar', contactado: '📨 Contactado', sin_respuesta: '📵 No contestó', no_interesa: '❌ No le interesa', dato_incorrecto: '⚠️ Dato incorrecto', no_corresponde: '🚫 No corresponde', sitio_optimizado: '✅ Ya tiene página optimizada', omitido: '⏭ Omitido' };
 const CANAL_TXT = { whatsapp: 'WhatsApp', llamada: 'llamada', correo: 'correo', otro: '' };
 
 function textoVendedor(t){ return String(t || '').split('{vendedor}').join(nombreVendedor || 'tu ejecutivo de IndexStore'); }
@@ -1078,7 +1079,7 @@ async function generarPlanIndexscale(modo){
 function chipsDatos(it){
   const d = it.datos || {};
   const c = [];
-  if(d.seguimientoVencido) c.push('<span class="pl-chip alerta">🔔 Quedó de volver a llamar' + (d.notaSeguimiento ? ': ' + escLead(d.notaSeguimiento) : '') + '</span>');
+  if(d.seguimientoVencido) c.push('<span class="pl-chip alerta">🔔 Toca recontactar' + (d.notaSeguimiento ? ': ' + escLead(d.notaSeguimiento) : '') + '</span>');
   if(d.compras12m) c.push('<span class="pl-chip">' + d.compras12m + (d.compras12m === 1 ? ' compra' : ' compras') + ' en 12 meses</span>');
   else if(d.comprasTotal) c.push('<span class="pl-chip">Compró antes (' + d.comprasTotal + ' en total)</span>');
   if(d.diasUltimaCompra != null) c.push('<span class="pl-chip">Última compra hace ' + (d.diasUltimaCompra === 0 ? 'hoy' : d.diasUltimaCompra + (d.diasUltimaCompra === 1 ? ' día' : ' días')) + '</span>');
@@ -1104,7 +1105,7 @@ function tarjetaPlan(it, esSiguiente){
       <div class="pl-num">${it.orden + 1}</div>
       <div class="pl-quien">
         <b>${escLead(it.empresa)}</b>
-        <div class="pl-contacto">${quien ? 'Hablar con <b style="display:inline;font-size:13px;color:var(--text)">' + quien + '</b> · ' : ''}${escLead(tel.mostrar || 'sin teléfono')}${it.email ? ' · ' + escLead(it.email) : ''}${it.dominio ? '<br>Sitio: <a href="' + escLead(it.sitio) + '" target="_blank" rel="noopener">' + escLead(it.dominio) + ' ↗</a> · <a href="' + escLead(it.busqueda) + '" target="_blank" rel="noopener">buscar en Google ↗</a>' : ''}</div>
+        <div class="pl-contacto">${quien ? 'Hablar con <b style="display:inline;font-size:13px;color:var(--text)">' + quien + '</b> · ' : ''}${escLead(tel.mostrar || 'sin teléfono')}${tel.mostrar ? ' <button class="pl-copiar" title="Copiar el teléfono" onclick="copiarDatoPlan(this,' + it.id + ',\'telefono\')">📋 Copiar</button>' : ''}${it.email ? ' · ' + escLead(it.email) + ' <button class="pl-copiar" title="Copiar el correo" onclick="copiarDatoPlan(this,' + it.id + ',\'email\')">📋 Copiar</button>' : ''}${it.dominio ? '<br>Sitio: <a href="' + escLead(it.sitio) + '" target="_blank" rel="noopener">' + escLead(it.dominio) + ' ↗</a> · <a href="' + escLead(it.busqueda) + '" target="_blank" rel="noopener">buscar en Google ↗</a>' : ''}</div>
         <div class="pl-chips"><span class="pl-chip ${escLead(it.prioridad)}">Prioridad ${escLead(it.prioridad)}</span><span class="pl-chip oferta">${OFERTA_TXT[it.oferta] || ''}</span><span class="pl-chip">📍 ${escLead(it.comuna || '')}</span></div>
       </div>
       ${esSiguiente ? '<span class="pl-chip oferta" style="align-self:flex-start">👉 Parte por aquí</span>' : ''}
@@ -1142,7 +1143,7 @@ function tarjetaPlan(it, esSiguiente){
         <button class="pl-r mal" onclick="resultadoPlan(${it.id},'dato_incorrecto')">⚠️ Dato incorrecto</button>
         <button class="pl-r mal" title="Es una empresa de informática, computación, servicio técnico u otro rubro al que no se le ofrece. No vuelve a salir." onclick="if(confirm('¿Marcar como que NO corresponde (informática, tecnología u otro rubro)? No volverá a salir en ninguna lista.'))resultadoPlan(${it.id},'no_corresponde')">🚫 No corresponde</button>
       </div>
-      <div class="pl-volver" id="plvolver-${it.id}">Volver a llamar el <input type="date" id="plfecha-${it.id}" value="${fechaDiaMas(2)}" min="${fechaDiaMas(0)}"> <button class="pl-r" onclick="resultadoPlan(${it.id},'volver_a_llamar')">Guardar</button></div>
+      <div class="pl-volver" id="plvolver-${it.id}">Recontactar el <input type="date" id="plfecha-${it.id}" value="${fechaDiaMas(2)}" min="${fechaDiaMas(0)}"> <button class="pl-r" onclick="resultadoPlan(${it.id},'volver_a_llamar')">Guardar</button> <button class="pl-r" title="Ya le escribiste o lo llamaste y esperas su respuesta. Vuelve a salir como seguimiento en la fecha elegida." onclick="resultadoPlan(${it.id},'contactado')">📨 Contactado</button></div>
     </div>
     ${hist ? '<div class="pl-hist">Antes: ' + hist + '</div>' : ''}
   </div>`;
@@ -1189,6 +1190,7 @@ function renderPlan(){
     html += '<details class="pl-guia" style="margin-top:16px"><summary>Ya gestionados (' + hechos.length + ')</summary>'
       + hechos.map(it => '<div class="pl-hecho"><b>' + escLead(it.empresa) + '</b><span class="pl-badge ' + it.resultado + '">' + (RESULTADO_TXT[it.resultado] || it.resultado) + '</span>'
         + (it.proximoContacto && it.resultado === 'volver_a_llamar' ? '<span class="sub">para el ' + escLead(it.proximoContacto) + '</span>' : '')
+        + (it.proximoContacto && it.resultado === 'contactado' ? '<span class="sub">recontactar el ' + escLead(it.proximoContacto) + '</span>' : '')
         + (it.nota ? '<span class="sub">— ' + escLead(it.nota) + '</span>' : '') + (it.resultadoPor ? '<span class="sub">' + escLead(it.resultadoPor) + '</span>' : '')
         + (it.resultado !== 'omitido' ? ' <button class="btn-ghost btn-compact" onclick="resultadoPlan(' + it.id + ',\'pendiente\')">Deshacer</button>' : '') + '</div>').join('')
       + '</details>';
@@ -1206,6 +1208,23 @@ async function mejorarConIA(){
     else { planIndexscale = d; if(d.mejora && d.mejora.retirados) alert(d.mejora.retirados + (d.mejora.retirados === 1 ? ' contacto se retiró' : ' contactos se retiraron') + ' de la lista porque ya no cumple' + (d.mejora.retirados === 1 ? '' : 'n') + ' los criterios (rubro informático, compra solo de repuestos o ubicación). Quedan en «Ya gestionados» con una nota.'); if(d.mejora && d.mejora.quedan) alert('La IA mejoró ' + d.mejora.mejorados + ' contactos; ' + d.mejora.quedan + ' siguen con la guía genérica.' + (d.mejora.sinDatos ? ' ' + d.mejora.sinDatos + ' de ellos ya no cumplen los criterios de la lista (por ejemplo rubro o compra de repuestos): puedes marcarlos como «No corresponde».' : ' Puedes reintentar.')); }
   }catch(err){ alert('No se pudo consultar a la IA: ' + err.message); }
   mejorandoIA = false; renderPlan();
+}
+// Copia el teléfono o el correo del contacto al portapapeles (con alternativa para navegadores sin permiso de portapapeles).
+async function copiarDatoPlan(btn, id, campo){
+  const it = itemPlan(id); if(!it) return;
+  const texto = campo === 'email' ? it.email : ((it.telefono && it.telefono.mostrar) || '');
+  if(!texto) return;
+  let ok = false;
+  try{ await navigator.clipboard.writeText(texto); ok = true; }
+  catch(e){
+    try{
+      const ta = document.createElement('textarea'); ta.value = texto; ta.style.cssText = 'position:fixed;opacity:0;';
+      document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); ta.remove();
+    }catch(e2){ ok = false; }
+  }
+  const original = btn.textContent;
+  btn.textContent = ok ? '✅ Copiado' : '⚠️ No se pudo';
+  setTimeout(() => { btn.textContent = original; }, 1500);
 }
 function itemPlan(id){ return ((planIndexscale && planIndexscale.items) || []).find(i => i.id === id); }
 function abrirWhatsAppPlan(id){
@@ -1227,7 +1246,7 @@ function abrirCorreoPlan(id){
 async function resultadoPlan(id, resultado){
   const notaEl = $('plnota-' + id); const fechaEl = $('plfecha-' + id);
   const body = { itemId: id, resultado, nota: notaEl ? notaEl.value : '', canal: canalPlan[id] || null };
-  if(resultado === 'volver_a_llamar' && fechaEl) body.proximoContacto = fechaEl.value;
+  if((resultado === 'volver_a_llamar' || resultado === 'contactado') && fechaEl) body.proximoContacto = fechaEl.value;
   const card = $('plcard-' + id);
   if(card) card.querySelectorAll('button').forEach(b => b.disabled = true);
   try{

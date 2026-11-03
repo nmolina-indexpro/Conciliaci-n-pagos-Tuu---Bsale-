@@ -7132,7 +7132,7 @@ async function candidatosPlanIndexscale(sql, soloOpIds = null) {
       if (p.resultado === 'pendiente' && dias < 7) { excluidosGestion++; continue; }
       if (p.resultado === 'omitido' && dias < 3) { excluidosGestion++; continue; }
       if (p.resultado === 'sin_respuesta' && (dias < 2 || nIntentos >= 3)) { excluidosGestion++; continue; }
-      if (p.resultado === 'volver_a_llamar') {
+      if (p.resultado === 'volver_a_llamar' || p.resultado === 'contactado') {
         if (p.futuro) { excluidosGestion++; continue; }
         vencido = !!p.vencido; notaSeguimiento = p.nota || '';
       }
@@ -7438,10 +7438,11 @@ async function manejarIndexscalePlan(req, res, sesion) {
       const { rows: it } = await sql.query(`SELECT id, oportunidad_id FROM indexscale_plan_items WHERE id = $1;`, [itemId]);
       if (it.length === 0) return res.status(404).json({ error: 'No encontrado' });
       let proximo = null;
-      if (resultado === 'volver_a_llamar') proximo = esFechaDia(b.proximoContacto) ? b.proximoContacto : null;
+      // «Contactado» también deja fecha de recontacto: cuando llega, el cliente vuelve a salir en la lista como seguimiento.
+      if (resultado === 'volver_a_llamar' || resultado === 'contactado') proximo = esFechaDia(b.proximoContacto) ? b.proximoContacto : null;
       await sql.query(
         `UPDATE indexscale_plan_items SET resultado = $2, nota = $3, canal = $4, resultado_por = $5, resultado_en = now(),
-           proximo_contacto = CASE WHEN $2 = 'volver_a_llamar' THEN COALESCE($6::date, (now() AT TIME ZONE 'America/Santiago')::date + 2) ELSE NULL END
+           proximo_contacto = CASE WHEN $2 IN ('volver_a_llamar', 'contactado') THEN COALESCE($6::date, (now() AT TIME ZONE 'America/Santiago')::date + CASE WHEN $2 = 'contactado' THEN 3 ELSE 2 END) ELSE NULL END
          WHERE id = $1;`,
         [itemId, resultado, nota, canal, quien, proximo]
       );
