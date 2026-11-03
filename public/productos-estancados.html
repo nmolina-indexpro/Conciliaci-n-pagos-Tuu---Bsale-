@@ -263,6 +263,7 @@
 
 <script src="restriccion-usuario.js"></script>
 <script src="menu-herramientas.js"></script>
+<script src="simulador-precio.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 let rolActual = 'usuario';
@@ -417,6 +418,13 @@ function puntajeEfecto(p){
   return marcadas.filter(([campo]) => ((efectoGlobal[p.sku] || {})[campo] || {}).estado === 'funciono').length;
 }
 
+// ---------- Frecuencia de venta y simulador de precio (public/simulador-precio.js) ----------
+const celdaSimulador = p => `<td style="min-width:120px;"><button class="btn-ghost btn-compact" title="Cada cuántos días vende y cuánto podría subir con otro precio" onclick="abrirSimuladorSku('${escapeHtml(p.sku)}')">📉 Simular precio</button></td>`;
+function abrirSimuladorSku(sku){
+  const p = buscarProductoPorSku(sku) || {};
+  const esAdmin = rolActual === 'admin';
+  abrirSimuladorPrecio({ sku, nombre: p.nombre, stock: p.stockActual, esAdmin, costoNeto: esAdmin ? (costoPorSkuGlobal[sku] ?? null) : null });
+}
 function ordenarVentasBaja(col){
   if(ordenVentasBaja === col) ordenVentasBajaAsc = !ordenVentasBajaAsc;
   else { ordenVentasBaja = col; ordenVentasBajaAsc = false; }
@@ -914,6 +922,7 @@ function renderVentasBaja(){
         ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('costo')">Costo total stock${marca('costo')}</th>` : ''}
         ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('oportunidad')">Oportunidad de venta (c/IVA)${marca('oportunidad')}</th>` : ''}
         ${esAdmin ? `<th class="ordenable amount" onclick="ordenarVentasBaja('margen')">Margen total stock${marca('margen')}</th>` : ''}
+        <th>Frecuencia y precio</th>
         <th>Acciones</th>
         <th class="ordenable" onclick="ordenarVentasBaja('efecto')" title="Qué pasó con las ventas desde que se marcó cada acción">¿Funcionó?${marca('efecto')}</th>
       </tr></thead>
@@ -931,6 +940,7 @@ function renderVentasBaja(){
             ${celdaAdminMonto(p.costoTotal)}
             ${celdaAdminMonto(p.oportunidadVenta)}
             ${celdaAdminMonto(p.margenTotal)}
+            ${celdaSimulador(p)}
             <td style="min-width:190px;">
               <div class="chk-group">
                 ${checkFlag(p, 'mercadoLibre', '🛒 Mercado Libre')}
@@ -994,7 +1004,7 @@ function renderResultadosBusqueda(totalCoincidencias){
       <thead><tr>
         <th>SKU</th><th>Producto</th><th>Shopify</th><th class="amount">Stock actual</th>
         ${esAdmin ? `<th class="amount">Costo total stock</th>` : ''}
-        <th>Acciones</th><th>¿Funcionó?</th>
+        <th data-sin-orden>Frecuencia y precio</th><th>Acciones</th><th>¿Funcionó?</th>
       </tr></thead>
       <tbody>
         ${resultadosBusqueda.map(p => `
@@ -1004,6 +1014,7 @@ function renderResultadosBusqueda(totalCoincidencias){
             <td>${celdaShopify(p.sku)}</td>
             <td class="amount">${fmtNum(p.stockActual)}</td>
             ${esAdmin ? (p.costoTotal != null ? `<td class="amount">${fmtMoneda(p.costoTotal)}</td>` : '<td class="amount empty-note">—</td>') : ''}
+            ${celdaSimulador(p)}
             <td style="min-width:190px;">
               <div class="chk-group">
                 ${checkFlag(p, 'mercadoLibre', '🛒 Mercado Libre')}

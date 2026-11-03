@@ -50,6 +50,7 @@ import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, product
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
+import { analizarFrecuencia, evidenciaBajasPrecio } from '../lib/frecuencia-precio.js';
 import { CATEGORIAS_EXCLUIDAS as CATEGORIAS_EXCLUIDAS_COMPARATIVO, categoriaExcluida as categoriaExcluidaComparativo, MARCAS_PRINCIPALES as MARCAS_PRINCIPALES_COMPARATIVO, armarComparativo as armarComparativoVentas, costoEnFecha, parsearMes as parsearMesComparativo, mesAnterior12 as mesAnterior12Comparativo, diasDelMes as diasDelMesComparativo, rangoEpochMes as rangoEpochMesComparativo } from '../lib/comparativo-ventas.js';
 import { asegurarTablaComparativoVentas } from '../lib/db.js';
 import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas, asegurarTablaIndexscalePlan, asegurarTablaIndiceModelosMeta } from '../lib/db.js';
@@ -296,6 +297,7 @@ export default async function handler(req, res) {
   if (recurso === 'analisis-clientes') return manejarAnalisisClientes(req, res, sesion);
   if (recurso === 'sync-analisis') return manejarSyncAnalisis(req, res, sesion);
   if (recurso === 'ventas-sku-tendencia') return manejarVentasSkuTendencia(req, res, sesion);
+  if (recurso === 'frecuencia-precio-sku') return manejarFrecuenciaPrecioSku(req, res, sesion);
   if (recurso === 'comparativo-ventas') return manejarComparativoVentas(req, res, sesion);
   if (recurso === 'comparativo-ventas-sync') return manejarComparativoVentasSync(req, res, sesion);
   if (recurso === 'comparativo-marca') return manejarComparativoMarca(req, res, sesion);
@@ -2988,6 +2990,38 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
     });
   } catch (err) {
     return res.status(200).json({ error: 'Error leyendo la tendencia de ventas por SKU', detail: String(err) });
+  }
+}
+
+// "Simular precio" de Productos estancados: frecuencia de venta de UN SKU (cada cuántos días vende, unidades por mes, tendencia, serie mensual con su
+// precio) y la evidencia de qué pasó con las unidades cuando se bajó el precio en todo el catálogo (lib/frecuencia-precio.js). Se consulta solo al
+// abrir el simulador de un SKU. La evidencia recorre todo bsale_ventas_sku: se guarda 6 h en memoria para no gastar cómputo de la base.
+let cacheEvidenciaPrecio = null; // { en, datos }
+async function manejarFrecuenciaPrecioSku(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Método no permitido' });
+  try {
+    const sku = String(req.query.sku || '').trim();
+    if (!sku) return res.status(400).json({ error: 'Falta el SKU' });
+    const sql = await getSql();
+    await asegurarTablaVentasSku(sql);
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const ventas = await sql`
+      SELECT fecha::text AS fecha, cantidad::float AS cantidad, monto::float AS monto
+        FROM bsale_ventas_sku WHERE sku = ${sku} AND fecha >= (${hoy}::date - 366) ORDER BY fecha`;
+    let evidencia = null, errorEvidencia = null;
+    if (cacheEvidenciaPrecio && Date.now() - cacheEvidenciaPrecio.en < 6 * 3600 * 1000) evidencia = cacheEvidenciaPrecio.datos;
+    else {
+      try {
+        const m = await sql`
+          SELECT sku, to_char(date_trunc('month', fecha), 'YYYY-MM') AS mes, sum(cantidad)::float AS unidades, sum(monto)::float AS monto
+            FROM bsale_ventas_sku WHERE cantidad > 0 GROUP BY 1, 2`;
+        evidencia = evidenciaBajasPrecio(m.rows, hoy.slice(0, 7));
+        cacheEvidenciaPrecio = { en: Date.now(), datos: evidencia };
+      } catch (e) { errorEvidencia = String(e.message || e).slice(0, 160); }
+    }
+    return res.status(200).json({ sku, ...analizarFrecuencia(ventas.rows, hoy), evidencia, errorEvidencia });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error analizando la frecuencia de venta', detail: String(err) });
   }
 }
 
