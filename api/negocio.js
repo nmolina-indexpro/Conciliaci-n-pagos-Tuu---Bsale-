@@ -6991,7 +6991,7 @@ const PLAN_CANTIDAD_MIN = 10;
 const PLAN_CANTIDAD_MAX = 15;
 const PLAN_CANDIDATOS_POR_SEGMENTO = 20; // la IA ve hasta 40 candidatos (20 por segmento) y elige entre ellos
 
-async function leerItemsPlanIndexscale(sql, planId) {
+async function leerItemsPlanIndexscale(sql, planId, ids = null) {
   const { rows } = await sql.query(
     `SELECT i.*, o.empresa, o.cliente_nombre, o.telefono, o.email, o.segmento, o.estado AS estado_oportunidad, o.rut, o.sitio_verificado_en, o.sitio_estado, o.sitio_revisado_en, bp.giro,
             (SELECT COALESCE(json_agg(json_build_object('canal', c.canal, 'resultado', c.resultado, 'nota', c.nota, 'por', c.por, 'en', c.en) ORDER BY c.en DESC), '[]'::json)
@@ -7000,9 +7000,9 @@ async function leerItemsPlanIndexscale(sql, planId) {
      FROM indexscale_plan_items i
      JOIN indexscale_oportunidades o ON o.id = i.oportunidad_id
      LEFT JOIN bsale_clientes_puntos bp ON bp.id = o.bsale_cliente_id
-     WHERE i.plan_id = $1
+     WHERE ${ids ? 'i.id = ANY($1::int[])' : 'i.plan_id = $1'}
      ORDER BY i.orden ASC, i.id ASC;`,
-    [planId]
+    [ids || planId]
   );
   return rows.map((r) => {
     const nombre = primerNombreIndexscale(r.cliente_nombre);
@@ -7041,6 +7041,8 @@ async function leerItemsPlanIndexscale(sql, planId) {
       nota: r.nota,
       canal: r.canal,
       proximoContacto: r.proximo_contacto_txt,
+      creadoEn: r.created_at || null,
+      planId: r.plan_id,
       waEnviadoEn: r.wa_enviado_en || null,
       llamadoEn: r.llamado_en || null,
       correoEnviadoEn: r.correo_enviado_en || null,
@@ -7058,7 +7060,7 @@ async function leerPlanIndexscale(sql, sesion) {
   const p = rows[0];
   let items = await leerItemsPlanIndexscale(sql, p.id);
   // Una lista generada antes de un cambio de criterio puede traer empresas de informática/tecnología sin gestionar: se sacan solas con el criterio actual.
-  const ti = items.filter((i) => i.resultado === 'pendiente' && rubroTecnologicoIndexscale({ empresa: i.empresaCompleta, giro: i.giro, email: i.email }).nivel === 'fuerte');
+  const ti = items.filter((i) => i.resultado === 'pendiente' && !(i.datos && i.datos.manual) && rubroTecnologicoIndexscale({ empresa: i.empresaCompleta, giro: i.giro, email: i.email }).nivel === 'fuerte');
   if (ti.length) {
     for (const i of ti) {
       await sql.query(`INSERT INTO indexscale_descartes (oportunidad_id, motivo, origen, por) VALUES ($1, 'Rubro informático/tecnológico (detectado automáticamente)', 'regla', 'Sistema') ON CONFLICT (oportunidad_id) DO NOTHING;`, [i.oportunidadId]);
@@ -7066,6 +7068,16 @@ async function leerPlanIndexscale(sql, sesion) {
     }
     items = await leerItemsPlanIndexscale(sql, p.id);
   }
+  // Seguimiento que no se pierde al pedir una lista nueva: clientes con interés, reunión o contacto en curso de listas anteriores (mientras no se cierren ni se descarten).
+  const { rows: arr } = await sql.query(
+    `SELECT u.id FROM (SELECT DISTINCT ON (oportunidad_id) id, plan_id, resultado, oportunidad_id FROM indexscale_plan_items ORDER BY oportunidad_id, created_at DESC, id DESC) u
+     JOIN indexscale_oportunidades o ON o.id = u.oportunidad_id
+     WHERE u.plan_id <> $1 AND u.resultado IN ('interesado', 'reunion', 'contactado', 'volver_a_llamar') AND o.estado NOT IN ('ganado', 'perdido')
+       AND u.oportunidad_id NOT IN (SELECT oportunidad_id FROM indexscale_plan_items WHERE plan_id = $1)
+     LIMIT 60;`,
+    [p.id]
+  );
+  const seguimiento = arr.length ? await leerItemsPlanIndexscale(sql, p.id, arr.map((x) => x.id)) : [];
   const { rows: hoy } = await sql.query(
     `SELECT COUNT(*)::int AS n FROM indexscale_contactos
      WHERE por = $1 AND (en AT TIME ZONE 'America/Santiago')::date = (now() AT TIME ZONE 'America/Santiago')::date;`,
@@ -7074,6 +7086,7 @@ async function leerPlanIndexscale(sql, sesion) {
   return {
     plan: { id: p.id, generadoPor: p.generado_por, generadoEn: p.generado_en, origen: p.origen, resumen: p.resumen, poolTotal: p.pool_total, fueraRm: p.fuera_rm, sinComuna: p.sin_comuna, excluidosRubro: p.excl_rubro || 0, aviso: p.aviso || null },
     items,
+    seguimiento,
     gestionadosHoy: hoy[0] ? hoy[0].n : 0,
   };
 }
@@ -7388,6 +7401,62 @@ async function generarPlanIndexscale(sql, sesion, cantidad, planExistenteId = nu
   return { planId, aviso, estadisticas: { sitiosRevisados, total, elegibles: elegibles.length, fueraRm, sinComuna, excluidosGestion, excluidosRubro, excluidosTecnico, descartadosIa: descartadosIa.size } };
 }
 
+// El vendedor suma a la lista un cliente que no salió (por ejemplo uno que conoció por otro lado). Queda como oportunidad propia del sistema
+// (id de Bsale negativo para no chocar con los reales), con la guía de conversación estándar, y se mantiene en la lista aunque se pida otra.
+async function agregarClienteManualIndexscale(sql, sesion, b) {
+  const quien = sesion.nombre || sesion.email;
+  const limpiar = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
+  const empresa = limpiar(b.empresa, 120);
+  const contacto = limpiar(b.contacto, 80);
+  const telefono = limpiar(b.telefono, 40);
+  const email = limpiar(b.email, 120).toLowerCase();
+  const comuna = limpiar(b.comuna, 60);
+  const nota = limpiar(b.nota, 300);
+  if (!empresa) return { error: 'Escribe el nombre de la empresa.' };
+  if (!telefono && !email) return { error: 'Ingresa al menos un teléfono o un correo para poder contactarlo.' };
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: 'El correo no parece válido.' };
+  const dig = telefono.replace(/\D/g, '').slice(-8);
+  let plan = (await sql`SELECT id FROM indexscale_planes ORDER BY id DESC LIMIT 1;`).rows[0];
+  if (!plan) {
+    plan = (await sql.query(`INSERT INTO indexscale_planes (generado_por, origen, resumen) VALUES ($1, 'manual', 'Lista armada a mano') RETURNING id;`, [quien])).rows[0];
+  }
+  // ¿Ya existe como oportunidad (cliente de Bsale o agregado antes)?
+  const { rows: ya } = await sql.query(
+    `SELECT o.id, o.estado, (d.oportunidad_id IS NOT NULL) AS descartada
+     FROM indexscale_oportunidades o LEFT JOIN indexscale_descartes d ON d.oportunidad_id = o.id
+     WHERE NOT o.es_prueba AND (lower(o.empresa) = lower($1) OR ($2 <> '' AND lower(o.email) = $2) OR ($3 <> '' AND right(regexp_replace(COALESCE(o.telefono, ''), '[^0-9]', '', 'g'), 8) = $3))
+     ORDER BY o.id LIMIT 1;`,
+    [empresa, email, dig]
+  );
+  let oportunidadId;
+  if (ya.length) {
+    oportunidadId = ya[0].id;
+    if (ya[0].descartada) return { error: 'Este cliente ya existe y fue descartado antes (no corresponde o ya tiene página optimizada).' };
+    if (['ganado', 'perdido'].includes(ya[0].estado)) return { error: 'Este cliente ya existe y figura como «' + ya[0].estado + '».' };
+    const { rows: enPlan } = await sql.query(`SELECT 1 FROM indexscale_plan_items WHERE plan_id = $1 AND oportunidad_id = $2;`, [plan.id, oportunidadId]);
+    if (enPlan.length) return { error: 'Este cliente ya está en tu lista.' };
+  } else {
+    const dominio = enlacesSitioIndexscale({ email, empresa, comuna }).dominio || '';
+    const { rows: neg } = await sql`SELECT LEAST(COALESCE(MIN(bsale_cliente_id), 0), 0) - 1 AS id FROM indexscale_oportunidades;`;
+    const { rows: nueva } = await sql.query(
+      `INSERT INTO indexscale_oportunidades (bsale_cliente_id, segmento, empresa, cliente_nombre, telefono, email, ciudad, puntos, actualizado_por)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8) RETURNING id;`,
+      [neg[0].id, dominio ? 'potenciar' : 'sin_sitio', empresa, contacto || null, telefono || null, email || null, comuna || null, quien]
+    );
+    oportunidadId = nueva[0].id;
+  }
+  const g = guiaRespaldoIndexscale({ segmento: dominioEs(email) ? 'potenciar' : 'sin_sitio', puntaje: 50, razones: [] });
+  const guia = { mensaje_whatsapp: g.mensaje_whatsapp, apertura_llamada: g.apertura_llamada, preguntas: g.preguntas, objeciones: g.objeciones };
+  const { rows: mx } = await sql.query(`SELECT COALESCE(MAX(orden) + 1, 0)::int AS n FROM indexscale_plan_items WHERE plan_id = $1;`, [plan.id]);
+  const { rows: item } = await sql.query(
+    `INSERT INTO indexscale_plan_items (plan_id, oportunidad_id, orden, puntaje, comuna, prioridad, oferta, motivo, datos, guia, origen, nota)
+     VALUES ($1, $2, $3, 50, $4, 'media', $5, $6, $7::jsonb, $8::jsonb, 'manual', $9) RETURNING id;`,
+    [plan.id, oportunidadId, mx[0].n, comuna || null, g.oferta, 'Agregado a mano por ' + quien + '.', JSON.stringify({ manual: true, agregadoPor: quien }), JSON.stringify(guia), nota || null]
+  );
+  return { itemId: item[0].id };
+}
+function dominioEs(email) { return !!enlacesSitioIndexscale({ email, empresa: '', comuna: '' }).dominio; }
+
 async function manejarIndexscalePlan(req, res, sesion) {
   try {
     const sql = await getSql();
@@ -7404,6 +7473,12 @@ async function manejarIndexscalePlan(req, res, sesion) {
 
     if (req.method === 'POST') {
       const b = req.body || {};
+      if (b.accion === 'agregar-cliente') {
+        const r = await agregarClienteManualIndexscale(sql, sesion, b);
+        if (r.error) return res.status(200).json({ error: r.error });
+        const out = await leerPlanIndexscale(sql, sesion);
+        return res.status(200).json({ ...out, agregado: r.itemId });
+      }
       if (b.accion === 'mejorar-ia') {
         const m = await mejorarGuiasConIAIndexscale(sql, sesion);
         if (m.error) return res.status(200).json({ error: m.error });
@@ -7422,10 +7497,14 @@ async function manejarIndexscalePlan(req, res, sesion) {
         if (pend[0].n > 0) return res.status(409).json({ error: 'Todavía hay ' + pend[0].n + ' contactos pendientes en la lista actual.', pendientes: pend[0].n });
       }
       if (ultimo.length && !conservar) {
-        await sql.query(`UPDATE indexscale_plan_items SET resultado = 'omitido', resultado_por = $2, resultado_en = now() WHERE plan_id = $1 AND resultado = 'pendiente';`, [ultimo[0].id, sesion.nombre || sesion.email]);
+        await sql.query(`UPDATE indexscale_plan_items SET resultado = 'omitido', resultado_por = $2, resultado_en = now() WHERE plan_id = $1 AND resultado = 'pendiente' AND COALESCE(datos->>'manual', '') <> 'true';`, [ultimo[0].id, sesion.nombre || sesion.email]);
       }
       const r = await generarPlanIndexscale(sql, sesion, cantidad, conservar ? ultimo[0].id : null);
       if (r.error) return res.status(200).json({ error: r.error });
+      // Los clientes que el vendedor agregó a mano y siguen pendientes pasan a la lista nueva.
+      if (ultimo.length && !conservar && r.planId) {
+        await sql.query(`UPDATE indexscale_plan_items SET plan_id = $1 WHERE plan_id = $2 AND resultado = 'pendiente' AND COALESCE(datos->>'manual', '') = 'true';`, [r.planId, ultimo[0].id]);
+      }
       const out = await leerPlanIndexscale(sql, sesion);
       return res.status(200).json({ ...out, aviso: r.aviso || null, estadisticas: r.estadisticas });
     }
@@ -7435,6 +7514,15 @@ async function manejarIndexscalePlan(req, res, sesion) {
       const itemId = parseInt(b.itemId, 10);
       const resultado = String(b.resultado || '');
       if (!Number.isFinite(itemId)) return res.status(400).json({ error: 'Falta el contacto' });
+      // Próxima acción (fecha) y nota rápida del resumen: no cambian el resultado.
+      if (b.accion === 'proximo' || b.accion === 'nota') {
+        const { rows: ex2 } = await sql.query(`SELECT plan_id FROM indexscale_plan_items WHERE id = $1;`, [itemId]);
+        if (ex2.length === 0) return res.status(404).json({ error: 'No encontrado' });
+        if (b.accion === 'proximo') await sql.query(`UPDATE indexscale_plan_items SET proximo_contacto = $2::date WHERE id = $1;`, [itemId, esFechaDia(b.proximoContacto) ? b.proximoContacto : null]);
+        else await sql.query(`UPDATE indexscale_plan_items SET nota = $2 WHERE id = $1;`, [itemId, b.nota ? String(b.nota).replace(/\s+/g, ' ').trim().slice(0, 500) || null : null]);
+        const act = await leerItemsPlanIndexscale(sql, ex2[0].plan_id, [itemId]);
+        return res.status(200).json({ ok: true, item: act[0] || null });
+      }
       // Marca del resumen: «ya se envió el WhatsApp / ya se llamó / ya se envió el correo» (o se desmarca). No cambia el resultado.
       if (b.marca !== undefined) {
         const columna = { whatsapp: 'wa_enviado_en', llamada: 'llamado_en', correo: 'correo_enviado_en' }[b.marca];
@@ -7455,8 +7543,8 @@ async function manejarIndexscalePlan(req, res, sesion) {
       // «Contactado» también deja fecha de recontacto: cuando llega, el cliente vuelve a salir en la lista como seguimiento.
       if (resultado === 'volver_a_llamar' || resultado === 'contactado') proximo = esFechaDia(b.proximoContacto) ? b.proximoContacto : null;
       await sql.query(
-        `UPDATE indexscale_plan_items SET resultado = $2, nota = $3, canal = $4, resultado_por = $5, resultado_en = now(),
-           proximo_contacto = CASE WHEN $2 IN ('volver_a_llamar', 'contactado') THEN COALESCE($6::date, (now() AT TIME ZONE 'America/Santiago')::date + CASE WHEN $2 = 'contactado' THEN 3 ELSE 2 END) ELSE NULL END
+        `UPDATE indexscale_plan_items SET resultado = $2, nota = COALESCE($3, nota), canal = COALESCE($4, canal), resultado_por = $5, resultado_en = now(),
+           proximo_contacto = CASE WHEN $2 IN ('volver_a_llamar', 'contactado') THEN COALESCE($6::date, (now() AT TIME ZONE 'America/Santiago')::date + CASE WHEN $2 = 'contactado' THEN 3 ELSE 2 END) WHEN $2 IN ('no_interesa', 'dato_incorrecto', 'no_corresponde', 'sitio_optimizado', 'ganado') THEN NULL ELSE proximo_contacto END
          WHERE id = $1;`,
         [itemId, resultado, nota, canal, quien, proximo]
       );

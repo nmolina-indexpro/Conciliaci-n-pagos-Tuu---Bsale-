@@ -106,7 +106,16 @@
   .pl-quien b{font-family:'Space Grotesk',sans-serif;font-size:17px;display:block;overflow-wrap:anywhere;}
   .pl-contacto{font-size:13px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere;}
   .pl-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
-  .pl-resumen h3{margin:0 0 6px;font-size:14px;}
+  .pl-resumen h3{margin:0 0 8px;font-size:14px;}
+  .pl-agregar{border:2px dashed var(--primary);background:var(--surface-2);border-radius:12px;padding:10px 12px;margin-bottom:10px;}
+  .pl-agregar-t{font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;}
+  .pl-agregar-f{display:flex;flex-wrap:wrap;gap:6px;} .pl-agregar-f input{flex:1 1 150px;min-width:130px;font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);} #agNota{flex:2 1 260px;}
+  #agMensaje{margin-top:6px;} #agMensaje.err{color:var(--red);}
+  .pl-filtros{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px;} .pl-filtro{border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:999px;font-size:12px;font-weight:600;padding:4px 11px;cursor:pointer;} .pl-filtro.on{background:var(--primary);color:#fff;border-color:var(--primary);}
+  .pl-paso-t{font-weight:600;font-size:12px;white-space:normal;max-width:190px;} .pl-paso-t.u2{color:var(--red);} .pl-paso-t.u0{color:var(--muted);font-weight:500;}
+  .pl-fecha{font-size:11.5px;padding:2px 4px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);margin-top:3px;} .pl-fecha.venc{border-color:var(--red);color:var(--red);font-weight:700;}
+  .pl-tag{display:inline-block;font-size:10px;font-weight:700;border-radius:999px;padding:1px 7px;background:var(--blue-bg);color:var(--blue);margin-left:4px;} .pl-tag.venc{background:var(--red-bg);color:var(--red);}
+  .pl-nota-res{width:100%;min-width:110px;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);}
   .pl-resumen table{font-size:12.5px;} .pl-resumen td,.pl-resumen th{padding:6px 8px;white-space:nowrap;vertical-align:middle;}
   .pl-resumen td.cli{white-space:normal;min-width:170px;} .pl-resumen td.cli small{display:block;color:var(--muted);font-size:11px;}
   .pl-marca{border:1px solid var(--border);background:var(--surface-2);color:var(--muted);border-radius:999px;font-size:11.5px;font-weight:600;padding:3px 10px;cursor:pointer;}
@@ -303,7 +312,24 @@
     </div>
     <div id="planAviso"></div>
     <div id="planProgreso"></div>
-    <div id="planResumen"></div>
+    <div id="planResumen" class="pl-resumen">
+      <h3 id="resTitulo">📊 Resumen de la lista</h3>
+      <div class="pl-agregar">
+        <div class="pl-agregar-t">➕ ¿Conociste a un cliente que no está en la lista? Agrégalo aquí y queda en tu seguimiento</div>
+        <div class="pl-agregar-f">
+          <input id="agEmpresa" type="text" maxlength="120" placeholder="Empresa *">
+          <input id="agContacto" type="text" maxlength="80" placeholder="Nombre de contacto">
+          <input id="agTelefono" type="tel" maxlength="40" placeholder="Teléfono (+56 9 ...)">
+          <input id="agEmail" type="email" maxlength="120" placeholder="Correo">
+          <input id="agComuna" type="text" maxlength="60" placeholder="Comuna">
+          <input id="agNota" type="text" maxlength="300" placeholder="Nota (cómo lo conociste, qué necesita...)">
+          <button class="pl-btn" id="agBoton" onclick="agregarClientePlan()">➕ Agregar a mi lista</button>
+        </div>
+        <div id="agMensaje" class="sub"></div>
+      </div>
+      <div id="resFiltros" class="pl-filtros"></div>
+      <div id="resTabla"></div>
+    </div>
     <div id="planCuerpo" style="margin-top:18px"><p class="empty-note">Cargando...</p></div>
   </div>
 
@@ -1020,7 +1046,7 @@ let mejorandoIA = false;
 const mensajesPlan = {};
 const canalPlan = {};
 const OFERTA_TXT = { crear_tienda: '🛒 Crear su tienda online', optimizar_tienda: '📈 Mejorar su sitio / tienda', diagnostico_gratis: '🔎 Diagnóstico gratis' };
-const RESULTADO_TXT = { interesado: '✅ Le interesa', reunion: '📅 Reunión agendada', volver_a_llamar: '🔁 Volver a llamar', contactado: '📨 Contactado', sin_respuesta: '📵 No contestó', no_interesa: '❌ No le interesa', dato_incorrecto: '⚠️ Dato incorrecto', no_corresponde: '🚫 No corresponde', sitio_optimizado: '✅ Ya tiene página optimizada', omitido: '⏭ Omitido' };
+const RESULTADO_TXT = { interesado: '✅ Le interesa', reunion: '📅 Reunión agendada', volver_a_llamar: '🔁 Volver a llamar', contactado: '📨 Contactado', ganado: '🏆 Venta cerrada', sin_respuesta: '📵 No contestó', no_interesa: '❌ No le interesa', dato_incorrecto: '⚠️ Dato incorrecto', no_corresponde: '🚫 No corresponde', sitio_optimizado: '✅ Ya tiene página optimizada', omitido: '⏭ Omitido' };
 const CANAL_TXT = { whatsapp: 'WhatsApp', llamada: 'llamada', correo: 'correo', otro: '' };
 
 function textoVendedor(t){ return String(t || '').split('{vendedor}').join(nombreVendedor || 'tu ejecutivo de IndexStore'); }
@@ -1090,6 +1116,7 @@ function chipsDatos(it){
   if(d.compras12m) c.push('<span class="pl-chip">' + d.compras12m + (d.compras12m === 1 ? ' compra' : ' compras') + ' en 12 meses</span>');
   else if(d.comprasTotal) c.push('<span class="pl-chip">Compró antes (' + d.comprasTotal + ' en total)</span>');
   if(d.diasUltimaCompra != null) c.push('<span class="pl-chip">Última compra hace ' + (d.diasUltimaCompra === 0 ? 'hoy' : d.diasUltimaCompra + (d.diasUltimaCompra === 1 ? ' día' : ' días')) + '</span>');
+  if(d.manual) c.push('<span class="pl-chip oferta">✍️ Agregado a mano</span>');
   if(d.servicioTecnico) c.push('<span class="pl-chip">Usó servicio técnico</span>');
   if(d.intentosSinRespuesta) c.push('<span class="pl-chip alerta">' + d.intentosSinRespuesta + (d.intentosSinRespuesta === 1 ? ' intento sin respuesta' : ' intentos sin respuesta') + '</span>');
   const SITIO_TXT = { sin_dominio: '🚫 Su dominio no existe', no_carga: '⚠️ Su sitio no carga', estacionado: '🚧 Dominio sin página (estacionado / en construcción)', basico: '📄 Sitio web básico', con_sitio: '🌐 Tiene sitio con contenido', tienda: '🛒 Ya vende online' };
@@ -1169,7 +1196,7 @@ function renderPlan(){
         + '<div class="pl-cta" style="justify-content:center">' + opciones + '<button class="pl-btn" onclick="generarPlanIndexscale(false)">✨ Generar mi lista</button></div>'
         + '<div class="pl-pasos"><div class="pl-paso"><b>1.</b> Mira el primer cliente: ahí dice por qué.</div><div class="pl-paso"><b>2.</b> Toca WhatsApp o Llamar: el mensaje ya está escrito.</div><div class="pl-paso"><b>3.</b> Anota cómo te fue con un botón.</div><div class="pl-paso"><b>4.</b> Cuando termines, pide una lista nueva.</div></div></div>';
     prog.innerHTML = '';
-    $('planResumen').innerHTML = '';
+    renderResumenPlan();
     if($('planCantidad')) $('planCantidad').value = cantPrev;
     return;
   }
@@ -1235,60 +1262,157 @@ async function copiarDatoPlan(btn, id, campo){
   btn.textContent = ok ? '✅ Copiado' : '⚠️ No se pudo';
   setTimeout(() => { btn.textContent = original; }, 1500);
 }
-// Resumen de la lista: una fila por cliente con lo esencial (WhatsApp, llamada y correo marcables, y el resultado). Se edita aquí mismo.
+// Resumen de la lista (seguimiento tipo CRM): una fila por cliente con lo esencial. Se edita aquí mismo.
+//  1) Próxima acción con fecha y alerta de vencido (como las tareas de HubSpot / actividades de Pipedrive).
+//  2) Cadencia WhatsApp -> llamada -> correo con el siguiente paso sugerido (como las secuencias de HubSpot / Outreach / Salesloft).
+//  3) Vistas rápidas, última gestión y seguimiento que no se pierde al pedir otra lista (como las vistas guardadas de Zoho / Pipedrive y la «última actividad» de Salesforce).
+let filtroResumen = 'todos';
 const OPCIONES_RESUMEN = [
   ['pendiente', '⏳ Pendiente'],
   ['interesado', '✅ Le interesa'], ['reunion', '📅 Reunión agendada'], ['contactado', '📨 Contactado (espera respuesta)'], ['volver_a_llamar', '🔁 Volver a llamar'],
+  ['ganado', '🏆 Venta cerrada'],
   ['sin_respuesta', '📵 No contestó'], ['dato_incorrecto', '⚠️ Dato incorrecto (teléfono o correo malo)'], ['no_interesa', '❌ No le interesa'],
   ['sitio_optimizado', '✅ Ya tiene página optimizada'], ['no_corresponde', '🚫 No corresponde'],
 ];
+const ACTIVOS_SEGUIMIENTO = ['interesado', 'reunion', 'contactado', 'volver_a_llamar'];
+function diasDesdePlan(iso){ return iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)) : null; }
+
+// Siguiente paso sugerido. u: 2 = toca hoy / vencido, 1 = por hacer, 0 = esperar.
+function siguientePasoPlan(it, hoy){
+  const r = it.resultado;
+  const fecha = it.proximoContacto ? fechaCorta(it.proximoContacto + 'T12:00:00') : '';
+  if(r === 'interesado') return { t: 'Agendar reunión y enviar el diagnóstico', u: it.proximoContacto && it.proximoContacto <= hoy ? 2 : 1 };
+  if(r === 'reunion') return { t: 'Hacer la reunión y enviar la propuesta', u: it.proximoContacto && it.proximoContacto <= hoy ? 2 : 1 };
+  if(r === 'contactado' || r === 'volver_a_llamar'){
+    if(it.proximoContacto && it.proximoContacto <= hoy) return { t: 'Recontactar hoy', u: 2 };
+    return { t: 'Esperar respuesta' + (fecha ? ' hasta el ' + fecha : ''), u: 0 };
+  }
+  if(r === 'sin_respuesta') return { t: 'Reintentar por otro canal', u: 1 };
+  if(r !== 'pendiente') return { t: '', u: 0 };
+  if(it.proximoContacto && it.proximoContacto > hoy && (it.waEnviadoEn || it.llamadoEn || it.correoEnviadoEn)) return { t: 'Esperar hasta el ' + fecha, u: 0 };
+  if(!it.waEnviadoEn && !it.llamadoEn && !it.correoEnviadoEn) return { t: '1° Enviar WhatsApp (el mensaje ya está listo)', u: 1 };
+  if(it.waEnviadoEn && !it.llamadoEn){
+    const d = diasDesdePlan(it.waEnviadoEn);
+    return d >= 2 ? { t: '2° Llamar hoy (pasaron ' + d + ' días del WhatsApp)', u: 2 } : { t: '2° Llamar ' + (d === 0 ? 'en 2 días' : 'mañana'), u: 0 };
+  }
+  if(!it.llamadoEn) return { t: 'Llamar', u: 1 };
+  if(!it.correoEnviadoEn) return { t: '3° Enviar el correo con el diagnóstico', u: 1 };
+  return { t: 'Cadencia completa: anota el resultado', u: 1 };
+}
+function infoFilaPlan(it, hoy){
+  const marcas = [it.waEnviadoEn, it.llamadoEn, it.correoEnviadoEn].filter(Boolean);
+  const stamps = marcas.concat([it.resultadoEn]).filter(Boolean).map(x => new Date(x).getTime());
+  const ultima = stamps.length ? Math.max.apply(null, stamps) : null;
+  const dias = ultima ? Math.max(0, Math.floor((Date.now() - ultima) / 86400000)) : null;
+  const paso = siguientePasoPlan(it, hoy);
+  const activo = it.resultado === 'pendiente' || ACTIVOS_SEGUIMIENTO.includes(it.resultado) || it.resultado === 'sin_respuesta';
+  const vencido = !!(it.proximoContacto && it.proximoContacto < hoy && activo);
+  return { dias, paso, vencido, sinTocar: it.resultado === 'pendiente' && !marcas.length, enSeguimiento: ACTIVOS_SEGUIMIENTO.includes(it.resultado), hoyToca: paso.u === 2 || vencido, creadoDias: diasDesdePlan(it.creadoEn) };
+}
 function celdaMarcaPlan(it, canal, campo, textoOn){
   const en = it[campo];
   const quien = it.marcasPor ? ' · ' + it.marcasPor : '';
   return `<td data-valor="${en ? new Date(en).getTime() : 0}"><button class="pl-marca${en ? ' on' : ''}" title="${en ? escLead('Marcado el ' + fechaCorta(en) + quien + '. Toca para desmarcar.') : 'Toca cuando ya lo hiciste'}" onclick="marcarCanalPlan(${it.id},'${canal}')">${en ? '✔ ' + textoOn + ' ' + fechaCorta(en) : 'Pendiente'}</button></td>`;
 }
+function itemsResumenPlan(){
+  const base = ((planIndexscale && planIndexscale.items) || []).filter((it) => it.resultado !== 'no_corresponde' && it.resultado !== 'sitio_optimizado' && it.resultado !== 'ganado');
+  const arrastrados = ((planIndexscale && planIndexscale.seguimiento) || []).filter((it) => ACTIVOS_SEGUIMIENTO.includes(it.resultado));
+  return base.concat(arrastrados);
+}
+function setFiltroResumen(f){ filtroResumen = f; renderResumenPlan(); }
 function renderResumenPlan(){
-  const cont = $('planResumen'); if(!cont) return;
-  // Solo oportunidades de venta: lo que se descartó (no corresponde / ya tiene página optimizada) no se muestra en el resumen.
-  const items = ((planIndexscale && planIndexscale.items) || []).filter((it) => it.resultado !== 'no_corresponde' && it.resultado !== 'sitio_optimizado');
-  if(!items.length){ cont.innerHTML = ''; return; }
-  const filas = items.map((it, k) => {
+  const cont = $('resTabla'); if(!cont) return;
+  const hoy = fechaDiaMas(0);
+  const todos = itemsResumenPlan().map((it) => ({ it, inf: infoFilaPlan(it, hoy) }));
+  $('resTitulo').textContent = '📊 Resumen de la lista' + (todos.length ? ' (' + todos.length + ')' : '');
+  const cuenta = { todos: todos.length, hoy: todos.filter(x => x.inf.hoyToca).length, sintocar: todos.filter(x => x.inf.sinTocar).length, seguimiento: todos.filter(x => x.inf.enSeguimiento).length };
+  $('resFiltros').innerHTML = todos.length ? [['todos', 'Todos'], ['hoy', '🔔 Toca hoy / vencidos'], ['sintocar', '🆕 Sin tocar'], ['seguimiento', '⏳ En seguimiento']]
+    .map(([k, txt]) => `<button class="pl-filtro${filtroResumen === k ? ' on' : ''}" onclick="setFiltroResumen('${k}')">${txt} (${cuenta[k]})</button>`).join('') : '';
+  if(!todos.length){ cont.innerHTML = '<p class="empty-note">Todavía no hay clientes en el resumen: genera tu lista o agrega uno a mano.</p>'; return; }
+  let filas = todos.filter(x => filtroResumen === 'hoy' ? x.inf.hoyToca : filtroResumen === 'sintocar' ? x.inf.sinTocar : filtroResumen === 'seguimiento' ? x.inf.enSeguimiento : true);
+  // Primero lo que toca hoy, luego lo que está por hacer y al final lo que espera respuesta (dentro de cada grupo, el orden de la lista).
+  const peso = (x) => (x.inf.hoyToca ? 0 : x.inf.paso.u === 1 ? 1 : 2);
+  filas = filas.map((x, k) => ({ ...x, k })).sort((a, b) => peso(a) - peso(b) || a.k - b.k);
+  if(!filas.length){ cont.innerHTML = '<p class="empty-note">No hay clientes en esta vista.</p>'; return; }
+  const tbody = filas.map(({ it, inf }, n) => {
     const opciones = OPCIONES_RESUMEN.map(([v, txt]) => `<option value="${v}"${it.resultado === v ? ' selected' : ''}>${txt}</option>`).join('')
       + (it.resultado === 'omitido' ? '<option value="omitido" selected disabled>⏭ Omitido</option>' : '');
+    const manual = it.datos && it.datos.manual ? '<span class="pl-tag" title="Lo agregó un vendedor a mano">✍️ a mano</span>' : '';
+    const anterior = it.arrastrado || (planIndexscale && planIndexscale.plan && it.planId && it.planId !== planIndexscale.plan.id) ? '<span class="pl-tag" title="Viene de una lista anterior: sigue en seguimiento">↩ lista anterior</span>' : '';
+    const ultima = inf.dias != null ? (inf.dias === 0 ? 'Hoy' : 'hace ' + inf.dias + (inf.dias === 1 ? ' día' : ' días')) : 'Sin tocar' + (inf.creadoDias != null && inf.creadoDias > 0 ? ' (' + inf.creadoDias + ' d en lista)' : '');
     return `<tr id="plres-${it.id}">
-      <td>${k + 1}</td>
-      <td class="cli"><b>${escLead(it.empresa)}</b><small>${escLead(it.comuna || '')}${it.telefono && it.telefono.mostrar ? ' · ' + escLead(it.telefono.mostrar) : ''}</small></td>
+      <td>${n + 1}</td>
+      <td class="cli"><b>${escLead(it.empresa)}</b>${manual}${anterior}<small>${escLead(it.comuna || '')}${it.telefono && it.telefono.mostrar ? ' · ' + escLead(it.telefono.mostrar) : ''}</small></td>
       ${celdaMarcaPlan(it, 'whatsapp', 'waEnviadoEn', 'Enviado')}
       ${celdaMarcaPlan(it, 'llamada', 'llamadoEn', 'Llamado')}
       ${celdaMarcaPlan(it, 'correo', 'correoEnviadoEn', 'Enviado')}
+      <td data-valor="${it.proximoContacto || ''}"><div class="pl-paso-t u${inf.paso.u}">${escLead(inf.paso.t)}</div>
+        <input type="date" class="pl-fecha${inf.vencido ? ' venc' : ''}" value="${escLead(it.proximoContacto || '')}" title="Próxima acción: el día en que debes volver a tocar a este cliente" onchange="cambiarFechaPlan(${it.id}, this.value)">${inf.vencido ? '<span class="pl-tag venc">Vencido</span>' : ''}</td>
+      <td data-valor="${inf.dias == null ? '' : inf.dias}">${ultima}</td>
       <td><select title="Si ya lo gestionaste, el resultado; si no, déjalo en Pendiente o elige por qué no pudiste" onchange="cambiarResultadoResumen(${it.id}, this)">${opciones}</select></td>
+      <td><input class="pl-nota-res" type="text" maxlength="300" value="${escLead(it.nota || '')}" placeholder="Nota rápida" onchange="guardarNotaPlan(${it.id}, this)"></td>
     </tr>`;
   }).join('');
-  cont.innerHTML = `<div class="pl-resumen"><h3>📊 Resumen de la lista (${items.length})</h3><div class="sub" style="margin-bottom:6px">Marca lo que ya hiciste con cada cliente y el resultado. Lo que no esté marcado queda como «Pendiente».</div>
-    <div class="tabla-wrap"><table><thead><tr><th>N°</th><th>Cliente</th><th>💬 WhatsApp</th><th>📞 Llamada</th><th>✉️ Correo</th><th>Resultado</th></tr></thead><tbody>${filas}</tbody></table></div></div>`;
+  cont.innerHTML = `<div class="sub" style="margin-bottom:6px">Marca lo que ya hiciste con cada cliente, fija la fecha de la próxima acción y anota el resultado. Lo que no esté marcado queda como «Pendiente».</div>
+    <div class="tabla-wrap"><table><thead><tr><th>N°</th><th>Cliente</th><th>💬 WhatsApp</th><th>📞 Llamada</th><th>✉️ Correo</th><th>Siguiente paso / fecha</th><th>Última gestión</th><th>Resultado</th><th data-sin-orden>Nota</th></tr></thead><tbody>${tbody}</tbody></table></div>`;
+}
+function reemplazarItemPlan(nuevo){
+  if(!nuevo || !planIndexscale) return;
+  for(const k of ['items', 'seguimiento']){
+    const a = planIndexscale[k] || []; const i = a.findIndex(x => x.id === nuevo.id);
+    if(i >= 0){ a[i] = nuevo; return; }
+  }
+}
+async function putPlan(body){
+  const r = await fetch('/api/negocio?recurso=indexscale-plan', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!r.ok || d.error) throw new Error(d.error || r.status);
+  return d;
 }
 async function marcarCanalPlan(id, canal){
   const it = itemPlan(id); if(!it) return;
   const campo = { whatsapp: 'waEnviadoEn', llamada: 'llamadoEn', correo: 'correoEnviadoEn' }[canal];
-  try{
-    const r = await fetch('/api/negocio?recurso=indexscale-plan', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itemId: id, marca: canal, valor: !it[campo] }) });
-    const d = await r.json();
-    if(!r.ok || d.error) throw new Error(d.error || r.status);
-    const i = planIndexscale.items.findIndex(x => x.id === id);
-    if(i >= 0 && d.item) planIndexscale.items[i] = d.item;
-    renderResumenPlan();
-  }catch(err){ alert('No se pudo guardar: ' + err.message); }
+  try{ const d = await putPlan({ itemId: id, marca: canal, valor: !it[campo] }); reemplazarItemPlan(d.item); renderResumenPlan(); }
+  catch(err){ alert('No se pudo guardar: ' + err.message); }
+}
+async function cambiarFechaPlan(id, valor){
+  try{ const d = await putPlan({ itemId: id, accion: 'proximo', proximoContacto: valor || null }); reemplazarItemPlan(d.item); renderResumenPlan(); }
+  catch(err){ alert('No se pudo guardar la fecha: ' + err.message); }
+}
+async function guardarNotaPlan(id, input){
+  try{ const d = await putPlan({ itemId: id, accion: 'nota', nota: input.value }); reemplazarItemPlan(d.item); }
+  catch(err){ alert('No se pudo guardar la nota: ' + err.message); }
 }
 async function cambiarResultadoResumen(id, sel){
   const valor = sel.value;
   if(valor === 'no_corresponde' && !confirm('¿Marcar como que NO corresponde (informática, tecnología u otro rubro)? No volverá a salir en ninguna lista.')){ renderResumenPlan(); return; }
   if(valor === 'sitio_optimizado' && !confirm('¿Marcar que ya tiene una página optimizada? No volverá a salir en ninguna lista.')){ renderResumenPlan(); return; }
+  if(valor === 'ganado' && !confirm('¿Marcar como venta cerrada? Sale del seguimiento.')){ renderResumenPlan(); return; }
   sel.disabled = true;
   const ok = await resultadoPlan(id, valor);
   if(!ok) renderResumenPlan();
 }
-
-function itemPlan(id){ return ((planIndexscale && planIndexscale.items) || []).find(i => i.id === id); }
+async function agregarClientePlan(){
+  const campos = { empresa: 'agEmpresa', contacto: 'agContacto', telefono: 'agTelefono', email: 'agEmail', comuna: 'agComuna', nota: 'agNota' };
+  const body = { accion: 'agregar-cliente' };
+  Object.keys(campos).forEach(k => { body[k] = $(campos[k]).value; });
+  const msg = $('agMensaje'); const btn = $('agBoton');
+  msg.className = 'sub'; msg.textContent = '';
+  btn.disabled = true;
+  try{
+    const r = await fetch('/api/negocio?recurso=indexscale-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if(!r.ok || d.error){ msg.className = 'sub err'; msg.textContent = d.error || ('Error ' + r.status); }
+    else {
+      planIndexscale = d;
+      Object.values(campos).forEach(id => { $(id).value = ''; });
+      msg.textContent = '✅ Agregado: ' + body.empresa + '. Ya está en el resumen y como tarjeta más abajo, con el mensaje listo.';
+      renderPlan();
+    }
+  }catch(err){ msg.className = 'sub err'; msg.textContent = 'No se pudo agregar: ' + err.message; }
+  btn.disabled = false;
+}
+function itemPlan(id){ return ((planIndexscale && planIndexscale.items) || []).concat((planIndexscale && planIndexscale.seguimiento) || []).find(i => i.id === id); }
 function abrirWhatsAppPlan(id){
   const it = itemPlan(id); if(!it || !it.telefono.wa) return false;
   const ta = $('plmsg-' + id);
@@ -1315,8 +1439,7 @@ async function resultadoPlan(id, resultado){
     const r = await fetch('/api/negocio?recurso=indexscale-plan', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const d = await r.json();
     if(!r.ok || d.error) throw new Error(d.error || r.status);
-    const i = planIndexscale.items.findIndex(x => x.id === id);
-    if(i >= 0 && d.item) planIndexscale.items[i] = d.item;
+    reemplazarItemPlan(d.item);
     if(resultado !== 'pendiente') planIndexscale.gestionadosHoy = (planIndexscale.gestionadosHoy || 0) + 1;
     delete canalPlan[id]; delete mensajesPlan[id];
     renderPlan();
