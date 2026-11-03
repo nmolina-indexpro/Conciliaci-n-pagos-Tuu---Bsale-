@@ -270,11 +270,12 @@
         <div class="sub">Productos reales del carro (los que tienen SKU de Bsale). El margen es sobre el precio neto, sin IVA, con el costo de Bsale. Si Bsale no entrega el costo, escríbelo a mano.</div>
       </div>
       <div class="filtros" style="margin:0;">
+        <select id="filtroCategoria" aria-label="Categoría"></select>
         <button type="button" class="btn-primary btn-compact" id="btnAplicar" disabled>Aplicar cambios en Shopify</button>
       </div>
     </div>
     <div class="tabla-wrap"><table id="tProductos"></table></div>
-    <div class="desde" style="margin-top:8px;">Etiquetas: el ERP solo agrega o quita las que empiezan con <b id="prefijoEtq"></b>. Nunca toca otras etiquetas.</div>
+    <div class="desde" style="margin-top:8px;">Etiquetas: el ERP solo agrega o quita las que empiezan con <b id="prefijoEtq"></b>. Nunca toca otras etiquetas. Para que un producto <b>nunca</b> tenga descuento por volumen (por ejemplo, uno con margen muy bajo), ponle en Shopify la etiqueta <b id="etqExcluir"></b>.</div>
   </div>
 
   <div class="seccion">
@@ -440,7 +441,8 @@ function pintarKpis(){
 
 function pintarReglas(){
   const c = D.config, dis = D.esAdmin ? '' : 'disabled';
-  $('grupoInfo').textContent = `${c.tipo_producto} · etiqueta ${c.etiqueta_producto}`;
+  $('grupoInfo').textContent = `Cargadores, pantallas y baterías · etiqueta ${c.etiqueta_producto}`;
+  $('grupoInfo').title = (c.tipos_producto || []).join(' · ');
   const tr = (i) => c.tramos[i] || { cantidad: '', porcentaje: '' };
   const f = (id, lbl, val, extra) => `<div class="campo-r"><label for="${id}">${lbl}</label><input id="${id}" type="number" value="${esc(val)}" ${dis} ${extra || ''}></div>`;
   $('reglasForm').innerHTML =
@@ -477,24 +479,30 @@ function celdaMargen(m, minimo){
   return `<span class="badge ${cls}">${pctTxt(m.margen)}</span>`;
 }
 
+let filtroCategoria = '';
 function pintarProductos(){
   const c = D.config;
   $('prefijoEtq').textContent = c.prefijo_etiqueta + '…';
+  $('etqExcluir').textContent = c.etiqueta_excluir;
   const head = ['Producto', 'Stock', 'Precio', 'Costo neto', 'Se ofrece', 'Etiquetas', 'Margen sin desc.']
     .concat(c.tramos.map(t => `Margen ${t.cantidad} u. (${t.porcentaje}%)`)).concat(['Desc. máximo']);
   const conCambio = p => (p.agregar.length || p.quitar.length || p.meta_cambio) ? 0 : 1;
-  const filas = [...D.productos].sort((a, b) => conCambio(a) - conCambio(b)).map(p => {
+  const cats = [...new Set(D.productos.map(p => p.categoria || 'Otros'))].sort((a, b) => a.localeCompare(b, 'es'));
+  const selCat = $('filtroCategoria');
+  if(selCat){ selCat.innerHTML = '<option value="">Todas las categorías (' + fmtNum(D.productos.length) + ')</option>' + cats.map(k => `<option value="${esc(k)}"${k === filtroCategoria ? ' selected' : ''}>${esc(k)} (${fmtNum(D.productos.filter(p => (p.categoria || 'Otros') === k).length)})</option>`).join(''); }
+  const lista = D.productos.filter(p => !filtroCategoria || (p.categoria || 'Otros') === filtroCategoria);
+  const filas = [...lista].sort((a, b) => conCambio(a) - conCambio(b)).map(p => {
     const esBsale = String(p.costo_origen || '').startsWith('Bsale');
     const costo = esBsale
       ? `<span class="amount">${clp(p.costo)}</span><div class="desde motivo">${esc(p.costo_origen)}</div>`
       : `<input class="inp-costo" data-sku="${esc(p.sku || '')}" type="number" min="1" placeholder="costo" value="${p.costo ?? ''}" ${D.esAdmin && p.sku ? '' : 'disabled'}><div class="desde motivo">${p.costo_origen === 'manual' ? 'a mano' : esc(p.costo_motivo || 'sin dato')}</div>`;
-    const ofrece = p.ofrecidos.length ? p.ofrecidos.map(t => `<span class="badge verde">${t.cantidad} u. · ${t.porcentaje}%</span>`).join(' ') : '<span class="badge gris">Ninguno</span>';
+    const ofrece = p.excluido ? '<span class="badge ambar">Excluido</span>' : p.ofrecidos.length ? p.ofrecidos.map(t => `<span class="badge verde">${t.cantidad} u. · ${t.porcentaje}%</span>`).join(' ') : '<span class="badge gris">Ninguno</span>';
     const cambios = [].concat(p.agregar.map(t => `<span class="badge azul">+ ${esc(t)}</span>`), p.quitar.map(t => `<span class="badge rojo">− ${esc(t)}</span>`), p.meta_cambio ? [`<span class="badge azul">actualizar ficha</span>`] : []);
     const hoy = p.tags.filter(t => t.toLowerCase().startsWith(c.prefijo_etiqueta.toLowerCase()));
     const etq = (hoy.length ? hoy.map(t => `<span class="badge gris">${esc(t)}</span>`).join(' ') : '<span class="desde">sin etiquetas</span>') + (cambios.length ? `<div style="margin-top:4px;">${cambios.join(' ')}</div>` : '');
     const marg = p.margenes.map(m => `<td class="amount">${celdaMargen(m, c.margen_minimo)}</td>`).join('');
-    const estado = p.activo ? '' : ` <span class="badge gris">${esc(p.estado)}</span>`;
-    return `<tr><td><b>${esc(p.titulo)}</b>${estado}<div class="desde">${esc(p.sku || 'sin SKU')}</div></td>
+    const estado = (p.activo ? '' : ` <span class="badge gris">${esc(p.estado)}</span>`) + (p.excluido ? ` <span class="badge ambar" title="Tiene la etiqueta ${esc(c.etiqueta_excluir)} en Shopify: no recibe descuento por volumen">Excluido</span>` : '');
+    return `<tr><td><b>${esc(p.titulo)}</b>${estado}<div class="desde">${esc(p.categoria || '')} · ${esc(p.sku || 'sin SKU')}</div></td>
       <td class="amount">${fmtNum(p.stock)}</td><td class="amount">${clp(p.precio)}</td><td class="amount">${costo}</td>
       <td>${ofrece}</td><td>${etq}</td>${marg}<td class="amount">${p.descuento_maximo == null ? '—' : p.descuento_maximo + '%'}</td></tr>`;
   }).join('');
