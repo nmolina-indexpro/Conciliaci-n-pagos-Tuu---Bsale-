@@ -7206,7 +7206,7 @@ async function mejorarGuiasConIAIndexscale(sql, sesion) {
   if (elegibles.length === 0) return { error: 'No se pudo preparar la información de esos contactos.' };
   let bruto;
   try { bruto = await pedirGuiaIAIndexscale(elegibles.map(datosParaIAIndexscale), elegibles.length, inicio); }
-  catch (err) { return { error: err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada.' : 'La IA no respondió (' + String(err.message || err).slice(0, 240) + '). Intenta de nuevo en un minuto.' }; }
+  catch (err) { return { error: err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada.' : 'La IA no respondió (' + String(err.message || err).slice(0, 420) + '). Intenta de nuevo en un minuto.' }; }
   const quien = sesion.nombre || sesion.email;
   // Los que la IA descarta por rubro informático/tecnológico salen de la lista y no vuelven.
   const descartados = new Map(((Array.isArray(bruto.descartados)) ? bruto.descartados : []).map((d) => [Number(d && d.id), String((d && d.motivo) || 'rubro tecnológico').slice(0, 200)]).filter(([i]) => ids.has(i)));
@@ -7260,7 +7260,7 @@ async function generarPlanIndexscale(sql, sesion, cantidad, planExistenteId = nu
     bruto = await pedirGuiaIAIndexscale(paraIA, cantidad, inicioGenerar);
   } catch (err) {
     origen = 'respaldo';
-    aviso = err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada: la lista se armó con el puntaje automático.' : 'La IA no respondió (' + String(err.message || err).slice(0, 240) + '): la lista se armó con el puntaje automático.';
+    aviso = err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada: la lista se armó con el puntaje automático.' : 'La IA no respondió (' + String(err.message || err).slice(0, 420) + '): la lista se armó con el puntaje automático.';
   }
   // Lo que la IA descartó por rubro informático/tecnológico queda registrado para que no vuelva a salir, y se reemplaza por los siguientes mejores.
   const descartadosIa = new Map(((bruto && Array.isArray(bruto.descartados)) ? bruto.descartados : []).map((d) => [Number(d && d.id), String((d && d.motivo) || 'rubro tecnológico').slice(0, 200)]).filter(([i]) => candidatos.some((c) => c.id === i)));
@@ -12115,9 +12115,14 @@ const GEMINI_MODEL_ANALISIS = 'gemini-3.1-flash-lite';
 // Cuando Gemini rechaza por cuota, saldo o facturación (la cuenta de Google AI Studio tiene su propio saldo prepago), el mensaje crudo
 // de la API no ayuda a quien usa el ERP: se traduce a qué hacer.
 function errorGemini(status, cuerpo) {
-  const t = String(cuerpo || '').slice(0, 300);
+  const crudo = String(cuerpo || '');
+  const t = crudo.slice(0, 300);
+  // El mensaje original de Google dice si es saldo agotado, límite por minuto o por día: se incluye para poder distinguirlo.
+  let detalle = t;
+  try { const j = JSON.parse(crudo); if (j && j.error && j.error.message) detalle = String(j.error.message); } catch (e) { /* cuerpo no JSON */ }
+  detalle = detalle.replace(/\s+/g, ' ').trim().slice(0, 200);
   if (status === 429 || /RESOURCE_EXHAUSTED|quota|billing|prepayment|credit/i.test(t)) {
-    return new Error('La cuenta de Gemini no tiene cupo o saldo: revisa Facturación en Google AI Studio (aistudio.google.com) y vuelve a intentar.');
+    return new Error('Gemini sin cupo o saldo. Google dice: «' + detalle + '». Revisa Facturación en aistudio.google.com y vuelve a intentar.');
   }
   return new Error(`Gemini HTTP ${status}: ${t}`);
 }
