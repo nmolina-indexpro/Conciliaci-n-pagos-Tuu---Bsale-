@@ -106,6 +106,12 @@
   .pl-quien b{font-family:'Space Grotesk',sans-serif;font-size:17px;display:block;overflow-wrap:anywhere;}
   .pl-contacto{font-size:13px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere;}
   .pl-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+  .pl-resumen h3{margin:0 0 6px;font-size:14px;}
+  .pl-resumen table{font-size:12.5px;} .pl-resumen td,.pl-resumen th{padding:6px 8px;white-space:nowrap;vertical-align:middle;}
+  .pl-resumen td.cli{white-space:normal;min-width:170px;} .pl-resumen td.cli small{display:block;color:var(--muted);font-size:11px;}
+  .pl-marca{border:1px solid var(--border);background:var(--surface-2);color:var(--muted);border-radius:999px;font-size:11.5px;font-weight:600;padding:3px 10px;cursor:pointer;}
+  .pl-marca:hover{border-color:var(--muted);color:var(--text);} .pl-marca.on{background:var(--green-bg);color:var(--green);border-color:var(--green);}
+  .pl-resumen select{font-size:12px;padding:3px 6px;max-width:210px;}
   .pl-copiar{border:1px solid var(--border);background:var(--surface-2);color:var(--muted);border-radius:6px;font-size:11px;font-weight:600;padding:1px 7px;cursor:pointer;vertical-align:middle;} .pl-copiar:hover{color:var(--text);border-color:var(--muted);}
   .pl-chip{font-size:11px;font-weight:600;border-radius:999px;padding:3px 9px;background:var(--surface-2);color:var(--muted);}
   .pl-chip.alta{background:var(--red-bg);color:var(--red);} .pl-chip.media{background:var(--amber-dim);color:var(--amber);} .pl-chip.baja{background:var(--surface-2);color:var(--muted);}
@@ -297,7 +303,8 @@
     </div>
     <div id="planAviso"></div>
     <div id="planProgreso"></div>
-    <div id="planCuerpo"><p class="empty-note">Cargando...</p></div>
+    <div id="planResumen"></div>
+    <div id="planCuerpo" style="margin-top:18px"><p class="empty-note">Cargando...</p></div>
   </div>
 
   </div>
@@ -1162,6 +1169,7 @@ function renderPlan(){
         + '<div class="pl-cta" style="justify-content:center">' + opciones + '<button class="pl-btn" onclick="generarPlanIndexscale(false)">✨ Generar mi lista</button></div>'
         + '<div class="pl-pasos"><div class="pl-paso"><b>1.</b> Mira el primer cliente: ahí dice por qué.</div><div class="pl-paso"><b>2.</b> Toca WhatsApp o Llamar: el mensaje ya está escrito.</div><div class="pl-paso"><b>3.</b> Anota cómo te fue con un botón.</div><div class="pl-paso"><b>4.</b> Cuando termines, pide una lista nueva.</div></div></div>';
     prog.innerHTML = '';
+    $('planResumen').innerHTML = '';
     if($('planCantidad')) $('planCantidad').value = cantPrev;
     return;
   }
@@ -1196,6 +1204,7 @@ function renderPlan(){
       + '</details>';
   }
   cuerpo.innerHTML = html;
+  renderResumenPlan();
 }
 
 async function mejorarConIA(){
@@ -1226,6 +1235,58 @@ async function copiarDatoPlan(btn, id, campo){
   btn.textContent = ok ? '✅ Copiado' : '⚠️ No se pudo';
   setTimeout(() => { btn.textContent = original; }, 1500);
 }
+// Resumen de la lista: una fila por cliente con lo esencial (WhatsApp, llamada y correo marcables, y el resultado). Se edita aquí mismo.
+const OPCIONES_RESUMEN = [
+  ['pendiente', '⏳ Pendiente'],
+  ['interesado', '✅ Le interesa'], ['reunion', '📅 Reunión agendada'], ['contactado', '📨 Contactado (espera respuesta)'], ['volver_a_llamar', '🔁 Volver a llamar'],
+  ['sin_respuesta', '📵 No contestó'], ['dato_incorrecto', '⚠️ Dato incorrecto (teléfono o correo malo)'], ['no_interesa', '❌ No le interesa'],
+  ['sitio_optimizado', '✅ Ya tiene página optimizada'], ['no_corresponde', '🚫 No corresponde'],
+];
+function celdaMarcaPlan(it, canal, campo, textoOn){
+  const en = it[campo];
+  const quien = it.marcasPor ? ' · ' + it.marcasPor : '';
+  return `<td data-valor="${en ? new Date(en).getTime() : 0}"><button class="pl-marca${en ? ' on' : ''}" title="${en ? escLead('Marcado el ' + fechaCorta(en) + quien + '. Toca para desmarcar.') : 'Toca cuando ya lo hiciste'}" onclick="marcarCanalPlan(${it.id},'${canal}')">${en ? '✔ ' + textoOn + ' ' + fechaCorta(en) : 'Pendiente'}</button></td>`;
+}
+function renderResumenPlan(){
+  const cont = $('planResumen'); if(!cont) return;
+  const items = (planIndexscale && planIndexscale.items) || [];
+  if(!items.length){ cont.innerHTML = ''; return; }
+  const filas = items.map((it) => {
+    const opciones = OPCIONES_RESUMEN.map(([v, txt]) => `<option value="${v}"${it.resultado === v ? ' selected' : ''}>${txt}</option>`).join('')
+      + (it.resultado === 'omitido' ? '<option value="omitido" selected disabled>⏭ Omitido</option>' : '');
+    return `<tr id="plres-${it.id}">
+      <td>${it.orden + 1}</td>
+      <td class="cli"><b>${escLead(it.empresa)}</b><small>${escLead(it.comuna || '')}${it.telefono && it.telefono.mostrar ? ' · ' + escLead(it.telefono.mostrar) : ''}</small></td>
+      ${celdaMarcaPlan(it, 'whatsapp', 'waEnviadoEn', 'Enviado')}
+      ${celdaMarcaPlan(it, 'llamada', 'llamadoEn', 'Llamado')}
+      ${celdaMarcaPlan(it, 'correo', 'correoEnviadoEn', 'Enviado')}
+      <td><select title="Si ya lo gestionaste, el resultado; si no, déjalo en Pendiente o elige por qué no pudiste" onchange="cambiarResultadoResumen(${it.id}, this)">${opciones}</select></td>
+    </tr>`;
+  }).join('');
+  cont.innerHTML = `<div class="pl-resumen"><h3>📊 Resumen de la lista (${items.length})</h3><div class="sub" style="margin-bottom:6px">Marca lo que ya hiciste con cada cliente y el resultado. Lo que no esté marcado queda como «Pendiente».</div>
+    <div class="tabla-wrap"><table><thead><tr><th>N°</th><th>Cliente</th><th>💬 WhatsApp</th><th>📞 Llamada</th><th>✉️ Correo</th><th>Resultado</th></tr></thead><tbody>${filas}</tbody></table></div></div>`;
+}
+async function marcarCanalPlan(id, canal){
+  const it = itemPlan(id); if(!it) return;
+  const campo = { whatsapp: 'waEnviadoEn', llamada: 'llamadoEn', correo: 'correoEnviadoEn' }[canal];
+  try{
+    const r = await fetch('/api/negocio?recurso=indexscale-plan', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itemId: id, marca: canal, valor: !it[campo] }) });
+    const d = await r.json();
+    if(!r.ok || d.error) throw new Error(d.error || r.status);
+    const i = planIndexscale.items.findIndex(x => x.id === id);
+    if(i >= 0 && d.item) planIndexscale.items[i] = d.item;
+    renderResumenPlan();
+  }catch(err){ alert('No se pudo guardar: ' + err.message); }
+}
+async function cambiarResultadoResumen(id, sel){
+  const valor = sel.value;
+  if(valor === 'no_corresponde' && !confirm('¿Marcar como que NO corresponde (informática, tecnología u otro rubro)? No volverá a salir en ninguna lista.')){ renderResumenPlan(); return; }
+  if(valor === 'sitio_optimizado' && !confirm('¿Marcar que ya tiene una página optimizada? No volverá a salir en ninguna lista.')){ renderResumenPlan(); return; }
+  sel.disabled = true;
+  const ok = await resultadoPlan(id, valor);
+  if(!ok) renderResumenPlan();
+}
+
 function itemPlan(id){ return ((planIndexscale && planIndexscale.items) || []).find(i => i.id === id); }
 function abrirWhatsAppPlan(id){
   const it = itemPlan(id); if(!it || !it.telefono.wa) return false;
@@ -1259,9 +1320,11 @@ async function resultadoPlan(id, resultado){
     delete canalPlan[id]; delete mensajesPlan[id];
     renderPlan();
     cargarIndexscale('sin_sitio'); cargarIndexscale('potenciar');
+    return true;
   }catch(err){
     alert('No se pudo guardar: ' + err.message);
     if(card) card.querySelectorAll('button').forEach(b => b.disabled = false);
+    return false;
   }
 }
 

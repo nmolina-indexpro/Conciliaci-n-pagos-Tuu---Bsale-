@@ -7041,6 +7041,10 @@ async function leerItemsPlanIndexscale(sql, planId) {
       nota: r.nota,
       canal: r.canal,
       proximoContacto: r.proximo_contacto_txt,
+      waEnviadoEn: r.wa_enviado_en || null,
+      llamadoEn: r.llamado_en || null,
+      correoEnviadoEn: r.correo_enviado_en || null,
+      marcasPor: r.marcas_por || null,
       resultadoPor: r.resultado_por,
       resultadoEn: r.resultado_en,
       historial: r.historial || [],
@@ -7431,6 +7435,16 @@ async function manejarIndexscalePlan(req, res, sesion) {
       const itemId = parseInt(b.itemId, 10);
       const resultado = String(b.resultado || '');
       if (!Number.isFinite(itemId)) return res.status(400).json({ error: 'Falta el contacto' });
+      // Marca del resumen: «ya se envió el WhatsApp / ya se llamó / ya se envió el correo» (o se desmarca). No cambia el resultado.
+      if (b.marca !== undefined) {
+        const columna = { whatsapp: 'wa_enviado_en', llamada: 'llamado_en', correo: 'correo_enviado_en' }[b.marca];
+        if (!columna) return res.status(400).json({ error: 'Canal no válido' });
+        const { rows: ex } = await sql.query(`SELECT plan_id FROM indexscale_plan_items WHERE id = $1;`, [itemId]);
+        if (ex.length === 0) return res.status(404).json({ error: 'No encontrado' });
+        await sql.query(`UPDATE indexscale_plan_items SET ${columna} = CASE WHEN $2::boolean THEN now() ELSE NULL END, marcas_por = $3 WHERE id = $1;`, [itemId, b.valor === true || b.valor === 'true', sesion.nombre || sesion.email]);
+        const marcados = await leerItemsPlanIndexscale(sql, ex[0].plan_id);
+        return res.status(200).json({ ok: true, item: marcados.find((x) => x.id === itemId) || null });
+      }
       if (!RESULTADOS_PLAN_INDEXSCALE.includes(resultado)) return res.status(400).json({ error: 'Resultado no válido' });
       const nota = b.nota ? String(b.nota).replace(/\s+/g, ' ').trim().slice(0, 500) : null;
       const canal = ['whatsapp', 'llamada', 'correo', 'otro'].includes(b.canal) ? b.canal : null;
