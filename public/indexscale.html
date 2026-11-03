@@ -1007,6 +1007,7 @@ irModulo(moduloDesdeHash(), true);
 let planIndexscale = null;
 let nombreVendedor = '';
 let generandoPlan = false;
+let mejorandoIA = false;
 const mensajesPlan = {};
 const canalPlan = {};
 const OFERTA_TXT = { crear_tienda: '🛒 Crear su tienda online', optimizar_tienda: '📈 Mejorar su sitio / tienda', diagnostico_gratis: '🔎 Diagnóstico gratis' };
@@ -1171,7 +1172,11 @@ function renderPlan(){
   const hoy = planIndexscale.gestionadosHoy || 0;
   const filtro = 'Solo Santiago y Región Metropolitana: ' + dosFmt(pl.poolTotal) + ' clientes disponibles'
     + (pl.fueraRm || pl.sinComuna || pl.excluidosRubro ? ' (quedan fuera ' + [pl.fueraRm ? dosFmt(pl.fueraRm) + ' de otras regiones' : '', pl.sinComuna ? dosFmt(pl.sinComuna) + ' sin comuna' : '', pl.excluidosRubro ? dosFmt(pl.excluidosRubro) + ' de informática o tecnología' : ''].filter(Boolean).join(', ') + ')' : '') + '. Nunca se ofrece a empresas de informática, computación, electrónica o soporte TI.';
-  const avisoPlan = pl.aviso ? '<div class="pl-aviso">⚠️ ' + escLead(pl.aviso) + '</div>' : '';
+  // El aviso solo se muestra mientras queden contactos con la guía genérica (la IA no había respondido): con el botón se le vuelve a pedir.
+  const nGenericos = pendientes.filter(i => i.origen === 'respaldo').length;
+  const avisoPlan = nGenericos
+    ? '<div class="pl-aviso">⚠️ ' + (pl.aviso ? escLead(pl.aviso) + ' ' : '') + '<b>' + nGenericos + (nGenericos === 1 ? ' contacto tiene' : ' contactos tienen') + ' la guía genérica</b> (no la hizo la IA). <button class="pl-r" style="margin-left:6px" ' + (mejorandoIA ? 'disabled' : '') + ' onclick="mejorarConIA()">' + (mejorandoIA ? '⏳ Pidiéndole a la IA…' : '🔁 Reintentar con IA') + '</button></div>'
+    : '';
   prog.innerHTML = avisoPlan + '<div style="font-size:13px"><b>' + hechos.length + ' de ' + items.length + ' gestionados</b> (' + pct + '%) · hoy llevas ' + hoy + ' ' + (hoy === 1 ? 'contacto' : 'contactos') + '</div>'
     + '<div class="pl-prog"><div style="width:' + pct + '%"></div></div>'
     + '<div class="sub">Lista generada ' + fechaCorta(pl.generadoEn) + ' por ' + escLead(pl.generadoPor || '') + ' · ' + (pl.origen === 'ia' ? 'elegida por IA (Gemini)' : 'ordenada por puntaje automático') + (pl.resumen ? ' · “' + escLead(pl.resumen) + '”' : '') + '<br>' + filtro + '</div>';
@@ -1190,6 +1195,17 @@ function renderPlan(){
   cuerpo.innerHTML = html;
 }
 
+async function mejorarConIA(){
+  if(mejorandoIA) return;
+  mejorandoIA = true; renderPlan();
+  try{
+    const r = await fetch('/api/negocio?recurso=indexscale-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'mejorar-ia' }) });
+    const d = await r.json();
+    if(d.error){ alert(d.error); }
+    else { planIndexscale = d; if(d.mejora && d.mejora.quedan) alert('La IA mejoró ' + d.mejora.mejorados + ' contactos; ' + d.mejora.quedan + ' siguen con la guía genérica. Puedes reintentar.'); }
+  }catch(err){ alert('No se pudo consultar a la IA: ' + err.message); }
+  mejorandoIA = false; renderPlan();
+}
 function itemPlan(id){ return ((planIndexscale && planIndexscale.items) || []).find(i => i.id === id); }
 function abrirWhatsAppPlan(id){
   const it = itemPlan(id); if(!it || !it.telefono.wa) return false;

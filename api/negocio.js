@@ -7034,7 +7034,7 @@ async function leerPlanIndexscale(sql, sesion) {
 }
 
 // Candidatos elegibles + conteos del filtro geográfico. Aplica las reglas de "a quién no volver a ofrecer" según los resultados anteriores.
-async function candidatosPlanIndexscale(sql) {
+async function candidatosPlanIndexscale(sql, soloOpIds = null) {
   const { rows } = await sql.query(
     `SELECT o.id, o.segmento, o.empresa, o.cliente_nombre, o.telefono, o.email, o.ciudad, o.puntos, o.estado, bp.giro, bp.comuna AS comuna_bsale, o.sitio_estado, (o.sitio_revisado_en IS NOT NULL AND o.sitio_revisado_en > now() - interval '30 days') AS sitio_reciente,
             (d.oportunidad_id IS NOT NULL) AS descartada,
@@ -7070,6 +7070,7 @@ async function candidatosPlanIndexscale(sql) {
   let fueraRm = 0; let sinComuna = 0; let excluidosGestion = 0; let excluidosRubro = 0; let excluidosTecnico = 0; let excluidosDescartes = 0;
   const elegibles = [];
   for (const r of rows) {
+    if (soloOpIds && !soloOpIds.has(r.id)) continue;
     // Ubicación: primero la comuna que tiene en Bsale (si ya se sincronizó), si no la ciudad.
     let geo = r.comuna_bsale ? esRegionMetropolitanaIndexscale(r.comuna_bsale) : { ok: false, motivo: 'sin_comuna' };
     if (!geo.ok) { const g2 = esRegionMetropolitanaIndexscale(r.ciudad); if (g2.ok || !r.comuna_bsale) geo = g2; else geo = { ok: false, motivo: 'fuera_rm' }; }
@@ -7080,7 +7081,7 @@ async function candidatosPlanIndexscale(sql) {
     if (rubro.nivel === 'fuerte') { excluidosRubro++; continue; }
     const perfil = perfilRepuestosIndexscale({ docsRepuestos12m: r.dr12, montoRepuestos12m: r.r12, montoTotal12m: r.m12 });
     if (perfil.tecnico) { excluidosTecnico++; continue; }
-    const p = previo.get(r.id);
+    const p = soloOpIds ? null : previo.get(r.id);
     let vencido = false;
     let notaSeguimiento = '';
     if (p) {
@@ -7144,6 +7145,83 @@ function textoSitioParaIAIndexscale(c) {
   return TEXTO_ESTADO_SITIO_INDEXSCALE[c.sitioEstado] || 'dominio propio, sitio sin revisar';
 }
 
+function datosParaIAIndexscale(c) {
+  return {
+    id: c.id,
+    empresa: limpiarRazonSocial(c.empresa) || c.empresa,
+    contacto: primerNombreIndexscale(c.clienteNombre) || null,
+    comuna: c.comuna,
+    correo: c.dominio ? 'dominio propio (' + c.dominio + ')' : 'personal (' + String(c.email || '').split('@')[1] + ')',
+    sitio: textoSitioParaIAIndexscale(c),
+    tiene_celular: !!telefonoChilenoIndexscale(c.telefono).wa,
+    compras_ultimos_12_meses: c.compras12m,
+    compras_totales: c.comprasTotal,
+    dias_desde_ultima_compra: c.diasUltimaCompra,
+    nivel_de_compra: nivelGastoIndexscale(c.montoTotal12m),
+    compro_servicio_tecnico: c.montoServicios12m > 0,
+    giro_en_bsale: c.giro || undefined,
+    rubro_dudoso: c.rubroDudoso || undefined,
+    compra_sobre_todo_repuestos: c.compraRepuestosParcial || undefined,
+    seguimiento_vencido: c.seguimientoVencido ? (c.notaSeguimiento ? 'sí: ' + c.notaSeguimiento : 'sí') : undefined,
+    intentos_sin_respuesta: c.intentosSinRespuesta || undefined,
+    puntaje_previo: c.puntaje,
+  };
+}
+
+// Pide a Gemini la elección y la guía de conversación. Reintenta ante errores pasajeros (503 "alta demanda", etc.); los reintentos usan un modelo de respaldo.
+async function pedirGuiaIAIndexscale(paraIA, cantidad, inicio) {
+  const modeloRespaldo = (process.env.GEMINI_MODEL_RESPALDO || 'gemini-3.8-flash').trim();
+  const textoIA = 'Cantidad de clientes a elegir: ' + cantidad + '\nClientes candidatos (todos de Santiago / Región Metropolitana):\n' + JSON.stringify(paraIA);
+  for (let intento = 0; ; intento++) {
+    const restante = 53000 - (Date.now() - inicio);
+    try {
+      return await llamarGeminiEstructurado(SISTEMA_PLAN_IA, textoIA, HERRAMIENTA_PLAN_IA, { maxTokens: 12000, timeoutMs: Math.min(30000, restante - 1000), modelo: intento === 0 ? GEMINI_MODEL_ANALISIS : modeloRespaldo });
+    } catch (e) {
+      const transitorio = /HTTP (500|502|503|504)|high demand|UNAVAILABLE|overloaded|abort|timeout/i.test(String(e && e.message));
+      if (!transitorio || intento >= 2 || restante < 14000) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * (intento + 1)));
+    }
+  }
+}
+
+// Vuelve a pedirle a la IA la guía de los contactos pendientes que quedaron con la guía genérica (cuando Gemini no respondió al armar la lista).
+async function mejorarGuiasConIAIndexscale(sql, sesion) {
+  const inicio = Date.now();
+  const { rows: pl } = await sql`SELECT id FROM indexscale_planes ORDER BY id DESC LIMIT 1;`;
+  if (pl.length === 0) return { error: 'No hay una lista para mejorar.' };
+  const planId = pl[0].id;
+  const { rows: items } = await sql.query(`SELECT id, oportunidad_id FROM indexscale_plan_items WHERE plan_id = $1 AND resultado = 'pendiente' AND origen = 'respaldo' ORDER BY orden LIMIT 15;`, [planId]);
+  if (items.length === 0) return { error: 'Todos los contactos pendientes ya tienen la guía de la IA.' };
+  const ids = new Set(items.map((i) => i.oportunidad_id));
+  const { elegibles } = await candidatosPlanIndexscale(sql, ids);
+  if (elegibles.length === 0) return { error: 'No se pudo preparar la información de esos contactos.' };
+  let bruto;
+  try { bruto = await pedirGuiaIAIndexscale(elegibles.map(datosParaIAIndexscale), elegibles.length, inicio); }
+  catch (err) { return { error: err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada.' : 'La IA no respondió (' + String(err.message || err).slice(0, 160) + '). Intenta de nuevo en un minuto.' }; }
+  const quien = sesion.nombre || sesion.email;
+  // Los que la IA descarta por rubro informático/tecnológico salen de la lista y no vuelven.
+  const descartados = new Map(((Array.isArray(bruto.descartados)) ? bruto.descartados : []).map((d) => [Number(d && d.id), String((d && d.motivo) || 'rubro tecnológico').slice(0, 200)]).filter(([i]) => ids.has(i)));
+  for (const [oid, motivo] of descartados) {
+    await sql.query(`INSERT INTO indexscale_descartes (oportunidad_id, motivo, origen, por) VALUES ($1, $2, 'ia', $3) ON CONFLICT (oportunidad_id) DO NOTHING;`, [oid, motivo, quien]);
+    await sql.query(`UPDATE indexscale_plan_items SET resultado = 'no_corresponde', nota = $3, resultado_por = 'IA', resultado_en = now() WHERE plan_id = $1 AND oportunidad_id = $2 AND resultado = 'pendiente';`, [planId, oid, 'Descartado por la IA: ' + motivo]);
+  }
+  const aptos = elegibles.filter((c) => !descartados.has(c.id));
+  const seleccion = validarSeleccionIAIndexscale({ ...bruto, seleccion: (bruto.seleccion || []).filter((s) => !descartados.has(Number(s && s.id))) }, aptos, aptos.length);
+  let mejorados = 0;
+  for (const s of seleccion) {
+    if (s.origen !== 'ia') continue;
+    const guia = { mensaje_whatsapp: s.mensaje_whatsapp, apertura_llamada: s.apertura_llamada, preguntas: s.preguntas, objeciones: s.objeciones };
+    const { rows } = await sql.query(
+      `UPDATE indexscale_plan_items SET prioridad = $3, oferta = $4, motivo = $5, guia = $6::jsonb, origen = 'ia' WHERE plan_id = $1 AND oportunidad_id = $2 AND resultado = 'pendiente' RETURNING id;`,
+      [planId, s.id, s.prioridad, s.oferta, s.motivo, JSON.stringify(guia)]
+    );
+    mejorados += rows.length;
+  }
+  const { rows: quedan } = await sql.query(`SELECT COUNT(*)::int AS n FROM indexscale_plan_items WHERE plan_id = $1 AND resultado = 'pendiente' AND origen = 'respaldo';`, [planId]);
+  if (quedan[0].n === 0) await sql.query(`UPDATE indexscale_planes SET aviso = NULL WHERE id = $1;`, [planId]);
+  return { mejorados, descartados: descartados.size, quedan: quedan[0].n };
+}
+
 // planExistenteId: si viene, los contactos nuevos se AGREGAN a esa lista (conservando los pendientes) en vez de crear una lista nueva.
 async function generarPlanIndexscale(sql, sesion, cantidad, planExistenteId = null) {
   const inicioGenerar = Date.now();
@@ -7166,44 +7244,11 @@ async function generarPlanIndexscale(sql, sesion, cantidad, planExistenteId = nu
   elegibles.slice(0, PLAN_CANDIDATOS_POR_SEGMENTO * 2).forEach(agregar);
   candidatos.sort((a, b) => b.puntaje - a.puntaje);
 
-  const paraIA = candidatos.map((c) => ({
-    id: c.id,
-    empresa: limpiarRazonSocial(c.empresa) || c.empresa,
-    contacto: primerNombreIndexscale(c.clienteNombre) || null,
-    comuna: c.comuna,
-    correo: c.dominio ? 'dominio propio (' + c.dominio + ')' : 'personal (' + String(c.email || '').split('@')[1] + ')',
-    sitio: textoSitioParaIAIndexscale(c),
-    tiene_celular: !!telefonoChilenoIndexscale(c.telefono).wa,
-    compras_ultimos_12_meses: c.compras12m,
-    compras_totales: c.comprasTotal,
-    dias_desde_ultima_compra: c.diasUltimaCompra,
-    nivel_de_compra: nivelGastoIndexscale(c.montoTotal12m),
-    compro_servicio_tecnico: c.montoServicios12m > 0,
-    giro_en_bsale: c.giro || undefined,
-    rubro_dudoso: c.rubroDudoso || undefined,
-    compra_sobre_todo_repuestos: c.compraRepuestosParcial || undefined,
-    seguimiento_vencido: c.seguimientoVencido ? (c.notaSeguimiento ? 'sí: ' + c.notaSeguimiento : 'sí') : undefined,
-    intentos_sin_respuesta: c.intentosSinRespuesta || undefined,
-    puntaje_previo: c.puntaje,
-  }));
+  const paraIA = candidatos.map(datosParaIAIndexscale);
 
   let bruto = null; let aviso = null; let origen = 'ia';
   try {
-    // Gemini a veces responde 503 ("alta demanda") o se cae un instante: se reintenta hasta 3 veces mientras alcance el tiempo (la función tiene 60 s en total).
-    // El primer intento usa el modelo normal; los reintentos pasan a un modelo de respaldo (GEMINI_MODEL_RESPALDO), porque la alta demanda suele ser de un solo modelo.
-    const modeloRespaldo = (process.env.GEMINI_MODEL_RESPALDO || 'gemini-3.8-flash').trim();
-    const textoIA = 'Cantidad de clientes a elegir: ' + cantidad + '\nClientes candidatos (todos de Santiago / Región Metropolitana):\n' + JSON.stringify(paraIA);
-    for (let intento = 0; ; intento++) {
-      const restante = 53000 - (Date.now() - inicioGenerar);
-      try {
-        bruto = await llamarGeminiEstructurado(SISTEMA_PLAN_IA, textoIA, HERRAMIENTA_PLAN_IA, { maxTokens: 12000, timeoutMs: Math.min(30000, restante - 1000), modelo: intento === 0 ? GEMINI_MODEL_ANALISIS : modeloRespaldo });
-        break;
-      } catch (e) {
-        const transitorio = /HTTP (500|502|503|504)|high demand|UNAVAILABLE|overloaded|abort|timeout/i.test(String(e && e.message));
-        if (!transitorio || intento >= 2 || restante < 14000) throw e;
-        await new Promise((r) => setTimeout(r, 1500 * (intento + 1)));
-      }
-    }
+    bruto = await pedirGuiaIAIndexscale(paraIA, cantidad, inicioGenerar);
   } catch (err) {
     origen = 'respaldo';
     aviso = err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada: la lista se armó con el puntaje automático.' : 'La IA no respondió (' + String(err.message || err).slice(0, 160) + '): la lista se armó con el puntaje automático.';
@@ -7280,6 +7325,12 @@ async function manejarIndexscalePlan(req, res, sesion) {
 
     if (req.method === 'POST') {
       const b = req.body || {};
+      if (b.accion === 'mejorar-ia') {
+        const m = await mejorarGuiasConIAIndexscale(sql, sesion);
+        if (m.error) return res.status(200).json({ error: m.error });
+        const out = await leerPlanIndexscale(sql, sesion);
+        return res.status(200).json({ ...out, mejora: m });
+      }
       if (b.accion !== 'generar') return res.status(400).json({ error: 'Acción no válida' });
       let cantidad = parseInt(b.cantidad, 10);
       if (!Number.isFinite(cantidad)) cantidad = PLAN_CANTIDAD_DEFECTO;
