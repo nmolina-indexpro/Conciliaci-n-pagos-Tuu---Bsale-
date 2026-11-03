@@ -1202,7 +1202,7 @@ async function mejorarConIA(){
     const r = await fetch('/api/negocio?recurso=indexscale-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'mejorar-ia' }) });
     const d = await r.json();
     if(d.error){ alert(d.error); }
-    else { planIndexscale = d; if(d.mejora && d.mejora.quedan) alert('La IA mejoró ' + d.mejora.mejorados + ' contactos; ' + d.mejora.quedan + ' siguen con la guía genérica. Puedes reintentar.'); }
+    else { planIndexscale = d; if(d.mejora && d.mejora.quedan) alert('La IA mejoró ' + d.mejora.mejorados + ' contactos; ' + d.mejora.quedan + ' siguen con la guía genérica.' + (d.mejora.sinDatos ? ' ' + d.mejora.sinDatos + ' de ellos ya no cumplen los criterios de la lista (por ejemplo rubro o compra de repuestos): puedes marcarlos como «No corresponde».' : ' Puedes reintentar.')); }
   }catch(err){ alert('No se pudo consultar a la IA: ' + err.message); }
   mejorandoIA = false; renderPlan();
 }

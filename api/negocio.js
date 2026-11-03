@@ -7204,31 +7204,45 @@ async function mejorarGuiasConIAIndexscale(sql, sesion) {
   const ids = new Set(items.map((i) => i.oportunidad_id));
   const { elegibles } = await candidatosPlanIndexscale(sql, ids);
   if (elegibles.length === 0) return { error: 'No se pudo preparar la información de esos contactos.' };
-  let bruto;
-  try { bruto = await pedirGuiaIAIndexscale(elegibles.map(datosParaIAIndexscale), elegibles.length, inicio); }
-  catch (err) { return { error: err.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada.' : 'La IA no respondió (' + String(err.message || err).slice(0, 420) + '). Intenta de nuevo en un minuto.' }; }
   const quien = sesion.nombre || sesion.email;
-  // Los que la IA descarta por rubro informático/tecnológico salen de la lista y no vuelven.
-  const descartados = new Map(((Array.isArray(bruto.descartados)) ? bruto.descartados : []).map((d) => [Number(d && d.id), String((d && d.motivo) || 'rubro tecnológico').slice(0, 200)]).filter(([i]) => ids.has(i)));
-  for (const [oid, motivo] of descartados) {
-    await sql.query(`INSERT INTO indexscale_descartes (oportunidad_id, motivo, origen, por) VALUES ($1, $2, 'ia', $3) ON CONFLICT (oportunidad_id) DO NOTHING;`, [oid, motivo, quien]);
-    await sql.query(`UPDATE indexscale_plan_items SET resultado = 'no_corresponde', nota = $3, resultado_por = 'IA', resultado_en = now() WHERE plan_id = $1 AND oportunidad_id = $2 AND resultado = 'pendiente';`, [planId, oid, 'Descartado por la IA: ' + motivo]);
+  let mejorados = 0; let descartadosTotal = 0;
+  let porMejorar = elegibles.slice();
+  let falloIA = null;
+  // Hasta 2 rondas: si la IA no devolvió a alguno de los clientes pedidos, se le vuelve a pedir solo por ellos mientras alcance el tiempo.
+  for (let ronda = 0; ronda < 2 && porMejorar.length > 0; ronda++) {
+    if (ronda > 0 && Date.now() - inicio > 30000) break;
+    let bruto;
+    try { bruto = await pedirGuiaIAIndexscale(porMejorar.map(datosParaIAIndexscale), porMejorar.length, inicio); }
+    catch (err) { falloIA = err; break; }
+    const idsRonda = new Set(porMejorar.map((c) => c.id));
+    // Los que la IA descarta por rubro informático/tecnológico salen de la lista y no vuelven.
+    const descartados = new Map(((Array.isArray(bruto.descartados)) ? bruto.descartados : []).map((d) => [Number(d && d.id), String((d && d.motivo) || 'rubro tecnológico').slice(0, 200)]).filter(([i]) => idsRonda.has(i)));
+    for (const [oid, motivo] of descartados) {
+      await sql.query(`INSERT INTO indexscale_descartes (oportunidad_id, motivo, origen, por) VALUES ($1, $2, 'ia', $3) ON CONFLICT (oportunidad_id) DO NOTHING;`, [oid, motivo, quien]);
+      await sql.query(`UPDATE indexscale_plan_items SET resultado = 'no_corresponde', nota = $3, resultado_por = 'IA', resultado_en = now() WHERE plan_id = $1 AND oportunidad_id = $2 AND resultado = 'pendiente';`, [planId, oid, 'Descartado por la IA: ' + motivo]);
+    }
+    descartadosTotal += descartados.size;
+    const aptos = porMejorar.filter((c) => !descartados.has(c.id));
+    const seleccion = validarSeleccionIAIndexscale({ ...bruto, seleccion: (bruto.seleccion || []).filter((s) => !descartados.has(Number(s && s.id))) }, aptos, aptos.length);
+    const hechos = new Set();
+    for (const s of seleccion) {
+      if (s.origen !== 'ia') continue;
+      const guia = { mensaje_whatsapp: s.mensaje_whatsapp, apertura_llamada: s.apertura_llamada, preguntas: s.preguntas, objeciones: s.objeciones };
+      const { rows } = await sql.query(
+        `UPDATE indexscale_plan_items SET prioridad = $3, oferta = $4, motivo = $5, guia = $6::jsonb, origen = 'ia' WHERE plan_id = $1 AND oportunidad_id = $2 AND resultado = 'pendiente' RETURNING id;`,
+        [planId, s.id, s.prioridad, s.oferta, s.motivo, JSON.stringify(guia)]
+      );
+      if (rows.length) { mejorados += rows.length; hechos.add(s.id); }
+    }
+    porMejorar = aptos.filter((c) => !hechos.has(c.id));
   }
-  const aptos = elegibles.filter((c) => !descartados.has(c.id));
-  const seleccion = validarSeleccionIAIndexscale({ ...bruto, seleccion: (bruto.seleccion || []).filter((s) => !descartados.has(Number(s && s.id))) }, aptos, aptos.length);
-  let mejorados = 0;
-  for (const s of seleccion) {
-    if (s.origen !== 'ia') continue;
-    const guia = { mensaje_whatsapp: s.mensaje_whatsapp, apertura_llamada: s.apertura_llamada, preguntas: s.preguntas, objeciones: s.objeciones };
-    const { rows } = await sql.query(
-      `UPDATE indexscale_plan_items SET prioridad = $3, oferta = $4, motivo = $5, guia = $6::jsonb, origen = 'ia' WHERE plan_id = $1 AND oportunidad_id = $2 AND resultado = 'pendiente' RETURNING id;`,
-      [planId, s.id, s.prioridad, s.oferta, s.motivo, JSON.stringify(guia)]
-    );
-    mejorados += rows.length;
+  if (falloIA && mejorados === 0 && descartadosTotal === 0) {
+    return { error: falloIA.message === 'sin_gemini_api_key' ? 'La IA (Gemini) no está configurada.' : 'La IA no respondió (' + String(falloIA.message || falloIA).slice(0, 420) + '). Intenta de nuevo en un minuto.' };
   }
   const { rows: quedan } = await sql.query(`SELECT COUNT(*)::int AS n FROM indexscale_plan_items WHERE plan_id = $1 AND resultado = 'pendiente' AND origen = 'respaldo';`, [planId]);
-  if (quedan[0].n === 0) await sql.query(`UPDATE indexscale_planes SET aviso = NULL WHERE id = $1;`, [planId]);
-  return { mejorados, descartados: descartados.size, quedan: quedan[0].n };
+  // El aviso de la generación original (por ejemplo un 503 de Gemini) ya no corresponde después de reintentar: se limpia.
+  await sql.query(`UPDATE indexscale_planes SET aviso = NULL WHERE id = $1;`, [planId]);
+  return { mejorados, descartados: descartadosTotal, quedan: quedan[0].n, sinDatos: items.length - elegibles.length };
 }
 
 // planExistenteId: si viene, los contactos nuevos se AGREGAN a esa lista (conservando los pendientes) en vez de crear una lista nueva.
