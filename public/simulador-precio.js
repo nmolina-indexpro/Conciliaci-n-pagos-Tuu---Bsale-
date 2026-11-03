@@ -3,7 +3,8 @@
 //   abrirSimuladorPrecio({ sku, nombre, stock, esAdmin, costoNeto })     // costoNeto solo se manda a un admin (null = sin costo registrado)
 // Trae de /api/negocio?recurso=frecuencia-precio-sku (lib/frecuencia-precio.js) cada cuántos días vende el SKU, su serie mensual con el precio y qué
 // pasó con las unidades cuando se bajó el precio en todo el catálogo, y deja probar un precio nuevo: unidades = actuales x (precio nuevo / precio actual)^-E,
-// con la elasticidad E a elección (prudente, media, alta u observada en las ventas propias). Es una guía: no considera stock, competencia ni temporada.
+// con la elasticidad E a elección (prudente, media, alta u observada en las ventas propias). Es una guía: no considera competencia ni temporada.
+// Con el stock y la reposición en camino (Compras > Productos en tránsito: llegada a Chile + 5 a 7 días de aduana) dice cuándo se agota el stock y si habría quiebre antes de que llegue la carga.
 (function () {
   if (window.abrirSimuladorPrecio) return;
   const IVA = 1.19, DIAS_MES = 30.4;
@@ -92,7 +93,8 @@
         <div class="sp-card"><span>Unidades por mes</span><b>${num(d.unidadesPorMes, 1)}</b></div>
         <div class="sp-card"><span>Última venta</span><b>hace ${num(d.diasSinVenta)} d</b></div>
         <div class="sp-card"><span>Últimos 90 d vs 90 previos</span><b>${d.tendenciaPct != null ? signo(d.tendenciaPct) : '—'}</b><span>${num(d.ult90.unidades)} u. vs ${num(d.prev90.unidades)} u.</span></div>
-        ${ctx.stock != null ? `<div class="sp-card"><span>Stock actual</span><b>${num(ctx.stock)} u.</b><span>${meses != null ? 'alcanza para ' + num(meses, 1) + ' meses a este ritmo' : ''}</span></div>` : ''}
+        ${ctx.stock != null ? `<div class="sp-card"><span>Stock actual</span><b>${num(ctx.stock)} u.</b><span>${meses != null ? 'alcanza para ' + num(meses, 1) + ' meses a este ritmo (se agota ~' + fechaEn(meses * DIAS_MES) + ')' : ''}</span></div>` : ''}
+        ${tarjetaReposicion(d)}
       </div>`;
       if (d.pocaHistoria) h += '<p class="sp-aviso">Este producto tiene poca historia de ventas (menos de 90 días): la frecuencia es todavía muy variable.</p>';
       if (d.ult90.ventas === 0) h += '<p class="sp-aviso">No vendió en los últimos 90 días: el ritmo de 12 meses puede ser optimista para hoy. Abajo puedes elegir los últimos 90 días como base.</p>';
@@ -110,6 +112,9 @@
       }
       h += '</tbody></table></div>';
     }
+
+    // ---- B2) Reposición en camino ----
+    h += bloqueReposicion(d);
 
     // ---- C) Evidencia de bajas pasadas ----
     h += '<h4>¿Qué pasó antes cuando bajaron los precios?</h4>' + textoEvidencia(d);
@@ -168,6 +173,67 @@
     pintarSimulacion();
   };
 
+  // ---------- Reposición en camino ----------
+  // La carga llega a Chile en la fecha de ETA y sale de aduana, por lo general, 5 a 7 días después: hasta entonces no se puede vender.
+  const ADUANA_MIN = 5, ADUANA_MAX = 7;
+  const aMs = iso => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+  const sumarDias = (iso, n) => new Date(aMs(iso) + Math.round(n) * 86400000).toISOString().slice(0, 10);
+  const diasDesdeHoy = iso => Math.round((aMs(iso) - aMs(est.datos.hoy)) / 86400000);
+  const fechaTxt = iso => { const dd = new Date(aMs(iso)); return dd.getUTCDate() + ' ' + MESES[dd.getUTCMonth()] + (dd.getUTCFullYear() !== +est.datos.hoy.slice(0, 4) ? ' ' + dd.getUTCFullYear() : ''); };
+  const fechaEn = dias => fechaTxt(sumarDias(est.datos.hoy, dias)); // fecha dentro de "dias" días
+  // Cada envío con su ventana de disponibilidad, en días desde hoy
+  function envios(d) {
+    return (d.reposicion || []).filter(r => r.fechaEta).map(r => {
+      let desde = diasDesdeHoy(r.fechaEta) + ADUANA_MIN, hasta = diasDesdeHoy(r.fechaEta) + ADUANA_MAX, atrasada = false;
+      if (hasta < 0) { atrasada = true; desde = 0; hasta = 2; } // la ETA ya pasó y debería estar liberada: se asume que sale en los próximos días
+      else if (desde < 0) desde = 0;
+      return { ...r, desde, hasta, atrasada, liberadaDesde: sumarDias(d.hoy, desde), liberadaHasta: sumarDias(d.hoy, hasta) };
+    }).sort((a, b) => a.hasta - b.hasta);
+  }
+  function tarjetaReposicion(d) {
+    const e = envios(d);
+    if (!e.length) return '';
+    const total = e.reduce((s, x) => s + x.cantidad, 0), p = e[0];
+    return `<div class="sp-card"><span>En camino</span><b>${num(total)} u.</b><span>${p.atrasada ? 'ETA ya pasó: por liberar' : 'llega a Chile ' + fechaTxt(p.fechaEta) + ', liberada ≈ ' + fechaTxt(p.liberadaDesde) + '–' + fechaTxt(p.liberadaHasta)}${e.length > 1 ? ' (+' + (e.length - 1) + ' envío' + (e.length > 2 ? 's' : '') + ')' : ''}</span></div>`;
+  }
+  function bloqueReposicion(d) {
+    const e = envios(d);
+    if (d.errorReposicion) return '<h4>Reposición en camino</h4><p class="sp-nota">No se pudo leer Productos en tránsito (' + ESC(d.errorReposicion) + ').</p>';
+    if (!e.length) return '<h4>Reposición en camino</h4><p class="sp-nota">No hay ningún envío en Compras &gt; Productos en tránsito con este SKU: el cálculo de stock asume que no llega nada.</p>';
+    let h = '<h4>Reposición en camino</h4><ul class="sp-nota" style="margin:4px 0;padding-left:18px;">';
+    for (const x of e) {
+      h += `<li><b>${num(x.cantidad)} u.</b> · envío ${ESC(x.referencia)}${x.tipoTransporte ? ' (' + (x.tipoTransporte === 'aereo' ? 'aéreo' : 'marítimo') + ')' : ''} · llega a Chile el <b>${fechaTxt(x.fechaEta)}</b> · liberada de aduana ≈ <b>${fechaTxt(x.liberadaDesde)}–${fechaTxt(x.liberadaHasta)}</b>${x.atrasada ? ' <span style="color:#a12626;">· la ETA ya pasó: confirma si llegó y se recibió en Bsale; aquí se asume que sale en los próximos días</span>' : ''}</li>`;
+    }
+    return h + `</ul><p class="sp-nota">Se estima que la carga sale de aduana de ${ADUANA_MIN} a ${ADUANA_MAX} días después de llegar a Chile y solo entonces se puede vender.</p>`;
+  }
+  // Cuándo se agota el stock a un ritmo (unidades/mes) y si hay quiebre antes de que llegue cada envío. Todo en días desde hoy.
+  function proyectarStock(stock, ritmoMes) {
+    const r = ritmoMes / DIAS_MES;
+    if (!(r > 0)) return null;
+    let sale = Math.max(0, stock || 0) / r;
+    const agota = sale, quiebres = [], e = envios(est.datos);
+    let sobra = null;
+    e.forEach((x, i) => {
+      if (sale >= x.hasta) { if (i === 0) sobra = Math.round((sale - x.hasta) * r); sale += x.cantidad / r; }
+      else { quiebres.push({ min: Math.max(0, x.desde - sale), max: x.hasta - sale }); sale = x.hasta + x.cantidad / r; }
+    });
+    return { agota, fin: sale, quiebres, sobra, hayEnvios: e.length > 0 };
+  }
+  function veredicto(pr) {
+    if (!pr || !pr.hayEnvios) return { txt: '—', mal: false };
+    if (!pr.quiebres.length) return { txt: '✔ llega con ' + (pr.sobra != null ? '~' + num(pr.sobra) + ' u. de stock' : 'stock'), mal: false };
+    const q = pr.quiebres[0], mn = Math.round(q.min), mx = Math.max(1, Math.round(q.max));
+    return { txt: '⚠ quiebre ' + (mn >= 1 && mn !== mx ? mn + '–' + mx : mn >= 1 ? 'de ' + mx : 'hasta ' + mx) + ' d', mal: true };
+  }
+  function filaReposicion(pr0, pr1) {
+    const e = envios(est.datos);
+    if (!e.length) return est.ctx.stock > 0 ? '<div class="fila"><span>Reposición en tránsito</span><b class="sp-sub">ninguna registrada: al agotarse queda en quiebre</b></div>' : '';
+    const a = veredicto(pr0), b = veredicto(pr1), total = e.reduce((s, x) => s + x.cantidad, 0);
+    const color = v => v.mal ? 'color:#a12626;' : 'color:#14693a;';
+    return `<div class="fila"><span>Reposición en camino (+${num(total)} u., liberada ≈ ${fechaTxt(e[0].liberadaDesde)}–${fechaTxt(e[0].liberadaHasta)})</span><b>Hoy: <span style="${color(a)}">${a.txt}</span><br>Con el precio nuevo: <span style="${color(b)}">${b.txt}</span></b></div>
+      <div class="fila"><span>Con la reposición, el stock alcanza hasta</span><b>~${fechaEn(pr0.fin)} → ~${fechaEn(pr1.fin)}</b></div>`;
+  }
+
   function pintarSimulacion() {
     const cont = document.getElementById('spSimulacion');
     if (!cont) return;
@@ -193,12 +259,14 @@
     let h = '';
     if (p1 > 0) {
       const r = calc(p1), bajaPct = (p1 / p0 - 1) * 100;
+      const pr0 = proyectarStock(ctx.stock, baseUnid), pr1 = proyectarStock(ctx.stock, r.unid);
       const aumento = (r.factor - 1) * 100;
       h += `<div class="sp-res">
         <div class="fila"><span>Precio (c/IVA)</span><b>${mon(p0)} → ${mon(p1)} (${signo(bajaPct, 1)})</b></div>
         <div class="fila"><span>Unidades por mes</span><b>${num(baseUnid, 1)} → ${num(r.unid, 1)} (${signo(aumento)})</b></div>
         <div class="fila"><span>Una venta cada</span><b>${num(DIAS_MES / baseVentas)} d → ${num(r.diasVenta)} d</b></div>
-        ${ctx.stock > 0 ? `<div class="fila"><span>Stock actual (${num(ctx.stock)} u.) alcanza para</span><b>${num(ctx.stock / baseUnid, 1)} → ${num(r.mesesStock, 1)} meses</b></div>` : ''}`;
+        ${ctx.stock > 0 ? `<div class="fila"><span>Stock actual (${num(ctx.stock)} u.) alcanza para</span><b>${num(ctx.stock / baseUnid, 1)} → ${num(r.mesesStock, 1)} meses<br><span class="sp-sub">se agota ~${fechaEn(pr0.agota)} → ~${fechaEn(pr1.agota)}</span></b></div>` : ''}
+        ${filaReposicion(pr0, pr1)}`;
       if (admin) {
         const m = filaMargen(r);
         h += `<div class="fila"><span>Margen por unidad (sin IVA)</span><b>${mon(m.m0)} → ${mon(m.m1)}</b></div>
@@ -210,10 +278,12 @@
     }
 
     // Escenarios
-    h += '<h4 style="margin-top:16px;">Escenarios de baja</h4><div style="overflow-x:auto;"><table><thead><tr><th class="num">Baja</th><th class="num">Precio (c/IVA)</th><th class="num">Unid./mes</th><th class="num">Una venta cada (d)</th><th class="num">Stock alcanza (meses)</th>' + (admin ? '<th class="num">Margen mensual</th><th class="num">Venta extra necesaria</th>' : '') + '</tr></thead><tbody>';
+    const hayRepos = envios(d).length > 0;
+    h += '<h4 style="margin-top:16px;">Escenarios de baja</h4><div style="overflow-x:auto;"><table><thead><tr><th class="num">Baja</th><th class="num">Precio (c/IVA)</th><th class="num">Unid./mes</th><th class="num">Una venta cada (d)</th><th class="num">Stock alcanza (meses)</th>' + (hayRepos ? '<th>Reposición</th>' : '') + (admin ? '<th class="num">Margen mensual</th><th class="num">Venta extra necesaria</th>' : '') + '</tr></thead><tbody>';
     for (const p of [0, 5, 10, 15, 20, 25]) {
       const pn = Math.round(p0 * (1 - p / 100)), r = calc(pn);
       h += `<tr><td class="num" data-valor="${-p}">${p ? '−' + p + ' %' : 'Hoy'}</td><td class="num">${mon(pn)}</td><td class="num">${num(r.unid, 1)}</td><td class="num">${num(r.diasVenta)}</td><td class="num">${r.mesesStock != null ? num(r.mesesStock, 1) : '—'}</td>`;
+      if (hayRepos) { const v = veredicto(proyectarStock(ctx.stock, r.unid)); h += `<td style="white-space:nowrap;${v.mal ? 'color:#a12626;font-weight:600;' : ''}">${v.txt}</td>`; }
       if (admin) { const m = filaMargen(r); h += `<td class="num">${mon(m.mensual1)}</td><td class="num">${!p ? '—' : m.necesario != null ? signo(m.necesario) : 'Sin margen'}</td>`; }
       h += '</tr>';
     }

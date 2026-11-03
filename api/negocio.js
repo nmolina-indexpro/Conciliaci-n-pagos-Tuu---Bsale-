@@ -50,7 +50,7 @@ import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, product
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
 import { efectoAcciones } from '../lib/efecto-acciones.js';
-import { analizarFrecuencia, evidenciaBajasPrecio } from '../lib/frecuencia-precio.js';
+import { analizarFrecuencia, evidenciaBajasPrecio, reposicionDeSku } from '../lib/frecuencia-precio.js';
 import { CATEGORIAS_EXCLUIDAS as CATEGORIAS_EXCLUIDAS_COMPARATIVO, categoriaExcluida as categoriaExcluidaComparativo, MARCAS_PRINCIPALES as MARCAS_PRINCIPALES_COMPARATIVO, armarComparativo as armarComparativoVentas, costoEnFecha, parsearMes as parsearMesComparativo, mesAnterior12 as mesAnterior12Comparativo, diasDelMes as diasDelMesComparativo, rangoEpochMes as rangoEpochMesComparativo } from '../lib/comparativo-ventas.js';
 import { asegurarTablaComparativoVentas } from '../lib/db.js';
 import { asegurarTablaComprasProveedorAsignado, asegurarTablaCompatPropuestas, asegurarTablaIndexscalePlan, asegurarTablaIndiceModelosMeta } from '../lib/db.js';
@@ -3019,7 +3019,14 @@ async function manejarFrecuenciaPrecioSku(req, res, sesion) {
         cacheEvidenciaPrecio = { en: Date.now(), datos: evidencia };
       } catch (e) { errorEvidencia = String(e.message || e).slice(0, 160); }
     }
-    return res.status(200).json({ sku, ...analizarFrecuencia(ventas.rows, hoy), evidencia, errorEvidencia });
+    // Reposición en camino: envíos de Productos en tránsito que aún no se marcan como entregados y que traen este SKU
+    let reposicion = [], errorReposicion = null;
+    try {
+      await asegurarTablaProductosTransito(sql);
+      const { rows: envios } = await sql`SELECT referencia, estado, tipo_transporte, fecha_eta::text AS fecha_eta, productos FROM productos_transito_envios WHERE estado <> 'entregado'`;
+      reposicion = reposicionDeSku(envios, sku);
+    } catch (e) { errorReposicion = String(e.message || e).slice(0, 160); }
+    return res.status(200).json({ sku, ...analizarFrecuencia(ventas.rows, hoy), evidencia, errorEvidencia, reposicion, errorReposicion });
   } catch (err) {
     return res.status(200).json({ error: 'Error analizando la frecuencia de venta', detail: String(err) });
   }
