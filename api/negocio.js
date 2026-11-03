@@ -7203,7 +7203,18 @@ async function mejorarGuiasConIAIndexscale(sql, sesion) {
   if (items.length === 0) return { error: 'Todos los contactos pendientes ya tienen la guía de la IA.' };
   const ids = new Set(items.map((i) => i.oportunidad_id));
   const { elegibles } = await candidatosPlanIndexscale(sql, ids);
-  if (elegibles.length === 0) return { error: 'No se pudo preparar la información de esos contactos.' };
+  // Los contactos pendientes que hoy ya no cumplen los criterios (rubro informático, compra solo repuestos, ubicación, descartados) no llegan a la IA:
+  // se retiran de la lista con una nota, en vez de quedar para siempre con la guía genérica.
+  const vigentes = new Set(elegibles.map((c) => c.id));
+  const retirar = items.filter((i) => !vigentes.has(i.oportunidad_id));
+  for (const i of retirar) {
+    await sql.query(`UPDATE indexscale_plan_items SET resultado = 'no_corresponde', nota = 'Ya no cumple los criterios de la lista (rubro, compra de repuestos o ubicación)', resultado_por = 'Sistema', resultado_en = now() WHERE id = $1 AND resultado = 'pendiente';`, [i.id]);
+  }
+  if (elegibles.length === 0) {
+    const { rows: q0 } = await sql.query(`SELECT COUNT(*)::int AS n FROM indexscale_plan_items WHERE plan_id = $1 AND resultado = 'pendiente' AND origen = 'respaldo';`, [planId]);
+    if (q0[0].n === 0) await sql.query(`UPDATE indexscale_planes SET aviso = NULL WHERE id = $1;`, [planId]);
+    return { mejorados: 0, descartados: 0, quedan: q0[0].n, retirados: retirar.length, sinDatos: 0 };
+  }
   const quien = sesion.nombre || sesion.email;
   let mejorados = 0; let descartadosTotal = 0;
   let porMejorar = elegibles.slice();
@@ -7242,7 +7253,7 @@ async function mejorarGuiasConIAIndexscale(sql, sesion) {
   const { rows: quedan } = await sql.query(`SELECT COUNT(*)::int AS n FROM indexscale_plan_items WHERE plan_id = $1 AND resultado = 'pendiente' AND origen = 'respaldo';`, [planId]);
   // El aviso de la generación original (por ejemplo un 503 de Gemini) ya no corresponde después de reintentar: se limpia.
   await sql.query(`UPDATE indexscale_planes SET aviso = NULL WHERE id = $1;`, [planId]);
-  return { mejorados, descartados: descartadosTotal, quedan: quedan[0].n, sinDatos: items.length - elegibles.length };
+  return { mejorados, descartados: descartadosTotal, quedan: quedan[0].n, retirados: retirar.length, sinDatos: 0 };
 }
 
 // planExistenteId: si viene, los contactos nuevos se AGREGAN a esa lista (conservando los pendientes) en vez de crear una lista nueva.
