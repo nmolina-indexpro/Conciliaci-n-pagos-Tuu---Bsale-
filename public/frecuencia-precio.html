@@ -318,10 +318,9 @@ function calcularFila(s, p, meses){
   const suma = (a, b) => u.slice(a, b).reduce((x, y) => x + y, 0);
   const ult3 = suma(n - 4, n - 1), prev3 = suma(n - 7, n - 4);
   const tend = prev3 > 0 ? (ult3 / prev3 - 1) * 100 : null;
-  // Precio vigente: promedio ponderado de los últimos 3 meses con ventas
-  let sc = 0, sm = 0, cont = 0;
-  for(let i = n - 1; i >= 0 && cont < 3; i--){ if(u[i] > 0){ sc += u[i]; sm += monto[i]; cont++; } }
-  const pn = sc > 0 ? sm / sc : null;
+  // Precio vigente: el del último mes con ventas (promediar varios meses mezclaría el precio viejo si el precio cambió hace poco)
+  let pn = null;
+  for(let i = n - 1; i >= 0; i--){ if(u[i] > 0){ pn = monto[i] / u[i]; break; } }
   const dias = p && p.ultimaVenta ? Math.floor((Date.now() - new Date(p.ultimaVenta + 'T00:00:00').getTime()) / 86400000) : null;
   return {
     sku: s.code, nombre: s.nombre || (p && p.nombre) || s.code, categoria: s.categoria || '',
@@ -422,7 +421,7 @@ function fpRepintar(){
   };
   $('fpTabla').innerHTML = `<table>
     <thead><tr>
-      <th>SKU</th><th>Producto</th><th>Categoría</th><th class="amount">Stock</th><th class="amount" title="Precio de venta con IVA, promedio de los últimos 3 meses con ventas">Precio vigente</th>
+      <th>SKU</th><th>Producto</th><th>Categoría</th><th class="amount">Stock</th><th class="amount" title="Precio de venta con IVA del último mes con ventas (lo que se cobró, no el precio de lista de Bsale)">Precio vigente</th>
       <th class="amount" title="Unidades vendidas por mes en los últimos 12 meses (o desde la primera venta)">Unid./mes</th><th class="amount">Frecuencia</th>
       <th class="amount" title="Últimos 3 meses completos contra los 3 anteriores">Tendencia 3 m</th><th>Última venta</th>
       <th class="amount" title="Meses que dura el stock al ritmo actual">Stock alcanza</th>
