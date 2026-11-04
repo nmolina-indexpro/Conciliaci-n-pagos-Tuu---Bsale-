@@ -789,7 +789,7 @@ function renderNotificaciones(){
           </div></td>
           <td class="empty-note" title="${n.ultimoEnvioEn ? esc(new Date(n.ultimoEnvioEn).toLocaleString('es-CL')) : ''}">${ultimo || 'Sin envíos'}</td>
           <td>${miniaturaCorreoHtml(n)}</td>
-          <td class="notif-prueba"><button class="btn-prueba" id="btnPrueba_${n.tipo}" onclick="enviarPruebaNotificacion('${n.tipo}')" title="Te manda este correo solo a ti, con [PRUEBA] en el asunto">✉️ Enviar prueba</button><div class="msg-prueba" id="msgPrueba_${n.tipo}"></div></td>
+          <td class="notif-prueba"><button class="btn-prueba" id="btnPrueba_${n.tipo}" onclick="enviarPruebaNotificacion('${n.tipo}')" title="Te manda este correo solo a ti, con [PRUEBA] en el asunto">✉️ Enviar prueba</button>${n.tipo === 'productos-estancados-flags' ? `<br><button class="btn-prueba" style="margin-top:4px;" id="btnReenviar_${n.tipo}" onclick="reenviarATodos('${n.tipo}')" title="Vuelve a mandar el correo de las últimas 24 horas a todos sus destinatarios">📨 Reenviar a todos</button>` : ''}<div class="msg-prueba" id="msgPrueba_${n.tipo}"></div></td>
         </tr>${n.tipo === 'resumen-cambios-diario' ? filaEnlaceResumen() : ''}`;
       })()).join('')}
       </tbody>
@@ -821,6 +821,29 @@ async function enviarPruebaNotificacion(tipo){
     msg.className = 'msg-prueba error'; msg.textContent = 'Error: ' + err.message;
   }
   btn.disabled = false; btn.textContent = textoOriginal;
+}
+// Reenvía el correo (envío real, no de prueba) a TODOS los destinatarios configurados de esa notificación. Pide confirmación mostrando quiénes lo recibirán.
+async function reenviarATodos(tipo){
+  const n = listaNotificaciones.find(x => x.tipo === tipo), btn = $('btnReenviar_' + tipo), msg = $('msgPrueba_' + tipo);
+  if(!n || !btn || btn.disabled) return;
+  const quienes = (n.suscriptores || []).map(s => s.nombre + ' (' + (s.email || '') + ')').join('\n') || '(nadie)';
+  if(!n.suscriptores || !n.suscriptores.length){ alert('Esta notificación no tiene destinatarios.'); return; }
+  if(!confirm('Se enviará el correo de las últimas 24 horas a todos sus destinatarios:\n\n' + quienes + '\n\n¿Reenviar ahora?')) return;
+  const textoOriginal = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Enviando…'; msg.className = 'msg-prueba'; msg.textContent = '';
+  try{
+    const res = await fetch('/api/negocio?recurso=notificacion-probar&todos=1&tipo=' + encodeURIComponent(tipo), { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if(data.enviado){
+      msg.className = 'msg-prueba ok';
+      msg.textContent = 'Enviado a ' + (data.destinatarios || []).filter(d => d.enviado).map(d => d.para).join(', ') + ((data.destinatarios || []).some(d => !d.enviado) ? ' · falló para: ' + data.destinatarios.filter(d => !d.enviado).map(d => d.para).join(', ') : '');
+    }else{
+      msg.className = 'msg-prueba error';
+      msg.textContent = data.motivo || ((data.error || 'No se pudo enviar') + (data.detail ? ' (' + data.detail + ')' : ''));
+    }
+  }catch(err){ msg.className = 'msg-prueba error'; msg.textContent = 'Error: ' + err.message; }
+  btn.disabled = false; btn.textContent = textoOriginal;
+  setTimeout(cargarNotificaciones, 8000); // refresca la miniatura del último correo sin borrar el mensaje de inmediato
 }
 async function guardarNotificacion(tipo, cambios){
   try{

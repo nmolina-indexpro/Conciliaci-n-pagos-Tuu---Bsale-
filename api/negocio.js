@@ -21,6 +21,7 @@ import { armarComunicacionZoho, filasCorreosDesdeZoho, ticketEnVentana, CASILLA_
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
+import { elegirPrecioSku } from '../lib/precios-sku.js';
 import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidirAvisos, armarCorreoTraspasoStock } from '../lib/traspaso-stock.js';
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
@@ -3057,6 +3058,71 @@ const PRODUCTOS_ESTANCADOS_FLAGS_CAMPO_INFO = {
     desactivado: 'Se desmarcó "Variación de precio" para este producto.',
   },
 };
+// Registro de precios de lista (con IVA) por SKU, en Bsale y en la tienda (Shopify): guarda el último precio visto (precios_sku_ultimo) y, cuando cambia respecto de
+// la lectura anterior, anota el cambio con el precio de antes y el de ahora (precios_sku_cambios). Lo usa el correo "Cambios en productos estancados" para mostrar
+// el precio de antes y el de ahora de la marca "Variación de precio". La primera lectura solo fija la base: los cambios se ven desde la lectura siguiente.
+async function asegurarTablaPreciosSku(sql) {
+  await sql`CREATE TABLE IF NOT EXISTS precios_sku_ultimo (sku TEXT NOT NULL, fuente TEXT NOT NULL, precio NUMERIC NOT NULL, actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (sku, fuente));`;
+  await sql`CREATE TABLE IF NOT EXISTS precios_sku_cambios (id SERIAL PRIMARY KEY, sku TEXT NOT NULL, fuente TEXT NOT NULL, precio_anterior NUMERIC NOT NULL, precio_nuevo NUMERIC NOT NULL, detectado_en TIMESTAMPTZ NOT NULL DEFAULT now());`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_precios_sku_cambios_sku ON precios_sku_cambios (sku, detectado_en);`;
+}
+async function guardarPreciosSku(sql, filas) {
+  // filas: [{ sku, fuente, precio }]; en tandas para no mandar listas enormes en una sola consulta
+  let cambios = 0;
+  for (let i = 0; i < filas.length; i += 1500) {
+    const lote = filas.slice(i, i + 1500);
+    const { rows } = await sql.query(
+      `WITH nuevos AS (SELECT * FROM unnest($1::text[], $2::text[], $3::numeric[]) AS t(sku, fuente, precio)),
+            cambiados AS (
+              INSERT INTO precios_sku_cambios (sku, fuente, precio_anterior, precio_nuevo)
+              SELECT n.sku, n.fuente, u.precio, n.precio FROM nuevos n JOIN precios_sku_ultimo u ON u.sku = n.sku AND u.fuente = n.fuente
+              WHERE u.precio <> n.precio RETURNING 1),
+            guardados AS (
+              INSERT INTO precios_sku_ultimo (sku, fuente, precio, actualizado_en) SELECT sku, fuente, precio, now() FROM nuevos
+              ON CONFLICT (sku, fuente) DO UPDATE SET precio = EXCLUDED.precio, actualizado_en = now() WHERE precios_sku_ultimo.precio <> EXCLUDED.precio RETURNING 1)
+       SELECT (SELECT count(*) FROM cambiados)::int AS cambios;`,
+      [lote.map(f => f.sku), lote.map(f => f.fuente), lote.map(f => f.precio)]
+    );
+    cambios += rows[0].cambios;
+  }
+  return cambios;
+}
+async function registrarPreciosSku(sql) {
+  await asegurarTablaPreciosSku(sql);
+  const [shop, bsale] = await Promise.all([obtenerEstadoShopifyPorSku().catch(() => null), obtenerPreciosBsalePorSku().catch(() => null)]);
+  const filas = [];
+  for (const [sku, s] of Object.entries(shop || {})) if (s && s.precio != null && Number.isFinite(Number(s.precio)) && Number(s.precio) > 0) filas.push({ sku, fuente: 'shopify', precio: Math.round(Number(s.precio)) });
+  for (const [sku, precio] of Object.entries((bsale && bsale.precioPorSku) || {})) if (precio != null && Number.isFinite(Number(precio)) && Number(precio) > 0) filas.push({ sku, fuente: 'bsale', precio: Math.round(Number(precio)) });
+  if (!filas.length) return { leidos: 0, cambios: 0 };
+  return { leidos: filas.length, cambios: await guardarPreciosSku(sql, filas) };
+}
+// Precio de antes y de ahora de una lista de SKU (ver lib/precios-sku.js): cambio registrado, aviso de Bsale de los últimos 7 días o, si no, el precio de hoy.
+async function preciosDeAntesYAhora(sql, skus) {
+  const salida = {};
+  if (!skus.length) return salida;
+  await asegurarTablaPreciosSku(sql);
+  const { rows: cambios } = await sql.query(
+    `SELECT DISTINCT ON (sku) sku, fuente, precio_anterior, precio_nuevo, detectado_en FROM precios_sku_cambios
+     WHERE sku = ANY($1::text[]) AND detectado_en >= now() - interval '7 days' ORDER BY sku, (fuente = 'bsale') DESC, detectado_en DESC;`, [skus]);
+  const { rows: actuales } = await sql.query(
+    `SELECT DISTINCT ON (sku) sku, fuente, precio FROM precios_sku_ultimo WHERE sku = ANY($1::text[]) ORDER BY sku, (fuente = 'bsale') DESC;`, [skus]);
+  let avisos = [];
+  try {
+    const { rows } = await sql.query(
+      `SELECT DISTINCT ON (resultado->>'sku') resultado->>'sku' AS sku, resultado->'cambiaria' AS cambiaria, recibido_en FROM bsale_sync_eventos
+       WHERE lower(topic) IN ('price', 'precio') AND resultado->>'sku' = ANY($1::text[]) AND recibido_en >= now() - interval '7 days'
+       ORDER BY resultado->>'sku', recibido_en DESC;`, [skus]);
+    avisos = rows;
+  } catch (e) { /* sin tabla de avisos de Bsale */ }
+  for (const sku of skus) {
+    const av = avisos.find(x => x.sku === sku);
+    const cp = av && Array.isArray(av.cambiaria) ? av.cambiaria.find(c => c && c.tipo === 'precio') : null;
+    const p = elegirPrecioSku({ cambio: cambios.find(c => c.sku === sku) || null, aviso: cp ? { de: cp.de, a: cp.a, recibido_en: av.recibido_en } : null, actual: actuales.find(c => c.sku === sku) || null });
+    if (p) salida[sku] = p;
+  }
+  return salida;
+}
+
 async function manejarProductosEstancadosFlagsNotificar(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
   const auth = req.headers.authorization || '';
@@ -3066,9 +3132,12 @@ async function manejarProductosEstancadosFlagsNotificar(req, res) {
   try {
     const sql = await getSql();
     await asegurarTablaNotificaciones(sql);
-    if (!esPruebaNotif(req) && !(await notificacionDebeEnviarse(sql, 'productos-estancados-flags'))) {
+    const forzar = req.query.forzar === '1'; // reenvío manual a los destinatarios (botón de Usuarios > Notificaciones): ignora si hoy toca o la notificación está inactiva
+    if (!forzar && !esPruebaNotif(req) && !(await notificacionDebeEnviarse(sql, 'productos-estancados-flags'))) {
       return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
     }
+    // Primero se registran los precios de hoy (así un cambio de precio de las últimas horas ya queda anotado con su antes y su ahora); si tarda o falla, el correo sale igual.
+    try { await Promise.race([registrarPreciosSku(sql), new Promise((_, rej) => setTimeout(() => rej(new Error('tiempo agotado')), 35000))]); } catch (e) { console.warn('[registrarPreciosSku]', e.message); }
     await asegurarTablaVentasSkuEstado(sql);
     const { rows } = await sql`
       SELECT sku, campo, valor_nuevo, cambiado_por, cambiado_en
@@ -3086,14 +3155,16 @@ async function manejarProductosEstancadosFlagsNotificar(req, res) {
     );
     const nombrePorSku = Object.fromEntries(nombresRows.map(r => [r.sku, r.nombre]));
 
-    const { asunto, html } = armarCorreoProductosEstancados({ filas: rows, nombrePorSku, camposInfo: PRODUCTOS_ESTANCADOS_FLAGS_CAMPO_INFO, urlBase: URL_BASE_APP });
+    let preciosPorSku = {};
+    try { preciosPorSku = await preciosDeAntesYAhora(sql, [...new Set(rows.filter(r => r.campo === 'variacion_precio' && r.valor_nuevo).map(r => r.sku))]); } catch (e) { console.warn('[preciosDeAntesYAhora]', e.message); }
+    const { asunto, html } = armarCorreoProductosEstancados({ filas: rows, nombrePorSku, camposInfo: PRODUCTOS_ESTANCADOS_FLAGS_CAMPO_INFO, preciosPorSku, urlBase: URL_BASE_APP });
     const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'productos-estancados-flags');
     const envios = [];
     for (const para of destinatarios) {
       envios.push({ para, ...(await enviarCorreo({ para, asunto: asuntoDePrueba(req, asunto), html })) });
     }
     if (envios.length > 0 && !esPruebaNotif(req)) await marcarNotificacionEnviada(sql, 'productos-estancados-flags', { asunto, html });
-    return res.status(200).json({ ok: true, cambios: rows.length, enviado: envios.length > 0, envios });
+    return res.status(200).json({ ok: true, cambios: rows.length, enviado: envios.length > 0, envios, conPrecio: Object.keys(preciosPorSku).length });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando el resumen de cambios de Productos estancados', detail: String(err) });
   }
@@ -5442,6 +5513,17 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'insumos-stock-critico': manejarInsumoCriticoPrueba,
       'nas-informe-revision': manejarNasBackupInformeCron,
     };
+    // Reenvío a TODOS los destinatarios configurados (solo para los tipos que lo permiten): ?todos=1. Es un envío real: queda registrado como último correo.
+    if (req.query.todos === '1') {
+      if (tipo !== 'productos-estancados-flags') return res.status(400).json({ error: 'Este tipo de notificación no permite reenviar a todos desde aquí' });
+      const cap = { status: 200, cuerpo: null };
+      const resFalsa = { status(c) { cap.status = c; return this; }, json(o) { cap.cuerpo = o; return this; }, setHeader() { return this; }, end() { return this; } };
+      await crons[tipo]({ method: 'GET', headers: { authorization: `Bearer ${process.env.CRON_SECRET || ''}` }, query: { forzar: '1' } }, resFalsa);
+      const b = cap.cuerpo || {};
+      if (cap.status >= 400) return res.status(200).json({ ok: false, enviado: false, error: b.error || `Falló (HTTP ${cap.status})`, detail: b.detail || null });
+      const envios = b.envios || [];
+      return res.status(200).json({ ok: true, enviado: envios.some(e => e.enviado !== false), destinatarios: envios.map(e => ({ para: e.para, enviado: e.enviado !== false })), motivo: b.cambios === 0 ? 'No hubo cambios en las últimas 24 horas: no hay nada que reenviar.' : (envios.length ? null : 'La notificación no tiene destinatarios.') });
+    }
     let r;
     if (tipo === 'resumen-cambios-diario') r = await enviarResumenCambios(sql, { para: destino });
     else if (tipo === 'resumen-cambios-recordatorio') r = await enviarRecordatorioResumen(sql, { para: destino, resumir: resumirCambiosCortos });
