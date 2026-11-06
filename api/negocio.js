@@ -258,6 +258,7 @@ export default async function handler(req, res) {
   if (recurso === 'envio-estimado') return manejarEnvioEstimado(req, res, sesion);
   if (recurso === 'filtros-uso') return manejarFiltrosUso(req, res, sesion);
   if (recurso === 'envio-gratis-shopify') return manejarEnvioGratisShopify(req, res, sesion);
+  if (recurso === 'variacion-precio-productos') return manejarVariacionPrecioProductos(req, res, sesion);
   if (recurso === 'wa-clic-ads-resumen') return manejarWaClicAdsResumen(req, res, sesion);
   if (recurso === 'google-ads-analisis') return manejarGoogleAdsAnalisis(req, res, sesion);
   if (recurso === 'search-console') return manejarSearchConsole(req, res, sesion);
@@ -17956,6 +17957,64 @@ async function manejarEnvioGratisShopify(req, res, sesion) {
     return res.status(200).json({ etiqueta: ETIQUETA_ENVIO_GRATIS, descuento, items, sobrantes: sobrantes.map(p => ({ handle: p.handle, title: p.title, skus: p.skus })), truncado: rows.length > marcados.length });
   } catch (err) {
     return res.status(200).json({ error: 'No se pudo consultar Shopify', detail: String(err.message || err).slice(0, 200) });
+  }
+}
+
+// Panel "💲 Variación de precio" de Productos estancados: los SKU con esa marca, el precio de antes y de ahora y qué pasó con las ventas desde que se marcó.
+// Las ventas se comparan contra el mismo número de días anteriores a la marca (solo unidades y precio medio vendido, sin costos ni márgenes).
+// Precio de lista antes/ahora: del registro diario de precios (precios_sku_cambios); si el SKU aún no tiene un cambio registrado, solo se conoce el de hoy.
+async function manejarVariacionPrecioProductos(req, res, _sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaVentasSku(sql); await asegurarTablaVentasSkuEstado(sql); await asegurarTablaPreciosSku(sql);
+    const hoy = fechaHoyChile();
+    const { rows } = await sql.query(
+      `WITH m AS (
+         SELECT c.sku,
+                (SELECT (h.cambiado_en AT TIME ZONE 'America/Santiago')::date FROM ventas_sku_flags_historial h WHERE h.sku = c.sku AND h.campo = 'variacion_precio' AND h.valor_nuevo ORDER BY h.cambiado_en DESC, h.id DESC LIMIT 1) AS desde,
+                (SELECT h.cambiado_por FROM ventas_sku_flags_historial h WHERE h.sku = c.sku AND h.campo = 'variacion_precio' AND h.valor_nuevo ORDER BY h.cambiado_en DESC, h.id DESC LIMIT 1) AS por
+           FROM ventas_sku_comentarios c WHERE c.variacion_precio
+       ), p AS (SELECT m.*, CASE WHEN m.desde IS NULL THEN NULL ELSE ($1::date - m.desde + 1)::int END AS dias FROM m)
+       SELECT p.sku, p.desde::text AS desde, p.por, p.dias,
+              (SELECT MAX(x.nombre) FROM bsale_ventas_sku x WHERE x.sku = p.sku) AS nombre,
+              COALESCE(sum(v.cantidad) FILTER (WHERE v.fecha >= p.desde), 0)::float AS unidades,
+              count(DISTINCT v.documento_id) FILTER (WHERE v.fecha >= p.desde)::int AS documentos,
+              COALESCE(sum(v.monto) FILTER (WHERE v.fecha >= p.desde), 0)::float AS monto_despues,
+              COALESCE(sum(v.cantidad) FILTER (WHERE v.fecha < p.desde), 0)::float AS antes_unidades,
+              count(DISTINCT v.documento_id) FILTER (WHERE v.fecha < p.desde)::int AS antes_documentos,
+              COALESCE(sum(v.monto) FILTER (WHERE v.fecha < p.desde), 0)::float AS monto_antes
+         FROM p LEFT JOIN bsale_ventas_sku v ON v.sku = p.sku AND p.desde IS NOT NULL AND v.fecha >= p.desde - p.dias AND v.fecha <= $1::date
+        GROUP BY p.sku, p.desde, p.por, p.dias
+        ORDER BY p.desde DESC NULLS LAST, p.sku
+        LIMIT 300`, [hoy]);
+    const skus = rows.map(r => r.sku);
+    let cambios = [], actuales = [], errorPrecios = null;
+    if (skus.length) {
+      try {
+        cambios = (await sql.query(`SELECT sku, fuente, precio_anterior::float AS precio_anterior, precio_nuevo::float AS precio_nuevo, detectado_en FROM precios_sku_cambios WHERE sku = ANY($1::text[]) ORDER BY sku, detectado_en, id`, [skus])).rows;
+        actuales = (await sql.query(`SELECT sku, fuente, precio::float AS precio FROM precios_sku_ultimo WHERE sku = ANY($1::text[])`, [skus])).rows;
+      } catch (e) { errorPrecios = String(e.message || e).slice(0, 160); }
+    }
+    const conIva = (monto, unid) => (unid > 0 ? Math.round((monto / unid) * 1.19) : null); // el monto de Bsale viene neto
+    const items = rows.map(r => {
+      // Cambios de precio de lista desde un par de días antes de la marca (el cambio se hace en Bsale cerca de cuando se marca); Bsale manda sobre la tienda.
+      const tope = r.desde ? Date.parse(r.desde + 'T00:00:00Z') - 2 * 86400000 : null;
+      let propios = cambios.filter(c => c.sku === r.sku && tope != null && new Date(c.detectado_en).getTime() >= tope);
+      if (propios.some(c => c.fuente === 'bsale')) propios = propios.filter(c => c.fuente === 'bsale');
+      const act = actuales.filter(c => c.sku === r.sku).sort((a, b) => (b.fuente === 'bsale') - (a.fuente === 'bsale'))[0] || null;
+      let precio = null;
+      if (propios.length) precio = { antes: Math.round(propios[0].precio_anterior), ahora: Math.round(propios[propios.length - 1].precio_nuevo), fuente: propios[0].fuente, cuando: propios[propios.length - 1].detectado_en };
+      else if (act) precio = { antes: null, ahora: Math.round(act.precio), fuente: act.fuente, cuando: null };
+      return {
+        sku: r.sku, nombre: r.nombre || '', desde: r.desde, por: r.por, dias: r.dias,
+        unidades: r.unidades, documentos: r.documentos, antes_unidades: r.antes_unidades, antes_documentos: r.antes_documentos,
+        precio_venta_antes: conIva(r.monto_antes, r.antes_unidades), precio_venta_despues: conIva(r.monto_despues, r.unidades), precio,
+      };
+    });
+    return res.status(200).json({ hoy, items, errorPrecios });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo leer la variación de precios', detail: String(err.message || err).slice(0, 200) });
   }
 }
 

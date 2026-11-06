@@ -228,6 +228,16 @@
     </div>
   </details>
 
+  <details class="variacion-precio-panel" id="panelVariacionPrecio" ontoggle="if(this.open) cargarVariacionPrecio()" style="margin:12px 0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;">
+    <summary style="cursor:pointer;font-weight:700;">💲 Productos con bajas de precio <span class="sub" style="font-weight:400;">— los SKU marcados con "Variación de precio" y si las ventas respondieron</span></summary>
+    <div class="sub" style="margin:8px 0;">Lista los productos a los que marcaste "💲 Variación de precio". Para cada uno compara lo que vendió <b>desde el día de la marca</b> con lo que vendió en <b>el mismo número de días anteriores</b>, y muestra el precio de lista de antes y de ahora (registro diario de precios de Bsale y la tienda; si aún no hay un cambio registrado, solo se conoce el de hoy). Es una guía: no separa la temporada, la competencia ni el stock.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+      <button class="btn-ghost" onclick="cargarVariacionPrecio()">↻ Actualizar</button>
+      <span id="estadoVariacionPrecio" class="sub"></span>
+    </div>
+    <div id="wrapVariacionPrecio"></div>
+  </details>
+
   <details class="orden-col-panel" id="panelOrdenColecciones" ontoggle="if(this.open) cargarOrdenColecciones()" style="margin:12px 0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;">
     <summary style="cursor:pointer;font-weight:700;">📦 Orden de las colecciones por stock <span class="sub" style="font-weight:400;">— más stock primero, agotados al final, en todas las colecciones de Shopify</span></summary>
     <div class="sub" style="margin:8px 0;">Shopify no trae ese orden, así que el ERP deja cada colección en <b>orden manual</b> y la reordena solo 4 veces al día (y con el botón de abajo). A igual stock se respeta el orden que ya tenía la colección. Los productos sin inventario controlado (servicios) van después de los que tienen stock y antes de los agotados. No se tocan las colecciones técnicas de las apps de búsqueda.</div>
@@ -749,6 +759,52 @@ async function cargarEnvioGratisShopify(){
         return '<tr><td><b>' + escapeHtml(i.sku) + '</b></td><td>' + prod + '</td><td>' + escapeHtml(i.variante || i.nombre || '') + '</td>' + celdaStockEnvio(stockSku[i.sku]) + '<td>' + fmtNum(i.publicaciones || 0) + '</td><td>' + fmtNum(i.etiquetadas || 0) + '</td><td>' + estado + '</td>' + celdasCambioEnvio(i.cambio) + '</tr>';
       }).join('') + '</tbody></table>' +
       (d.sobrantes.length ? '<p class="sub" style="margin-top:10px;"><b>Con la etiqueta, pero su SKU ya no está marcado</b> (se quitan al sincronizar):</p><table><thead><tr><th>Producto</th><th>SKU</th></tr></thead><tbody>' + d.sobrantes.map(p => '<tr><td>' + escapeHtml(p.title) + '</td><td>' + escapeHtml(p.skus.join(', ')) + '</td></tr>').join('') + '</tbody></table>' : '');
+  }catch(err){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; }
+}
+// ───── Productos con bajas de precio ─────
+// Qué pasó con las ventas de un SKU con 💲 desde el día de la marca (mismo número de días antes como comparación). Devuelve { clave, texto, color, orden }.
+function veredictoVariacion(x){
+  if(!x.desde) return { clave: 'sin_fecha', texto: 'Sin registro de la fecha', color: '#6b7280', orden: 5 };
+  const pronto = (x.dias || 0) < 7;
+  if(x.unidades > x.antes_unidades) return { clave: 'mas', texto: '✔ Vende más', color: '#12713a', orden: 0 };
+  if(pronto) return { clave: 'pronto', texto: '⏳ Aún es pronto', color: '#8a5a00', orden: 3 };
+  if(x.unidades === x.antes_unidades) return { clave: 'igual', texto: x.unidades > 0 ? '= Vende igual' : '✖ Sin ventas', color: x.unidades > 0 ? '#8a5a00' : '#a11d1d', orden: x.unidades > 0 ? 2 : 4 };
+  return { clave: 'menos', texto: '✖ Vende menos', color: '#a11d1d', orden: 4 };
+}
+function celdaPrecioVariacion(pr){
+  if(!pr) return '<td data-valor=""><span class="sub">Sin precio registrado</span></td>';
+  if(pr.antes == null) return '<td data-valor="' + pr.ahora + '"><b>' + fmtMoneda(pr.ahora) + '</b><br><span class="sub" title="Todavía no hay un cambio de precio registrado en el ERP para este SKU: solo se conoce el precio de hoy">hoy (sin cambio registrado)</span></td>';
+  const dif = pr.antes ? Math.round((pr.ahora - pr.antes) / pr.antes * 1000) / 10 : null;
+  const baja = pr.ahora < pr.antes;
+  return '<td data-valor="' + (dif == null ? '' : dif) + '"><span class="sub" style="text-decoration:line-through;">' + fmtMoneda(pr.antes) + '</span> → <b>' + fmtMoneda(pr.ahora) + '</b>' +
+    (dif == null ? '' : ' <span style="font-weight:700;color:' + (baja ? '#12713a' : '#a11d1d') + ';">' + (dif > 0 ? '+' : '') + String(dif).replace('.', ',') + '%</span>') +
+    '<br><span class="sub">' + (pr.fuente === 'bsale' ? 'lista en Bsale' : 'en la tienda') + (pr.cuando ? ' · ' + fechaHoraOC(pr.cuando) : '') + '</span></td>';
+}
+async function cargarVariacionPrecio(){
+  const wrap = document.getElementById('wrapVariacionPrecio'), est = document.getElementById('estadoVariacionPrecio');
+  wrap.innerHTML = '<p class="empty-note">Consultando...</p>'; est.textContent = '';
+  try{
+    const res = await fetch('/api/negocio?recurso=variacion-precio-productos'); const d = await res.json();
+    if(!res.ok || d.error){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(d.error || 'Error') + (d.detail ? ' — ' + escapeHtml(d.detail) : '') + '</p>'; return; }
+    if(!d.items.length){ wrap.innerHTML = '<p class="empty-note">Todavía no hay productos marcados con "💲 Variación de precio".</p>'; return; }
+    const stockSku = await stockDeSkus();
+    const filas = d.items.map(x => ({ x, v: veredictoVariacion(x) }));
+    const cuenta = clave => filas.filter(f => f.v.clave === clave).length;
+    est.textContent = d.items.length + ' SKU marcados · ' + cuenta('mas') + ' venden más · ' + cuenta('igual') + ' igual · ' + cuenta('menos') + ' menos · ' + cuenta('pronto') + ' aún es pronto' + (cuenta('sin_fecha') ? ' · ' + cuenta('sin_fecha') + ' sin fecha de marca' : '') + (d.errorPrecios ? ' · (no se pudieron leer los precios: ' + d.errorPrecios + ')' : '');
+    wrap.innerHTML = '<div class="tabla-wrap"><table id="tablaVariacionPrecio"><thead><tr><th>SKU</th><th>Producto</th><th class="amount">Stock actual</th><th>Marcado</th><th>Precio de lista</th><th>Precio medio vendido</th><th>Unidades desde la marca</th><th>Resultado</th></tr></thead><tbody>' +
+      filas.map(({ x, v }) => {
+        const fecha = x.desde ? String(x.desde).split('-').reverse().join('-') : '';
+        const dias = x.dias || 0;
+        const pv = (x.precio_venta_antes != null || x.precio_venta_despues != null)
+          ? '<td data-valor="' + (x.precio_venta_despues == null ? '' : x.precio_venta_despues) + '">' + (x.precio_venta_antes != null ? '<span class="sub">' + fmtMoneda(x.precio_venta_antes) + '</span>' : '<span class="sub">—</span>') + ' → ' + (x.precio_venta_despues != null ? '<b>' + fmtMoneda(x.precio_venta_despues) + '</b>' : '<span class="sub">sin ventas</span>') + '<br><span class="sub">con IVA, antes → después</span></td>'
+          : '<td data-valor=""><span class="sub">—</span></td>';
+        const un = x.desde
+          ? '<td data-valor="' + x.unidades + '"><span style="color:' + v.color + ';font-weight:700;">' + fmtNum(x.unidades) + ' un.</span> en ' + dias + (dias === 1 ? ' día' : ' días') + (x.unidades > x.antes_unidades ? ' ▲' : (x.unidades < x.antes_unidades ? ' ▼' : '')) + '<br><span class="sub">antes: ' + fmtNum(x.antes_unidades) + ' un. en ' + (dias === 1 ? 'el día previo' : 'los ' + dias + ' días previos') + '</span></td>'
+          : '<td data-valor=""><span class="sub" title="Se marcó antes de que el ERP guardara el historial de cambios: desmárcalo y vuelve a marcarlo para medirlo">—</span></td>';
+        return '<tr><td><b>' + escapeHtml(x.sku) + '</b></td><td>' + escapeHtml(x.nombre || '') + '</td>' + celdaStockEnvio(stockSku[x.sku]) +
+          '<td data-valor="' + escapeHtml(x.desde || '') + '">' + (fecha || '<span class="sub">Sin registro</span>') + (x.por ? '<br><span class="sub">' + escapeHtml(x.por) + '</span>' : '') + '</td>' +
+          celdaPrecioVariacion(x.precio) + pv + un + '<td data-valor="' + v.orden + '"><span style="color:' + v.color + ';font-weight:700;">' + v.texto + '</span></td></tr>';
+      }).join('') + '</tbody></table></div>';
   }catch(err){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; }
 }
 // ───── Orden de las colecciones por stock ─────
