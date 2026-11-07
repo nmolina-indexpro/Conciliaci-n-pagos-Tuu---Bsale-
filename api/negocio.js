@@ -14385,6 +14385,18 @@ async function manejarWhatsappAnalitica(req, res, sesion) {
        GROUP BY bucket ORDER BY bucket ASC;`,
       [agrupacion, desde, hasta]
     );
+    // Los días sin ninguna conversación no devuelven fila: el gráfico se saltaba el día (y las semanas con un día en 0 se veían corridas) y un corte
+    // de recepción pasaba inadvertido. Se completan con 0 para que el hueco se vea.
+    if (agrupacion === 'day') {
+      const { rows: diasRango } = await sql.query(
+        `SELECT (d::date)::timestamp AT TIME ZONE 'America/Santiago' AS bucket
+         FROM generate_series(($1::timestamptz AT TIME ZONE 'America/Santiago')::date, (($2::timestamptz - interval '1 second') AT TIME ZONE 'America/Santiago')::date, interval '1 day') d;`,
+        [desde, hasta]
+      );
+      const conDatos = new Map(serie.map(r => [new Date(r.bucket).getTime(), r]));
+      serie.length = 0;
+      for (const d of diasRango) serie.push(conDatos.get(new Date(d.bucket).getTime()) || { bucket: d.bucket, conversaciones: 0, clientes_unicos: 0, ventas: 0 });
+    }
 
     const { rows: categoriaRows } = await sql.query(
       // NULL (nunca categorizada por la IA) se separa de 'otra' (la IA la
