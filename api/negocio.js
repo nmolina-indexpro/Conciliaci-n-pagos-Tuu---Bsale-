@@ -8073,7 +8073,7 @@ async function manejarWhatsappWebhook(req, res) {
   // Rastro mínimo de cada llamada de Meta (sin datos de clientes) para poder buscar "[whatsapp-webhook]" en los registros de Vercel y saber si Meta
   // está entregando y qué trae. Se agregó el 7-nov-2026 al investigar un corte de recepción.
   try {
-    const camposRecibidos = (req.body?.entry || []).flatMap(e => (e.changes || []).map(c => `${c.field || '?'}(msj=${(c.value?.messages || []).length},ecos=${(c.value?.message_echoes || []).length},estados=${(c.value?.statuses || []).length})`));
+    const camposRecibidos = (req.body?.entry || []).flatMap(e => (e.changes || []).map(c => `${c.field || '?'}(msj=${(c.value?.messages || []).length},ecos=${(c.value?.message_echoes || []).length},estados=${(c.value?.statuses || []).length}${c.value?.event ? `,evento=${String(c.value.event).slice(0, 60)}` : ''}${c.value?.ban_info?.waba_ban_state ? `,ban=${String(c.value.ban_info.waba_ban_state).slice(0, 30)}` : ''})`));
     console.log(`[whatsapp-webhook] POST recibido; firma=${req.headers['x-hub-signature-256'] ? 'sí' : 'no'}; ${camposRecibidos.join(' ') || 'sin cambios'}`);
   } catch { /* el rastro nunca debe romper el webhook */ }
 
