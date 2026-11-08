@@ -8082,7 +8082,11 @@ async function manejarWhatsappWebhook(req, res) {
   // calza byte a byte y se puede rechazar de verdad, no solo avisar. Si no
   // hay WHATSAPP_APP_SECRET configurado todavía, se deja pasar sin
   // verificar (fase de conexión inicial) pero queda registrado en logs.
-  const secreto = process.env.WHATSAPP_APP_SECRET;
+  // WHATSAPP_APP_SECRET puede traer varias claves separadas por coma (una por
+  // cada app de Meta que entrega mensajes, p. ej. IndexStore-ERP-WSP y
+  // "clude 2026 - OK"): la firma vale si calza con cualquiera.
+  const secretos = String(process.env.WHATSAPP_APP_SECRET || '').split(/[,;\s]+/).filter(Boolean);
+  const secreto = secretos.length > 0;
   const firma = req.headers['x-hub-signature-256'];
   if (secreto) {
     if (!firma) {
@@ -8091,10 +8095,12 @@ async function manejarWhatsappWebhook(req, res) {
     }
     try {
       const crypto = await import('crypto');
-      const esperada = 'sha256=' + crypto.createHmac('sha256', secreto).update(req.rawBody || '').digest('hex');
       const a = Buffer.from(firma);
-      const b = Buffer.from(esperada);
-      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      const calza = secretos.some(s => {
+        const b = Buffer.from('sha256=' + crypto.createHmac('sha256', s).update(req.rawBody || '').digest('hex'));
+        return a.length === b.length && crypto.timingSafeEqual(a, b);
+      });
+      if (!calza) {
         console.warn('[whatsapp-webhook] rechazado: firma no calzó');
         return res.status(401).json({ error: 'Firma inválida' });
       }
@@ -9945,7 +9951,7 @@ async function manejarWhatsappDiagnosticoMeta(req, res, sesion) {
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede ver el diagnóstico de Meta' });
   const accessToken = (process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
   const phoneNumberId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
-  const appSecret = (process.env.WHATSAPP_APP_SECRET || '').trim();
+  const appSecret = String(process.env.WHATSAPP_APP_SECRET || '').split(/[,;\s]+/).filter(Boolean)[0] || '';
   const appIdEsperado = '1736178567699325'; // "clude 2026 - OK"
   if (!accessToken) return res.status(200).json({ error: 'WHATSAPP_ACCESS_TOKEN no está configurado en el servidor' });
 
