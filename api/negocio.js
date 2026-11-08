@@ -9976,7 +9976,21 @@ async function manejarWhatsappDiagnosticoMeta(req, res, sesion) {
 
   // 2) El número: estado y si tiene un webhook propio que pisa el de la app.
   if (phoneNumberId) {
-    salida.numero = await graph(`${phoneNumberId}?fields=display_phone_number,verified_name,status,platform_type,quality_rating,webhook_configuration`, auth);
+    salida.numero = await graph(`${phoneNumberId}?fields=display_phone_number,verified_name,status,platform_type,quality_rating,webhook_configuration,health_status,code_verification_status,account_mode,is_pin_enabled,name_status,messaging_limit_tier`, auth);
+    if (salida.numero.error) salida.numero = await graph(`${phoneNumberId}?fields=display_phone_number,verified_name,status,platform_type,quality_rating,webhook_configuration`, auth);
+  }
+
+  // Si el token no dice a qué cuentas da acceso, se buscan por el negocio dueño.
+  if (!wabaIds.length) {
+    const yo = await graph('me?fields=id,name,business', auth);
+    salida.usuario_sistema = yo;
+    const negocioId = yo.business?.id;
+    if (negocioId) {
+      for (const rel of ['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts']) {
+        const l = await graph(`${negocioId}/${rel}?fields=id,name`, auth);
+        for (const w of l.data || []) if (!wabaIds.includes(w.id)) wabaIds.push(w.id);
+      }
+    }
   }
 
   // 3) Por cada cuenta de WhatsApp: qué apps están suscritas.
