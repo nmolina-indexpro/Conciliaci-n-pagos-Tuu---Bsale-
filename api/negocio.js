@@ -264,6 +264,7 @@ export default async function handler(req, res) {
   if (recurso === 'search-console') return manejarSearchConsole(req, res, sesion);
   if (recurso === 'instagram') return manejarInstagram(req, res, sesion);
   if (recurso === 'whatsapp-perdidas-ads') return manejarWhatsappPerdidasAds(req, res, sesion);
+  if (recurso === 'whatsapp-diagnostico-meta') return manejarWhatsappDiagnosticoMeta(req, res, sesion);
   if (recurso === 'descuentos-web') return manejarDescuentosWeb(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
@@ -9932,6 +9933,59 @@ async function manejarWhatsappVenta(req, res, sesion) {
   } catch (err) {
     return res.status(500).json({ error: 'Error al asociar la venta', detail: String(err) });
   }
+}
+
+// ---- Diagnóstico de la conexión con Meta (solo administrador) ----
+// Cuando "no llegan mensajes" y el webhook responde bien a la prueba de Meta,
+// lo habitual es que la cuenta de WhatsApp (WABA) no esté suscrita a la app
+// correcta, o que el número tenga un webhook propio. Esto lo consulta con el
+// token del ERP. Es de solo lectura; con &suscribir=1 suscribe la app del token
+// a cada WABA. Nunca devuelve tokens ni claves.
+async function manejarWhatsappDiagnosticoMeta(req, res, sesion) {
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede ver el diagnóstico de Meta' });
+  const accessToken = (process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+  const phoneNumberId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+  const appSecret = (process.env.WHATSAPP_APP_SECRET || '').trim();
+  const appIdEsperado = '1736178567699325'; // "clude 2026 - OK"
+  if (!accessToken) return res.status(200).json({ error: 'WHATSAPP_ACCESS_TOKEN no está configurado en el servidor' });
+
+  const graph = async (ruta, opciones = {}) => {
+    try {
+      const r = await fetchConTimeout(`https://graph.facebook.com/v21.0/${ruta}`, opciones, 12000);
+      const cuerpo = await r.json().catch(() => ({}));
+      return r.ok ? cuerpo : { error: cuerpo.error?.message || `HTTP ${r.status}` };
+    } catch (e) { return { error: e.message }; }
+  };
+  const auth = { headers: { Authorization: `Bearer ${accessToken}` } };
+  const salida = { app_esperada: appIdEsperado };
+
+  // 1) A qué app pertenece el token y a qué cuentas de WhatsApp da acceso.
+  const wabaIds = [];
+  if (appSecret) {
+    const dbg = await graph(`debug_token?input_token=${encodeURIComponent(accessToken)}&access_token=${encodeURIComponent(`${appIdEsperado}|${appSecret}`)}`);
+    const d = dbg.data;
+    if (d) {
+      salida.token = { app_id: d.app_id, es_la_app_esperada: String(d.app_id) === appIdEsperado, valido: d.is_valid, tipo: d.type, vence: d.expires_at === 0 ? 'nunca' : d.expires_at };
+      for (const g of d.granular_scopes || []) if (/whatsapp_business/.test(g.scope)) for (const id of g.target_ids || []) if (!wabaIds.includes(id)) wabaIds.push(id);
+    } else salida.token = dbg;
+  } else salida.token = { aviso: 'Sin WHATSAPP_APP_SECRET no se puede revisar a qué app pertenece el token' };
+
+  // 2) El número: estado y si tiene un webhook propio que pisa el de la app.
+  if (phoneNumberId) {
+    salida.numero = await graph(`${phoneNumberId}?fields=display_phone_number,verified_name,status,platform_type,quality_rating,webhook_configuration`, auth);
+  }
+
+  // 3) Por cada cuenta de WhatsApp: qué apps están suscritas.
+  salida.cuentas = [];
+  for (const wabaId of wabaIds) {
+    const c = { waba_id: wabaId };
+    if (req.query.suscribir === '1') c.suscripcion_hecha = await graph(`${wabaId}/subscribed_apps`, { method: 'POST', ...auth });
+    const s = await graph(`${wabaId}/subscribed_apps`, auth);
+    c.apps_suscritas = s.data ? s.data.map(a => ({ id: a.whatsapp_business_api_data?.id, nombre: a.whatsapp_business_api_data?.name, es_la_app_esperada: String(a.whatsapp_business_api_data?.id) === appIdEsperado, webhook_propio: a.override_callback_uri || null })) : s;
+    salida.cuentas.push(c);
+  }
+  if (!wabaIds.length) salida.cuentas_aviso = 'No se pudo saber el ID de la cuenta de WhatsApp desde el token';
+  return res.status(200).json(salida);
 }
 
 // ---- Responder desde el ERP (fase 2 del pedido original) ----
