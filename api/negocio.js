@@ -8069,6 +8069,13 @@ async function manejarWhatsappWebhook(req, res) {
 
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
+  // Rastro mínimo de cada llamada de Meta (sin datos de clientes) para poder buscar "[whatsapp-webhook]" en los registros de Vercel y saber si Meta
+  // está entregando y qué trae. Se agregó el 7-nov-2026 al investigar un corte de recepción.
+  try {
+    const camposRecibidos = (req.body?.entry || []).flatMap(e => (e.changes || []).map(c => `${c.field || '?'}(msj=${(c.value?.messages || []).length},ecos=${(c.value?.message_echoes || []).length},estados=${(c.value?.statuses || []).length})`));
+    console.log(`[whatsapp-webhook] POST recibido; firma=${req.headers['x-hub-signature-256'] ? 'sí' : 'no'}; ${camposRecibidos.join(' ') || 'sin cambios'}`);
+  } catch { /* el rastro nunca debe romper el webhook */ }
+
   // Verificación de firma de Meta: usa req.rawBody (los bytes EXACTOS que
   // mandó Meta, capturados en handler() antes de parsear JSON) -> ahora sí
   // calza byte a byte y se puede rechazar de verdad, no solo avisar. Si no
