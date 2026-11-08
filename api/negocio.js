@@ -9963,11 +9963,15 @@ async function manejarWhatsappDiagnosticoMeta(req, res, sesion) {
   const wabaIds = [];
   if (appSecret) {
     const dbg = await graph(`debug_token?input_token=${encodeURIComponent(accessToken)}&access_token=${encodeURIComponent(`${appIdEsperado}|${appSecret}`)}`);
-    const d = dbg.data;
+    let d = dbg.data;
+    // El token pertenece a otra app: se vuelve a preguntar con el propio token.
+    const propio = d ? null : await graph(`debug_token?input_token=${encodeURIComponent(accessToken)}`, auth);
+    if (propio?.data) d = propio.data;
+    const appDelToken = await graph('app?fields=id,name', auth);
     if (d) {
-      salida.token = { app_id: d.app_id, es_la_app_esperada: String(d.app_id) === appIdEsperado, valido: d.is_valid, tipo: d.type, vence: d.expires_at === 0 ? 'nunca' : d.expires_at };
+      salida.token = { app_id: d.app_id, app_nombre: d.application || appDelToken.name, es_la_app_esperada: String(d.app_id) === appIdEsperado, valido: d.is_valid, tipo: d.type, vence: d.expires_at === 0 ? 'nunca' : d.expires_at };
       for (const g of d.granular_scopes || []) if (/whatsapp_business/.test(g.scope)) for (const id of g.target_ids || []) if (!wabaIds.includes(id)) wabaIds.push(id);
-    } else salida.token = dbg;
+    } else salida.token = { error_con_la_app_esperada: dbg.error, app_del_token: appDelToken };
   } else salida.token = { aviso: 'Sin WHATSAPP_APP_SECRET no se puede revisar a qué app pertenece el token' };
 
   // 2) El número: estado y si tiene un webhook propio que pisa el de la app.
