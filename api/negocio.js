@@ -9980,6 +9980,9 @@ async function manejarWhatsappDiagnosticoMeta(req, res, sesion) {
     if (salida.numero.error) salida.numero = await graph(`${phoneNumberId}?fields=display_phone_number,verified_name,status,platform_type,quality_rating,webhook_configuration`, auth);
   }
 
+  // La salud del número nombra la cuenta de WhatsApp a la que pertenece.
+  for (const e of salida.numero?.health_status?.entities || []) if (e.entity_type === 'WABA' && !wabaIds.includes(e.id)) wabaIds.push(e.id);
+
   // Si el token no dice a qué cuentas da acceso, se buscan por el negocio dueño.
   if (!wabaIds.length) {
     const yo = await graph('me?fields=id,name,business', auth);
@@ -9996,7 +9999,7 @@ async function manejarWhatsappDiagnosticoMeta(req, res, sesion) {
   // 3) Por cada cuenta de WhatsApp: qué apps están suscritas.
   salida.cuentas = [];
   for (const wabaId of wabaIds) {
-    const c = { waba_id: wabaId };
+    const c = { waba_id: wabaId, datos: await graph(`${wabaId}?fields=name,account_review_status,business_verification_status,currency,timezone_id`, auth), numeros: await graph(`${wabaId}/phone_numbers?fields=id,display_phone_number,status,platform_type`, auth) };
     if (req.query.suscribir === '1') c.suscripcion_hecha = await graph(`${wabaId}/subscribed_apps`, { method: 'POST', ...auth });
     const s = await graph(`${wabaId}/subscribed_apps`, auth);
     c.apps_suscritas = s.data ? s.data.map(a => ({ id: a.whatsapp_business_api_data?.id, nombre: a.whatsapp_business_api_data?.name, es_la_app_esperada: String(a.whatsapp_business_api_data?.id) === appIdEsperado, webhook_propio: a.override_callback_uri || null })) : s;
