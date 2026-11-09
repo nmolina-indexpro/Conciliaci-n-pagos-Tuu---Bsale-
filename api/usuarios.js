@@ -5,6 +5,7 @@
 import crypto from 'crypto';
 import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles, asegurarTablaNotificaciones } from '../lib/db.js';
 import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
+import { sesionVigente } from '../lib/seguridad.js';
 import { enviarCorreo, consultarEventosBrevo, resumirEntregaBrevo } from '../lib/mailer.js';
 import { TIPOS_NOTIFICACION, CATEGORIAS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto } from '../lib/notificaciones.js';
 import { TIPO_RESUMEN_CAMBIOS, fechaHoyChile, enviarResumenCambios, sanitizarHtmlResumen, armarCorreoResumen, armarContenidoCambios } from '../lib/resumen-cambios.js';
@@ -49,7 +50,7 @@ async function manejarDebugBrevo(req, res) {
 }
 
 export default async function handler(req, res) {
-  const sesion = usuarioDesdeRequest(req);
+  const sesion = await sesionVigente(req);
   if (!sesion) return res.status(401).json({ error: 'No hay sesión activa' });
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede gestionar usuarios' });
 

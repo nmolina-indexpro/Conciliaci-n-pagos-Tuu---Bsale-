@@ -489,13 +489,13 @@ async function inspeccionar(){
     const d = await r.json();
     if(d.error){ out.innerHTML = `<div class="sc-error">${escapeHtml(d.error)}${d.detail ? '<br>' + escapeHtml(d.detail) : ''}</div>`; return; }
     const kv = (k, v) => `<div>${k}</div><div>${v == null || v === '' ? '—' : v}</div>`;
-    const ln = u => u ? `<a class="sc-url" href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(u)}</a>` : null;
+    const ln = u => u ? (/^https?:\/\//i.test(u) ? `<a class="sc-url" href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(u)}</a>` : escapeHtml(u)) : null;
     out.innerHTML = '<div class="sc-kv">' +
       kv('Veredicto', `<span class="badge-ads ${d.veredicto === 'PASS' ? 'si' : 'no'}">${escapeHtml(d.veredicto || 'sin dato')}</span>`) + kv('Estado de cobertura', escapeHtml(d.estado)) + kv('Indexación', escapeHtml(d.indexacion)) + kv('robots.txt', escapeHtml(d.robots)) +
       kv('Último rastreo', d.ultimo_rastreo ? escapeHtml(new Date(d.ultimo_rastreo).toLocaleString('es-CL')) : null) + kv('Rastreada como', escapeHtml(d.rastreado_como)) +
       kv('Canónica declarada', ln(d.canonica_declarada)) + kv('Canónica elegida por Google', ln(d.canonica_google)) +
       kv('Sitemaps que la incluyen', escapeHtml((d.sitemaps || []).join(', '))) + kv('Datos estructurados', escapeHtml((d.resultados_enriquecidos || []).map(x => `${x.tipo} (${x.elementos})`).join(', '))) +
-      kv('Móvil', escapeHtml(d.amigable_movil)) + (d.enlace_google ? kv('En Search Console', `<a class="sc-url" href="${escapeHtml(d.enlace_google)}" target="_blank" rel="noopener">Abrir informe completo</a>`) : '') + '</div>';
+      kv('Móvil', escapeHtml(d.amigable_movil)) + (d.enlace_google && /^https?:\/\//i.test(d.enlace_google) ? kv('En Search Console', `<a class="sc-url" href="${escapeHtml(d.enlace_google)}" target="_blank" rel="noopener">Abrir informe completo</a>`) : '') + '</div>';
   }catch(e){ out.innerHTML = `<div class="sc-error">No se pudo consultar: ${escapeHtml(e.message)}</div>`; }
 }
 

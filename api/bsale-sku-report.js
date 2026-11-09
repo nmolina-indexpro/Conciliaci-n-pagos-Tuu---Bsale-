@@ -15,7 +15,7 @@
 // El access_token vive SOLO en el servidor (variable de entorno BSALE_ACCESS_TOKEN).
 
 import { getSql, asegurarTablaStockExtra } from '../lib/db.js';
-import { usuarioDesdeRequest } from '../lib/auth-node.js';
+import { sesionVigente, limitarMemoria, respuestaLimite } from '../lib/seguridad.js';
 
 const BSALE_BASE = 'https://api.bsale.io/v1';
 const TIMEOUT_MS = 25000;
@@ -132,8 +132,14 @@ export default async function handler(req, res) {
   // con CSS, así que cualquier "usuario" podía verlos igual pegándole
   // directo a este endpoint. Se sacan del JSON server-side para quien no
   // sea admin, en vez de confiar solo en que el frontend los esconda.
-  const sesion = usuarioDesdeRequest(req);
+  const sesion = await sesionVigente(req);
   const esAdmin = sesion?.rol === 'admin';
+  // Cada consulta recorre cientos de documentos de Bsale: se limita por usuario para que una pantalla en bucle (o alguien insistiendo)
+  // no agote el cupo de Bsale de todos.
+  if (sesion) {
+    const lim = limitarMemoria('sku:' + (sesion.uid || sesion.email), 40, 60000);
+    if (!lim.permitido) return respuestaLimite(res, lim);
+  }
 
   const { days, startDate: qStart, endDate: qEnd, debug } = req.query;
   const token = process.env.BSALE_ACCESS_TOKEN;

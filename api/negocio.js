@@ -11,7 +11,8 @@
 
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaIndexscaleLeadsWeb, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, asegurarTablaDescuentosWeb, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
 import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, validarEmbudo as validarEmbudoBuscadorIa, validarDescuentoEvento as validarDescuentoEventoBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
-import { usuarioDesdeRequest, hashPassword } from '../lib/auth-node.js';
+import { hashPassword } from '../lib/auth-node.js';
+import { sesionVigente, controlarAcceso, controlarPublicoPorIp, respuestaLimite } from '../lib/seguridad.js';
 import { normalizarConfig as normalizarConfigDW, analizarProducto as analizarProductoDW, permisosShopify as permisosShopifyDW, listarProductos as listarProductosDW, aplicarEtiquetas as aplicarEtiquetasDW, estadoWebhook as estadoWebhookDW, registrarWebhook as registrarWebhookDW, costosBsale as costosBsaleDW, resultadosPedidos as resultadosPedidosDW, rangoResultados as rangoResultadosDW, claveAviso as claveAvisoDW, tieneCambios as tieneCambiosDW, estadoDescuentos as estadoDescuentosDW, crearDescuentoFuncion as crearDescuentoFuncionDW, productosAlCarro as productosAlCarroDW } from '../lib/descuentos-web.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
 import { correoSemanalNasBackup, correoRevisionNasBackup } from '../lib/nas-backup-correo.js';
@@ -122,6 +123,10 @@ export default async function handler(req, res) {
     req.body = {};
   }
 
+  // Tope por IP en los recursos públicos que no llevan clave de servicio (recuperar contraseña, cotización web, píxel): ver lib/seguridad.js.
+  const excesoPublico = controlarPublicoPorIp(req, req.query.recurso);
+  if (excesoPublico) return respuestaLimite(res, excesoPublico);
+
   // El webhook de WhatsApp lo llama Meta directo (sin cookie de sesión) ->
   // se resuelve ANTES del chequeo de sesión, y con su propia verificación
   // (firma de Meta, sobre req.rawBody). Ver también middleware.ts
@@ -215,10 +220,17 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'auth-recuperar-password') return manejarAuthRecuperarPassword(req, res);
   if (req.query.recurso === 'auth-resetear-password') return manejarAuthResetearPassword(req, res);
 
-  const sesion = usuarioDesdeRequest(req);
+  // Sesión + estado ACTUAL del usuario (activo, vencimiento, rol), no solo lo que dice el token de hasta 7 días.
+  const sesion = await sesionVigente(req);
   if (!sesion) return res.status(401).json({ error: 'No hay sesión activa' });
 
   const recurso = req.query.recurso;
+  // Tope de uso por usuario, escrituras solo-admin y límites de lo costoso (IA, correos): ver lib/seguridad.js.
+  const bloqueo = await controlarAcceso(req, sesion, recurso);
+  if (bloqueo) {
+    if (bloqueo.reintentarEnSeg) res.setHeader('Retry-After', String(bloqueo.reintentarEnSeg));
+    return res.status(bloqueo.status).json(bloqueo.cuerpo);
+  }
   if (recurso === 'notificacion-probar') return manejarNotificacionProbar(req, res, sesion);
   if (recurso === 'cambios-propuesta') return manejarCambiosPropuesta(req, res, sesion);
   if (recurso === 'criticos') return manejarCriticos(req, res, sesion);

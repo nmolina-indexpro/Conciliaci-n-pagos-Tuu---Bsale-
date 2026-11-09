@@ -25,6 +25,7 @@
 
   function clp(n) { return '$' + Math.round(Number(n) || 0).toLocaleString('es-CL'); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function urlSegura(u) { u = String(u == null ? '' : u).trim(); return /^(https?:[/][/]|[/](?![/]))/i.test(u) ? u : ''; }
   function fecha(d) { try { return new Date(d).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' }); } catch (e) { return ''; } }
   function rutLimpio(r) { return String(r || '').replace(/[^0-9kK]/g, '').toUpperCase(); }
   function rutValido(r) {
@@ -138,7 +139,7 @@
   }
   function selectRegion() {
     var rs = (estado.comunas || []);
-    return '<div><label for="ctz-region">Región</label><select id="ctz-region" data-campo="region"' + (estado.errores.region ? ' class="mal"' : '') + '><option value="">Elige región</option>' + rs.map(function (r) { return '<option value="' + r.codigo + '"' + (estado.f.region === r.codigo ? ' selected' : '') + '>' + esc(r.nombre) + '</option>'; }).join('') + '</select>' + (estado.errores.region ? '<div class="ctz-error">' + estado.errores.region + '</div>' : '') + '</div>';
+    return '<div><label for="ctz-region">Región</label><select id="ctz-region" data-campo="region"' + (estado.errores.region ? ' class="mal"' : '') + '><option value="">Elige región</option>' + rs.map(function (r) { return '<option value="' + esc(r.codigo) + '"' + (estado.f.region === r.codigo ? ' selected' : '') + '>' + esc(r.nombre) + '</option>'; }).join('') + '</select>' + (estado.errores.region ? '<div class="ctz-error">' + estado.errores.region + '</div>' : '') + '</div>';
   }
   function selectComuna() {
     var r = (estado.comunas || []).filter(function (x) { return x.codigo === estado.f.region; })[0];
@@ -164,10 +165,10 @@
 
   function pintarVista() {
     var c = estado.vista, vigente = c.estado === 'vigente', pago = c.pago || '', enPago = pago === 'transferencia' || pago === 'comprobante' || pago === 'rechazado';
-    var filas = (c.items || []).map(function (l) { return '<tr><td>' + esc(l.titulo) + (l.sku ? '<br><small>' + esc(l.sku) + '</small>' : '') + '</td><td class="num">' + l.cantidad + '</td><td class="num">' + clp(l.precio) + '</td><td class="num">' + clp(l.subtotal) + '</td></tr>'; }).join('');
+    var filas = (c.items || []).map(function (l) { return '<tr><td>' + esc(l.titulo) + (l.sku ? '<br><small>' + esc(l.sku) + '</small>' : '') + '</td><td class="num">' + esc(l.cantidad) + '</td><td class="num">' + clp(l.precio) + '</td><td class="num">' + clp(l.subtotal) + '</td></tr>'; }).join('');
     var conf = '';
     if (estado.confirmar) conf = '<div class="ctz-aviso"><b>Algunos precios cambiaron desde tu cotización:</b><ul style="margin:6px 0 8px 18px">' + estado.confirmar.cambios.map(function (x) { return '<li>' + esc(x.titulo) + ': antes ' + clp(x.antes) + ', ahora ' + clp(x.ahora) + '</li>'; }).join('') + '</ul>Nuevo total: <b>' + clp(estado.confirmar.total_nuevo) + '</b>.<button type="button" class="ctz-btn" id="ctz-aceptar" style="margin-top:10px">' + (estado.metodoCompra === 'transferencia' ? 'Aceptar y continuar con la transferencia' : 'Aceptar y continuar al pago') + '</button></div>';
-    var rehacer = (c.items || []).map(function (l) { return encodeURIComponent(l.handle) + ':' + l.variante + ':' + l.cantidad; }).join(',');
+    var rehacer = (c.items || []).map(function (l) { return encodeURIComponent(l.handle) + ':' + encodeURIComponent(l.variante) + ':' + encodeURIComponent(l.cantidad); }).join(',');
     raiz.innerHTML = '<h1>Cotización N° ' + esc(c.numero || '') + ' <span class="ctz-pill ' + esc(c.estado) + '">' + ({ vigente: 'Vigente', vencida: 'Vencida', comprada: 'Pagada', anulada: 'Anulada' }[c.estado] || esc(c.estado)) + '</span>' + (pago === 'comprobante' ? ' <span class="ctz-pill revision">Comprobante en revisión</span>' : '') + '</h1>' +
       '<p class="ctz-sub">' + (vigente ? 'Válida hasta el ' + esc(fecha(c.vence)) + '. Pide el producto antes de que venza para mantener esta cotización.' : 'Venció el ' + esc(fecha(c.vence)) + '.') + '</p>' +
       (estado.avisoCreada ? '<div class="ctz-ok">¡Listo! Creamos tu cotización y te enviamos el detalle a <b>' + esc(c.cliente.email) + '</b>' + (estado.correoFallo ? ' (no pudimos enviar el correo, guarda este enlace)' : '') + '.</div>' : '') +
@@ -182,7 +183,7 @@
         (c.transferencia_disponible ? '<button type="button" class="ctz-btn sec" id="ctz-transferencia"' + (estado.comprando ? ' disabled' : '') + '>' + (estado.comprando && estado.metodoCompra === 'transferencia' ? 'Revisando stock…' : 'Generar compra por transferencia') + '</button>' : '') : '') +
       (enPago ? '<p class="ctz-sub" style="margin:10px 0 0">Pagas por transferencia: sigue los pasos de abajo.</p>' : '') +
       (!vigente ? '<a class="ctz-btn" href="/pages/cotizar?p=' + rehacer + '">Armar una cotización nueva con estos productos</a>' : '') +
-      (c.pdf ? '<p style="text-align:center;margin:10px 0 0"><a href="' + esc(c.pdf) + '" target="_blank" rel="noopener">Descargar PDF</a></p>' : '') +
+      (c.pdf ? '<p style="text-align:center;margin:10px 0 0"><a href="' + esc(urlSegura(c.pdf)) + '" target="_blank" rel="noopener">Descargar PDF</a></p>' : '') +
       '<p style="text-align:center;margin:6px 0 0"><a href="/pages/cotizar">Hacer otra cotización</a></p></div></aside></div>';
   }
 

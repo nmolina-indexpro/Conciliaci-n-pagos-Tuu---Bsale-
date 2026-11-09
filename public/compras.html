@@ -861,7 +861,7 @@ function renderDaxis(){
       <tbody>
         ${filasLimitadas('daxis', filas).map(f => `
           <tr class="${f.estado.clase}">
-            <td>${f.code}</td><td>${f.nombre}</td><td>${f.categoria}</td>
+            <td>${escapeHtml(f.code)}</td><td>${escapeHtml(f.nombre)}</td><td>${escapeHtml(f.categoria)}</td>
             <td class="amount">${f.stockActual}</td>
             <td class="amount">${f.ventaDiaria}</td>
             <td class="amount">${f.diasCobertura==null?'—':f.diasCobertura}</td>
@@ -1109,14 +1109,14 @@ function renderDM(){
           : '<span class="empty-note" title="Este SKU no tiene foto en Shopify">—</span>';
         return `<tr>
           <td>${fotoHtml}</td>
-          <td>${s.code}${enlaceShopifyHtml(s.code)}</td><td>${s.nombre}</td><td>${s.categoria}</td>
+          <td>${escapeHtml(s.code)}${enlaceShopifyHtml(s.code)}</td><td>${escapeHtml(s.nombre)}</td><td>${escapeHtml(s.categoria)}</td>
           <td class="amount">${fmtNum(s.stockActual)}</td>
           <td class="amount">${celdaStockDaxis}</td>
           <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
           <td>${s.fechaUltimaCompra || '—'}</td>
           <td class="amount">${s.ultimoCosto != null ? fmt(s.ultimoCosto) : '—'}</td>
-          <td>${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkDM('${s.code}')">✏️</button></td>
-          ${rolActual === 'admin' ? `<td><button class="btn-icono" title="Eliminar de esta lista (definitivo)" onclick="eliminarProductoDM('${s.code}', '${s.nombre.replace(/'/g, "\\'")}')">🗑️</button></td>` : ''}
+          <td>${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkDM(${escapeHtml(JSON.stringify(s.code))})">✏️</button></td>
+          ${rolActual === 'admin' ? `<td><button class="btn-icono" title="Eliminar de esta lista (definitivo)" onclick="eliminarProductoDM(${escapeHtml(JSON.stringify(s.code))}, ${escapeHtml(JSON.stringify(s.nombre))})">🗑️</button></td>` : ''}
         </tr>`;
       }).join('')}</tbody>
     </table>
@@ -1297,14 +1297,14 @@ function renderIntcomex(){
           : '<span class="empty-note" title="Este SKU no tiene foto en Shopify">—</span>';
         return `<tr>
           <td>${fotoHtml}</td>
-          <td>${s.code}${enlaceShopifyHtml(s.code)}</td><td>${s.nombre}</td><td>${s.categoria}</td>
+          <td>${escapeHtml(s.code)}${enlaceShopifyHtml(s.code)}</td><td>${escapeHtml(s.nombre)}</td><td>${escapeHtml(s.categoria)}</td>
           <td class="amount">${fmtNum(s.stockActual)}</td>
           <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
           <td>${s.fechaUltimaCompra || '—'}</td>
           <td class="amount">${s.ultimoCosto != null ? fmt(s.ultimoCosto) : '—'}</td>
-          <td>${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkIntcomex('${s.code}')">✏️</button></td>
-          <td><button class="btn-ghost btn-compact" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(tituloComentario)}" onclick="abrirComentariosIntcomex('${s.code}', '${s.nombre.replace(/'/g, "\\'")}')">💬 ${escapeHtml(etiquetaComentario)}</button></td>
-          ${rolActual === 'admin' ? `<td><button class="btn-icono" title="Eliminar de esta lista (definitivo)" onclick="eliminarProductoIntcomex('${s.code}', '${s.nombre.replace(/'/g, "\\'")}')">🗑️</button></td>` : ''}
+          <td>${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkIntcomex(${escapeHtml(JSON.stringify(s.code))})">✏️</button></td>
+          <td><button class="btn-ghost btn-compact" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(tituloComentario)}" onclick="abrirComentariosIntcomex(${escapeHtml(JSON.stringify(s.code))}, ${escapeHtml(JSON.stringify(s.nombre))})">💬 ${escapeHtml(etiquetaComentario)}</button></td>
+          ${rolActual === 'admin' ? `<td><button class="btn-icono" title="Eliminar de esta lista (definitivo)" onclick="eliminarProductoIntcomex(${escapeHtml(JSON.stringify(s.code))}, ${escapeHtml(JSON.stringify(s.nombre))})">🗑️</button></td>` : ''}
         </tr>`;
       }).join('')}</tbody>
     </table>
@@ -1460,7 +1460,7 @@ function comparadorQuitarFilaPedido(i){
 function comparadorRenderFilasPedido(){
   $('comparadorFilasPedido').innerHTML = comparadorFilasPedido.map((f, i) => `
     <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
-      <input type="text" placeholder="Producto (ej. Cargador Acer 19V 2.37A 5.5x1.7mm)" value="${f.nombre}" oninput="comparadorFilasPedido[${i}].nombre=this.value" style="flex:1;">
+      <input type="text" placeholder="Producto (ej. Cargador Acer 19V 2.37A 5.5x1.7mm)" value="${escapeHtml(f.nombre)}" oninput="comparadorFilasPedido[${i}].nombre=this.value" style="flex:1;">
       <input type="text" placeholder="SKU (opcional)" value="${f.sku}" oninput="comparadorFilasPedido[${i}].sku=this.value" style="width:110px;">
       <input type="number" min="1" value="${f.cantidad}" oninput="comparadorFilasPedido[${i}].cantidad=parseInt(this.value)||1" style="width:70px;">
       <button class="btn-icono" title="Quitar" onclick="comparadorQuitarFilaPedido(${i})">🗑️</button>
@@ -1691,7 +1691,7 @@ function comparadorRenderSolicitud(){
       <div class="card"><div class="lbl">Productos solicitados</div><div class="big">${d.items.length}</div></div>
       <div class="card"><div class="lbl">Con proveedor asignado</div><div class="big">${conProveedor}</div></div>
       <div class="card alert"><div class="lbl">Pendientes</div><div class="big">${pendientes}</div></div>
-      ${d.proveedores.map(p => `<div class="card"><div class="lbl">Total ${p.nombre}</div><div class="big">${fmt(totalesPorProveedor[p.id] || 0)} <span style="font-size:11px;font-weight:600;color:var(--muted);">Neto</span></div><div class="note" style="margin-top:6px;font-size:11.5px;">${fmt(Math.round((totalesPorProveedor[p.id] || 0) * 1.19))} <b>Con IVA</b></div></div>`).join('')}
+      ${d.proveedores.map(p => `<div class="card"><div class="lbl">Total ${escapeHtml(p.nombre)}</div><div class="big">${fmt(totalesPorProveedor[p.id] || 0)} <span style="font-size:11px;font-weight:600;color:var(--muted);">Neto</span></div><div class="note" style="margin-top:6px;font-size:11.5px;">${fmt(Math.round((totalesPorProveedor[p.id] || 0) * 1.19))} <b>Con IVA</b></div></div>`).join('')}
       <div class="card"><div class="lbl">Compra optimizada</div><div class="big" style="color:var(--green);">${fmt(totalOptimizado)}</div></div>
       <div class="card"><div class="lbl">Ahorro obtenido</div><div class="big" style="color:var(--green);">${fmt(ahorroTotal)}</div></div>
     </div>
@@ -1706,7 +1706,7 @@ function comparadorRenderSolicitud(){
     <div class="filtros" style="margin-bottom:16px;flex-wrap:wrap;align-items:flex-start;">
       ${d.proveedores.map(p => `
         <div style="border:1px solid var(--line);border-radius:10px;padding:10px;min-width:240px;">
-          <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;margin-bottom:6px;">${p.nombre}</div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;margin-bottom:6px;">${escapeHtml(p.nombre)}</div>
           <input type="file" accept="image/*" id="comparadorImagenInput_${p.id}" onchange="comparadorSubirImagen(${p.id}, this)" style="font-size:11px;margin-bottom:6px;display:block;">
           <div class="empty-note" tabindex="0" onpaste="comparadorPegarImagen(${p.id}, event)" style="border:1px dashed var(--line);border-radius:8px;padding:5px 8px;margin-bottom:6px;cursor:text;outline:none;">📋 Clic acá y pega una imagen con Ctrl+V</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -1727,7 +1727,7 @@ function comparadorRenderSolicitud(){
         <th onclick="comparadorOrdenarPor('sku')" style="cursor:pointer;">SKU${comparadorFlecha('sku')}</th>
         <th onclick="comparadorOrdenarPor('nombre')" style="cursor:pointer;">Producto${comparadorFlecha('nombre')}</th>
         <th class="amount" onclick="comparadorOrdenarPor('cantidad')" style="cursor:pointer;">Cant${comparadorFlecha('cantidad')}</th>
-        ${d.proveedores.map(p => `<th class="amount" onclick="comparadorOrdenarPor('proveedor', ${p.id})" style="cursor:pointer;">${p.nombre}${comparadorFlecha('proveedor', p.id)}</th>`).join('')}
+        ${d.proveedores.map(p => `<th class="amount" onclick="comparadorOrdenarPor('proveedor', ${p.id})" style="cursor:pointer;">${escapeHtml(p.nombre)}${comparadorFlecha('proveedor', p.id)}</th>`).join('')}
         <th>Elegido</th>
         <th class="amount" onclick="comparadorOrdenarPor('precioElegido')" style="cursor:pointer;">Precio${comparadorFlecha('precioElegido')}</th>
         <th class="amount" onclick="comparadorOrdenarPor('ahorroUnitario')" style="cursor:pointer;">Ahorro/u${comparadorFlecha('ahorroUnitario')}</th>
@@ -1762,7 +1762,7 @@ function comparadorRenderEditarPedido(){
   $('comparadorEditarPedidoWrap').innerHTML = `
     ${d.items.map(it => `
       <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
-        <input type="text" value="${it.nombre}" placeholder="Producto" style="flex:1;" id="comparadorEditNombre_${it.id}">
+        <input type="text" value="${escapeHtml(it.nombre)}" placeholder="Producto" style="flex:1;" id="comparadorEditNombre_${it.id}">
         <input type="text" value="${it.sku || ''}" placeholder="SKU" style="width:110px;" id="comparadorEditSku_${it.id}">
         <input type="number" min="1" value="${it.cantidad}" style="width:70px;" id="comparadorEditCantidad_${it.id}">
         <button class="btn-icono" title="Guardar cambios" onclick="comparadorGuardarItemEditado(${it.id})">💾</button>
@@ -1842,7 +1842,7 @@ function comparadorFilaComparativa(item, candidatos, decision){
   const proveedorElegido = comparadorProveedores.find(p => p.id === decision.proveedorElegidoId);
   return `<tr>
     <td>${item.sku || '—'}</td>
-    <td>${item.nombre}${decision.ajusteManual ? ' <span class="badge" style="background:#DBEAFE;color:#1D4ED8;" title="Proveedor cambiado a mano">manual</span>' : ''}</td>
+    <td>${escapeHtml(item.nombre)}${decision.ajusteManual ? ' <span class="badge" style="background:#DBEAFE;color:#1D4ED8;" title="Proveedor cambiado a mano">manual</span>' : ''}</td>
     <td class="amount">${fmtNum(item.cantidad)}</td>
     ${candidatos.map(c => `<td class="amount">${c.item ? `${fmt(c.item.precio_neto)}${c.item.estado_stock !== 'disponible' ? ` <span class="empty-note">(${c.item.estado_stock})</span>` : ''}` : '<span class="empty-note">Sin cotización</span>'}</td>`).join('')}
     <td>${proveedorElegido ? proveedorElegido.nombre : '—'}</td>
@@ -2027,7 +2027,7 @@ function comparadorQuitarFilaManual(i){
 function comparadorFilaManualHtml(f, i){
   return `<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center;">
     <select onchange="comparadorFilasManual[${i}].solicitudItemId=parseInt(this.value)||null" style="min-width:200px;">
-      ${comparadorDetalle.items.map(it => `<option value="${it.id}" ${f.solicitudItemId === it.id ? 'selected' : ''}>${it.nombre}</option>`).join('')}
+      ${comparadorDetalle.items.map(it => `<option value="${it.id}" ${f.solicitudItemId === it.id ? 'selected' : ''}>${escapeHtml(it.nombre)}</option>`).join('')}
     </select>
     <input type="text" placeholder="Código proveedor" value="${f.codigoProveedor}" oninput="comparadorFilasManual[${i}].codigoProveedor=this.value" style="width:110px;">
     <select onchange="comparadorFilasManual[${i}].estadoStock=this.value">
@@ -2315,8 +2315,8 @@ function filaRecomendacion(s, campoSugerencia, fueraDePresupuesto){
   return `
     <tr${claseFila}${estiloFila}>
       <td>${s.imagenUrl?`<img src="${s.imagenUrl}" style="width:32px;height:32px;object-fit:cover;border-radius:6px;">`:''}</td>
-      <td>${s.code}</td>
-      <td>${s.nombre}</td>
+      <td>${escapeHtml(s.code)}</td>
+      <td>${escapeHtml(s.nombre)}</td>
       <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
       <td class="amount">${s.ventaDiariaPromedio}</td>
       <td class="amount">${fmtNum(s.semana4)}</td>
@@ -2337,7 +2337,7 @@ function filaRecomendacion(s, campoSugerencia, fueraDePresupuesto){
       <td class="amount">${fmtNum(s[campoSugerencia])}</td>
       <td class="amount">${fmt(s.costoLinea)}</td>
       <td>${estadoTexto}</td>
-      ${rolActual === 'admin' ? `<td><button class="btn-icono" title="Eliminar de esta lista (definitivo)" onclick="eliminarProductoRecomendacion('${s.code}', '${s.nombre.replace(/'/g, "\\'")}')">🗑️</button></td>` : ''}
+      ${rolActual === 'admin' ? `<td><button class="btn-icono" title="Eliminar de esta lista (definitivo)" onclick="eliminarProductoRecomendacion(${escapeHtml(JSON.stringify(s.code))}, ${escapeHtml(JSON.stringify(s.nombre))})">🗑️</button></td>` : ''}
     </tr>`;
 }
 
@@ -2455,9 +2455,9 @@ function renderTabla(){
             : `<div style="width:36px;height:36px;border-radius:6px;background:var(--surface-2);border:1px solid var(--line);"></div>`;
           return `<tr class="${clase==='urgente'?'urgente':clase==='pronto'?'pronto':''}">
             <td>${miniatura}</td>
-            <td>${s.code}</td>
-            <td>${s.nombre}</td>
-            <td>${s.categoria}</td>
+            <td>${escapeHtml(s.code)}</td>
+            <td>${escapeHtml(s.nombre)}</td>
+            <td>${escapeHtml(s.categoria)}</td>
             ${celdaProveedor(s)}
             <td class="amount">${fmtNum(s.unidadesVendidas)}</td>
             <td class="amount">${s.ventaDiariaPromedio}</td>

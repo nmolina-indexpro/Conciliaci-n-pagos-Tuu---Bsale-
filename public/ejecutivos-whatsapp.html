@@ -517,7 +517,7 @@ function renderKpis(res){
 
 // ---------- Tabla ----------
 function celdaClic(clave, ind, html, clase){
-  return `<td class="amount clicable ${clase||''}" onclick="abrirDetalle(${clave == null ? 'null' : `'${clave}'`},'${ind}')">${html}</td>`;
+  return `<td class="amount clicable ${clase||''}" onclick="abrirDetalle(${clave == null ? 'null' : esc(JSON.stringify(String(clave)))},'${ind}')">${html}</td>`;
 }
 function renderTabla(res){
   const hayActividad = res.total.recibidas || res.total.nuevosProactivos || res.total.intentos;
@@ -526,7 +526,7 @@ function renderTabla(res){
     const prov = f.ventanasAbiertas ? `<span class="prov" title="Clientes recontactados cuya ventana de ${res.reglas.ventanaRespuestaHoras} h sigue abierta: el resultado es provisional">⏳ ${fmtNum(f.ventanasAbiertas)} abierta${f.ventanasAbiertas===1?'':'s'}</span>` : '';
     const especial = f.clave === 'sa' || f.clave === 'nv';
     return `<tr class="${especial ? 'fila-especial' : ''}">
-      <td class="nombre-ejec clicable" onclick="abrirDetalle('${f.clave}','todos')"><b>${esc(f.nombre)}</b>${f.clave==='nv' ? '<div class="sub-mini">Mensajes salientes sin autor registrado</div>' : (f.clave==='sa' ? '<div class="sub-mini">Entrantes pendientes sin responsable</div>' : '')}</td>
+      <td class="nombre-ejec clicable" onclick="abrirDetalle(${esc(JSON.stringify(String(f.clave)))},'todos')"><b>${esc(f.nombre)}</b>${f.clave==='nv' ? '<div class="sub-mini">Mensajes salientes sin autor registrado</div>' : (f.clave==='sa' ? '<div class="sub-mini">Entrantes pendientes sin responsable</div>' : '')}</td>
       ${celdaClic(f.clave,'recibidas',fmtNum(f.recibidas))}
       ${celdaClic(f.clave,'atendidas',fmtNum(f.atendidas))}
       ${celdaClic(f.clave,'sin_respuesta',fmtNum(f.sinRespuesta) + (f.sinRespuestaVencidas ? `<br><span class="sub-mini" title="Entrantes sin atender de hace más de ${res.reglas.ventanaRespuestaTardiaHoras} h: la ventana de WhatsApp ya cerró">${fmtNum(f.sinRespuestaVencidas)} vencidas</span>` : ''))}
@@ -738,14 +738,14 @@ function renderDetalle(){
       : (e.motivoOrigen === 'manual' && m ? '<div class="sub-mini">✔ Confirmado a mano</div>' : (e.motivoRevisadoIA ? '<div class="sub-mini">🤖 Revisado por IA: no se pudo determinar</div>' : ''));
     return `<select class="sel-motivo" onchange="guardarMotivo(${e.mensajeId}, this.value)" title="Motivo del intento. Al elegirlo tú queda confirmado (reemplaza la sugerencia de la IA).">
       <option value="">Sin clasificar</option>
-      ${datos.motivosDisponibles.map(x => `<option value="${x.clave}" ${m === x.clave ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}
+      ${datos.motivosDisponibles.map(x => `<option value="${esc(x.clave)}" ${m === x.clave ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}
     </select>${marca}`;
   };
   const filas = evs.slice(0, 500).map(e => `<tr>
     <td><a class="doc-link" href="clientes-whatsapp.html?abrirConversacion=${e.conversacionId}" target="_blank" rel="noopener">#${e.conversacionId} ↗</a></td>
     <td><b>${esc(e.clienteNombre || 'Sin nombre')}</b><div class="sub-mini">${esc(fmtTelefono(e.clienteTelefono))}</div></td>
     <td>${fmtFechaHora(e.fecha)}</td>
-    <td>${TIPO_LABEL[e.tipo] || e.tipo}</td>
+    <td>${esc(TIPO_LABEL[e.tipo] || e.tipo)}</td>
     <td>${esc(e.autor)}</td>
     <td>${origenLabel(e)}</td>
     <td class="amount">${e.pausaPreviaHoras == null ? '—' : e.pausaPreviaHoras + ' h'}</td>

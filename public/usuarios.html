@@ -1017,7 +1017,7 @@ function renderTabla(){
               <div class="avatar ${u.rol === 'admin' ? 'admin' : ''}">${esc(iniciales(u))}</div>
               <div><div class="nombre">${esc(nombreMostrado)}${soyYo ? ' <span class="empty-note">(tú)</span>' : ''}</div><div class="correo">${esc(u.email)}</div></div>
             </div></td>
-            <td><span class="badge ${u.rol}">${u.rol === 'admin' ? 'Administrador' : 'Usuario'}</span></td>
+            <td><span class="badge ${esc(u.rol)}">${u.rol === 'admin' ? 'Administrador' : 'Usuario'}</span></td>
             <td>${u.rol === 'admin' ? '<span class="empty-note">Todas (admin)</span>' : (esAdmin
               ? `<select class="perfil-sel" onchange="cambiarPerfilUsuario(${u.id}, this.value)">
                    <option value="">Sin restricción</option>
@@ -1047,9 +1047,9 @@ function abrirMenuFila(ev, id){
   if(menu.dataset.abiertoPara === String(id) && menu.style.display === 'block'){ cerrarMenuFila(); return; }
   const items = [
     `<button onclick="resetPassword(${u.id})">🔑 Cambiar contraseña</button>`,
-    `<button onclick="reenviarNotificacion(${u.id}, '${esc(u.email)}')">📧 Reenviar datos de acceso por correo</button>`,
+    `<button onclick="reenviarNotificacion(${u.id}, ${esc(JSON.stringify(String(u.email || '')))})">📧 Reenviar datos de acceso por correo</button>`,
     `<hr>`,
-    soyYo ? '' : `<button onclick="toggleRol(${u.id}, '${u.rol}')">${u.rol === 'admin' ? '⬇️ Quitar rol de administrador' : '⬆️ Hacer administrador'}</button>`,
+    soyYo ? '' : `<button onclick="toggleRol(${u.id}, ${esc(JSON.stringify(String(u.rol || '')))})">${u.rol === 'admin' ? '⬇️ Quitar rol de administrador' : '⬆️ Hacer administrador'}</button>`,
     `<button onclick="extenderExpiracion(${u.id})">${u.expira_en ? '⏱️ Extender expiración' : '⏱️ Forzar expiración (X minutos desde ahora)'}</button>`,
     (u.expira_en || u.expira_minutos) ? `<button onclick="quitarExpiracion(${u.id})">♾️ Quitar expiración (permanente)</button>` : '',
     `<hr>`,

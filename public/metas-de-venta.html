@@ -572,7 +572,7 @@ async function cargarSesionUsuario(){
     const res = await fetch('/api/auth-session');
     if(!res.ok) return;
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtmlCot(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     esAdmin = u.rol === 'admin';

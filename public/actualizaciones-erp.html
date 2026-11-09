@@ -396,7 +396,7 @@
   <div class="modal" style="width:min(780px,100%);">
     <h2>Resumen de hoy: vista previa del correo</h2>
     <div class="ayuda" id="infoResumen" style="margin-bottom:8px;"></div>
-    <iframe id="vistaResumen" title="Vista previa del correo" style="width:100%;height:58vh;border:1px solid var(--line);border-radius:10px;background:#fff;"></iframe>
+    <iframe id="vistaResumen" sandbox="allow-popups allow-popups-to-escape-sandbox" title="Vista previa del correo" style="width:100%;height:58vh;border:1px solid var(--line);border-radius:10px;background:#fff;"></iframe>
     <div class="pie"><button class="btn-ghost" onclick="cerrarModalResumen()">Cerrar</button><button class="btn-primary" id="btnEnviarResumenModal" onclick="enviarResumenDesdeModal()">Enviar por correo ahora</button></div>
   </div>
 </div>
@@ -434,6 +434,8 @@ const $ = id => document.getElementById(id);
 function esc(t){
   return String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
+// href de datos externos: solo http(s) o ruta relativa
+function urlSegura(u){ u = String(u ?? '').trim(); return /^(https?:[/][/]|[/](?![/]))/i.test(u) ? u : ''; }
 let toastTimer = null;
 function toast(msg){
   const el = $('toast'); el.textContent = msg; el.classList.add('visible');
@@ -509,11 +511,11 @@ async function detalleBsalePedido(id){
         '<table><thead><tr><th>Campo</th><th>ERP emitiría</th><th>La app emitió</th><th></th></tr></thead><tbody>' + d.diferencias.map(x => '<tr><td>' + esc(x.campo) + '</td><td>' + esc(x.erp) + '</td><td>' + esc(x.app) + '</td><td>' + (x.ok ? '✔' : '<span style="color:#8a5a00;font-weight:700;">⚠</span>') + '</td></tr>').join('') + '</tbody></table>';
     } else h += '<p class="empty-note">Este pedido no tiene boleta ni factura emitida por la app para comparar.</p>';
     h += '<details style="margin-top:10px;"><summary style="cursor:pointer;font-weight:700;">Documento completo que armaría el ERP (' + esc(doc.tipo) + ')</summary>' +
-      '<table style="margin-top:6px;"><thead><tr><th>Línea</th><th>SKU</th><th>Cant.</th><th>Neto unit.</th><th>Total línea</th></tr></thead><tbody>' + doc.details.map(l => '<tr><td>' + esc(l.comment) + '</td><td>' + esc(l.code || '—') + '</td><td>' + l.quantity + '</td><td>$' + n(l.netUnitValue) + '</td><td>$' + n(l.brutoLinea) + '</td></tr>').join('') + '</tbody></table>' +
+      '<table style="margin-top:6px;"><thead><tr><th>Línea</th><th>SKU</th><th>Cant.</th><th>Neto unit.</th><th>Total línea</th></tr></thead><tbody>' + doc.details.map(l => '<tr><td>' + esc(l.comment) + '</td><td>' + esc(l.code || '—') + '</td><td>' + esc(l.quantity) + '</td><td>$' + n(l.netUnitValue) + '</td><td>$' + n(l.brutoLinea) + '</td></tr>').join('') + '</tbody></table>' +
       '<pre style="white-space:pre-wrap;font-size:11.5px;background:#f5f8fe;padding:8px;border-radius:8px;margin-top:6px;max-height:260px;overflow:auto;">' + esc(JSON.stringify({ ...doc, details: undefined }, null, 2)) + '</pre></details>';
     h += '<div style="margin-top:12px;border-top:1px solid #d3dff3;padding-top:10px;"><b>Emisión desde el ERP</b> <span class="empty-note">(simular nunca envía nada; emitir exige el interruptor encendido y escribir EMITIR)</span><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">' +
-      ['nota_venta', 'boleta', 'factura'].map(t => '<button class="btn-ghost btn-sm" onclick="emitirBsale(\'' + esc(d.pedido.id) + '\', \'' + t + '\', true)">Simular ' + NOMBRES_EMISION[t].toLowerCase() + '</button>' +
-        (configEmision[t] ? '<button class="btn-primary btn-sm" onclick="emitirBsale(\'' + esc(d.pedido.id) + '\', \'' + t + '\', false)">EMITIR ' + NOMBRES_EMISION[t].toLowerCase() + '</button>' : '<span class="empty-note" style="align-self:center;">(emitir ' + NOMBRES_EMISION[t].toLowerCase() + ': apagado)</span>')).join('') +
+      ['nota_venta', 'boleta', 'factura'].map(t => '<button class="btn-ghost btn-sm" onclick="emitirBsale(' + esc(JSON.stringify(String(d.pedido.id))) + ', \'' + t + '\', true)">Simular ' + NOMBRES_EMISION[t].toLowerCase() + '</button>' +
+        (configEmision[t] ? '<button class="btn-primary btn-sm" onclick="emitirBsale(' + esc(JSON.stringify(String(d.pedido.id))) + ', \'' + t + '\', false)">EMITIR ' + NOMBRES_EMISION[t].toLowerCase() + '</button>' : '<span class="empty-note" style="align-self:center;">(emitir ' + NOMBRES_EMISION[t].toLowerCase() + ': apagado)</span>')).join('') +
       '</div><div id="resultadoEmision" style="margin-top:8px;"></div></div>';
     $('cuerpoPedidoBsale').innerHTML = h;
   }catch(err){ $('cuerpoPedidoBsale').innerHTML = '<div class="error-box">' + esc(err.message) + '</div>'; }
@@ -579,7 +581,7 @@ async function emitirBsale(id, tipo, simular){
     const d = await res.json();
     if(!res.ok || !d.ok){ out.innerHTML = '<div class="error-box">' + esc(d.error || 'Error') + (d.detail ? '<br><small>' + esc(d.detail) + '</small>' : '') + '</div>'; return; }
     if(d.simulado) out.innerHTML = '<div style="color:#12713a;font-weight:700;">✔ Simulación correcta: así se enviaría a Bsale (no se envió nada).</div>' + (d.avisos && d.avisos.length ? '<div class="empty-note">' + d.avisos.map(esc).join('<br>') + '</div>' : '') + '<pre style="white-space:pre-wrap;font-size:11.5px;background:#f5f8fe;padding:8px;border-radius:8px;max-height:260px;overflow:auto;">' + esc(JSON.stringify(d.cuerpo, null, 2)) + '</pre>';
-    else out.innerHTML = '<div style="color:#12713a;font-weight:700;">✔ Emitido: ' + esc(NOMBRES_EMISION[tipo]) + ' N° ' + esc(d.numero) + ' por $' + Number(d.total || 0).toLocaleString('es-CL') + (d.url ? ' — <a href="' + esc(d.url) + '" target="_blank" rel="noopener">ver ↗</a>' : '') + '</div><div class="empty-note">Etiquetas en Shopify: ' + esc(d.escrituraShopify) + '</div>';
+    else out.innerHTML = '<div style="color:#12713a;font-weight:700;">✔ Emitido: ' + esc(NOMBRES_EMISION[tipo]) + ' N° ' + esc(d.numero) + ' por $' + Number(d.total || 0).toLocaleString('es-CL') + (d.url ? ' — <a href="' + esc(urlSegura(d.url)) + '" target="_blank" rel="noopener">ver ↗</a>' : '') + '</div><div class="empty-note">Etiquetas en Shopify: ' + esc(d.escrituraShopify) + '</div>';
     cargarConfigEmision();
   }catch(err){ out.innerHTML = '<div class="error-box">' + esc(err.message) + '</div>'; }
 }
@@ -659,7 +661,7 @@ async function pruebaCotizacionBsale(){
     const res = await fetch('/api/negocio?recurso=bsale-prueba-cotizacion', { method:'POST', headers:{ 'Content-Type':'application/json' },
       body: JSON.stringify({ rut: $('pbRut').value, nombre: $('pbNombre').value, apellido: $('pbApellido').value, email: $('pbEmail').value }) });
     const d = await res.json();
-    if(d.ok) out.innerHTML = '<div style="color:#12713a;font-weight:700;">✔ El token PUEDE crear documentos. Se emitió la ' + esc(d.tipo) + ' N° ' + esc(d.numero) + ' por $' + Number(d.total || 0).toLocaleString('es-CL') + (d.url ? ' — <a href="' + esc(d.url) + '" target="_blank" rel="noopener">ver documento ↗</a>' : '') + '. Revisa el correo ' + esc($('pbEmail').value) + '.</div>';
+    if(d.ok) out.innerHTML = '<div style="color:#12713a;font-weight:700;">✔ El token PUEDE crear documentos. Se emitió la ' + esc(d.tipo) + ' N° ' + esc(d.numero) + ' por $' + Number(d.total || 0).toLocaleString('es-CL') + (d.url ? ' — <a href="' + esc(urlSegura(d.url)) + '" target="_blank" rel="noopener">ver documento ↗</a>' : '') + '. Revisa el correo ' + esc($('pbEmail').value) + '.</div>';
     else out.innerHTML = '<div class="error-box">' + esc(d.error || 'Error') + (d.detail ? '<br><small>' + esc(d.detail) + '</small>' : '') + '</div>';
   }catch(err){ out.innerHTML = '<div class="error-box">' + esc(err.message) + '</div>'; }
   finally{ b.disabled = false; b.textContent = 'Emitir cotización de prueba'; }
@@ -690,9 +692,9 @@ function renderBsaleSombra(){
   const fechaCL2 = iso => { const x = new Date(iso); return x.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) + ' ' + x.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' }); };
   $('wrapBsale').innerHTML = '<table><thead><tr><th>Pedido</th><th>Fecha</th><th>Pago</th><th>Total</th><th>ERP emitiría</th><th>Documentos emitidos por la app</th><th>Resultado</th><th data-sin-orden></th></tr></thead><tbody>' +
     filas.map(f => {
-      const docs = f.docs.length ? f.docs.map(x => '<div>' + esc(x.prefijo + '-' + x.numero) + (x.bsale && x.bsale.encontrado ? ' · $' + x.bsale.total.toLocaleString('es-CL') + (x.bsale.url ? ' <a href="' + esc(x.bsale.url) + '" target="_blank" rel="noopener">ver ↗</a>' : '') : '') + '</div>').join('') : '<span class="empty-note">—</span>';
+      const docs = f.docs.length ? f.docs.map(x => '<div>' + esc(x.prefijo + '-' + x.numero) + (x.bsale && x.bsale.encontrado ? ' · $' + x.bsale.total.toLocaleString('es-CL') + (x.bsale.url ? ' <a href="' + esc(urlSegura(x.bsale.url)) + '" target="_blank" rel="noopener">ver ↗</a>' : '') : '') + '</div>').join('') : '<span class="empty-note">—</span>';
       const res = f.observaciones.length ? f.observaciones.map(o => '<div style="color:#8a5a00;">⚠ ' + esc(o) + '</div>').join('') : (f.docs.length ? '<span style="color:#12713a;font-weight:700;">✔ Coincide</span>' : '<span class="empty-note">Sin documento</span>');
-      return '<tr><td style="white-space:nowrap;"><a href="' + esc(d.tiendaAdmin) + '/orders/' + esc(f.id) + '" target="_blank" rel="noopener"><b>' + esc(f.pedido) + '</b></a></td><td style="white-space:nowrap;">' + fechaCL2(f.fecha) + '</td><td>' + esc(f.estadoPago || '') + (f.cancelado ? ' (cancelado)' : '') + '</td><td style="white-space:nowrap;">$' + f.total.toLocaleString('es-CL') + '</td><td>' + (f.esperado === 'factura' ? 'Factura' : 'Boleta') + '</td><td>' + docs + '</td><td>' + res + '</td><td><button class="btn-ghost btn-sm" onclick="detalleBsalePedido(\'' + esc(f.id) + '\')">Detalle</button></td></tr>';
+      return '<tr><td style="white-space:nowrap;"><a href="' + esc(d.tiendaAdmin) + '/orders/' + esc(f.id) + '" target="_blank" rel="noopener"><b>' + esc(f.pedido) + '</b></a></td><td style="white-space:nowrap;">' + fechaCL2(f.fecha) + '</td><td>' + esc(f.estadoPago || '') + (f.cancelado ? ' (cancelado)' : '') + '</td><td style="white-space:nowrap;">$' + f.total.toLocaleString('es-CL') + '</td><td>' + (f.esperado === 'factura' ? 'Factura' : 'Boleta') + '</td><td>' + docs + '</td><td>' + res + '</td><td><button class="btn-ghost btn-sm" onclick="detalleBsalePedido(' + esc(JSON.stringify(String(f.id))) + ')">Detalle</button></td></tr>';
     }).join('') + '</tbody></table>';
 }
 function cambiarTab(tab, sinHash){
@@ -739,7 +741,7 @@ function renderPropuesta(){
   const fechas = new Map((propuesta.fechas || []).map(f => [f.fecha, f]));
   [propuesta.hoy, propuesta.hoy && (() => { const d = new Date(propuesta.hoy + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); })(), propuesta.fecha].filter(Boolean).forEach(f => { if(!fechas.has(f)) fechas.set(f, { fecha: f, propuestos: 0, aprobados: 0, descartados: 0, enviados: 0 }); });
   const orden = [...fechas.values()].sort((a, b) => b.fecha.localeCompare(a.fecha));
-  $('fechaPropuesta').innerHTML = orden.map(f => '<option value="' + f.fecha + '"' + (f.fecha === propuesta.fecha ? ' selected' : '') + '>' + fechaCL(f.fecha) + (f.fecha === propuesta.hoy ? ' (hoy)' : '') + (f.propuestos ? ' · ' + f.propuestos + ' por revisar' : '') + '</option>').join('');
+  $('fechaPropuesta').innerHTML = orden.map(f => '<option value="' + esc(f.fecha) + '"' + (f.fecha === propuesta.fecha ? ' selected' : '') + '>' + esc(fechaCL(f.fecha)) + (f.fecha === propuesta.hoy ? ' (hoy)' : '') + (f.propuestos ? ' · ' + esc(f.propuestos) + ' por revisar' : '') + '</option>').join('');
 
   const items = propuesta.items || [];
   if(items.length === 0){
@@ -761,7 +763,7 @@ function renderPropuesta(){
   const hist = [...fechas.values()].filter(f => f.propuestos + f.aprobados + f.descartados > 0).sort((a, b) => b.fecha.localeCompare(a.fecha));
   $('wrapPropuestaFechas').innerHTML = hist.length === 0 ? '<p class="empty-note" style="padding:14px;">Todavía no hay propuestas guardadas.</p>' :
     '<table><thead><tr><th>Fecha</th><th>Por revisar</th><th>Aprobados</th><th>Enviados</th><th>Descartados</th><th data-sin-orden></th></tr></thead><tbody>' +
-    hist.map(f => '<tr><td style="white-space:nowrap;"><b>' + fechaCL(f.fecha) + '</b></td><td>' + f.propuestos + '</td><td>' + f.aprobados + '</td><td>' + f.enviados + '</td><td>' + f.descartados + '</td><td><button class="btn-ghost btn-sm" onclick="cargarPropuesta(&quot;' + f.fecha + '&quot;)">Ver</button></td></tr>').join('') + '</tbody></table>';
+    hist.map(f => '<tr><td style="white-space:nowrap;"><b>' + fechaCL(f.fecha) + '</b></td><td>' + f.propuestos + '</td><td>' + f.aprobados + '</td><td>' + f.enviados + '</td><td>' + f.descartados + '</td><td><button class="btn-ghost btn-sm" onclick="cargarPropuesta(' + esc(JSON.stringify(String(f.fecha))) + ')">Ver</button></td></tr>').join('') + '</tbody></table>';
 }
 function alternarSeleccionPropuesta(id, marcado){ if(marcado) seleccionPropuesta.add(id); else seleccionPropuesta.delete(id); }
 async function accionPropuesta(accion, ids, todos){
@@ -944,9 +946,9 @@ function renderCambios(){
   const filas = listaCambios.filter(c => (!area || c.area === area) && (!estado || c.estado === estado) && (!sitio || c.sitio === sitio) && (!q || (c.area + ' ' + c.descripcion).toLowerCase().includes(q)));
   if(filas.length === 0){ $('wrapCambios').innerHTML = '<p class="empty-note" style="padding:14px;">No hay cambios que coincidan.</p>'; return; }
   $('wrapCambios').innerHTML = '<table><thead><tr><th>Fecha</th><th>Sitio</th><th>Área</th><th style="width:48%;">Qué cambió</th><th>Estado</th><th data-sin-orden>Ver</th><th data-sin-orden></th></tr></thead><tbody>' +
-    filas.map(c => '<tr><td style="white-space:nowrap;">' + fechaCL(c.fecha) + '</td><td>' + insigniaSitio(c.sitio) + '</td><td><b>' + (c.destacado ? '⭐ ' : '') + esc(c.area) + '</b></td><td>' + esc(c.descripcion) + (c.imagen_token ? '<br><img src="/api/negocio?recurso=cambio-imagen&t=' + c.imagen_token + '" alt="" style="width:90px;margin-top:6px;border:1px solid var(--line);border-radius:6px;">' : '') + '</td>' +
+    filas.map(c => '<tr><td style="white-space:nowrap;">' + fechaCL(c.fecha) + '</td><td>' + insigniaSitio(c.sitio) + '</td><td><b>' + (c.destacado ? '⭐ ' : '') + esc(c.area) + '</b></td><td>' + esc(c.descripcion) + (c.imagen_token ? '<br><img src="/api/negocio?recurso=cambio-imagen&t=' + encodeURIComponent(c.imagen_token) + '" alt="" style="width:90px;margin-top:6px;border:1px solid var(--line);border-radius:6px;">' : '') + '</td>' +
       '<td><span style="display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;' + (c.estado === 'publicado' ? 'background:#e3f6ea;color:#12713a;' : 'background:#fff1d6;color:#8a5a00;') + '">' + (c.estado === 'publicado' ? 'Publicado' : 'Pendiente') + '</span></td>' +
-      '<td style="white-space:nowrap;">' + (c.url ? '<a href="' + esc(c.url) + '" target="_blank" rel="noopener" title="' + esc(c.url) + '">Ver ↗</a>' : '<span class="empty-note">—</span>') + '</td>' +
+      '<td style="white-space:nowrap;">' + (c.url ? '<a href="' + esc(urlSegura(c.url)) + '" target="_blank" rel="noopener" title="' + esc(c.url) + '">Ver ↗</a>' : '<span class="empty-note">—</span>') + '</td>' +
       '<td style="white-space:nowrap;"><button class="btn-ghost btn-sm" onclick="abrirModalCambio(' + c.id + ')">Editar</button> <button class="btn-ghost btn-sm" onclick="eliminarCambio(' + c.id + ')" title="Eliminar">🗑</button></td></tr>').join('') +
     '</tbody></table>';
 }

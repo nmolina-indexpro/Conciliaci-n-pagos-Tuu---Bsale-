@@ -408,7 +408,7 @@ async function cargarContaRegistro(){
 
 function llenarFiltroCategorias(){
   const sel = $('ctCat'), previo = sel.value;
-  sel.innerHTML = '<option value="">Todas</option><option value="sin">Sin categorizar</option>' + datos.categorias.map(c => `<option value="${c.id}">${c.icono} ${escapeHtml(c.nombre)}</option>`).join('');
+  sel.innerHTML = '<option value="">Todas</option><option value="sin">Sin categorizar</option>' + datos.categorias.map(c => `<option value="${escapeHtml(c.id)}">${c.icono} ${escapeHtml(c.nombre)}</option>`).join('');
   sel.value = [...sel.options].some(o => o.value === previo) ? previo : '';
 }
 const nombreCat = id => { const c = datos.categorias.find(x => x.id === id); return c ? c.nombre : 'Sin categorizar'; };
@@ -446,7 +446,7 @@ function dibujarResumen(){
   $('ctResumen').innerHTML = r.porCategoria.map(c => {
     const info = datos.categorias.find(x => x.id === c.categoria);
     const pct = r.total ? Math.round((c.total / r.total) * 1000) / 10 : 0;
-    return `<div class="conta-cat ${actual === c.categoria ? 'sel' : ''} ${c.categoria === 'sin' ? 'pend' : ''}" onclick="filtrarPorCategoria('${c.categoria}')">
+    return `<div class="conta-cat ${actual === c.categoria ? 'sel' : ''} ${c.categoria === 'sin' ? 'pend' : ''}" onclick="filtrarPorCategoria(${escapeHtml(JSON.stringify(c.categoria))})">
       <div class="conta-cat-fila"><span>${info ? info.icono : '❔'} <b>${escapeHtml(c.nombre)}</b></span><span class="amount">${fmtClp(c.total)}</span></div>
       <div class="conta-cat-fila sub"><span>${fmtNum(c.documentos)} ${c.documentos === 1 ? 'factura' : 'facturas'}</span><span>${pct.toLocaleString('es-CL')}%</span></div>
       <div class="conta-barra"><i style="width:${Math.max(2, Math.round((Math.abs(c.total) / maxV) * 100))}%;${c.categoria === 'sin' ? 'background:var(--amber);' : ''}"></i></div></div>`;
@@ -458,7 +458,7 @@ function filtrarPorCategoria(id){
 }
 
 function opcionesCategoria(sel){
-  return '<option value="">Sin categorizar</option>' + datos.categorias.map(c => `<option value="${c.id}" ${sel === c.id ? 'selected' : ''}>${c.icono} ${escapeHtml(c.nombre)}</option>`).join('');
+  return '<option value="">Sin categorizar</option>' + datos.categorias.map(c => `<option value="${escapeHtml(c.id)}" ${sel === c.id ? 'selected' : ''}>${c.icono} ${escapeHtml(c.nombre)}</option>`).join('');
 }
 function dibujarLibro(){
   const cont = $('ctTabla'), scroll = cont.scrollTop;
@@ -471,13 +471,13 @@ function dibujarLibro(){
     return `<tr class="${d.categoria ? '' : 'sin-cat'}">
       <td data-valor="${escapeHtml(d.fecha || '')}">${fecha(d.fecha)}</td>
       <td data-valor="${escapeHtml(d.proveedor)}"><b>${escapeHtml(d.proveedor)}</b><br><span class="sub">${escapeHtml(d.rut || 'sin RUT')}</span></td>
-      <td data-valor="${escapeHtml(d.tipo + ' ' + String(d.numero || '').padStart(10, '0'))}">${d.urlPdf ? `<a href="${escapeHtml(d.urlPdf)}" target="_blank" rel="noopener">${escapeHtml(d.tipo)} ${escapeHtml(d.numero || '')} ↗</a>` : escapeHtml(d.tipo + ' ' + (d.numero || ''))}</td>
+      <td data-valor="${escapeHtml(d.tipo + ' ' + String(d.numero || '').padStart(10, '0'))}">${d.urlPdf && /^https?:\/\//i.test(d.urlPdf) ? `<a href="${escapeHtml(d.urlPdf)}" target="_blank" rel="noopener">${escapeHtml(d.tipo)} ${escapeHtml(d.numero || '')} ↗</a>` : escapeHtml(d.tipo + ' ' + (d.numero || ''))}</td>
       <td data-valor="${escapeHtml(d.categoria ? nombreCat(d.categoria) : 'zzz')}"><select class="conta-sel ${d.auto ? 'auto' : ''}" onchange="cambiarCategoria(${i}, this.value)">${opcionesCategoria(d.categoria)}</select>${sug}</td>
-      <td data-valor="${escapeHtml(d.detalle || '')}"><input type="text" class="conta-det" list="dl-${d.categoria || 'x'}" value="${escapeHtml(d.detalle || '')}" placeholder="${d.categoria ? 'Detalle…' : '—'}" ${d.categoria ? '' : 'disabled'} onchange="cambiarDetalle(${i}, this.value)"></td>
+      <td data-valor="${escapeHtml(d.detalle || '')}"><input type="text" class="conta-det" list="dl-${escapeHtml(d.categoria || 'x')}" value="${escapeHtml(d.detalle || '')}" placeholder="${d.categoria ? 'Detalle…' : '—'}" ${d.categoria ? '' : 'disabled'} onchange="cambiarDetalle(${i}, this.value)"></td>
       ${monto(d.neto)}${monto(d.iva)}${monto(d.total)}</tr>`;
   }).join('');
   const t = lista.reduce((a, d) => ({ neto: a.neto + d.signo * d.neto, iva: a.iva + d.signo * d.iva, total: a.total + d.signo * d.total }), { neto: 0, iva: 0, total: 0 });
-  const listas = datos.categorias.map(c => `<datalist id="dl-${c.id}">${c.detalles.map(x => `<option value="${escapeHtml(x)}">`).join('')}</datalist>`).join('');
+  const listas = datos.categorias.map(c => `<datalist id="dl-${escapeHtml(c.id)}">${c.detalles.map(x => `<option value="${escapeHtml(x)}">`).join('')}</datalist>`).join('');
   cont.innerHTML = listas + `<table class="conta-tabla"><thead><tr><th>Fecha</th><th>Proveedor</th><th>Documento</th><th>Categoría</th><th>Detalle</th><th class="amount">Neto</th><th class="amount">IVA</th><th class="amount">Total</th></tr></thead>
     <tbody>${filas || '<tr><td colspan="8" class="empty-note">Ninguna factura coincide con los filtros.</td></tr>'}
     ${filas ? `<tr class="fila-total"><td>Total · ${fmtNum(lista.length)} ${lista.length === 1 ? 'documento' : 'documentos'}</td><td></td><td></td><td></td><td></td><td class="amount">${fmtClp(t.neto)}</td><td class="amount">${fmtClp(t.iva)}</td><td class="amount">${fmtClp(t.total)}</td></tr>` : ''}</tbody></table>`;

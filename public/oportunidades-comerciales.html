@@ -492,6 +492,8 @@ function escapeHtmlCot(texto){
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+// href de datos externos: solo http(s) o ruta relativa
+function urlSeguraCot(u){ u = String(u ?? '').trim(); return /^(https?:[/][/]|[/](?![/]))/i.test(u) ? u : ''; }
 let esAdmin = false;
 // Auto-sincronización al cargar la página (pedido del usuario, mismo
 // patrón que Servicio Técnico): cada una de las 4 pestañas se sincroniza
@@ -569,7 +571,7 @@ async function cargar(){
     if(res.error){
       status.className = 'err';
       status.textContent = 'Error: ' + (res.detail || res.error);
-      $('avisoWrap').innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${res.error}</div>`;
+      $('avisoWrap').innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${escapeHtmlCot(res.error)}</div>`;
       clientes = [];
       renderTabla();
       return;
@@ -597,7 +599,7 @@ async function cargarEmpresaCorreoPersonal(){
   try{
     const res = await fetch('/api/negocio?recurso=clientes-empresa-correo-personal').then(r=>r.json());
     if(res.error){
-      $('wrapEmpresaCorreoPersonal').innerHTML = `<p class="empty-note">Error: ${res.detail || res.error}</p>`;
+      $('wrapEmpresaCorreoPersonal').innerHTML = `<p class="empty-note">Error: ${escapeHtmlCot(res.detail || res.error)}</p>`;
       return;
     }
     clientesEmpresaCorreoPersonal = res.clientes || [];
@@ -611,13 +613,13 @@ async function cargarEmpresaCorreoPersonal(){
         <thead><tr><th>Empresa</th><th>Contacto</th><th>RUT</th><th>Correo</th><th>Teléfono</th><th>Ciudad</th></tr></thead>
         <tbody>${clientesEmpresaCorreoPersonal.map(c => `
           <tr>
-            <td>${c.empresa}</td><td>${c.nombre||''}</td><td>${c.rut||''}</td>
-            <td>${c.email}</td><td>${c.telefono||''}</td><td>${c.ciudad||''}</td>
+            <td>${escapeHtmlCot(c.empresa)}</td><td>${escapeHtmlCot(c.nombre||'')}</td><td>${escapeHtmlCot(c.rut||'')}</td>
+            <td>${escapeHtmlCot(c.email)}</td><td>${escapeHtmlCot(c.telefono||'')}</td><td>${escapeHtmlCot(c.ciudad||'')}</td>
           </tr>`).join('')}</tbody>
       </table></div>
     `;
   }catch(err){
-    $('wrapEmpresaCorreoPersonal').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+    $('wrapEmpresaCorreoPersonal').innerHTML = `<p class="empty-note">Error: ${escapeHtmlCot(err.message)}</p>`;
   }
 }
 function exportarEmpresaCorreoPersonal(){
@@ -662,12 +664,12 @@ async function iniciarSincronizacion(){
       const corte = setTimeout(() => ctl.abort(), 90000);
       try{ res = await fetch('/api/negocio?recurso=sync-clientes-puntos', { method: 'POST', signal: ctl.signal }).then(r=>r.json()); }
       catch(errTanda){
-        wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">La tanda no respondió en 90 segundos (${errTanda.name === 'AbortError' ? 'sin respuesta del servidor' : errTanda.message}). El avance ya guardado se conserva: vuelve a presionar "Sincronizar con Bsale".</div>`;
+        wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">La tanda no respondió en 90 segundos (${errTanda.name === 'AbortError' ? 'sin respuesta del servidor' : escapeHtmlCot(errTanda.message)}). El avance ya guardado se conserva: vuelve a presionar "Sincronizar con Bsale".</div>`;
         break;
       }
       finally{ clearInterval(timerSync); clearTimeout(corte); }
       if(res.error){
-        wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${res.detail || res.error}</div>`;
+        wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${escapeHtmlCot(res.detail || res.error)}</div>`;
         break;
       }
       completo = !!res.completo;
@@ -693,7 +695,7 @@ async function iniciarSincronizacion(){
       }
     }
   }catch(err){
-    wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${err.message}</div>`;
+    wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${escapeHtmlCot(err.message)}</div>`;
   }finally{
     sincronizando = false;
     $('btnSincronizar').disabled = false;
@@ -748,7 +750,7 @@ function renderTabla(){
   }).join('')}</tr>`;
 
   const tbody = filas.map(c=>`<tr>${cols.map(col=>{
-    return `<td class="${col.align==='amount'?'amount':''}">${col.render ? col.render(c) : (c[col.key] || '—')}</td>`;
+    return `<td class="${col.align==='amount'?'amount':''}">${col.render ? col.render(c) : (c[col.key] ? escapeHtmlCot(c[col.key]) : '—')}</td>`;
   }).join('')}</tr>`).join('');
 
   $('wrapClientes').innerHTML = `
@@ -851,7 +853,7 @@ function poblarFiltroRubroIndexpro(){
   const sel = $('filtroRubroIndexpro');
   const actual = sel.value;
   const rubros = [...new Set(oportunidadesIndexpro.map(o => o.rubroOriginal).filter(Boolean))].sort();
-  sel.innerHTML = '<option value="">Todos</option>' + rubros.map(r => `<option value="${r}">${r}</option>`).join('');
+  sel.innerHTML = '<option value="">Todos</option>' + rubros.map(r => `<option value="${escapeHtmlCot(r)}">${escapeHtmlCot(r)}</option>`).join('');
   sel.value = rubros.includes(actual) ? actual : '';
 }
 function renderKpisIndexpro(){
@@ -887,7 +889,7 @@ async function iniciarSincronizacionIndexpro(){
       wrap.innerHTML = `<div class="note-box">⏳ Sincronizando con Bsale... ${pctIndexpro}% (${ETIQUETA_FASE_INDEXPRO[faseActual]}: ${fmtNum(totalMatch)} RUT revisados, ${fmtNum(totalHistorial)} historiales traídos). No cierres la página.</div>`;
       const res = await fetch('/api/negocio?recurso=sync-indexpro', { method: 'POST' }).then(r=>r.json());
       if(res.error){
-        wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${res.detail || res.error}</div>`;
+        wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${escapeHtmlCot(res.detail || res.error)}</div>`;
         break;
       }
       completo = !!res.completo;
@@ -905,7 +907,7 @@ async function iniciarSincronizacionIndexpro(){
       if(completo) wrap.innerHTML = `<div class="note-box">✓ Sincronización completa. Actualizando la lista...</div>`;
     }
   }catch(err){
-    wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${err.message}</div>`;
+    wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${escapeHtmlCot(err.message)}</div>`;
   }finally{
     sincronizandoIndexpro = false;
     $('btnSincronizarIndexpro').disabled = false;
@@ -949,21 +951,21 @@ function renderTablaIndexpro(){
   const filasVisibles = indexproExpandido ? filas : filas.slice(0, INDEXPRO_RESUMEN_TOPE);
 
   const cols = [
-    { key:'clienteNombre', label:'Cliente', render:o=>o.encontradoEnBsale ? o.clienteNombre : `${o.clienteNombre} <span class="empty-note">(no encontrado en Bsale)</span>` },
+    { key:'clienteNombre', label:'Cliente', render:o=>o.encontradoEnBsale ? escapeHtmlCot(o.clienteNombre) : `${escapeHtmlCot(o.clienteNombre)} <span class="empty-note">(no encontrado en Bsale)</span>` },
     { key:'empresaOriginal', label:'Nombre empresa' },
     { key:'giro', label:'Giro' },
-    { key:'numCompras', label:'N° compras', align:'amount', render:o=>o.numCompras ?? '—' },
+    { key:'numCompras', label:'N° compras', align:'amount', render:o=>o.numCompras != null ? escapeHtmlCot(o.numCompras) : '—' },
     { key:'montoTotal', label:'Monto total comprado', align:'amount', render:o=>o.montoTotal!=null ? `<b>${fmtMoneda(o.montoTotal)}</b>` : '—' },
-    { key:'ultimaCompra', label:'Última compra', render:o=>o.ultimaCompra || '—' },
+    { key:'ultimaCompra', label:'Última compra', render:o=>o.ultimaCompra ? escapeHtmlCot(o.ultimaCompra) : '—' },
     { key:'activo12m', label:'Activo 12m', render:o=>o.activo12m==null ? '—' : `<span class="badge ${o.activo12m?'si':'no'}">${o.activo12m?'Sí':'No'}</span>` },
     { key:'score', label:'Score', align:'amount', render:o=>`<b>${Math.round(o.score*100)}</b>` },
     { key:'rut', label:'Documento asociado (RUT)' },
     { key:'clienteNombre', label:'', render:o=>{
         const dominio = dominioSitioWeb(o.email);
-        const web = dominio ? `<a class="btn-icono" href="https://${dominio}" title="Sitio web: ${dominio}" target="_blank" rel="noopener">🌐</a>` : `<span class="btn-icono deshabilitado" title="Sin dominio propio">🌐</span>`;
-        const mailto = o.email ? `<a class="btn-icono" href="mailto:${o.email}" title="Correo: ${o.email}" target="_blank" rel="noopener">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`;
-        const wa = o.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(o.telefono).replace('+','')}" title="WhatsApp: ${o.telefono}" target="_blank" rel="noopener">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`;
-        const historial = o.encontradoEnBsale ? `<button class="btn-icono" title="Ver facturas y total histórico" onclick="abrirModalHistorial(${o.id}, '${(o.clienteNombre||'').replace(/'/g,"\\'")}')">💰</button>` : `<span class="btn-icono deshabilitado" title="Sin cliente Bsale vinculado">💰</span>`;
+        const web = dominio ? `<a class="btn-icono" href="https://${escapeHtmlCot(dominio)}" title="Sitio web: ${escapeHtmlCot(dominio)}" target="_blank" rel="noopener">🌐</a>` : `<span class="btn-icono deshabilitado" title="Sin dominio propio">🌐</span>`;
+        const mailto = o.email ? `<a class="btn-icono" href="mailto:${escapeHtmlCot(o.email)}" title="Correo: ${escapeHtmlCot(o.email)}" target="_blank" rel="noopener">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`;
+        const wa = o.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(o.telefono).replace('+','')}" title="WhatsApp: ${escapeHtmlCot(o.telefono)}" target="_blank" rel="noopener">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`;
+        const historial = o.encontradoEnBsale ? `<button class="btn-icono" title="Ver facturas y total histórico" onclick="abrirModalHistorial(${o.id}, ${escapeHtmlCot(JSON.stringify(String(o.clienteNombre||'')))})">💰</button>` : `<span class="btn-icono deshabilitado" title="Sin cliente Bsale vinculado">💰</span>`;
         const tituloPresentacion = o.presentacionEnviadaEn ? `Ya se envió el ${new Date(o.presentacionEnviadaEn).toLocaleDateString('es-CL')} — enviar de nuevo` : 'Enviar presentación comercial (primer contacto)';
         const presentacion = o.email ? `<button class="btn-icono" title="${tituloPresentacion}" onclick="enviarPresentacionIndexpro(${o.id})">${o.presentacionEnviadaEn ? '📨' : '✉️'}</button>` : `<span class="btn-icono deshabilitado" title="Sin correo">✉️</span>`;
         const eliminar = esAdmin ? `<button class="btn-icono" title="Eliminar de la lista" onclick="eliminarOportunidadIndexpro(${o.id})">🗑️</button>` : '';
@@ -982,7 +984,7 @@ function renderTablaIndexpro(){
 
   const tbody = filasVisibles.map(o=>`<tr>${cols.map(col=>{
     const claseEstado = col.key==='estado' ? `estado-${o.estado}` : '';
-    return `<td class="${[col.align==='amount'?'amount':'', claseEstado].filter(Boolean).join(' ')}">${col.render ? col.render(o) : (o[col.key] ?? '—')}</td>`;
+    return `<td class="${[col.align==='amount'?'amount':'', claseEstado].filter(Boolean).join(' ')}">${col.render ? col.render(o) : (o[col.key] != null ? escapeHtmlCot(o[col.key]) : '—')}</td>`;
   }).join('')}</tr>`).join('');
 
   const controlExpandir = totalFilas > INDEXPRO_RESUMEN_TOPE
@@ -1072,7 +1074,7 @@ async function abrirModalHistorial(id, nombre){
   try{
     const res = await fetch(`/api/negocio?recurso=indexpro-historial&id=${id}`).then(r=>r.json());
     if(res.error){
-      $('modalHistorialLista').innerHTML = `<p class="empty-note">${res.detail || res.error}</p>`;
+      $('modalHistorialLista').innerHTML = `<p class="empty-note">${escapeHtmlCot(res.detail || res.error)}</p>`;
       return;
     }
     const docs = res.documentos || [];
@@ -1085,7 +1087,7 @@ async function abrirModalHistorial(id, nombre){
       <div class="mov-item">
         <div class="mov-info">
           <b>${docLinkHtml(d.numero, d.url)}</b>
-          <span class="empty-note">${d.tipo} · ${d.fecha||'—'}</span>
+          <span class="empty-note">${escapeHtmlCot(d.tipo)} · ${escapeHtmlCot(d.fecha||'—')}</span>
         </div>
         <span class="mov-monto">${fmtMoneda(d.monto)}</span>
       </div>`).join('') + `
@@ -1094,7 +1096,7 @@ async function abrirModalHistorial(id, nombre){
         <span class="mov-monto">${fmtMoneda(total)}</span>
       </div>`;
   }catch(err){
-    $('modalHistorialLista').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+    $('modalHistorialLista').innerHTML = `<p class="empty-note">Error: ${escapeHtmlCot(err.message)}</p>`;
   }
 }
 function cerrarModalHistorial(){
@@ -1106,8 +1108,8 @@ function cerrarModalHistorialSiFondo(ev){
 // Muestra el número de documento como link directo a Bsale cuando hay URL disponible (mismo patrón que conciliacion.html)
 function docLinkHtml(numero, url){
   if(!numero) return '<span class="empty-note">—</span>';
-  if(url) return `<a href="${url}" target="_blank" rel="noopener" class="doc-link">#${numero} ↗</a>`;
-  return `#${numero}`;
+  if(url) return `<a href="${escapeHtmlCot(urlSeguraCot(url))}" target="_blank" rel="noopener" class="doc-link">#${escapeHtmlCot(numero)} ↗</a>`;
+  return `#${escapeHtmlCot(numero)}`;
 }
 
 // ---------- Tabs grandes ----------
@@ -1126,7 +1128,7 @@ async function cargarSesionUsuario(){
     const res = await fetch('/api/auth-session');
     if(!res.ok) return;
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtmlCot(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     esAdmin = u.rol === 'admin';

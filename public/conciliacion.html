@@ -512,7 +512,7 @@ async function fetchAutomatico(){
     if(shopifyRes.error){
       ultimoShopifyData = null;
       vinculosShopify = {};
-      $('shopifyResults').innerHTML = `<p class="empty-note">Shopify no disponible: ${shopifyRes.detail || shopifyRes.error}</p>`;
+      $('shopifyResults').innerHTML = `<p class="empty-note">Shopify no disponible: ${escapeHtml(shopifyRes.detail || shopifyRes.error)}</p>`;
     } else {
       const shopifyPos = (shopifyRes.ventas || []).map(v => ({ amount: v.monto, time:'', numero: v.numero, cliente: v.cliente, pasarela: v.pasarela }));
       vinculosShopify = {};
@@ -530,7 +530,7 @@ async function fetchAutomatico(){
     let bciMsg = '';
     if(bciRes.error){
       ultimoBciData = null;
-      $('bciResults').innerHTML = `<p class="empty-note">Transferencias BCI no disponibles: ${bciRes.detail || bciRes.error}</p>`;
+      $('bciResults').innerHTML = `<p class="empty-note">Transferencias BCI no disponibles: ${escapeHtml(bciRes.detail || bciRes.error)}</p>`;
     } else {
       const bciPos = (bciRes.transferencias || []).map(t => ({ amount: t.monto, time: (t.recibidoEn||'').slice(11,16), numero: t.referencia || '', cliente: t.origen || '' }));
       const bsaleTransferencia = bsaleRes.transferencia || [];
@@ -557,6 +557,11 @@ async function fetchAutomatico(){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
   }
+}
+
+// Datos de Bsale/TUU/Shopify/BCI (nombres de cliente, formas de pago, errores) se inyectan con innerHTML: se escapan antes.
+function escapeHtml(texto){
+  return String(texto ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function renderOtrosPagos(otros, tuuOtras, duplicadosMl){
@@ -586,7 +591,7 @@ function renderOtrosPagos(otros, tuuOtras, duplicadosMl){
       <div class="tabla-wrap"><table>
         <thead><tr><th>Tipo TUU</th><th class="amount">N° transacciones</th><th class="amount">Monto</th></tr></thead>
         <tbody>
-          ${Object.entries(porTipoTuu).map(([tipo, d]) => `<tr><td>${tipo}</td><td class="amount">${d.cantidad}</td><td class="amount">${fmt(d.monto)}</td></tr>`).join('')}
+          ${Object.entries(porTipoTuu).map(([tipo, d]) => `<tr><td>${escapeHtml(tipo)}</td><td class="amount">${d.cantidad}</td><td class="amount">${fmt(d.monto)}</td></tr>`).join('')}
         </tbody>
       </table></div>
     `;
@@ -610,7 +615,7 @@ function renderOtrosPagos(otros, tuuOtras, duplicadosMl){
         <tbody>
           ${filas.map(([tipo, d]) => `
             <tr>
-              <td>${tipo}</td>
+              <td>${escapeHtml(tipo)}</td>
               <td class="amount">${d.cantidad}</td>
               <td class="amount">${fmt(d.monto)}</td>
             </tr>`).join('')}
@@ -622,7 +627,7 @@ function renderOtrosPagos(otros, tuuOtras, duplicadosMl){
         <div class="tabla-wrap"><table style="margin-top:10px;">
           <thead><tr><th>Doc. Bsale</th><th>Cliente</th><th>Forma de pago</th><th class="amount">Monto</th></tr></thead>
           <tbody>
-            ${otros.map(o => `<tr><td>#${o.numero}</td><td>${o.cliente||'—'}</td><td>${o.tipo}</td><td class="amount">${fmt(o.monto)}</td></tr>`).join('')}
+            ${otros.map(o => `<tr><td>#${escapeHtml(o.numero)}</td><td>${escapeHtml(o.cliente||'—')}</td><td>${escapeHtml(o.tipo)}</td><td class="amount">${fmt(o.monto)}</td></tr>`).join('')}
           </tbody>
         </table></div>
       </details>
@@ -636,7 +641,7 @@ function renderOtrosPagos(otros, tuuOtras, duplicadosMl){
       <div class="tabla-wrap"><table>
         <thead><tr><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto</th></tr></thead>
         <tbody>
-          ${duplicadosMl.map(o => `<tr><td>#${o.numero}</td><td>${o.cliente||'—'}</td><td class="amount">${fmt(o.monto)}</td></tr>`).join('')}
+          ${duplicadosMl.map(o => `<tr><td>#${escapeHtml(o.numero)}</td><td>${escapeHtml(o.cliente||'—')}</td><td class="amount">${fmt(o.monto)}</td></tr>`).join('')}
         </tbody>
       </table></div>
     `;
@@ -677,7 +682,7 @@ function renderEfectivo(docs){
             <td>—</td>
             <td class="amount">${fmt(d.monto)}</td>
             <td>${docLinkHtml(d.numero, d.url)}</td>
-            <td>${d.cliente||'—'}</td>
+            <td>${escapeHtml(d.cliente||'—')}</td>
             <td class="amount">${fmt(d.monto)}</td>
             <td><span class="check-icon info" title="Sin sistema externo para comparar" style="display:inline-flex;">ℹ</span></td>
           </tr>`).join('')}
@@ -873,7 +878,7 @@ async function fetchConsolidado(){
     const gShopifyRango = matchGroup(shopifyPosRango, bsaleShopifyRango);
     ultimoShopifyData = { gShopify: gShopifyRango, shopifyPos: shopifyPosRango, bsaleShopify: bsaleShopifyRango };
     if(shopifyRes.error){
-      $('shopifyResults').innerHTML = `<p class="empty-note">Shopify no disponible: ${shopifyRes.detail || shopifyRes.error}</p>`;
+      $('shopifyResults').innerHTML = `<p class="empty-note">Shopify no disponible: ${escapeHtml(shopifyRes.detail || shopifyRes.error)}</p>`;
     } else {
       renderShopify(gShopifyRango, shopifyPosRango, bsaleShopifyRango);
     }
@@ -883,7 +888,7 @@ async function fetchConsolidado(){
     const gBciRango = matchGroup(bciPosRango, bsaleTransferenciaRango);
     ultimoBciData = { gBci: gBciRango, bciPos: bciPosRango, bsaleTransferencia: bsaleTransferenciaRango };
     if(bciRes.error){
-      $('bciResults').innerHTML = `<p class="empty-note">Transferencias BCI no disponibles: ${bciRes.detail || bciRes.error}</p>`;
+      $('bciResults').innerHTML = `<p class="empty-note">Transferencias BCI no disponibles: ${escapeHtml(bciRes.detail || bciRes.error)}</p>`;
     } else {
       renderTransferenciasBci(gBciRango, bciPosRango, bsaleTransferenciaRango);
     }
@@ -974,8 +979,8 @@ function renderConsolidado(datos){
       </tr></thead>
       <tbody>
         ${filas.map(f => `
-          <tr class="dia-row ${(f.cuadra && f.shopifyCuadra && f.bciCuadra)?'':'unmatched'}" onclick="verDetalleDia('${f.fecha}')">
-            <td>${f.fecha}</td>
+          <tr class="dia-row ${(f.cuadra && f.shopifyCuadra && f.bciCuadra)?'':'unmatched'}" onclick="verDetalleDia(${escapeHtml(JSON.stringify(f.fecha))})">
+            <td>${escapeHtml(f.fecha)}</td>
             <td class="amount">${fmt(f.totPosDeb)}</td>
             <td class="amount">${fmt(f.totPosCred)}</td>
             <td class="amount">${fmt(f.totBsaleDeb)}</td>
@@ -1006,8 +1011,8 @@ function verDetalleDia(fecha){
 // ---------- Comentarios y estado "revisado" (persistidos en este navegador) ----------
 // Muestra el número de documento como link directo a Bsale cuando hay URL disponible
 function docLinkHtml(numero, url){
-  if(url) return `<a href="${url}" target="_blank" rel="noopener" class="doc-link">#${numero} ↗</a>`;
-  return `#${numero}`;
+  if(url && /^https?:\/\//i.test(url)) return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="doc-link">#${escapeHtml(numero)} ↗</a>`;
+  return `#${escapeHtml(numero)}`;
 }
 
 function claveItem(fecha, scope, id){ return `pos_item:${fecha}:${scope}:${id}`; }
@@ -1029,8 +1034,8 @@ function pedirComentario(clave){
 function iconosAccion(clave, resuelto){
   const tieneComentario = !!obtenerComentario(clave);
   return `
-    <button type="button" class="icon-btn ${tieneComentario?'has-comment':''}" title="${tieneComentario?'Ver/editar comentario':'Agregar comentario'}" onclick="pedirComentario('${clave}')">💬</button>
-    <button type="button" class="icon-btn ${resuelto?'is-resolved':''}" title="${resuelto?'Marcar como pendiente de nuevo':'Marcar como revisado / resuelto'}" onclick="toggleResuelto('${clave}')">${resuelto?'↺':'✓'}</button>
+    <button type="button" class="icon-btn ${tieneComentario?'has-comment':''}" title="${tieneComentario?'Ver/editar comentario':'Agregar comentario'}" onclick="pedirComentario(${escapeHtml(JSON.stringify(clave))})">💬</button>
+    <button type="button" class="icon-btn ${resuelto?'is-resolved':''}" title="${resuelto?'Marcar como pendiente de nuevo':'Marcar como revisado / resuelto'}" onclick="toggleResuelto(${escapeHtml(JSON.stringify(clave))})">${resuelto?'↺':'✓'}</button>
   `;
 }
 
@@ -1056,12 +1061,12 @@ function sugerenciaHtml(monto, pool, tipoCandidato, docReferencia, seccionActual
     const noCalza = seccionActual === 'debito' && medioNorm.includes('CREDITO')
                  || seccionActual === 'credito' && medioNorm.includes('DEBITO');
     const alerta = noCalza
-      ? `<br><span style="color:var(--red);font-weight:600;">⚠ En Bsale está registrado como "${c.medioPago}" — revisa si se tipeó mal el medio de pago.</span>`
+      ? `<br><span style="color:var(--red);font-weight:600;">⚠ En Bsale está registrado como "${escapeHtml(c.medioPago)}" — revisa si se tipeó mal el medio de pago.</span>`
       : '';
-    return `<div class="suggestion">💡 ¿Será ${docLinkHtml(c.numero, c.url)} ${c.cliente||'—'} (${fmt(c.monto)}, ${etiquetaDiff})?${alerta}</div>`;
+    return `<div class="suggestion">💡 ¿Será ${docLinkHtml(c.numero, c.url)} ${escapeHtml(c.cliente||'—')} (${fmt(c.monto)}, ${etiquetaDiff})?${alerta}</div>`;
   }
   const refDoc = docReferencia ? ` para el documento #${docReferencia}` : '';
-  return `<div class="suggestion">💡 ¿Será la venta de las ${c.time||'—'} por ${fmt(c.amount)} (${etiquetaDiff})${refDoc}?</div>`;
+  return `<div class="suggestion">💡 ¿Será la venta de las ${escapeHtml(c.time||'—')} por ${fmt(c.amount)} (${etiquetaDiff})${refDoc}?</div>`;
 }
 
 function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
@@ -1071,12 +1076,12 @@ function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
   let html = `<div class="tabla-wrap"><table class="data-table"><thead><tr><th>Hora</th><th class="amount">${origenLabel}</th><th>Doc. Bsale</th><th>Cliente</th><th class="amount">Monto Bsale</th><th>Estado</th></tr></thead><tbody>`;
   for(const r of rows){
     if(r.matched){
-      const textoEstado = esShopify && r.pos.pasarela ? `${r.pos.pasarela} OK` : 'OK';
+      const textoEstado = esShopify && r.pos.pasarela ? `${escapeHtml(r.pos.pasarela)} OK` : 'OK';
       const clienteCell = esShopify && r.pos.pasarela
-        ? `${r.bsale.cliente||'—'} <span style="color:var(--muted);font-size:10.5px;">(${r.pos.pasarela})</span>`
-        : (r.bsale.cliente||'—');
+        ? `${escapeHtml(r.bsale.cliente||'—')} <span style="color:var(--muted);font-size:10.5px;">(${escapeHtml(r.pos.pasarela)})</span>`
+        : escapeHtml(r.bsale.cliente||'—');
       html += `<tr>
-        <td>${r.pos.time||'—'}</td>
+        <td>${escapeHtml(r.pos.time||'—')}</td>
         <td class="amount">${fmt(r.pos.amount)}</td>
         <td>${docLinkHtml(r.bsale.numero, r.bsale.url)}</td>
         <td>${clienteCell}</td>
@@ -1088,7 +1093,7 @@ function rowsHtml(rows, label, scope, fecha, poolBsaleSueltos){
       const resuelto = estaResuelto(clave);
       const sugerencia = resuelto ? '' : sugerenciaHtml(r.pos.amount, poolBsaleSueltos, 'bsale', null, scope);
       html += `<tr class="${resuelto?'':'unmatched'}">
-        <td>${r.pos.time||'—'}</td>
+        <td>${escapeHtml(r.pos.time||'—')}</td>
         <td class="amount">${fmt(r.pos.amount)}</td>
         <td>—</td>
         <td>—</td>
@@ -1115,12 +1120,12 @@ function extraHtml(unmatchedBsale, fecha, poolTuuSueltos){
     if(resuelto){
       pista = '';
     } else if(vinculo){
-      pista = `<div class="suggestion" style="color:var(--green);">🔗 Vinculado a la orden Shopify <b>#${vinculo.orden}</b> (${vinculo.cliente}) — etiqueta encontrada en Shopify, no es una suposición.</div>`;
+      pista = `<div class="suggestion" style="color:var(--green);">🔗 Vinculado a la orden Shopify <b>#${escapeHtml(vinculo.orden)}</b> (${escapeHtml(vinculo.cliente)}) — etiqueta encontrada en Shopify, no es una suposición.</div>`;
     } else {
       pista = sugerenciaHtml(b.monto, poolTuuSueltos, 'tuu', b.numero);
     }
     html += `<tr>
-      <td>${docLinkHtml(b.numero, b.url)}</td><td>${b.cliente||'—'}</td><td class="amount">${fmt(b.monto)}</td>
+      <td>${docLinkHtml(b.numero, b.url)}</td><td>${escapeHtml(b.cliente||'—')}</td><td class="amount">${fmt(b.monto)}</td>
       <td>
         <span class="badge ${resuelto?'ok':'no'}">${resuelto?'✓ revisado':'sin venta POS'}</span>
         <span class="icon-group">${iconosAccion(clave, resuelto)}</span>
@@ -1251,7 +1256,7 @@ async function enviarAlertaConciliacion(){
   if(btn){ btn.disabled = true; btn.textContent = 'Enviando...'; }
 
   const listaPendientesTexto = pendientes.map(p => `- Doc. Bsale #${p.numero} (${p.cliente||'—'}): ${fmt(p.monto)}`).join('\n');
-  const listaPendientesHtml = pendientes.map(p => `<li>Doc. Bsale #${p.numero} (${p.cliente||'—'}): ${fmt(p.monto)}</li>`).join('');
+  const listaPendientesHtml = pendientes.map(p => `<li>Doc. Bsale #${escapeHtml(p.numero)} (${escapeHtml(p.cliente||'—')}): ${fmt(p.monto)}</li>`).join('');
   const link = `${location.origin}/conciliacion.html`;
 
   const asunto = `⚠ Descuadre conciliación TUU-Bsale — ${fecha}`;
@@ -1301,7 +1306,7 @@ function cargarHistorial(){
     listEl.className='';
     listEl.innerHTML = items.map(it => `
       <div class="hist-row" onclick="alert('Fecha ${it.fecha}\\nTUU débito: ${fmt(it.totPosDeb)} / Bsale débito: ${fmt(it.totBsaleDeb)}\\nTUU crédito: ${fmt(it.totPosCred)} / Bsale crédito: ${fmt(it.totBsaleCred)}\\nDiferencia total: ${fmt(it.diffDeb+it.diffCred)}')">
-        <div class="hd"><span>${it.fecha}</span><span style="color:var(--muted);font-size:11px;">TUU ${it.countPos} mov · Bsale ${it.countBsale} doc</span></div>
+        <div class="hd"><span>${escapeHtml(it.fecha)}</span><span style="color:var(--muted);font-size:11px;">TUU ${it.countPos} mov · Bsale ${it.countBsale} doc</span></div>
         <span class="badge ${it.cuadra?'ok':'no'}">${it.cuadra ? '✓ CUADRA' : '⚠ DIFERENCIA'}</span>
       </div>`).join('');
   }catch(e){ console.error('Error cargando historial', e); }
@@ -1317,7 +1322,7 @@ async function cargarSesionUsuario(){
     const res = await fetch('/api/auth-session');
     if(!res.ok) return; // el middleware ya se encarga de redirigir si hace falta
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     if(u.rol === 'admin'){

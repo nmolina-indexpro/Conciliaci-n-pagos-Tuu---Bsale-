@@ -523,7 +523,7 @@ function poblarFiltroCategoria(servicios){
   const sel = $('filtroCategoriaServicio');
   const actual = sel.value;
   const categorias = [...new Set(servicios.map(s => s.categoria || 'Otro'))].sort();
-  sel.innerHTML = '<option value="">Todas las categorías</option>' + categorias.map(c => `<option value="${c}">${c}</option>`).join('');
+  sel.innerHTML = '<option value="">Todas las categorías</option>' + categorias.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
   sel.value = categorias.includes(actual) ? actual : '';
 }
 
@@ -585,7 +585,7 @@ function renderTabla(data){
     }).join('');
     return `
       <tr>
-        <td class="servicio">${s.nombre || s.sku}<br><span class="sku-code">SKU: ${s.sku} · ${s.categoria || 'Otro'}</span></td>
+        <td class="servicio">${escapeHtml(s.nombre || s.sku)}<br><span class="sku-code">SKU: ${escapeHtml(s.sku)} · ${escapeHtml(s.categoria || 'Otro')}</span></td>
         ${celdas}
         <td class="mes amount"><b>${fmtValor(acumuladoAnio(s, meses))}</b></td>
         <td class="mes amount pegado-derecha">${ticketPromedio(s, meses) === null ? '—' : fmtMoneda(ticketPromedio(s, meses))}</td>
@@ -740,7 +740,7 @@ function renderCaida(data){
   $('filaTendencia').classList.remove('solo');
   $('wrapCaida').innerHTML = caidas.map(c => `
     <div class="alerta-caida">
-      <span><b>${c.nombre}</b> <span class="sku-code">SKU: ${c.sku}</span></span>
+      <span><b>${escapeHtml(c.nombre)}</b> <span class="sku-code">SKU: ${escapeHtml(c.sku)}</span></span>
       <span class="cifras">${etiquetaMes(c.meses[0])}: ${fmtMoneda(c.m1)} → ${etiquetaMes(c.meses[1])}: ${fmtMoneda(c.m2)} → ${etiquetaMes(c.meses[2])}: ${fmtMoneda(c.m3)}</span>
     </div>`).join('');
 }
@@ -771,7 +771,7 @@ function renderTecnico(data){
       </tr></thead>
       <tbody>${filas.map(f => `
         <tr>
-          <td>${f.nombre}</td>
+          <td>${escapeHtml(f.nombre)}</td>
           <td class="mes amount">${fmtNum(f.cantidad)}</td>
           <td class="mes amount">${fmtNum(f.documentos)}</td>
           <td class="mes amount">${fmtMoneda(f.monto)}</td>
@@ -811,10 +811,10 @@ function renderClientesRecurrentes(data){
       </tr></thead>
       <tbody>${filas.map(f => `
         <tr>
-          <td>${f.nombre || 'Cliente #' + f.clienteId}</td>
+          <td>${escapeHtml(f.nombre || 'Cliente #' + f.clienteId)}</td>
           <td class="mes amount">${fmtNum(f.visitas)}</td>
           <td class="mes amount">${fmtMoneda(f.monto)}</td>
-          <td class="mes amount">${f.ultimaVisita || '—'}</td>
+          <td class="mes amount">${escapeHtml(f.ultimaVisita || '—')}</td>
         </tr>`).join('')}
       </tbody>
     </table></div>
@@ -853,7 +853,7 @@ async function cargarServicios(){
     const res = await fetch('/api/negocio?recurso=servicios-por-mes' + paramsFiltroST(true));
     const data = await res.json();
     if(!res.ok || data.error){
-      $('wrapTabla').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar Servicio Técnico.'}</p>`;
+      $('wrapTabla').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar Servicio Técnico.')}</p>`;
       return;
     }
     ultimosDatos = data;
@@ -875,7 +875,7 @@ async function cargarServicios(){
     }
     autoSincronizarSiCorresponde(data);
   }catch(err){
-    $('wrapTabla').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+    $('wrapTabla').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -929,7 +929,7 @@ async function cargarSesionUsuario(){
     if(!res.ok) return;
     const u = await res.json();
     rolActual = u.rol;
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     if(u.rol === 'admin'){
@@ -1093,7 +1093,7 @@ function zdPanelEsperando(m){
   const e = m.esperandoRespuesta;
   const filas = e.lista.map(x => `
     <tr>
-      <td class="wrap"><b>${escapeHtml(x.cliente)}</b><br><span class="sku-code">${x.url ? `<a href="${escapeHtml(x.url)}" target="_blank" rel="noopener noreferrer">#${escapeHtml(x.numero)}</a>` : '#' + escapeHtml(x.numero)} · ${escapeHtml(x.estado)}</span></td>
+      <td class="wrap"><b>${escapeHtml(x.cliente)}</b><br><span class="sku-code">${x.url && /^https?:\/\//i.test(x.url) ? `<a href="${escapeHtml(x.url)}" target="_blank" rel="noopener noreferrer">#${escapeHtml(x.numero)}</a>` : '#' + escapeHtml(x.numero)} · ${escapeHtml(x.estado)}</span></td>
       <td>${escapeHtml(x.agente)}</td>
       <td class="mes amount ${x.dias >= 2 ? 'marca-peor' : ''}">${fmtDias(x.dias)} d</td>
     </tr>`).join('');

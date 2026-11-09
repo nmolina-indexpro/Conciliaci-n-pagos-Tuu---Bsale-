@@ -249,13 +249,22 @@
 <script>
 const $ = id => document.getElementById(id);
 function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
+// Los datos de Zoho Desk son externos -> se escapan antes de interpolar en innerHTML.
+function escapeHtml(texto){
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 async function cargarSesionUsuario(){
   try{
     const res = await fetch('/api/auth-session');
     if(!res.ok) return;
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
     if(u.rol === 'admin'){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
@@ -294,7 +303,7 @@ async function cargar(){
     if(res.error){
       status.className = 'err';
       status.textContent = 'Error al consultar Zoho Desk.';
-      $('avisoWrap').innerHTML = `<div class="note-box err"><b>No se pudo conectar con Zoho Desk:</b> ${res.detail || res.error}<br><span class="empty-note">Revisa que ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, ZOHO_ORG_ID (y ZOHO_DC si tu cuenta no es .com) estén configurados en Vercel.</span></div>`;
+      $('avisoWrap').innerHTML = `<div class="note-box err"><b>No se pudo conectar con Zoho Desk:</b> ${escapeHtml(res.detail || res.error)}<br><span class="empty-note">Revisa que ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, ZOHO_ORG_ID (y ZOHO_DC si tu cuenta no es .com) estén configurados en Vercel.</span></div>`;
       renderTodoVacio();
       return;
     }
@@ -380,7 +389,7 @@ function renderGrupo(containerId, grupos, etiquetaCol){
         <th class="ordenable" onclick="cambiarOrdenGrupo('${containerId}','clave')">${etiquetaCol}${flechaGrupo(containerId,'clave')}</th>
         <th class="amount ordenable" onclick="cambiarOrdenGrupo('${containerId}','cantidad')">Cantidad${flechaGrupo(containerId,'cantidad')}</th>
       </tr></thead>
-      <tbody>${ordenados.map(g=>`<tr><td>${g.clave}</td><td class="amount">${g.cantidad}</td></tr>`).join('')}</tbody>
+      <tbody>${ordenados.map(g=>`<tr><td>${escapeHtml(g.clave)}</td><td class="amount">${g.cantidad}</td></tr>`).join('')}</tbody>
     </table></div>`;
 }
 
@@ -409,7 +418,7 @@ function renderTablaAgentes(){
       </tr></thead>
       <tbody>${lista.map(a=>`
         <tr>
-          <td>${a.nombre}</td>
+          <td>${escapeHtml(a.nombre)}</td>
           <td class="amount">${a.cantidad}</td>
           <td class="amount">${a.conTiempo ? Math.round(a.sumaHoras/a.conTiempo*10)/10 + ' h' : '—'}</td>
         </tr>`).join('')}</tbody>
@@ -459,11 +468,11 @@ function renderTablaVencidos(){
       </tr></thead>
       <tbody>${lista.map(t=>`
         <tr class="vencido">
-          <td>${t.numero||t.id}</td>
-          <td>${t.asunto||'—'}</td>
-          <td>${t.agente||'Sin asignar'}</td>
-          <td>${t.estado||'—'}</td>
-          <td>${t.prioridad||'—'}</td>
+          <td>${escapeHtml(t.numero||t.id)}</td>
+          <td>${escapeHtml(t.asunto||'—')}</td>
+          <td>${escapeHtml(t.agente||'Sin asignar')}</td>
+          <td>${escapeHtml(t.estado||'—')}</td>
+          <td>${escapeHtml(t.prioridad||'—')}</td>
           <td>${t.creado?new Date(t.creado).toLocaleDateString('es-CL'):'—'}</td>
         </tr>`).join('')}</tbody>
     </table></div>`;

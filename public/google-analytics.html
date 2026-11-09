@@ -350,7 +350,7 @@ const TIPO_CAMBIO_USD_CLP = 950;
 function fmtMonedaGA(n, moneda){
   if(moneda === 'USD') return '$' + fmtNum(Math.round((n || 0) * TIPO_CAMBIO_USD_CLP));
   const num = fmtNum(Math.round(n || 0));
-  return (!moneda || moneda === 'CLP') ? '$' + num : `${moneda} ${num}`;
+  return (!moneda || moneda === 'CLP') ? '$' + num : `${escapeHtml(moneda)} ${num}`;
 }
 // La Analytics Data API (GA4) devuelve bounceRate/engagementRate como
 // fracción 0-1, no como porcentaje ya multiplicado -- si al ver datos

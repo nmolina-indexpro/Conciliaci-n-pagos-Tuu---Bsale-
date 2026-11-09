@@ -496,8 +496,8 @@ function pintarProductos(){
     const esBsale = String(p.costo_origen || '').startsWith('Bsale');
     const costo = esBsale
       ? `<span class="amount">${clp(p.costo)}</span><div class="desde motivo">${esc(p.costo_origen)}</div>`
-      : `<input class="inp-costo" data-sku="${esc(p.sku || '')}" type="number" min="1" placeholder="costo" value="${p.costo ?? ''}" ${D.esAdmin && p.sku ? '' : 'disabled'}><div class="desde motivo">${p.costo_origen === 'manual' ? 'a mano' : esc(p.costo_motivo || 'sin dato')}</div>`;
-    const ofrece = p.excluido ? '<span class="badge ambar">Excluido</span>' : p.ofrecidos.length ? p.ofrecidos.map(t => `<span class="badge verde">${t.cantidad} u. · ${t.porcentaje}%</span>`).join(' ') : '<span class="badge gris">Ninguno</span>';
+      : `<input class="inp-costo" data-sku="${esc(p.sku || '')}" type="number" min="1" placeholder="costo" value="${esc(p.costo ?? '')}" ${D.esAdmin && p.sku ? '' : 'disabled'}><div class="desde motivo">${p.costo_origen === 'manual' ? 'a mano' : esc(p.costo_motivo || 'sin dato')}</div>`;
+    const ofrece = p.excluido ? '<span class="badge ambar">Excluido</span>' : p.ofrecidos.length ? p.ofrecidos.map(t => `<span class="badge verde">${esc(t.cantidad)} u. · ${esc(t.porcentaje)}%</span>`).join(' ') : '<span class="badge gris">Ninguno</span>';
     const cambios = [].concat(p.agregar.map(t => `<span class="badge azul">+ ${esc(t)}</span>`), p.quitar.map(t => `<span class="badge rojo">− ${esc(t)}</span>`), p.meta_cambio ? [`<span class="badge azul">actualizar ficha</span>`] : []);
     const hoy = p.tags.filter(t => t.toLowerCase().startsWith(c.prefijo_etiqueta.toLowerCase()));
     const etq = (hoy.length ? hoy.map(t => `<span class="badge gris">${esc(t)}</span>`).join(' ') : '<span class="desde">sin etiquetas</span>') + (cambios.length ? `<div style="margin-top:4px;">${cambios.join(' ')}</div>` : '');
@@ -664,7 +664,7 @@ function pintarPasos(){
 
 function pintarBitacora(){
   $('tBitacora').innerHTML = `<thead><tr><th>Fecha</th><th>Origen</th><th>Quién</th><th class="amount">Productos</th><th class="amount">Cambios</th><th class="amount">Errores</th></tr></thead><tbody>` +
-    (D.bitacora.length ? D.bitacora.map(b => `<tr><td>${fmtFechaHora(b.creado_en)}</td><td>${esc(b.motivo || '')}</td><td>${esc(b.usuario || 'automático')}</td><td class="amount">${fmtNum(b.productos)}</td><td class="amount">${fmtNum(b.cambios)}</td><td class="amount">${b.errores ? `<span class="badge rojo">${b.errores}</span>` : '0'}</td></tr>`).join('')
+    (D.bitacora.length ? D.bitacora.map(b => `<tr><td>${fmtFechaHora(b.creado_en)}</td><td>${esc(b.motivo || '')}</td><td>${esc(b.usuario || 'automático')}</td><td class="amount">${fmtNum(b.productos)}</td><td class="amount">${fmtNum(b.cambios)}</td><td class="amount">${b.errores ? `<span class="badge rojo">${esc(b.errores)}</span>` : '0'}</td></tr>`).join('')
       : '<tr><td colspan="6" class="empty-note">Todavía no se ha cambiado nada.</td></tr>') + '</tbody>';
 }
 

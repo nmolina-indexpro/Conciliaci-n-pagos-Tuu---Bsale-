@@ -285,7 +285,7 @@ async function cargarSesionUsuario(){
     if(!res.ok) return;
     const u = await res.json();
     rolActual = u.rol;
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
     if(u.rol === 'admin'){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';
@@ -374,19 +374,19 @@ async function enviarReporte(){
       body: JSON.stringify({ descripcion, pagina, tipo, imagen: imagenAdjuntaDataUrl })
     });
     const data = await res.json();
-    if(!res.ok){ msg.innerHTML = `<div class="msg err">${data.error}</div>`; return; }
+    if(!res.ok){ msg.innerHTML = `<div class="msg err">${escapeHtml(data.error)}</div>`; return; }
     $('fDescripcion').value = '';
     $('fPagina').value = '';
     $('fTipo').value = 'error';
     quitarImagen();
     if(data.correo && !data.correo.enviado){
-      msg.innerHTML = `<div class="msg err">El ticket se guardó, pero el correo de aviso NO se pudo enviar: ${data.correo.motivo || 'motivo desconocido'}</div>`;
+      msg.innerHTML = `<div class="msg err">El ticket se guardó, pero el correo de aviso NO se pudo enviar: ${escapeHtml(data.correo.motivo || 'motivo desconocido')}</div>`;
     } else {
       msg.innerHTML = `<div class="msg ok">Ticket enviado. Gracias — lo puedes ver en la lista de abajo.</div>`;
     }
     cargarReportes();
   }catch(err){
-    msg.innerHTML = `<div class="msg err">Error: ${err.message}</div>`;
+    msg.innerHTML = `<div class="msg err">Error: ${escapeHtml(err.message)}</div>`;
   }finally{
     $('btnEnviar').disabled = false;
     $('btnEnviar').textContent = 'Enviar reporte';
@@ -397,8 +397,8 @@ const RESPONSABLE_FIJO = 'Nicolás Molina';
 let reportesActuales = [];
 
 function badgeEstado(estado){
-  const clase = estado.replace(' ', '-');
-  return `<span class="badge ${clase}">${estado}</span>`;
+  const clase = escapeHtml(String(estado).replace(' ', '-'));
+  return `<span class="badge ${clase}">${escapeHtml(estado)}</span>`;
 }
 function badgeTipo(tipo){
   if(tipo === 'objecion') return '<span class="badge en-progreso">Objeción</span>';
@@ -436,11 +436,11 @@ function renderTablaReportes(){
             <tr class="fila-reporte" onclick="abrirDetalleReporte(${r.id})">
               <td>#${r.id}</td>
               <td>${badgeTipo(r.tipo)}</td>
-              ${rolActual==='admin'?`<td>${r.usuario_nombre || r.usuario_email}</td>`:''}
+              ${rolActual==='admin'?`<td>${escapeHtml(r.usuario_nombre || r.usuario_email)}</td>`:''}
               <td>${RESPONSABLE_FIJO}</td>
-              <td>${r.pagina || '—'}${r.sku_code?`<br><span class="empty-note">SKU: ${r.sku_code}</span>`:''}</td>
+              <td>${escapeHtml(r.pagina || '—')}${r.sku_code?`<br><span class="empty-note">SKU: ${escapeHtml(r.sku_code)}</span>`:''}</td>
               <td style="max-width:260px;">${escapeHtml(r.descripcion)}</td>
-              <td>${r.imagen?`<img src="${r.imagen}" class="thumb-tabla">`:'—'}</td>
+              <td>${r.imagen && /^(data:image\/|https?:\/\/)/i.test(r.imagen)?`<img src="${escapeHtml(r.imagen)}" class="thumb-tabla">`:'—'}</td>
               <td>${new Date(r.created_at).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</td>
               <td onclick="event.stopPropagation()">${rolActual==='admin'
                 ? `<select class="selectEstado" onchange="cambiarEstado(${r.id}, this.value)">
@@ -458,12 +458,12 @@ async function cargarReportes(){
   try{
     const res = await fetch('/api/negocio?recurso=reportes');
     const data = await res.json();
-    if(!res.ok){ $('wrapReportes').innerHTML = `<p class="empty-note">${data.error}</p>`; return; }
+    if(!res.ok){ $('wrapReportes').innerHTML = `<p class="empty-note">${escapeHtml(data.error)}</p>`; return; }
     reportesActuales = data.reportes || [];
     if(reportesActuales.length === 0){ $('wrapReportes').innerHTML = `<p class="empty-note">Sin tickets todavía.</p>`; return; }
     renderTablaReportes();
   }catch(err){
-    $('wrapReportes').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+    $('wrapReportes').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -505,13 +505,13 @@ function abrirDetalleReporte(id){
     <div class="detalle-fila"><b>Tipo</b>${badgeTipo(r.tipo)}</div>
     <div class="detalle-fila"><b>Estado</b>${badgeEstado(r.estado)}</div>
     <div class="detalle-fila"><b>Responsable</b>${RESPONSABLE_FIJO}</div>
-    <div class="detalle-fila"><b>Usuario</b>${r.usuario_nombre || ''} (${r.usuario_email})</div>
-    <div class="detalle-fila"><b>Página</b>${r.pagina || '—'}</div>
-    ${r.sku_code?`<div class="detalle-fila"><b>SKU</b>${r.sku_code}</div>`:''}
+    <div class="detalle-fila"><b>Usuario</b>${escapeHtml(r.usuario_nombre || '')} (${escapeHtml(r.usuario_email)})</div>
+    <div class="detalle-fila"><b>Página</b>${escapeHtml(r.pagina || '—')}</div>
+    ${r.sku_code?`<div class="detalle-fila"><b>SKU</b>${escapeHtml(r.sku_code)}</div>`:''}
     <div class="detalle-fila"><b>Fecha</b>${new Date(r.created_at).toLocaleString('es-CL')}</div>
     <div class="detalle-fila" style="flex-direction:column;"><b>Descripción</b><div style="margin-top:6px;white-space:pre-wrap;">${escapeHtml(r.descripcion)}</div></div>
     ${r.contexto?`<div class="detalle-fila" style="flex-direction:column;"><b>Datos que veía</b><pre style="white-space:pre-wrap;font-size:11px;background:var(--surface-2);padding:8px 10px;border-radius:8px;margin-top:6px;">${escapeHtml(JSON.stringify(r.contexto, null, 2))}</pre></div>`:''}
-    ${r.imagen?`<div class="detalle-fila" style="flex-direction:column;"><b>Captura</b><img src="${r.imagen}" class="imagen-detalle"></div>`:''}
+    ${r.imagen && /^(data:image\/|https?:\/\/)/i.test(r.imagen)?`<div class="detalle-fila" style="flex-direction:column;"><b>Captura</b><img src="${escapeHtml(r.imagen)}" class="imagen-detalle"></div>`:''}
   `;
   $('modalFoot').innerHTML = rolActual==='admin' ? `
     <select class="selectEstado" onchange="cambiarEstado(${r.id}, this.value)">

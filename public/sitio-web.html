@@ -503,6 +503,7 @@ function fmtNum(n){ return Math.round(n||0).toLocaleString('es-CL'); }
 
 // ---------- Cotizador de envío (ficha de producto) ----------
 function envioEsc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function envioUrl(u){ u = String(u == null ? '' : u).trim(); return /^(https?:[/][/]|[/](?![/]))/i.test(u) ? u : ''; } // href de datos externos: solo http(s) o ruta relativa
 function envioClp(n){ return n == null ? '—' : '$' + Math.round(n).toLocaleString('es-CL'); }
 function envioPct(a, b){ return b ? Math.round(a / b * 100) + '%' : '—'; }
 function envioTabla(el, cols, filas, vacio){
@@ -561,7 +562,7 @@ function pintarTarjetasFiltros(){
   const ORDEN = ['marca', 'todas', 'serie', 'pulgadas', 'resolucion', 'watt', 'voltaje', 'punta', 'tipo', 'lateral', 'buscar', 'whatsapp', 'limpiar'];
   const celdaIA = (origen, tipo, valor) => {
     const r = ia.get(origen + '|' + tipo + '|' + valor);
-    return r ? '<td><span class="ia-acc ' + r.accion + '">' + NOMBRE_ACCION_IA[r.accion] + '</span>' + (r.motivo ? '<span class="ia-motivo">' + envioEsc(r.motivo) + '</span>' : '') + '</td>' : '<td class="empty-note">—</td>';
+    return r ? '<td><span class="ia-acc ' + envioEsc(r.accion) + '">' + (NOMBRE_ACCION_IA[r.accion] || envioEsc(r.accion)) + '</span>' + (r.motivo ? '<span class="ia-motivo">' + envioEsc(r.motivo) + '</span>' : '') + '</td>' : '<td class="empty-note">—</td>';
   };
   const tablaVal = (titulo, filas, origen, tipo) => '<p class="envio-sub" style="margin:10px 0 4px;">' + envioEsc(titulo) + '</p><table class="envio-tabla"><thead><tr><th>Valor</th><th class="num">Personas</th><th class="num">Veces</th>' + (ia ? '<th>Recomendación IA</th>' : '') + '</tr></thead><tbody>' +
     filas.slice(0, LIMITE).map(x => '<tr><td>' + envioEsc(x.valor) + '</td><td class="num">' + fmtNum(x.personas) + '</td><td class="num">' + fmtNum(x.veces) + '</td>' + (ia ? celdaIA(origen, tipo, x.valor) : '') + '</tr>').join('') +
@@ -804,7 +805,7 @@ function debounce(fn, ms){
 // problemas.
 const ESTADO_SHOPIFY_LABEL = { draft: 'Borrador', archived: 'Archivado' };
 function renderAvisoStockShopify(stockNoVisible, error, detail){
-  if(error) return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo revisar el estado de los productos en Shopify: ${error}${detail ? `<br><code style="font-size:11px;">${detail}</code>` : ''}</div>`;
+  if(error) return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo revisar el estado de los productos en Shopify: ${envioEsc(error)}${detail ? `<br><code style="font-size:11px;">${envioEsc(detail)}</code>` : ''}</div>`;
   if(stockNoVisible === null) return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo obtener el stock de Bsale para comparar contra Shopify (revisa que BSALE_ACCESS_TOKEN esté configurado).</div>`;
   if(!stockNoVisible.length){
     return `<div class="note-box" style="background:var(--green-bg);border-color:#B7E4C7;">✅ <b>No hay productos con stock disponible que estén archivados o en borrador en Shopify.</b></div>`;
@@ -812,9 +813,9 @@ function renderAvisoStockShopify(stockNoVisible, error, detail){
 
   const filas = stockNoVisible.slice(0, 20).map(s => `
     <li>
-      <b>${s.sku}</b> — ${s.nombre || ''} · Stock: ${fmtNum(s.stock)} ·
-      <span class="badge quiebre">${ESTADO_SHOPIFY_LABEL[s.estado] || s.estado}</span>
-      <a href="${s.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
+      <b>${envioEsc(s.sku)}</b> — ${envioEsc(s.nombre || '')} · Stock: ${fmtNum(s.stock)} ·
+      <span class="badge quiebre">${ESTADO_SHOPIFY_LABEL[s.estado] || envioEsc(s.estado)}</span>
+      <a href="${envioEsc(envioUrl(s.adminUrl))}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
     </li>`).join('');
   const nota = stockNoVisible.length > 20 ? `<div class="empty-note">...y ${stockNoVisible.length - 20} más.</div>` : '';
 
@@ -832,13 +833,13 @@ function fmtMoneda(n){ return '$' + Math.round(n||0).toLocaleString('es-CL'); }
 // [] = revisado sin diferencias, con datos = hay diferencias reales.
 function renderAvisoPreciosDistintos(preciosDistintos, listaNombre, error, detail){
   if(error){
-    return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo comparar precios entre Bsale y Shopify: ${error}${detail ? `<br><code style="font-size:11px;">${detail}</code>` : ''}</div>`;
+    return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo comparar precios entre Bsale y Shopify: ${envioEsc(error)}${detail ? `<br><code style="font-size:11px;">${envioEsc(detail)}</code>` : ''}</div>`;
   }
   if(preciosDistintos === null){
     return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo obtener la lista de precios de Bsale para comparar (revisa que BSALE_ACCESS_TOKEN esté configurado y que exista la lista "LISTA DE PRECIOS BASE").</div>`;
   }
 
-  const notaLista = listaNombre ? `<div class="empty-note" style="margin-top:6px;">Precio de Bsale (con IVA) tomado de la lista "${listaNombre}".</div>` : '';
+  const notaLista = listaNombre ? `<div class="empty-note" style="margin-top:6px;">Precio de Bsale (con IVA) tomado de la lista "${envioEsc(listaNombre)}".</div>` : '';
 
   if(!preciosDistintos.length){
     return `<div class="note-box" style="background:var(--green-bg);border-color:#B7E4C7;">
@@ -849,8 +850,8 @@ function renderAvisoPreciosDistintos(preciosDistintos, listaNombre, error, detai
 
   const filas = preciosDistintos.slice(0, 20).map(s => `
     <li>
-      <b>${s.sku}</b> — ${s.nombre || ''} · Bsale: ${fmtMoneda(s.precioBsale)} · Shopify: ${fmtMoneda(s.precioShopify)}
-      <a href="${s.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
+      <b>${envioEsc(s.sku)}</b> — ${envioEsc(s.nombre || '')} · Bsale: ${fmtMoneda(s.precioBsale)} · Shopify: ${fmtMoneda(s.precioShopify)}
+      <a href="${envioEsc(envioUrl(s.adminUrl))}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
     </li>`).join('');
   const nota = preciosDistintos.length > 20 ? `<div class="empty-note">...y ${preciosDistintos.length - 20} más.</div>` : '';
 
@@ -880,7 +881,7 @@ function renderAvisoPreciosDesincronizados(preciosDesincronizados, listaNombre, 
   if(preciosDesincronizados === null){
     return `<div class="note-box" style="background:var(--amber-dim);border-color:#F3D9A8;">⚠ No se pudo revisar el precio de los productos "de referencia" (pantalla/batería/cargador por modelo) contra Bsale.</div>`;
   }
-  const notaLista = listaNombre ? `<div class="empty-note" style="margin-top:6px;">Precio real (con IVA) tomado de la lista "${listaNombre}" en Bsale.</div>` : '';
+  const notaLista = listaNombre ? `<div class="empty-note" style="margin-top:6px;">Precio real (con IVA) tomado de la lista "${envioEsc(listaNombre)}" en Bsale.</div>` : '';
   if(!preciosDesincronizados.length){
     return `<div class="note-box" style="background:var(--green-bg);border-color:#B7E4C7;">
       ✅ <b>Los productos "de referencia" (pantalla/batería/cargador por modelo) tienen el mismo precio que Bsale para el SKU al que apuntan.</b>
@@ -894,9 +895,9 @@ function renderAvisoPreciosDesincronizados(preciosDesincronizados, listaNombre, 
   // propio para no alargar la página entera.
   const filas = preciosDesincronizados.map(p => `
     <li>
-      <b>${CATEGORIA_LABEL_DESINCRONIZADO[p.categoria] || p.categoria}</b> — ${p.titulo || ''} (apunta a <code>${p.skuBase}</code>) ·
+      <b>${CATEGORIA_LABEL_DESINCRONIZADO[p.categoria] || envioEsc(p.categoria)}</b> — ${envioEsc(p.titulo || '')} (apunta a <code>${envioEsc(p.skuBase)}</code>) ·
       Este listado: ${fmtMoneda(p.precioPropio)} · Bsale: ${fmtMoneda(p.precioCanonico)}
-      <a href="${p.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
+      <a href="${envioEsc(envioUrl(p.adminUrl))}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
     </li>`).join('');
 
   return `<div class="note-box" style="background:var(--red-bg);border-color:#F5C6C6;">
@@ -925,9 +926,9 @@ function renderAvisoSkusIncorrectos(skusIncorrectos, error, detail){
   ultimosSkusIncorrectos = skusIncorrectos;
   const filas = skusIncorrectos.map(p => `
     <li>
-      <b>${CATEGORIA_LABEL_DESINCRONIZADO[p.categoria] || p.categoria}</b> — ${p.titulo || ''} ·
-      El metacampo dice <code>${p.skuBase}</code> pero el producto real vinculado es <code>${p.skuProductoReal}</code>
-      <a href="${p.adminUrl}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
+      <b>${CATEGORIA_LABEL_DESINCRONIZADO[p.categoria] || envioEsc(p.categoria)}</b> — ${envioEsc(p.titulo || '')} ·
+      El metacampo dice <code>${envioEsc(p.skuBase)}</code> pero el producto real vinculado es <code>${envioEsc(p.skuProductoReal)}</code>
+      <a href="${envioEsc(envioUrl(p.adminUrl))}" target="_blank" rel="noopener">Ver en Shopify ↗</a>
     </li>`).join('');
 
   return `<div class="note-box" style="background:var(--red-bg);border-color:#F5C6C6;">
@@ -1123,7 +1124,7 @@ function renderAvisos(data){
   // sin golpear Shopify de nuevo aparte.
   if(data.catalogoSku){
     $('listaSkusCompat').innerHTML = Object.entries(data.catalogoSku)
-      .map(([sku, titulo]) => `<option value="${sku}">${titulo || ''}</option>`).join('');
+      .map(([sku, titulo]) => `<option value="${envioEsc(sku)}">${envioEsc(titulo || '')}</option>`).join('');
   }
 }
 // Lee la respuesta como JSON; si el servidor devolvió texto (por ejemplo la
@@ -1299,7 +1300,7 @@ const MARCA_BADGE = {
 };
 function badgeMarca(marca){
   const b = MARCA_BADGE[marca];
-  return b ? `<span class="marca-badge" style="background:${b.bg};color:${b.fg};">${b.texto}</span>` : marca;
+  return b ? `<span class="marca-badge" style="background:${b.bg};color:${b.fg};">${b.texto}</span>` : envioEsc(marca);
 }
 
 // Series conocidas por marca, para el segundo nivel de navegación (marca ->
@@ -1506,16 +1507,16 @@ function renderNavMarcas(){
   }
   cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">1. Elige una marca:</div>` +
     conteos.map(([marca, n]) => `
-      <button class="${marca === marcaSeleccionada ? 'btn-primary' : 'btn-ghost'} btn-compact" style="margin:0 6px 6px 0;" onclick='seleccionarMarca(${JSON.stringify(marca)})'>${badgeMarca(marca)} <span style="opacity:.75;">(${n})</span></button>
+      <button class="${marca === marcaSeleccionada ? 'btn-primary' : 'btn-ghost'} btn-compact" style="margin:0 6px 6px 0;" onclick='seleccionarMarca(${envioEsc(JSON.stringify(marca))})'>${badgeMarca(marca)} <span style="opacity:.75;">(${n})</span></button>
     `).join('');
 }
 function renderNavSeries(){
   const cont = $('navSeries');
   if(!marcaSeleccionada){ cont.innerHTML = ''; return; }
   const conteos = contarPorSerie(marcaSeleccionada);
-  cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin:10px 0 6px 0;">2. Elige una serie de ${marcaSeleccionada}: <button class="btn-ghost btn-compact" style="margin-left:8px;" onclick="volverAMarcas()">← Cambiar marca</button></div>` +
+  cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin:10px 0 6px 0;">2. Elige una serie de ${envioEsc(marcaSeleccionada)}: <button class="btn-ghost btn-compact" style="margin-left:8px;" onclick="volverAMarcas()">← Cambiar marca</button></div>` +
     conteos.map(([serie, n]) => `
-      <button class="${serie === serieSeleccionada ? 'btn-primary' : 'btn-ghost'} btn-compact" style="margin:0 6px 6px 0;" onclick='seleccionarSerie(${JSON.stringify(serie)})'>${serie} <span style="opacity:.75;">(${n})</span></button>
+      <button class="${serie === serieSeleccionada ? 'btn-primary' : 'btn-ghost'} btn-compact" style="margin:0 6px 6px 0;" onclick='seleccionarSerie(${envioEsc(JSON.stringify(serie))})'>${envioEsc(serie)} <span style="opacity:.75;">(${n})</span></button>
     `).join('');
 }
 function actualizarModeloDescubierto(clave, valor){
@@ -1544,12 +1545,12 @@ function renderTablaDescubrimiento(){
   tbody.innerHTML = visibles.map(c => `
     <tr>
       <td>${badgeMarca(c.marca)}</td>
-      <td><input type="text" value="${c.modelo}" onchange='actualizarModeloDescubierto(${JSON.stringify(c.clave)}, this.value)' style="width:210px;"></td>
-      <td class="empty-note" style="max-width:260px;font-size:11px;" title="${c.tituloOriginal}">${c.tituloOriginal}</td>
-      <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuPantalla ? `<code>${c.skuPantalla}</code>` : '<span class="empty-note">sin match</span>')}</td>
-      <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuBateria ? `<code>${c.skuBateria}</code>` : '<span class="empty-note">sin match</span>')}</td>
-      <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuCargador ? `<code>${c.skuCargador}</code>` : '<span class="empty-note">sin match</span>')}</td>
-      <td><button class="btn-ghost btn-compact" title="Guardar" aria-label="Guardar" onclick='guardarUnoDescubierto(${JSON.stringify(c.clave)})'>💾</button></td>
+      <td><input type="text" value="${envioEsc(c.modelo)}" onchange='actualizarModeloDescubierto(${envioEsc(JSON.stringify(c.clave))}, this.value)' style="width:210px;"></td>
+      <td class="empty-note" style="max-width:260px;font-size:11px;" title="${envioEsc(c.tituloOriginal)}">${envioEsc(c.tituloOriginal)}</td>
+      <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuPantalla ? `<code>${envioEsc(c.skuPantalla)}</code>` : '<span class="empty-note">sin match</span>')}</td>
+      <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuBateria ? `<code>${envioEsc(c.skuBateria)}</code>` : '<span class="empty-note">sin match</span>')}</td>
+      <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuCargador ? `<code>${envioEsc(c.skuCargador)}</code>` : '<span class="empty-note">sin match</span>')}</td>
+      <td><button class="btn-ghost btn-compact" title="Guardar" aria-label="Guardar" onclick='guardarUnoDescubierto(${envioEsc(JSON.stringify(c.clave))})'>💾</button></td>
     </tr>
   `).join('');
   btnGuardar.style.display = '';
@@ -1679,7 +1680,7 @@ async function cargarModelosCompat(){
   const tbody = $('tablaCompat');
   try{
     const data = await fetch('/api/negocio?recurso=modelos-compatibilidad').then(r=>r.json());
-    if(data.error){ tbody.innerHTML = `<tr><td colspan="7" class="empty-note">${data.error}</td></tr>`; setResumen('compat', 'atencion', 'No se pudo cargar: ' + data.error, []); return; }
+    if(data.error){ tbody.innerHTML = `<tr><td colspan="7" class="empty-note">${envioEsc(data.error)}</td></tr>`; setResumen('compat', 'atencion', 'No se pudo cargar: ' + data.error, []); return; }
     ultimosModelosCompat = data.modelos || [];
     renderTablaCompat(ultimosModelosCompat);
     const incompletos = ultimosModelosCompat.filter(m => !m.skuBateria || !m.skuPantalla || !m.skuCargador).length;
@@ -1688,7 +1689,7 @@ async function cargarModelosCompat(){
     else if(incompletos) setResumen('compat', 'atencion', incompletos + ' modelo(s) sin alguno de los 3 SKU (batería, pantalla o cargador)', datosCompat);
     else setResumen('compat', 'ok', 'Todos los modelos tienen batería, pantalla y cargador.', datosCompat);
   }catch(err){
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-note">Error: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-note">Error: ${envioEsc(err.message)}</td></tr>`;
     setResumen('compat', 'atencion', 'No se pudo cargar: ' + err.message, []);
   }
 }
@@ -1713,7 +1714,7 @@ function renderTablaCompat(modelos){
   renderTeadCompat();
   const tbody = $('tablaCompat');
   if(!modelos.length){ tbody.innerHTML = '<tr><td colspan="7" class="empty-note">Sin modelos cargados todavía.</td></tr>'; return; }
-  const celdaSku = sku => sku ? `<code>${sku}</code>` : '<span class="empty-note">—</span>';
+  const celdaSku = sku => sku ? `<code>${envioEsc(sku)}</code>` : '<span class="empty-note">—</span>';
   const valor = { marca: m => m.marca || '', modelo: m => m.modelo || '', actualizadoPor: m => m.actualizadoPor || '' }[sortColCompat];
   modelos = [...modelos].sort((a, b) => {
     const cmp = valor(a).localeCompare(valor(b));
@@ -1721,12 +1722,12 @@ function renderTablaCompat(modelos){
   });
   tbody.innerHTML = modelos.map(m => `
     <tr>
-      <td>${m.marca}</td>
-      <td>${m.modelo}</td>
+      <td>${envioEsc(m.marca)}</td>
+      <td>${envioEsc(m.modelo)}</td>
       <td>${celdaSku(m.skuBateria)}</td>
       <td>${celdaSku(m.skuPantalla)}</td>
       <td>${celdaSku(m.skuCargador)}</td>
-      <td class="empty-note">${m.actualizadoPor || '—'}</td>
+      <td class="empty-note">${envioEsc(m.actualizadoPor || '—')}</td>
       <td style="white-space:nowrap;">
         <button class="btn-ghost btn-compact" title="Editar" aria-label="Editar" onclick="editarModeloCompat(${m.id})">✏️</button>
         <button class="btn-danger btn-compact" title="Eliminar" aria-label="Eliminar" onclick="eliminarModeloCompat(${m.id})">🗑️</button>
@@ -1753,7 +1754,7 @@ async function buscarEnShopifyCompat(automatico){
   $('resultadoBusquedaCompat').innerHTML = '';
   try{
     const data = await fetch(`/api/negocio?recurso=buscar-repuestos-modelo&marca=${encodeURIComponent(marca)}&modelo=${encodeURIComponent(modelo)}`).then(r=>r.json());
-    if(data.error){ $('errorCompat').innerHTML = `<p class="empty-note" style="color:var(--red);">${data.error}</p>`; return; }
+    if(data.error){ $('errorCompat').innerHTML = `<p class="empty-note" style="color:var(--red);">${envioEsc(data.error)}</p>`; return; }
 
     const campoPorCategoria = { bateria: 'fCompatBateria', pantalla: 'fCompatPantalla', cargador: 'fCompatCargador' };
     const etiquetaPorCategoria = { bateria: 'Batería', pantalla: 'Pantalla', cargador: 'Cargador' };
@@ -1762,19 +1763,19 @@ async function buscarEnShopifyCompat(automatico){
       if(encontrado?.sku){
         $(campoId).value = encontrado.sku;
         const porMeta = encontrado.origen === 'metacampo' ? ', según el metacampo de modelos compatibles' : '';
-        const aviso = encontrado.aviso ? `<br><span style="color:var(--amber, #b45309);">⚠ ${encontrado.aviso}</span>` : '';
-        return `<li>${etiquetaPorCategoria[cat]}: <b>${encontrado.sku}</b> — ${encontrado.titulo} (${encontrado.confianza}% de confianza${porMeta})${aviso}</li>`;
+        const aviso = encontrado.aviso ? `<br><span style="color:var(--amber, #b45309);">⚠ ${envioEsc(encontrado.aviso)}</span>` : '';
+        return `<li>${etiquetaPorCategoria[cat]}: <b>${envioEsc(encontrado.sku)}</b> — ${envioEsc(encontrado.titulo)} (${envioEsc(encontrado.confianza)}% de confianza${porMeta})${aviso}</li>`;
       }
       return `<li>${etiquetaPorCategoria[cat]}: <span class="empty-note">no se encontró un match en Shopify -- complétalo a mano.</span></li>`;
     });
     // Estado del índice del metacampo "Descripción - modelos_compatibles": la primera vez se arma por tandas (Shopify no permite buscar por su valor).
     const ind = data.indice;
     let notaIndice = '';
-    if(ind?.enProgreso) notaIndice = `<p class="empty-note" style="margin:8px 0 0;">⏳ Leyendo el metacampo de modelos compatibles de Shopify${ind.progreso != null ? `: ${ind.progreso}%` : ''}. Los resultados pueden mejorar: vuelve a buscar en unos segundos.</p>`;
-    else if(ind?.error) notaIndice = `<p class="empty-note" style="margin:8px 0 0;color:var(--red);">No pude usar el metacampo de modelos compatibles: ${ind.error}</p>`;
+    if(ind?.enProgreso) notaIndice = `<p class="empty-note" style="margin:8px 0 0;">⏳ Leyendo el metacampo de modelos compatibles de Shopify${ind.progreso != null ? `: ${envioEsc(ind.progreso)}%` : ''}. Los resultados pueden mejorar: vuelve a buscar en unos segundos.</p>`;
+    else if(ind?.error) notaIndice = `<p class="empty-note" style="margin:8px 0 0;color:var(--red);">No pude usar el metacampo de modelos compatibles: ${envioEsc(ind.error)}</p>`;
     $('resultadoBusquedaCompat').innerHTML = `<div class="note-box">🔍 Resultado de la búsqueda en Shopify:<ul style="margin:6px 0 0 0;padding-left:18px;">${filas.join('')}</ul>${notaIndice}</div>`;
   }catch(err){
-    $('errorCompat').innerHTML = `<p class="empty-note" style="color:var(--red);">Error: ${err.message}</p>`;
+    $('errorCompat').innerHTML = `<p class="empty-note" style="color:var(--red);">Error: ${envioEsc(err.message)}</p>`;
   }finally{
     btn.disabled = false; btn.textContent = '🔍 Buscar en Shopify';
   }
@@ -1820,11 +1821,11 @@ async function guardarModeloCompat(){
       ? await fetch('/api/negocio?recurso=modelos-compatibilidad', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: editandoCompatId, ...cuerpo }) })
       : await fetch('/api/negocio?recurso=modelos-compatibilidad', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(cuerpo) });
     const data = await res.json();
-    if(!res.ok || data.error){ $('errorCompat').innerHTML = `<p class="empty-note" style="color:var(--red);">${data.error || 'No se pudo guardar.'}</p>`; return; }
+    if(!res.ok || data.error){ $('errorCompat').innerHTML = `<p class="empty-note" style="color:var(--red);">${envioEsc(data.error || 'No se pudo guardar.')}</p>`; return; }
     cancelarEdicionCompat();
     cargarModelosCompat();
   }catch(err){
-    $('errorCompat').innerHTML = `<p class="empty-note" style="color:var(--red);">Error: ${err.message}</p>`;
+    $('errorCompat').innerHTML = `<p class="empty-note" style="color:var(--red);">Error: ${envioEsc(err.message)}</p>`;
   }finally{
     btn.disabled = false;
   }
@@ -1846,7 +1847,7 @@ async function cargarSesionUsuario(){
     const res = await fetch('/api/auth-session');
     if(!res.ok) return;
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${envioEsc(u.nombre || u.email)}</b></span>`;
     if(u.rol === 'admin'){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';

@@ -623,9 +623,9 @@ function renderTablaIndexscale(segmento){
   const filasVisibles = expandidoIndexscale[segmento] ? filas : filas.slice(0, RESUMEN_TOPE_INDEXSCALE);
 
   const cols = [
-    { key:'empresa', label:'Empresa', render:o=>o.empresa||'—' },
-    { key:'clienteNombre', label:'Contacto', render:o=>o.clienteNombre||'—' },
-    { key:'ciudad', label:'Ciudad', render:o=>o.ciudad||'—' },
+    { key:'empresa', label:'Empresa', render:o=>escLead(o.empresa||'—') },
+    { key:'clienteNombre', label:'Contacto', render:o=>escLead(o.clienteNombre||'—') },
+    { key:'ciudad', label:'Ciudad', render:o=>escLead(o.ciudad||'—') },
     // "Puntos Bsale" no aporta nada útil en Sin sitio propio (pedido del
     // usuario) -- se deja solo en Potenciar, donde igual se usa para
     // priorizar el orden de siembra.
@@ -643,16 +643,16 @@ function renderTablaIndexscale(segmento){
     { key:'clienteNombre', label:'', render:o=>{
         const dominio = segmento === 'potenciar' ? dominioSitioWeb(o.email) : null;
         const web = segmento !== 'potenciar' ? '' : (dominio
-          ? `<a class="btn-icono" href="https://${dominio}" title="Ver sitio: ${dominio}" target="_blank" rel="noopener">🌐</a>`
+          ? `<a class="btn-icono" href="https://${escLead(dominio)}" title="Ver sitio: ${escLead(dominio)}" target="_blank" rel="noopener">🌐</a>`
           : `<span class="btn-icono deshabilitado" title="Sin dominio propio detectado">🌐</span>`);
-        const mailto = o.email ? `<a class="btn-icono" href="mailto:${o.email}" title="Correo: ${o.email}" target="_blank" rel="noopener">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`;
-        const wa = o.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(o.telefono).replace('+','')}" title="WhatsApp: ${o.telefono}" target="_blank" rel="noopener">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`;
+        const mailto = o.email ? `<a class="btn-icono" href="mailto:${escLead(o.email)}" title="Correo: ${escLead(o.email)}" target="_blank" rel="noopener">📧</a>` : `<span class="btn-icono deshabilitado" title="Sin correo">📧</span>`;
+        const wa = o.telefono ? `<a class="btn-icono" href="https://wa.me/${formatearTelefonoWhatsapp(o.telefono).replace('+','')}" title="WhatsApp: ${escLead(o.telefono)}" target="_blank" rel="noopener">💬</a>` : `<span class="btn-icono deshabilitado" title="Sin teléfono">💬</span>`;
         // El "abierto" viene del píxel de seguimiento embebido en el primer
         // correo -- subestima aperturas (clientes de correo que bloquean
         // imágenes no las delatan), nunca las sobrestima.
         const tituloAbierto = o.presentacionAbiertaEn ? ` — 👀 abierto el ${new Date(o.presentacionAbiertaEn).toLocaleDateString('es-CL')}` : (o.presentacionEnviadaEn ? ' — todavía sin abrir detectado' : '');
         const tituloPresentacion = (o.presentacionEnviadaEn ? `Ya se envió el ${new Date(o.presentacionEnviadaEn).toLocaleDateString('es-CL')} — enviar de nuevo` : 'Enviar presentación comercial (primer contacto)') + tituloAbierto;
-        const presentacion = o.email ? `<button class="btn-icono" title="${tituloPresentacion}" onclick="enviarPresentacionIndexscale('${segmento}', ${o.id})">${o.presentacionEnviadaEn ? '📨' : '✉️'}</button>` : `<span class="btn-icono deshabilitado" title="Sin correo">✉️</span>`;
+        const presentacion = o.email ? `<button class="btn-icono" title="${escLead(tituloPresentacion)}" onclick="enviarPresentacionIndexscale('${segmento}', ${o.id})">${o.presentacionEnviadaEn ? '📨' : '✉️'}</button>` : `<span class="btn-icono deshabilitado" title="Sin correo">✉️</span>`;
         // El segundo correo (recontacto) SOLO se habilita si se detectó que
         // el primero fue abierto -- pedido explícito del usuario.
         let tituloRecontacto, recontactoHabilitado;
@@ -678,7 +678,7 @@ function renderTablaIndexscale(segmento){
 
   const tbody = filasVisibles.map(o=>`<tr>${cols.map(colDef=>{
     const claseEstado = colDef.key==='estado' ? `estado-${o.estado}` : '';
-    return `<td class="${[colDef.align==='amount'?'amount':'', claseEstado].filter(Boolean).join(' ')}">${colDef.render ? colDef.render(o) : (o[colDef.key] ?? '—')}</td>`;
+    return `<td class="${[colDef.align==='amount'?'amount':'', claseEstado].filter(Boolean).join(' ')}">${colDef.render ? colDef.render(o) : (o[colDef.key] != null ? escLead(o[colDef.key]) : '—')}</td>`;
   }).join('')}</tr>`).join('');
 
   const controlExpandir = totalFilas > RESUMEN_TOPE_INDEXSCALE
@@ -862,7 +862,7 @@ async function cargarSesionUsuario(){
     const res = await fetch('/api/auth-session');
     if(!res.ok) return;
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escLead(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     esAdmin = u.rol === 'admin';
@@ -885,7 +885,9 @@ async function cerrarSesion(){
 // ---------- Leads entrantes del sitio web (formularios de indexscale.cl) ----------
 let datosLeadsWeb = [];
 const TIPO_LEAD_LABEL = { general: 'Contacto', demo: 'Demo gratis', express: 'Diagnóstico Express' };
-function escLead(t){ return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escLead(t){ return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// href de datos externos: solo http(s) o ruta relativa
+function urlSegura(u){ u = String(u == null ? '' : u).trim(); return /^(https?:[/][/]|[/](?![/]))/i.test(u) ? u : ''; }
 function esLeadAds(l){ return !!(l.gclid || (l.utm_source === 'google' && l.utm_medium === 'cpc')); }
 function fmtFechaLead(iso){
   const d = new Date(iso);
@@ -904,10 +906,10 @@ function detalleLead(l){
   add('Tipo de sitio', d.tipo_sitio); add('Rubro', d.rubro); add('Dominio deseado', d.dominio_deseado);
   add('Descripción', d.descripcion_negocio); add('Redes / contacto extra', d.contacto_extra);
   add('Sitio a analizar', d.sitio); add('Vende', d.vende); add('Plataforma', d.plataforma); add('Facturación', d.facturacion); add('Problema', d.problema);
-  if(d.logo_url) filas.push(`<div><b>Logo:</b> <a href="${escLead(d.logo_url)}" target="_blank" rel="noopener">ver</a></div>`);
+  if(d.logo_url) filas.push(`<div><b>Logo:</b> <a href="${escLead(urlSegura(d.logo_url))}" target="_blank" rel="noopener">ver</a></div>`);
   let imgs = d.imagenes_urls;
   if(typeof imgs === 'string'){ try{ imgs = JSON.parse(imgs); }catch(e){ imgs = []; } }
-  (imgs || []).forEach((u, i) => filas.push(`<div><b>Foto ${i+1}:</b> <a href="${escLead(u)}" target="_blank" rel="noopener">ver</a></div>`));
+  (imgs || []).forEach((u, i) => filas.push(`<div><b>Foto ${i+1}:</b> <a href="${escLead(urlSegura(u))}" target="_blank" rel="noopener">ver</a></div>`));
   add('Campaña', l.utm_campaign); add('Palabra clave', l.utm_term); add('Referencia', l.referrer);
   if(l.gclid) add('Clic de Google (gclid)', l.gclid);
   if(!filas.length) return '<span style="color:var(--muted);">—</span>';
@@ -1131,7 +1133,7 @@ function tarjetaPlan(it, esSiguiente){
   const tel = it.telefono || {};
   const msg = mensajesPlan[it.id] != null ? mensajesPlan[it.id] : textoVendedor(it.guia.mensaje);
   const quien = it.contacto && it.contacto.toLowerCase() !== (it.empresa || '').toLowerCase() ? escLead(it.contacto) : '';
-  const hist = (it.historial || []).filter(h => h.resultado).slice(0, 3).map(h => (RESULTADO_TXT[h.resultado] || h.resultado) + ' · ' + fechaCorta(h.en) + (h.por ? ' · ' + escLead(h.por) : '') + (h.nota ? ' — ' + escLead(h.nota) : '')).join('<br>');
+  const hist = (it.historial || []).filter(h => h.resultado).slice(0, 3).map(h => (RESULTADO_TXT[h.resultado] || escLead(h.resultado)) + ' · ' + fechaCorta(h.en) + (h.por ? ' · ' + escLead(h.por) : '') + (h.nota ? ' — ' + escLead(h.nota) : '')).join('<br>');
   const pregs = (it.guia.preguntas || []).map(p => '<li>' + escLead(p) + '</li>').join('');
   const objs = (it.guia.objeciones || []).map(o => '<div class="pl-obj"><em>“' + escLead(o.objecion) + '”</em><br>→ ' + escLead(o.respuesta) + '</div>').join('');
   return `
@@ -1140,7 +1142,7 @@ function tarjetaPlan(it, esSiguiente){
       <div class="pl-num">${it.orden + 1}</div>
       <div class="pl-quien">
         <b>${escLead(it.empresa)}</b>
-        <div class="pl-contacto">${quien ? 'Hablar con <b style="display:inline;font-size:13px;color:var(--text)">' + quien + '</b> · ' : ''}${escLead(tel.mostrar || 'sin teléfono')}${tel.mostrar ? ' <button class="pl-copiar" title="Copiar el teléfono" onclick="copiarDatoPlan(this,' + it.id + ',\'telefono\')">📋 Copiar</button>' : ''}${it.email ? ' · ' + escLead(it.email) + ' <button class="pl-copiar" title="Copiar el correo" onclick="copiarDatoPlan(this,' + it.id + ',\'email\')">📋 Copiar</button>' : ''}${it.dominio ? '<br>Sitio: <a href="' + escLead(it.sitio) + '" target="_blank" rel="noopener">' + escLead(it.dominio) + ' ↗</a> · <a href="' + escLead(it.busqueda) + '" target="_blank" rel="noopener">buscar en Google ↗</a>' : ''}</div>
+        <div class="pl-contacto">${quien ? 'Hablar con <b style="display:inline;font-size:13px;color:var(--text)">' + quien + '</b> · ' : ''}${escLead(tel.mostrar || 'sin teléfono')}${tel.mostrar ? ' <button class="pl-copiar" title="Copiar el teléfono" onclick="copiarDatoPlan(this,' + it.id + ',\'telefono\')">📋 Copiar</button>' : ''}${it.email ? ' · ' + escLead(it.email) + ' <button class="pl-copiar" title="Copiar el correo" onclick="copiarDatoPlan(this,' + it.id + ',\'email\')">📋 Copiar</button>' : ''}${it.dominio ? '<br>Sitio: <a href="' + escLead(urlSegura(it.sitio)) + '" target="_blank" rel="noopener">' + escLead(it.dominio) + ' ↗</a> · <a href="' + escLead(urlSegura(it.busqueda)) + '" target="_blank" rel="noopener">buscar en Google ↗</a>' : ''}</div>
         <div class="pl-chips"><span class="pl-chip ${escLead(it.prioridad)}">Prioridad ${escLead(it.prioridad)}</span><span class="pl-chip oferta">${OFERTA_TXT[it.oferta] || ''}</span><span class="pl-chip">📍 ${escLead(it.comuna || '')}</span></div>
       </div>
       ${esSiguiente ? '<span class="pl-chip oferta" style="align-self:flex-start">👉 Parte por aquí</span>' : ''}
@@ -1151,8 +1153,8 @@ function tarjetaPlan(it, esSiguiente){
       <a class="pl-btn tel${tel.tel ? '' : ' off'}" ${tel.tel ? 'href="tel:' + escLead(tel.tel) + '" onclick="canalPlan[' + it.id + ']=\'llamada\'"' : ''}>📞 Llamar</a>
       <a class="pl-btn mail${it.email ? '' : ' off'}" ${it.email ? 'href="#" onclick="return abrirCorreoPlan(' + it.id + ')"' : ''}>✉️ Correo</a>
       ${it.sitio
-        ? '<a class="pl-btn mail" href="' + escLead(it.sitio) + '" target="_blank" rel="noopener" title="Abre su sitio web actual en otra pestaña">🌐 Ver su sitio web</a>'
-        : '<a class="pl-btn mail" href="' + escLead(it.busqueda) + '" target="_blank" rel="noopener" title="Usa correo personal: probablemente no tiene sitio. Búscalo en Google">🔎 Buscar su sitio en Google</a>'}
+        ? '<a class="pl-btn mail" href="' + escLead(urlSegura(it.sitio)) + '" target="_blank" rel="noopener" title="Abre su sitio web actual en otra pestaña">🌐 Ver su sitio web</a>'
+        : '<a class="pl-btn mail" href="' + escLead(urlSegura(it.busqueda)) + '" target="_blank" rel="noopener" title="Usa correo personal: probablemente no tiene sitio. Búscalo en Google">🔎 Buscar su sitio en Google</a>'}
       <button class="pl-btn mail" style="color:var(--green)" title="Ya revisaste su sitio y está bien optimizado: no es un cliente para IndexScale. No vuelve a salir." onclick="if(confirm('¿Marcar que ya tiene una página optimizada? No volverá a salir en ninguna lista.'))resultadoPlan(${it.id},'sitio_optimizado')">✅ Ya tiene página optimizada</button>
     </div>
     <details class="pl-guia"${esSiguiente ? ' open' : ''}>
@@ -1224,7 +1226,7 @@ function renderPlan(){
   else html += '<div class="pl-lista">' + pendientes.map((it, k) => tarjetaPlan(it, k === 0)).join('') + '</div>';
   if(hechos.length){
     html += '<details class="pl-guia" style="margin-top:16px"><summary>Ya gestionados (' + hechos.length + ')</summary>'
-      + hechos.map(it => '<div class="pl-hecho"><b>' + escLead(it.empresa) + '</b><span class="pl-badge ' + it.resultado + '">' + (RESULTADO_TXT[it.resultado] || it.resultado) + '</span>'
+      + hechos.map(it => '<div class="pl-hecho"><b>' + escLead(it.empresa) + '</b><span class="pl-badge ' + escLead(it.resultado) + '">' + (RESULTADO_TXT[it.resultado] || escLead(it.resultado)) + '</span>'
         + (it.proximoContacto && it.resultado === 'volver_a_llamar' ? '<span class="sub">para el ' + escLead(it.proximoContacto) + '</span>' : '')
         + (it.proximoContacto && it.resultado === 'contactado' ? '<span class="sub">recontactar el ' + escLead(it.proximoContacto) + '</span>' : '')
         + (it.nota ? '<span class="sub">— ' + escLead(it.nota) + '</span>' : '') + (it.resultadoPor ? '<span class="sub">' + escLead(it.resultadoPor) + '</span>' : '')
@@ -1347,7 +1349,7 @@ function renderResumenPlan(){
       ${celdaMarcaPlan(it, 'whatsapp', 'waEnviadoEn', 'Enviado')}
       ${celdaMarcaPlan(it, 'llamada', 'llamadoEn', 'Llamado')}
       ${celdaMarcaPlan(it, 'correo', 'correoEnviadoEn', 'Enviado')}
-      <td data-valor="${it.proximoContacto || ''}"><div class="pl-paso-t u${inf.paso.u}">${escLead(inf.paso.t)}</div>
+      <td data-valor="${escLead(it.proximoContacto || '')}"><div class="pl-paso-t u${inf.paso.u}">${escLead(inf.paso.t)}</div>
         <input type="date" class="pl-fecha${inf.vencido ? ' venc' : ''}" value="${escLead(it.proximoContacto || '')}" title="Próxima acción: el día en que debes volver a tocar a este cliente" onchange="cambiarFechaPlan(${it.id}, this.value)">${inf.vencido ? '<span class="pl-tag venc">Vencido</span>' : ''}</td>
       <td data-valor="${inf.dias == null ? '' : inf.dias}">${ultima}</td>
       <td><select title="Si ya lo gestionaste, el resultado; si no, déjalo en Pendiente o elige por qué no pudiste" onchange="cambiarResultadoResumen(${it.id}, this)">${opciones}</select></td>
@@ -1373,12 +1375,18 @@ async function putPlan(body){
 async function marcarCanalPlan(id, canal){
   const it = itemPlan(id); if(!it) return;
   const campo = { whatsapp: 'waEnviadoEn', llamada: 'llamadoEn', correo: 'correoEnviadoEn' }[canal];
-  try{ const d = await putPlan({ itemId: id, marca: canal, valor: !it[campo] }); reemplazarItemPlan(d.item); renderResumenPlan(); }
-  catch(err){ alert('No se pudo guardar: ' + err.message); }
+  // Optimista: la marca se ve al instante y el servidor la confirma después; si falla, vuelve a como estaba.
+  const anterior = it[campo], nuevo = !anterior;
+  it[campo] = nuevo ? new Date().toISOString() : null;
+  renderResumenPlan();
+  try{ const d = await putPlan({ itemId: id, marca: canal, valor: nuevo }); reemplazarItemPlan(d.item); renderResumenPlan(); }
+  catch(err){ it[campo] = anterior; renderResumenPlan(); alert('No se pudo guardar: ' + err.message); }
 }
 async function cambiarFechaPlan(id, valor){
+  const it = itemPlan(id); const anterior = it ? it.proximoContacto : undefined;
+  if(it) it.proximoContacto = valor || null; // optimista: se ve al instante; si falla, vuelve a la fecha anterior
   try{ const d = await putPlan({ itemId: id, accion: 'proximo', proximoContacto: valor || null }); reemplazarItemPlan(d.item); renderResumenPlan(); }
-  catch(err){ alert('No se pudo guardar la fecha: ' + err.message); }
+  catch(err){ if(it) it.proximoContacto = anterior; renderResumenPlan(); alert('No se pudo guardar la fecha: ' + err.message); }
 }
 async function guardarNotaPlan(id, input){
   try{ const d = await putPlan({ itemId: id, accion: 'nota', nota: input.value }); reemplazarItemPlan(d.item); }

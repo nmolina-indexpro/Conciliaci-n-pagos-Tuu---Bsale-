@@ -278,7 +278,7 @@ async function cargarSesionUsuario(){
     const u = await res.json();
     rolActual = u.rol;
     $('saludoNombre').textContent = (u.nombre || u.email) + ' 👋';
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${esc(u.nombre || u.email)}</b></span>`;
     if(u.rol === 'admin'){
       const nav = document.getElementById('navUsuarios');
       if(nav) nav.style.display = '';

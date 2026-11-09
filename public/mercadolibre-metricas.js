@@ -82,12 +82,12 @@
     return '<div class="tabla-wrap"><table><thead><tr>' + cols.map(c => '<th>' + esc(c[0]) + '</th>').join('') + '</tr></thead><tbody>' +
       filas.map(f => '<tr>' + cols.map(c => '<td' + (c[2] ? ' style="' + c[2] + '"' : '') + '>' + c[1](f) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>';
   }
-  const titulo = (f) => (f.enlace ? '<a href="' + esc(f.enlace) + '" target="_blank" rel="noopener">' + esc(f.titulo || f.itemId) + '</a>' : esc(f.titulo || f.itemId || ''));
+  const titulo = (f) => (f.enlace && /^https?:\/\//i.test(f.enlace) ? '<a href="' + esc(f.enlace) + '" target="_blank" rel="noopener">' + esc(f.titulo || f.itemId) + '</a>' : esc(f.titulo || f.itemId || ''));
   const nota = t => '<div class="empty-note" style="margin-top:10px;line-height:1.5;">' + t + '</div>';
   const h = t => '<h2 style="font-family:\'Space Grotesk\',sans-serif;font-size:15px;margin:16px 0 6px;">' + t + '</h2>';
   const insignia = (t, color) => '<span class="badge" style="background:' + color + '22;color:' + color + ';">' + esc(t) + '</span>';
 
-  const fechaCorta = iso => { const p = String(iso || '').split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : '—'; };
+  const fechaCorta = iso => { const p = String(iso || '').split('-'); return p.length === 3 ? esc(p[2] + '/' + p[1] + '/' + p[0]) : '—'; };
   const periodo = m => (m.rango ? fechaCorta(m.rango.desde) + ' al ' + fechaCorta(m.rango.hasta) + ' (' + m.rango.dias + (m.rango.dias === 1 ? ' día' : ' días') + ')' : 'últimos ' + m.ventanaDias + ' días');
   // ---------------------------------------------------------------- una función por cosa que se mide
   function vResumen(m) {
@@ -202,7 +202,7 @@
     const filaHtml = ({ r, e }) => {
       const pub = r.publicaciones[0];
       const estado = r.estadoMl === 'pausada' ? ' <span class="badge" style="background:#B4530922;color:#B45309;">Pausada</span>' : (!r.enBsale ? ' <span class="badge" style="background:#DC262622;color:#DC2626;">Sin SKU en Bsale</span>' : '');
-      const pubHtml = pub ? '<a href="' + esc(pub.enlace || '#') + '" target="_blank" rel="noopener" title="' + esc(pub.titulo || pub.id) + '">' + esc((pub.titulo || pub.id).slice(0, 48)) + ((pub.titulo || '').length > 48 ? '…' : '') + '</a>' + (r.publicaciones.length > 1 ? ' <span class="empty-note">(+' + (r.publicaciones.length - 1) + ')</span>' : '') : '<span class="empty-note">—</span>';
+      const pubHtml = pub ? '<a href="' + esc(/^https?:\/\//i.test(pub.enlace || '') ? pub.enlace : '#') + '" target="_blank" rel="noopener" title="' + esc(pub.titulo || pub.id) + '">' + esc((pub.titulo || pub.id).slice(0, 48)) + ((pub.titulo || '').length > 48 ? '…' : '') + '</a>' + (r.publicaciones.length > 1 ? ' <span class="empty-note">(+' + (r.publicaciones.length - 1) + ')</span>' : '') : '<span class="empty-note">—</span>';
       const mg = e.margen == null ? (r.costo == null && r.enBsale ? '<span class="empty-note" title="' + esc(r.motivoCosto || 'Sin costo en Bsale') + '">sin costo</span>' : '—') : '<b style="color:' + (e.margen < 0 ? 'var(--red)' : 'inherit') + ';">' + marca(r.estimado, clp(e.margen)) + '</b>';
       return '<tr><td style="white-space:nowrap;"><input type="checkbox" disabled ' + (r.estadoMl === 'activa' ? 'checked' : '') + ' title="' + (r.estadoMl === 'activa' ? 'Publicado y activo en Mercado Libre' : r.estadoMl === 'pausada' ? 'Publicación pausada' : 'No está en Mercado Libre') + '">' + estado + '</td>' +
         '<td>' + esc(r.sku || '—') + '</td><td>' + esc((r.nombre || '').slice(0, 70)) + '</td><td>' + pubHtml + '</td>' +

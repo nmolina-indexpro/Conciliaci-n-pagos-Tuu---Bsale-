@@ -545,7 +545,7 @@ function tablaEventos(lista, conJob){
       return `<tr>
         <td data-valor="${esc(e.fecha)}">${fmtFecha(e.fecha)}</td>
         ${conJob ? `<td>${esc(e.job || '—')}</td>` : ''}
-        <td>${evento}</td>
+        <td>${esc(evento)}</td>
         <td><span class="badge ${clase}">${esc(sev)}</span></td>
         <td class="det" title="${esc(e.mensaje)}">${esc(detalle)}</td>
       </tr>`;
@@ -651,7 +651,7 @@ async function verInforme(id){
          </div>`
       : `<p class="empty-note">${i.estado === 'pendiente' ? 'Un administrador debe aprobarlo para enviarlo.' : (i.estado === 'enviado' ? 'Este informe ya se envió.' : 'Este informe se marcó como no enviado.')}</p>`;
     cont.innerHTML = `<h3 style="margin:18px 0 4px;font-size:15px;">${esc(i.asunto)}</h3>${acciones}
-      <iframe id="marcoInforme" style="width:100%;height:900px;border:1px solid var(--line);border-radius:12px;background:#eef2f9;" title="Vista previa del informe"></iframe>`;
+      <iframe id="marcoInforme" sandbox="allow-popups allow-popups-to-escape-sandbox" style="width:100%;height:900px;border:1px solid var(--line);border-radius:12px;background:#eef2f9;" title="Vista previa del informe"></iframe>`;
     $('marcoInforme').srcdoc = i.html;
     cont.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }catch(err){

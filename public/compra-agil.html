@@ -521,9 +521,9 @@ function periodoAnteriorEquivalenteCot(desde, hasta){
 // ==================== Compra Ágil (antes página aparte) ====================
 function fmtFechaCompraAgil(iso){ return iso ? new Date(iso).toLocaleDateString('es-CL') : '—'; }
 function badgeEstadoCompraAgil(estado, cuentaComoFacturado){
-  if(!cuentaComoFacturado) return `<span class="badge cancel">${estado || 'Cancelada'}</span>`;
-  if(estado === 'Aceptada' || estado === 'Recepción Conforme') return `<span class="badge si">${estado}</span>`;
-  return `<span class="badge pend">${estado || 'Enviada'}</span>`;
+  if(!cuentaComoFacturado) return `<span class="badge cancel">${escapeHtmlCot(estado || 'Cancelada')}</span>`;
+  if(estado === 'Aceptada' || estado === 'Recepción Conforme') return `<span class="badge si">${escapeHtmlCot(estado)}</span>`;
+  return `<span class="badge pend">${escapeHtmlCot(estado || 'Enviada')}</span>`;
 }
 // La cotización se busca por monto+fecha+nombre del organismo (ver
 // vincularOrdenesCompraAgil en el backend) -- no hay un ID en común entre
@@ -533,13 +533,13 @@ function badgeEstadoCompraAgil(estado, cuentaComoFacturado){
 function celdaCotizacionCompraAgil(o){
   if(!o.cotizacionVinculada) return '<span class="empty-note">—</span>';
   const c = o.cotizacionVinculada;
-  return c.url ? `<a href="${c.url}" target="_blank" rel="noopener" class="doc-link">#${c.numero} ↗</a>` : `#${c.numero}`;
+  return c.url && /^https?:\/\//i.test(c.url) ? `<a href="${escapeHtmlCot(c.url)}" target="_blank" rel="noopener" class="doc-link">#${escapeHtmlCot(c.numero)} ↗</a>` : `#${escapeHtmlCot(c.numero)}`;
 }
 function celdaFacturaCompraAgil(o){
   if(!o.facturaVinculada) return '<span class="empty-note">—</span>';
   const f = o.facturaVinculada;
-  const texto = `${f.tipo || 'Documento'} ${f.numero}`;
-  return f.url ? `<a href="${f.url}" target="_blank" rel="noopener" class="doc-link">${texto} ↗</a>` : texto;
+  const texto = escapeHtmlCot(`${f.tipo || 'Documento'} ${f.numero}`);
+  return f.url && /^https?:\/\//i.test(f.url) ? `<a href="${escapeHtmlCot(f.url)}" target="_blank" rel="noopener" class="doc-link">${texto} ↗</a>` : texto;
 }
 function celdaDiasCompraAgil(o){
   if(o.diasCotizacionFactura === null || o.diasCotizacionFactura === undefined) return '<span class="empty-note">—</span>';
@@ -653,7 +653,7 @@ function renderTablaCompraAgil(){
       <td>${fmtFechaCompraAgil(o.fechaEnvio)}</td>
       <td>${escapeHtmlCot(o.organismo || '—')}</td>
       <td>${celdaVendedorCompraAgil(o)}</td>
-      <td>${o.codigo}</td>
+      <td>${escapeHtmlCot(o.codigo)}</td>
       <td>${badgeEstadoCompraAgil(o.estado, o.cuentaComoFacturado)}</td>
       <td>${celdaHaCompradoCompraAgil(o)}</td>
       <td class="amount">${fmtMoneda(o.total)}</td>
@@ -790,7 +790,7 @@ async function cargarCompraAgil(){
     const res = await fetch('/api/negocio?recurso=compra-agil-ordenes');
     const data = await res.json();
     if(!res.ok || data.error){
-      $('wrapTablaCompraAgil').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar Compra Ágil.'}</p>`;
+      $('wrapTablaCompraAgil').innerHTML = `<p class="empty-note">${escapeHtmlCot(data.error || 'No se pudo cargar Compra Ágil.')}</p>`;
       return;
     }
     ordenesCompraAgil = data.ordenes;
@@ -811,7 +811,7 @@ async function cargarCompraAgil(){
     }
     autoSincronizarSiCorresponde('compraAgil', data.ultimaPasadaCompletaEn, sincronizandoCompraAgil, iniciarSincronizacionCompraAgil);
   }catch(err){
-    $('wrapTablaCompraAgil').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+    $('wrapTablaCompraAgil').innerHTML = `<p class="empty-note">Error: ${escapeHtmlCot(err.message)}</p>`;
   }
 }
 // Encadena llamadas a sync-compra-agil (cada una avanza unos días,
@@ -859,7 +859,7 @@ async function cargarSesionUsuario(){
     const res = await fetch('/api/auth-session');
     if(!res.ok) return;
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtmlCot(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     esAdmin = u.rol === 'admin';

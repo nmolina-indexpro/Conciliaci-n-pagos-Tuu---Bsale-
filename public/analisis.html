@@ -395,7 +395,7 @@ async function cargarSesionUsuario(){
     const u = await res.json();
     rolActual = u.rol;
     nombreActual = u.nombre || u.email || '';
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     if(u.rol === 'admin'){
@@ -418,12 +418,12 @@ async function cargarAnalisis(){
     const res = await fetch('/api/negocio?recurso=analisis-clientes');
     const data = await res.json();
     if(!res.ok || data.error){
-      $('wrapClientesRecurrentes').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar el análisis.'}</p>`;
+      $('wrapClientesRecurrentes').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar el análisis.')}</p>`;
       return;
     }
     renderClientesRecurrentes(data);
   }catch(err){
-    $('wrapClientesRecurrentes').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+    $('wrapClientesRecurrentes').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -643,7 +643,7 @@ async function cargarVariacionPrecio(){
     const res = await fetch(`/api/negocio?recurso=precios-sku-variacion${qs}`);
     const data = await res.json();
     if(!res.ok || data.error){
-      $('wrapVariacionPrecio').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`;
+      $('wrapVariacionPrecio').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar.')}</p>`;
       return;
     }
     variacionPrecioActual = data.variaciones || [];
@@ -652,7 +652,7 @@ async function cargarVariacionPrecio(){
     renderVariacionPrecio();
     autoSincronizarSiCorresponde(data.ultimaSincronizacion);
   }catch(err){
-    $('wrapVariacionPrecio').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+    $('wrapVariacionPrecio').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
   }
 }
 // Poblar el selector con lo que realmente existe en la cuenta -- mismo
@@ -700,13 +700,13 @@ function renderVariacionPrecio(){
     <tr>
       <td><span class="sku-code">${escapeHtml(v.sku)}</span></td>
       <td>${v.categoriaReal ? `<div class="empty-note" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px;">${escapeHtml(v.categoriaReal)}</div>` : ''}${escapeHtml(v.nombre || v.sku)}</td>
-      <td class="amount">${fmtMoneda(v.precioMin)}<div class="empty-note">${v.fechaPrecioMin}</div></td>
-      <td class="amount">${fmtMoneda(v.precioMax)}<div class="empty-note">${v.fechaPrecioMax}</div></td>
+      <td class="amount">${fmtMoneda(v.precioMin)}<div class="empty-note">${escapeHtml(v.fechaPrecioMin)}</div></td>
+      <td class="amount">${fmtMoneda(v.precioMax)}<div class="empty-note">${escapeHtml(v.fechaPrecioMax)}</div></td>
       <td class="amount">${fmtMoneda(v.diferencia)}</td>
       <td class="amount">${fmtNum(v.diferenciaPct)}%</td>
       <td class="amount">${fmtMoneda(v.precioActual)}</td>
       <td class="amount">${fmtNum(v.cantidadVentas)}</td>
-      <td>${esAdmin ? `<button class="btn-icono" title="Sacar de este análisis" onclick="eliminarVariacionPrecioSku('${v.sku}')">🗑️</button>` : ''}</td>
+      <td>${esAdmin ? `<button class="btn-icono" title="Sacar de este análisis" onclick="eliminarVariacionPrecioSku(${escapeHtml(JSON.stringify(v.sku))})">🗑️</button>` : ''}</td>
     </tr>`).join('');
   $('wrapVariacionPrecio').innerHTML = `
     <div class="tabla-wrap"><table>
@@ -851,7 +851,7 @@ function mostrarDetalle(clave, titulo){
           <tbody>
             ${clientes.map(c => `<tr>
               <td>${c.empresa ? escapeHtml(c.empresa) : '<span class="empty-note">—</span>'}</td>
-              <td>${c.clienteNombre ? escapeHtml(c.clienteNombre) : `Cliente #${c.clienteId}`}</td>
+              <td>${c.clienteNombre ? escapeHtml(c.clienteNombre) : `Cliente #${escapeHtml(c.clienteId)}`}</td>
               <td>${c.rut ? escapeHtml(c.rut) : '<span class="empty-note">—</span>'}</td>
               <td class="amount">${fmtNum(c.numCompras)}</td>
               <td class="amount"><b>${fmtMoneda(c.montoTotal)}</b></td>
@@ -872,7 +872,7 @@ function mostrarDetalle(clave, titulo){
                 ? `<select class="selectEstado" onchange="cambiarEstadoAnalisis(${c.clienteId}, this.value)">
                      ${Object.entries(ESTADOS_ANALISIS_LABEL).map(([v,l])=>`<option value="${v}" ${c.estado===v?'selected':''}>${l}</option>`).join('')}
                    </select>`
-                : (ESTADOS_ANALISIS_LABEL[c.estado] || c.estado)}</td>
+                : (ESTADOS_ANALISIS_LABEL[c.estado] || escapeHtml(c.estado))}</td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -1013,7 +1013,7 @@ async function cargarHorarioExtendido(){
     const res = await fetch(`/api/negocio?recurso=ventas-horario-extendido&desde=${desde}&hasta=${hasta}`);
     const data = await res.json();
     if(!res.ok || data.error){
-      $('wrapHorarioExtendido').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`;
+      $('wrapHorarioExtendido').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar.')}</p>`;
       return;
     }
 
@@ -1058,7 +1058,7 @@ async function cargarHorarioExtendido(){
       </table></div>
     `;
   }catch(err){
-    $('wrapHorarioExtendido').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+    $('wrapHorarioExtendido').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
   }
 }
 

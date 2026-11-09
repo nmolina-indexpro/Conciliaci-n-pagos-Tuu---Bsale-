@@ -417,7 +417,7 @@ function fpRepintar(){
       <td class="amount" data-valor="${f.mesesStock ?? ''}">${f.mesesStock != null ? fmtNum(f.mesesStock, 1) + ' m' : '<span class="empty-note">—</span>'}</td>
       <td class="amount fp-proy" data-valor="${proyUnid ?? ''}">${proyUnid != null ? fmtNum(proyUnid, 1) : '<span class="empty-note">—</span>'}</td>
       <td class="amount fp-proy" data-valor="${proyMeses ?? ''}">${proyMeses != null ? fmtNum(proyMeses, 1) + ' m' : '<span class="empty-note">—</span>'}</td>
-      <td style="min-width:130px;"><button class="btn-ghost btn-compact" onclick="simular('${escapeHtml(f.sku)}')">📉 Simular precio</button></td>
+      <td style="min-width:130px;"><button class="btn-ghost btn-compact" onclick="simular(${escapeHtml(JSON.stringify(f.sku))})">📉 Simular precio</button></td>
     </tr>`;
   };
   $('fpTabla').innerHTML = `<table>

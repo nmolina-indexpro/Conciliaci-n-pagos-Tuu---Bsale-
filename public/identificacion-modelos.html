@@ -350,6 +350,8 @@ function escapeHtml(texto){
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+// href/src de datos externos: solo http(s) o ruta relativa
+function urlSegura(u){ u = String(u ?? '').trim(); return /^(https?:[/][/]|[/](?![/]))/i.test(u) ? u : ''; }
 
 let rolActual = 'usuario';
 let modelosCargados = [];
@@ -361,7 +363,7 @@ async function cargarSesionUsuario(){
     if(!res.ok) return;
     const u = await res.json();
     rolActual = u.rol;
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     if(u.rol === 'admin'){
@@ -639,7 +641,7 @@ function celdaProductoCompat(m){
   if(!m.skuCompatible) return '<span class="empty-note">—</span>';
   const info = catalogoSku[m.skuCompatible];
   const nombre = escapeHtml(m.productoCompatible || (info && info.titulo) || m.skuCompatible);
-  return info && info.url ? `<a href="${escapeHtml(info.url)}" target="_blank" rel="noopener">${nombre}</a>` : nombre;
+  return info && info.url ? `<a href="${escapeHtml(urlSegura(info.url))}" target="_blank" rel="noopener">${nombre}</a>` : nombre;
 }
 
 let listaSkuModeloId = null;
@@ -724,15 +726,15 @@ function renderTabla(){
     <tr>
       <td><b>${escapeHtml(m.marca)}</b></td>
       <td>${escapeHtml(m.modelo)}</td>
-      <td><span class="badge-nivel n${m.complejidad}">${NIVEL_LABEL[m.complejidad] || m.complejidad}</span></td>
+      <td><span class="badge-nivel n${escapeHtml(m.complejidad)}">${NIVEL_LABEL[m.complejidad] || escapeHtml(m.complejidad)}</span></td>
       <td class="notas">${m.notas ? escapeHtml(m.notas) : '<span class="empty-note">—</span>'}</td>
-      <td>${m.imagenBase64 ? `<img class="miniatura" src="${m.imagenBase64}" onclick="abrirLightbox('${m.imagenBase64}')">` : '<span class="empty-note">—</span>'}</td>
+      <td>${m.imagenBase64 ? `<img class="miniatura" src="${escapeHtml(m.imagenBase64)}" onclick="abrirLightbox(${escapeHtml(JSON.stringify(String(m.imagenBase64)))})">` : '<span class="empty-note">—</span>'}</td>
       <td data-valor="${escapeHtml(m.skuCompatible || '')}">${celdaSkuCompat(m)}</td>
       <td class="producto-compat" data-valor="${escapeHtml(m.productoCompatible || '')}">${celdaProductoCompat(m)}</td>
       <td class="quien">${escapeHtml(m.actualizadoPor || '—')}<br>${fmtFechaCorta(m.updatedAt)}</td>
       <td>
         <button type="button" class="btn-icono" title="Editar" onclick="editarModelo(${m.id})">✏️</button>
-        <button type="button" class="btn-icono peligro" title="Eliminar" onclick="eliminarModelo(${m.id}, '${escapeHtml(m.marca).replace(/'/g,"\\'")}', '${escapeHtml(m.modelo).replace(/'/g,"\\'")}')">🗑️</button>
+        <button type="button" class="btn-icono peligro" title="Eliminar" onclick="eliminarModelo(${m.id}, ${escapeHtml(JSON.stringify(String(m.marca)))}, ${escapeHtml(JSON.stringify(String(m.modelo)))})">🗑️</button>
       </td>
     </tr>`).join('');
   wrap.innerHTML = `

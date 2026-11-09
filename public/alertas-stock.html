@@ -403,6 +403,9 @@ function toggleSeccion(id){
 }
 
 // ---------- Utilidades genéricas de tabla (orden, filtro categoría, resumen) ----------
+function escapeHtml(texto){
+  return String(texto ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 function ordenarFilas(filas, col, asc){
   if(!col) return filas;
   return [...filas].sort((a,b)=>{
@@ -422,7 +425,7 @@ function filtrarPorCategoria(filas, categoria){
 function selectCategoriaHtml(stateKey, valorActual){
   return `<select onclick="event.stopPropagation()" onchange="cambiarCategoriaSeccion('${stateKey}', this.value)">
     <option value="">Todas las categorías</option>
-    ${categoriasDisponibles.map(c=>`<option value="${c}" ${c===valorActual?'selected':''}>${c}</option>`).join('')}
+    ${categoriasDisponibles.map(c=>`<option value="${escapeHtml(c)}" ${c===valorActual?'selected':''}>${escapeHtml(c)}</option>`).join('')}
   </select>`;
 }
 function renderTablaSeccion(containerId, stateKey, columnas, filasOriginales, rowClassFn){
@@ -452,7 +455,7 @@ function renderTablaSeccion(containerId, stateKey, columnas, filasOriginales, ro
 
   const tbody = mostrar.map(f=>`<tr class="${rowClassFn?rowClassFn(f):''}">${columnas.map(c=>{
     const clases = [c.align==='amount'?'amount':'', c.soloAdmin?'solo-admin':''].filter(Boolean).join(' ');
-    return `<td class="${clases}">${c.render ? c.render(f) : (f[c.key] ?? '—')}</td>`;
+    return `<td class="${clases}">${c.render ? c.render(f) : escapeHtml(f[c.key] ?? '—')}</td>`;
   }).join('')}</tr>`).join('');
 
   $(containerId).innerHTML = controles + `<div class="tabla-wrap"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
@@ -479,7 +482,7 @@ async function cargarSesionUsuario(){
     if(!res.ok) return;
     const u = await res.json();
     rolActual = u.rol;
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     aplicarRestriccionMargenes(u.rol);
@@ -519,7 +522,7 @@ async function cargar(){
     categoriasDisponibles = res.categorias || [];
 
     const dl = $('listaSkusDatalist');
-    dl.innerHTML = datosSkus.map(s => `<option value="${s.code}">${s.nombre}</option>`).join('');
+    dl.innerHTML = datosSkus.map(s => `<option value="${escapeHtml(s.code)}">${escapeHtml(s.nombre)}</option>`).join('');
 
     let avisos = '';
     if(res.ventasTruncadas) avisos += `<div class="note-box">⚠ El movimiento es grande y se truncó la consulta — los números pueden estar incompletos. Prueba con un período más corto.</div>`;
@@ -610,7 +613,7 @@ function renderQuiebrePerdida(){
     { key:'ventaDiariaPromedio', label:'Venta diaria', align:'amount' },
     { key:'margenPerdidoPorQuiebre', label:'Margen perdido est.', align:'amount', soloAdmin:true, render:f=>f.margenPerdidoPorQuiebre!=null?fmt(f.margenPerdidoPorQuiebre):'—' },
     { key:'sugerencia7', label:'Sugerencia 7d', align:'amount' },
-    { key:'accion', label:'', sortKey:'code', render:f=>`<button class="btn-ghost btn-compact" onclick="objetarQuiebre('${f.code}')">💬 Objetar</button>` },
+    { key:'accion', label:'', sortKey:'code', render:f=>`<button class="btn-ghost btn-compact" onclick="objetarQuiebre(${escapeHtml(JSON.stringify(f.code))})">💬 Objetar</button>` },
   ], base, f => f.stockActual===0 ? 'quiebre' : '');
 }
 
@@ -678,7 +681,7 @@ function renderCriticosSeccion(){
     { key:'stock', label:'Stock actual', align:'amount', render:f=>f.stock ?? '—' },
     { key:'cobertura', label:'Cobertura', align:'amount', render:f=>f.cobertura!=null?f.cobertura+' d':'—' },
     { key:'ordenEstado', label:'Estado', render:f=>`<span class="badge ${f.estado.clase}">${f.estado.texto}</span>` },
-    { key:'accion', label:'Acción', sortKey:'ordenEstado', render:f=>f.esManual?`<button class="btn-ghost btn-compact" onclick="quitarCritico('${f.code}')">Quitar</button>`:'<span class="empty-note">—</span>' },
+    { key:'accion', label:'Acción', sortKey:'ordenEstado', render:f=>f.esManual?`<button class="btn-ghost btn-compact" onclick="quitarCritico(${escapeHtml(JSON.stringify(f.code))})">Quitar</button>`:'<span class="empty-note">—</span>' },
   ], filas, f => f.estado.clase==='quiebre' ? 'quiebre' : (f.estado.clase==='riesgo' ? 'riesgo' : ''));
 }
 
@@ -694,13 +697,13 @@ async function agregarCritico(){
       body: JSON.stringify({ code: codeInput, nombre: skuInfo?.nombre || codeInput })
     });
     const data = await res.json();
-    if(!res.ok){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${data.error}</div>`; return; }
+    if(!res.ok){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${escapeHtml(data.error)}</div>`; return; }
     $('fCriticoCode').value = '';
     const listaRes = await fetch('/api/negocio?recurso=criticos').then(r=>r.json());
     criticosManual = listaRes.productos || [];
     renderCriticosSeccion(); renderKpis();
   }catch(err){
-    errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${err.message}</div>`;
+    errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${escapeHtml(err.message)}</div>`;
   }
 }
 async function quitarCritico(code){

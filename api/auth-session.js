@@ -7,13 +7,14 @@
 // GET    -> devuelve quién está conectado (antes /api/auth-me)
 // DELETE -> cierra la sesión (antes /api/auth-logout)
 
-import { usuarioDesdeRequest, cookieSesion } from '../lib/auth-node.js';
+import { cookieSesion } from '../lib/auth-node.js';
+import { sesionVigente } from '../lib/seguridad.js';
 import { getSql } from '../lib/db.js';
 import { paginasEfectivas } from '../lib/paginas-perfil.js';
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
-    const sesion = usuarioDesdeRequest(req);
+    const sesion = await sesionVigente(req); // rol y estado actuales: una cuenta desactivada o vencida deja de tener sesión
     if (!sesion) return res.status(401).json({ error: 'No hay sesión activa' });
 
     // Mismo motivo que en middleware.ts: no confiar en la foto de "paginas"

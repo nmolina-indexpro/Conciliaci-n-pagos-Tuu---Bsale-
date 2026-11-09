@@ -176,6 +176,30 @@ async function verificarSesionEdge(token, secret) {
   }
 }
 
+// Estado ACTUAL del usuario (activo / vencimiento). El token dura 7 días: sin esto, una cuenta desactivada o vencida seguiría entrando hasta
+// que expire el token. Caché corta por instancia para no consultar la base en cada llamada; si la consulta falla se deja pasar (mismo
+// criterio que el perfil de páginas más abajo: una caída de la base no debe dejar a todos afuera).
+const estadoUsuarios = new Map();
+async function usuarioSigueVigente(uid) {
+  if (!uid) return true;
+  const ahora = Date.now();
+  const c = estadoUsuarios.get(uid);
+  if (c && ahora < c.vence) return c.vigente;
+  let vigente = true;
+  let ok = true;
+  try {
+    const sql = await getSql();
+    const { rows } = await sql`SELECT activo, expira_en FROM usuarios WHERE id = ${uid};`;
+    const f = rows[0];
+    vigente = Boolean(f && f.activo && !(f.expira_en && new Date(f.expira_en).getTime() <= ahora));
+  } catch {
+    ok = false;
+  }
+  if (estadoUsuarios.size > 500) estadoUsuarios.clear();
+  estadoUsuarios.set(uid, { vigente, vence: ahora + (ok ? 60000 : 10000) });
+  return vigente;
+}
+
 export default async function middleware(req) {
   const url = new URL(req.url);
   const { pathname } = url;
@@ -217,6 +241,18 @@ export default async function middleware(req) {
     const destino = new URL('/login.html', req.url);
     destino.searchParams.set('next', pathname);
     return Response.redirect(destino, 302);
+  }
+  if (!(await usuarioSigueVigente(sesion.uid))) {
+    if (pathname.startsWith('/api/')) {
+      return new Response(JSON.stringify({ error: 'La cuenta está desactivada o venció' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json', 'Set-Cookie': 'session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' },
+      });
+    }
+    return new Response(null, {
+      status: 302,
+      headers: { Location: new URL('/login.html', req.url).toString(), 'Set-Cookie': 'session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' },
+    });
   }
   // Perfil de acceso a páginas (ver lib/db.js -> asegurarTablaPerfiles).
   // Solo aplica a navegación de páginas .html -- no a assets (css/js/

@@ -431,7 +431,7 @@ function puntajeEfecto(p){
 }
 
 // ---------- Frecuencia de venta y simulador de precio (public/simulador-precio.js) ----------
-const celdaSimulador = p => `<td style="min-width:120px;"><button class="btn-ghost btn-compact" title="Cada cuántos días vende y cuánto podría subir con otro precio" onclick="abrirSimuladorSku('${escapeHtml(p.sku)}')">📉 Simular precio</button></td>`;
+const celdaSimulador = p => `<td style="min-width:120px;"><button class="btn-ghost btn-compact" title="Cada cuántos días vende y cuánto podría subir con otro precio" onclick="abrirSimuladorSku(${escapeHtml(JSON.stringify(p.sku))})">📉 Simular precio</button></td>`;
 function abrirSimuladorSku(sku){
   const p = buscarProductoPorSku(sku) || {};
   const esAdmin = rolActual === 'admin';
@@ -453,8 +453,8 @@ function celdaShopify(sku){
   if(urlsShopifyPorSku === null) return '<span class="empty-note">cargando…</span>';
   const e = urlsShopifyPorSku[sku];
   if(!e) return `<span class="empty-note" title="${escapeHtml(errorShopifyUrls || 'Este SKU no existe en Shopify')}">${errorShopifyUrls ? 'No disponible' : 'Sin ficha'}</span>`;
-  const tienda = e.url ? `<a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(e.url)}">🔗 Ver en tienda</a>` : '';
-  const admin = `<a href="${escapeHtml(e.adminUrl)}" target="_blank" rel="noopener noreferrer" class="empty-note" style="font-size:11px;" title="Abrir en el admin de Shopify">${e.url ? 'admin' : (e.status && e.status !== 'active' ? 'No publicado (' + escapeHtml(e.status) + ') · admin' : 'Sin página pública · admin')}</a>`;
+  const tienda = e.url && /^https?:\/\//i.test(e.url) ? `<a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(e.url)}">🔗 Ver en tienda</a>` : '';
+  const admin = `<a href="${escapeHtml(/^https?:\/\//i.test(e.adminUrl || '') ? e.adminUrl : '#')}" target="_blank" rel="noopener noreferrer" class="empty-note" style="font-size:11px;" title="Abrir en el admin de Shopify">${e.url ? 'admin' : (e.status && e.status !== 'active' ? 'No publicado (' + escapeHtml(e.status) + ') · admin' : 'Sin página pública · admin')}</a>`;
   return `<div style="display:flex;flex-direction:column;gap:2px;">${tienda}${admin}</div>`;
 }
 async function cargarUrlsShopify(){
@@ -480,7 +480,7 @@ async function cargarVentasBaja(){
     ]);
     const data = await resVentas.json();
     if(!resVentas.ok || data.error){
-      $('wrapVentasBaja').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`;
+      $('wrapVentasBaja').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar.')}</p>`;
       return;
     }
     const stockData = await resStock.json().catch(() => ({ skus: [] }));
@@ -592,7 +592,7 @@ async function cargarVentasBaja(){
     renderResumenMermas(data.mermas);
     autoSincronizarSiCorresponde(data.ultimaSincronizacion);
   }catch(err){
-    $('wrapVentasBaja').innerHTML = `<p class="empty-note">Error: ${err.message}</p>`;
+    $('wrapVentasBaja').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -728,7 +728,7 @@ function celdasCambioEnvio(c){
   const dif = c.unidades - c.antes_unidades;
   const cls = c.unidades > 0 ? 'color:#12713a;font-weight:700;' : (pronto ? 'color:#8a5a00;' : 'color:#a11d1d;font-weight:700;');
   const flecha = c.unidades > c.antes_unidades ? ' ▲' : (c.unidades < c.antes_unidades ? ' ▼' : '');
-  return '<td data-valor="' + escapeHtml(c.desde) + '">' + escapeHtml(que) + '<br><span class="sub">' + fecha + (c.por ? ' · ' + escapeHtml(c.por) : '') + '</span></td>' +
+  return '<td data-valor="' + escapeHtml(c.desde) + '">' + escapeHtml(que) + '<br><span class="sub">' + escapeHtml(fecha) + (c.por ? ' · ' + escapeHtml(c.por) : '') + '</span></td>' +
     '<td data-valor="' + c.unidades + '"><span style="' + cls + '">' + fmtNum(c.unidades) + ' un.</span> en ' + dias + (dias === 1 ? ' día' : ' días') + flecha +
     '<br><span class="sub">antes: ' + fmtNum(c.antes_unidades) + ' un. en ' + (dias === 1 ? 'el día previo' : 'los ' + dias + ' días previos') + (pronto ? ' · aún es pronto para concluir' : '') + '</span></td>';
 }
@@ -803,7 +803,7 @@ async function cargarVariacionPrecio(){
           ? '<td data-valor="' + x.unidades + '"><span style="color:' + v.color + ';font-weight:700;">' + fmtNum(x.unidades) + ' un.</span> en ' + dias + (dias === 1 ? ' día' : ' días') + (x.unidades > x.antes_unidades ? ' ▲' : (x.unidades < x.antes_unidades ? ' ▼' : '')) + '<br><span class="sub">antes: ' + fmtNum(x.antes_unidades) + ' un. en ' + (dias === 1 ? 'el día previo' : 'los ' + dias + ' días previos') + '</span></td>'
           : '<td data-valor=""><span class="sub" title="Se marcó antes de que el ERP guardara el historial de cambios: desmárcalo y vuelve a marcarlo para medirlo">—</span></td>';
         return '<tr><td><b>' + escapeHtml(x.sku) + '</b></td><td>' + escapeHtml(x.nombre || '') + '</td>' + celdaStockEnvio(stockSku[x.sku]) +
-          '<td data-valor="' + escapeHtml(x.desde || '') + '">' + (fecha || '<span class="sub">Sin registro</span>') + (x.por ? '<br><span class="sub">' + escapeHtml(x.por) + '</span>' : '') + '</td>' +
+          '<td data-valor="' + escapeHtml(x.desde || '') + '">' + (fecha ? escapeHtml(fecha) : '<span class="sub">Sin registro</span>') + (x.por ? '<br><span class="sub">' + escapeHtml(x.por) + '</span>' : '') + '</td>' +
           celdaPrecioVariacion(x.precio) + pv + un + '<td data-valor="' + v.orden + '"><span style="color:' + v.color + ';font-weight:700;">' + v.texto + '</span></td></tr>';
       }).join('') + '</tbody></table></div>';
   }catch(err){ wrap.innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; }
@@ -979,7 +979,7 @@ function renderVentasBaja(){
   const celdaDias = p => p.nuncaVendido
     ? '<span class="badge-caida">Nunca</span>'
     : `<span class="badge-caida">${fmtNum(p.diasDesdeUltimaVenta)} d</span>`;
-  const checkFlag = (p, campo, etiqueta) => `<label class="chk-mini"><input type="checkbox" ${p[campo] ? 'checked' : ''} onchange="toggleVentaBajaFlag('${p.sku}','${campo}',this.checked)"> ${etiqueta}</label>`;
+  const checkFlag = (p, campo, etiqueta) => `<label class="chk-mini"><input type="checkbox" ${p[campo] ? 'checked' : ''} onchange="toggleVentaBajaFlag(${escapeHtml(JSON.stringify(p.sku))},'${campo}',this.checked)"> ${etiqueta}</label>`;
   $('wrapVentasBaja').innerHTML = `
     <div class="tabla-wrap"><table>
       <thead><tr>
@@ -1018,8 +1018,8 @@ function renderVentasBaja(){
                 ${checkFlag(p, 'variacionPrecio', '💲 Variación de precio')}
               </div>
               <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
-                <button class="btn-icono" title="${p.comentario ? 'Comentario: ' + escapeHtml(p.comentario) : 'Sin comentario — clic para agregar'}" onclick="editarComentarioVentaBaja('${p.sku}')">📝</button>
-                ${esAdmin ? `<button class="btn-icono" title="Marcar como merma (sacar de este análisis)" onclick="eliminarVentaBajaSku('${p.sku}')">🗑️</button>` : ''}
+                <button class="btn-icono" title="${p.comentario ? 'Comentario: ' + escapeHtml(p.comentario) : 'Sin comentario — clic para agregar'}" onclick="editarComentarioVentaBaja(${escapeHtml(JSON.stringify(p.sku))})">📝</button>
+                ${esAdmin ? `<button class="btn-icono" title="Marcar como merma (sacar de este análisis)" onclick="eliminarVentaBajaSku(${escapeHtml(JSON.stringify(p.sku))})">🗑️</button>` : ''}
                 ${p.comentario ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.comentario)}</span>` : ''}
               </div>
             </td>
@@ -1067,7 +1067,7 @@ function renderResultadosBusqueda(totalCoincidencias){
     return;
   }
   const esAdmin = rolActual === 'admin';
-  const checkFlag = (p, campo, etiqueta) => `<label class="chk-mini"><input type="checkbox" ${p[campo] ? 'checked' : ''} onchange="toggleVentaBajaFlag('${p.sku}','${campo}',this.checked)"> ${etiqueta}</label>`;
+  const checkFlag = (p, campo, etiqueta) => `<label class="chk-mini"><input type="checkbox" ${p[campo] ? 'checked' : ''} onchange="toggleVentaBajaFlag(${escapeHtml(JSON.stringify(p.sku))},'${campo}',this.checked)"> ${etiqueta}</label>`;
   cont.innerHTML = `
     <div class="sub" style="margin:10px 0 8px;">${fmtNum(resultadosBusqueda.length)}${totalCoincidencias > resultadosBusqueda.length ? ` de ${fmtNum(totalCoincidencias)}` : ''} producto(s) encontrado(s) -- no necesariamente estancados, para poder marcarlos igual.</div>
     <div class="tabla-wrap"><table>
@@ -1092,8 +1092,8 @@ function renderResultadosBusqueda(totalCoincidencias){
                 ${checkFlag(p, 'variacionPrecio', '💲 Variación de precio')}
               </div>
               <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
-                <button class="btn-icono" title="${p.comentario ? 'Comentario: ' + escapeHtml(p.comentario) : 'Sin comentario — clic para agregar'}" onclick="editarComentarioVentaBaja('${p.sku}')">📝</button>
-                ${esAdmin ? `<button class="btn-icono" title="Marcar como merma (sacar de este análisis)" onclick="eliminarVentaBajaSku('${p.sku}')">🗑️</button>` : ''}
+                <button class="btn-icono" title="${p.comentario ? 'Comentario: ' + escapeHtml(p.comentario) : 'Sin comentario — clic para agregar'}" onclick="editarComentarioVentaBaja(${escapeHtml(JSON.stringify(p.sku))})">📝</button>
+                ${esAdmin ? `<button class="btn-icono" title="Marcar como merma (sacar de este análisis)" onclick="eliminarVentaBajaSku(${escapeHtml(JSON.stringify(p.sku))})">🗑️</button>` : ''}
                 ${p.comentario ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.comentario)}</span>` : ''}
               </div>
             </td>
@@ -1161,7 +1161,7 @@ function renderResumenMermas(mermas){
   const cont = $('resumenMermas');
   if(!cont) return;
   if(rolActual !== 'admin' || !mermas || !mermas.cantidad){ cont.innerHTML = ''; return; }
-  const nombreCategoria = clave => clave === 'otros' ? 'Otros / sin categoría' : (CATEGORIA_VENTA_BAJA_LABEL[clave] || clave);
+  const nombreCategoria = clave => clave === 'otros' ? 'Otros / sin categoría' : (CATEGORIA_VENTA_BAJA_LABEL[clave] || escapeHtml(clave));
   const tarjetasCategoria = mermas.porCategoria.map(c => `
     <div class="card">
       <div class="lbl">${nombreCategoria(c.categoria)}</div>

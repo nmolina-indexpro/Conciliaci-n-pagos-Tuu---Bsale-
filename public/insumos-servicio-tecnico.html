@@ -332,7 +332,7 @@ async function cargarSesionUsuario(){
     const res = await fetch('/api/auth-session');
     if(!res.ok) return;
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     if(u.rol === 'admin'){
@@ -449,12 +449,16 @@ async function guardarConfigInsumo(sku, cambios){
   return d;
 }
 async function cambiarRelevancia(sku, valor){
+  // Optimista: la lista se reordena al instante y el servidor lo confirma después; si falla, vuelve a la relevancia anterior.
+  const anterior = (configInsumos[sku] || {}).relevancia || null;
+  configInsumos[sku] = { ...(configInsumos[sku] || {}), relevancia: valor || null };
+  renderInsumos();
   try{
     await guardarConfigInsumo(sku, { relevancia: valor || null });
     const r = RELEVANCIAS.find(x => x.id === valor);
     avisoInsumo(r ? sku + ': ' + r.texto : sku + ': relevancia sin definir');
     renderInsumos();
-  }catch(err){ avisoInsumo('No se pudo guardar: ' + err.message); renderInsumos(); }
+  }catch(err){ configInsumos[sku] = { ...(configInsumos[sku] || {}), relevancia: anterior }; avisoInsumo('No se pudo guardar: ' + err.message); renderInsumos(); }
 }
 async function guardarComentarioInsumo(sku, input){
   const texto = input.value.trim();
@@ -550,8 +554,8 @@ function textoEnCamino(c){
 function celdaCritico(sku){
   const c = configInsumos[sku] || {}, crit = !!c.critico;
   const pie = crit && c.criticoPor ? 'Lo marcó ' + c.criticoPor + (c.criticoEn ? ' · ' + new Date(c.criticoEn).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '') : 'Márcalo cuando quede poco: compras recibe un aviso por correo';
-  return '<label class="crit-lbl" title="' + escapeHtml(pie) + '"><input type="checkbox" ' + (crit ? 'checked' : '') + ' onchange="marcarCritico(\'' + escapeHtml(sku) + '\', this)"> ⚠ Crítico</label>' +
-    (crit ? '<div class="crit-sug">Comprar <input type="number" min="1" step="1" value="' + (c.sugerencia ?? '') + '" onchange="cambiarSugerencia(\'' + escapeHtml(sku) + '\', this)" title="Unidades que recomiendas comprar"> un.</div>' + textoEnCamino(c) : '');
+  return '<label class="crit-lbl" title="' + escapeHtml(pie) + '"><input type="checkbox" ' + (crit ? 'checked' : '') + ' onchange="marcarCritico(' + escapeHtml(JSON.stringify(String(sku))) + ', this)"> ⚠ Crítico</label>' +
+    (crit ? '<div class="crit-sug">Comprar <input type="number" min="1" step="1" value="' + escapeHtml(c.sugerencia ?? '') + '" onchange="cambiarSugerencia(' + escapeHtml(JSON.stringify(String(sku))) + ', this)" title="Unidades que recomiendas comprar"> un.</div>' + textoEnCamino(c) : '');
 }
 // Columna Compra: quien compra marca "Comprado" y la fecha estimada de llegada
 async function putCompra(sku, cuerpo){
@@ -602,9 +606,9 @@ async function cambiarLlegada(sku, input){
 function celdaCompra(sku){
   const c = configInsumos[sku] || {};
   if(!c.critico) return '<span class="empty-note" title="Solo los insumos en stock crítico tienen compra">—</span>';
-  const s = escapeHtml(sku);
-  return '<label class="comp-lbl"><input type="checkbox" ' + (c.comprado ? 'checked' : '') + ' onchange="marcarComprado(\'' + s + '\', this)"> 📦 Comprado</label>' +
-    '<div class="comp-fecha">Llega <input type="date" value="' + escapeHtml(c.llegada || '') + '" onchange="cambiarLlegada(\'' + s + '\', this)" title="Fecha estimada de llegada"></div>' +
+  const s = escapeHtml(JSON.stringify(String(sku)));
+  return '<label class="comp-lbl"><input type="checkbox" ' + (c.comprado ? 'checked' : '') + ' onchange="marcarComprado(' + s + ', this)"> 📦 Comprado</label>' +
+    '<div class="comp-fecha">Llega <input type="date" value="' + escapeHtml(c.llegada || '') + '" onchange="cambiarLlegada(' + s + ', this)" title="Fecha estimada de llegada"></div>' +
     (c.comprado && c.compradoPor ? '<div class="comp-quien">Lo compró ' + escapeHtml(c.compradoPor) + '</div>' : '');
 }
 
@@ -660,13 +664,13 @@ function iniciarEstadoInsumos(){
 
 function selectRelevancia(sku){
   const act = relevanciaDe(sku);
-  return '<select class="sel-relev ' + (act || 'sin') + '" onchange="cambiarRelevancia(\'' + escapeHtml(sku) + '\', this.value)" title="Qué tan importante es tener stock de este insumo">' +
+  return '<select class="sel-relev ' + (act || 'sin') + '" onchange="cambiarRelevancia(' + escapeHtml(JSON.stringify(String(sku))) + ', this.value)" title="Qué tan importante es tener stock de este insumo">' +
     '<option value="">— sin definir —</option>' + RELEVANCIAS.map(r => '<option value="' + r.id + '" ' + (r.id === act ? 'selected' : '') + '>' + r.icono + ' ' + r.texto + '</option>').join('') + '</select>';
 }
 function inputComentario(sku){
   const c = configInsumos[sku] || {};
   const pie = c.comentario && c.por ? 'Último cambio: ' + c.por + (c.en ? ' · ' + new Date(c.en).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '') : 'Escribe un comentario y pulsa Enter o sal del campo para guardarlo';
-  return '<input type="text" class="inp-coment" maxlength="500" value="' + escapeHtml(c.comentario || '') + '" placeholder="Comentario…" title="' + escapeHtml(pie) + '" onchange="guardarComentarioInsumo(\'' + escapeHtml(sku) + '\', this)" onkeydown="if(event.key===\'Enter\') this.blur()">';
+  return '<input type="text" class="inp-coment" maxlength="500" value="' + escapeHtml(c.comentario || '') + '" placeholder="Comentario…" title="' + escapeHtml(pie) + '" onchange="guardarComentarioInsumo(' + escapeHtml(JSON.stringify(String(sku))) + ', this)" onkeydown="if(event.key===\'Enter\') this.blur()">';
 }
 
 function renderInsumos(){
@@ -705,14 +709,14 @@ function renderInsumos(){
       <td class="servicio">${escapeHtml(s.nombre)}<br><span class="sku-code">SKU: ${escapeHtml(s.code)}</span></td>
       <td class="mes">${selectRelevancia(s.code)}</td>
       <td class="mes amount">${fmtNum(s.stockActual)}</td>
-      <td class="mes amount">${s.fechaUltimaCompra || '—'}</td>
+      <td class="mes amount">${escapeHtml(s.fechaUltimaCompra || '—')}</td>
       <td class="mes amount">${s.ultimoCosto != null ? fmtMoneda(s.ultimoCosto) : '—'}</td>
       <td class="mes amount">${s.proveedor ? escapeHtml(s.proveedor) : '—'}</td>
-      <td class="mes amount">${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkInsumo('${escapeHtml(s.code)}')">✏️</button></td>
+      <td class="mes amount">${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkInsumo(${escapeHtml(JSON.stringify(String(s.code)))})">✏️</button></td>
       <td class="mes">${celdaCritico(s.code)}</td>
       <td class="mes">${celdaCompra(s.code)}</td>
       <td class="mes">${inputComentario(s.code)}</td>
-      <td class="mes"><button class="btn-icono btn-basura" title="Eliminar este insumo de la lista (definitivo)" onclick="eliminarInsumo('${escapeHtml(s.code)}')">🗑️</button></td>
+      <td class="mes"><button class="btn-icono btn-basura" title="Eliminar este insumo de la lista (definitivo)" onclick="eliminarInsumo(${escapeHtml(JSON.stringify(String(s.code)))})">🗑️</button></td>
     </tr>`;
   }).join('');
   $('wrapInsumos').innerHTML = `

@@ -402,7 +402,7 @@ function renderAnexos(res){
   if(!res.porAnexo.length){ $('wrapAnexos').innerHTML = '<p class="empty-note">Sin llamadas en este período.</p>'; return; }
   const filas = res.porAnexo.map(a => {
     const asign = esAdmin
-      ? `<select onchange="asignarAnexo('${esc(a.anexo)}', this.value)"><option value="">Sin asignar</option>${res.usuarios.map(u => `<option value="${u.id}" ${(res.anexos.find(x=>x.anexo===a.anexo)||{}).usuarioId === u.id ? 'selected' : ''}>${esc(u.nombre)}</option>`).join('')}</select>`
+      ? `<select onchange="asignarAnexo(${esc(JSON.stringify(String(a.anexo)))}, this.value)"><option value="">Sin asignar</option>${res.usuarios.map(u => `<option value="${u.id}" ${(res.anexos.find(x=>x.anexo===a.anexo)||{}).usuarioId === u.id ? 'selected' : ''}>${esc(u.nombre)}</option>`).join('')}</select>`
       : esc(a.vendedor || 'Sin asignar');
     return `<tr>
       <td><b>${esc(a.anexo)}</b></td>
@@ -491,7 +491,7 @@ async function importarLlamadas(){
       return;
     }
     const ej = (res.ejemplosInvalidas || []).map(i => `línea ${i.linea}: ${esc(i.motivo)}`).join('<br>');
-    out.innerHTML = `<div class="note-box ok"><b>Listo.</b> ${fmtNum(res.leidas)} llamadas leídas (${res.desde} al ${res.hasta}): <b>${fmtNum(res.nuevas)} nuevas</b>, ${fmtNum(res.duplicadas)} ya estaban${res.invalidas ? `, ${fmtNum(res.invalidas)} con errores` : ''}.${ej ? '<br>' + ej : ''}</div>`;
+    out.innerHTML = `<div class="note-box ok"><b>Listo.</b> ${fmtNum(res.leidas)} llamadas leídas (${esc(res.desde)} al ${esc(res.hasta)}): <b>${fmtNum(res.nuevas)} nuevas</b>, ${fmtNum(res.duplicadas)} ya estaban${res.invalidas ? `, ${fmtNum(res.invalidas)} con errores` : ''}.${ej ? '<br>' + ej : ''}</div>`;
     $('textoImportar').value = ''; $('archivoImportar').value = '';
     cargar();
   }catch(err){

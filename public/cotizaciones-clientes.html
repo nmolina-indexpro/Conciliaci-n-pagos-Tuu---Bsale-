@@ -469,6 +469,8 @@ function escapeHtmlCot(texto){
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+// href de datos externos: solo http(s) o ruta relativa
+function urlSeguraCot(u){ u = String(u ?? '').trim(); return /^(https?:[/][/]|[/](?![/]))/i.test(u) ? u : ''; }
 let esAdmin = false;
 // Auto-sincronización al cargar la página (pedido del usuario, mismo
 // patrón que Servicio Técnico): cada una de las 4 pestañas se sincroniza
@@ -658,7 +660,7 @@ function poblarSelectVendedoresCot(){
   const actual = sel.value;
   const vendedores = [...new Map(cotizaciones.filter(c => c.vendedorId != null).map(c => [c.vendedorId, c.vendedorNombre])).entries()]
     .sort((a, b) => (a[1] || '').localeCompare(b[1] || ''));
-  sel.innerHTML = '<option value="">Todos</option>' + vendedores.map(([id, nombre]) => `<option value="${id}">${escapeHtmlCot(nombre)}</option>`).join('');
+  sel.innerHTML = '<option value="">Todos</option>' + vendedores.map(([id, nombre]) => `<option value="${escapeHtmlCot(id)}">${escapeHtmlCot(nombre)}</option>`).join('');
   sel.value = actual;
 }
 function actualizarAvisoCoberturaCot(){
@@ -1206,7 +1208,7 @@ async function iniciarSincronizacionCotizaciones(){
       wrap.innerHTML = `<div class="note-box">⏳ Sincronizando cotizaciones con Bsale... ${fmtNum(totalListado)} revisadas. Esto puede tardar varios minutos, no cierres la página.</div>`;
       const res = await fetch('/api/negocio?recurso=sync-cotizaciones', { method: 'POST' }).then(r=>r.json());
       if(res.error){
-        wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${res.detail || res.error}</div>`;
+        wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${escapeHtmlCot(res.detail || res.error)}</div>`;
         break;
       }
       completo = !!res.completo;
@@ -1232,7 +1234,7 @@ async function iniciarSincronizacionCotizaciones(){
       }
     }
   }catch(err){
-    wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${err.message}</div>`;
+    wrap.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error sincronizando: ${escapeHtmlCot(err.message)}</div>`;
   }finally{
     sincronizandoCotizaciones = false;
     $('btnSincronizarCotizaciones').disabled = false;
@@ -1273,8 +1275,8 @@ function cambiarOrdenVendedores(col){
 // Muestra el número de documento como link directo a Bsale cuando hay URL disponible (mismo patrón que conciliacion.html)
 function docLinkHtml(numero, url){
   if(!numero) return '<span class="empty-note">—</span>';
-  if(url) return `<a href="${url}" target="_blank" rel="noopener" class="doc-link">#${numero} ↗</a>`;
-  return `#${numero}`;
+  if(url) return `<a href="${escapeHtmlCot(urlSeguraCot(url))}" target="_blank" rel="noopener" class="doc-link">#${escapeHtmlCot(numero)} ↗</a>`;
+  return `#${escapeHtmlCot(numero)}`;
 }
 // Filtro compartido por TODO lo demás (tarjetas KPI, tabla de Vendedores en
 // Rendimiento, y tabla de Gestión antes de aplicarle el chip rápido) --
@@ -1510,7 +1512,7 @@ async function cargarUsuariosActivosCot(){
 }
 function opcionesResponsableCot(seleccionadoId){
   let out = '<option value="">Sin asignar</option>';
-  for (const u of usuariosActivosCot) out += `<option value="${u.id}" ${Number(seleccionadoId) === u.id ? 'selected' : ''}>${escapeHtmlCot(u.nombre)}</option>`;
+  for (const u of usuariosActivosCot) out += `<option value="${escapeHtmlCot(u.id)}" ${Number(seleccionadoId) === u.id ? 'selected' : ''}>${escapeHtmlCot(u.nombre)}</option>`;
   return out;
 }
 // Mismo criterio de "solicitud más reciente gana" que ya probó el modal
@@ -1679,7 +1681,7 @@ function renderFichaLateralCot(c, detalle){
       <details class="ficha-cot-colapsable">
         <summary>Documentos asociados</summary>
         <div>${c.documentoAsociadoNumero
-          ? `<div class="ficha-cot-fila"><span>${escapeHtmlCot(c.documentoAsociadoTipo || 'Documento')} ${escapeHtmlCot(c.documentoAsociadoNumero)}</span><b>${c.documentoAsociadoUrl ? `<a href="${c.documentoAsociadoUrl}" target="_blank" rel="noopener" class="doc-link">Ver ↗</a>` : '—'}</b></div>`
+          ? `<div class="ficha-cot-fila"><span>${escapeHtmlCot(c.documentoAsociadoTipo || 'Documento')} ${escapeHtmlCot(c.documentoAsociadoNumero)}</span><b>${c.documentoAsociadoUrl ? `<a href="${escapeHtmlCot(urlSeguraCot(c.documentoAsociadoUrl))}" target="_blank" rel="noopener" class="doc-link">Ver ↗</a>` : '—'}</b></div>`
           : '<p class="empty-note">Sin documento asociado todavía.</p>'}</div>
       </details>
       <details class="ficha-cot-colapsable" open>
@@ -1736,7 +1738,7 @@ function renderNotasActividadFicha(detalle){
   const el = $('notasActividadFichaCot');
   if (!el) return;
   const historialHtml = (detalle.historialEstados && detalle.historialEstados.length)
-    ? detalle.historialEstados.map(h => `<div class="estado-item"><span>${ESTADOS_COTIZACION_LABEL[h.estado] || h.estado}</span><span class="comentario-meta">${escapeHtmlCot(h.autor || 'Desconocido')} — ${new Date(h.creadoEn).toLocaleString('es-CL')}</span></div>`).join('')
+    ? detalle.historialEstados.map(h => `<div class="estado-item"><span>${ESTADOS_COTIZACION_LABEL[h.estado] || escapeHtmlCot(h.estado)}</span><span class="comentario-meta">${escapeHtmlCot(h.autor || 'Desconocido')} — ${new Date(h.creadoEn).toLocaleString('es-CL')}</span></div>`).join('')
     : '';
   el.innerHTML = `
     ${historialHtml ? `<h4 style="font-size:10.5px;text-transform:uppercase;color:var(--muted);margin:2px 0 6px;">Cambios de estado</h4>${historialHtml}` : ''}
@@ -1787,7 +1789,7 @@ function renderZohoFichaHtml(d){
   const resumen = `<div class="proxima-accion-box" style="margin-bottom:6px;">📤 <b>${r.salientes || 0}</b> enviados por IndexStore · 📩 <b>${r.entrantes || 0}</b> recibidos del cliente${pend}<br><span class="comentario-meta">Último contacto: ${fecha(r.ultimoContacto)} · Calculado sobre ${alcance}</span></div>`;
   const tickets = d.tickets.map(t => `
     <div class="estado-item">
-      <span>${t.url ? `<a href="${escapeHtmlCot(t.url)}" target="_blank" rel="noopener">#${escapeHtmlCot(t.numero)}</a>` : '#' + escapeHtmlCot(t.numero)} ${escapeHtmlCot(t.asunto)}
+      <span>${t.url ? `<a href="${escapeHtmlCot(urlSeguraCot(t.url))}" target="_blank" rel="noopener">#${escapeHtmlCot(t.numero)}</a>` : '#' + escapeHtmlCot(t.numero)} ${escapeHtmlCot(t.asunto)}
         <span class="badge ${t.vinculo === 'exacto' ? 'si' : 'no'}" title="${escapeHtmlCot(t.motivoVinculo)}">${t.vinculo === 'exacto' ? 'Cita esta cotización' : 'Mismo cliente'}</span>
         <span class="badge ${t.cerrado ? 'no' : 'pend'}">${escapeHtmlCot(t.estado)}</span></span>
       <span class="comentario-meta">${fecha(t.creado)} — 📤 ${t.salientes} / 📩 ${t.entrantes}${t.motivoIngreso ? ' — ' + escapeHtmlCot(t.motivoIngreso) : ''}</span>
@@ -2045,7 +2047,7 @@ async function cargarSesionUsuario(){
     const res = await fetch('/api/auth-session');
     if(!res.ok) return;
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtmlCot(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     esAdmin = u.rol === 'admin';

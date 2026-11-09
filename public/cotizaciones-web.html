@@ -97,6 +97,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const urlSegura = u => { u = String(u ?? '').trim(); return /^(https?:[/][/]|[/](?![/]))/i.test(u) ? u : ''; };
 const fmt = n => Math.round(n || 0).toLocaleString('es-CL');
 const fh = iso => iso ? new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
 if (/[?&]embed=1/.test(location.search)) $('volver').style.display = 'none';
@@ -108,8 +109,8 @@ function pintar(d) {
   if (!c.length) { $('tabla').innerHTML = '<tbody><tr><td class="vacio">Todavía no hay cotizaciones.</td></tr></tbody>'; return; }
   const badge = e => ({ vigente: 'verde', vencida: 'gris', comprada: 'azul', anulada: 'rojo' }[e] || 'gris');
   $('tabla').innerHTML = '<thead><tr><th>N° Bsale</th><th>Creada</th><th>Cliente</th><th>Productos</th><th>Comuna</th><th class="amount">Total</th><th>Estado</th><th>Vence</th><th>Pago iniciado</th><th>Pago por transferencia</th><th>Correo</th><th>Vistas</th></tr></thead><tbody>' +
-    c.map(x => `<tr><td>${x.bsale_url ? `<a href="${esc(x.bsale_url)}" target="_blank" rel="noopener">${esc(x.bsale_numero)}</a>` : esc(x.bsale_numero)}</td><td>${fh(x.creado_en)}</td><td>${esc(x.razon_social)}<br><small>${esc(x.nombre)} · ${esc(x.email)}</small></td>` +
-      `<td>${x.items.map(i => `${i.cantidad} × ${esc(i.titulo)}`).join('<br>')}</td><td>${esc(x.comuna)}<br><small>${esc(x.envio_nombre)}</small></td><td class="amount">$${fmt(x.total)}</td><td><span class="badge ${badge(x.estado)}">${esc(x.estado)}</span></td><td>${fh(x.vence_en)}</td><td>${fh(x.pago_iniciado_en)}</td><td>${celdaPago(x)}</td><td>${x.correo_enviado ? '✓' : '<span class="badge rojo">No salió</span>'}</td><td class="amount">${x.vistas}</td></tr>`).join('') + '</tbody>';
+    c.map(x => `<tr><td>${x.bsale_url ? `<a href="${esc(urlSegura(x.bsale_url))}" target="_blank" rel="noopener">${esc(x.bsale_numero)}</a>` : esc(x.bsale_numero)}</td><td>${fh(x.creado_en)}</td><td>${esc(x.razon_social)}<br><small>${esc(x.nombre)} · ${esc(x.email)}</small></td>` +
+      `<td>${x.items.map(i => `${esc(i.cantidad)} × ${esc(i.titulo)}`).join('<br>')}</td><td>${esc(x.comuna)}<br><small>${esc(x.envio_nombre)}</small></td><td class="amount">$${fmt(x.total)}</td><td><span class="badge ${badge(x.estado)}">${esc(x.estado)}</span></td><td>${fh(x.vence_en)}</td><td>${fh(x.pago_iniciado_en)}</td><td>${celdaPago(x)}</td><td>${x.correo_enviado ? '✓' : '<span class="badge rojo">No salió</span>'}</td><td class="amount">${esc(x.vistas)}</td></tr>`).join('') + '</tbody>';
 }
 function celdaPago(x) {
   const p = x.pago || '';
@@ -157,9 +158,9 @@ function pintarUso(u) {
   $('uso-productos').innerHTML = u.productos.length ? '<thead><tr><th>Producto (ficha)</th><th class="amount">Vieron el enlace</th><th class="amount">Lo tocaron</th></tr></thead><tbody>' + u.productos.map(p => `<tr><td>${esc(p.producto)}</td><td class="amount">${fmt(p.vistas)}</td><td class="amount">${fmt(p.clics)}</td></tr>`).join('') + '</tbody>' : '<tbody><tr><td class="vacio">Sin datos todavía: el enlace de la ficha avisa cuando se ve y cuando se toca.</td></tr></tbody>';
   const orig = { ficha: 'desde la ficha', directo: 'directo', correo: 'desde el correo', login: 'al volver de iniciar sesión' };
   const nombreDisp = { movil: 'celular', escritorio: 'computador', 'sin dato': 'sin dato' };
-  const disp = (tipo) => u.dispositivos.filter(x => x.tipo === tipo).map(x => `${nombreDisp[x.dispositivo] || x.dispositivo}: ${fmt(x.personas)}`).join(' · ') || '—';
+  const disp = (tipo) => u.dispositivos.filter(x => x.tipo === tipo).map(x => `${esc(nombreDisp[x.dispositivo] || x.dispositivo)}: ${fmt(x.personas)}`).join(' · ') || '—';
   const fallidos = u.intentos.filter(x => x.valor === 'con_errores').reduce((s, x) => s + x.personas, 0);
-  $('uso-pie').innerHTML = `<b>Cómo llegan al formulario:</b> ${u.origenes.map(o => `${orig[o.valor] || o.valor} ${fmt(o.personas)}`).join(' · ') || '—'}.<br>` +
+  $('uso-pie').innerHTML = `<b>Cómo llegan al formulario:</b> ${u.origenes.map(o => `${esc(orig[o.valor] || o.valor)} ${fmt(o.personas)}`).join(' · ') || '—'}.<br>` +
     `<b>Enlace de la ficha:</b> lo ven (${disp('ficha_vista')}) · lo tocan (${disp('ficha_clic')}).<br>` +
     `<b>Intentos de generar con datos incompletos:</b> ${fmt(fallidos)} persona(s). <b>Avisos descartados por parecer bots o centros de datos:</b> ${fmt(u.bots)}.`;
 }

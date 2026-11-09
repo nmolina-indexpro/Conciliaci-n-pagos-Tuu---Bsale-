@@ -161,7 +161,7 @@ function renderPanelMotivo(d){
         <option value="ultimo_cliente" ${d.base === 'ultimo_cliente' ? 'selected' : ''}>Período: cuando el cliente dejó de responder</option>
         <option value="inicio" ${d.base === 'inicio' ? 'selected' : ''}>Período: inicio de la conversación (como la tabla)</option>
       </select>
-      <button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo(); irAConversacionesConMotivo('${escapeHtml(d.motivo)}')">👁️ Ver conversaciones</button>
+      <button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo(); irAConversacionesConMotivo(${escapeHtml(JSON.stringify(String(d.motivo)))})">👁️ Ver conversaciones</button>
       <button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo()">✕ Cerrar</button>
     </div>`;
   if(d.total === 0){

@@ -376,7 +376,7 @@ async function cargarSesionUsuario(){
     if(!res.ok) return;
     const u = await res.json();
     rolActual = u.rol;
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     if(u.rol === 'admin'){
@@ -480,7 +480,7 @@ async function verificarCoincidenciaYCatalogo(){
     if(data.error){
       el.textContent = 'No se pudo revisar el catálogo (' + data.error + ').';
     } else if(encontrado){
-      el.innerHTML = `<span class="alerta">⚠ Ya existe algo parecido en el catálogo:</span> ${encontrado.url ? `<a href="${encontrado.url}" target="_blank" rel="noopener">${escapeHtml(encontrado.titulo)}</a>` : escapeHtml(encontrado.titulo)}${encontrado.sku ? ` (SKU ${escapeHtml(encontrado.sku)})` : ''} -- confianza ${encontrado.confianza}%. Puede que no valga la pena integrarlo de nuevo.`;
+      el.innerHTML = `<span class="alerta">⚠ Ya existe algo parecido en el catálogo:</span> ${encontrado.url && /^https?:\/\//i.test(encontrado.url) ? `<a href="${escapeHtml(encontrado.url)}" target="_blank" rel="noopener">${escapeHtml(encontrado.titulo)}</a>` : escapeHtml(encontrado.titulo)}${encontrado.sku ? ` (SKU ${escapeHtml(encontrado.sku)})` : ''} -- confianza ${escapeHtml(encontrado.confianza)}%. Puede que no valga la pena integrarlo de nuevo.`;
     } else {
       el.innerHTML = '<span class="ok">✓ No se encontró en el catálogo actual</span> -- buen candidato para evaluar.';
     }
@@ -585,7 +585,7 @@ function renderPreviewImportar(){
   }
   const filas = filasImportadas.map((f,i) => `
     <tr>
-      <td>${f.fecha}</td>
+      <td>${escapeHtml(f.fecha)}</td>
       <td><select onchange="filasImportadas[${i}].tipo=this.value">
         ${Object.entries(TIPO_LABEL).map(([v,l]) => `<option value="${v}" ${f.tipo===v?'selected':''}>${l}</option>`).join('')}
       </select></td>
@@ -673,7 +673,7 @@ function renderRanking(){
   const filas = top.map(m => {
     const pct = maxCantidad ? Math.round(m.cantidadTotal / maxCantidad * 100) : 0;
     return `<div class="canal-grupo">
-      <div class="canal-titulo">${TIPO_LABEL[m.tipo] || m.tipo} -- <b>${escapeHtml(m.marca)} ${escapeHtml(m.modelo)}</b></div>
+      <div class="canal-titulo">${TIPO_LABEL[m.tipo] || escapeHtml(m.tipo)} -- <b>${escapeHtml(m.marca)} ${escapeHtml(m.modelo)}</b></div>
       <div class="canal-fila">
         <div class="canal-pista"><div class="canal-relleno" style="width:${pct}%;"></div></div>
         <div class="canal-valor">${m.cantidadTotal}</div>
@@ -710,14 +710,14 @@ function renderResumenTabla(){
   const filasSorted = [...filas].sort((a,b) => b.cantidadTotal - a.cantidadTotal);
   const tbody = filasSorted.map(m => `
     <tr>
-      <td><span class="badge-tipo">${TIPO_LABEL[m.tipo] || m.tipo}</span></td>
+      <td><span class="badge-tipo">${TIPO_LABEL[m.tipo] || escapeHtml(m.tipo)}</span></td>
       <td><b>${escapeHtml(m.marca)}</b></td>
       <td>${escapeHtml(m.modelo)}</td>
       <td class="amount">${m.cantidadTotal}</td>
       <td class="amount">${m.vecesRegistrado}</td>
       <td>${fmtFechaCorta(m.ultimaFecha)}</td>
       <td>
-        <select class="estado-select" onchange="cambiarEstadoResumen('${m.tipo}','${m.marcaNorm.replace(/'/g,"\\'")}','${m.modeloNorm.replace(/'/g,"\\'")}','${escapeHtml(m.marca).replace(/'/g,"\\'")}','${escapeHtml(m.modelo).replace(/'/g,"\\'")}', this.value)">
+        <select class="estado-select" onchange="cambiarEstadoResumen(${[m.tipo, m.marcaNorm, m.modeloNorm, m.marca, m.modelo].map(v => escapeHtml(JSON.stringify(String(v ?? '')))).join(',')}, this.value)">
           ${Object.entries(ESTADO_LABEL).map(([valor,label]) => `<option value="${valor}" ${m.estado===valor?'selected':''}>${label}</option>`).join('')}
         </select>
       </td>
@@ -744,7 +744,7 @@ function renderHistorialTabla(){
   const tbody = filas.map(r => `
     <tr>
       <td>${fmtFechaCorta(r.fecha)}</td>
-      <td><span class="badge-tipo">${TIPO_LABEL[r.tipo] || r.tipo}</span></td>
+      <td><span class="badge-tipo">${TIPO_LABEL[r.tipo] || escapeHtml(r.tipo)}</span></td>
       <td><b>${escapeHtml(r.marca)}</b></td>
       <td>${escapeHtml(r.modelo)}</td>
       <td class="amount">${r.cantidad}</td>

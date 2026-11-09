@@ -613,6 +613,10 @@ async function cargar(){
 // que esté seleccionado en la barra superior. Trae su propia data (con
 // margen extra hacia atrás para capturar ventas de viernes que acreditan el
 // lunes siguiente).
+// Datos de Bsale/BD (proveedores, notas, categorías, errores) se inyectan con innerHTML: se escapan antes.
+function escapeHtml(texto){
+  return String(texto ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 let sortColCalendarioFijo = 'fecha';
 let sortAscCalendarioFijo = true;
 let filasCalendarioFijo = [];
@@ -685,7 +689,7 @@ async function cargarCalendarioFijo(){
     }));
     renderTablaCalendarioFijo();
   }catch(err){
-    wrap.innerHTML = `<p class="empty-note">No se pudo cargar el calendario: ${err.message}</p>`;
+    wrap.innerHTML = `<p class="empty-note">No se pudo cargar el calendario: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -729,8 +733,8 @@ function renderTablaFacturasPorPagar(){
             ${facturasSemana.map(f => `
               <tr class="${f.fechaEstimadaPago===hoyStr?'today':''}">
                 <td>${f.fechaEstimadaPago} (${nombreDiaSemana(f.fechaEstimadaPago)})</td>
-                <td>${f.proveedor}</td>
-                <td><b>${f.documento}${f.numeroDocumento?' N° '+f.numeroDocumento:''}</b></td>
+                <td>${escapeHtml(f.proveedor)}</td>
+                <td><b>${escapeHtml(f.documento)}${f.numeroDocumento?' N° '+escapeHtml(f.numeroDocumento):''}</b></td>
                 <td class="amount">${fmt(f.monto)}</td>
               </tr>`).join('')}
             <tr><td colspan="3"><b>Total</b></td><td class="amount"><b>${fmt(totalSemanaFacturas)}</b></td></tr>
@@ -768,7 +772,7 @@ async function cargarFacturasPorPagar(){
     renderTablaFacturasPorPagar();
   }catch(err){
     $('facturasNote').textContent = 'No se pudo cargar: ' + err.message;
-    $('facturasDetalleWrap').innerHTML = `<p class="empty-note">No se pudo cargar el detalle: ${err.message}</p>`;
+    $('facturasDetalleWrap').innerHTML = `<p class="empty-note">No se pudo cargar el detalle: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -789,15 +793,15 @@ async function cargarCalendarioMes(){
   $('mesCalendarioLabel').textContent = `${NOMBRES_MES[Number(mesCalendarioActual.slice(5,7))-1]} ${mesCalendarioActual.slice(0,4)}`;
   try{
     const res = await fetch(`/api/negocio?recurso=calendario-pagos&desde=${desde}&hasta=${hasta}`).then(r=>r.json());
-    if(res.error){ $('calendarioGrid').innerHTML = `<p class="empty-note">No se pudo cargar: ${res.error}</p>`; return; }
+    if(res.error){ $('calendarioGrid').innerHTML = `<p class="empty-note">No se pudo cargar: ${escapeHtml(res.error)}</p>`; return; }
     movimientosDelMes = res.movimientos || [];
     if(res.categorias && res.categorias.length){
       categoriasCalendario = res.categorias;
-      $('movCategoria').innerHTML = categoriasCalendario.map(c=>`<option value="${c}">${c}</option>`).join('');
+      $('movCategoria').innerHTML = categoriasCalendario.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
     }
     renderCalendarioGrid();
   }catch(err){
-    $('calendarioGrid').innerHTML = `<p class="empty-note">No se pudo cargar: ${err.message}</p>`;
+    $('calendarioGrid').innerHTML = `<p class="empty-note">No se pudo cargar: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -820,7 +824,7 @@ function renderCalendarioGrid(){
     const esOtroMes = fecha < primerDia || fecha > ultimoDia;
     const movs = porDia[fecha] || [];
     const visibles = movs.slice(0,3);
-    const chips = visibles.map(m => `<span class="chip-pago ${claseMovimiento(m.categoria)}" title="${m.categoria}: ${fmt(m.monto)}">${m.categoria}: ${fmt(m.monto)}</span>`).join('');
+    const chips = visibles.map(m => `<span class="chip-pago ${claseMovimiento(m.categoria)}" title="${escapeHtml(m.categoria)}: ${fmt(m.monto)}">${escapeHtml(m.categoria)}: ${fmt(m.monto)}</span>`).join('');
     const mas = movs.length > 3 ? `<span class="mas">+${movs.length-3} más</span>` : '';
     return `<div class="dia-celda ${esOtroMes?'otro-mes':''} ${fecha===hoyStr?'hoy':''}" onclick="abrirModalDia('${fecha}')">
       <div class="num-dia">${Number(fecha.slice(8,10))}</div>
@@ -868,8 +872,8 @@ function renderListaMovimientosDia(){
   $('modalDiaLista').innerHTML = movs.map(m => `
     <div class="mov-item">
       <div class="mov-info">
-        <b>${m.categoria}</b>
-        ${m.nota ? `<span class="empty-note">${m.nota}</span>` : ''}
+        <b>${escapeHtml(m.categoria)}</b>
+        ${m.nota ? `<span class="empty-note">${escapeHtml(m.nota)}</span>` : ''}
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
         <span class="mov-monto ${claseMovimiento(m.categoria)}">${montoConSigno(m)}</span>
@@ -892,13 +896,13 @@ async function agregarMovimiento(){
       body: JSON.stringify({ fecha: diaSeleccionado, categoria, monto: Number(monto), nota: nota || null })
     });
     const data = await res.json();
-    if(!res.ok){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${data.error}</div>`; return; }
+    if(!res.ok){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${escapeHtml(data.error)}</div>`; return; }
     $('movMonto').value = ''; $('movNota').value = '';
     await cargarCalendarioMes();
     renderListaMovimientosDia();
     cargarProyeccionSaldoBci();
   }catch(err){
-    errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${err.message}</div>`;
+    errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -1012,10 +1016,10 @@ async function cargarFacturasCompra(){
   const wrap = $('facturasCompraWrap');
   try{
     const res = await fetch('/api/negocio?recurso=facturas-compra').then(r=>r.json());
-    if(res.error){ wrap.innerHTML = `<p class="empty-note">No se pudo cargar: ${res.error}</p>`; return; }
+    if(res.error){ wrap.innerHTML = `<p class="empty-note">No se pudo cargar: ${escapeHtml(res.error)}</p>`; return; }
     renderFacturasCompra(res.facturas || []);
   }catch(err){
-    wrap.innerHTML = `<p class="empty-note">No se pudo cargar: ${err.message}</p>`;
+    wrap.innerHTML = `<p class="empty-note">No se pudo cargar: ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -1058,14 +1062,14 @@ function renderFacturasCompra(facturas){
       <tbody>
         ${facturasOrdenadas.map(f => `
           <tr>
-            <td>${f.proveedor}</td>
-            <td>${f.numero_factura || '—'}</td>
+            <td>${escapeHtml(f.proveedor)}</td>
+            <td>${escapeHtml(f.numero_factura || '—')}</td>
             <td class="amount">${fmt(f.monto)}</td>
-            <td>${f.fecha_compra}</td>
-            <td>${f.fecha_vencimiento || '—'}</td>
+            <td>${escapeHtml(f.fecha_compra)}</td>
+            <td>${escapeHtml(f.fecha_vencimiento || '—')}</td>
             <td><span class="badge">${f.forma_pago === 'cheque' ? 'Cheque' : 'Transferencia'}</span></td>
-            <td>${f.forma_pago === 'cheque' ? `N° ${f.numero_cheque || '—'}${f.fecha_cobro_cheque ? ' · cobra ' + f.fecha_cobro_cheque : ''}` : '—'}</td>
-            <td>${f.agregado_por || '—'}</td>
+            <td>${f.forma_pago === 'cheque' ? `N° ${escapeHtml(f.numero_cheque || '—')}${f.fecha_cobro_cheque ? ' · cobra ' + escapeHtml(f.fecha_cobro_cheque) : ''}` : '—'}</td>
+            <td>${escapeHtml(f.agregado_por || '—')}</td>
             <td><button class="btn-ghost btn-compact" onclick="eliminarFacturaCompra(${f.id})">Eliminar</button></td>
           </tr>`).join('')}
         <tr><td colspan="2"><b>Total</b></td><td class="amount"><b>${fmt(total)}</b></td><td colspan="6"></td></tr>
@@ -1096,13 +1100,13 @@ async function agregarFacturaCompra(){
       body: JSON.stringify({ proveedor, numeroFactura, monto: Number(monto), fechaCompra, fechaVencimiento: fechaVencimiento || null, formaPago, numeroCheque, fechaCobroCheque: fechaCobroCheque || null })
     });
     const data = await res.json();
-    if(!res.ok){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${data.error}</div>`; return; }
+    if(!res.ok){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${escapeHtml(data.error)}</div>`; return; }
     $('fcProveedor').value=''; $('fcNumero').value=''; $('fcMonto').value='';
     $('fcFechaCompra').value=''; $('fcFechaVencimiento').value='';
     $('fcNumeroCheque').value=''; $('fcFechaCobro').value='';
     cargarFacturasCompra();
   }catch(err){
-    errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${err.message}</div>`;
+    errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -1120,7 +1124,7 @@ async function cargarSesionUsuario(){
     const res = await fetch('/api/auth-session');
     if(!res.ok) return; // el middleware ya se encarga de redirigir si hace falta
     const u = await res.json();
-    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${u.nombre || u.email}</b></span>`;
+    document.getElementById('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
     if(u.rol === 'admin'){

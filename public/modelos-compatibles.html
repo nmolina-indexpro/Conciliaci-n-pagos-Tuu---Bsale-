@@ -342,6 +342,8 @@ const $ = id => document.getElementById(id);
 function escapeHtml(texto){
   return String(texto ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+// href/src de datos externos: solo http(s) o ruta relativa
+function urlSegura(u){ u = String(u ?? '').trim(); return /^(https?:[/][/]|[/](?![/]))/i.test(u) ? u : ''; }
 const TIPO_LABEL = { pantalla: '🖥️ Pantalla', bateria: '🔋 Batería', cargador: '🔌 Cargador' };
 const ESTADO_LABEL = { pendiente: 'Pendiente', aprobada: 'Aprobada ✓', rechazada: 'Rechazada' };
 const COLUMNA_COMPAT = { bateria: 'skuBateria', pantalla: 'skuPantalla', cargador: 'skuCargador' };
@@ -443,7 +445,7 @@ async function verificarModelo(){
   const compat = compatibilidadExistente(tipo, marca, modelo);
   if(compat) partes.push(`<div><span class="ok">✅ Este modelo ya está en la base del sitio</span> con el SKU <b>${escapeHtml(compat[COLUMNA_COMPAT[tipo]])}</b>. Si es otro producto el que sirve, pégalo abajo y queda en revisión; si es el mismo, no hace falta proponerlo.</div>`);
   const previas = propuestas.filter(p => p.tipo === tipo && normTexto(p.marca) === normTexto(marca) && normTexto(p.modelo) === normTexto(modelo));
-  if(previas.length) partes.push(`<div>🔁 Ya hay propuestas para este modelo: ${previas.map(p => `SKU <b>${escapeHtml(p.sku)}</b> (${ESTADO_LABEL[p.estado].toLowerCase()}, ${p.veces} ${p.veces === 1 ? 'vez' : 'veces'})`).join(' · ')}.</div>`);
+  if(previas.length) partes.push(`<div>🔁 Ya hay propuestas para este modelo: ${previas.map(p => `SKU <b>${escapeHtml(p.sku)}</b> (${ESTADO_LABEL[p.estado].toLowerCase()}, ${escapeHtml(p.veces)} ${p.veces === 1 ? 'vez' : 'veces'})`).join(' · ')}.</div>`);
   partes.push('<div id="wrapCatalogoCheck">🔎 Buscando en el catálogo...</div>');
   wrap.innerHTML = `<div class="coincidencia-box">${partes.join('')}</div>`;
   try{
@@ -451,7 +453,7 @@ async function verificarModelo(){
     const el = $('wrapCatalogoCheck'); if(!el) return;
     const enc = data && data[tipo];
     if(data.error) el.textContent = 'No se pudo revisar el catálogo (' + data.error + ').';
-    else if(enc) el.innerHTML = `💡 Algo que podría servir: ${enc.url ? `<a href="${escapeHtml(enc.url)}" target="_blank" rel="noopener">${escapeHtml(enc.titulo)}</a>` : escapeHtml(enc.titulo)}${enc.sku ? ` (SKU ${escapeHtml(enc.sku)})` : ''} -- confianza ${enc.confianza}%${enc.origen === 'metacampo' ? ' (según el metacampo de modelos compatibles)' : ''}.${enc.aviso ? ` <b>⚠ ${escapeHtml(enc.aviso)}</b>` : ''} <button type="button" class="btn-mini" onclick="usarProductoSugerido('${escapeHtml(enc.url || enc.sku || '')}')">Es este</button> si le sirve; si no, pega el correcto abajo.`;
+    else if(enc) el.innerHTML = `💡 Algo que podría servir: ${enc.url ? `<a href="${escapeHtml(urlSegura(enc.url))}" target="_blank" rel="noopener">${escapeHtml(enc.titulo)}</a>` : escapeHtml(enc.titulo)}${enc.sku ? ` (SKU ${escapeHtml(enc.sku)})` : ''} -- confianza ${escapeHtml(enc.confianza)}%${enc.origen === 'metacampo' ? ' (según el metacampo de modelos compatibles)' : ''}.${enc.aviso ? ` <b>⚠ ${escapeHtml(enc.aviso)}</b>` : ''} <button type="button" class="btn-mini" onclick="usarProductoSugerido(${escapeHtml(JSON.stringify(String(enc.url || enc.sku || '')))})">Es este</button> si le sirve; si no, pega el correcto abajo.`;
     else el.textContent = (data.indice && data.indice.enProgreso ? 'Todavía estoy leyendo el metacampo de modelos compatibles de Shopify' + (data.indice.progreso != null ? ' (' + data.indice.progreso + '%)' : '') + '; ' : '') + 'No encontré un producto parecido en el catálogo: pega el link o el SKU del que sirve.';
   }catch(err){
     const el = $('wrapCatalogoCheck'); if(el) el.textContent = 'No se pudo revisar el catálogo.';
@@ -484,7 +486,7 @@ async function resolverProductoEscrito(){
     const pr = d.producto;
     if(pr){
       el.className = 'producto-resuelto ok';
-      el.innerHTML = `✓ ${pr.url ? `<a href="${escapeHtml(pr.url)}" target="_blank" rel="noopener">${escapeHtml(pr.titulo || pr.sku)}</a>` : escapeHtml(pr.titulo || pr.sku)} · SKU <b>${escapeHtml(pr.sku)}</b>${pr.estado && pr.estado !== 'active' ? ' · <span style="color:var(--amber);">no publicado en la tienda</span>' : ''}${pr.variantes ? ` · <span style="color:var(--amber);">tiene ${pr.variantes.length} variantes: se usó ${escapeHtml(pr.sku)}; escribe el SKU exacto si es otro</span>` : ''}`;
+      el.innerHTML = `✓ ${pr.url ? `<a href="${escapeHtml(urlSegura(pr.url))}" target="_blank" rel="noopener">${escapeHtml(pr.titulo || pr.sku)}</a>` : escapeHtml(pr.titulo || pr.sku)} · SKU <b>${escapeHtml(pr.sku)}</b>${pr.estado && pr.estado !== 'active' ? ' · <span style="color:var(--amber);">no publicado en la tienda</span>' : ''}${pr.variantes ? ` · <span style="color:var(--amber);">tiene ${pr.variantes.length} variantes: se usó ${escapeHtml(pr.sku)}; escribe el SKU exacto si es otro</span>` : ''}`;
     } else {
       el.className = 'producto-resuelto aviso';
       el.textContent = d.error ? `No pude revisar la tienda (${d.error}). Se guardará tal cual lo escribiste.` : 'No encontré ese producto en la tienda: revisa el link o el SKU.';
@@ -522,7 +524,7 @@ async function guardarPropuesta(){
     if(data.yaAsociado){
       mensaje.innerHTML = `<div class="mensaje-guardado ok">👍 Ese modelo ya está en la base del sitio con ese mismo SKU (<b>${escapeHtml(data.sku)}</b>): no hace falta proponerlo. Puedes escribir el siguiente.</div>`;
     } else {
-      mensaje.innerHTML = `<div class="mensaje-guardado ok">✓ Listo, gracias. <b>${escapeHtml(marca)} ${escapeHtml(modelo)}</b> ${data.nueva ? 'quedó propuesto' : `ya había sido propuesto (${data.propuesta.veces} veces): sumaste la tuya`}${data.skuDistinto ? `. Ojo: en la base del sitio tiene el SKU ${escapeHtml(data.skuActual)}; un administrador decidirá` : ''}. Un administrador lo revisa. Puedes escribir el siguiente.</div>`;
+      mensaje.innerHTML = `<div class="mensaje-guardado ok">✓ Listo, gracias. <b>${escapeHtml(marca)} ${escapeHtml(modelo)}</b> ${data.nueva ? 'quedó propuesto' : `ya había sido propuesto (${escapeHtml(data.propuesta.veces)} veces): sumaste la tuya`}${data.skuDistinto ? `. Ojo: en la base del sitio tiene el SKU ${escapeHtml(data.skuActual)}; un administrador decidirá` : ''}. Un administrador lo revisa. Puedes escribir el siguiente.</div>`;
     }
     setTimeout(() => { if(mensaje.querySelector('.ok')) mensaje.innerHTML = ''; }, 10000);
     $('qTexto').value = ''; $('fMarca').value = ''; $('fModelo').value = ''; $('fProducto').value = ''; $('fNota').value = '';
@@ -553,12 +555,12 @@ function renderPropuestas(){
   const tbody = filas.map(p => `
     <tr>
       <td>${fmtFecha(p.creadoEn)}</td>
-      <td><span class="badge-tipo">${TIPO_LABEL[p.tipo] || p.tipo}</span></td>
+      <td><span class="badge-tipo">${TIPO_LABEL[p.tipo] || escapeHtml(p.tipo)}</span></td>
       <td><b>${escapeHtml(p.marca)}</b></td>
       <td>${escapeHtml(p.modelo)}</td>
-      <td><div class="prod-celda">${p.link ? `<a href="${escapeHtml(p.link)}" target="_blank" rel="noopener">${escapeHtml(p.titulo || p.sku)}</a>` : `<span>${escapeHtml(p.titulo || '—')}</span>`}<span class="amount">SKU ${escapeHtml(p.sku)}</span>${p.nota ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.nota)}</span>` : ''}</div></td>
-      <td class="quien">${escapeHtml(p.creadoPor || '—')}${p.veces > 1 ? ` · ${p.veces} veces` : ''}</td>
-      <td><span class="badge-prop ${p.estado}">${ESTADO_LABEL[p.estado]}</span>${p.estado !== 'pendiente' && p.revisadoPor ? `<div class="quien" style="margin-top:3px;">${escapeHtml(p.revisadoPor)}</div>` : ''}</td>
+      <td><div class="prod-celda">${p.link ? `<a href="${escapeHtml(urlSegura(p.link))}" target="_blank" rel="noopener">${escapeHtml(p.titulo || p.sku)}</a>` : `<span>${escapeHtml(p.titulo || '—')}</span>`}<span class="amount">SKU ${escapeHtml(p.sku)}</span>${p.nota ? `<span class="empty-note" style="font-size:11px;">${escapeHtml(p.nota)}</span>` : ''}</div></td>
+      <td class="quien">${escapeHtml(p.creadoPor || '—')}${p.veces > 1 ? ` · ${escapeHtml(p.veces)} veces` : ''}</td>
+      <td><span class="badge-prop ${escapeHtml(p.estado)}">${ESTADO_LABEL[p.estado] || escapeHtml(p.estado)}</span>${p.estado !== 'pendiente' && p.revisadoPor ? `<div class="quien" style="margin-top:3px;">${escapeHtml(p.revisadoPor)}</div>` : ''}</td>
       <td>${esAdmin ? `<div class="acciones-prop">
         ${p.estado !== 'aprobada' ? `<button type="button" class="btn-primary btn-compact" style="padding:6px 12px;font-size:11.5px;" onclick="revisarPropuesta(${p.id}, 'aprobar')" title="Agrega este SKU a la base de compatibilidad del sitio">✅ Aprobar</button>` : ''}
         ${p.estado === 'pendiente' ? `<button type="button" class="btn-ghost btn-compact" style="padding:6px 12px;font-size:11.5px;" onclick="revisarPropuesta(${p.id}, 'rechazar')">✖ Rechazar</button>` : ''}

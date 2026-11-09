@@ -170,6 +170,11 @@ function escapeHtml(s){
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+// Solo http(s) o rutas relativas para href/src con datos externos (bloquea javascript:, data:, etc.)
+function urlHttpSegura(u){
+  const t = String(u == null ? '' : u).trim();
+  return /^(https?:\/\/|\/(?!\/))/i.test(t) ? t : '';
+}
 function fmtNum(n){ return new Intl.NumberFormat('es-CL').format(n || 0); }
 function fmtMoneda(n){ return '$' + new Intl.NumberFormat('es-CL').format(Math.round(n || 0)); }
 function fmtFecha(iso){
@@ -221,7 +226,7 @@ function shopifyCellHtml(c){
   const conf = c.shopifyProductoConfianza;
   const etiquetaConf = conf == null ? '' : conf >= 85 ? ' (alta confianza)' : conf >= 65 ? ` (${conf}% aprox.)` : ` (${conf}% — revisar)`;
   const tooltip = `${c.shopifyProductoTitulo || ''}${conf != null ? ` — confianza aprox. ${conf}%` : ''}`;
-  return `<a href="${escapeHtml(c.shopifyProductoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="${escapeHtml(tooltip)}" class="btn-ghost btn-compact" style="text-decoration:none;white-space:nowrap;">🛒 Ver${escapeHtml(etiquetaConf)}</a>`;
+  return `<a href="${escapeHtml(urlHttpSegura(c.shopifyProductoUrl))}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="${escapeHtml(tooltip)}" class="btn-ghost btn-compact" style="text-decoration:none;white-space:nowrap;">🛒 Ver${escapeHtml(etiquetaConf)}</a>`;
 }
 // Venta confirmada a mano (prioridad) o, si no hay, sugerencia detectada
 // automáticamente por teléfono contra Bsale (ver buscarVentaBsalePorTelefono)
@@ -233,7 +238,7 @@ function ventaCellHtml(c){
     const tooltip = `Detectado automáticamente por teléfono — ${c.bsaleDocumentoTipo || 'documento'} ${c.bsaleDocumentoNumero}${c.bsaleDocumentoFecha ? ', ' + fmtFecha(c.bsaleDocumentoFecha) : ''}. No es una confirmación manual.`;
     const contenido = `🧾 ${fmtMoneda(c.bsaleDocumentoMonto)} <span class="sub">(sugerido)</span>`;
     return c.bsaleDocumentoUrl
-      ? `<a href="${escapeHtml(c.bsaleDocumentoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="${escapeHtml(tooltip)}" style="text-decoration:none;color:inherit;">${contenido}</a>`
+      ? `<a href="${escapeHtml(urlHttpSegura(c.bsaleDocumentoUrl))}" target="_blank" rel="noopener" onclick="event.stopPropagation();" title="${escapeHtml(tooltip)}" style="text-decoration:none;color:inherit;">${contenido}</a>`
       : `<span title="${escapeHtml(tooltip)}">${contenido}</span>`;
   }
   return '—';
@@ -273,12 +278,12 @@ function semaforoHtml(prob){
 }
 
 function badgeEstado(estado){
-  return `<span class="badge ${ESTADO_BADGE[estado] || 'b-gris'}">${ESTADO_LABEL[estado] || estado || '—'}</span>`;
+  return `<span class="badge ${ESTADO_BADGE[estado] || 'b-gris'}">${escapeHtml(ESTADO_LABEL[estado] || estado || '—')}</span>`;
 }
 function badgeResultado(resultado){
   if (!resultado) return '<span class="badge b-gris">—</span>';
   const clase = (resultado === 'venta' || resultado === 'consulta_resuelta') ? 'b-verde' : (resultado === 'cotizacion' || resultado === 'seguimiento') ? 'b-azul' : 'b-rojo';
-  return `<span class="badge ${clase}">${RESULTADO_LABEL[resultado] || resultado}</span>`;
+  return `<span class="badge ${clase}">${escapeHtml(RESULTADO_LABEL[resultado] || resultado)}</span>`;
 }
 // Alertas visuales (punto 27)
 function alertasConversacion(c){
@@ -440,7 +445,7 @@ async function cargarDashboard(){
     const res = await fetch('/api/negocio?recurso=whatsapp-dashboard' + qs);
     const data = await res.json();
     if (mia !== dashPeticion) return;
-    if (!res.ok || data.error) { $('dashAviso').textContent = ''; $('kpisConversaciones').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar el dashboard.'}</p>`; return; }
+    if (!res.ok || data.error) { $('dashAviso').textContent = ''; $('kpisConversaciones').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar el dashboard.')}</p>`; return; }
     const c = data.conversaciones, a = data.atencion, com = data.comercial;
     const r = data.rango;
     $('dashAviso').textContent = r
@@ -744,7 +749,7 @@ function itemConvHtml(c){
   const seleccionado = conversacionSeleccionadaId === c.id;
   return `
     <div class="item-conv ${seleccionado ? 'seleccionado' : ''}" onclick="seleccionarConversacionBandeja(${c.id})">
-      <div class="avatar-chip">${iniciales(c.clienteNombre)}</div>
+      <div class="avatar-chip">${escapeHtml(iniciales(c.clienteNombre))}</div>
       <div class="item-cuerpo">
         <div class="item-top-row">
           <span class="item-nombre">${escapeHtml(c.clienteNombre || 'Sin nombre')}</span>
@@ -868,7 +873,7 @@ function renderChatBandeja(data, opts){
     <div class="chat-head">
       <div class="chat-head-id">
         <button class="btn-ghost btn-compact btn-volver-lista" onclick="mostrarPanelMovil('lista')" title="Volver a la lista">←</button>
-        <div class="avatar-chip">${iniciales(ct?.nombre)}</div>
+        <div class="avatar-chip">${escapeHtml(iniciales(ct?.nombre))}</div>
         <div>
           <h2>${escapeHtml(ct?.nombre || 'Sin nombre')}</h2>
           <div class="sub" style="font-size:11px;">WhatsApp · #${c.id}${c.categoria ? ' · ' + escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria) : ''}</div>
@@ -1011,7 +1016,7 @@ function botBorradorHtml(convId){
     <div class="chat-ia-sugerencia chat-bot-borrador ${b.escalar ? 'escala' : ''}">
       <div class="txt">
         <b>🤖 Bot nocturno — borrador, revisa antes de enviar</b>
-        <div style="margin:4px 0 6px;display:flex;gap:6px;flex-wrap:wrap;"><span class="badge ${conf[0]}">${conf[1]}</span>${b.escalar ? '<span class="badge b-rojo">👤 Requiere ejecutivo</span>' : ''}</div>
+        <div style="margin:4px 0 6px;display:flex;gap:6px;flex-wrap:wrap;"><span class="badge ${conf[0]}">${escapeHtml(conf[1])}</span>${b.escalar ? '<span class="badge b-rojo">👤 Requiere ejecutivo</span>' : ''}</div>
         <div style="white-space:pre-wrap;">${escapeHtml(b.texto)}</div>
         ${b.resumen ? `<div class="sub" style="margin-top:6px;font-size:11.5px;">📝 ${escapeHtml(b.resumen)}</div>` : ''}
         ${b.motivo ? `<div class="sub" style="margin-top:4px;font-size:11.5px;color:var(--red);">⚠ ${escapeHtml(b.motivo)}</div>` : ''}
@@ -1087,10 +1092,10 @@ function fichaCotizacionesHtml(lista){
   const cab = '<div class="ficha-grupo"><h3>🧾 Cotizaciones y ventas</h3>';
   if (!lista || !lista.length) return cab + '<div class="ficha-fila"><span>Cotizaciones</span><b class="sub">Sin cotizaciones asociadas</b></div></div>';
   const fila = q => {
-    const num = q.url ? `<a href="${escapeHtml(q.url)}" target="_blank" rel="noopener">#${escapeHtml(q.numero || q.id)} ↗</a>` : `#${escapeHtml(q.numero || q.id)}`;
+    const num = q.url ? `<a href="${escapeHtml(urlHttpSegura(q.url))}" target="_blank" rel="noopener">#${escapeHtml(q.numero || q.id)} ↗</a>` : `#${escapeHtml(q.numero || q.id)}`;
     const d = q.documentoAsociado;
     const doc = d
-      ? `<span class="badge b-verde" title="Cotización asociada a una venta">✔ ${escapeHtml(d.tipo)} ${d.url ? `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener">N° ${escapeHtml(d.numero)} ↗</a>` : 'N° ' + escapeHtml(d.numero)}${d.fecha ? ' · ' + escapeHtml(fmtFechaDia(d.fecha)) : ''}</span>`
+      ? `<span class="badge b-verde" title="Cotización asociada a una venta">✔ ${escapeHtml(d.tipo)} ${d.url ? `<a href="${escapeHtml(urlHttpSegura(d.url))}" target="_blank" rel="noopener">N° ${escapeHtml(d.numero)} ↗</a>` : 'N° ' + escapeHtml(d.numero)}${d.fecha ? ' · ' + escapeHtml(fmtFechaDia(d.fecha)) : ''}</span>`
       : '<span class="badge b-ambar" title="No hay una boleta/factura asociada a esta cotización">Sin venta asociada</span>';
     return `<div style="padding:6px 0;border-top:1px solid var(--line);">
       <div class="ficha-fila"><span>${num}</span><b>${fmtMoneda(q.monto)}</b></div>
@@ -1109,7 +1114,7 @@ function renderFichaBandeja(data){
     proximaAccionHtml = `
       <div class="ficha-fila"><span>Acción pendiente</span><b style="text-align:left;max-width:200px;">${escapeHtml(c.seguimientoObservaciones || 'Hacer seguimiento')}</b></div>
       <div class="ficha-fila"><span>Fecha</span><b>${c.seguimientoEn ? fmtFecha(c.seguimientoEn) : '—'}</b></div>
-      <div class="ficha-fila"><span>Estado</span><b><span class="badge ${SEGUIMIENTO_ESTADO_BADGE[c.seguimientoEstado] || 'b-gris'}">${SEGUIMIENTO_ESTADO_LABEL[c.seguimientoEstado] || c.seguimientoEstado || 'Pendiente'}</span></b></div>`;
+      <div class="ficha-fila"><span>Estado</span><b><span class="badge ${SEGUIMIENTO_ESTADO_BADGE[c.seguimientoEstado] || 'b-gris'}">${escapeHtml(SEGUIMIENTO_ESTADO_LABEL[c.seguimientoEstado] || c.seguimientoEstado || 'Pendiente')}</span></b></div>`;
   } else if (resInfo.clave === 'en_seguimiento' && c.bsaleDocumentoNumero && !c.venta) {
     proximaAccionHtml = `<div class="ficha-fila"><span>Acción pendiente</span><b style="text-align:left;">Confirmar venta sugerida (Bsale)</b></div>`;
   } else {
@@ -1141,8 +1146,8 @@ function renderFichaBandeja(data){
         <h3>✨ Resumen IA</h3>
         ${ai ? `
           <div class="ficha-fila"><span>Resumen</span><b style="text-align:left;max-width:200px;">${escapeHtml(ai.resumen || 'Por confirmar')}</b></div>
-          <div class="ficha-fila"><span>Intención</span><b>${ai.intencion ? (INTENCION_LABEL[ai.intencion] || ai.intencion) : 'Por confirmar'} <span class="sub" style="font-size:9.5px;">(${origenCampoLabel(c, 'intencion')})</span></b></div>
-          <div class="ficha-fila"><span>Categoría</span><b>${ai.categoria ? (CATEGORIA_LABEL[ai.categoria] || ai.categoria) : 'Por confirmar'}</b></div>
+          <div class="ficha-fila"><span>Intención</span><b>${ai.intencion ? escapeHtml(INTENCION_LABEL[ai.intencion] || ai.intencion) : 'Por confirmar'} <span class="sub" style="font-size:9.5px;">(${origenCampoLabel(c, 'intencion')})</span></b></div>
+          <div class="ficha-fila"><span>Categoría</span><b>${ai.categoria ? escapeHtml(CATEGORIA_LABEL[ai.categoria] || ai.categoria) : 'Por confirmar'}</b></div>
           <div class="ficha-fila"><span>Producto/modelo</span><b>${productoDisplayHtml(c)} <span class="sub" style="font-size:9.5px;">(${origenCampoLabel(c, 'modelo')})</span></b></div>
           <div class="ficha-fila"><span>Prob. de compra</span><b>${probabilidadDisplayHtml(c)}</b></div>
         ` : `<p class="sub">Sin análisis todavía. <button class="btn-ghost btn-compact" onclick="analizarConversacionIA(${c.id})">🤖 Analizar con IA</button></p>`}
@@ -1157,7 +1162,7 @@ function renderFichaBandeja(data){
         <div class="ficha-fila"><span>Resultado comercial</span><b><span class="badge ${resInfo.badge}">${resInfo.label}</span></b></div>
         ${c.shopifyProductoUrl ? `<div class="ficha-fila"><span>Shopify</span><b>${shopifyCellHtml(c)}</b></div>` : ''}
         <div class="ficha-fila"><span>Venta</span><b>${ventaCellHtml(c)}</b></div>
-        ${!c.venta ? `<div class="ficha-fila"><span></span><b><button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id}, ${c.bsaleDocumentoMonto || 0}, '${escapeHtml(c.bsaleDocumentoNumero || '')}')">${c.bsaleDocumentoNumero ? 'Confirmar esta venta' : 'Asociar venta'}</button></b></div>` : ''}
+        ${!c.venta ? `<div class="ficha-fila"><span></span><b><button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id}, ${Number(c.bsaleDocumentoMonto) || 0}, ${escapeHtml(JSON.stringify(String(c.bsaleDocumentoNumero || '')))})">${c.bsaleDocumentoNumero ? 'Confirmar esta venta' : 'Asociar venta'}</button></b></div>` : ''}
         ${c.motivoPerdida ? `<div class="ficha-fila"><span>Motivo de pérdida</span><b>${MOTIVO_PERDIDA_LABEL[c.motivoPerdida] || escapeHtml(c.motivoPerdida)} <span class="sub" style="font-size:9.5px;">(${origenCampoLabel(c, 'motivo_perdida')})</span></b></div>` : ''}
       </details>
       <details class="ficha-colapsable">
@@ -1272,7 +1277,7 @@ function renderTablaConv(lista){
       ${convState.columnasExtendidas ? `
         <td>${escapeHtml(c.clienteTelefono || '—')}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.ultimoMensaje || '—')}</td>
-        <td>${c.intencion ? (INTENCION_LABEL[c.intencion] || c.intencion) : '—'}</td>
+        <td>${c.intencion ? escapeHtml(INTENCION_LABEL[c.intencion] || c.intencion) : '—'}</td>
         <td>${productoDisplayHtml(c)}</td>
         <td>${shopifyCellHtml(c)}</td>
         <td>${c.primeraRespuestaSegundos != null ? fmtDuracion(c.primeraRespuestaSegundos) : (c.cantidadMensajes > 0 ? '<span class="badge b-rojo">Sin respuesta</span>' : '—')}</td>
@@ -1358,7 +1363,7 @@ async function refrescarConversacionAbierta(id){
   try{
     const res = await fetch('/api/negocio?recurso=whatsapp-conversacion-detalle&id=' + id);
     const data = await res.json();
-    if (!res.ok || data.error) { $('modalConvBody').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`; return; }
+    if (!res.ok || data.error) { $('modalConvBody').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar.')}</p>`; return; }
     renderDetalleConversacion(data);
   }catch(err){
     $('modalConvBody').innerHTML = `<p class="empty-note">Error: ${escapeHtml(err.message)}</p>`;
@@ -1385,7 +1390,7 @@ function burbujaMensaje(m){
     const src = '/api/negocio?recurso=whatsapp-media&ref=' + encodeURIComponent(m.mediaUrl);
     contenido = `<img src="${src}" loading="lazy" alt="Imagen" style="max-width:220px;max-height:220px;border-radius:8px;display:block;object-fit:cover;cursor:zoom-in;" onclick="event.stopPropagation(); abrirImagenAmpliada('${src.replace(/'/g, "\\'")}')" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'tipo-media',textContent:'📎 [imagen no disponible]'}))">`;
   } else {
-    contenido = `<span class="tipo-media">📎 [${m.tipo}]${m.texto ? ' — ' + escapeHtml(m.texto) : ''}</span>`;
+    contenido = `<span class="tipo-media">📎 [${escapeHtml(m.tipo)}]${m.texto ? ' — ' + escapeHtml(m.texto) : ''}</span>`;
   }
   return `<div class="burbuja ${clase}">${contenido}<span class="hora">${fmtHora(m.marcaTiempo)}${m.estado ? ' · ' + escapeHtml(m.estado) : ''}</span></div>`;
 }
@@ -1410,7 +1415,7 @@ function renderDetalleConversacion(data){
     <div class="ficha-grupo">
       <h3 style="display:flex;justify-content:space-between;align-items:center;">🤖 Análisis IA ${botonAnalizar}</h3>
       <div class="ficha-fila"><span>Resumen</span><b style="text-align:left;max-width:220px;">${escapeHtml(ai.resumen || '—')}</b></div>
-      <div class="ficha-fila"><span>Categoría</span><b>${CATEGORIA_LABEL[ai.categoria] || ai.categoria || '—'}</b></div>
+      <div class="ficha-fila"><span>Categoría</span><b>${escapeHtml(CATEGORIA_LABEL[ai.categoria] || ai.categoria || '—')}</b></div>
       <div class="ficha-fila"><span>Problema del cliente</span><b style="text-align:left;max-width:220px;">${escapeHtml(ai.problemaCliente || '—')}</b></div>
       ${ai.especificaciones ? `<div class="ficha-fila"><span>Especificaciones</span><b style="text-align:left;max-width:220px;">${escapeHtml(ai.especificaciones)}</b></div>` : ''}
       <div class="ficha-fila"><span>Sentimiento</span><b>${escapeHtml(ai.sentimiento || '—')}</b></div>
@@ -1437,10 +1442,10 @@ function renderDetalleConversacion(data){
     // -- todavía no es una venta confirmada, solo una pista para revisar.
     ventaHtml = `
       <div class="ficha-fila"><span>Venta</span><b>
-        <span class="sub">🧾 Sugerido: ${fmtMoneda(c.bsaleDocumentoMonto)} — ${escapeHtml(c.bsaleDocumentoTipo || 'Documento')} ${escapeHtml(c.bsaleDocumentoNumero)}${c.bsaleDocumentoUrl ? ` <a href="${escapeHtml(c.bsaleDocumentoUrl)}" target="_blank" rel="noopener">(ver)</a>` : ''}</span>
+        <span class="sub">🧾 Sugerido: ${fmtMoneda(c.bsaleDocumentoMonto)} — ${escapeHtml(c.bsaleDocumentoTipo || 'Documento')} ${escapeHtml(c.bsaleDocumentoNumero)}${c.bsaleDocumentoUrl ? ` <a href="${escapeHtml(urlHttpSegura(c.bsaleDocumentoUrl))}" target="_blank" rel="noopener">(ver)</a>` : ''}</span>
       </b></div>
       <div class="ficha-fila"><span></span><b>
-        <button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id}, ${c.bsaleDocumentoMonto || 0}, '${escapeHtml(c.bsaleDocumentoNumero)}')">Confirmar esta venta</button>
+        <button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id}, ${Number(c.bsaleDocumentoMonto) || 0}, ${escapeHtml(JSON.stringify(String(c.bsaleDocumentoNumero)))})">Confirmar esta venta</button>
       </b></div>${origenRealHtml}`;
   } else {
     ventaHtml = `<div class="ficha-fila"><span>Venta</span><b><button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id})">Asociar venta</button></b></div>`;
@@ -1476,7 +1481,7 @@ function renderDetalleConversacion(data){
         <div class="ficha-grupo">
           <h3>💬 Conversación actual</h3>
           <div class="ficha-fila"><span>Fecha inicio</span><b>${fmtFechaHora(c.fecha)}</b></div>
-          <div class="ficha-fila"><span>Origen</span><b>${(() => { const f = fuenteInfo(c); const contenido = `${f.icono} ${escapeHtml(f.texto)}${c.fuenteUrl ? ` <a href="${escapeHtml(c.fuenteUrl)}" target="_blank" rel="noopener">(ver)</a>` : ''}`; const conRef = contenido + (c.fuenteRef ? ` · <span title="Número de referencia de esta conversación (viene de un anuncio o publicación de Meta). Se puede buscar en el buscador de la bandeja.">ref <b>${escapeHtml(c.fuenteRef)}</b></span>` : ''); return f.esSub ? `<span class="sub">${conRef}</span>` : conRef; })()}</b></div>
+          <div class="ficha-fila"><span>Origen</span><b>${(() => { const f = fuenteInfo(c); const contenido = `${f.icono} ${escapeHtml(f.texto)}${c.fuenteUrl ? ` <a href="${escapeHtml(urlHttpSegura(c.fuenteUrl))}" target="_blank" rel="noopener">(ver)</a>` : ''}`; const conRef = contenido + (c.fuenteRef ? ` · <span title="Número de referencia de esta conversación (viene de un anuncio o publicación de Meta). Se puede buscar en el buscador de la bandeja.">ref <b>${escapeHtml(c.fuenteRef)}</b></span>` : ''); return f.esSub ? `<span class="sub">${conRef}</span>` : conRef; })()}</b></div>
           <div class="ficha-fila"><span>Cantidad de mensajes</span><b>${fmtNum(c.cantidadMensajes)}</b></div>
           <div class="ficha-fila"><span>1ª respuesta</span><b>${c.primeraRespuestaSegundos != null ? fmtDuracion(c.primeraRespuestaSegundos) : 'Sin respuesta'}</b></div>
           <div class="ficha-fila"><span>Estado</span><b><select id="editEstado" onchange="guardarCampoConv(${c.id}, 'estado', this.value)">${WHATSAPP_ESTADOS.map(e => `<option value="${e}" ${e===c.estado?'selected':''}>${ESTADO_LABEL[e]}</option>`).join('')}</select></b></div>
@@ -1485,7 +1490,7 @@ function renderDetalleConversacion(data){
         </div>
         <div class="ficha-grupo">
           <h3>📈 Comercial</h3>
-          <div class="ficha-fila"><span>Intención</span><b>${c.intencion ? (INTENCION_LABEL[c.intencion]||c.intencion) : '—'}</b></div>
+          <div class="ficha-fila"><span>Intención</span><b>${c.intencion ? escapeHtml(INTENCION_LABEL[c.intencion]||c.intencion) : '—'}</b></div>
           <div class="ficha-fila"><span>Producto / marca / modelo</span><b>${productoDisplayHtml(c)}</b></div>
           ${c.shopifyProductoUrl ? `<div class="ficha-fila"><span>Shopify</span><b>${shopifyCellHtml(c)}</b></div>` : ''}
           <div class="ficha-fila"><span>Probabilidad de compra</span><b>${semaforoHtml(c.probabilidadCompra)}</b></div>
@@ -1661,7 +1666,7 @@ async function cargarClientes(){
   try{
     const res = await fetch('/api/negocio?recurso=whatsapp-clientes&' + params.toString());
     const data = await res.json();
-    if (!res.ok || data.error) { $('tablaClientes').innerHTML = `<tr><td colspan="12" class="empty-note">${data.error || 'Error al cargar.'}</td></tr>`; return; }
+    if (!res.ok || data.error) { $('tablaClientes').innerHTML = `<tr><td colspan="12" class="empty-note">${escapeHtml(data.error || 'Error al cargar.')}</td></tr>`; return; }
     if (!data.clientes.length) { $('tablaClientes').innerHTML = '<tr><td colspan="12" class="empty-note">No hay clientes que calcen con la búsqueda y los filtros.</td></tr>'; $('paginacionClientes').innerHTML = ''; return; }
     $('tablaClientes').innerHTML = data.clientes.map(c => `
       <tr class="fila-clic" onclick="abrirCliente(${c.id})">
@@ -1675,7 +1680,7 @@ async function cargarClientes(){
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml((c.productosConsultados||[]).map(p => CATEGORIA_LABEL[p]||p).join(', ') || '—')}</td>
         <td>${fmtNum(c.numVentas)}${c.numVentas > 1 ? ' <span class="badge b-verde">Recompra</span>' : ''}</td>
         <td class="amount">${fmtMoneda(c.totalComprado)}</td>
-        <td>${c.ultimaIntencion ? (INTENCION_LABEL[c.ultimaIntencion]||c.ultimaIntencion) : '—'}</td>
+        <td>${c.ultimaIntencion ? escapeHtml(INTENCION_LABEL[c.ultimaIntencion]||c.ultimaIntencion) : '—'}</td>
         <td>${badgeEstado(c.estado)}</td>
       </tr>
     `).join('');
@@ -1699,7 +1704,7 @@ async function abrirCliente(id){
   try{
     const res = await fetch('/api/negocio?recurso=whatsapp-cliente-detalle&id=' + id);
     const data = await res.json();
-    if (!res.ok || data.error) { $('modalClienteBody').innerHTML = `<p class="empty-note">${data.error || 'No se pudo cargar.'}</p>`; return; }
+    if (!res.ok || data.error) { $('modalClienteBody').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'No se pudo cargar.')}</p>`; return; }
     const cl = data.cliente;
     $('modalClienteTitulo').textContent = cl.nombre || 'Sin nombre';
     $('modalClienteBody').innerHTML = `
@@ -1875,7 +1880,7 @@ async function cargarAnalitica(){
   try{
     const res = await fetch(`/api/negocio?recurso=whatsapp-analitica&desde=${desde}&hasta=${hasta}`);
     const data = await res.json();
-    if (!res.ok || data.error) { $('chartSerie').innerHTML = `<p class="empty-note">${data.error || 'Error al cargar.'}</p>`; return; }
+    if (!res.ok || data.error) { $('chartSerie').innerHTML = `<p class="empty-note">${escapeHtml(data.error || 'Error al cargar.')}</p>`; return; }
     renderChartSerie(data.serie, data.agrupacion);
     renderChartCategorias(data.distribucionCategoria);
     renderChartEmbudo(data.embudo);
@@ -1921,7 +1926,7 @@ function renderTablaFuentesDetalle(){
   }
   const lista = [...fuentesDetalleActual].sort((a, b) => sortAscFuentesDetalle ? a.cantidad - b.cantidad : b.cantidad - a.cantidad);
   $('tablaFuentesDetalle').innerHTML = lista.map(d => `
-    <tr><td>${FUENTE_TIPO_LABEL_ANALITICA[d.tipo] || d.tipo}</td><td>${escapeHtml(d.titulo || '—')}</td><td>${fmtNum(d.cantidad)}</td></tr>
+    <tr><td>${escapeHtml(FUENTE_TIPO_LABEL_ANALITICA[d.tipo] || d.tipo)}</td><td>${escapeHtml(d.titulo || '—')}</td><td>${fmtNum(d.cantidad)}</td></tr>
   `).join('');
 }
 function renderFuentes(fuentes, detalle){
@@ -1929,7 +1934,7 @@ function renderFuentes(fuentes, detalle){
   const max = Math.max(1, ...fuentes.map(f => f.cantidad));
   $('chartFuentes').innerHTML = fuentes.map(f => `
     <div class="barra-horizontal">
-      <div class="nombre">${FUENTE_TIPO_LABEL_ANALITICA[f.tipo] || f.tipo}</div>
+      <div class="nombre">${escapeHtml(FUENTE_TIPO_LABEL_ANALITICA[f.tipo] || f.tipo)}</div>
       <div class="pista"><div class="relleno" style="width:${(f.cantidad/max)*100}%;"></div></div>
       <div class="valor">${fmtNum(f.cantidad)} · ${fmtNum(f.ventas)} venta(s)</div>
     </div>
@@ -1968,10 +1973,10 @@ function renderChartCategorias(dist){
   const max = Math.max(1, ...dist.map(d => d.cantidad));
   $('chartCategorias').innerHTML = dist.map(d => `
     <div class="barra-horizontal">
-      <div class="nombre">${CATEGORIA_LABEL[d.categoria] || d.categoria}</div>
+      <div class="nombre">${escapeHtml(CATEGORIA_LABEL[d.categoria] || d.categoria)}</div>
       <div class="pista"><div class="relleno" style="width:${(d.cantidad/max)*100}%;"></div></div>
       <div class="valor">${fmtNum(d.cantidad)}</div>
-      <button class="btn-ghost btn-compact" style="flex-shrink:0;" title="Embudo, por qué se pierde, qué se consulta, fuentes, palabras y horarios de esta categoría" onclick="abrirPanelCategoria('${escapeHtml(d.categoria)}')">📊 Analizar</button>
+      <button class="btn-ghost btn-compact" style="flex-shrink:0;" title="Embudo, por qué se pierde, qué se consulta, fuentes, palabras y horarios de esta categoría" onclick="abrirPanelCategoria(${escapeHtml(JSON.stringify(String(d.categoria)))})">📊 Analizar</button>
     </div>
   `).join('');
 }
@@ -2029,10 +2034,10 @@ function renderTbodyMotivos(){
   if (!motivosActuales.length) { $('tablaMotivos').innerHTML = '<tr><td colspan="5" class="empty-note">Sin conversaciones perdidas en este período.</td></tr>'; return; }
   const lista = [...motivosActuales].sort((a, b) => sortAscMotivos ? a[sortColMotivos] - b[sortColMotivos] : b[sortColMotivos] - a[sortColMotivos]);
   $('tablaMotivos').innerHTML = lista.map(m => `
-    <tr class="fila-clic" onclick="irAConversacionesConMotivo('${escapeHtml(m.motivo)}')">
+    <tr class="fila-clic" onclick="irAConversacionesConMotivo(${escapeHtml(JSON.stringify(String(m.motivo)))})">
       <td>${escapeHtml(m.etiqueta)}</td><td>${fmtNum(m.cantidad)}</td><td>${m.porcentaje}%</td>
       <td style="max-width:340px;font-size:12px;color:var(--muted);">${escapeHtml(MOTIVO_PERDIDA_RECOMENDACION[m.motivo] || 'Sin recomendación definida para este motivo.')}</td>
-      <td style="white-space:nowrap;">${MOTIVOS_ANALIZABLES_UI.includes(m.motivo) ? `<button class="btn-primary btn-compact" title="Qué se repite, palabras clave, cuándo dejó de responder el cliente y qué hacer" onclick="event.stopPropagation(); abrirPanelMotivo('${escapeHtml(m.motivo)}')">📊 Analizar</button> ` : ''}<button class="btn-ghost btn-compact" onclick="event.stopPropagation(); irAConversacionesConMotivo('${escapeHtml(m.motivo)}')">👁️ Ver conversaciones</button></td>
+      <td style="white-space:nowrap;">${MOTIVOS_ANALIZABLES_UI.includes(m.motivo) ? `<button class="btn-primary btn-compact" title="Qué se repite, palabras clave, cuándo dejó de responder el cliente y qué hacer" onclick="event.stopPropagation(); abrirPanelMotivo(${escapeHtml(JSON.stringify(String(m.motivo)))})">📊 Analizar</button> ` : ''}<button class="btn-ghost btn-compact" onclick="event.stopPropagation(); irAConversacionesConMotivo(${escapeHtml(JSON.stringify(String(m.motivo)))})">👁️ Ver conversaciones</button></td>
     </tr>
   `).join('');
 }
@@ -2101,7 +2106,7 @@ function renderChartResultados(resultados){
   const max = Math.max(1, ...resultados.map(r => r.cantidad));
   $('chartResultados').innerHTML = resultados.map(r => `
     <div class="barra-horizontal">
-      <div class="nombre">${RESULTADO_LABEL[r.resultado] || r.resultado}</div>
+      <div class="nombre">${escapeHtml(RESULTADO_LABEL[r.resultado] || r.resultado)}</div>
       <div class="pista"><div class="relleno" style="width:${(r.cantidad/max)*100}%;"></div></div>
       <div class="valor">${fmtNum(r.cantidad)}</div>
     </div>
@@ -2486,7 +2491,7 @@ function renderConversionComercial(cc){
   const tiempo = min == null ? '—' : (min < 90 ? `${Math.round(min)} min` : (min < 2880 ? `${Math.round(min / 60 * 10) / 10} h` : `${Math.round(min / 1440)} días`));
   const tabla = cc.porCategoria.map(c => `
     <tr><td>${escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria)}</td><td class="num">${fmtNum(c.conversaciones)}</td><td class="num">${fmtNum(c.conversiones)}</td><td class="num">${c.pctConversion}%</td><td class="num">${fmtNum(c.completas)}</td><td class="num">${fmtNum(c.ventas)}</td>
-    <td><button class="btn-ghost btn-compact" onclick="abrirPanelCategoria('${escapeHtml(c.categoria)}')">📊 Analizar</button></td></tr>`).join('');
+    <td><button class="btn-ghost btn-compact" onclick="abrirPanelCategoria(${escapeHtml(JSON.stringify(String(c.categoria)))})">📊 Analizar</button></td></tr>`).join('');
   el.innerHTML = `${aviso}
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:14px;">
       ${tarjeta('Cotizaciones', fmtNum(cc.conversiones), `${cc.pctConversionSobreConversaciones}% de ${fmtNum(cc.conversaciones)} conversaciones · ${fmtNum(cc.cotizacionesEnviadas)} enviadas · ${fmtNum(cc.soloSolicitadas)} solo pedidas por el cliente`, 'destacada')}
