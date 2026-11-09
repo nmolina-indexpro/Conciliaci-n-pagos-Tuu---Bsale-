@@ -494,6 +494,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="restriccion-usuario.js"></script>
+<script src="etiquetas-botones.js"></script>
 <script src="menu-herramientas.js"></script>
 <script src="comercial-movil.js"></script>
 <script>
@@ -1548,7 +1549,7 @@ function renderTablaDescubrimiento(){
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuPantalla ? `<code>${c.skuPantalla}</code>` : '<span class="empty-note">sin match</span>')}</td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuBateria ? `<code>${c.skuBateria}</code>` : '<span class="empty-note">sin match</span>')}</td>
       <td>${c.buscando ? '<span class="empty-note">buscando…</span>' : (c.skuCargador ? `<code>${c.skuCargador}</code>` : '<span class="empty-note">sin match</span>')}</td>
-      <td><button class="btn-ghost btn-compact" onclick='guardarUnoDescubierto(${JSON.stringify(c.clave)})'>💾</button></td>
+      <td><button class="btn-ghost btn-compact" title="Guardar" aria-label="Guardar" onclick='guardarUnoDescubierto(${JSON.stringify(c.clave)})'>💾</button></td>
     </tr>
   `).join('');
   btnGuardar.style.display = '';
@@ -1727,8 +1728,8 @@ function renderTablaCompat(modelos){
       <td>${celdaSku(m.skuCargador)}</td>
       <td class="empty-note">${m.actualizadoPor || '—'}</td>
       <td style="white-space:nowrap;">
-        <button class="btn-ghost btn-compact" onclick="editarModeloCompat(${m.id})">✏️</button>
-        <button class="btn-danger btn-compact" onclick="eliminarModeloCompat(${m.id})">🗑️</button>
+        <button class="btn-ghost btn-compact" title="Editar" aria-label="Editar" onclick="editarModeloCompat(${m.id})">✏️</button>
+        <button class="btn-danger btn-compact" title="Eliminar" aria-label="Eliminar" onclick="eliminarModeloCompat(${m.id})">🗑️</button>
       </td>
     </tr>
   `).join('');

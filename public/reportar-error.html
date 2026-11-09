@@ -251,7 +251,7 @@
   <div class="modal-box">
     <div class="modal-head">
       <h2 id="modalTitulo">Ticket</h2>
-      <button class="modal-cerrar" onclick="cerrarModal()">✕</button>
+      <button class="modal-cerrar" title="Cerrar" aria-label="Cerrar" onclick="cerrarModal()">✕</button>
     </div>
     <div class="modal-body" id="modalBody"></div>
     <div class="modal-foot" id="modalFoot"></div>
@@ -259,6 +259,7 @@
 </div>
 
 <script src="restriccion-usuario.js"></script>
+<script src="etiquetas-botones.js"></script>
 <script src="menu-herramientas.js"></script>
 <script>
 const $ = id => document.getElementById(id);
@@ -306,7 +307,7 @@ let imagenAdjuntaDataUrl = null;
 function renderPreviewImagen(){
   const wrap = $('previewImagenWrap');
   wrap.innerHTML = imagenAdjuntaDataUrl
-    ? `<div class="preview-imagen"><img src="${imagenAdjuntaDataUrl}"><button type="button" class="btn-quitar" onclick="quitarImagen()">✕</button></div>`
+    ? `<div class="preview-imagen"><img src="${imagenAdjuntaDataUrl}"><button type="button" class="btn-quitar" title="Quitar imagen" aria-label="Quitar imagen" onclick="quitarImagen()">✕</button></div>`
     : '';
 }
 function quitarImagen(){

@@ -420,7 +420,7 @@
       <div style="display:flex;align-items:center;gap:6px;">
         <button class="btn-ghost btn-compact" id="btnConvAnterior" onclick="irConversacionAdyacente(-1)" title="Conversación anterior en la lista">← Anterior</button>
         <button class="btn-ghost btn-compact" id="btnConvSiguiente" onclick="irConversacionAdyacente(1)" title="Conversación siguiente en la lista">Siguiente →</button>
-        <button class="modal-cerrar" onclick="cerrarModalConversacion()">✕</button>
+        <button class="modal-cerrar" title="Cerrar" aria-label="Cerrar" onclick="cerrarModalConversacion()">✕</button>
       </div>
     </div>
     <div class="modal-body" id="modalConvBody"></div>
@@ -431,18 +431,19 @@
   <div class="modal-box">
     <div class="modal-head">
       <h2 id="modalClienteTitulo">Cliente</h2>
-      <button class="modal-cerrar" onclick="cerrarModalCliente()">✕</button>
+      <button class="modal-cerrar" title="Cerrar" aria-label="Cerrar" onclick="cerrarModalCliente()">✕</button>
     </div>
     <div class="modal-body" id="modalClienteBody"></div>
   </div>
 </div>
 
 <div class="lightbox-backdrop" id="lightboxImagen" onclick="cerrarImagenAmpliada()">
-  <button class="lightbox-cerrar" onclick="cerrarImagenAmpliada()">✕</button>
+  <button class="lightbox-cerrar" title="Cerrar imagen" aria-label="Cerrar imagen" onclick="cerrarImagenAmpliada()">✕</button>
   <img id="lightboxImagenImg" src="" alt="Imagen ampliada">
 </div>
 
 <script src="restriccion-usuario.js"></script>
+<script src="etiquetas-botones.js"></script>
 <script src="menu-herramientas.js"></script>
 <script src="comercial-movil.js"></script>
 <script src="clientes-whatsapp.js"></script>

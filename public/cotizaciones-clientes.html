@@ -450,6 +450,7 @@
 </div>
 
 <script src="restriccion-usuario.js"></script>
+<script src="etiquetas-botones.js"></script>
 <script src="menu-herramientas.js"></script>
 <script src="comercial-movil.js"></script>
 <script>
@@ -1477,7 +1478,7 @@ function renderTablaCotizaciones(){
     <span>Mostrando ${fmtNum(inicio+1)}–${fmtNum(Math.min(inicio+PAGE_SIZE_COT, todasOrdenadas.length))} de ${fmtNum(todasOrdenadas.length)}</span>
     <span>
       <button class="btn-ghost btn-compact" ${paginaCot<=1?'disabled':''} onclick="irPaginaCot(${paginaCot-1})">← Anterior</button>
-      ${Array.from({length:totalPaginas}, (_,i)=>i+1).slice(Math.max(0,paginaCot-3), paginaCot+2).map(p=>`<button class="btn-ghost btn-compact" style="${p===paginaCot?'background:var(--primary);color:#fff;border-color:var(--primary);':''}" onclick="irPaginaCot(${p})">${p}</button>`).join('')}
+      ${Array.from({length:totalPaginas}, (_,i)=>i+1).slice(Math.max(0,paginaCot-3), paginaCot+2).map(p=>`<button class="btn-ghost btn-compact" style="${p===paginaCot?'background:var(--primary);color:#fff;border-color:var(--primary);':''}" title="Ir a la página ${p}" aria-label="Página ${p}" onclick="irPaginaCot(${p})">${p}</button>`).join('')}
       <button class="btn-ghost btn-compact" ${paginaCot>=totalPaginas?'disabled':''} onclick="irPaginaCot(${paginaCot+1})">Siguiente →</button>
     </span>` : `<span>${fmtNum(todasOrdenadas.length)} cotización${todasOrdenadas.length===1?'':'es'}</span>`;
 

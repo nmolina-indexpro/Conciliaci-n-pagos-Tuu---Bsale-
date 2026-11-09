@@ -240,9 +240,9 @@
   <p class="empty-note">Haz clic en un día para agregar o revisar ingresos y egresos programados — reemplaza la planilla de Google Sheets que se usaba para esto.</p>
   <button class="btn-ghost btn-compact" id="btnImportarPlanilla" style="display:none;margin-bottom:12px;" onclick="importarPlanillaFlujoCaja()">📥 Importar planilla original (una sola vez)</button>
   <div class="calendario-nav">
-    <button class="btn-ghost btn-compact" onclick="cambiarMesCalendario(-1)">◀</button>
+    <button class="btn-ghost btn-compact" title="Mes anterior" aria-label="Mes anterior" onclick="cambiarMesCalendario(-1)">◀</button>
     <div class="mes-actual" id="mesCalendarioLabel"></div>
-    <button class="btn-ghost btn-compact" onclick="cambiarMesCalendario(1)">▶</button>
+    <button class="btn-ghost btn-compact" title="Mes siguiente" aria-label="Mes siguiente" onclick="cambiarMesCalendario(1)">▶</button>
     <button class="btn-ghost btn-compact" onclick="irAMesActualCalendario()">Hoy</button>
   </div>
   <div class="calendario-grid" id="calendarioGrid"></div>
@@ -370,6 +370,7 @@
 </div>
 
 <script src="restriccion-usuario.js"></script>
+<script src="etiquetas-botones.js"></script>
 <script src="menu-herramientas.js"></script>
 <script>
 const $ = id => document.getElementById(id);

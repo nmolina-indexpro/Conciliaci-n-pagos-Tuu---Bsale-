@@ -242,7 +242,7 @@
   <div class="modal-box">
     <div class="modal-head">
       <h2 id="modalEnvioTitulo">Nuevo envío</h2>
-      <button class="modal-cerrar" onclick="cerrarModalEnvio()">✕</button>
+      <button class="modal-cerrar" title="Cerrar" aria-label="Cerrar" onclick="cerrarModalEnvio()">✕</button>
     </div>
     <div class="modal-body">
       <div class="note-box">ℹ Esta página no está conectada en vivo con CargoWise ni ninguna naviera -- no existe esa integración. Escribir solo la referencia <b>no trae el resto de los datos solo</b>: copia cada campo a mano desde el sistema de tracking (CargoWise, la naviera o el forwarder) mientras revisas el envío.</div>
@@ -307,6 +307,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="restriccion-usuario.js"></script>
+<script src="etiquetas-botones.js"></script>
 <script src="menu-herramientas.js"></script>
 <script>
 const $ = id => document.getElementById(id);

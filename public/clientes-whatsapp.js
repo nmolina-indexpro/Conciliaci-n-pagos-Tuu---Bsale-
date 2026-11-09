@@ -773,8 +773,8 @@ function actualizarListaBandeja(data){
   $('listaPaginacionBandeja').innerHTML = `
     <span>${fmtNum(convState.total)} conversación(es)${convState.totalPaginas > 1 ? ` · pág. ${convState.page}/${convState.totalPaginas}` : ''}</span>
     <span>
-      <button class="btn-ghost btn-compact" style="padding:4px 9px;" ${convState.page <= 1 ? 'disabled' : ''} onclick="irPaginaConv(${convState.page - 1})">←</button>
-      <button class="btn-ghost btn-compact" style="padding:4px 9px;" ${convState.page >= convState.totalPaginas ? 'disabled' : ''} onclick="irPaginaConv(${convState.page + 1})">→</button>
+      <button class="btn-ghost btn-compact" style="padding:4px 9px;" ${convState.page <= 1 ? 'disabled' : ''} title="Página anterior" aria-label="Página anterior" onclick="irPaginaConv(${convState.page - 1})">←</button>
+      <button class="btn-ghost btn-compact" style="padding:4px 9px;" ${convState.page >= convState.totalPaginas ? 'disabled' : ''} title="Página siguiente" aria-label="Página siguiente" onclick="irPaginaConv(${convState.page + 1})">→</button>
     </span>
   `;
 }
@@ -1119,7 +1119,7 @@ function renderFichaBandeja(data){
   $('panelFichaBandeja').innerHTML = `
     <div class="ficha-bandeja-head">
       <h2 style="font-size:13.5px;margin:0;">Ficha del cliente</h2>
-      <button class="btn-ghost btn-compact btn-cerrar-panel-movil" onclick="cerrarFichaMovil()">✕</button>
+      <button class="btn-ghost btn-compact btn-cerrar-panel-movil" title="Cerrar ficha" aria-label="Cerrar ficha" onclick="cerrarFichaMovil()">✕</button>
     </div>
     <div class="ficha-bandeja-body">
       <div class="ficha-grupo">
