@@ -26,6 +26,9 @@ import { elegirPrecioSku } from '../lib/precios-sku.js';
 import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidirAvisos, armarCorreoTraspasoStock } from '../lib/traspaso-stock.js';
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
+import { claveAviso as claveAvisoPP, verificarHmac as verificarHmacPP, normalizarOrdenRest as normalizarOrdenRestPP, extraerSolicitudes as extraerSolicitudesPP, leerConfig as leerConfigPP, guardarConfig as guardarConfigPP, guardarOrden as guardarOrdenPP, reclamarAviso as reclamarAvisoPP, listarPedidos as listarPedidosPP, leerPedido as leerPedidoPP, resumirPedidos as resumirPedidosPP, aplicarCambios as aplicarCambiosPP, crearManual as crearManualPP, urlAdminOrden as urlAdminOrdenPP, asegurarTablaPedidosPantalla } from '../lib/pedidos-pantalla.js';
+import { buscarProductosAbono as buscarProductosAbonoPP, crearProductoAbono as crearProductoAbonoPP, ordenesConAbono as ordenesConAbonoPP, estadoWebhooksPedidos as estadoWebhooksPedidosPP, registrarWebhooksPedidos as registrarWebhooksPedidosPP } from '../lib/pedidos-pantalla-shopify.js';
+import { armarCorreoPedidoPantalla } from '../lib/correo-pedido-pantalla.js';
 import { armarCorreoInsumosCriticos } from '../lib/correo-insumo.js';
 import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadores.js';
 import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGORIAS as CATEGORIAS_CONTABILIDAD, CATEGORIA_IDS as CATEGORIA_IDS_CONTABILIDAD, categoriaEfectiva, resumir as resumirContabilidad, analizarContabilidad } from '../lib/contabilidad.js';
@@ -205,6 +208,8 @@ export default async function handler(req, res) {
   // Descuentos web: el aviso de stock de Shopify y la revisión diaria entran sin sesión (clave en la URL / CRON_SECRET, ver handler).
   if (req.query.recurso === 'descuentos-web-aviso') return manejarDescuentosWebAviso(req, res);
   if (req.query.recurso === 'descuentos-web-cron') return manejarDescuentosWebCron(req, res);
+  // Pantallas a pedido: los avisos de pedidos de Shopify entran sin sesión (clave en la URL + firma HMAC de Shopify, ver handler).
+  if (req.query.recurso === 'pedidos-pantalla-aviso') return manejarPedidosPantallaAviso(req, res);
   // Orden de las colecciones por stock: cron (CRON_SECRET, sin sesión). La administración (sesión) es el recurso orden-colecciones.
   if (req.query.recurso === 'orden-colecciones-cron') return manejarOrdenColeccionesCron(req, res);
   // Lectura diaria del buzón de avisos del NAS (Soporte > IndexPro): cron con CRON_SECRET, sin sesión. La versión con sesión es nas-backup-sincronizar.
@@ -281,6 +286,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-perdidas-ads') return manejarWhatsappPerdidasAds(req, res, sesion);
   if (recurso === 'whatsapp-diagnostico-meta') return manejarWhatsappDiagnosticoMeta(req, res, sesion);
   if (recurso === 'descuentos-web') return manejarDescuentosWeb(req, res, sesion);
+  if (recurso === 'pedidos-pantalla') return manejarPedidosPantalla(req, res, sesion);
   if (recurso === 'cotizacion-resumen-clientes') return manejarCotizacionResumenClientes(req, res, sesion);
   if (recurso === 'cotizacion-detalle') return manejarCotizacionDetalle(req, res, sesion);
   if (recurso === 'cotizacion-correo-contenido') return manejarCotizacionCorreoContenido(req, res, sesion);
@@ -5536,6 +5542,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'modelos-compatibles-pendientes': manejarModelosCompatiblesRecordatorio,
       'traspaso-stock-modelos': manejarTraspasoStockNotificar,
       'transito-envio-nuevo': manejarTransitoEnvioNuevoPrueba,
+      'pedido-pantalla-nuevo': manejarPedidoPantallaPrueba,
       'insumos-stock-critico': manejarInsumoCriticoPrueba,
       'nas-informe-revision': manejarNasBackupInformeCron,
     };
@@ -18126,6 +18133,144 @@ async function manejarVariacionPrecioProductos(req, res, _sesion) {
     return res.status(200).json({ error: 'No se pudo leer la variación de precios', detail: String(err.message || err).slice(0, 200) });
   }
 }
+
+// ===================== PANTALLAS A PEDIDO =====================
+// Modelos de pantalla de notebook que no se tienen en stock pero se importan a pedido (10-20 días). El cliente paga en la tienda un producto de
+// "abono" (monto fijo, SKU ABONO-PANTALLA-...) y el pedido se vuelve una solicitud de compra aquí (lógica en lib/pedidos-pantalla.js).
+function pedidosPantallaUrlAviso() {
+  const host = URL_BASE_APP.replace(/^https?:\/\//, '');
+  return `https://${host}/api/negocio?recurso=pedidos-pantalla-aviso&k=${claveAvisoPP(process.env.CRON_SECRET || process.env.AUTH_SECRET)}`;
+}
+
+// Aviso por correo (notificación 'pedido-pantalla-nuevo', se administra en Usuarios > Notificaciones): el abono quedó pagado y hay que comprar la pantalla.
+// Sale una sola vez por pedido (reclamarAviso). Nunca hace fallar el guardado del pedido. Sin montos.
+async function avisarPedidosPantalla(sql, filas) {
+  let enviados = 0;
+  try {
+    await asegurarTablaNotificaciones(sql);
+    for (const p of filas) {
+      if (!(await reclamarAvisoPP(sql, p.id))) continue;
+      if (!(await notificacionDebeEnviarse(sql, 'pedido-pantalla-nuevo'))) continue;
+      const destinatarios = await obtenerSuscriptoresEmail(sql, 'pedido-pantalla-nuevo');
+      const { asunto, html } = armarCorreoPedidoPantalla(p, { urlBase: URL_BASE_APP });
+      let ok = 0;
+      for (const para of destinatarios) { const r = await enviarCorreo({ para, asunto, html }); if (r && r.enviado) ok++; }
+      if (ok > 0) { enviados++; await marcarNotificacionEnviada(sql, 'pedido-pantalla-nuevo', { asunto, html }); }
+    }
+  } catch (e) { console.warn('[pedidos-pantalla] aviso:', e.message); }
+  return enviados;
+}
+
+// Aviso (webhook) de Shopify: pedido nuevo, pagado o cancelado. Entra sin sesión: clave en la URL + firma HMAC de Shopify con el secreto de la app.
+async function manejarPedidosPantallaAviso(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const esperada = claveAvisoPP(process.env.CRON_SECRET || process.env.AUTH_SECRET);
+  if (!esperada || req.query.k !== esperada) return res.status(401).json({ error: 'No autorizado' });
+  const secreto = (process.env.SHOPIFY_CLIENT_SECRET || '').trim();
+  if (!secreto || !verificarHmacPP(req.rawBody, req.headers['x-shopify-hmac-sha256'], secreto)) return res.status(401).json({ error: 'Firma de Shopify no válida' });
+  try {
+    const sql = await getSql();
+    const config = await leerConfigPP(sql);
+    const orden = normalizarOrdenRestPP(req.body);
+    if (!orden || !extraerSolicitudesPP(orden, config).length) return res.status(200).json({ ok: true, ignorado: true });
+    const r = await guardarOrdenPP(sql, orden, config);
+    const avisos = await avisarPedidosPantalla(sql, r.paraAvisar);
+    return res.status(200).json({ ok: true, nuevos: r.nuevos, actualizados: r.actualizados, avisos });
+  } catch (e) {
+    return res.status(500).json({ error: 'No se pudo guardar el pedido', detail: String(e.message || e).slice(0, 200) }); // un error hace que Shopify reintente
+  }
+}
+
+async function manejarPedidosPantalla(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    const config = await leerConfigPP(sql);
+    const esAdmin = sesion.rol === 'admin';
+    const usuario = sesion.nombre || sesion.email;
+    const dominio = (process.env.SHOPIFY_STORE_DOMAIN || '').trim();
+    const conAdmin = (f) => ({ ...f, costo_compra: esAdmin ? f.costo_compra : undefined, urlShopify: urlAdminOrdenPP(dominio, f.shopify_order_id) });
+
+    if (req.method === 'GET') {
+      const filas = await listarPedidosPP(sql);
+      const salida = { pedidos: filas.map(conAdmin), resumen: resumirPedidosPP(filas), config, esAdmin };
+      if (req.query.shopify === '1' && esAdmin) {
+        try {
+          const gql = await descuentosWebGql();
+          salida.shopify = { productos: await buscarProductosAbonoPP(gql, config.prefijo_sku), avisos: await estadoWebhooksPedidosPP(gql, pedidosPantallaUrlAviso()), dominio };
+        } catch (e) { salida.shopify = { error: String(e.message || e).slice(0, 200) }; }
+      }
+      return res.status(200).json(salida);
+    }
+
+    if (req.method === 'PUT') {
+      const { id, ...cambios } = req.body || {};
+      if (!Number.isInteger(Number(id))) return res.status(400).json({ error: 'Falta el pedido' });
+      const r = await aplicarCambiosPP(sql, Number(id), cambios, { usuario, esAdmin });
+      if (r.error) return res.status(r.status || 400).json({ error: r.error });
+      return res.status(200).json({ ok: true, pedido: conAdmin(await leerPedidoPP(sql, Number(id))) });
+    }
+
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const { accion, ...datos } = req.body || {};
+
+    if (accion === 'manual') {
+      const r = await crearManualPP(sql, datos, { usuario, config });
+      if (r.error) return res.status(r.status || 400).json({ error: r.error });
+      return res.status(200).json({ ok: true, pedido: conAdmin(await leerPedidoPP(sql, r.fila.id)) });
+    }
+    if (accion === 'sincronizar') {
+      // Respaldo del aviso automático: revisa en Shopify los pedidos con el abono de los últimos días y guarda los que falten.
+      const dias = Math.min(90, Math.max(1, Math.round(Number(datos.dias)) || 45));
+      const desde = new Date(Date.now() - dias * 86400000).toISOString().slice(0, 10);
+      let gql;
+      try { gql = await descuentosWebGql(); } catch (e) { return res.status(200).json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
+      let ordenes;
+      try { ordenes = await ordenesConAbonoPP(gql, config.prefijo_sku, desde); } catch (e) { return res.status(200).json({ ok: false, error: String(e.message || e).slice(0, 240) }); }
+      let nuevos = 0, actualizados = 0; const paraAvisar = [];
+      for (const o of ordenes) { const r = await guardarOrdenPP(sql, o, config); nuevos += r.nuevos; actualizados += r.actualizados; paraAvisar.push(...r.paraAvisar); }
+      const avisos = await avisarPedidosPantalla(sql, paraAvisar);
+      return res.status(200).json({ ok: true, ordenes: ordenes.length, nuevos, actualizados, avisos, desde });
+    }
+
+    if (!esAdmin) return res.status(403).json({ error: 'Solo un administrador puede cambiar la configuración de Shopify' });
+    if (accion === 'config') {
+      return res.status(200).json({ ok: true, config: await guardarConfigPP(sql, { dias_estimados: datos.dias_estimados }) });
+    }
+    if (accion === 'crear-producto') {
+      let gql;
+      try { gql = await descuentosWebGql(); } catch (e) { return res.status(200).json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
+      try { return res.status(200).json({ ok: true, producto: await crearProductoAbonoPP(gql, { monto: datos.monto, prefijo: config.prefijo_sku, dias: config.dias_estimados }), dominio }); }
+      catch (e) { return res.status(200).json({ ok: false, error: String(e.message || e).slice(0, 300) }); }
+    }
+    if (accion === 'registrar-avisos') {
+      let gql;
+      try { gql = await descuentosWebGql(); } catch (e) { return res.status(200).json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
+      try { return res.status(200).json({ ok: true, ...(await registrarWebhooksPedidosPP(gql, pedidosPantallaUrlAviso())) }); }
+      catch (e) { return res.status(200).json({ ok: false, error: String(e.message || e).slice(0, 300) }); }
+    }
+    return res.status(400).json({ error: 'Acción no válida' });
+  } catch (err) {
+    return res.status(200).json({ error: 'Error en Pantallas a pedido', detail: String(err.message || err).slice(0, 200) });
+  }
+}
+
+// "Enviar prueba" de Usuarios > Notificaciones: manda a quien lo pidió el aviso del último pedido por comprar (o un ejemplo si no hay ninguno).
+async function manejarPedidoPantallaPrueba(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaPedidosPantalla(sql);
+    const { rows } = await sql.query("SELECT * FROM pedidos_pantalla WHERE estado = 'por_comprar' ORDER BY creado_en DESC LIMIT 1");
+    const p = rows[0] || { orden_nombre: '#1234', cliente_nombre: 'Cliente de ejemplo', cliente_telefono: '+56 9 1234 5678', modelo: 'HP Pavilion 15-eg0xxx', numero_parte: 'L12345-001', dias_estimados: 15 };
+    const { asunto, html } = armarCorreoPedidoPantalla(p, { urlBase: URL_BASE_APP, ejemplo: !rows[0] });
+    const r = await enviarCorreo({ para: String(req.query.para || ''), asunto: '[PRUEBA] ' + asunto, html });
+    return res.status(200).json({ ok: true, enviado: !!(r && r.enviado), motivo: r && r.motivo });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo armar el correo de prueba', detail: String(e.message || e).slice(0, 200) });
+  }
+}
+// ===================== PANTALLAS A PEDIDO (fin) =====================
 
 async function manejarFiltrosUso(req, res, _sesion) {
   try {

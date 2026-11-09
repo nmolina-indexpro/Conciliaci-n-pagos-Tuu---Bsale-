@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Pantallas a pedido — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  @media (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:18px 20px;}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:var(--text);}
+  .card .pct{font-size:13px;font-weight:700;color:var(--primary);margin-top:2px;}
+  .card.destacada{background:var(--primary-dim);border-color:var(--primary);}
+
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-top:16px;color:var(--text);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  #syncStatus{font-size:12px;color:var(--muted);margin-top:10px;}
+  #syncStatus.err{color:var(--red);}
+
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:12px;padding:7px 13px;}
+
+  .filtros{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  input[type=text]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  th.amount, td.amount{text-align:right;}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);text-decoration:none;font-size:13px;cursor:pointer;transition:all .15s;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+  .sku-code{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);}
+  .badge-caida{display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;font-size:11px;background:var(--red-bg);color:var(--red);}
+  .chk-group{display:flex;flex-direction:column;gap:3px;}
+  .efecto-linea{font-size:11.5px;line-height:1.35;margin-bottom:6px;}
+  .efecto-linea.ok{color:var(--green);} .efecto-linea.mal{color:var(--red);} .efecto-linea.espera{color:var(--muted);} .efecto-linea.aviso{color:#8A5A00;}
+  .efecto-linea .efecto-sub{display:block;color:var(--muted);font-size:10.5px;}
+  .chk-mini{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;}
+  .chk-mini input{margin:0;cursor:pointer;}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:16px;}
+  .modal-overlay.open{display:flex;}
+  .modal-box{background:var(--surface);border-radius:16px;padding:24px 26px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:min(520px,100%);max-height:86vh;overflow-y:auto;}
+  .modal-box h3{margin:0 0 4px 0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;}
+  .comentario-item{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:12.5px;}
+  .comentario-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+  #modalComentarioNuevo{width:100%;margin-top:14px;min-height:70px;padding:10px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;}
+
+  .fp-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:0 0 18px;}
+  @media (max-width:900px){.fp-kpis{grid-template-columns:repeat(2,1fr);}}
+  .fp-panel{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;}
+  .fp-panel label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px;}
+  .fp-campos{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;}
+  .fp-campos select, .fp-campos input[type=number]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 10px;border-radius:9px;font-size:13px;}
+  .fp-campos input[type=number]{width:90px;}
+  .fp-nota{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.45;}
+  .fp-baja{color:var(--red);font-weight:700;} .fp-sube{color:var(--green);font-weight:700;}
+  .fp-prod{min-width:260px;max-width:380px;}
+  .fp-prod b{display:block;font-weight:600;}
+  td.fp-proy{background:var(--primary-dim);}
+  th.fp-proy{background:#D2EAE6;color:var(--primary-dark);}
+  .fp-resumen{font-size:12.5px;color:var(--muted);margin:6px 0 10px;}
+
+  .pp-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:0 0 18px;}
+  @media (max-width:1000px){.pp-kpis{grid-template-columns:repeat(2,1fr);}}
+  .pp-kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;cursor:pointer;box-shadow:var(--shadow);}
+  .pp-kpi:hover{border-color:var(--primary);}
+  .pp-kpi span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;}
+  .pp-kpi b{font-family:'Space Grotesk',sans-serif;font-size:26px;}
+  .pp-kpi small{font-size:11.5px;color:var(--muted);}
+  .pp-kpi.alerta{background:var(--amber-dim);border-color:var(--amber);} .pp-kpi.alerta b{color:var(--amber);}
+  .pp-kpi.aviso small{color:var(--red);font-weight:600;}
+  .pp-alerta{background:var(--amber-dim);border:1.5px solid var(--amber);border-radius:12px;padding:12px 16px;margin:0 0 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13.5px;}
+  .pp-panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:0 0 16px;}
+  .pp-panel summary{cursor:pointer;}
+  .pp-cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:12px;}
+  @media (max-width:900px){.pp-cols{grid-template-columns:1fr;}}
+  .pp-panel h4{margin:0 0 6px;font-size:13.5px;}
+  .pp-fila{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+  .pp-fila label,.pp-filtros label,.pp-campo label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px;}
+  .pp-fila label{margin:0;}
+  .pp-nota{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.45;}
+  .pp-codigo{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;white-space:pre-wrap;word-break:break-word;margin:8px 0;max-height:190px;overflow:auto;}
+  .pp-lista{margin:0 0 8px;padding-left:18px;font-size:12.5px;} .pp-lista li{margin-bottom:4px;}
+  input[type=text],input[type=number],input[type=date],select,textarea{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 10px;border-radius:8px;font-size:13px;}
+  textarea{width:100%;resize:vertical;}
+  .pp-filtros{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;}
+  .pp-acciones{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;}
+  .pp-mensaje{display:none;padding:9px 14px;border-radius:9px;font-size:12.5px;margin:8px 0;}
+  .pp-mensaje.ok{background:var(--green-bg);color:var(--green);} .pp-mensaje.error{background:var(--red-bg);color:var(--red);}
+  .pp-estado{display:inline-block;padding:2px 10px;border-radius:999px;font-weight:700;font-size:11px;white-space:nowrap;background:var(--surface-2);color:var(--muted);}
+  .pp-e-por_comprar{background:var(--amber-dim);color:var(--amber);} .pp-e-pendiente_pago{background:var(--blue-bg);color:var(--blue);}
+  .pp-e-comprado{background:var(--primary-dim);color:var(--primary);} .pp-e-recibido{background:var(--green-bg);color:var(--green);}
+  .pp-e-cancelado{background:var(--red-bg);color:var(--red);}
+  tr.pp-por_comprar td{background:#FFFBF2;}
+  .pp-mal{color:var(--red);font-weight:600;font-size:12px;} .pp-ok{color:var(--green);font-weight:600;}
+  #ppModal{width:min(640px,100%);}
+  .pp-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;margin-bottom:10px;}
+  @media (max-width:600px){.pp-grid{grid-template-columns:1fr;}}
+  .pp-campo input{width:100%;} .pp-check{display:flex;gap:8px;align-items:center;font-size:13px;margin:6px 0;}
+  .pp-error{color:var(--red);font-size:12.5px;min-height:16px;margin:6px 0;}
+  .pp-modal-botones{display:flex;gap:8px;justify-content:flex-end;}
+  .pp-estados{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12.5px;}
+  .pp-peligro{color:var(--red);border-color:var(--red);}
+  .pp-historial{list-style:none;padding:0;margin:8px 0 0;font-size:12.5px;} .pp-historial li{padding:6px 0;border-bottom:1px solid var(--line);}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+          <a href="contabilidad.html">Contabilidad</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
+          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+          <a href="pedidos-pantallas.html" class="active">Pantallas a pedido</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html">Modelos compatibles</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="soporte-indexpro.html">IndexPro</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="frecuencia-precio.html">Frecuencia y precio</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="search-console.html">Search Console</a>
+          <a href="instagram.html">Instagram</a>
+          <a href="comparativo-ventas.html">Comparativo de ventas</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>🖥️ Pantallas a pedido</h1>
+  <div class="sub">Modelos de pantalla de notebook que no tenemos en stock y se importan a pedido. El cliente paga un <b>abono</b> en la tienda y aquí ese pedido se convierte en una solicitud de compra al proveedor internacional: la ves, la compras y le sigues la pista hasta entregarla.</div>
+
+  <div id="ppAlerta"></div>
+  <div class="pp-kpis" id="ppKpis"></div>
+
+  <details class="pp-panel" id="ppConfig" style="display:none;" ontoggle="if(this.open) cargarShopify()">
+    <summary><b>⚙️ Producto de abono y avisos de Shopify</b> <span class="sub" style="margin:0;">— solo administrador</span></summary>
+    <div class="pp-cols">
+      <div>
+        <h4>1. Producto de abono en la tienda</h4>
+        <div id="ppProductos" class="sub">Consultando Shopify…</div>
+        <div class="pp-fila">
+          <label for="ppMonto">Monto del abono</label>
+          <input type="number" id="ppMonto" value="25000" min="1000" max="500000" step="1000">
+          <button class="btn-primary" id="btnCrearProducto" onclick="crearProducto()">Crear producto en Shopify</button>
+        </div>
+        <div class="pp-nota">Se crea como <b>borrador</b> (no se ve en la tienda hasta que lo publiques en Shopify), con SKU <b>ABONO-PANTALLA-monto</b>, sin inventario y sin envío. Para ofrecer otro abono (por ejemplo $35.000) cambia el monto y créalo de nuevo. Revisa el texto de la ficha antes de publicar: dice que el abono se descuenta del valor final y el plazo estimado.</div>
+        <div class="pp-fila" style="margin-top:12px;">
+          <label for="ppDias">Días estimados</label>
+          <input type="number" id="ppDias" min="1" max="90" step="1">
+          <button class="btn-ghost" onclick="guardarDias()">Guardar</button>
+          <span class="pp-nota" style="margin:0;">Plazo que se ofrece al cliente; sirve para calcular la fecha de llegada al marcar la compra.</span>
+        </div>
+      </div>
+      <div>
+        <h4>2. Aviso automático de pedidos</h4>
+        <div id="ppAvisos" class="sub">Consultando Shopify…</div>
+        <div class="pp-fila"><button class="btn-primary" id="btnRegistrarAvisos" onclick="registrarAvisos()">Registrar avisos de pedidos</button></div>
+        <div class="pp-nota">Shopify avisa al ERP cuando entra, se paga o se cancela un pedido, y el pedido aparece aquí al instante. Si el aviso falla, el botón <b>Revisar pedidos en Shopify</b> trae los de los últimos días.</div>
+        <h4 style="margin-top:16px;">3. Pedirle el modelo al cliente</h4>
+        <div class="pp-nota" style="margin-top:0;">Para que el cliente escriba su modelo al comprar, agrega este código en la ficha del producto de abono (Personalizar tema → ficha de producto → agregar bloque «Liquid personalizado», dentro del formulario de compra). Si el cliente no lo escribe, el ERP usa la nota del pedido y, si no hay nada, queda "sin modelo" para que lo confirmes con él.</div>
+        <pre class="pp-codigo" id="ppCodigo"></pre>
+        <button class="btn-ghost" onclick="copiarCodigo()">Copiar código</button>
+      </div>
+    </div>
+  </details>
+
+  <div class="pp-filtros">
+    <div><label for="ppEstado">Mostrar</label>
+      <select id="ppEstado" onchange="pintarTabla()">
+        <option value="activos">Pedidos activos</option>
+        <option value="por_comprar">Por comprar</option>
+        <option value="pendiente_pago">Pago pendiente</option>
+        <option value="comprado">Comprados, en camino</option>
+        <option value="recibido">Recibidos, por entregar</option>
+        <option value="entregado">Entregados</option>
+        <option value="cancelado">Cancelados</option>
+        <option value="todos">Todos</option>
+      </select></div>
+    <div><label for="ppBuscar">Buscar</label><input type="text" id="ppBuscar" placeholder="Cliente, modelo, pedido…" oninput="pintarTabla()" style="width:230px;"></div>
+    <div class="pp-acciones">
+      <button class="btn-ghost" id="btnSincronizar" onclick="sincronizar()">🔄 Revisar pedidos en Shopify</button>
+      <button class="btn-primary" onclick="abrirManual()">➕ Anotar pedido a mano</button>
+    </div>
+  </div>
+  <div id="ppMensaje" class="pp-mensaje"></div>
+  <div id="ppResumen" class="sub" style="margin:6px 0 8px;"></div>
+  <div class="tabla-wrap" id="ppTabla"><p class="empty-note">Cargando…</p></div>
+</div>
+
+<div class="modal-overlay" id="ppModalOverlay" onclick="if(event.target===this) cerrarModal()">
+  <div class="modal-box" id="ppModal" onclick="event.stopPropagation()"></div>
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="etiquetas-botones.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let rolActual = 'usuario', datos = { pedidos: [], resumen: null, config: { dias_estimados: 15 }, esAdmin: false };
+const ETIQUETA = { pendiente_pago: 'Pago pendiente', por_comprar: 'Por comprar', comprado: 'Comprado, en camino', recibido: 'Recibido, por entregar', entregado: 'Entregado', cancelado: 'Cancelado' };
+const ORDEN_ESTADO = { por_comprar: 0, pendiente_pago: 1, comprado: 2, recibido: 3, entregado: 4, cancelado: 5 };
+const ACTIVOS = ['pendiente_pago', 'por_comprar', 'comprado', 'recibido'];
+// Mismos cambios de estado que permite el servidor (lib/pedidos-pantalla.js): [estado, texto del botón, ¿pide confirmar?]
+const TRANSICIONES = {
+  pendiente_pago: [['por_comprar', '✔ Confirmar pago'], ['cancelado', 'Cancelar pedido', true]],
+  por_comprar: [['comprado', '🛒 Marcar comprado'], ['cancelado', 'Cancelar pedido', true]],
+  comprado: [['recibido', '📦 Marcar recibido'], ['por_comprar', 'Volver a por comprar'], ['cancelado', 'Cancelar pedido', true]],
+  recibido: [['entregado', '✔ Marcar entregado'], ['comprado', 'Volver a comprado']],
+  entregado: [['recibido', 'Reabrir']],
+  cancelado: [['por_comprar', 'Reabrir como por comprar']],
+};
+const CODIGO_LIQUID = `{% if product.tags contains 'abono-pantalla' %}
+<div class="abono-pantalla" style="margin:14px 0;">
+  <label for="abono-modelo"><b>Modelo de tu notebook</b> (obligatorio)</label>
+  <input id="abono-modelo" type="text" name="properties[Modelo del notebook]" required form="{{ product_form_id }}" placeholder="Ej: HP Pavilion 15-eg0010la" style="width:100%;padding:10px;margin:4px 0 10px;">
+  <label for="abono-parte">Número de parte de la pantalla (opcional)</label>
+  <input id="abono-parte" type="text" name="properties[Número de parte]" form="{{ product_form_id }}" placeholder="Ej: L12345-001" style="width:100%;padding:10px;margin-top:4px;">
+</div>
+{% endif %}`;
+
+function escapeHtml(t){ return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function fmtNum(n){ return new Intl.NumberFormat('es-CL').format(n || 0); }
+function fmtMoneda(n){ return '$' + fmtNum(Math.round(n || 0)); }
+const hoyChile = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+const fechaCorta = iso => { if(!iso) return ''; const [a, m, d] = String(iso).slice(0, 10).split('-'); return d + '-' + m + '-' + a; };
+const diasEntre = (desde, hasta) => Math.round((Date.parse(hasta + 'T12:00:00Z') - Date.parse(desde + 'T12:00:00Z')) / 86400000);
+const diaDe = v => v ? new Date(v).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' }) : null;
+function telefonoWa(t){
+  let d = String(t || '').replace(/\D/g, '');
+  if(!d) return null;
+  if(d.length === 9 && d[0] === '9') d = '56' + d;
+  else if(d.length === 8) d = '569' + d;
+  return d;
+}
+function mostrarMensaje(texto, tipo){
+  const el = $('ppMensaje');
+  el.className = 'pp-mensaje ' + (tipo || '');
+  el.textContent = texto || '';
+  el.style.display = texto ? '' : 'none';
+}
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    rolActual = u.rol;
+    $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){ const nav = $('navUsuarios'); if(nav) nav.style.display = ''; }
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+async function cargar(){
+  try{
+    const res = await fetch('/api/negocio?recurso=pedidos-pantalla');
+    const d = await res.json();
+    if(!res.ok || d.error){ $('ppTabla').innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(d.error || 'Error') + (d.detail ? ' — ' + escapeHtml(d.detail) : '') + '</p>'; return; }
+    datos = d;
+    $('ppDias').value = d.config.dias_estimados;
+    $('ppConfig').style.display = d.esAdmin ? '' : 'none';
+    $('ppCodigo').textContent = CODIGO_LIQUID;
+    pintarKpis(); pintarTabla();
+  }catch(err){ $('ppTabla').innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; }
+}
+
+function pintarKpis(){
+  const r = datos.resumen, p = r.porEstado;
+  const nPorComprar = p.por_comprar || 0;
+  $('ppAlerta').innerHTML = nPorComprar
+    ? `<div class="pp-alerta">🔔 <b>${nPorComprar} pedido${nPorComprar === 1 ? '' : 's'} por comprar al proveedor.</b>${r.porComprarMasAntiguoDias != null ? ` El más antiguo lleva ${r.porComprarMasAntiguoDias} día${r.porComprarMasAntiguoDias === 1 ? '' : 's'} esperando.` : ''} <button class="btn-primary" onclick="filtrarEstado('por_comprar')">Ver pedidos por comprar</button></div>`
+    : '';
+  const tarjeta = (titulo, n, sub, cls, estado) => `<div class="pp-kpi ${cls || ''}" onclick="filtrarEstado('${estado}')" title="Ver estos pedidos"><span>${titulo}</span><b>${fmtNum(n)}</b><small>${sub || ''}</small></div>`;
+  $('ppKpis').innerHTML =
+    tarjeta('Por comprar', nPorComprar, 'abono pagado, falta comprar', nPorComprar ? 'alerta' : '', 'por_comprar') +
+    tarjeta('Pago pendiente', p.pendiente_pago || 0, 'pidió pero aún no paga', '', 'pendiente_pago') +
+    tarjeta('Comprados, en camino', p.comprado || 0, r.atrasados ? `${r.atrasados} con la llegada atrasada` : 'esperando al proveedor', r.atrasados ? 'aviso' : '', 'comprado') +
+    tarjeta('Recibidos', p.recibido || 0, 'listos para entregar', '', 'recibido') +
+    tarjeta('Entregados', p.entregado || 0, 'cerrados', '', 'entregado');
+}
+function filtrarEstado(e){ $('ppEstado').value = e; pintarTabla(); $('ppTabla').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+
+function celdaCompra(p){
+  if(!['comprado', 'recibido', 'entregado'].includes(p.estado) && !p.proveedor) return '<td data-valor=""><span class="sub" style="margin:0;">—</span></td>';
+  let llegada = '';
+  if(p.estado === 'comprado' && p.fecha_eta){
+    const d = diasEntre(hoyChile(), String(p.fecha_eta).slice(0, 10));
+    llegada = d < 0 ? `<br><span class="pp-mal">llegada atrasada ${-d} día${d === -1 ? '' : 's'}</span>` : d === 0 ? '<br><b>llega hoy</b>' : `<br>llega en ${d} día${d === 1 ? '' : 's'} (${fechaCorta(p.fecha_eta)})`;
+  }else if(p.fecha_eta) llegada = `<br>llegada ${fechaCorta(p.fecha_eta)}`;
+  return `<td data-valor="${escapeHtml(p.fecha_eta || '')}">${escapeHtml(p.proveedor || 'Sin proveedor')}${p.referencia_compra ? ' · <span class="sub" style="margin:0;">' + escapeHtml(p.referencia_compra) + '</span>' : ''}${llegada}</td>`;
+}
+function botonRapido(p){
+  const sig = { pendiente_pago: ['por_comprar', 'Confirmar pago'], por_comprar: ['__comprar', 'Marcar comprado'], comprado: ['recibido', 'Marcar recibido'], recibido: ['entregado', 'Marcar entregado'] }[p.estado];
+  if(!sig) return '';
+  return sig[0] === '__comprar'
+    ? `<button class="btn-primary btn-compact" onclick="abrirModal(${p.id}, true)">${sig[1]}</button>`
+    : `<button class="btn-primary btn-compact" onclick="cambiarEstado(${p.id}, '${sig[0]}')">${sig[1]}</button>`;
+}
+
+function pintarTabla(){
+  const filtro = $('ppEstado').value, q = $('ppBuscar').value.trim().toLowerCase();
+  let filas = datos.pedidos.filter(p => filtro === 'todos' ? true : filtro === 'activos' ? ACTIVOS.includes(p.estado) : p.estado === filtro);
+  if(q) filas = filas.filter(p => [p.cliente_nombre, p.cliente_email, p.cliente_telefono, p.modelo, p.numero_parte, p.orden_nombre, p.proveedor, p.referencia_compra].some(v => String(v || '').toLowerCase().includes(q)));
+  $('ppResumen').textContent = filas.length + ' pedido' + (filas.length === 1 ? '' : 's') + (filtro === 'activos' ? ' activos' : '');
+  if(!filas.length){
+    $('ppTabla').innerHTML = '<p class="empty-note">' + (datos.pedidos.length ? 'No hay pedidos con ese filtro.' : 'Todavía no hay pedidos. Cuando un cliente pague el abono en la tienda aparecerá aquí.') + '</p>';
+    return;
+  }
+  const esAdmin = datos.esAdmin;
+  $('ppTabla').innerHTML = '<table id="tablaPedidos"><thead><tr><th>Pedido</th><th>Fecha</th><th>Cliente</th><th>Modelo / N° de parte</th><th class="amount">Abono</th><th>Estado</th><th>Compra al proveedor</th><th data-sin-orden>Acciones</th></tr></thead><tbody>' +
+    filas.map(p => {
+      const wa = telefonoWa(p.cliente_telefono);
+      const dia = diaDe(p.creado_en);
+      const cliente = `<b>${escapeHtml(p.cliente_nombre || 'Sin nombre')}</b>${p.cliente_telefono ? '<br>' + (wa ? `<a href="https://wa.me/${wa}" target="_blank" rel="noopener noreferrer" title="Escribir por WhatsApp">💬 ${escapeHtml(p.cliente_telefono)}</a>` : escapeHtml(p.cliente_telefono)) : ''}${p.cliente_email ? '<br><span class="sub" style="margin:0;">' + escapeHtml(p.cliente_email) + '</span>' : ''}`;
+      const modelo = p.modelo ? `<b>${escapeHtml(p.modelo)}</b>${p.numero_parte ? '<br><span class="sub" style="margin:0;">N° ' + escapeHtml(p.numero_parte) + '</span>' : ''}` : '<span class="pp-mal">Sin modelo: confirmar con el cliente</span>';
+      const pedido = p.urlShopify ? `<a href="${escapeHtml(p.urlShopify)}" target="_blank" rel="noopener noreferrer" title="Abrir la orden en Shopify">${escapeHtml(p.orden_nombre || 'Orden')}</a>` : escapeHtml(p.orden_nombre || '—');
+      return `<tr class="pp-${escapeHtml(p.estado)}"><td data-valor="${escapeHtml(p.orden_nombre || '')}"><b>${pedido}</b>${p.origen === 'manual' ? '<br><span class="sub" style="margin:0;">anotado a mano</span>' : ''}</td>` +
+        `<td data-valor="${escapeHtml(dia || '')}">${fechaCorta(dia)}</td><td data-valor="${escapeHtml(p.cliente_nombre || '')}">${cliente}</td><td data-valor="${escapeHtml(p.modelo || '')}">${modelo}</td>` +
+        `<td class="amount" data-valor="${Number(p.abono) || 0}">${p.abono != null ? fmtMoneda(p.abono) : '—'}</td>` +
+        `<td data-valor="${ORDEN_ESTADO[p.estado] ?? 9}"><span class="pp-estado pp-e-${escapeHtml(p.estado)}">${escapeHtml(ETIQUETA[p.estado] || p.estado)}</span></td>` +
+        celdaCompra(p) +
+        `<td style="white-space:nowrap;">${botonRapido(p)} <button class="btn-ghost btn-compact" onclick="abrirModal(${p.id})">Gestionar</button></td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+// ---------- Gestionar un pedido ----------
+let modalId = null;
+function mensajeWa(p){
+  const n = (p.cliente_nombre || '').split(' ')[0] || '';
+  const modelo = p.modelo || 'tu pantalla';
+  const dias = p.dias_estimados || datos.config.dias_estimados;
+  if(p.estado === 'comprado') return `Hola ${n}, te escribimos de IndexStore: ya compramos tu pantalla (${modelo}).` + (p.fecha_eta ? ` Estimamos que llega a Chile cerca del ${fechaCorta(p.fecha_eta)}.` : '') + ' Te avisamos apenas la tengamos.';
+  if(p.estado === 'recibido') return `Hola ${n}, ya llegó tu pantalla (${modelo}). Puedes pasar a retirarla o coordinamos el envío.`;
+  return `Hola ${n}, te escribimos de IndexStore por tu pedido de pantalla a pedido (${modelo}). Queremos confirmar el modelo exacto de tu notebook antes de comprarla. El plazo estimado es de unos ${dias} días.`;
+}
+function abrirModal(id, paraComprar){
+  const p = datos.pedidos.find(x => x.id === id); if(!p) return;
+  modalId = id;
+  const esAdmin = datos.esAdmin;
+  const wa = telefonoWa(p.cliente_telefono);
+  const campo = (etiqueta, idc, valor, tipo, extra) => `<div class="pp-campo"><label for="${idc}">${etiqueta}</label><input type="${tipo || 'text'}" id="${idc}" value="${escapeHtml(valor ?? '')}" ${extra || ''}></div>`;
+  const botones = (TRANSICIONES[p.estado] || []).map(([e, texto, confirmar]) => `<button class="${e === 'cancelado' ? 'btn-ghost pp-peligro' : 'btn-primary'}" onclick="cambiarDesdeModal('${e}', ${confirmar ? 'true' : 'false'})">${texto}</button>`).join(' ');
+  const historial = (p.historial || []).map(h => `<li><span class="sub" style="margin:0;">${escapeHtml(new Date(h.en).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }))} · ${escapeHtml(h.usuario || '')}</span><br>${escapeHtml(h.accion)}</li>`).join('');
+  $('ppModal').innerHTML = `
+    <h3>${escapeHtml(p.orden_nombre || 'Pedido')} · ${escapeHtml(p.cliente_nombre || 'Sin nombre')} <span class="pp-estado pp-e-${escapeHtml(p.estado)}">${escapeHtml(ETIQUETA[p.estado] || p.estado)}</span></h3>
+    <div class="sub" style="margin-bottom:12px;">${p.abono != null ? 'Abono pagado: <b>' + fmtMoneda(p.abono) + '</b> · ' : ''}${p.urlShopify ? `<a href="${escapeHtml(p.urlShopify)}" target="_blank" rel="noopener noreferrer">Abrir la orden en Shopify</a> · ` : ''}${wa ? `<a href="https://wa.me/${wa}?text=${encodeURIComponent(mensajeWa(p))}" target="_blank" rel="noopener noreferrer">💬 Escribirle por WhatsApp</a>` : 'sin teléfono'}</div>
+    ${p.nota_cliente ? `<div class="pp-nota" style="margin:0 0 10px;"><b>Nota del cliente:</b> ${escapeHtml(p.nota_cliente)}</div>` : ''}
+    <div class="pp-grid">
+      ${campo('Modelo del notebook', 'mModelo', p.modelo, 'text', 'maxlength="200"')}
+      ${campo('N° de parte de la pantalla', 'mParte', p.numero_parte, 'text', 'maxlength="120"')}
+      ${campo('Proveedor', 'mProveedor', p.proveedor, 'text', 'maxlength="120" placeholder="Dónde se compra"')}
+      ${campo('Referencia de la compra', 'mReferencia', p.referencia_compra, 'text', 'maxlength="120" placeholder="N° de orden, link…"')}
+      ${campo('Días estimados', 'mDias', p.dias_estimados ?? datos.config.dias_estimados, 'number', 'min="1" max="120"')}
+      ${campo('Llegada estimada', 'mEta', p.fecha_eta ? String(p.fecha_eta).slice(0, 10) : '', 'date')}
+      ${esAdmin ? campo('Costo de la compra', 'mCosto', p.costo_compra, 'number', 'min="0" step="1"') : ''}
+      ${campo('Teléfono del cliente', 'mTel', p.cliente_telefono, 'text', 'maxlength="40"')}
+    </div>
+    <div class="pp-campo"><label for="mNota">Nota interna</label><textarea id="mNota" rows="2" maxlength="1000" placeholder="Solo la ve el equipo">${escapeHtml(p.nota_interna || '')}</textarea></div>
+    <div id="mError" class="pp-error"></div>
+    <div class="pp-modal-botones"><button class="btn-ghost" onclick="cerrarModal()">Cerrar</button> <button class="btn-primary" onclick="guardarModal()">Guardar cambios</button></div>
+    ${botones ? `<div class="pp-estados"><b>Cambiar estado:</b> ${botones}</div>` : ''}
+    <details style="margin-top:12px;"><summary class="sub" style="cursor:pointer;margin:0;">Historial (${(p.historial || []).length})</summary><ul class="pp-historial">${historial}</ul></details>`;
+  $('ppModalOverlay').classList.add('open');
+  if(paraComprar) setTimeout(() => { const f = $('mProveedor'); if(f) f.focus(); }, 50);
+}
+function cerrarModal(){ $('ppModalOverlay').classList.remove('open'); modalId = null; }
+function camposModal(){
+  const v = id => { const e = $(id); return e ? e.value : undefined; };
+  const c = { modelo: v('mModelo'), numero_parte: v('mParte'), proveedor: v('mProveedor'), referencia_compra: v('mReferencia'), nota_interna: v('mNota'), cliente_telefono: v('mTel'), dias_estimados: v('mDias'), fecha_eta: v('mEta') };
+  if($('mCosto')) c.costo_compra = v('mCosto');
+  return c;
+}
+async function enviarCambios(cuerpo){
+  const res = await fetch('/api/negocio?recurso=pedidos-pantalla', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: modalId, ...cuerpo }) });
+  const d = await res.json();
+  if(!res.ok || d.error) throw new Error(d.error || 'No se pudo guardar');
+  const i = datos.pedidos.findIndex(x => x.id === d.pedido.id);
+  if(i >= 0) datos.pedidos[i] = d.pedido;
+  await recalcularResumen();
+  return d.pedido;
+}
+async function recalcularResumen(){
+  try{ const d = await (await fetch('/api/negocio?recurso=pedidos-pantalla')).json(); if(d && d.pedidos){ datos = d; } }catch(e){ /* se queda con lo que hay */ }
+  pintarKpis(); pintarTabla();
+}
+async function guardarModal(){
+  $('mError').textContent = '';
+  try{ await enviarCambios(camposModal()); cerrarModal(); mostrarMensaje('Cambios guardados.', 'ok'); }
+  catch(err){ $('mError').textContent = err.message; }
+}
+async function cambiarDesdeModal(estado, confirmar){
+  if(confirmar && !confirm('¿Cancelar este pedido? Recuerda gestionar la devolución del abono en Shopify si corresponde.')) return;
+  $('mError').textContent = '';
+  try{ await enviarCambios({ ...camposModal(), estado }); cerrarModal(); mostrarMensaje('Estado actualizado: ' + (ETIQUETA[estado] || estado) + '.', 'ok'); }
+  catch(err){ $('mError').textContent = err.message; }
+}
+async function cambiarEstado(id, estado){
+  modalId = id;
+  try{ await enviarCambios({ estado }); mostrarMensaje('Estado actualizado: ' + (ETIQUETA[estado] || estado) + '.', 'ok'); }
+  catch(err){ mostrarMensaje(err.message, 'error'); }
+  finally{ modalId = null; }
+}
+
+// ---------- Pedido anotado a mano ----------
+function abrirManual(){
+  modalId = null;
+  const campo = (etiqueta, idc, tipo, extra) => `<div class="pp-campo"><label for="${idc}">${etiqueta}</label><input type="${tipo || 'text'}" id="${idc}" ${extra || ''}></div>`;
+  $('ppModal').innerHTML = `
+    <h3>Anotar un pedido a mano</h3>
+    <div class="sub" style="margin-bottom:12px;">Para pedidos que el cliente hizo por WhatsApp, en el local o por teléfono.</div>
+    <div class="pp-grid">
+      ${campo('Nombre del cliente *', 'nNombre', 'text', 'maxlength="120"')}
+      ${campo('Teléfono', 'nTel', 'text', 'maxlength="40" placeholder="+56 9…"')}
+      ${campo('Correo', 'nEmail', 'text', 'maxlength="160"')}
+      ${campo('Modelo del notebook *', 'nModelo', 'text', 'maxlength="200"')}
+      ${campo('N° de parte', 'nParte', 'text', 'maxlength="120"')}
+      ${campo('Abono recibido', 'nAbono', 'number', 'min="0" step="1" placeholder="Monto"')}
+    </div>
+    <label class="pp-check"><input type="checkbox" id="nPagado" checked> El abono ya está pagado (pasa a «Por comprar»)</label>
+    <div id="mError" class="pp-error"></div>
+    <div class="pp-modal-botones"><button class="btn-ghost" onclick="cerrarModal()">Cancelar</button> <button class="btn-primary" onclick="guardarManual()">Guardar pedido</button></div>`;
+  $('ppModalOverlay').classList.add('open');
+  setTimeout(() => $('nNombre').focus(), 50);
+}
+async function guardarManual(){
+  $('mError').textContent = '';
+  const body = { accion: 'manual', cliente_nombre: $('nNombre').value, cliente_telefono: $('nTel').value, cliente_email: $('nEmail').value, modelo: $('nModelo').value, numero_parte: $('nParte').value, abono: $('nAbono').value, pagado: $('nPagado').checked };
+  try{
+    const res = await fetch('/api/negocio?recurso=pedidos-pantalla', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await res.json();
+    if(!res.ok || d.error) throw new Error(d.error || 'No se pudo guardar');
+    cerrarModal(); mostrarMensaje('Pedido anotado.', 'ok'); await recalcularResumen();
+  }catch(err){ $('mError').textContent = err.message; }
+}
+
+// ---------- Shopify ----------
+async function sincronizar(){
+  const b = $('btnSincronizar'); b.disabled = true; b.textContent = 'Revisando Shopify…';
+  try{
+    const res = await fetch('/api/negocio?recurso=pedidos-pantalla', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'sincronizar' }) });
+    const d = await res.json();
+    if(!res.ok || d.error || d.ok === false){ mostrarMensaje(d.error || 'No se pudo revisar Shopify.', 'error'); return; }
+    mostrarMensaje(`Revisión lista: ${d.ordenes} pedido${d.ordenes === 1 ? '' : 's'} con el abono desde el ${fechaCorta(d.desde)} · ${d.nuevos} nuevo${d.nuevos === 1 ? '' : 's'} · ${d.actualizados} ya estaba${d.actualizados === 1 ? '' : 'n'}.`, 'ok');
+    await recalcularResumen();
+  }catch(err){ mostrarMensaje(err.message, 'error'); }
+  finally{ b.disabled = false; b.textContent = '🔄 Revisar pedidos en Shopify'; }
+}
+async function cargarShopify(){
+  $('ppProductos').textContent = 'Consultando Shopify…'; $('ppAvisos').textContent = 'Consultando Shopify…';
+  try{
+    const d = await (await fetch('/api/negocio?recurso=pedidos-pantalla&shopify=1')).json();
+    const s = d.shopify;
+    if(!s || s.error){ const m = escapeHtml((s && s.error) || 'No se pudo consultar Shopify'); $('ppProductos').innerHTML = '<span class="pp-mal">' + m + '</span>'; $('ppAvisos').innerHTML = '<span class="pp-mal">' + m + '</span>'; return; }
+    const tienda = String(s.dominio || '').replace(/\.myshopify\.com.*$/, '');
+    $('ppProductos').innerHTML = s.productos.length
+      ? '<ul class="pp-lista">' + s.productos.map(p => `<li><b>${escapeHtml(p.titulo)}</b> · ${p.estado === 'ACTIVE' ? '<span class="pp-ok">publicado</span>' : '<span class="pp-mal">' + escapeHtml(p.estado === 'DRAFT' ? 'borrador (aún no visible)' : String(p.estado || '').toLowerCase()) + '</span>'} · ${p.variantes.map(v => escapeHtml(v.sku) + ' ' + fmtMoneda(v.precio)).join(', ')}${tienda ? ` · <a href="https://admin.shopify.com/store/${escapeHtml(tienda)}/products/${escapeHtml(String(p.id).split('/').pop())}" target="_blank" rel="noopener noreferrer">abrir en Shopify</a>` : ''}</li>`).join('') + '</ul>'
+      : '<span class="pp-mal">Todavía no hay un producto de abono en la tienda.</span>';
+    const a = s.avisos;
+    $('ppAvisos').innerHTML = a.faltan.length
+      ? `<span class="pp-mal">Faltan avisos: ${a.faltan.map(escapeHtml).join(', ')}</span>${a.registrados.length ? ' · registrados: ' + a.registrados.map(escapeHtml).join(', ') : ''}`
+      : '<span class="pp-ok">✔ Los avisos de pedido nuevo, pagado y cancelado están registrados.</span>';
+    $('btnRegistrarAvisos').style.display = a.faltan.length ? '' : 'none';
+  }catch(err){ $('ppProductos').textContent = err.message; }
+}
+async function crearProducto(){
+  const monto = Number($('ppMonto').value);
+  if(!confirm('Se creará en Shopify, como borrador, un producto de abono por ' + fmtMoneda(monto) + '. ¿Continuar?')) return;
+  const b = $('btnCrearProducto'); b.disabled = true;
+  try{
+    const res = await fetch('/api/negocio?recurso=pedidos-pantalla', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'crear-producto', monto }) });
+    const d = await res.json();
+    if(!res.ok || d.ok === false){ mostrarMensaje(d.error || 'No se pudo crear el producto.', 'error'); return; }
+    mostrarMensaje('Producto creado como borrador (SKU ' + d.producto.sku + '). Revisa su ficha y publícalo en Shopify cuando esté listo.', 'ok');
+    cargarShopify();
+  }catch(err){ mostrarMensaje(err.message, 'error'); }
+  finally{ b.disabled = false; }
+}
+async function registrarAvisos(){
+  const b = $('btnRegistrarAvisos'); b.disabled = true;
+  try{
+    const res = await fetch('/api/negocio?recurso=pedidos-pantalla', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'registrar-avisos' }) });
+    const d = await res.json();
+    if(!res.ok || d.ok === false){ mostrarMensaje(d.error || 'No se pudieron registrar los avisos.', 'error'); return; }
+    mostrarMensaje(d.fallos && d.fallos.length ? 'Algunos avisos no se pudieron registrar: ' + d.fallos.join(' | ') : 'Avisos registrados: ' + (d.creados.length ? d.creados.join(', ') : 'ya estaban todos') + '.', d.fallos && d.fallos.length ? 'error' : 'ok');
+    cargarShopify();
+  }catch(err){ mostrarMensaje(err.message, 'error'); }
+  finally{ b.disabled = false; }
+}
+async function guardarDias(){
+  try{
+    const res = await fetch('/api/negocio?recurso=pedidos-pantalla', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'config', dias_estimados: Number($('ppDias').value) }) });
+    const d = await res.json();
+    if(!res.ok || d.error){ mostrarMensaje(d.error || 'No se pudo guardar.', 'error'); return; }
+    datos.config = d.config; $('ppDias').value = d.config.dias_estimados; mostrarMensaje('Días estimados guardados: ' + d.config.dias_estimados + '.', 'ok');
+  }catch(err){ mostrarMensaje(err.message, 'error'); }
+}
+function copiarCodigo(){
+  navigator.clipboard.writeText(CODIGO_LIQUID).then(() => mostrarMensaje('Código copiado.', 'ok'), () => mostrarMensaje('No se pudo copiar: selecciónalo y cópialo a mano.', 'error'));
+}
+
+cargarSesionUsuario();
+cargar();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>
