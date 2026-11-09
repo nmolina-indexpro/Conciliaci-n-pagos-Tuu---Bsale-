@@ -2890,7 +2890,8 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
 
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
-    const { rows } = await sql`
+    // Las lecturas son independientes entre sí: se lanzan juntas en vez de una tras otra (el pool de la base las atiende en paralelo).
+    const consultaVentas = sql`
       SELECT v.sku, MAX(v.nombre) AS nombre, date_trunc('month', v.fecha)::date AS mes,
              SUM(v.cantidad)::numeric AS cantidad, SUM(v.monto)::numeric AS monto
       FROM bsale_ventas_sku v
@@ -2900,21 +2901,14 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
       GROUP BY v.sku, date_trunc('month', v.fecha)
       ORDER BY v.sku, mes;
     `;
-    const { rows: estadoSyncRows } = await sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
-    const estadoSync = estadoSyncRows[0] || {};
-    const { rows: estadoRows } = await sql`SELECT sku, mercado_libre, envio_gratis, variacion_precio FROM ventas_sku_comentarios;`;
-    const estadoPorSku = {};
-    for (const r of estadoRows) {
-      estadoPorSku[r.sku] = { mercadoLibre: !!r.mercado_libre, envioGratis: !!r.envio_gratis, variacionPrecio: !!r.variacion_precio };
-    }
-    await asegurarTablaComentariosLog(sql);
-    await migrarComentariosVentasSkuLegacy(sql);
-    const historialPorSku = await obtenerHistorialComentarios(sql, 'ventas_sku');
-    // Última fecha de venta real por SKU (día exacto, no el mes truncado
-    // de arriba) -- pedido del usuario: el criterio de "estancado" pasó de
-    // "sin ventas en los últimos 3 meses" a "sin ventas hace 35+ días",
-    // así que hace falta la fecha precisa, no solo el mes.
-    const { rows: ultimaVentaRows } = await sql`
+    const consultaSync = sql`SELECT * FROM analisis_sync_estado WHERE id = 1;`;
+    const consultaEstado = sql`SELECT sku, mercado_libre, envio_gratis, variacion_precio FROM ventas_sku_comentarios;`;
+    const consultaHistorial = (async () => {
+      await asegurarTablaComentariosLog(sql);
+      await migrarComentariosVentasSkuLegacy(sql);
+      return obtenerHistorialComentarios(sql, 'ventas_sku');
+    })();
+    const consultaUltimaVenta = sql`
       SELECT sku, MAX(fecha) AS ultima_venta
       FROM bsale_ventas_sku
       WHERE sku NOT IN (SELECT sku FROM ventas_sku_excluidos)
@@ -2922,8 +2916,21 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
         AND COALESCE(nombre, '') !~* 'env[ií]o|despacho|costo de env[ií]o|chile\s*express|chilexpress|blue\s*express|bluexpress|starken|correos de chile|99\s*minutos|global\s*tracking|^spread$|flete|courier|retiro en tienda|^pagado$|^rec[ií]belo$'
       GROUP BY sku;
     `;
+    const consultaExcluidos = sql`SELECT sku, nombre, categoria, stock_al_marcar, costo_total_al_marcar FROM ventas_sku_excluidos;`;
+    // "¿Funcionó?": si falla, la página sigue sin esa columna; se captura aquí para que un rechazo no quede suelto mientras esperan las demás.
+    const consultaEfecto = efectoAcciones(sql, new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' })).then(valor => ({ valor }), error => ({ error }));
+    const [{ rows }, { rows: estadoSyncRows }, { rows: estadoRows }, historialPorSku, { rows: ultimaVentaRows }, { rows: excluidosRows }, efectoLeido] =
+      await Promise.all([consultaVentas, consultaSync, consultaEstado, consultaHistorial, consultaUltimaVenta, consultaExcluidos, consultaEfecto]);
+    const estadoSync = estadoSyncRows[0] || {};
+    const estadoPorSku = {};
+    for (const r of estadoRows) {
+      estadoPorSku[r.sku] = { mercadoLibre: !!r.mercado_libre, envioGratis: !!r.envio_gratis, variacionPrecio: !!r.variacion_precio };
+    }
+    // Última fecha de venta real por SKU (día exacto, no el mes truncado
+    // de arriba) -- pedido del usuario: el criterio de "estancado" pasó de
+    // "sin ventas en los últimos 3 meses" a "sin ventas hace 35+ días",
+    // así que hace falta la fecha precisa, no solo el mes.
     const ultimaVentaPorSku = Object.fromEntries(ultimaVentaRows.map(r => [r.sku, new Date(r.ultima_venta).toISOString().slice(0, 10)]));
-    const { rows: excluidosRows } = await sql`SELECT sku, nombre, categoria, stock_al_marcar, costo_total_al_marcar FROM ventas_sku_excluidos;`;
 
     // Resumen de mermas: SKU sacados de este análisis con el botón 🗑️ (ver
     // el DELETE de arriba) que además traen el snapshot de costo (los
@@ -2988,7 +2995,7 @@ async function manejarVentasSkuTendencia(req, res, sesion) {
 
     // "¿Funcionó?": ventas desde que se marcó cada acción (ver lib/efecto-acciones.js). Si falla, la página sigue sin esa columna.
     let efecto = {}, errorEfecto = null;
-    try { efecto = await efectoAcciones(sql, new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' })); } catch (e) { errorEfecto = String(e.message || e).slice(0, 160); }
+    if (efectoLeido.error) errorEfecto = String(efectoLeido.error.message || efectoLeido.error).slice(0, 160); else efecto = efectoLeido.valor;
     return res.status(200).json({
       meses, productos, estadoSku: estadoSkuCompleto, excluidos: excluidosRows.map(r => r.sku), mermas, efecto, errorEfecto,
       ultimaSincronizacion: estadoSync.ultima_pasada_completa_en || null,
