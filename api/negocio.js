@@ -65,6 +65,7 @@ import { resolverEntradaProducto, datosProductoIdentificado, columnaCompatibilid
 import { analizarGoogleAds, validarRango as validarRangoGoogleAds } from '../lib/google-ads-analisis.js';
 import { consultarInstagram } from '../lib/instagram.js';
 import { consultarSearchConsole, validarRutaExtra as validarRutaExtraSearchConsole } from '../lib/search-console.js';
+import * as sc404 from '../lib/search-console-404.js';
 import { armarEntradaFiltrosIA, normalizarAnalisisFiltros, SISTEMA_FILTROS_IA, HERRAMIENTA_FILTROS_IA } from '../lib/filtros-uso-ia.js';
 import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro, planDeSku, datosDeAviso } from '../lib/bsale-sync.js';
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
@@ -18306,6 +18307,66 @@ async function manejarSearchConsole(req, res, _sesion) {
     return res.status(200).json(r);
   } catch (err) {
     return res.status(200).json({ error: 'No se pudo leer Search Console', detail: String(err.message || err).slice(0, 400) });
+  }
+}
+
+// Análisis > Search Console > Páginas 404: lista importada del informe de Google, comprobación en vivo, clasificación (reglas + IA) y redirecciones.
+// GET  ?recurso=search-console-404            -> { filas, resumen }   (&formato=csv -> CSV de redirecciones aprobadas, formato de importación de Shopify)
+// POST { accion: 'importar' (texto, reemplazar) | 'verificar' | 'analizar' | 'ia' | 'validar-destinos' | 'decidir' (rutas, estado, destino?) | 'aplicar' | 'limpiar' }  -- solo admin
+// Ver lib/search-console-404.js.
+async function manejarSearchConsole404(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await sc404.asegurarTablaSc404(sql);
+    if (req.method === 'GET') {
+      const filas = await sc404.listarFilas(sql);
+      if (req.query.formato === 'csv') {
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="redirecciones-404.csv"');
+        return res.status(200).send(sc404.csvRedirecciones(filas.filter(f => f.estado === 'aprobada' && f.accion === 'redirigir')));
+      }
+      return res.status(200).json({ filas, resumen: sc404.resumirFilas(filas), es_admin: sesion.rol === 'admin', ia_configurada: Boolean((process.env.GEMINI_API_KEY || '').trim()) });
+    }
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede cambiar esta lista' });
+    const b = req.body && typeof req.body === 'object' ? req.body : {};
+    const quien = sesion.nombre || sesion.email || null;
+    if (b.accion === 'importar') {
+      const p = sc404.parsearUrls404(b.texto);
+      if (!p.filas.length) return res.status(200).json({ error: 'No se encontró ninguna URL de indexstore.cl en el texto. Sube el CSV que descargas con el botón Exportar del informe.' });
+      const r = await sc404.importarFilas(sql, p.filas, { reemplazar: b.reemplazar !== false });
+      return res.status(200).json({ ok: true, total: p.filas.length, ajenas: p.ajenas, repetidas: p.repetidas, ...r });
+    }
+    if (b.accion === 'verificar') return res.status(200).json({ ok: true, ...(await sc404.verificarLote(sql, { limite: 100, reintentar: b.reintentar === true })) });
+    if (b.accion === 'analizar') {
+      const gql = await descuentosWebGql();
+      const cat = await sc404.cargarCatalogo(gql);
+      let trafico = new Map(); let avisoTrafico = null;
+      try {
+        const t = await consultarSearchConsole({ seccion: 'trafico', pais: 'todos', desde: new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10) });
+        if (t.filas) for (const f of t.filas) trafico.set(f.ruta, { clics: f.clics, impresiones: f.impresiones }); else avisoTrafico = t.error || 'Search Console no está configurado';
+      } catch (e) { avisoTrafico = String(e.message || e).slice(0, 200); }
+      const r = await sc404.analizarFilas(sql, sc404.contextoDeCatalogo(cat), { trafico, reanalizar: b.reanalizar === true });
+      return res.status(200).json({ ok: true, ...r, catalogo: { productos: cat.productos.size, colecciones: cat.colecciones.size, paginas: cat.paginas.size }, aviso_trafico: avisoTrafico });
+    }
+    if (b.accion === 'ia') {
+      if (!(process.env.GEMINI_API_KEY || '').trim()) return res.status(200).json({ error: 'GEMINI_API_KEY no está configurada en el servidor' });
+      const r = await sc404.iaLote(sql, (sis, txt, her) => llamarGeminiEstructurado(sis, txt, her, { maxTokens: 8000, timeoutMs: 40000 }), { limite: 12 });
+      return res.status(200).json({ ok: true, ...r });
+    }
+    if (b.accion === 'validar-destinos') return res.status(200).json({ ok: true, ...(await sc404.validarDestinos(sql)) });
+    if (b.accion === 'decidir') return res.status(200).json({ ok: true, ...(await sc404.decidirFilas(sql, { rutas: b.rutas, estado: b.estado, destino: b.destino, usuario: quien })) });
+    if (b.accion === 'aplicar') {
+      const gql = await descuentosWebGql();
+      return res.status(200).json({ ok: true, ...(await sc404.aplicarRedirecciones(sql, gql, { usuario: quien })) });
+    }
+    if (b.accion === 'limpiar') {
+      const { rowCount } = await sql.query("DELETE FROM sc_404 WHERE accion IN ('resuelta','ignorar') AND estado <> 'aplicada'");
+      return res.status(200).json({ ok: true, quitadas: rowCount || 0 });
+    }
+    return res.status(400).json({ error: 'Acción no válida' });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo procesar las páginas 404', detail: String(err.message || err).slice(0, 400) });
   }
 }
 

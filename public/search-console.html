@@ -219,13 +219,15 @@
   </header>
 
   <style>
-    .sc-tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:0 0 18px;}
+    .sc-tabs{display:grid;grid-template-columns:repeat(7,1fr);gap:12px;margin:0 0 18px;}
     @media (max-width:1100px){.sc-tabs{grid-template-columns:repeat(3,1fr);}}
     @media (max-width:600px){.sc-tabs{grid-template-columns:repeat(2,1fr);}}
     .sc-tab{background:var(--surface-2);border:1.5px solid var(--line);border-radius:12px;padding:13px 12px;text-align:left;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;color:var(--text);transition:box-shadow .15s,border-color .15s,background .15s;}
     .sc-tab:hover{box-shadow:var(--shadow);}
     .sc-tab.active{background:var(--primary-dim);border-color:var(--primary);}
     .sc-tab b{display:block;font-family:'Space Grotesk',sans-serif;font-size:13.5px;} .sc-tab span{font-size:11px;color:var(--muted);font-weight:400;}
+    .p404{margin-top:10px;font-size:12.5px;} .barra404{height:8px;background:var(--surface-2);border-radius:6px;overflow:hidden;margin-top:6px;} .barra404 i{display:block;height:100%;background:var(--primary);transition:width .3s;}
+    .sel404{max-width:300px;font-size:11.5px;margin-top:4px;}
     .sc-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:0 0 16px;}
     .sc-kpis .card .big{font-size:23px;}
     .dl{font-size:12px;font-weight:700;margin-top:3px;} .dl.mejor{color:var(--green);} .dl.peor{color:var(--red);} .dl.neutro{color:var(--muted);font-weight:500;}
@@ -277,6 +279,7 @@
     <button class="sc-tab" data-sec="oportunidades" onclick="abrir('oportunidades')"><b>🎯 Oportunidades</b><span>CTR bajo y canibalización</span></button>
     <button class="sc-tab" data-sec="landings" onclick="abrir('landings')"><b>🧲 Landings</b><span>Las de pocos enlaces internos</span></button>
     <button class="sc-tab" data-sec="indexacion" onclick="abrir('indexacion')"><b>🗂️ Indexación</b><span>Sitemaps e inspector de URL</span></button>
+    <button class="sc-tab" data-sec="errores404" onclick="abrir('errores404')"><b>🚧 Páginas 404</b><span>Qué redirigir y qué dejar</span></button>
   </div>
 
   <div id="scEstado" class="empty-note">Cargando…</div>
@@ -495,10 +498,205 @@ async function inspeccionar(){
   }catch(e){ out.innerHTML = `<div class="sc-error">No se pudo consultar: ${escapeHtml(e.message)}</div>`; }
 }
 
-const VISTAS = { resumen: vistaResumen, consultas: vistaConsultas, paginas: vistaPaginas, oportunidades: vistaOportunidades, landings: vistaLandings, indexacion: vistaIndexacion };
+const VISTAS = { errores404: () => '', resumen: vistaResumen, consultas: vistaConsultas, paginas: vistaPaginas, oportunidades: vistaOportunidades, landings: vistaLandings, indexacion: vistaIndexacion };
+
+// ---------- Páginas 404 (lista importada de Search Console; la API de Google no la entrega) ----------
+let d404 = null, visibles404 = [], sel404 = new Set(), filtro404 = { accion: '', estado: '', q: '' }, trabajando404 = false;
+const ACCION404 = { redirigir: ['Redirigir (301)', 'si'], dejar: ['Dejar como 404', ''], ignorar: ['Ignorar', ''], resuelta: ['Ya funciona', 'si'], revisar: ['Revisar a mano', 'no'], ia_pendiente: ['Falta la IA', 'no'], sin_analizar: ['Sin analizar', ''] };
+const VIVO404 = { '404': 'Sigue en 404', ok: 'Responde bien', redirige: 'Ya redirige', error: 'No se pudo comprobar' };
+const ESTADO404 = { pendiente: 'Por decidir', aprobada: 'Aprobada', descartada: 'Descartada', aplicada: 'Aplicada' };
+
+async function api404(cuerpo){
+  const r = await fetch('/api/negocio?recurso=search-console-404', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+  if(r.status === 401){ location.href = '/login.html'; throw new Error('Sesión vencida'); }
+  const d = await r.json();
+  if(d.error) throw new Error(d.error + (d.detail ? ' — ' + d.detail : ''));
+  return d;
+}
+function progreso404(texto, pct){
+  const b = $('p404'); if(!b) return;
+  b.style.display = ''; b.innerHTML = `<div>${escapeHtml(texto)}${pct == null ? '' : ' — <b>' + pct + '%</b>'}</div>` + (pct == null ? '' : `<div class="barra404"><i style="width:${pct}%"></i></div>`);
+}
+async function lista404(){
+  const r = await fetch('/api/negocio?recurso=search-console-404');
+  if(r.status === 401){ location.href = '/login.html'; throw new Error('Sesión vencida'); }
+  const d = await r.json();
+  if(d.error) throw new Error(d.error + (d.detail ? ' — ' + d.detail : ''));
+  return d;
+}
+
+async function cargar404(){
+  const estado = $('scEstado'), cont = $('scContenido');
+  try{
+    estado.className = 'empty-note'; estado.style.display = ''; estado.textContent = 'Leyendo la lista de páginas 404…';
+    d404 = await lista404();
+    estado.style.display = 'none'; cont.style.display = ''; cont.style.opacity = '';
+    render404();
+  }catch(err){ cont.style.display = 'none'; estado.style.display = ''; estado.className = 'sc-error'; estado.textContent = 'No se pudo leer: ' + err.message; }
+}
+
+function render404(){
+  const cont = $('scContenido'), d = d404, r = d.resumen, a = r.por_accion || {}, e = r.por_estado || {};
+  const admin = d.es_admin;
+  let html = `<div class="sc-aviso"><b>Cómo funciona.</b> Google no entrega por API la lista de páginas 404, así que se importa desde su informe: en Search Console abre <i>Páginas &gt; No se ha encontrado (404)</i>, toca <i>Exportar &gt; Descargar CSV</i> y súbelo aquí. El sistema comprueba en vivo cuáles siguen dando 404, y para cada una decide con reglas y con IA si conviene <b>redirigir</b> (y a qué página, con el motivo) o <b>dejar el 404</b>. Tú apruebas y se crean las redirecciones en Shopify.</div>`;
+  if(admin){
+    html += bloque('1. Importar y analizar', 'Sube el CSV (o pega las URLs, una por línea). La lista nueva reemplaza a la anterior, salvo lo que ya tiene redirección aplicada. Comprobar 900 URLs y revisarlas con IA toma unos minutos; deja la página abierta.',
+      `<div class="filtros"><input type="file" id="f404" accept=".csv,.txt,text/csv,text/plain"><button class="btn-ghost btn-compact" id="b404imp" onclick="importar404()">Importar y analizar</button><button class="btn-ghost btn-compact" id="b404re" onclick="pipeline404(null)" title="Comprueba, clasifica y revisa con IA lo que haya quedado sin procesar">Seguir con lo pendiente</button></div>` +
+      `<textarea id="t404" class="sc-buscar" rows="3" style="width:100%;margin-top:8px;" placeholder="…o pega aquí las URLs"></textarea><div id="p404" class="p404" style="display:none;"></div>`);
+  }
+  const conf = r.por_confianza || {};
+  html += '<div class="sc-kpis">' +
+    kpi('URLs en la lista', fmtNum(r.total), `<div class="dl neutro">${fmtNum(r.con_trafico)} con tráfico en 12 meses</div>`) +
+    kpi('Para redirigir', fmtNum(a.redirigir || 0), `<div class="dl neutro">alta ${fmtNum(conf.alta)} · media ${fmtNum(conf.media)} · baja ${fmtNum(conf.baja)}</div>`) +
+    kpi('Dejar como 404', fmtNum(a.dejar || 0), '<div class="dl neutro">sin página equivalente</div>') +
+    kpi('Ya funcionan', fmtNum(a.resuelta || 0), '<div class="dl neutro">Google aún no lo sabe</div>') +
+    kpi('Ignorar / revisar', fmtNum(a.ignorar || 0) + ' / ' + fmtNum(a.revisar || 0), '<div class="dl neutro">archivos y rutas técnicas / a mano</div>') +
+    kpi('Aprobadas / aplicadas', fmtNum(e.aprobada || 0) + ' / ' + fmtNum(e.aplicada || 0), r.sin_comprobar ? `<div class="dl peor">${fmtNum(r.sin_comprobar)} sin comprobar</div>` : '<div class="dl neutro">todas comprobadas</div>') + '</div>';
+  const opt = (obj, sel) => Object.entries(obj).map(([k, v]) => `<option value="${k}"${sel === k ? ' selected' : ''}>${escapeHtml(Array.isArray(v) ? v[0] : v)}</option>`).join('');
+  html += bloque('2. Revisar y aprobar', 'Solo se pueden aprobar las que tienen destino. "Confianza alta": mismo producto o modelo exacto. Cambia el destino con la lista desplegable si prefieres otra página. Para ordenar, haz clic en cada encabezado.',
+    `<div class="filtros"><select id="fa404" onchange="filtro404.accion=this.value;pintarTabla404()"><option value="">Todas las acciones</option>${opt(ACCION404, filtro404.accion)}</select>` +
+    `<select id="fe404" onchange="filtro404.estado=this.value;pintarTabla404()"><option value="">Todos los estados</option>${opt(ESTADO404, filtro404.estado)}</select>` +
+    `<input type="search" class="sc-buscar" id="fq404" placeholder="Buscar en URL, destino o motivo…" value="${escapeHtml(filtro404.q)}" oninput="filtro404.q=this.value;pintarTabla404()"></div>` +
+    (admin ? `<div class="filtros" style="margin-top:0;"><button class="btn-ghost btn-compact" onclick="decidir404('aprobada')">✓ Aprobar seleccionadas</button><button class="btn-ghost btn-compact" onclick="decidir404('descartada')">✕ Descartar seleccionadas</button><button class="btn-ghost btn-compact" onclick="aprobarAlta404()">✓ Aprobar todas las de confianza alta visibles</button><span id="n404" class="ads-pie"></span></div>` : '<span id="n404" class="ads-pie"></span>') +
+    `<div id="tabla404"></div>` +
+    `<div class="filtros" style="margin-top:12px;"><a class="btn-ghost btn-compact btn-exportar" style="text-decoration:none;display:inline-block;" href="/api/negocio?recurso=search-console-404&formato=csv">⬇ CSV de redirecciones aprobadas (para importar en Shopify)</a>` +
+    (admin ? `<button class="btn-ghost btn-compact" id="b404ap" onclick="aplicar404()">🔀 Crear redirecciones aprobadas en Shopify (${fmtNum(e.aprobada || 0)})</button><button class="btn-ghost btn-compact" onclick="limpiar404()" title="Quita de la lista las que ya funcionan y las que se ignoran">Quitar ya funcionan e ignoradas</button>` : '') + `</div>` +
+    `<div class="ads-pie" id="a404"></div>`);
+  html += `<div class="sc-aviso">Después de crear las redirecciones: en Search Console, informe <i>No se ha encontrado (404)</i>, toca <b>Validar arreglo</b> para que Google vuelva a rastrear. Las URLs que se dejan como 404 no hay que arreglarlas: Google las retira solo con el tiempo (un 404 verdadero no daña el SEO). Redirigir a páginas que no se parecen sí perjudica (Google lo cuenta como error 404 blando), por eso la IA puede decidir "dejar".</div>`;
+  cont.innerHTML = html;
+  $('scPie').textContent = '';
+  pintarTabla404();
+}
+
+function pintarTabla404(){
+  const q = (filtro404.q || '').trim().toLowerCase();
+  visibles404 = d404.filas.filter(f => (!filtro404.accion || (f.accion || 'sin_analizar') === filtro404.accion) && (!filtro404.estado || f.estado === filtro404.estado) &&
+    (!q || ((f.ruta || '') + ' ' + (f.destino || '') + ' ' + (f.motivo || '')).toLowerCase().includes(q)));
+  const admin = d404.es_admin;
+  const filas = visibles404.map((f, i) => {
+    const ac = ACCION404[f.accion || 'sin_analizar'] || [f.accion, ''];
+    const cands = (f.candidatos || []).filter(c => c.url !== f.destino);
+    const destino = f.destino ? `<a class="sc-url" href="https://www.indexstore.cl${escapeHtml(f.destino)}" target="_blank" rel="noopener">${escapeHtml(f.destino)}</a>` : '—';
+    const cambiar = admin && (f.accion === 'redirigir' || f.accion === 'dejar' || f.accion === 'revisar') && cands.length && f.estado !== 'aplicada'
+      ? `<br><select class="sel404" onchange="cambiarDestino404(${i}, this.value)"><option value="">Cambiar destino…</option>${cands.map(c => `<option value="${escapeHtml(c.url)}">${escapeHtml(c.titulo)} (${escapeHtml(c.url)})</option>`).join('')}</select>` : '';
+    const acciones = admin && f.estado !== 'aplicada'
+      ? `${f.accion === 'redirigir' && f.destino && f.estado !== 'aprobada' ? `<a href="#" onclick="decidir404('aprobada',${i});return false;" title="Aprobar">✓</a> ` : ''}${f.estado !== 'descartada' ? `<a href="#" onclick="decidir404('descartada',${i});return false;" title="Descartar">✕</a>` : `<a href="#" onclick="decidir404('pendiente',${i});return false;" title="Volver a por decidir">↺</a>`}` : '';
+    const hoy = f.vivo_estado ? (VIVO404[f.vivo_estado] || f.vivo_estado) : 'Sin comprobar';
+    return `<tr>${admin ? `<td data-sin-orden><input type="checkbox" ${sel404.has(f.ruta) ? 'checked' : ''} onchange="marcar404(${i}, this.checked)"></td>` : ''}` +
+      `<td class="txt" style="max-width:340px;word-break:break-all;">${enlace(f.ruta)}${f.error ? `<div class="sc-error" style="margin:4px 0 0;padding:4px 8px;">${escapeHtml(f.error)}</div>` : ''}</td>` +
+      `<td>${escapeHtml(f.tipo || '—')}</td><td class="amount">${fmtNum(f.clics)}</td><td class="amount">${fmtNum(f.impresiones)}</td><td>${escapeHtml(hoy)}</td>` +
+      `<td><span class="badge-ads ${ac[1]}">${escapeHtml(ac[0])}</span></td><td class="txt" style="max-width:300px;word-break:break-all;">${destino}${cambiar}</td>` +
+      `<td class="txt" style="max-width:340px;">${escapeHtml(f.motivo || '—')}</td><td>${f.accion === 'redirigir' ? escapeHtml(f.confianza || '') : ''}</td><td>${escapeHtml(ESTADO404[f.estado] || f.estado)}</td><td data-sin-orden>${acciones}</td></tr>`;
+  });
+  $('tabla404').innerHTML = tabla([...(admin ? [{ t: '<input type="checkbox" onchange="marcarTodas404(this.checked)" title="Seleccionar las visibles">' }] : []), { t: 'URL con 404' }, { t: 'Tipo' }, { t: 'Clics 12 m', n: 1 }, { t: 'Impresiones 12 m', n: 1 }, { t: 'Hoy' }, { t: 'Qué hacer' }, { t: 'Destino sugerido' }, { t: 'Por qué' }, { t: 'Confianza' }, { t: 'Estado' }, { t: '' }], filas,
+    d404.filas.length ? 'Ninguna URL coincide con el filtro.' : 'Aún no hay URLs. Importa el CSV del informe de Google.');
+  $('n404').textContent = `${fmtNum(visibles404.length)} visibles · ${fmtNum(sel404.size)} seleccionadas`;
+}
+function marcar404(i, v){ const f = visibles404[i]; if(!f) return; if(v) sel404.add(f.ruta); else sel404.delete(f.ruta); $('n404').textContent = `${fmtNum(visibles404.length)} visibles · ${fmtNum(sel404.size)} seleccionadas`; }
+function marcarTodas404(v){ visibles404.forEach(f => { if(v) sel404.add(f.ruta); else sel404.delete(f.ruta); }); pintarTabla404(); }
+
+async function decidir404(estado, i){
+  const rutas = i == null ? [...sel404] : [visibles404[i].ruta];
+  if(!rutas.length){ alert('Selecciona al menos una URL.'); return; }
+  try{
+    const r = await api404({ accion: 'decidir', rutas, estado });
+    if(i == null) sel404.clear();
+    await cargar404();
+    if(estado === 'aprobada' && r.actualizadas < rutas.length) $('a404').textContent = `Se aprobaron ${r.actualizadas} de ${rutas.length}: solo se pueden aprobar las que tienen destino de redirección.`;
+  }catch(e){ alert(e.message); }
+}
+async function aprobarAlta404(){
+  const rutas = visibles404.filter(f => f.accion === 'redirigir' && f.confianza === 'alta' && f.destino && f.estado === 'pendiente').map(f => f.ruta);
+  if(!rutas.length){ alert('No hay redirecciones de confianza alta por decidir en la vista actual.'); return; }
+  if(!confirm(`¿Aprobar ${rutas.length} redirecciones de confianza alta?`)) return;
+  try{ await api404({ accion: 'decidir', rutas, estado: 'aprobada' }); await cargar404(); }catch(e){ alert(e.message); }
+}
+async function cambiarDestino404(i, destino){
+  if(!destino) return;
+  try{ await api404({ accion: 'decidir', rutas: [visibles404[i].ruta], estado: 'pendiente', destino }); await cargar404(); }catch(e){ alert(e.message); }
+}
+async function limpiar404(){
+  if(!confirm('¿Quitar de la lista las URLs que ya funcionan y las que se ignoran (archivos y rutas técnicas)?')) return;
+  try{ await api404({ accion: 'limpiar' }); await cargar404(); }catch(e){ alert(e.message); }
+}
+
+async function aplicar404(){
+  const n = d404.resumen.por_estado.aprobada || 0;
+  if(!n){ alert('No hay redirecciones aprobadas.'); return; }
+  if(!confirm(`Se crearán ${n} redirecciones 301 en la tienda de Shopify. Esto cambia el sitio en vivo. ¿Continuar?`)) return;
+  if(trabajando404) return;
+  trabajando404 = true; $('b404ap').disabled = true;
+  let hechas = 0, errores = [];
+  try{
+    for(let ronda = 0; ronda < 60; ronda++){
+      const r = await api404({ accion: 'aplicar' });
+      hechas += r.aplicadas; errores = errores.concat(r.errores || []);
+      $('a404').textContent = `Aplicadas ${fmtNum(hechas)} de ${fmtNum(n)} (${Math.round(hechas / n * 100)}%)…`;
+      if(!r.quedan || (r.errores || []).length) break;
+    }
+  }catch(e){ errores.push({ ruta: '', error: e.message }); }
+  trabajando404 = false;
+  await cargar404();
+  $('a404').textContent = `Se crearon ${fmtNum(hechas)} redirecciones.` + (errores.length ? ' Problemas: ' + errores.slice(0, 3).map(x => (x.ruta ? x.ruta + ' → ' : '') + x.error).join(' | ') : '');
+}
+
+function leerArchivo404(f){ return new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result || '')); r.onerror = () => no(new Error('No se pudo leer el archivo')); r.readAsText(f); }); }
+async function importar404(){
+  let texto = ($('t404').value || '').trim();
+  const f = $('f404').files[0];
+  try{ if(f) texto = (await leerArchivo404(f)) + '\n' + texto; }catch(e){ alert(e.message); return; }
+  if(!texto.trim()){ alert('Elige el archivo CSV o pega las URLs.'); return; }
+  pipeline404(texto);
+}
+// Importar (si hay texto) -> comprobar en vivo -> clasificar por reglas -> revisar con IA -> validar destinos. Cada paso informa su avance en %.
+async function pipeline404(texto){
+  if(trabajando404) return;
+  trabajando404 = true; ['b404imp', 'b404re'].forEach(id => { if($(id)) $(id).disabled = true; });
+  let final = '';
+  try{
+    if(texto){
+      progreso404('Importando la lista…');
+      const r = await api404({ accion: 'importar', texto, reemplazar: true });
+      final = `Importadas ${fmtNum(r.total)} URLs (${fmtNum(r.nuevas)} nuevas, ${fmtNum(r.quitadas)} quitadas por no estar en la lista nueva). `;
+    }
+    let l = await lista404();
+    const total = l.resumen.total;
+    let quedan = l.resumen.sin_comprobar + (l.filas.filter(f => f.vivo_estado === 'error').length);
+    let primera = true;
+    while(quedan > 0){
+      progreso404(`Comprobando en vivo cuáles siguen dando 404: ${fmtNum(total - quedan)} de ${fmtNum(total)}`, Math.round((total - quedan) / total * 100));
+      quedan = (await api404({ accion: 'verificar', reintentar: primera })).quedan; primera = false;
+    }
+    progreso404('Leyendo el catálogo de Shopify y clasificando con reglas…');
+    const an = await api404({ accion: 'analizar' });
+    final += `Clasificadas ${fmtNum(an.analizadas)} URLs con reglas. `;
+    l = await lista404();
+    const porIA = l.resumen.por_accion.ia_pendiente || 0;
+    let iaQuedan = porIA;
+    if(porIA && !l.ia_configurada) final += 'Falta GEMINI_API_KEY: las dudosas quedan sin revisar con IA. ';
+    else while(iaQuedan > 0){
+      progreso404(`Revisando con IA las dudosas: ${fmtNum(porIA - iaQuedan)} de ${fmtNum(porIA)}`, Math.round((porIA - iaQuedan) / porIA * 100));
+      const r = await api404({ accion: 'ia' });
+      if(!r.procesadas) break;
+      iaQuedan = r.quedan;
+    }
+    progreso404('Comprobando que los destinos propuestos abran…');
+    const v = await api404({ accion: 'validar-destinos' });
+    if(v.descartados) final += `${fmtNum(v.descartados)} destinos no abren hoy y pasaron a revisión. `;
+    if(an.aviso_trafico) final += 'Sin datos de tráfico de Google: ' + an.aviso_trafico + '. ';
+    final = 'Listo. ' + final;
+  }catch(e){
+    final = 'Se detuvo: ' + e.message + ' — toca "Seguir con lo pendiente" para continuar. ' + final;
+  }
+  trabajando404 = false;
+  await cargar404();
+  if($('p404')){ $('p404').style.display = ''; $('p404').textContent = final; }
+}
 
 async function cargar(){
   const sec = seccion, tk = ++token, estado = $('scEstado'), cont = $('scContenido');
+  document.querySelector('.filtros').style.display = sec === 'errores404' ? 'none' : '';
+  if(sec === 'errores404') return cargar404();
   const params = new URLSearchParams({ recurso: 'search-console', seccion: sec, desde: rango.desde, hasta: rango.hasta, pais: $('scPais').value });
   if(sec === 'landings' && landingsExtra.length) params.set('extra', landingsExtra.join(','));
   const clave = params.toString();
