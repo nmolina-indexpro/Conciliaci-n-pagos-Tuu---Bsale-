@@ -77,6 +77,7 @@ import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTabla
 import { asegurarTablaCotizacionesEliminadas, eliminarCotizaciones, anularCotizacionesDuplicadas, listarEliminadas, MOTIVO_ANULADA_BSALE } from '../lib/cotizaciones-limpieza.js';
 import { asegurarTablasMLDatos, reiniciarSync, estadoSync, siguientePaso, ejecutarPaso, calcularMetricasML, diagnosticoLectura, normalizarRango, PASOS as PASOS_ML } from '../lib/mercadolibre-datos.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
+import { unaVez } from '../lib/una-vez.js';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
 const RESET_PASSWORD_EXPIRA_MIN = 30; // vigencia del link de recuperación
@@ -3064,7 +3065,8 @@ const PRODUCTOS_ESTANCADOS_FLAGS_CAMPO_INFO = {
 // Registro de precios de lista (con IVA) por SKU, en Bsale y en la tienda (Shopify): guarda el último precio visto (precios_sku_ultimo) y, cuando cambia respecto de
 // la lectura anterior, anota el cambio con el precio de antes y el de ahora (precios_sku_cambios). Lo usa el correo "Cambios en productos estancados" para mostrar
 // el precio de antes y el de ahora de la marca "Variación de precio". La primera lectura solo fija la base: los cambios se ven desde la lectura siguiente.
-async function asegurarTablaPreciosSku(sql) {
+async function asegurarTablaPreciosSku(sql) { return unaVez('asegurarTablaPreciosSku', () => _asegurarTablaPreciosSku(sql)); }
+async function _asegurarTablaPreciosSku(sql) {
   await sql`CREATE TABLE IF NOT EXISTS precios_sku_ultimo (sku TEXT NOT NULL, fuente TEXT NOT NULL, precio NUMERIC NOT NULL, actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (sku, fuente));`;
   await sql`CREATE TABLE IF NOT EXISTS precios_sku_cambios (id SERIAL PRIMARY KEY, sku TEXT NOT NULL, fuente TEXT NOT NULL, precio_anterior NUMERIC NOT NULL, precio_nuevo NUMERIC NOT NULL, detectado_en TIMESTAMPTZ NOT NULL DEFAULT now());`;
   await sql`CREATE INDEX IF NOT EXISTS idx_precios_sku_cambios_sku ON precios_sku_cambios (sku, detectado_en);`;
@@ -18601,7 +18603,8 @@ function manejarDescuentosWebCron(req, res) {
 // ===================== ORDEN DE COLECCIONES POR STOCK =====================
 // Deja cada colección de Shopify con los productos de más stock primero y los agotados al final (lógica en lib/orden-colecciones.js).
 // Shopify no trae ese orden: las colecciones pasan a orden MANUAL y se reordenan aquí, varias veces al día (cron) y con un botón.
-async function asegurarTablaOrdenColecciones(sql) {
+async function asegurarTablaOrdenColecciones(sql) { return unaVez('asegurarTablaOrdenColecciones', () => _asegurarTablaOrdenColecciones(sql)); }
+async function _asegurarTablaOrdenColecciones(sql) {
   await sql.query(`CREATE TABLE IF NOT EXISTS orden_colecciones_estado (
     handle TEXT PRIMARY KEY, titulo TEXT, revisada_en TIMESTAMPTZ NOT NULL DEFAULT now(), productos INTEGER NOT NULL DEFAULT 0,
     movimientos INTEGER NOT NULL DEFAULT 0, hechos INTEGER NOT NULL DEFAULT 0, completa BOOLEAN NOT NULL DEFAULT true, error TEXT)`);
