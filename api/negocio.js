@@ -17,7 +17,7 @@ import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../l
 import { correoSemanalNasBackup, correoRevisionNasBackup } from '../lib/nas-backup-correo.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
-import { armarComunicacionZoho, filasCorreosDesdeZoho, ticketEnVentana, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
+import { armarComunicacionZoho, filasCorreosDesdeZoho, guardarFilasZoho, ticketEnVentana, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
@@ -6292,21 +6292,6 @@ async function consultarMetricasZohoInterno() {
   const res = { status() { return this; }, json(o) { cuerpo = o; return this; } };
   await manejarZohoServicioTecnicoMetricas({ method: 'GET', query: {} }, res, null);
   return cuerpo || { error: 'Zoho Desk no respondió' };
-}
-
-// Los mensajes de Zoho se guardan en cotizaciones_correos (casilla "Zoho Desk"), igual que los correos detectados por
-// IMAP: así cuentan solos en "último contacto", en los estados automáticos (cotización enviada / cliente respondió) y
-// en Rendimiento, sin código aparte. Se marcan vistos y analizados: ya traen su texto y no hay nada que leer por IMAP.
-async function guardarFilasZoho(sql, filas) {
-  for (const f of filas) {
-    await sql`
-      INSERT INTO cotizaciones_correos (casilla, message_id, direccion, cliente_email, cotizacion_id, asunto, fecha, contenido_texto, visto, analizado_ia)
-      VALUES (${CASILLA_ZOHO}, ${f.messageId}, ${f.direccion}, ${f.clienteEmail}, ${f.cotizacionId}, ${f.asunto}, ${f.fecha}, ${f.contenido}, true, true)
-      ON CONFLICT (casilla, message_id) DO UPDATE SET
-        cotizacion_id = COALESCE(EXCLUDED.cotizacion_id, cotizaciones_correos.cotizacion_id),
-        asunto = EXCLUDED.asunto, contenido_texto = EXCLUDED.contenido_texto;`;
-  }
-  return filas.length;
 }
 
 async function leerConversacionesZoho(ticket, headers, dc) {
