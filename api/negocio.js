@@ -276,6 +276,7 @@ export default async function handler(req, res) {
   if (recurso === 'wa-clic-ads-resumen') return manejarWaClicAdsResumen(req, res, sesion);
   if (recurso === 'google-ads-analisis') return manejarGoogleAdsAnalisis(req, res, sesion);
   if (recurso === 'search-console') return manejarSearchConsole(req, res, sesion);
+  if (recurso === 'search-console-404') return manejarSearchConsole404(req, res, sesion);
   if (recurso === 'instagram') return manejarInstagram(req, res, sesion);
   if (recurso === 'whatsapp-perdidas-ads') return manejarWhatsappPerdidasAds(req, res, sesion);
   if (recurso === 'whatsapp-diagnostico-meta') return manejarWhatsappDiagnosticoMeta(req, res, sesion);
