@@ -1331,15 +1331,16 @@ async function manejarCotizacionesClientes(req, res, sesion) {
              fc.fecha AS documento_asociado_fecha_fallback,
              c.vendedor_id, c.vendedor_nombre, c.responsable_gestion_id, ug.nombre AS responsable_gestion_nombre,
              c.proxima_accion_texto, c.proxima_accion_fecha,
-             (SELECT MAX(x.fecha) FROM (
-                SELECT fecha FROM bsale_cotizaciones_contactos WHERE cotizacion_id = c.id
-                UNION ALL
-                SELECT fecha FROM cotizaciones_correos WHERE direccion = 'saliente' AND (cotizacion_id = c.id OR (cliente_email IS NOT NULL AND cliente_email = c.cliente_email))
-              ) x) AS ultimo_contacto_en,
+             GREATEST(cm.fecha, sc.fecha, sm.fecha) AS ultimo_contacto_en,
              (SELECT canal FROM bsale_cotizaciones_contactos WHERE cotizacion_id = c.id ORDER BY fecha DESC LIMIT 1) AS ultimo_contacto_canal_manual
       FROM bsale_cotizaciones c
       LEFT JOIN analisis_compras fc ON fc.documento_id = c.documento_asociado_id
       LEFT JOIN usuarios ug ON ug.id = c.responsable_gestion_id
+      -- Último contacto: tres agregados previos (contacto manual, correo saliente con la cotización y correo saliente al mismo cliente) en vez de
+      -- una subconsulta por cotización con un OR sobre todos los correos; el resultado es el mismo (MAX de los tres, ignorando los que no existen).
+      LEFT JOIN (SELECT cotizacion_id, MAX(fecha) AS fecha FROM bsale_cotizaciones_contactos GROUP BY cotizacion_id) cm ON cm.cotizacion_id = c.id
+      LEFT JOIN (SELECT cotizacion_id, MAX(fecha) AS fecha FROM cotizaciones_correos WHERE direccion = 'saliente' AND cotizacion_id IS NOT NULL GROUP BY cotizacion_id) sc ON sc.cotizacion_id = c.id
+      LEFT JOIN (SELECT cliente_email, MAX(fecha) AS fecha FROM cotizaciones_correos WHERE direccion = 'saliente' AND cliente_email IS NOT NULL GROUP BY cliente_email) sm ON sm.cliente_email = c.cliente_email
       ORDER BY c.fecha DESC NULLS LAST, c.id DESC;
     `;
     const { rows: estadoRows } = await sql`SELECT * FROM bsale_cotizaciones_sync_estado WHERE id = 1;`;
