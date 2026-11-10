@@ -10002,6 +10002,31 @@ async function manejarWhatsappDiagnosticoMeta(req, res, sesion) {
     if (salida.numero.error) salida.numero = await graph(`${phoneNumberId}?fields=display_phone_number,verified_name,status,platform_type,quality_rating,webhook_configuration`, auth);
   }
 
+  // Más datos del registro del número (consulta aparte: si Meta no conoce algún campo, no rompe lo anterior).
+  if (phoneNumberId) {
+    salida.numero_registro = await graph(`${phoneNumberId}?fields=is_on_biz_app,last_onboarded_time,search_visibility,throughput`, auth);
+  }
+
+  // Prueba de envío por la API en la nube, solo si se pide (&enviar=569XXXXXXXX), a un teléfono del propio equipo.
+  // &plantilla=hello_world usa la plantilla de Meta (no exige que el cliente haya escrito en las últimas 24 h);
+  // sin plantilla manda un texto libre (Meta lo exige dentro de la ventana de 24 h).
+  // El resultado es la respuesta cruda de Meta: un error del tipo "número no registrado" es el dato útil.
+  const destino = String(req.query.enviar || '').replace(/\D/g, '');
+  if (destino) {
+    if (destino.length < 8 || destino.length > 15) salida.prueba_envio = { error: 'El número de destino no parece válido (usa el formato 569XXXXXXXX)' };
+    else if (!phoneNumberId) salida.prueba_envio = { error: 'WHATSAPP_PHONE_NUMBER_ID no está configurado' };
+    else {
+      const cuerpo = req.query.plantilla
+        ? { messaging_product: 'whatsapp', to: destino, type: 'template', template: { name: String(req.query.plantilla).slice(0, 80), language: { code: String(req.query.idioma || 'en_US').slice(0, 10) } } }
+        : { messaging_product: 'whatsapp', to: destino, type: 'text', text: { body: 'Prueba de conexión del ERP de IndexStore (diagnóstico de WhatsApp).' } };
+      try {
+        const r = await fetchConTimeout(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) }, 15000);
+        const j = await r.json().catch(() => ({}));
+        salida.prueba_envio = { http: r.status, tipo: cuerpo.type, respuesta: r.ok ? { mensaje_id: j.messages?.[0]?.id, estado: j.messages?.[0]?.message_status } : { codigo: j.error?.code, subcodigo: j.error?.error_subcode, mensaje: j.error?.message, detalle: j.error?.error_data?.details } };
+      } catch (e) { salida.prueba_envio = { error: e.message }; }
+    }
+  }
+
   // La salud del número nombra la cuenta de WhatsApp a la que pertenece.
   for (const e of salida.numero?.health_status?.entities || []) if (e.entity_type === 'WABA' && !wabaIds.includes(e.id)) wabaIds.push(e.id);
 
