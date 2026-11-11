@@ -111,6 +111,10 @@
       "schedule": "0 21 * * *"
     },
     {
+      "path": "/api/negocio?recurso=recepciones-stock-notificar",
+      "schedule": "0 11 * * *"
+    },
+    {
       "path": "/api/negocio?recurso=resumen-cambios-proponer",
       "schedule": "30 2 * * *"
     },

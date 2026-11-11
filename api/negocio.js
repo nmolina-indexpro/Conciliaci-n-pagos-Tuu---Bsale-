@@ -23,6 +23,7 @@ import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
 import { elegirPrecioSku } from '../lib/precios-sku.js';
+import { seleccionarRecepciones, armarCorreoRecepciones, leerRecepcionesRecientes, leerInfoVariantes, leerMiniaturas, recepcionesYaAvisadas, marcarRecepcionesAvisadas, ayerChile, sumarDias } from '../lib/recepciones-stock.js';
 import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidirAvisos, armarCorreoTraspasoStock } from '../lib/traspaso-stock.js';
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
@@ -178,6 +179,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'resumen-cambios-recordatorio') return manejarResumenCambiosRecordatorio(req, res);
   if (req.query.recurso === 'resumen-cambios-proponer') return manejarCambiosProponerCron(req, res);
   if (req.query.recurso === 'traspaso-stock-notificar') return manejarTraspasoStockNotificar(req, res);
+  if (req.query.recurso === 'recepciones-stock-notificar') return manejarRecepcionesStockNotificar(req, res);
   if (req.query.recurso === 'mercadolibre-sync') return manejarMercadoLibreSyncCron(req, res);
   if (req.query.recurso === 'cambio-imagen') return manejarCambioImagen(req, res);
   if (req.query.recurso === 'bsale-webhook') return manejarBsaleWebhook(req, res);
@@ -5541,6 +5543,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'google-ads-resumen-semanal': manejarGoogleAdsResumenSemanal,
       'modelos-compatibles-pendientes': manejarModelosCompatiblesRecordatorio,
       'traspaso-stock-modelos': manejarTraspasoStockNotificar,
+      'recepciones-stock-diario': manejarRecepcionesStockNotificar,
       'transito-envio-nuevo': manejarTransitoEnvioNuevoPrueba,
       'pedido-pantalla-nuevo': manejarPedidoPantallaPrueba,
       'insumos-stock-critico': manejarInsumoCriticoPrueba,
@@ -5723,6 +5726,59 @@ async function manejarGoogleAdsResumenSemanal(req, res) {
 async function stockBsaleDeSkus(skus) {
   return new Map(await Promise.all(skus.map(async s => [s, await stockBsaleDeSku(s)])));
 }
+// Ingresos de mercadería (recepciones de Bsale) del día anterior, consolidados en UN correo con proveedor, documento y cada producto con su miniatura
+// (notificación 'recepciones-stock-diario', ver lib/recepciones-stock.js). Cron diario por la mañana; solo manda si hubo ingresos nuevos desde el último aviso.
+// ?solo_ver=1 devuelve el correo armado sin enviarlo; ?probar=1&para=... lo manda solo a esa persona con [PRUEBA] usando los ingresos de los últimos 7 días
+// (o desde ?desde=AAAA-MM-DD) aunque ya se hayan avisado, sin marcar nada como avisado.
+async function manejarRecepcionesStockNotificar(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const token = process.env.BSALE_ACCESS_TOKEN;
+    if (!token) return res.status(200).json({ ok: false, enviado: false, motivo: 'Falta BSALE_ACCESS_TOKEN en el servidor' });
+    const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    const soloVer = req.query.solo_ver === '1';
+    const probar = esPruebaNotif(req) || soloVer;
+    if (!probar && !(await notificacionDebeEnviarse(sql, 'recepciones-stock-diario'))) {
+      return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    }
+    const ayer = ayerChile();
+    const desdeRaw = /^d{4}-d{2}-d{2}$/.test(String(req.query.desde || '')) ? String(req.query.desde) : null;
+    const desde = probar ? (desdeRaw || sumarDias(ayer, -6)) : null;
+    const todas = await leerRecepcionesRecientes(token);
+    const avisadas = probar ? new Set() : await recepcionesYaAvisadas(sql);
+    const elegidas = seleccionarRecepciones(todas, { ayer, avisadas, ignorarAvisadas: probar, desde });
+    if (!elegidas.length) return res.status(200).json({ ok: true, enviado: false, motivo: probar ? 'No hay ingresos de mercadería en ese período' : 'No hubo ingresos nuevos de mercadería' });
+
+    const ids = elegidas.flatMap(r => (r.details.items || []).map(d => d.variant && d.variant.id).filter(v => v != null));
+    const infoVariantes = await leerInfoVariantes(ids, token);
+    let miniaturas = {};
+    try {
+      const acceso = await obtenerAccesoShopify();
+      if (acceso) miniaturas = await leerMiniaturas(Object.values(infoVariantes).map(v => v.sku), (q, v) => shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, q, v));
+    } catch { /* sin miniaturas: el correo sale igual */ }
+
+    const fechas = elegidas.map(r => (r.rawAdmissionDate ? String(r.rawAdmissionDate).slice(0, 10) : new Date(Number(r.admissionDate) * 1000).toISOString().slice(0, 10))).sort();
+    const { asunto, html, ingresos, unidades, productos } = armarCorreoRecepciones({ recepciones: elegidas, infoVariantes, miniaturas, desde: fechas[0], hasta: fechas[fechas.length - 1], urlBase: URL_BASE_APP });
+    if (soloVer) return res.status(200).json({ ok: true, enviado: false, asunto, html, ingresos, unidades, productos, miniaturas: Object.keys(miniaturas).length });
+
+    const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'recepciones-stock-diario');
+    if (!destinatarios.length) return res.status(200).json({ ok: true, enviado: false, motivo: 'La notificación no tiene destinatarios', ingresos });
+    const envios = [];
+    for (const para of destinatarios) envios.push({ para, ...(await enviarCorreo({ para, asunto: asuntoDePrueba(req, asunto), html })) });
+    const enviado = envios.some(e => e.enviado !== false);
+    if (enviado && !probar) {
+      await marcarRecepcionesAvisadas(sql, elegidas.map(r => Number(r.id)));
+      await marcarNotificacionEnviada(sql, 'recepciones-stock-diario', { asunto, html });
+    }
+    return res.status(200).json({ ok: true, enviado, ingresos, unidades, productos, envios });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error armando el correo de ingresos de mercadería', detail: String(err.message || err) });
+  }
+}
+
 async function manejarTraspasoStockNotificar(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
   const auth = req.headers.authorization || '';
