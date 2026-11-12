@@ -119,6 +119,10 @@
       "schedule": "0 11 * * *"
     },
     {
+      "path": "/api/negocio?recurso=ventas-efectivo-notificar",
+      "schedule": "10 11 * * *"
+    },
+    {
       "path": "/api/negocio?recurso=resumen-cambios-proponer",
       "schedule": "30 2 * * *"
     },

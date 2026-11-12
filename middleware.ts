@@ -125,7 +125,7 @@ function esIndexscalePixelPublico(pathname, searchParams) {
 // completa. La seguridad real la hace la clave BUSCADOR_IA_KEY (header
 // x-api-key) dentro del propio handler.
 function esBuscadorIaRegistrarPublico(pathname, searchParams) {
-  return pathname === '/api/negocio' && ['buscador-ia-registrar', 'buscador-ia-evento', 'buscador-ia-ranking', 'buscador-ia-envio', 'buscador-ia-embudo', 'buscador-ia-filtro', 'buscador-ia-descuento', 'buscador-ia-modelos', 'wa-clic-ads', 'wa-clic-ads-cron', 'descuentos-web-aviso', 'descuentos-web-cron', 'orden-colecciones-cron', 'resumen-cambios-enviar', 'resumen-cambios-recordatorio', 'resumen-cambios-proponer', 'traspaso-stock-notificar', 'recepciones-stock-notificar', 'mercadolibre-sync', 'cambio-imagen', 'bsale-webhook', 'indexscale-lead-web-registrar', 'cotizacion-web'].includes(searchParams.get('recurso'));
+  return pathname === '/api/negocio' && ['buscador-ia-registrar', 'buscador-ia-evento', 'buscador-ia-ranking', 'buscador-ia-envio', 'buscador-ia-embudo', 'buscador-ia-filtro', 'buscador-ia-descuento', 'buscador-ia-modelos', 'wa-clic-ads', 'wa-clic-ads-cron', 'descuentos-web-aviso', 'descuentos-web-cron', 'orden-colecciones-cron', 'resumen-cambios-enviar', 'resumen-cambios-recordatorio', 'resumen-cambios-proponer', 'traspaso-stock-notificar', 'recepciones-stock-notificar', 'ventas-efectivo-notificar', 'mercadolibre-sync', 'cambio-imagen', 'bsale-webhook', 'indexscale-lead-web-registrar', 'cotizacion-web'].includes(searchParams.get('recurso'));
 }
 
 // Aviso (webhook) de pedidos de Shopify para "Pantallas a pedido": lo llama Shopify directo, sin cookie de sesión. Se exime solo ese recurso;

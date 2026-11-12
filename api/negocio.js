@@ -23,6 +23,7 @@ import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
 import { elegirPrecioSku } from '../lib/precios-sku.js';
+import { extraerVentasEfectivo, armarCorreoVentasEfectivo, leerDocumentos as leerDocumentosEfectivo, ventasEfectivoYaAvisadas, marcarVentasEfectivoAvisadas, ayerChile as ayerChileEfectivo, VENTANA_DIAS as VENTANA_EFECTIVO_DIAS } from '../lib/ventas-efectivo.js';
 import { seleccionarRecepciones, armarCorreoRecepciones, leerRecepcionesRecientes, leerInfoVariantes, leerMiniaturas, recepcionesYaAvisadas, marcarRecepcionesAvisadas, ayerChile, sumarDias } from '../lib/recepciones-stock.js';
 import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidirAvisos, armarCorreoTraspasoStock } from '../lib/traspaso-stock.js';
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
@@ -185,6 +186,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'resumen-cambios-proponer') return manejarCambiosProponerCron(req, res);
   if (req.query.recurso === 'traspaso-stock-notificar') return manejarTraspasoStockNotificar(req, res);
   if (req.query.recurso === 'recepciones-stock-notificar') return manejarRecepcionesStockNotificar(req, res);
+  if (req.query.recurso === 'ventas-efectivo-notificar') return manejarVentasEfectivoNotificar(req, res);
   if (req.query.recurso === 'mercadolibre-sync') return manejarMercadoLibreSyncCron(req, res);
   if (req.query.recurso === 'cambio-imagen') return manejarCambioImagen(req, res);
   if (req.query.recurso === 'bsale-webhook') return manejarBsaleWebhook(req, res);
@@ -5551,6 +5553,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'modelos-compatibles-pendientes': manejarModelosCompatiblesRecordatorio,
       'traspaso-stock-modelos': manejarTraspasoStockNotificar,
       'recepciones-stock-diario': manejarRecepcionesStockNotificar,
+      'ventas-efectivo-diario': manejarVentasEfectivoNotificar,
       'transito-envio-nuevo': manejarTransitoEnvioNuevoPrueba,
       'pedido-pantalla-nuevo': manejarPedidoPantallaPrueba,
       'insumos-stock-critico': manejarInsumoCriticoPrueba,
@@ -5830,6 +5833,51 @@ async function manejarRecepcionesStockNotificar(req, res) {
     return res.status(200).json({ ok: true, enviado, ingresos, unidades, productos, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error armando el correo de ingresos de mercadería', detail: String(err.message || err) });
+  }
+}
+
+// Ventas pagadas (en todo o en parte) en EFECTIVO de ayer y anteayer, en un correo con documento, cliente y hora -- sin montos (notificación
+// 'ventas-efectivo-diario', ver lib/ventas-efectivo.js). Cron diario por la mañana; solo manda si hay ventas en efectivo que todavía no se avisaron.
+// ?solo_ver=1 devuelve el correo armado sin enviarlo; ?probar=1&para=... lo manda solo a esa persona con [PRUEBA] usando los últimos 7 días (o desde
+// ?desde=AAAA-MM-DD) aunque ya se hayan avisado, sin marcar nada como avisado.
+async function manejarVentasEfectivoNotificar(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const token = process.env.BSALE_ACCESS_TOKEN;
+    if (!token) return res.status(200).json({ ok: false, enviado: false, motivo: 'Falta BSALE_ACCESS_TOKEN en el servidor' });
+    const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    const soloVer = req.query.solo_ver === '1';
+    const probar = esPruebaNotif(req) || soloVer;
+    if (!probar && !(await notificacionDebeEnviarse(sql, 'ventas-efectivo-diario'))) {
+      return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    }
+    const hasta = ayerChileEfectivo();
+    const desdeRaw = /^d{4}-d{2}-d{2}$/.test(String(req.query.desde || '')) ? String(req.query.desde) : null;
+    const desde = probar ? (desdeRaw || sumarDias(hasta, -6)) : sumarDias(hasta, -VENTANA_EFECTIVO_DIAS);
+    const docs = await leerDocumentosEfectivo(token, desde, hasta);
+    const avisadas = probar ? new Set() : await ventasEfectivoYaAvisadas(sql);
+    const ventas = extraerVentasEfectivo(docs, { desde, hasta, officeId: process.env.BSALE_OFFICE_ID || null, avisadas, ignorarAvisadas: probar });
+    if (!ventas.length) return res.status(200).json({ ok: true, enviado: false, motivo: probar ? 'No hubo ventas en efectivo en ese período' : 'No hubo ventas en efectivo nuevas', documentosRevisados: docs.length });
+
+    const fechas = ventas.map(v => v.fecha).sort();
+    const { asunto, html, mixtas } = armarCorreoVentasEfectivo({ ventas, desde: fechas[0], hasta: fechas[fechas.length - 1], urlBase: URL_BASE_APP });
+    if (soloVer) return res.status(200).json({ ok: true, enviado: false, asunto, html, ventas: ventas.length, mixtas, documentosRevisados: docs.length });
+
+    const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'ventas-efectivo-diario');
+    if (!destinatarios.length) return res.status(200).json({ ok: true, enviado: false, motivo: 'La notificación no tiene destinatarios', ventas: ventas.length });
+    const envios = [];
+    for (const para of destinatarios) envios.push({ para, ...(await enviarCorreo({ para, asunto: asuntoDePrueba(req, asunto), html })) });
+    const enviado = envios.some(e => e.enviado !== false);
+    if (enviado && !probar) {
+      await marcarVentasEfectivoAvisadas(sql, ventas.map(v => v.id));
+      await marcarNotificacionEnviada(sql, 'ventas-efectivo-diario', { asunto, html });
+    }
+    return res.status(200).json({ ok: true, enviado, ventas: ventas.length, mixtas, envios });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error armando el correo de ventas en efectivo', detail: String(err.message || err) });
   }
 }
 
