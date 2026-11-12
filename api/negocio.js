@@ -83,6 +83,9 @@ import { asegurarTablaCotizacionesEliminadas, eliminarCotizaciones, anularCotiza
 import { asegurarTablasMLDatos, reiniciarSync, estadoSync, siguientePaso, ejecutarPaso, calcularMetricasML, diagnosticoLectura, normalizarRango, PASOS as PASOS_ML } from '../lib/mercadolibre-datos.js';
 import { sign as firmarRsaSha256, randomBytes, createHash } from 'node:crypto';
 import { unaVez } from '../lib/una-vez.js';
+import { armarCorreoElectronica, envioDeFecha, envioParaPrueba, hayLeccion, hoyChile as hoyChileElectronica } from '../lib/electronica-correo.js';
+import { ELECTRONICA, } from '../lib/electronica-datos.js';
+import { LECCIONES as LECCIONES_ELECTRONICA } from '../lib/electronica-lecciones.js';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
 const RESET_PASSWORD_EXPIRA_MIN = 30; // vigencia del link de recuperación
@@ -164,6 +167,8 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'cotizaciones-recontactar-diario') return manejarCotizacionesRecontactarDiario(req, res);
   if (req.query.recurso === 'cotizaciones-correos-analizar-respuestas') return manejarCotizacionesCorreosAnalizarRespuestas(req, res);
   if (req.query.recurso === 'whatsapp-ejecutivos-notificar-diario') return manejarWhatsappEjecutivosNotificarDiario(req, res);
+  // Cron (lunes, miércoles y viernes, 08:00 Chile) de la Academia de Electrónica. Ver vercel.json, middleware.ts (esElectronicaEnviarPublico) y lib/electronica-correo.js.
+  if (req.query.recurso === 'electronica-enviar') return manejarElectronicaEnviar(req, res);
   // Cron semanal (domingo) del resumen de Google Ads. Ver vercel.json,
   // middleware.ts (esGoogleAdsResumenSemanalPublico) y lib/google-ads-resumen.js.
   if (req.query.recurso === 'google-ads-resumen-semanal') return manejarGoogleAdsResumenSemanal(req, res);
@@ -247,6 +252,8 @@ export default async function handler(req, res) {
   if (recurso === 'buscar-repuestos-modelo') return manejarBuscarRepuestosModelo(req, res, sesion);
   if (recurso === 'colecciones-modelos-notebook') return manejarColeccionesModelosNotebook(req, res, sesion);
   if (recurso === 'identificacion-modelos') return manejarIdentificacionModelos(req, res, sesion);
+  // Servicio Técnico > Electrónica: programa (36 envíos), 40 conceptos y las lecciones redactadas (lib/electronica-*.js).
+  if (recurso === 'electronica') return res.status(200).json({ ok: true, ...ELECTRONICA, lecciones: LECCIONES_ELECTRONICA });
   if (recurso === 'identificacion-modelo-foto') return manejarIdentificacionModeloFoto(req, res, sesion);
   if (recurso === 'productos-nuevos-registro') return manejarProductosNuevosRegistro(req, res, sesion);
   if (recurso === 'productos-nuevos-resumen') return manejarProductosNuevosResumen(req, res, sesion);
@@ -5548,6 +5555,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'pedido-pantalla-nuevo': manejarPedidoPantallaPrueba,
       'insumos-stock-critico': manejarInsumoCriticoPrueba,
       'nas-informe-revision': manejarNasBackupInformeCron,
+      'electronica-leccion': manejarElectronicaEnviar,
     };
     // Reenvío a TODOS los destinatarios configurados (solo para los tipos que lo permiten): ?todos=1. Es un envío real: queda registrado como último correo.
     if (req.query.todos === '1') {
@@ -5673,6 +5681,52 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Servicio Técnico', detail: String(err) });
+  }
+}
+
+// Academia de Electrónica (Servicio Técnico > Electrónica): lunes y miércoles manda la lección y los viernes el resumen semanal, a quienes estén
+// suscritos en Usuarios > Notificaciones (tipo 'electronica-leccion'). Qué toca cada día sale de la grilla (lib/electronica-datos.js) por la FECHA de
+// hoy en Chile, así que si un día no hay envío en el programa (o la lección todavía no está redactada) no se manda nada y la respuesta lo explica.
+// Cron de Vercel sin sesión, protegido por CRON_SECRET (ver vercel.json: 11:00 UTC = 08:00 Chile en horario de verano). Prueba: ?probar=1&para=correo
+// (manda la lección de hoy o, si hoy no hay, la próxima redactada; ?envio=N fuerza un envío). ?solo_ver=1 devuelve el correo sin enviarlo.
+async function manejarElectronicaEnviar(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    const probar = req.query.probar === '1' || req.query.solo_ver === '1';
+    if (!probar && req.query.forzar !== '1' && !(await notificacionDebeEnviarse(sql, 'electronica-leccion'))) {
+      return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    }
+    const hoy = hoyChileElectronica();
+    let envio = envioDeFecha(hoy);
+    if (probar) {
+      const n = Number(req.query.envio);
+      envio = (Number.isInteger(n) && ELECTRONICA.envios.find(e => e.n === n)) || (envio && hayLeccion(envio.n) ? envio : envioParaPrueba(hoy));
+    }
+    if (!envio) return res.status(200).json({ ok: true, enviado: false, motivo: 'hoy no hay envío en el programa de Electrónica' });
+    const correo = armarCorreoElectronica({ envio, urlBase: URL_BASE_APP });
+    if (!correo) return res.status(200).json({ ok: true, enviado: false, envio: envio.n, motivo: `la lección del envío ${envio.n} (${envio.fecha}) todavía no está redactada` });
+    const { asunto, html } = correo;
+    if (req.query.solo_ver === '1') return res.status(200).json({ ok: true, enviado: false, envio: envio.n, asunto, html });
+    if (!probar && req.query.forzar !== '1') {
+      const { rows } = await sql`SELECT ultimo_asunto, ultimo_envio_en FROM notificaciones_config WHERE tipo = 'electronica-leccion';`;
+      if (rows[0] && rows[0].ultimo_asunto === asunto && rows[0].ultimo_envio_en && hoyChileElectronica(new Date(rows[0].ultimo_envio_en)) === hoy) {
+        return res.status(200).json({ ok: true, enviado: false, envio: envio.n, motivo: 'esta lección ya se envió hoy' });
+      }
+    }
+    const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'electronica-leccion');
+    if (!destinatarios.length) return res.status(200).json({ ok: true, enviado: false, envio: envio.n, motivo: 'no hay suscriptores: agrégalos en Usuarios > Notificaciones' });
+    const envios = [];
+    for (const para of destinatarios) {
+      envios.push({ para, ...(await enviarCorreo({ para, asunto: probar ? `[PRUEBA] ${asunto}` : asunto, html })) });
+    }
+    if (envios.length > 0 && !probar) await marcarNotificacionEnviada(sql, 'electronica-leccion', { asunto, html });
+    return res.status(200).json({ ok: true, enviado: envios.length > 0, envio: envio.n, envios });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error generando o enviando la lección de Electrónica', detail: String(err) });
   }
 }
 

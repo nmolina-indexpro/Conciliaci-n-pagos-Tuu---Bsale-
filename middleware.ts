@@ -99,6 +99,11 @@ function esModelosCompatiblesRecordatorioPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && ['modelos-compatibles-recordatorio', 'modelos-meta-indice-cron', 'insumos-st-avisar-cron', 'nas-backup-correos-sync', 'nas-backup-informe-cron'].includes(searchParams.get('recurso'));
 }
 
+// Cron (lunes, miércoles y viernes) de la Academia de Electrónica -- mismo patrón que los de arriba (CRON_SECRET, sin sesión).
+function esElectronicaEnviarPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'electronica-enviar';
+}
+
 function esGoogleAdsResumenSemanalPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'google-ads-resumen-semanal';
 }
@@ -222,6 +227,7 @@ export default async function middleware(req) {
     esCotizacionesCorreosAnalizarRespuestasPublico(pathname, url.searchParams) ||
     esWhatsappEjecutivosNotificarDiarioPublico(pathname, url.searchParams) ||
     esGoogleAdsResumenSemanalPublico(pathname, url.searchParams) ||
+    esElectronicaEnviarPublico(pathname, url.searchParams) ||
     esModelosCompatiblesRecordatorioPublico(pathname, url.searchParams) ||
     esIndexscalePixelPublico(pathname, url.searchParams) ||
     esBuscadorIaRegistrarPublico(pathname, url.searchParams) ||

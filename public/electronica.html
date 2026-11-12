@@ -133,6 +133,16 @@
   .chip-c:hover{border-color:var(--primary);color:var(--primary);}
   .dialogo .acciones{margin-top:18px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
   .dialogo .acciones a{font-size:12.5px;color:var(--primary);}
+  .sep-l{border:0;border-top:2px dashed var(--line);margin:20px 0 12px;}
+  .titulo-l{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin-bottom:4px;}
+  .par-l{margin:6px 0 !important;line-height:1.65 !important;}
+  .lista-l{margin:6px 0;padding-left:20px;font-size:13.5px;line-height:1.6;}
+  .svg-l{background:var(--surface-2);border-radius:10px;padding:10px;color:var(--text);}
+  .svg-l svg{width:100%;height:auto;display:block;}
+  .pie-l{font-size:11.5px;color:var(--muted);margin-top:4px;}
+  details.resp{border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;background:var(--surface);}
+  details.resp summary{cursor:pointer;font-size:13.5px;font-weight:600;}
+  details.resp p{margin:8px 0 2px;font-size:13px;color:var(--green);}
   @media (max-width:720px){ .filtros input[type="text"]{width:100%;} }
 </style>
 <meta name="theme-color" content="#0F766E">
@@ -255,7 +265,7 @@
     <div class="card"><div class="lbl">Conceptos estudiados</div><div class="big" id="kpiConceptos">—</div></div>
   </div>
 
-  <div class="aviso">Esta página es el plan de estudio. <b>Todavía no hay envíos automáticos</b> por correo ni WhatsApp: el contenido completo de cada lección se está redactando. Feriados en día de envío: viernes 25-12-2026 y viernes 01-01-2027 (son resúmenes).</div>
+  <div class="aviso">Esta página es el plan de estudio. Las lecciones y resúmenes <b>llegan por correo</b> los lunes, miércoles y viernes a las 08:00 (hora de Chile) a quienes estén suscritos en <b>Usuarios &gt; Notificaciones &gt; «Academia de Electrónica»</b> (lo gestiona un administrador). <b>Por ahora están redactadas las semanas 1 y 2</b>: desde la semana 3, el día del envío no sale correo hasta que se redacte la lección. Feriados en día de envío: viernes 25-12-2026 y 01-01-2027 (son resúmenes).</div>
 
   <div class="tabs" id="tabs">
     <button type="button" class="tab activa" data-tab="programa">📅 Programa (36 envíos)</button>
@@ -315,7 +325,6 @@
   </div>
 </div>
 
-<script src="electronica-datos.js"></script>
 <script src="restriccion-usuario.js"></script>
 <script src="etiquetas-botones.js"></script>
 <script src="menu-herramientas.js"></script>
@@ -324,8 +333,9 @@ const $ = id => document.getElementById(id);
 function escapeHtml(t){
   return String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
-const ELE = window.ELECTRONICA || { envios: [], conceptos: [] };
-const ENVIOS = ELE.envios, CONCEPTOS = ELE.conceptos;
+// Los datos vienen del servidor (lib/electronica-datos.js y lib/electronica-lecciones.js): una sola fuente para esta página y para el correo.
+let ENVIOS = [], CONCEPTOS = [], LECCIONES = {};
+const md = t => escapeHtml(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
 
 // ---- Avance (se guarda por usuario en este navegador) ----
 let claveAvance = 'electronica-avance-v1:anonimo';
@@ -375,7 +385,7 @@ function renderPrograma(){
       return '<tr class="' + cls + '"><td data-valor="' + (hecho ? 1 : 0) + '"><input type="checkbox" ' + (hecho ? 'checked' : '') + ' onchange="marcarEnvio(' + e.n + ')" title="Marcar como completado"></td>' +
         '<td class="num">' + e.n + '</td><td class="num" data-valor="' + e.fecha + '">' + fmtFecha(e.fecha) + (e.obs ? '<span class="etq-feriado">' + escapeHtml(e.obs) + '</span>' : '') + '</td>' +
         '<td>' + escapeHtml(DIA_CORTO[e.dia] || e.dia) + '</td><td class="num">' + e.semana + '</td><td>' + escapeHtml(e.tipo) + '</td>' +
-        '<td class="concepto">' + escapeHtml(e.concepto) + '</td><td>' + escapeHtml(e.area) + '</td>' +
+        '<td class="concepto">' + escapeHtml(e.concepto) + (LECCIONES[e.n] ? '<small style="color:var(--green);font-weight:600;">✓ Lección redactada</small>' : '') + '</td><td>' + escapeHtml(e.area) + '</td>' +
         '<td><span class="badge-nivel ' + claseNivel(e.nivel) + '">' + escapeHtml(e.nivel) + '</span></td><td class="num">' + e.minutos + '</td>' +
         '<td><button type="button" class="btn-ver" onclick="verEnvio(' + e.n + ')">Ver</button></td></tr>';
     }).join('') + '</tbody>';
@@ -430,7 +440,18 @@ function verEnvio(n){
     '<h4>Pregunta de evaluación</h4><p class="pregunta">' + escapeHtml(e.pregunta) + '</p>' +
     (chips ? '<h4>Conceptos de la guía que se estudian</h4><p>' + chips + '</p>' : '') +
     '<div class="acciones"><button type="button" class="btn-primary" onclick="marcarEnvio(' + e.n + ');verEnvio(' + e.n + ')">' + (envioHecho(e.n) ? '✓ Completado (quitar)' : 'Marcar como completado') + '</button></div>' +
-    '<p class="empty-note" style="padding-bottom:0;">El contenido completo de la lección se está redactando; aquí se ve el plan.</p>');
+    (LECCIONES[e.n] ? leccionHtml(LECCIONES[e.n], e) : '<p class="empty-note" style="padding-bottom:0;">El contenido completo de esta lección todavía no está redactado; aquí se ve el plan.</p>'));
+}
+function leccionHtml(l, e){
+  const esResumen = e.tipo === 'Resumen semanal';
+  const bloque = b => '<h4>' + escapeHtml(b.t) + '</h4>' + (b.li ? '<ul class="lista-l">' + b.li.map(x => '<li>' + md(x) + '</li>').join('') + '</ul>' : (b.p || []).map(x => '<p class="par-l">' + md(x) + '</p>').join(''));
+  const pregs = (l.preguntas || []).map(x => '<details class="resp"><summary>' + md(x.q) + '</summary><p>' + md(x.a) + '</p></details>').join('');
+  return '<hr class="sep-l"><div class="leccion"><div class="titulo-l">📖 ' + escapeHtml(l.titulo) + ' <span class="badge-nivel pend">' + (l.lectura || e.minutos) + ' min de lectura</span></div>' +
+    l.bloques.map(bloque).join('') +
+    (l.svg ? '<h4>Imagen ilustrativa</h4><div class="svg-l">' + l.svg + '</div><div class="pie-l">' + escapeHtml(l.svgPie || '') + (l.foto ? '<br>' + escapeHtml(l.foto) : '') + '</div>' : '') +
+    '<h4>' + (esResumen ? 'Preguntas de autoevaluación (toca para ver la respuesta)' : 'Pregunta de aprendizaje (toca para ver la respuesta)') + '</h4>' + pregs +
+    '<h4>' + (esResumen ? 'Adelanto de la próxima semana' : 'Recuerda') + '</h4><p class="par-l">' + md(l.resumen) + '</p>' +
+    (l.seguridad ? '<p class="alerta" style="margin-top:12px;"><b>Seguridad:</b> ' + escapeHtml(l.seguridad) + '</p>' : '') + '</div>';
 }
 function verConcepto(id){
   const x = CONCEPTOS.find(c => c.id === id); if(!x) return; modalActual = { tipo: 'concepto', id };
@@ -477,16 +498,26 @@ async function cerrarSesion(){
 }
 
 (function iniciar(){
-  $('fSemana').innerHTML = '<option value="">Todas las semanas</option>' + [1,2,3,4,5,6,7,8,9,10,11,12].map(s => '<option value="' + s + '">Semana ' + s + ' — ' + escapeHtml((ENVIOS.find(e => e.semana === s) || {}).area || '') + '</option>').join('');
-  $('fCat').innerHTML = '<option value="">Todas las categorías</option>' + [...new Set(CONCEPTOS.map(c => c.categoria))].map(c => '<option>' + escapeHtml(c) + '</option>').join('');
   ['buscar', 'fSemana', 'fTipo', 'fNivel', 'fPend'].forEach(id => $(id).addEventListener(id === 'buscar' ? 'input' : 'change', renderPrograma));
   ['buscarC', 'fCat', 'fPrio', 'fPendC'].forEach(id => $(id).addEventListener(id === 'buscarC' ? 'input' : 'change', renderConceptos));
   document.querySelectorAll('#tabs .tab').forEach(b => b.addEventListener('click', () => irTab(b.dataset.tab)));
   window.addEventListener('hashchange', () => irTab(location.hash.slice(1)));
-  cargarAvance(); renderKpis(); renderPrograma(); renderConceptos(); renderEntrevista();
   irTab(location.hash.slice(1));
-  cargarSesionUsuario();
+  cargarDatos().then(cargarSesionUsuario);
 })();
+async function cargarDatos(){
+  try{
+    const res = await fetch('/api/negocio?recurso=electronica');
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    ENVIOS = d.envios || []; CONCEPTOS = d.conceptos || []; LECCIONES = d.lecciones || {};
+  }catch(e){
+    $('vacioPrograma').textContent = 'No se pudo cargar el programa. Recarga la página.'; $('vacioPrograma').style.display = '';
+  }
+  $('fSemana').innerHTML = '<option value="">Todas las semanas</option>' + [1,2,3,4,5,6,7,8,9,10,11,12].map(s => '<option value="' + s + '">Semana ' + s + ' — ' + escapeHtml((ENVIOS.find(e => e.semana === s) || {}).area || '') + '</option>').join('');
+  $('fCat').innerHTML = '<option value="">Todas las categorías</option>' + [...new Set(CONCEPTOS.map(c => c.categoria))].map(c => '<option>' + escapeHtml(c) + '</option>').join('');
+  cargarAvance(); renderKpis(); renderPrograma(); renderConceptos(); renderEntrevista();
+}
 </script>
 <script src="tablas-ordenables.js"></script>
 </body>
