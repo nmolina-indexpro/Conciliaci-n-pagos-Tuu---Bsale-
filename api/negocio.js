@@ -462,7 +462,7 @@ async function manejarFacturasCompra(req, res, sesion) {
 // ingresos futuros por categoría. Mismas categorías que la planilla.
 const CATEGORIAS_CALENDARIO_PAGOS = [
   'Ingreso', 'Remuneraciones', 'Intereses Línea de Sobregiro', 'Financiamiento o Crédito',
-  'Impuestos y Previred', 'Proveedores', 'Cheques y Cargos', 'Arriendos',
+  'Impuestos y Previred', 'Proveedores', 'Cheques y Cargos', 'Arriendos', 'Servicios (luz, internet, etc.)',
   'Tarjeta Crédito $', 'Tarjeta Crédito USD', 'Retiros', 'Préstamos', 'Otros egresos',
 ];
 
