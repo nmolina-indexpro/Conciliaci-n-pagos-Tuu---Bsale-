@@ -847,6 +847,7 @@ function irAMesActualCalendario(){
 
 function abrirModalDia(fecha){
   diaSeleccionado = fecha;
+  movEditandoId = null;
   const [y,m,d] = fecha.split('-').map(Number);
   const nombreDia = nombreDiaSemana(fecha);
   $('modalDiaTitulo').textContent = `${nombreDia} ${d} de ${NOMBRES_MES[m-1]} ${y}`;
@@ -870,7 +871,18 @@ function renderListaMovimientosDia(){
     $('modalDiaLista').innerHTML = `<p class="empty-note">Sin movimientos programados este día.</p>`;
     return;
   }
-  $('modalDiaLista').innerHTML = movs.map(m => `
+  $('modalDiaLista').innerHTML = movs.map(m => m.id === movEditandoId ? `
+    <div class="mov-item" style="flex-direction:column;align-items:stretch;gap:8px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <select id="editCategoria" style="flex:1;min-width:150px;">${categoriasCalendario.map(c => `<option value="${escapeHtml(c)}" ${c === m.categoria ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}</select>
+        <input type="number" id="editMonto" value="${Number(m.monto) || ''}" placeholder="$" min="1" step="1" style="width:130px;">
+      </div>
+      <input type="text" id="editNota" value="${escapeHtml(m.nota || '')}" placeholder="Nota (opcional)">
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn-ghost btn-compact" onclick="cancelarEdicionMovimiento()">Cancelar</button>
+        <button class="btn-primary btn-compact" onclick="guardarEdicionMovimiento(${m.id})">Guardar</button>
+      </div>
+    </div>` : `
     <div class="mov-item">
       <div class="mov-info">
         <b>${escapeHtml(m.categoria)}</b>
@@ -878,9 +890,45 @@ function renderListaMovimientosDia(){
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
         <span class="mov-monto ${claseMovimiento(m.categoria)}">${montoConSigno(m)}</span>
-        <button class="btn-ghost btn-compact" onclick="eliminarMovimiento(${m.id})">Eliminar</button>
+        <button class="btn-ghost btn-compact" onclick="editarMovimiento(${m.id})">✏️ Editar</button>
       </div>
     </div>`).join('');
+}
+
+// Editar un movimiento ya programado (monto, categoría y nota) sin borrarlo y volver a crearlo.
+let movEditandoId = null;
+function editarMovimiento(id){
+  movEditandoId = id;
+  $('modalDiaError').innerHTML = '';
+  renderListaMovimientosDia();
+  const el = $('editMonto'); if(el){ el.focus(); el.select(); }
+}
+function cancelarEdicionMovimiento(){
+  movEditandoId = null;
+  $('modalDiaError').innerHTML = '';
+  renderListaMovimientosDia();
+}
+async function guardarEdicionMovimiento(id){
+  const errorEl = $('modalDiaError');
+  errorEl.innerHTML = '';
+  const mov = movimientosDelMes.find(m => m.id === id);
+  const monto = $('editMonto').value;
+  if(!mov) return;
+  if(!monto || Number(monto) <= 0){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Ingresa un monto válido.</div>`; return; }
+  try{
+    const res = await fetch('/api/negocio?recurso=calendario-pagos', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, fecha: mov.fecha, categoria: $('editCategoria').value, monto: Number(monto), nota: $('editNota').value.trim() || null })
+    });
+    const data = await res.json();
+    if(!res.ok){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${escapeHtml(data.error || 'No se pudo guardar')}</div>`; return; }
+    movEditandoId = null;
+    await cargarCalendarioMes();
+    renderListaMovimientosDia();
+    cargarProyeccionSaldoBci();
+  }catch(err){
+    errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${escapeHtml(err.message)}</div>`;
+  }
 }
 
 async function agregarMovimiento(){
@@ -905,14 +953,6 @@ async function agregarMovimiento(){
   }catch(err){
     errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${escapeHtml(err.message)}</div>`;
   }
-}
-
-async function eliminarMovimiento(id){
-  if(!confirm('¿Eliminar este movimiento?')) return;
-  await fetch(`/api/negocio?recurso=calendario-pagos&id=${id}`, { method: 'DELETE' });
-  await cargarCalendarioMes();
-  renderListaMovimientosDia();
-  cargarProyeccionSaldoBci();
 }
 
 // ---------- Saldo BCI ----------
