@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Electrónica — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;}
+  .seccion-head h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:0 0 4px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);font-size:12px;cursor:pointer;padding:0;vertical-align:middle;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+  .btn-icono.peligro:hover{border-color:var(--red);background:var(--red-bg);color:var(--red);}
+
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow);}
+  .card .lbl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:5px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;color:var(--text);}
+
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;}
+  .campo{display:flex;flex-direction:column;gap:5px;}
+  .campo label{font-size:12px;font-weight:600;color:var(--muted);}
+  .campo input[type="text"], .campo textarea, .campo select{
+    font-family:'Plus Jakarta Sans',sans-serif;font-size:13.5px;padding:9px 11px;
+    border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);
+  }
+  .campo input[type="text"]:focus, .campo textarea:focus{outline:none;border-color:var(--primary);}
+  .campo textarea{resize:vertical;min-height:56px;font-family:inherit;}
+
+  .foto-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .foto-preview{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px;background:var(--surface-2);border-radius:10px;}
+  .foto-preview img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1.5px solid var(--line);cursor:zoom-in;}
+  .foto-preview .estado{font-size:12.5px;color:var(--muted);}
+  .foto-preview .estado.ok{color:var(--green);font-weight:600;}
+  .foto-preview .estado.err{color:var(--red);font-weight:600;}
+  .foto-preview button.quitar{background:none;border:none;color:var(--muted);font-size:12px;text-decoration:underline;cursor:pointer;padding:0;}
+
+  .niveles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:14px;}
+  .nivel-card{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--line);border-radius:10px;padding:11px 13px;cursor:pointer;background:var(--surface);transition:all .12s;}
+  .nivel-card:hover{border-color:var(--primary);}
+  .nivel-card:has(input:checked){border-color:var(--primary);background:var(--primary-dim);box-shadow:var(--shadow);}
+  .nivel-card input{margin-top:3px;accent-color:var(--primary);flex-shrink:0;}
+  .nivel-card .titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;margin-bottom:3px;}
+  .nivel-card .desc{font-size:11.5px;color:var(--muted);line-height:1.4;}
+
+  .filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .filtros input[type="text"]{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:8px 11px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);width:260px;}
+  .filtros input[type="text"]:focus{outline:none;border-color:var(--primary);}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  .badge-nivel{display:inline-block;font-family:'Space Grotesk',sans-serif;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+  .badge-nivel.n1{background:var(--green-bg);color:var(--green);}
+  .badge-nivel.n2{background:var(--blue-bg);color:var(--blue);}
+  .badge-nivel.n3{background:var(--amber-dim);color:var(--amber);}
+  .badge-nivel.n4{background:var(--red-bg);color:var(--red);}
+  td.notas{max-width:220px;white-space:normal;color:var(--muted);font-size:12px;}
+
+  .aviso{background:var(--amber-dim);border:1px solid #F0D3A0;color:#7A4A06;border-radius:10px;padding:10px 14px;font-size:12.5px;margin-bottom:18px;line-height:1.5;}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;}
+  .tab{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);border-radius:9px;padding:9px 16px;font-size:13px;}
+  .tab:hover{border-color:var(--primary);color:var(--primary);}
+  .tab.activa{background:var(--primary);border-color:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .filtros select{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);}
+  .chk{font-size:12.5px;color:var(--muted);display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
+  .chk input{accent-color:var(--primary);}
+  tr.fila-resumen td{background:var(--primary-dim);}
+  tr.proximo td{box-shadow:inset 0 2px 0 var(--primary),inset 0 -2px 0 var(--primary);}
+  tr.hecho td.concepto{color:var(--muted);text-decoration:line-through;}
+  td.concepto{font-weight:600;max-width:420px;white-space:normal;}
+  td.concepto small{display:block;font-weight:400;color:var(--muted);font-size:11.5px;text-decoration:none;}
+  td.num{font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:nowrap;}
+  .btn-ver{background:var(--surface);color:var(--primary);border:1.5px solid var(--line);padding:5px 11px;font-size:12px;}
+  .btn-ver:hover{border-color:var(--primary);background:var(--primary-dim);}
+  .badge-nivel.pend{background:var(--surface-2);color:var(--muted);}
+  .etq-feriado{display:inline-block;font-size:10px;font-weight:700;color:var(--amber);background:var(--amber-dim);border-radius:999px;padding:1px 7px;margin-left:4px;}
+  .qrow{padding:11px 0;border-bottom:1px solid var(--line);font-size:13px;line-height:1.5;}
+  .qrow:last-child{border-bottom:0;}
+  .qrow b{color:var(--primary);}
+  .modal-ele{position:fixed;inset:0;background:rgba(20,30,26,.55);z-index:950;display:none;align-items:center;justify-content:center;padding:16px;}
+  .modal-ele.abierto{display:flex;}
+  .dialogo{position:relative;background:var(--surface);border-radius:16px;max-width:720px;width:100%;max-height:90vh;overflow:auto;padding:24px 26px;box-shadow:0 12px 40px rgba(0,0,0,.25);}
+  .dialogo .cerrar{position:absolute;right:12px;top:8px;background:none;color:var(--muted);font-size:26px;padding:4px 10px;}
+  .dialogo h2{font-family:'Space Grotesk',sans-serif;font-size:20px;margin:6px 28px 4px 0;}
+  .dialogo h4{font-family:'Space Grotesk',sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--primary);margin:16px 0 4px;}
+  .dialogo p{margin:0;font-size:13.5px;line-height:1.55;}
+  .dialogo .meta{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 2px;}
+  .dialogo .pregunta{background:var(--surface-2);border-left:3px solid var(--primary);border-radius:6px;padding:9px 12px;}
+  .dialogo .alerta{background:var(--amber-dim);border-left:3px solid var(--amber);border-radius:6px;padding:9px 12px;}
+  .chip-c{display:inline-block;margin:2px 4px 2px 0;padding:3px 10px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);font-size:12px;cursor:pointer;color:var(--text);}
+  .chip-c:hover{border-color:var(--primary);color:var(--primary);}
+  .dialogo .acciones{margin-top:18px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .dialogo .acciones a{font-size:12.5px;color:var(--primary);}
+  @media (max-width:720px){ .filtros input[type="text"]{width:100%;} }
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+          <a href="contabilidad.html">Contabilidad</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
+          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+          <a href="pedidos-pantallas.html">Pantallas a pedido</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html">Modelos compatibles</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="soporte-indexpro.html">IndexPro</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+          <a href="electronica.html" class="active">Electrónica</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="frecuencia-precio.html">Frecuencia y precio</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="search-console.html">Search Console</a>
+          <a href="instagram.html">Instagram</a>
+          <a href="comparativo-ventas.html">Comparativo de ventas</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>🔌 Electrónica</h1>
+  <div class="sub">Academia de electrónica de notebooks: programa de 12 semanas (lunes y miércoles lección, viernes resumen) para entender la reparación de placas madre y evaluar bien al técnico electrónico especializado. Tu avance se guarda en este navegador.</div>
+
+  <div class="grid" id="kpiWrap">
+    <div class="card"><div class="lbl">Semana del programa</div><div class="big" id="kpiSemana">—</div></div>
+    <div class="card"><div class="lbl">Próximo envío</div><div class="big" id="kpiProximo" style="font-size:15px;">—</div></div>
+    <div class="card"><div class="lbl">Envíos completados</div><div class="big" id="kpiEnvios">—</div></div>
+    <div class="card"><div class="lbl">Conceptos estudiados</div><div class="big" id="kpiConceptos">—</div></div>
+  </div>
+
+  <div class="aviso">Esta página es el plan de estudio. <b>Todavía no hay envíos automáticos</b> por correo ni WhatsApp: el contenido completo de cada lección se está redactando. Feriados en día de envío: viernes 25-12-2026 y viernes 01-01-2027 (son resúmenes).</div>
+
+  <div class="tabs" id="tabs">
+    <button type="button" class="tab activa" data-tab="programa">📅 Programa (36 envíos)</button>
+    <button type="button" class="tab" data-tab="conceptos">📚 Conceptos (40)</button>
+    <button type="button" class="tab" data-tab="entrevista">🎤 Entrevista al técnico</button>
+  </div>
+
+  <div class="seccion" id="tab-programa">
+    <div class="filtros">
+      <input type="text" id="buscar" placeholder="🔍 Buscar concepto, área o pregunta…" autocomplete="off">
+      <select id="fSemana"></select>
+      <select id="fTipo"><option value="">Todos los tipos</option><option>Lección</option><option>Resumen semanal</option></select>
+      <select id="fNivel"><option value="">Todos los niveles</option><option>Básico</option><option>Intermedio</option><option>Avanzado</option></select>
+      <label class="chk"><input type="checkbox" id="fPend"> Solo pendientes</label>
+    </div>
+    <div class="tabla-wrap"><table id="tablaPrograma"></table></div>
+    <div class="empty-note" id="vacioPrograma" style="display:none;">Ningún envío coincide con el filtro.</div>
+  </div>
+
+  <div class="seccion" id="tab-conceptos" style="display:none;">
+    <div class="filtros">
+      <input type="text" id="buscarC" placeholder="🔍 Buscar EC, MOSFET, BIOS, SMD…" autocomplete="off">
+      <select id="fCat"></select>
+      <select id="fPrio"><option value="">Todas las prioridades</option><option>Excluyente</option><option>Alta</option><option>Deseable</option><option>Avanzada</option></select>
+      <label class="chk"><input type="checkbox" id="fPendC"> Solo no estudiados</label>
+    </div>
+    <div class="tabla-wrap"><table id="tablaConceptos"></table></div>
+    <div class="empty-note" id="vacioConceptos" style="display:none;">Ningún concepto coincide con el filtro.</div>
+  </div>
+
+  <div class="seccion" id="tab-entrevista" style="display:none;">
+    <div class="seccion-head"><div>
+      <h2>🎤 Guía rápida para entrevistar al técnico</h2>
+      <div class="sub" style="margin-bottom:0;">Prioriza respuestas con hipótesis, mediciones, criterios de seguridad y pruebas de resultado. Conocer las siglas no demuestra que pueda reparar una placa: la <b>prueba práctica</b> (reemplazar un SMD en una placa de práctica y diagnosticar una falla conocida) es obligatoria.</div>
+    </div></div>
+    <h2 style="font-family:'Space Grotesk',sans-serif;font-size:14px;margin:6px 0 8px;">Cuándo se puede evaluar cada cosa</h2>
+    <div class="tabla-wrap"><table data-sin-orden>
+      <thead><tr><th>Cuándo</th><th>Lo que ya se puede evaluar</th><th>Cómo</th></tr></thead>
+      <tbody>
+        <tr><td>Fin semana 5 (18-12-2026)</td><td>Ruta de energía, DC-IN, rails, uso básico de instrumentos</td><td>Preguntas sobre DC-IN y secuencia de medición</td></tr>
+        <tr><td>Fin semana 8 (08-01-2027)</td><td>EC/KBC, secuencia de encendido, EN/PGOOD</td><td>Caso hipotético: «el equipo no responde al botón»</td></tr>
+        <tr><td>Fin semana 10 (22-01-2027)</td><td>Lectura de esquema y boardview</td><td>Pedirle seguir una rail en un esquema real</td></tr>
+        <tr><td>Semanas 11–12 (29-01 a 05-02-2027)</td><td>Metodología de diagnóstico, cortos, microsoldadura, BGA</td><td><b>Prueba práctica</b> supervisada</td></tr>
+      </tbody>
+    </table></div>
+    <h2 style="font-family:'Space Grotesk',sans-serif;font-size:14px;margin:20px 0 8px;">Preguntas clave</h2>
+    <div id="listaEntrevista"></div>
+  </div>
+
+  <div class="empty-note">Datos conceptuales para estudio: no reemplazan el esquemático del equipo específico. Mucho de lo que se estudia depende del fabricante, la plataforma y el modelo. La inyección de voltaje, la programación de memorias y el calor sobre chips son prácticas para hacer con supervisión.</div>
+</div>
+
+<div class="modal-ele" id="modalEle" onclick="if(event.target===this)cerrarModal()">
+  <div class="dialogo" role="dialog" aria-modal="true" aria-labelledby="modalTitulo">
+    <button type="button" class="cerrar" onclick="cerrarModal()" aria-label="Cerrar">×</button>
+    <div id="modalCuerpo"></div>
+  </div>
+</div>
+
+<script src="electronica-datos.js"></script>
+<script src="restriccion-usuario.js"></script>
+<script src="etiquetas-botones.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function escapeHtml(t){
+  return String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+const ELE = window.ELECTRONICA || { envios: [], conceptos: [] };
+const ENVIOS = ELE.envios, CONCEPTOS = ELE.conceptos;
+
+// ---- Avance (se guarda por usuario en este navegador) ----
+let claveAvance = 'electronica-avance-v1:anonimo';
+let avance = { envios: [], conceptos: [] };
+function cargarAvance(){
+  try{
+    const g = JSON.parse(localStorage.getItem(claveAvance) || '{}');
+    avance = { envios: Array.isArray(g.envios) ? g.envios : [], conceptos: Array.isArray(g.conceptos) ? g.conceptos : [] };
+  }catch(e){ avance = { envios: [], conceptos: [] }; }
+}
+function guardarAvance(){ try{ localStorage.setItem(claveAvance, JSON.stringify(avance)); }catch(e){} }
+const envioHecho = n => avance.envios.includes(n);
+const conceptoHecho = n => avance.conceptos.includes(n);
+function alternar(lista, n){ const i = lista.indexOf(n); if(i >= 0) lista.splice(i, 1); else lista.push(n); guardarAvance(); }
+
+// ---- Fechas (America/Santiago) ----
+const hoyISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+const fmtFecha = iso => iso.split('-').reverse().join('-');
+const DIA_CORTO = { 'Lunes':'Lun', 'Miércoles':'Mié', 'Viernes':'Vie' };
+const claseNivel = n => n === 'Básico' ? 'n1' : n === 'Intermedio' ? 'n2' : 'n3';
+const clasePrio = p => p === 'Excluyente' ? 'n4' : p === 'Alta' ? 'n3' : p === 'Deseable' ? 'n2' : 'pend';
+
+function proximoEnvio(){ const h = hoyISO(); return ENVIOS.find(e => e.fecha >= h) || null; }
+
+function renderKpis(){
+  const prox = proximoEnvio(), h = hoyISO();
+  $('kpiSemana').textContent = !prox ? 'Finalizado' : (h < ENVIOS[0].fecha ? 'Inicia ' + fmtFecha(ENVIOS[0].fecha) : prox.semana + ' de 12');
+  $('kpiProximo').innerHTML = prox ? escapeHtml(fmtFecha(prox.fecha) + ' · ' + prox.dia) + '<br><span style="font-weight:500;color:var(--muted);font-family:\'Plus Jakarta Sans\',sans-serif;">' + escapeHtml(prox.tipo) + '</span>' : '—';
+  $('kpiEnvios').textContent = avance.envios.length + ' / ' + ENVIOS.length;
+  $('kpiConceptos').textContent = avance.conceptos.length + ' / ' + CONCEPTOS.length;
+}
+
+// ---- Programa (36 envíos) ----
+function enviosFiltrados(){
+  const q = $('buscar').value.toLowerCase().trim(), s = $('fSemana').value, t = $('fTipo').value, n = $('fNivel').value, p = $('fPend').checked;
+  return ENVIOS.filter(e =>
+    (!s || String(e.semana) === s) && (!t || e.tipo === t) && (!n || e.nivel === n) && (!p || !envioHecho(e.n)) &&
+    (!q || (e.concepto + ' ' + e.area + ' ' + e.comp + ' ' + e.resumen + ' ' + e.pregunta).toLowerCase().includes(q)));
+}
+function renderPrograma(){
+  const lista = enviosFiltrados(), prox = proximoEnvio();
+  $('tablaPrograma').innerHTML =
+    '<thead><tr><th>✓</th><th>N.º</th><th>Fecha</th><th>Día</th><th>Sem.</th><th>Tipo</th><th>Concepto principal</th><th>Área</th><th>Nivel</th><th>Min</th><th data-sin-orden></th></tr></thead><tbody>' +
+    lista.map(e => {
+      const hecho = envioHecho(e.n);
+      const cls = [e.tipo === 'Resumen semanal' ? 'fila-resumen' : '', prox && prox.n === e.n ? 'proximo' : '', hecho ? 'hecho' : ''].join(' ');
+      return '<tr class="' + cls + '"><td data-valor="' + (hecho ? 1 : 0) + '"><input type="checkbox" ' + (hecho ? 'checked' : '') + ' onchange="marcarEnvio(' + e.n + ')" title="Marcar como completado"></td>' +
+        '<td class="num">' + e.n + '</td><td class="num" data-valor="' + e.fecha + '">' + fmtFecha(e.fecha) + (e.obs ? '<span class="etq-feriado">' + escapeHtml(e.obs) + '</span>' : '') + '</td>' +
+        '<td>' + escapeHtml(DIA_CORTO[e.dia] || e.dia) + '</td><td class="num">' + e.semana + '</td><td>' + escapeHtml(e.tipo) + '</td>' +
+        '<td class="concepto">' + escapeHtml(e.concepto) + '</td><td>' + escapeHtml(e.area) + '</td>' +
+        '<td><span class="badge-nivel ' + claseNivel(e.nivel) + '">' + escapeHtml(e.nivel) + '</span></td><td class="num">' + e.minutos + '</td>' +
+        '<td><button type="button" class="btn-ver" onclick="verEnvio(' + e.n + ')">Ver</button></td></tr>';
+    }).join('') + '</tbody>';
+  $('vacioPrograma').style.display = lista.length ? 'none' : '';
+}
+function marcarEnvio(n){ alternar(avance.envios, n); renderKpis(); renderPrograma(); }
+
+// ---- Conceptos (guía de 40) ----
+function conceptosFiltrados(){
+  const q = $('buscarC').value.toLowerCase().trim(), c = $('fCat').value, p = $('fPrio').value, pend = $('fPendC').checked;
+  return CONCEPTOS.filter(x => (!c || x.categoria === c) && (!p || x.prioridad === p) && (!pend || !conceptoHecho(x.id)) &&
+    (!q || (x.termino + ' ' + x.nombre + ' ' + x.definicion + ' ' + x.categoria).toLowerCase().includes(q)));
+}
+function renderConceptos(){
+  const lista = conceptosFiltrados();
+  $('tablaConceptos').innerHTML =
+    '<thead><tr><th>✓</th><th>N.º</th><th>Concepto</th><th>Qué significa</th><th>Categoría</th><th>Prioridad</th><th>Se estudia</th><th data-sin-orden></th></tr></thead><tbody>' +
+    lista.map(x => {
+      const hecho = conceptoHecho(x.id);
+      return '<tr class="' + (hecho ? 'hecho' : '') + '"><td data-valor="' + (hecho ? 1 : 0) + '"><input type="checkbox" ' + (hecho ? 'checked' : '') + ' onchange="marcarConcepto(' + x.id + ')" title="Marcar como estudiado"></td>' +
+        '<td class="num">' + x.id + '</td><td class="concepto">' + escapeHtml(x.termino) + '<small>' + escapeHtml(x.nombre) + '</small></td>' +
+        '<td style="max-width:360px;white-space:normal;font-size:12px;color:var(--muted);">' + escapeHtml(x.definicion) + '</td><td>' + escapeHtml(x.categoria) + '</td>' +
+        '<td><span class="badge-nivel ' + clasePrio(x.prioridad) + '">' + escapeHtml(x.prioridad) + '</span></td>' +
+        '<td class="num" data-valor="' + (x.fecha || '') + '">Sem. ' + x.semana + ' · ' + fmtFecha(x.fecha) + '</td>' +
+        '<td><button type="button" class="btn-ver" onclick="verConcepto(' + x.id + ')">Ver</button></td></tr>';
+    }).join('') + '</tbody>';
+  $('vacioConceptos').style.display = lista.length ? 'none' : '';
+}
+function marcarConcepto(id){ alternar(avance.conceptos, id); renderKpis(); renderConceptos(); refrescarModal(); }
+
+// ---- Entrevista ----
+function renderEntrevista(){
+  $('listaEntrevista').innerHTML = CONCEPTOS.filter(x => [4, 9, 12, 13, 17, 23, 24, 25, 30, 40].includes(x.id))
+    .map(x => '<div class="qrow"><b>' + escapeHtml(x.termino) + ':</b> ' + escapeHtml(x.pregunta) +
+      '<div style="color:var(--muted);font-size:12px;margin-top:2px;">⚠ ' + escapeHtml(x.advertencia) + '</div></div>').join('');
+}
+
+// ---- Fichas (modal) ----
+let modalActual = null; // {tipo:'envio'|'concepto', id}
+function abrirModal(html){ $('modalCuerpo').innerHTML = html; $('modalEle').classList.add('abierto'); }
+function cerrarModal(){ $('modalEle').classList.remove('abierto'); modalActual = null; }
+function refrescarModal(){ if(modalActual && $('modalEle').classList.contains('abierto')) (modalActual.tipo === 'envio' ? verEnvio : verConcepto)(modalActual.id); }
+function verEnvio(n){
+  const e = ENVIOS.find(x => x.n === n); if(!e) return; modalActual = { tipo: 'envio', id: n };
+  const chips = e.guia.map(id => { const c = CONCEPTOS.find(x => x.id === id); return c ? '<span class="chip-c" onclick="verConcepto(' + id + ')">' + escapeHtml(c.termino) + '</span>' : ''; }).join('');
+  abrirModal(
+    '<h2 id="modalTitulo">' + escapeHtml(e.concepto) + '</h2>' +
+    '<div class="meta"><span class="badge-nivel pend">' + escapeHtml(e.dia + ' ' + fmtFecha(e.fecha)) + '</span><span class="badge-nivel pend">Semana ' + e.semana + ' · ' + escapeHtml(e.tipo) + '</span>' +
+    '<span class="badge-nivel ' + claseNivel(e.nivel) + '">' + escapeHtml(e.nivel) + '</span><span class="badge-nivel pend">' + e.minutos + ' min</span>' + (e.obs ? '<span class="etq-feriado">' + escapeHtml(e.obs) + '</span>' : '') + '</div>' +
+    '<h4>Área</h4><p>' + escapeHtml(e.area) + '</p><h4>Objetivo de aprendizaje</h4><p>' + escapeHtml(e.objetivo) + '</p>' +
+    '<h4>Resumen del contenido</h4><p>' + escapeHtml(e.resumen) + '</p><h4>Conceptos complementarios</h4><p>' + escapeHtml(e.comp) + '</p>' +
+    '<h4>Pregunta de evaluación</h4><p class="pregunta">' + escapeHtml(e.pregunta) + '</p>' +
+    (chips ? '<h4>Conceptos de la guía que se estudian</h4><p>' + chips + '</p>' : '') +
+    '<div class="acciones"><button type="button" class="btn-primary" onclick="marcarEnvio(' + e.n + ');verEnvio(' + e.n + ')">' + (envioHecho(e.n) ? '✓ Completado (quitar)' : 'Marcar como completado') + '</button></div>' +
+    '<p class="empty-note" style="padding-bottom:0;">El contenido completo de la lección se está redactando; aquí se ve el plan.</p>');
+}
+function verConcepto(id){
+  const x = CONCEPTOS.find(c => c.id === id); if(!x) return; modalActual = { tipo: 'concepto', id };
+  const foto = 'https://commons.wikimedia.org/wiki/Special:MediaSearch?type=image&search=' + encodeURIComponent(x.termino + ' electronics circuit');
+  abrirModal(
+    '<h2 id="modalTitulo">' + escapeHtml(x.termino) + '</h2><div style="color:var(--muted);font-size:12.5px;">' + escapeHtml(x.nombre) + '</div>' +
+    '<div class="meta"><span class="badge-nivel pend">' + escapeHtml(x.categoria) + '</span><span class="badge-nivel ' + clasePrio(x.prioridad) + '">' + escapeHtml(x.prioridad) + '</span>' +
+    '<span class="badge-nivel pend">Se estudia en la semana ' + x.semana + ' (' + fmtFecha(x.fecha) + ')</span></div>' +
+    '<h4>Qué significa</h4><p>' + escapeHtml(x.definicion) + '</p><h4>Pregunta para entrevista</h4><p class="pregunta">' + escapeHtml(x.pregunta) + '</p>' +
+    '<h4>Qué debes tener en cuenta</h4><p class="alerta">' + escapeHtml(x.advertencia) + '</p>' +
+    '<div class="acciones"><button type="button" class="btn-primary" onclick="marcarConcepto(' + x.id + ')">' + (conceptoHecho(x.id) ? '✓ Estudiado (quitar)' : 'Marcar como estudiado') + '</button>' +
+    (x.envio ? '<button type="button" class="btn-ghost" onclick="verEnvio(' + x.envio + ')">Ver el envío del programa</button>' : '') +
+    '<a href="' + foto + '" target="_blank" rel="noopener noreferrer">Ver fotografías de referencia (Wikimedia Commons) ↗</a></div>');
+}
+document.addEventListener('keydown', e => { if(e.key === 'Escape') cerrarModal(); });
+
+// ---- Pestañas ----
+function irTab(t){
+  if(!['programa', 'conceptos', 'entrevista'].includes(t)) t = 'programa';
+  ['programa', 'conceptos', 'entrevista'].forEach(k => { $('tab-' + k).style.display = k === t ? '' : 'none'; });
+  document.querySelectorAll('#tabs .tab').forEach(b => b.classList.toggle('activa', b.dataset.tab === t));
+  if(location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
+}
+
+// ---- Sesión (mismo patrón que las demás páginas) ----
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    $('userBox').innerHTML = '<span>Hola, <b>' + escapeHtml(u.nombre || u.email) + '</b></span>';
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){
+      ['navUsuarios', 'navActualizaciones', 'navMercadoLibre'].forEach(id => { const n = $(id); if(n) n.style.display = ''; });
+    }
+    claveAvance = 'electronica-avance-v1:' + String(u.email || u.nombre || 'anonimo').toLowerCase();
+    cargarAvance(); renderKpis(); renderPrograma(); renderConceptos();
+  }catch(e){}
+}
+async function cerrarSesion(){
+  try{ await fetch('/api/auth-logout', { method: 'POST' }); }catch(e){}
+  window.location.href = '/login.html';
+}
+
+(function iniciar(){
+  $('fSemana').innerHTML = '<option value="">Todas las semanas</option>' + [1,2,3,4,5,6,7,8,9,10,11,12].map(s => '<option value="' + s + '">Semana ' + s + ' — ' + escapeHtml((ENVIOS.find(e => e.semana === s) || {}).area || '') + '</option>').join('');
+  $('fCat').innerHTML = '<option value="">Todas las categorías</option>' + [...new Set(CONCEPTOS.map(c => c.categoria))].map(c => '<option>' + escapeHtml(c) + '</option>').join('');
+  ['buscar', 'fSemana', 'fTipo', 'fNivel', 'fPend'].forEach(id => $(id).addEventListener(id === 'buscar' ? 'input' : 'change', renderPrograma));
+  ['buscarC', 'fCat', 'fPrio', 'fPendC'].forEach(id => $(id).addEventListener(id === 'buscarC' ? 'input' : 'change', renderConceptos));
+  document.querySelectorAll('#tabs .tab').forEach(b => b.addEventListener('click', () => irTab(b.dataset.tab)));
+  window.addEventListener('hashchange', () => irTab(location.hash.slice(1)));
+  cargarAvance(); renderKpis(); renderPrograma(); renderConceptos(); renderEntrevista();
+  irTab(location.hash.slice(1));
+  cargarSesionUsuario();
+})();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>

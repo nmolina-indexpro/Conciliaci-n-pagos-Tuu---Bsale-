@@ -19,7 +19,7 @@ import { paginasEfectivas, paginasParaGuardar } from '../lib/paginas-perfil.js';
 const PAGINAS_DISPONIBLES = [
   'home.html', 'index.html', 'conciliacion.html', 'contabilidad.html', 'compras.html',
   'alertas-stock.html', 'productos-en-transito.html', 'pedidos-pantallas.html', 'oportunidades-comerciales.html', 'cotizaciones-clientes.html', 'compra-agil.html', 'metas-de-venta.html', 'llamadas.html', 'buscador-ia.html', 'descuentos-web.html', 'cotizaciones-web.html', 'sitio-web.html',
-  'eficiencia-tickets.html', 'analisis.html', 'servicio-tecnico.html', 'identificacion-modelos.html', 'productos-nuevos.html', 'clientes-whatsapp.html', 'guia-uso.html',
+  'eficiencia-tickets.html', 'analisis.html', 'servicio-tecnico.html', 'identificacion-modelos.html', 'electronica.html', 'productos-nuevos.html', 'clientes-whatsapp.html', 'guia-uso.html',
   'indexscale.html', 'productos-estancados.html', 'frecuencia-precio.html', 'google-analytics.html', 'ejecutivos-whatsapp.html', 'google-ads.html', 'search-console.html', 'instagram.html', 'comparativo-ventas.html', 'insumos-servicio-tecnico.html', 'modelos-compatibles.html', 'soporte-indexpro.html',
 ];
 // REGLA: toda página nueva de la app (menos login, recuperar/reset de contraseña, reportar-error, Usuarios, Mercado Libre y Actualizaciones ERP, que son
