@@ -265,7 +265,7 @@
     <div class="card"><div class="lbl">Conceptos estudiados</div><div class="big" id="kpiConceptos">—</div></div>
   </div>
 
-  <div class="aviso">Esta página es el plan de estudio. Las lecciones y resúmenes <b>llegan por correo</b> los lunes, miércoles y viernes a las 08:00 (hora de Chile) a quienes estén suscritos en <b>Usuarios &gt; Notificaciones &gt; «Academia de Electrónica»</b> (lo gestiona un administrador). <b>Por ahora están redactadas las semanas 1 y 2</b>: desde la semana 3, el día del envío no sale correo hasta que se redacte la lección. Feriados en día de envío: viernes 25-12-2026 y 01-01-2027 (son resúmenes).</div>
+  <div class="aviso">Esta página es el plan de estudio. Las lecciones y resúmenes <b>llegan por correo</b> los lunes, miércoles y viernes a las 08:00 (hora de Chile) a quienes estén suscritos en <b>Usuarios &gt; Notificaciones &gt; «Academia de Electrónica»</b> (lo gestiona un administrador). El programa completo (<b>12 semanas, 36 envíos</b>) está redactado y sale solo según el calendario. Feriados en día de envío: viernes 25-12-2026 y 01-01-2027 (son resúmenes).</div>
 
   <div class="tabs" id="tabs">
     <button type="button" class="tab activa" data-tab="programa">📅 Programa (36 envíos)</button>
@@ -450,7 +450,7 @@ function leccionHtml(l, e){
     l.bloques.map(bloque).join('') +
     (l.svg ? '<h4>Imagen ilustrativa</h4><div class="svg-l">' + l.svg + '</div><div class="pie-l">' + escapeHtml(l.svgPie || '') + (l.foto ? '<br>' + escapeHtml(l.foto) : '') + '</div>' : '') +
     '<h4>' + (esResumen ? 'Preguntas de autoevaluación (toca para ver la respuesta)' : 'Pregunta de aprendizaje (toca para ver la respuesta)') + '</h4>' + pregs +
-    '<h4>' + (esResumen ? 'Adelanto de la próxima semana' : 'Recuerda') + '</h4><p class="par-l">' + md(l.resumen) + '</p>' +
+    '<h4>' + (esResumen ? (e.n === 36 ? 'Próxima etapa' : 'Adelanto de la próxima semana') : 'Recuerda') + '</h4><p class="par-l">' + md(l.resumen) + '</p>' +
     (l.seguridad ? '<p class="alerta" style="margin-top:12px;"><b>Seguridad:</b> ' + escapeHtml(l.seguridad) + '</p>' : '') + '</div>';
 }
 function verConcepto(id){
