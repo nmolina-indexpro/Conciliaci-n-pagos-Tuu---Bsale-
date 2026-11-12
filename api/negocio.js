@@ -5836,7 +5836,7 @@ async function manejarRecepcionesStockNotificar(req, res) {
   }
 }
 
-// Ventas pagadas (en todo o en parte) en EFECTIVO de ayer y anteayer, en un correo con documento, cliente y hora -- sin montos (notificación
+// Ventas pagadas (en todo o en parte) en EFECTIVO de ayer y anteayer, en un correo con documento, cliente, hora y monto en efectivo (excepción pedida a la regla de sin montos) (notificación
 // 'ventas-efectivo-diario', ver lib/ventas-efectivo.js). Cron diario por la mañana; solo manda si hay ventas en efectivo que todavía no se avisaron.
 // ?solo_ver=1 devuelve el correo armado sin enviarlo; ?probar=1&para=... lo manda solo a esa persona con [PRUEBA] usando los últimos 7 días (o desde
 // ?desde=AAAA-MM-DD) aunque ya se hayan avisado, sin marcar nada como avisado.
