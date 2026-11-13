@@ -35,6 +35,8 @@ import { armarCorreoInsumosCriticos } from '../lib/correo-insumo.js';
 import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadores.js';
 import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGORIAS as CATEGORIAS_CONTABILIDAD, CATEGORIA_IDS as CATEGORIA_IDS_CONTABILIDAD, categoriaEfectiva, resumir as resumirContabilidad, analizarContabilidad } from '../lib/contabilidad.js';
 import { asegurarTablaContabilidad, asegurarTablaInsumosSt } from '../lib/db.js';
+import { asegurarTablaElectronicaHerramientas } from '../lib/db.js';
+import { validarCambioHerramienta, armarHerramientas } from '../lib/electronica-herramientas.js';
 import { asegurarTablaNasBackup } from '../lib/db.js';
 import { CLIENTES as CLIENTES_NAS_BACKUP, consolidarEventos as consolidarEventosNasBackup, textoDesdeCorreoCrudo as textoCorreoNasBackup, parsearCorreoHbs as parsearCorreoHbsNasBackup, parsearAlertaNas as parsearAlertaNasBackup, clientePorNas as clientePorNasBackup, normalizarEvento as normalizarEventoNasBackup, resumirCliente as resumirClienteNasBackup, filasDesdeHistorial as filasHistorialNasBackup, esFalla as esFallaNasBackup, esAviso as esAvisoNasBackup } from '../lib/nas-backup.js';
 import { paginasEfectivas } from '../lib/paginas-perfil.js';
@@ -256,6 +258,8 @@ export default async function handler(req, res) {
   if (recurso === 'identificacion-modelos') return manejarIdentificacionModelos(req, res, sesion);
   // Servicio Técnico > Electrónica: programa (36 envíos), 40 conceptos y las lecciones redactadas (lib/electronica-*.js).
   if (recurso === 'electronica') return res.status(200).json({ ok: true, ...ELECTRONICA, lecciones: LECCIONES_ELECTRONICA });
+  // Electrónica > Herramientas: checklist de compra de las herramientas del técnico (GET lista, POST guarda un cambio de estado, precio o nota).
+  if (recurso === 'electronica-herramientas') return manejarElectronicaHerramientas(req, res, sesion);
   if (recurso === 'identificacion-modelo-foto') return manejarIdentificacionModeloFoto(req, res, sesion);
   if (recurso === 'productos-nuevos-registro') return manejarProductosNuevosRegistro(req, res, sesion);
   if (recurso === 'productos-nuevos-resumen') return manejarProductosNuevosResumen(req, res, sesion);
@@ -5684,6 +5688,37 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
     return res.status(200).json({ ok: true, enviado: envios.length > 0, envios });
   } catch (err) {
     return res.status(500).json({ error: 'Error generando o enviando el resumen semanal de Servicio Técnico', detail: String(err) });
+  }
+}
+
+// Checklist de herramientas del técnico electrónico (pestaña «Herramientas» de Servicio Técnico > Electrónica). Cualquier usuario con acceso a la página ve y
+// marca el estado y las notas; el precio (costo de la empresa) solo lo ve y lo registra un administrador. Lógica de validación: lib/electronica-herramientas.js.
+async function manejarElectronicaHerramientas(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaElectronicaHerramientas(sql);
+    const esAdmin = sesion.rol === 'admin';
+    const aVista = lista => lista.map(h => (esAdmin ? h : { ...h, precio_clp: null }));
+    if (req.method === 'GET') {
+      const { rows } = await sql`SELECT n, estado, precio_clp, nota, actualizado_por, actualizado_en FROM electronica_herramientas;`;
+      return res.status(200).json({ ok: true, esAdmin, herramientas: aVista(armarHerramientas(rows)) });
+    }
+    if (req.method === 'POST') {
+      const n = Number((req.body || {}).n);
+      const { rows: previas } = await sql`SELECT n, estado, precio_clp, nota FROM electronica_herramientas WHERE n = ${Number.isInteger(n) ? n : -1};`;
+      const r = validarCambioHerramienta(req.body, previas[0] || null, esAdmin);
+      if (!r.ok) return res.status(r.status).json({ error: r.error });
+      const autor = sesion.nombre || sesion.email || null;
+      const v = r.valores;
+      await sql`INSERT INTO electronica_herramientas (n, estado, precio_clp, nota, actualizado_por, actualizado_en)
+        VALUES (${r.n}, ${v.estado}, ${v.precio_clp}, ${v.nota}, ${autor}, now())
+        ON CONFLICT (n) DO UPDATE SET estado = EXCLUDED.estado, precio_clp = EXCLUDED.precio_clp, nota = EXCLUDED.nota, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now();`;
+      const { rows } = await sql`SELECT n, estado, precio_clp, nota, actualizado_por, actualizado_en FROM electronica_herramientas WHERE n = ${r.n};`;
+      return res.status(200).json({ ok: true, herramienta: aVista(armarHerramientas(rows)).find(h => h.n === r.n) });
+    }
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en el checklist de herramientas de Electrónica', detail: String(err.message || err) });
   }
 }
 

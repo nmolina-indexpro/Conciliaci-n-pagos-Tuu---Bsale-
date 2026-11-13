@@ -143,6 +143,32 @@
   details.resp{border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;background:var(--surface);}
   details.resp summary{cursor:pointer;font-size:13.5px;font-weight:600;}
   details.resp p{margin:8px 0 2px;font-size:13px;color:var(--green);}
+  .guardado-h{font-size:12px;color:var(--muted);align-self:center;}
+  .guardado-h.ok{color:var(--green);font-weight:600;}
+  .guardado-h.err{color:var(--red);font-weight:600;}
+  .barra-h{height:8px;border-radius:999px;background:var(--surface-2);margin-top:8px;overflow:hidden;}
+  .barra-h i{display:block;height:100%;width:0;background:var(--primary);transition:width .3s;}
+  .prio-h{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px;font-size:12.5px;color:var(--muted);}
+  .prio-h span{background:var(--surface-2);border-radius:999px;padding:4px 11px;}
+  .prio-h b{color:var(--text);}
+  select.estado-sel{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;border:1.5px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--surface);cursor:pointer;}
+  select.estado-sel.e-pendiente{background:var(--surface-2);color:var(--muted);}
+  select.estado-sel.e-cotizando{background:var(--amber-dim);color:var(--amber);border-color:#F0D3A0;}
+  select.estado-sel.e-comprada{background:var(--green-bg);color:var(--green);border-color:#B7E2C2;}
+  select.estado-sel.e-la_tiene{background:var(--blue-bg);color:var(--blue);border-color:#B9CBF7;}
+  tr.h-hecha td.h-nombre b{color:var(--muted);text-decoration:line-through;}
+  td.h-nombre{max-width:360px;white-space:normal;}
+  td.h-nombre small{display:block;color:var(--muted);font-size:11.5px;line-height:1.35;margin-top:2px;}
+  td.h-nombre details{margin-top:3px;font-size:11.5px;color:var(--muted);}
+  td.h-nombre details summary{cursor:pointer;color:var(--primary);}
+  td.h-prov a{display:block;color:var(--primary);font-size:12px;text-decoration:none;white-space:nowrap;}
+  td.h-prov a:hover{text-decoration:underline;}
+  input.h-precio,input.h-nota{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;padding:6px 8px;border:1.5px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);}
+  input.h-precio{width:110px;text-align:right;}
+  input.h-nota{width:200px;}
+  input.h-precio:focus,input.h-nota:focus{outline:none;border-color:var(--primary);}
+  body.sin-margenes .solo-admin{display:none !important;}
+  .h-quien{font-size:11px;color:var(--muted);white-space:nowrap;}
   @media (max-width:720px){ .filtros input[type="text"]{width:100%;} }
 </style>
 <meta name="theme-color" content="#0F766E">
@@ -271,6 +297,7 @@
     <button type="button" class="tab activa" data-tab="programa">📅 Programa (36 envíos)</button>
     <button type="button" class="tab" data-tab="conceptos">📚 Conceptos (40)</button>
     <button type="button" class="tab" data-tab="entrevista">🎤 Entrevista al técnico</button>
+    <button type="button" class="tab" data-tab="herramientas">🧰 Herramientas</button>
   </div>
 
   <div class="seccion" id="tab-programa">
@@ -313,6 +340,31 @@
     </table></div>
     <h2 style="font-family:'Space Grotesk',sans-serif;font-size:14px;margin:20px 0 8px;">Preguntas clave</h2>
     <div id="listaEntrevista"></div>
+  </div>
+
+  <div class="seccion" id="tab-herramientas" style="display:none;">
+    <div class="seccion-head"><div>
+      <h2>🧰 Herramientas del técnico: avance de compra</h2>
+      <div class="sub" style="margin-bottom:0;">Marca el estado de cada herramienta: <b>por cotizar</b>, <b>cotizando</b>, <b>comprada</b> o <b>ya la tiene</b>. Los cambios se guardan al instante y los ve todo el equipo. Los enlaces salieron de búsquedas en internet: confirma stock, precio y despacho antes de comprar.</div>
+    </div><div class="guardado-h" id="guardadoH"></div></div>
+    <div class="grid" id="kpiH">
+      <div class="card"><div class="lbl">Avance</div><div class="big" id="hAvance">—</div><div class="barra-h"><i id="hBarra"></i></div></div>
+      <div class="card"><div class="lbl">Compradas</div><div class="big" id="hCompradas">—</div></div>
+      <div class="card"><div class="lbl">Ya las tiene</div><div class="big" id="hTiene">—</div></div>
+      <div class="card"><div class="lbl">Cotizando</div><div class="big" id="hCotizando">—</div></div>
+      <div class="card"><div class="lbl">Por cotizar</div><div class="big" id="hPendientes">—</div></div>
+      <div class="card solo-admin"><div class="lbl">Comprado (CLP)</div><div class="big" id="hGastado" style="font-size:16px;">—</div></div>
+      <div class="card solo-admin"><div class="lbl">En cotización (CLP)</div><div class="big" id="hCotizado" style="font-size:16px;">—</div></div>
+    </div>
+    <div class="prio-h" id="prioH"></div>
+    <div class="filtros">
+      <input type="text" id="buscarH" placeholder="🔍 Buscar herramienta…" autocomplete="off">
+      <select id="fEstadoH"><option value="">Todos los estados</option><option value="pendiente">Por cotizar</option><option value="cotizando">Cotizando</option><option value="comprada">Comprada</option><option value="la_tiene">Ya la tiene</option><option value="faltan">Faltan (por cotizar o cotizando)</option></select>
+      <select id="fPrioH"><option value="">Todas las prioridades</option><option value="1">1 · Indispensable</option><option value="2">2 · Recomendada</option><option value="3">3 · Avanzada</option></select>
+      <select id="fCatH"></select>
+    </div>
+    <div class="tabla-wrap"><table id="tablaH"></table></div>
+    <div class="empty-note" id="vacioH" style="display:none;">Ninguna herramienta coincide con el filtro.</div>
   </div>
 
   <div class="empty-note">Datos conceptuales para estudio: no reemplazan el esquemático del equipo específico. Mucho de lo que se estudia depende del fabricante, la plataforma y el modelo. La inyección de voltaje, la programación de memorias y el calor sobre chips son prácticas para hacer con supervisión.</div>
@@ -468,10 +520,76 @@ function verConcepto(id){
 }
 document.addEventListener('keydown', e => { if(e.key === 'Escape') cerrarModal(); });
 
+
+// ---- Herramientas: checklist de compra (se guarda en el servidor, lo ve todo el equipo) ----
+const HERR = { lista: [], cargadas: false, esAdmin: false };
+const ESTADOS_H = { pendiente: 'Por cotizar', cotizando: 'Cotizando', comprada: 'Comprada', la_tiene: 'Ya la tiene' };
+const NOMBRES_PRIO = { 1: 'Indispensable', 2: 'Recomendada', 3: 'Avanzada' };
+const hecha = h => h.estado === 'comprada' || h.estado === 'la_tiene';
+const clp = n => '$' + Number(n || 0).toLocaleString('es-CL');
+function urlSegura(u){ u = String(u ?? '').trim(); return /^https?:[/][/]/i.test(u) ? u : ''; }
+function avisoH(texto, clase){ const e = $('guardadoH'); e.textContent = texto; e.className = 'guardado-h ' + (clase || ''); if(clase === 'ok') setTimeout(() => { if(e.textContent === texto){ e.textContent = ''; e.className = 'guardado-h'; } }, 2500); }
+async function cargarHerramientas(){
+  try{
+    const res = await fetch('/api/negocio?recurso=electronica-herramientas');
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    if(!d.ok) throw new Error(d.error || 'Error');
+    HERR.lista = d.herramientas || []; HERR.esAdmin = !!d.esAdmin; HERR.cargadas = true;
+    $('fCatH').innerHTML = '<option value="">Todas las categorías</option>' + [...new Set(HERR.lista.map(h => h.categoria))].map(c => '<option>' + escapeHtml(c) + '</option>').join('');
+    renderHerramientas();
+  }catch(e){ avisoH('No se pudo cargar el checklist. Recarga la página.', 'err'); }
+}
+function herramientasFiltradas(){
+  const q = $('buscarH').value.toLowerCase().trim(), e = $('fEstadoH').value, p = $('fPrioH').value, c = $('fCatH').value;
+  return HERR.lista.filter(h => (!e || (e === 'faltan' ? (h.estado === 'pendiente' || h.estado === 'cotizando') : h.estado === e)) && (!p || String(h.prioridad) === p) && (!c || h.categoria === c) &&
+    (!q || (h.nombre + ' ' + h.uso + ' ' + h.categoria + ' ' + (h.nota_equipo || '')).toLowerCase().includes(q)));
+}
+function renderKpisH(){
+  const L = HERR.lista, n = L.length, hechas = L.filter(hecha).length, pct = n ? Math.round(hechas / n * 100) : 0;
+  $('hAvance').textContent = hechas + ' / ' + n + ' (' + pct + '%)'; $('hBarra').style.width = pct + '%';
+  $('hCompradas').textContent = L.filter(h => h.estado === 'comprada').length; $('hTiene').textContent = L.filter(h => h.estado === 'la_tiene').length;
+  $('hCotizando').textContent = L.filter(h => h.estado === 'cotizando').length; $('hPendientes').textContent = L.filter(h => h.estado === 'pendiente').length;
+  $('hGastado').textContent = clp(L.filter(h => h.estado === 'comprada').reduce((s, h) => s + (h.precio_clp || 0), 0));
+  $('hCotizado').textContent = clp(L.filter(h => h.estado === 'cotizando').reduce((s, h) => s + (h.precio_clp || 0), 0));
+  $('prioH').innerHTML = [1, 2, 3].map(p => { const g = L.filter(h => h.prioridad === p); return '<span>' + p + ' · ' + NOMBRES_PRIO[p] + ': <b>' + g.filter(hecha).length + ' de ' + g.length + '</b></span>'; }).join('');
+}
+function renderHerramientas(){
+  renderKpisH();
+  const lista = herramientasFiltradas(), ord = { pendiente: 0, cotizando: 1, comprada: 2, la_tiene: 3 };
+  $('tablaH').innerHTML =
+    '<thead><tr><th>Estado</th><th>Herramienta</th><th>Categoría</th><th>Prior.</th><th>Cant.</th><th data-sin-orden>Proveedores</th><th class="solo-admin">Precio total (CLP)</th><th data-sin-orden>Nota del equipo</th><th>Actualizado</th></tr></thead><tbody>' +
+    lista.map(h => {
+      const enl = (h.enlaces || []).map(e => urlSegura(e.url) ? '<a href="' + escapeHtml(urlSegura(e.url)) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(e.tienda) + ' ↗</a>' : '').join('');
+      const fecha = h.actualizado_en ? new Date(h.actualizado_en).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', timeZone: 'America/Santiago' }) : '';
+      return '<tr class="' + (hecha(h) ? 'h-hecha' : '') + '"><td data-valor="' + ord[h.estado] + '"><select class="estado-sel e-' + h.estado + '" onchange="cambiarHerramienta(' + h.n + ',{estado:this.value})" aria-label="Estado de ' + escapeHtml(h.nombre) + '">' +
+        Object.keys(ESTADOS_H).map(k => '<option value="' + k + '"' + (k === h.estado ? ' selected' : '') + '>' + ESTADOS_H[k] + '</option>').join('') + '</select></td>' +
+        '<td class="h-nombre"><b>' + escapeHtml(h.nombre) + '</b><small>' + escapeHtml(h.uso) + (h.lecciones ? ' · ' + escapeHtml(h.lecciones) : '') + '</small>' + (h.nota ? '<details><summary>Notas de la búsqueda</summary>' + escapeHtml(h.nota) + '</details>' : '') + '</td>' +
+        '<td>' + escapeHtml(h.categoria) + '</td><td data-valor="' + h.prioridad + '"><span class="badge-nivel ' + (h.prioridad === 1 ? 'n4' : h.prioridad === 2 ? 'n2' : 'pend') + '">' + h.prioridad + ' · ' + NOMBRES_PRIO[h.prioridad] + '</span></td>' +
+        '<td class="num">' + h.cantidad + '</td><td class="h-prov">' + (enl || '<span class="h-quien">—</span>') + '</td>' +
+        '<td class="solo-admin" data-valor="' + (h.precio_clp ?? '') + '"><input class="h-precio" type="number" min="0" step="1" value="' + (h.precio_clp ?? '') + '" placeholder="Precio" onchange="cambiarHerramienta(' + h.n + ',{precio_clp:this.value===\'\'?null:Number(this.value)})"></td>' +
+        '<td><input class="h-nota" type="text" maxlength="500" value="' + escapeHtml(h.nota_equipo || '') + '" placeholder="Nota…" onchange="cambiarHerramienta(' + h.n + ',{nota:this.value})"></td>' +
+        '<td class="h-quien" data-valor="' + escapeHtml(h.actualizado_en || '') + '">' + (h.actualizado_por ? escapeHtml(h.actualizado_por) + (fecha ? ' · ' + fecha : '') : '') + '</td></tr>';
+    }).join('') + '</tbody>';
+  $('vacioH').style.display = lista.length ? 'none' : '';
+}
+async function cambiarHerramienta(n, cambios){
+  const h = HERR.lista.find(x => x.n === n); if(!h) return;
+  avisoH('Guardando…', '');
+  try{
+    const res = await fetch('/api/negocio?recurso=electronica-herramientas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ n, ...cambios }) });
+    const d = await res.json().catch(() => ({}));
+    if(!res.ok || !d.ok) throw new Error(d.error || ('HTTP ' + res.status));
+    Object.assign(h, d.herramienta); avisoH('Guardado ✓', 'ok');
+  }catch(e){ avisoH('No se guardó: ' + e.message, 'err'); }
+  renderHerramientas();
+}
+
 // ---- Pestañas ----
 function irTab(t){
-  if(!['programa', 'conceptos', 'entrevista'].includes(t)) t = 'programa';
-  ['programa', 'conceptos', 'entrevista'].forEach(k => { $('tab-' + k).style.display = k === t ? '' : 'none'; });
+  if(!['programa', 'conceptos', 'entrevista', 'herramientas'].includes(t)) t = 'programa';
+  ['programa', 'conceptos', 'entrevista', 'herramientas'].forEach(k => { $('tab-' + k).style.display = k === t ? '' : 'none'; });
+  if(t === 'herramientas' && !HERR.cargadas) cargarHerramientas();
   document.querySelectorAll('#tabs .tab').forEach(b => b.classList.toggle('activa', b.dataset.tab === t));
   if(location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
 }
@@ -484,6 +602,7 @@ async function cargarSesionUsuario(){
     const u = await res.json();
     $('userBox').innerHTML = '<span>Hola, <b>' + escapeHtml(u.nombre || u.email) + '</b></span>';
     aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionMargenes(u.rol); // los precios de compra solo los ve un administrador
     aplicarRestriccionPaginas(u.paginas);
     if(u.rol === 'admin'){
       ['navUsuarios', 'navActualizaciones', 'navMercadoLibre'].forEach(id => { const n = $(id); if(n) n.style.display = ''; });
@@ -500,6 +619,7 @@ async function cerrarSesion(){
 (function iniciar(){
   ['buscar', 'fSemana', 'fTipo', 'fNivel', 'fPend'].forEach(id => $(id).addEventListener(id === 'buscar' ? 'input' : 'change', renderPrograma));
   ['buscarC', 'fCat', 'fPrio', 'fPendC'].forEach(id => $(id).addEventListener(id === 'buscarC' ? 'input' : 'change', renderConceptos));
+  ['buscarH', 'fEstadoH', 'fPrioH', 'fCatH'].forEach(id => $(id).addEventListener(id === 'buscarH' ? 'input' : 'change', renderHerramientas));
   document.querySelectorAll('#tabs .tab').forEach(b => b.addEventListener('click', () => irTab(b.dataset.tab)));
   window.addEventListener('hashchange', () => irTab(location.hash.slice(1)));
   irTab(location.hash.slice(1));
