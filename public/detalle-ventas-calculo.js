@@ -46,10 +46,11 @@
     }
   }
   const esMesCalendario = (r) => r.desde === primeroDelMes(r.desde) && r.hasta.slice(0, 7) === r.desde.slice(0, 7);
-  // modo 'anterior': el período inmediatamente anterior (un mes calendario se compara con el mes anterior hasta el mismo día; lo demás, con la misma cantidad de días);
+  // modo 'mes': las mismas fechas un mes antes; modo 'anterior': el período inmediatamente anterior (un mes calendario se compara con el mes anterior hasta el mismo día; lo demás, con la misma cantidad de días);
   // modo 'anio': las mismas fechas un año antes; 'ninguna': null.
   function rangoComparacion(r, modo) {
     if (!r || !modo || modo === 'ninguna') return null;
+    if (modo === 'mes') return { desde: sumarMeses(r.desde, -1), hasta: sumarMeses(r.hasta, -1) }; // las mismas fechas, un mes antes (el día se recorta al largo del mes: 31 de marzo -> 28 de febrero)
     if (modo === 'anio') return { desde: sumarMeses(r.desde, -12), hasta: sumarMeses(r.hasta, -12) };
     if (esMesCalendario(r)) {
       const d = sumarMeses(r.desde, -1);

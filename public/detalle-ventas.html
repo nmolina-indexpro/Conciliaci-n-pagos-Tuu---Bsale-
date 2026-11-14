@@ -154,6 +154,10 @@
   .dv-enlace{background:none;border:none;padding:0;font:inherit;font-weight:600;color:var(--text);text-align:left;cursor:pointer;} .dv-enlace:hover{color:var(--primary);text-decoration:underline;}
   tr.dv-sin-ventas td{color:var(--muted);background:var(--surface-2);}
   td.dv-calor{background:rgba(15,118,110,calc(var(--i) * 0.28));}
+  .dv-seg{display:inline-flex;border:1.5px solid var(--line);border-radius:9px;overflow:hidden;background:var(--surface);flex-wrap:wrap;}
+  .dv-seg button{background:var(--surface);border:none;border-right:1px solid var(--line);padding:8px 13px;font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;}
+  .dv-seg button:last-child{border-right:none;} .dv-seg button:hover{color:var(--text);background:var(--surface-2);}
+  .dv-seg button.activo{background:var(--primary);color:#fff;}
   tfoot td{border-top:2px solid var(--line);background:var(--surface-2);}
 </style>
 <meta name="theme-color" content="#0F766E">
@@ -275,12 +279,13 @@
       <select id="dvPreset" onchange="cambiarPreset(this.value)"></select></div>
     <div class="dv-campo" id="dvCustom" style="display:none;"><label for="dvDesde">Desde / hasta</label>
       <span><input type="date" id="dvDesde" onchange="cambiarFechas()"> <input type="date" id="dvHasta" onchange="cambiarFechas()"></span></div>
-    <div class="dv-campo"><label for="dvComparar">Comparar con</label>
-      <select id="dvComparar" onchange="cambiarComparar(this.value)">
-        <option value="anterior">Período anterior</option>
-        <option value="anio">Mismo período del año anterior</option>
-        <option value="ninguna">Sin comparación</option>
-      </select></div>
+    <div class="dv-campo"><label>Comparar con</label>
+      <div class="dv-seg" id="dvComparar" role="group" aria-label="Comparar con">
+        <button type="button" data-modo="ninguna" onclick="cambiarComparar('ninguna')" title="Ver solo el período elegido, sin comparar">Sin comparación</button>
+        <button type="button" data-modo="mes" onclick="cambiarComparar('mes')" title="Las mismas fechas, un mes antes (por ejemplo, del 1 al 14 de noviembre contra del 1 al 14 de octubre)">Mes anterior (misma fecha)</button>
+        <button type="button" data-modo="anio" onclick="cambiarComparar('anio')" title="Las mismas fechas del año pasado (por ejemplo, del 1 al 14 de noviembre de 2025)">Año anterior (mismo período)</button>
+        <button type="button" data-modo="anterior" onclick="cambiarComparar('anterior')" title="Los días justo antes del período elegido, la misma cantidad de días">Período anterior</button>
+      </div></div>
     <div class="dv-acciones">
       <button class="btn-ghost" id="btnFiltros" onclick="alternarFiltros()">⚙️ Filtros</button>
       <button class="btn-ghost btn-exportar" onclick="exportarCsv()">⬇ Exportar CSV</button>
@@ -359,7 +364,7 @@ const TABS = [['producto', 'Productos y servicios'], ['vendedor', 'Vendedores'],
 const NOMBRE_DIM = { producto: 'Producto o servicio', vendedor: 'Vendedor', sucursal: 'Sucursal', marca: 'Marca', tipo: 'Tipo de producto' };
 const TITULO_TOP = { producto: 'productos y servicios', vendedor: 'vendedores', sucursal: 'sucursales', marca: 'marcas', tipo: 'tipos de productos' };
 const E = {
-  tab: 'producto', preset: 'mes', rango: null, comparar: 'anterior', gran: 'auto', modoGrafico: 'valor',
+  tab: 'producto', preset: 'mes', rango: null, comparar: 'mes', gran: 'auto', modoGrafico: 'valor',
   filtros: { q: '', tipoVenta: '', ml: false, sucursales: [], vendedores: [], marcas: [], tipos: [] }, verPerdidas: false,
   datos: null, lineas: [], cargado: null, hoy: null, esAdmin: false, filasTabla: [], cargando: false, trayendo: null,
   mensual: { dim: 'producto', metrica: 'venta', meses: 12 },
@@ -437,7 +442,16 @@ function cambiarFechas(){
   if(DV.diasEntre(d, h) > 800){ alert('Elige un período de hasta unos 2 años.'); return; }
   E.rango = { desde: d, hasta: h }; E.gran = 'auto'; $('dvGran').value = 'auto'; actualizar();
 }
-function cambiarComparar(v){ E.comparar = v; actualizar(); }
+const MODOS_COMPARAR = ['ninguna', 'mes', 'anio', 'anterior'];
+function marcarComparar(){
+  document.querySelectorAll('#dvComparar button').forEach(b => { const on = b.dataset.modo === E.comparar; b.classList.toggle('activo', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+}
+function cambiarComparar(v){
+  if(!MODOS_COMPARAR.includes(v)) return;
+  E.comparar = v; marcarComparar();
+  try{ localStorage.setItem('detalleVentas.comparar', v); }catch(e){ /* sin almacenamiento: se queda con la elección de esta visita */ }
+  actualizar();
+}
 function cambiarGran(v){ E.gran = v; pintarGraficos(datosActuales()); }
 function cambiarModoGrafico(m){ E.modoGrafico = m; $('btnModoValor').classList.toggle('activo', m === 'valor'); $('btnModoPct').classList.toggle('activo', m === 'pct'); pintarGraficos(datosActuales()); }
 function seleccionarTab(t){ E.tab = t; actualizar(); }
@@ -730,6 +744,8 @@ async function traerMeses(meses, refrescar){
 
 // ---------- inicio ----------
 function iniciarSelectores(){
+  try{ const g = localStorage.getItem('detalleVentas.comparar'); if(MODOS_COMPARAR.includes(g)) E.comparar = g; }catch(e){ /* sin almacenamiento */ }
+  marcarComparar();
   $('dvPreset').innerHTML = DV.PRESETS.map(([id, n]) => `<option value="${id}">${n}</option>`).join('') + '<option value="custom">Personalizado…</option>';
   $('dvPreset').value = E.preset;
 }
