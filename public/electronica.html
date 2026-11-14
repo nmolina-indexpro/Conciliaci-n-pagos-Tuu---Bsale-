@@ -387,7 +387,7 @@ function escapeHtml(t){
   return String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 // Los datos vienen del servidor (lib/electronica-datos.js y lib/electronica-lecciones.js): una sola fuente para esta página y para el correo.
-let ENVIOS = [], CONCEPTOS = [], LECCIONES = {};
+let ENVIOS = [], CONCEPTOS = [], LECCIONES = {}, COMPONENTES = {};
 const md = t => escapeHtml(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
 
 // ---- Avance (se guarda por usuario en este navegador) ----
@@ -495,13 +495,25 @@ function verEnvio(n){
     '<div class="acciones"><button type="button" class="btn-primary" onclick="marcarEnvio(' + e.n + ');verEnvio(' + e.n + ')">' + (envioHecho(e.n) ? '✓ Completado (quitar)' : 'Marcar como completado') + '</button></div>' +
     (LECCIONES[e.n] ? leccionHtml(LECCIONES[e.n], e) : '<p class="empty-note" style="padding-bottom:0;">El contenido completo de esta lección todavía no está redactado; aquí se ve el plan.</p>'));
 }
+function componentesHtml(n, parte){
+  return (COMPONENTES[n] || []).map(c => {
+    const f = c.foto, li = xs => '<ul class="lista-l">' + xs.map(x => '<li>' + escapeHtml(x) + '</li>').join('') + '</ul>';
+    if(parte === 'foto'){
+      return f ? '<h4>Conoce: ' + escapeHtml(c.nombre) + '</h4><div class="svg-l" style="padding:0;overflow:hidden;"><img src="/img-electronica/' + encodeURIComponent(f.archivo) + '" alt="' + escapeHtml(c.nombre) + '" loading="lazy" style="width:100%;height:auto;display:block;"></div><div class="pie-l">Foto: ' + escapeHtml(f.descripcion) + '. Autor: ' + escapeHtml(f.autor) + ' · <a href="' + escapeHtml(urlSegura(f.pagina_url)) + '" target="_blank" rel="noopener noreferrer">Wikimedia Commons</a> · <a href="' + escapeHtml(urlSegura(f.licencia_url || f.pagina_url)) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(f.licencia) + '</a></div>' : '';
+    }
+    return '<h4>' + escapeHtml(c.nombre) + ': para qué sirve y ' + (c.tipo === 'instrumento' ? 'errores frecuentes' : 'fallas comunes') + '</h4><p class="par-l"><b>Para qué sirve</b></p>' + li(c.funciones) + '<p class="par-l"><b>' + (c.tipo === 'instrumento' ? 'Errores y problemas frecuentes' : 'Fallas más comunes en un notebook') + '</b></p>' + li(c.fallas);
+  }).join('');
+}
 function leccionHtml(l, e){
+  const conFoto = (COMPONENTES[e.n] || []).some(c => c.foto);
+  const svgIntro = (l.svg ? '<h4>Imagen ilustrativa</h4><div class="svg-l">' + l.svg + '</div><div class="pie-l">' + escapeHtml(l.svgPie || '') + ((l.foto && !(COMPONENTES[e.n] || []).some(c => c.foto)) ? '<br>' + escapeHtml(l.foto) : '') + '</div>' : '');
   const esResumen = e.tipo === 'Resumen semanal';
   const bloque = b => '<h4>' + escapeHtml(b.t) + '</h4>' + (b.li ? '<ul class="lista-l">' + b.li.map(x => '<li>' + md(x) + '</li>').join('') + '</ul>' : (b.p || []).map(x => '<p class="par-l">' + md(x) + '</p>').join(''));
   const pregs = (l.preguntas || []).map(x => '<details class="resp"><summary>' + md(x.q) + '</summary><p>' + md(x.a) + '</p></details>').join('');
   return '<hr class="sep-l"><div class="leccion"><div class="titulo-l">📖 ' + escapeHtml(l.titulo) + ' <span class="badge-nivel pend">' + (l.lectura || e.minutos) + ' min de lectura</span></div>' +
-    l.bloques.map(bloque).join('') +
-    (l.svg ? '<h4>Imagen ilustrativa</h4><div class="svg-l">' + l.svg + '</div><div class="pie-l">' + escapeHtml(l.svgPie || '') + (l.foto ? '<br>' + escapeHtml(l.foto) : '') + '</div>' : '') +
+    l.bloques.map((b, i) => bloque(b) + (i === 0 ? (conFoto ? componentesHtml(e.n, 'foto') : svgIntro) : '')).join('') +
+    componentesHtml(e.n, 'texto') +
+    (conFoto ? (l.svg ? '<h4>Imagen ilustrativa</h4><div class="svg-l">' + l.svg + '</div><div class="pie-l">' + escapeHtml(l.svgPie || '') + ((l.foto && !(COMPONENTES[e.n] || []).some(c => c.foto)) ? '<br>' + escapeHtml(l.foto) : '') + '</div>' : '') : '') +
     '<h4>' + (esResumen ? 'Preguntas de autoevaluación (toca para ver la respuesta)' : 'Pregunta de aprendizaje (toca para ver la respuesta)') + '</h4>' + pregs +
     '<h4>' + (esResumen ? (e.n === 36 ? 'Próxima etapa' : 'Adelanto de la próxima semana') : 'Recuerda') + '</h4><p class="par-l">' + md(l.resumen) + '</p>' +
     (l.seguridad ? '<p class="alerta" style="margin-top:12px;"><b>Seguridad:</b> ' + escapeHtml(l.seguridad) + '</p>' : '') + '</div>';
@@ -631,7 +643,7 @@ async function cargarDatos(){
     const res = await fetch('/api/negocio?recurso=electronica');
     if(!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
-    ENVIOS = d.envios || []; CONCEPTOS = d.conceptos || []; LECCIONES = d.lecciones || {};
+    ENVIOS = d.envios || []; CONCEPTOS = d.conceptos || []; LECCIONES = d.lecciones || {}; COMPONENTES = d.componentes || {};
   }catch(e){
     $('vacioPrograma').textContent = 'No se pudo cargar el programa. Recarga la página.'; $('vacioPrograma').style.display = '';
   }

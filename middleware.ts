@@ -99,6 +99,11 @@ function esModelosCompatiblesRecordatorioPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && ['modelos-compatibles-recordatorio', 'modelos-meta-indice-cron', 'insumos-st-avisar-cron', 'nas-backup-correos-sync', 'nas-backup-informe-cron'].includes(searchParams.get('recurso'));
 }
 
+// Fotos de las lecciones de Electrónica (public/img-electronica/): los correos las cargan desde el ERP, sin sesión. Solo imágenes con nombre simple.
+function esImagenElectronicaPublica(pathname) {
+  return /^\/img-electronica\/[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)$/.test(pathname);
+}
+
 // Cron (lunes, miércoles y viernes) de la Academia de Electrónica -- mismo patrón que los de arriba (CRON_SECRET, sin sesión).
 function esElectronicaEnviarPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'electronica-enviar';
@@ -222,6 +227,7 @@ export default async function middleware(req) {
     esWhatsappEjecutivosNotificarDiarioPublico(pathname, url.searchParams) ||
     esGoogleAdsResumenSemanalPublico(pathname, url.searchParams) ||
     esElectronicaEnviarPublico(pathname, url.searchParams) ||
+    esImagenElectronicaPublica(pathname) ||
     esModelosCompatiblesRecordatorioPublico(pathname, url.searchParams) ||
     esIndexscalePixelPublico(pathname, url.searchParams) ||
     esBuscadorIaRegistrarPublico(pathname, url.searchParams) ||

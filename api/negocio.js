@@ -91,6 +91,7 @@ import { unaVez } from '../lib/una-vez.js';
 import { armarCorreoElectronica, envioDeFecha, envioParaPrueba, hayLeccion, hoyChile as hoyChileElectronica } from '../lib/electronica-correo.js';
 import { ELECTRONICA, } from '../lib/electronica-datos.js';
 import { LECCIONES as LECCIONES_ELECTRONICA } from '../lib/electronica-lecciones.js';
+import { todosLosComponentesPorEnvio } from '../lib/electronica-componentes.js';
 
 const CORREO_ALERTA = 'nmolina@indexpro.cl';
 const RESET_PASSWORD_EXPIRA_MIN = 30; // vigencia del link de recuperación
@@ -258,7 +259,7 @@ export default async function handler(req, res) {
   if (recurso === 'colecciones-modelos-notebook') return manejarColeccionesModelosNotebook(req, res, sesion);
   if (recurso === 'identificacion-modelos') return manejarIdentificacionModelos(req, res, sesion);
   // Servicio Técnico > Electrónica: programa (36 envíos), 40 conceptos y las lecciones redactadas (lib/electronica-*.js).
-  if (recurso === 'electronica') return res.status(200).json({ ok: true, ...ELECTRONICA, lecciones: LECCIONES_ELECTRONICA });
+  if (recurso === 'electronica') return res.status(200).json({ ok: true, ...ELECTRONICA, lecciones: LECCIONES_ELECTRONICA, componentes: todosLosComponentesPorEnvio() });
   // Electrónica > Herramientas: checklist de compra de las herramientas del técnico (GET lista, POST guarda un cambio de estado, precio o nota).
   if (recurso === 'electronica-herramientas') return manejarElectronicaHerramientas(req, res, sesion);
   if (recurso === 'identificacion-modelo-foto') return manejarIdentificacionModeloFoto(req, res, sesion);
