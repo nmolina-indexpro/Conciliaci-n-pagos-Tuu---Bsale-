@@ -128,12 +128,6 @@ function esBuscadorIaRegistrarPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && ['buscador-ia-registrar', 'buscador-ia-evento', 'buscador-ia-ranking', 'buscador-ia-envio', 'buscador-ia-embudo', 'buscador-ia-filtro', 'buscador-ia-descuento', 'buscador-ia-modelos', 'wa-clic-ads', 'wa-clic-ads-cron', 'descuentos-web-aviso', 'descuentos-web-cron', 'orden-colecciones-cron', 'resumen-cambios-enviar', 'resumen-cambios-recordatorio', 'resumen-cambios-proponer', 'traspaso-stock-notificar', 'recepciones-stock-notificar', 'ventas-efectivo-notificar', 'mercadolibre-sync', 'cambio-imagen', 'bsale-webhook', 'indexscale-lead-web-registrar', 'cotizacion-web'].includes(searchParams.get('recurso'));
 }
 
-// Aviso (webhook) de pedidos de Shopify para "Pantallas a pedido": lo llama Shopify directo, sin cookie de sesión. Se exime solo ese recurso;
-// la seguridad real la hacen la clave en la URL y la firma HMAC de Shopify dentro del handler.
-function esPedidosPantallaAvisoPublico(pathname, searchParams) {
-  return pathname === '/api/negocio' && searchParams.get('recurso') === 'pedidos-pantalla-aviso';
-}
-
 // Recuperación de contraseña (ver recuperar-password.html /
 // reset-password.html y manejarAuthRecuperarPassword /
 // manejarAuthResetearPassword en api/negocio.js) -- por definición corre
@@ -231,7 +225,6 @@ export default async function middleware(req) {
     esModelosCompatiblesRecordatorioPublico(pathname, url.searchParams) ||
     esIndexscalePixelPublico(pathname, url.searchParams) ||
     esBuscadorIaRegistrarPublico(pathname, url.searchParams) ||
-    esPedidosPantallaAvisoPublico(pathname, url.searchParams) ||
     esAuthRecuperarPasswordPublico(pathname, url.searchParams) ||
     esAuthResetearPasswordPublico(pathname, url.searchParams)
   ) return; // deja pasar sin exigir sesión

@@ -1,53 +1,35 @@
 # Pantallas a pedido (Compras > Pantallas a pedido)
 
-Para modelos de pantalla de notebook que no se tienen en stock pero se pueden importar (10 a 20 días). El cliente paga un **abono** en la tienda y el pedido se
-convierte en una solicitud de compra en el ERP.
+Para modelos de pantalla de notebook que no se tienen en stock pero se pueden importar (la mayoría tarda entre 15 y 25 días). Los pedidos se **anotan a mano**
+y la lista les sigue la pista hasta entregarlos. No hay nada automático con Shopify: no hay producto de abono ni avisos de pedidos.
 
-## Cómo funciona
+## Anotar un pedido (primera pestaña)
 
-1. **Producto de abono en Shopify.** Se crea desde la página (panel «Producto de abono y avisos de Shopify», solo administrador) con el monto que se quiera
-   ($25.000, $35.000…). Queda como **borrador**, con SKU `ABONO-PANTALLA-<monto>`, sin inventario y sin envío. Hay que revisar la ficha y publicarla en Shopify.
-   Para ofrecer otro abono se crea otro producto con otro monto. Todo SKU que empiece con `ABONO-PANTALLA` cuenta como abono.
-2. **El cliente compra el abono** y escribe el modelo de su notebook (ver «Pedirle el modelo al cliente»).
-3. **El pedido llega al ERP** por un aviso (webhook) de Shopify (pedido nuevo, pagado y cancelado). Si el aviso falla, el botón «Revisar pedidos en Shopify»
-   trae los de los últimos 45 días. Es idempotente: no duplica ni pisa lo que se editó a mano.
-4. **Alerta.** Cuando el abono queda pagado, el pedido pasa a «Por comprar» y se manda **un** correo (notificación «Pantalla a pedido por comprar», se administra
-   en Usuarios > Notificaciones) y se enciende la alerta de la página. El correo no lleva montos.
-5. **Seguimiento:** Pago pendiente → Por comprar → Comprado, en camino → Recibido → Entregado (o Cancelado). Al marcar la compra se anota proveedor,
-   referencia y días; la fecha de llegada se calcula con los días estimados. Hay botón de WhatsApp con el mensaje según el estado.
+1. **Cliente:** nombre (obligatorio), WhatsApp, correo (hace falta al menos uno de los dos), comuna. Si la empresa quiere **factura**: RUT (se valida el dígito
+   verificador), razón social, giro, dirección y comuna de facturación.
+2. **Producto:** se busca en el catálogo de la tienda por SKU o modelo y se elige de la lista (muestra la foto, el SKU, el stock y el precio). Al elegirlo se
+   llenan el modelo, el SKU y la foto. Si el modelo no está en el catálogo se escribe a mano. Opcional: número de parte.
+3. **Abono:** ¿se realizó abono? Si es que sí: monto y medio (**Link de pago**, **Transferencia** o **Shopify**).
+4. **Tiempo de espera** que se le dijo al cliente, en días (botones de 15, 18, 20, 22 y 25, o cualquier número; por defecto 20). Con eso se calcula la fecha
+   prometida.
 
-## Configuración (una sola vez)
+El pedido queda **pendiente de compra**, se enciende la alerta de la página y sale un correo (notificación «Pantalla a pedido pendiente de compra»; se administra
+en Usuarios > Notificaciones y se puede apagar o cambiar de destinatarios). El correo no lleva montos.
 
-- Registrar los avisos: botón «Registrar avisos de pedidos» (crea los avisos `ORDERS_CREATE`, `ORDERS_PAID` y `ORDERS_CANCELLED` hacia
-  `https://erp.indexstore.cl/api/negocio?recurso=pedidos-pantalla-aviso&k=…`). La app de Shopify necesita el permiso `read_orders`. Cada aviso se valida con la
-  clave de la URL y con la firma HMAC de Shopify (`SHOPIFY_CLIENT_SECRET`); un aviso sin firma válida se rechaza.
-- Dar acceso a la página en Usuarios > Perfiles (aparece como «Pantallas a pedido», grupo Compras).
+## Lista de pedidos (segunda pestaña)
 
-## Pedirle el modelo al cliente
+Estados: **Pendiente de compra → Comprado → En tránsito → Recibido, por entregar → Entregado** (o **Cancelado**). Se puede saltar pasos y volver atrás.
+Cada fila muestra cliente (con WhatsApp y marca de factura), producto con foto, abono, la espera dicha al cliente (y si ya pasó la fecha prometida), estado y
+la compra al proveedor (proveedor, referencia, llegada estimada). «Ver / editar» abre el mismo formulario más la compra al proveedor, el historial de cambios y
+un botón de WhatsApp con el mensaje según el estado. El costo de compra solo lo ve y edita un administrador.
 
-El ERP lee el modelo de las propiedades de la línea del pedido («Modelo del notebook», «Número de parte»). Si no hay propiedades usa la nota del pedido; si no
-hay nada, el pedido queda «sin modelo» y hay que confirmarlo con el cliente (no se puede marcar la compra sin modelo).
+Al pasar a **Comprado** o **En tránsito** se anota la fecha de compra y, si no se escribió una llegada estimada, se calcula con los días dichos al cliente.
 
-Para que el cliente lo escriba al comprar, agregar en la ficha del producto de abono un bloque «Liquid personalizado» dentro del formulario de compra
-(el código también está en la página, con botón para copiarlo). Funciona en temas basados en Dawn; en otros temas hay que revisar que los campos queden dentro del
-formulario del producto:
+## Lo que no hace
 
-```liquid
-{% if product.tags contains 'abono-pantalla' %}
-<div class="abono-pantalla" style="margin:14px 0;">
-  <label for="abono-modelo"><b>Modelo de tu notebook</b> (obligatorio)</label>
-  <input id="abono-modelo" type="text" name="properties[Modelo del notebook]" required form="{{ product_form_id }}" placeholder="Ej: HP Pavilion 15-eg0010la" style="width:100%;padding:10px;margin:4px 0 10px;">
-  <label for="abono-parte">Número de parte de la pantalla (opcional)</label>
-  <input id="abono-parte" type="text" name="properties[Número de parte]" form="{{ product_form_id }}" placeholder="Ej: L12345-001" style="width:100%;padding:10px;margin-top:4px;">
-</div>
-{% endif %}
-```
-
-## Lo que no hace (por ahora)
-
-- No cobra el saldo ni descuenta el abono: el saldo se gestiona como hoy (cotización o venta en Bsale). Tampoco devuelve abonos: al cancelar, el ERP recuerda
-  gestionar la devolución en Shopify.
+- No cobra el saldo ni descuenta el abono: eso se gestiona como siempre (cotización o venta en Bsale). Al cancelar, la página recuerda gestionar la devolución del
+  abono si corresponde.
 - No crea el envío en «Productos en tránsito» ni lo cruza con la compra.
 
-Código: `lib/pedidos-pantalla.js` (lógica y base de datos), `lib/pedidos-pantalla-shopify.js` (producto, pedidos y avisos), `lib/correo-pedido-pantalla.js`
-(correo), recurso `?recurso=pedidos-pantalla` y aviso público `?recurso=pedidos-pantalla-aviso` en `api/negocio.js`. Prueba: `test-pedidos-pantalla.mjs`.
+Código: `lib/pedidos-pantalla.js` (reglas, validaciones y base de datos), `lib/pedidos-pantalla-catalogo.js` (búsqueda de productos con foto, solo lectura),
+`lib/correo-pedido-pantalla.js` (correo), recurso `?recurso=pedidos-pantalla` en `api/negocio.js`. Prueba: `test-pedidos-pantalla.mjs`.
