@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Detalle de ventas — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  @media (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:18px 20px;}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:var(--text);}
+  .card .pct{font-size:13px;font-weight:700;color:var(--primary);margin-top:2px;}
+  .card.destacada{background:var(--primary-dim);border-color:var(--primary);}
+
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-top:16px;color:var(--text);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  #syncStatus{font-size:12px;color:var(--muted);margin-top:10px;}
+  #syncStatus.err{color:var(--red);}
+
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:12px;padding:7px 13px;}
+
+  .filtros{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  input[type=text]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  th.amount, td.amount{text-align:right;}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);text-decoration:none;font-size:13px;cursor:pointer;transition:all .15s;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+  .sku-code{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);}
+  .badge-caida{display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;font-size:11px;background:var(--red-bg);color:var(--red);}
+  .chk-group{display:flex;flex-direction:column;gap:3px;}
+  .efecto-linea{font-size:11.5px;line-height:1.35;margin-bottom:6px;}
+  .efecto-linea.ok{color:var(--green);} .efecto-linea.mal{color:var(--red);} .efecto-linea.espera{color:var(--muted);} .efecto-linea.aviso{color:#8A5A00;}
+  .efecto-linea .efecto-sub{display:block;color:var(--muted);font-size:10.5px;}
+  .chk-mini{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;}
+  .chk-mini input{margin:0;cursor:pointer;}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:16px;}
+  .modal-overlay.open{display:flex;}
+  .modal-box{background:var(--surface);border-radius:16px;padding:24px 26px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:min(520px,100%);max-height:86vh;overflow-y:auto;}
+  .modal-box h3{margin:0 0 4px 0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;}
+  .comentario-item{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:12.5px;}
+  .comentario-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+  #modalComentarioNuevo{width:100%;margin-top:14px;min-height:70px;padding:10px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;}
+
+  .fp-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:0 0 18px;}
+  @media (max-width:900px){.fp-kpis{grid-template-columns:repeat(2,1fr);}}
+  .fp-panel{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;}
+  .fp-panel label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px;}
+  .fp-campos{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;}
+  .fp-campos select, .fp-campos input[type=number]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 10px;border-radius:9px;font-size:13px;}
+  .fp-campos input[type=number]{width:90px;}
+  .fp-nota{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.45;}
+  .fp-baja{color:var(--red);font-weight:700;} .fp-sube{color:var(--green);font-weight:700;}
+  .fp-prod{min-width:260px;max-width:380px;}
+  .fp-prod b{display:block;font-weight:600;}
+  td.fp-proy{background:var(--primary-dim);}
+  th.fp-proy{background:#D2EAE6;color:var(--primary-dark);}
+  .fp-resumen{font-size:12.5px;color:var(--muted);margin:6px 0 10px;}
+
+  .dv-barra{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;}
+  .dv-campo label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px;}
+  .dv-acciones{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;}
+  input[type=text],input[type=number],input[type=date],select{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 10px;border-radius:8px;font-size:13px;}
+  .dv-estado{font-size:12.5px;color:var(--muted);margin:0 0 10px;} .dv-cargando{color:var(--primary);font-weight:700;}
+  .dv-filtros{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:0 0 12px;box-shadow:var(--shadow);}
+  .dv-fgrid{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr));gap:18px;}
+  @media (max-width:1100px){.dv-fgrid{grid-template-columns:repeat(2,1fr);}}
+  .dv-filtros h4{margin:0 0 6px;font-size:12.5px;}
+  .dv-lista{max-height:170px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--surface-2);}
+  .dv-op{display:flex;gap:7px;align-items:center;font-size:12.5px;padding:2px 0;cursor:pointer;}
+  .dv-fbotones{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;}
+  .dv-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 8px;}
+  .dv-chip{background:var(--primary-dim);color:var(--primary-dark);border:1px solid var(--primary);border-radius:999px;padding:3px 10px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;}
+  .dv-aviso{background:var(--amber-dim);border:1.5px solid var(--amber);border-radius:10px;padding:10px 14px;margin:0 0 12px;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .dv-panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:0 0 14px;} .dv-panel summary{cursor:pointer;}
+  .dv-progreso{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:0 0 10px;font-size:12.5px;}
+  .dv-barra-prog{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin-bottom:6px;} .dv-barra-prog i{display:block;height:100%;background:var(--primary);}
+  .dv-tabs{display:flex;gap:2px;border-bottom:1.5px solid var(--line);margin:6px 0 14px;overflow-x:auto;}
+  .dv-tabs button{background:none;border:none;border-bottom:3px solid transparent;padding:10px 16px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13px;color:var(--muted);cursor:pointer;white-space:nowrap;}
+  .dv-tabs button:hover{color:var(--text);} .dv-tabs button.activo{color:var(--primary);border-bottom-color:var(--primary);}
+  .dv-buscar{display:flex;align-items:center;gap:8px;background:var(--surface-2);border-radius:10px;padding:2px 12px;max-width:380px;margin-bottom:12px;}
+  .dv-buscar input{border:none;background:transparent;flex:1;padding:9px 0;outline:none;}
+  .dv-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;}
+  @media (max-width:1100px){.dv-kpis{grid-template-columns:repeat(2,1fr);}}
+  .dv-kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:3px;box-shadow:var(--shadow);}
+  .dv-kpi:first-child{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary);}
+  .dv-kpi span{font-size:11.5px;color:var(--primary);font-weight:700;} .dv-kpi b{font-family:'Space Grotesk',sans-serif;font-size:24px;} .dv-kpi small{font-size:11.5px;}
+  .dv-sube{color:var(--green);font-weight:700;} .dv-baja{color:var(--red);font-weight:700;} .dv-igual{color:var(--amber);font-weight:700;}
+  .dv-graficos{display:grid;grid-template-columns:1.25fr 1fr;gap:14px;margin-bottom:16px;}
+  @media (max-width:1000px){.dv-graficos{grid-template-columns:1fr;}}
+  .dv-tarjeta{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);min-width:0;}
+  .dv-tarjeta-cab{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;}
+  .dv-toggle{display:inline-flex;border:1.5px solid var(--line);border-radius:8px;overflow:hidden;} .dv-toggle button{background:var(--surface);border:none;padding:5px 11px;font-weight:700;cursor:pointer;color:var(--muted);}
+  .dv-toggle button.activo{background:var(--primary);color:#fff;}
+  .dv-svg{width:100%;height:auto;display:block;} .dv-grid{stroke:var(--line);stroke-width:1;} .dv-eje{font-size:10.5px;fill:var(--muted);}
+  rect.dv-barra-s{fill:var(--primary);opacity:.88;} rect.dv-barra-s:hover{opacity:1;}
+  .dv-linea{stroke:var(--amber);stroke-width:2;stroke-dasharray:4 3;} .dv-punto{fill:var(--amber);}
+  .dv-leyenda{display:flex;gap:16px;font-size:11.5px;color:var(--muted);margin-top:4px;flex-wrap:wrap;}
+  i.dv-barra-s{display:inline-block;width:11px;height:11px;border-radius:2px;background:var(--primary);vertical-align:-1px;}
+  i.dv-linea-l{display:inline-block;width:16px;border-top:2px dashed var(--amber);vertical-align:3px;}
+  .dv-fila-top{display:grid;grid-template-columns:minmax(120px,38%) 1fr auto;gap:8px;align-items:center;font-size:12px;padding:3px 0;}
+  .dv-nombre-top{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right;}
+  .dv-pista{background:var(--surface-2);border-radius:4px;height:12px;overflow:hidden;} .dv-pista i{display:block;height:100%;background:#6366f1;border-radius:4px;}
+  .dv-valor-top{font-family:'IBM Plex Mono',monospace;font-size:11.5px;min-width:78px;} .dv-otros{color:var(--muted);}
+  .dv-resumen{font-size:12.5px;color:var(--muted);margin:0 0 8px;}
+  .dv-enlace{background:none;border:none;padding:0;font:inherit;font-weight:600;color:var(--text);text-align:left;cursor:pointer;} .dv-enlace:hover{color:var(--primary);text-decoration:underline;}
+  td.dv-calor{background:rgba(15,118,110,calc(var(--i) * 0.28));}
+  tfoot td{border-top:2px solid var(--line);background:var(--surface-2);}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+          <a href="contabilidad.html">Contabilidad</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
+          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+          <a href="pedidos-pantallas.html">Pantallas a pedido</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="detalle-ventas.html" class="active">Detalle de ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html">Modelos compatibles</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="soporte-indexpro.html">IndexPro</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+          <a href="electronica.html">Electrónica</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="frecuencia-precio.html">Frecuencia y precio</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="search-console.html">Search Console</a>
+          <a href="instagram.html">Instagram</a>
+          <a href="comparativo-ventas.html">Comparativo de ventas</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>📊 Detalle de ventas</h1>
+  <div class="sub">Las ventas de Bsale por producto, vendedor, sucursal, marca y tipo de producto, con comparación contra el período anterior o contra el mismo período del año pasado. <b>Venta total</b> lleva IVA; el margen se calcula sobre el neto. No descuenta notas de crédito.</div>
+
+  <div class="dv-barra">
+    <div class="dv-campo"><label for="dvPreset">Período</label>
+      <select id="dvPreset" onchange="cambiarPreset(this.value)"></select></div>
+    <div class="dv-campo" id="dvCustom" style="display:none;"><label for="dvDesde">Desde / hasta</label>
+      <span><input type="date" id="dvDesde" onchange="cambiarFechas()"> <input type="date" id="dvHasta" onchange="cambiarFechas()"></span></div>
+    <div class="dv-campo"><label for="dvComparar">Comparar con</label>
+      <select id="dvComparar" onchange="cambiarComparar(this.value)">
+        <option value="anterior">Período anterior</option>
+        <option value="anio">Mismo período del año anterior</option>
+        <option value="ninguna">Sin comparación</option>
+      </select></div>
+    <div class="dv-acciones">
+      <button class="btn-ghost" id="btnFiltros" onclick="alternarFiltros()">⚙️ Filtros</button>
+      <button class="btn-ghost btn-exportar" onclick="exportarCsv()">⬇ Exportar CSV</button>
+    </div>
+  </div>
+  <div class="dv-estado" id="dvEstado"></div>
+
+  <div class="dv-filtros" id="dvFiltros" style="display:none;">
+    <div class="dv-fgrid">
+      <div><h4>Tipo de venta</h4>
+        <label class="dv-op"><input type="radio" name="fTipoVenta" value="" checked> Todas</label>
+        <label class="dv-op"><input type="radio" name="fTipoVenta" value="online"> Online <span class="sub" style="margin:0;">(Venta web)</span></label>
+        <label class="dv-op"><input type="radio" name="fTipoVenta" value="directa"> Directa</label>
+        <h4 style="margin-top:14px;">Canal digital</h4>
+        <label class="dv-op"><input type="checkbox" id="fMl"> Mercado Libre</label></div>
+      <div><h4>Sucursal</h4><div class="dv-lista" id="fSucursales"></div></div>
+      <div><h4>Vendedor</h4><div class="dv-lista" id="fVendedores"></div></div>
+      <div><h4>Marca</h4><div class="dv-lista" id="fMarcas"></div></div>
+      <div><h4>Tipo de producto</h4><div class="dv-lista" id="fTipos"></div></div>
+    </div>
+    <div class="dv-fbotones"><button class="btn-ghost" onclick="restablecerFiltros()">↺ Restablecer filtros</button> <button class="btn-primary" onclick="aplicarFiltros()">Filtrar</button></div>
+  </div>
+  <div class="dv-chips" id="dvChips"></div>
+  <div id="dvAviso"></div>
+
+  <details class="dv-panel" id="dvDatos">
+    <summary><b>🗂️ Datos desde Bsale</b> <span class="sub" style="margin:0;" id="dvDatosResumen"></span></summary>
+    <div id="dvDatosCuerpo"></div>
+  </details>
+
+  <div class="dv-tabs" id="dvTabs"></div>
+  <div class="dv-buscar"><span>🔍</span><input type="text" id="dvBuscar" placeholder="Buscar producto por nombre o SKU…" oninput="buscarProducto(this.value)"></div>
+  <div class="dv-kpis" id="dvKpis"></div>
+
+  <div id="dvVistaNormal">
+    <div class="dv-graficos">
+      <div class="dv-tarjeta">
+        <div class="dv-tarjeta-cab"><b id="dvTituloEvolucion">Evolución de la venta total</b>
+          <select id="dvGran" onchange="cambiarGran(this.value)"><option value="auto">Según el período</option><option value="dia">Por día</option><option value="semana">Por semana</option><option value="mes">Por mes</option></select></div>
+        <div id="dvEvolucion"></div>
+      </div>
+      <div class="dv-tarjeta">
+        <div class="dv-tarjeta-cab"><b id="dvTituloTop">Top 10</b>
+          <span class="dv-toggle"><button id="btnModoValor" class="activo" onclick="cambiarModoGrafico('valor')" title="Ver en pesos">$</button><button id="btnModoPct" onclick="cambiarModoGrafico('pct')" title="Ver como porcentaje del total">%</button></span></div>
+        <div class="sub" id="dvSubTop" style="margin:2px 0 8px;"></div>
+        <div id="dvTop"></div>
+      </div>
+    </div>
+    <div class="dv-resumen" id="dvResumenTabla"></div>
+    <div class="tabla-wrap" id="dvTabla"><p class="empty-note">Cargando…</p></div>
+  </div>
+
+  <div id="dvVistaMensual" style="display:none;">
+    <div class="dv-barra" style="margin-top:6px;">
+      <div class="dv-campo"><label for="mDim">Ver por</label><select id="mDim" onchange="cambiarMensual()">
+        <option value="producto">Producto o servicio</option><option value="vendedor">Vendedor</option><option value="sucursal">Sucursal</option><option value="marca">Marca</option><option value="tipo">Tipo de producto</option></select></div>
+      <div class="dv-campo"><label for="mMetrica">Mostrar</label><select id="mMetrica" onchange="cambiarMensual()">
+        <option value="venta">Venta total (con IVA)</option><option value="cant">Unidades</option></select></div>
+      <div class="dv-campo"><label for="mMeses">Meses</label><select id="mMeses" onchange="cambiarMensual()">
+        <option value="6">Últimos 6</option><option value="12" selected>Últimos 12</option><option value="24">Últimos 24</option></select></div>
+    </div>
+    <div class="sub" id="dvMensualNota"></div>
+    <div class="tabla-wrap" id="dvMatriz"></div>
+  </div>
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="etiquetas-botones.js"></script>
+<script src="menu-herramientas.js"></script>
+<script src="detalle-ventas-calculo.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const TABS = [['producto', 'Productos y servicios'], ['vendedor', 'Vendedores'], ['sucursal', 'Sucursales'], ['marca', 'Marcas'], ['tipo', 'Tipos de productos'], ['mensual', 'Comparativo mensual']];
+const NOMBRE_DIM = { producto: 'Producto o servicio', vendedor: 'Vendedor', sucursal: 'Sucursal', marca: 'Marca', tipo: 'Tipo de producto' };
+const TITULO_TOP = { producto: 'productos y servicios', vendedor: 'vendedores', sucursal: 'sucursales', marca: 'marcas', tipo: 'tipos de productos' };
+const E = {
+  tab: 'producto', preset: 'mes', rango: null, comparar: 'anterior', gran: 'auto', modoGrafico: 'valor',
+  filtros: { q: '', tipoVenta: '', ml: false, sucursales: [], vendedores: [], marcas: [], tipos: [] },
+  datos: null, lineas: [], cargado: null, hoy: null, esAdmin: false, filasTabla: [], cargando: false, trayendo: null,
+  mensual: { dim: 'producto', metrica: 'venta', meses: 12 },
+};
+let rolActual = 'usuario', seqCarga = 0;
+
+function escapeHtml(t){ return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+const fmtNum = (n, d = 0) => new Intl.NumberFormat('es-CL', { maximumFractionDigits: d, minimumFractionDigits: d }).format(n || 0);
+const fmtMoneda = n => '$' + fmtNum(Math.round(n || 0));
+const fmtPct = (n, d = 1) => (n == null ? '—' : fmtNum(n, d) + '%');
+const fmtCorto = n => { const a = Math.abs(n); return (n < 0 ? '-' : '') + '$' + (a >= 1e6 ? fmtNum(a / 1e6, 1) + ' M' : a >= 1e3 ? fmtNum(a / 1e3, 0) + ' mil' : fmtNum(a)); };
+const hoyChile = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+function fechaHora(iso){ return iso ? new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'; }
+function varHtml(p, conFlecha){
+  if(p == null) return '<span class="sub" style="margin:0;">—</span>';
+  const sube = p >= 0, cls = Math.abs(p) < 0.05 ? 'dv-igual' : sube ? 'dv-sube' : 'dv-baja';
+  return `<span class="${cls}">${conFlecha ? (sube ? '▲ ' : '▼ ') : (sube ? '+' : '')}${fmtNum(p, 1)}%</span>`;
+}
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    rolActual = u.rol;
+    $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){ const nav = $('navUsuarios'); if(nav) nav.style.display = ''; }
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- período, comparación y datos necesarios ----------
+function comparacion(){ return DV.rangoComparacion(E.rango, E.comparar); }
+function rangoNecesario(){
+  const rs = [E.rango]; const c = comparacion(); if(c) rs.push(c);
+  if(E.tab === 'mensual'){ const ms = DV.ultimosMeses(E.hoy, E.mensual.meses); rs.push({ desde: ms[0] + '-01', hasta: E.hoy }); }
+  return { desde: rs.map(r => r.desde).sort()[0], hasta: rs.map(r => r.hasta).sort().slice(-1)[0] };
+}
+async function asegurarDatos(){
+  const n = rangoNecesario();
+  if(E.cargado && E.cargado.desde <= n.desde && E.cargado.hasta >= n.hasta) return true;
+  const desde = E.cargado ? (E.cargado.desde < n.desde ? E.cargado.desde : n.desde) : n.desde;
+  const hasta = E.cargado ? (E.cargado.hasta > n.hasta ? E.cargado.hasta : n.hasta) : n.hasta;
+  const mi = ++seqCarga;
+  E.cargando = true; pintarEstado();
+  try{
+    const res = await fetch('/api/negocio?recurso=ventas-detalle&desde=' + desde + '&hasta=' + hasta);
+    const d = await res.json();
+    if(mi !== seqCarga) return false;
+    if(!res.ok || d.error){ $('dvTabla').innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(d.error || 'Error') + (d.detail ? ' — ' + escapeHtml(d.detail) : '') + '</p>'; E.cargando = false; pintarEstado(); return false; }
+    E.datos = d; E.hoy = d.hoy; E.esAdmin = !!d.esAdmin; E.lineas = DV.prepararLineas(d); E.cargado = { desde: d.desde, hasta: d.hasta };
+    E.cargando = false;
+    return true;
+  }catch(err){ E.cargando = false; $('dvTabla').innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; pintarEstado(); return false; }
+}
+async function actualizar(){
+  if(!(await asegurarDatos())) return;
+  pintarTodo();
+}
+
+function cambiarPreset(id){
+  E.preset = id;
+  $('dvCustom').style.display = id === 'custom' ? '' : 'none';
+  if(id === 'custom'){ $('dvDesde').value = E.rango.desde; $('dvHasta').value = E.rango.hasta; return; }
+  E.rango = DV.presetRango(id, E.hoy); E.gran = 'auto'; $('dvGran').value = 'auto'; actualizar();
+}
+function cambiarFechas(){
+  const d = $('dvDesde').value, h = $('dvHasta').value;
+  if(!d || !h || d > h) return;
+  if(DV.diasEntre(d, h) > 800){ alert('Elige un período de hasta unos 2 años.'); return; }
+  E.rango = { desde: d, hasta: h }; E.gran = 'auto'; $('dvGran').value = 'auto'; actualizar();
+}
+function cambiarComparar(v){ E.comparar = v; actualizar(); }
+function cambiarGran(v){ E.gran = v; pintarGraficos(datosActuales()); }
+function cambiarModoGrafico(m){ E.modoGrafico = m; $('btnModoValor').classList.toggle('activo', m === 'valor'); $('btnModoPct').classList.toggle('activo', m === 'pct'); pintarGraficos(datosActuales()); }
+function seleccionarTab(t){ E.tab = t; actualizar(); }
+function cambiarMensual(){ E.mensual = { dim: $('mDim').value, metrica: $('mMetrica').value, meses: Number($('mMeses').value) }; actualizar(); }
+let temporizadorBusqueda = null;
+function buscarProducto(v){ E.filtros.q = v; clearTimeout(temporizadorBusqueda); temporizadorBusqueda = setTimeout(() => { if(E.datos) pintarTodo(); }, 200); }
+
+// ---------- filtros ----------
+function alternarFiltros(){
+  const el = $('dvFiltros'); const abrir = el.style.display === 'none';
+  el.style.display = abrir ? '' : 'none';
+  if(abrir) pintarOpcionesFiltros();
+}
+function opcionesDe(campo){
+  const m = new Map();
+  for(const l of E.lineas){ const v = campo(l); m.set(v, (m.get(v) || 0) + l.neto); }
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0]);
+}
+function pintarLista(id, valores, marcados, clave){
+  $(id).innerHTML = valores.length ? valores.map((v, i) => `<label class="dv-op"><input type="checkbox" data-f="${clave}" value="${escapeHtml(v)}" ${marcados.includes(v) ? 'checked' : ''}> ${escapeHtml(v)}</label>`).join('') : '<span class="sub" style="margin:0;">Sin datos</span>';
+}
+function pintarOpcionesFiltros(){
+  pintarLista('fSucursales', opcionesDe(l => l.suc), E.filtros.sucursales, 'sucursales');
+  pintarLista('fVendedores', opcionesDe(l => l.vend), E.filtros.vendedores, 'vendedores');
+  pintarLista('fMarcas', opcionesDe(l => l.sku.marca), E.filtros.marcas, 'marcas');
+  pintarLista('fTipos', opcionesDe(l => l.sku.tipo), E.filtros.tipos, 'tipos');
+  document.querySelectorAll('input[name=fTipoVenta]').forEach(r => { r.checked = r.value === E.filtros.tipoVenta; });
+  $('fMl').checked = E.filtros.ml;
+}
+function aplicarFiltros(){
+  const marcados = clave => [...document.querySelectorAll(`input[data-f="${clave}"]:checked`)].map(i => i.value);
+  const tv = document.querySelector('input[name=fTipoVenta]:checked');
+  E.filtros = { ...E.filtros, tipoVenta: tv ? tv.value : '', ml: $('fMl').checked, sucursales: marcados('sucursales'), vendedores: marcados('vendedores'), marcas: marcados('marcas'), tipos: marcados('tipos') };
+  $('dvFiltros').style.display = 'none';
+  pintarTodo();
+}
+function restablecerFiltros(){
+  E.filtros = { q: '', tipoVenta: '', ml: false, sucursales: [], vendedores: [], marcas: [], tipos: [] };
+  $('dvBuscar').value = '';
+  pintarOpcionesFiltros(); pintarTodo();
+}
+function quitarFiltro(clave, valor){
+  if(['sucursales', 'vendedores', 'marcas', 'tipos'].includes(clave)) E.filtros[clave] = E.filtros[clave].filter(x => x !== valor);
+  else if(clave === 'q'){ E.filtros.q = ''; $('dvBuscar').value = ''; }
+  else if(clave === 'tipoVenta') E.filtros.tipoVenta = '';
+  else if(clave === 'ml') E.filtros.ml = false;
+  if($('dvFiltros').style.display !== 'none') pintarOpcionesFiltros();
+  pintarTodo();
+}
+function pintarChips(){
+  const f = E.filtros, chips = [];
+  const chip = (t, clave, valor) => chips.push(`<button class="dv-chip" data-quitar="${clave}" data-valor="${escapeHtml(valor ?? '')}" title="Quitar este filtro">${escapeHtml(t)} ✕</button>`);
+  if(f.q) chip('Búsqueda: ' + f.q, 'q');
+  if(f.tipoVenta) chip('Venta ' + (f.tipoVenta === 'online' ? 'online' : 'directa'), 'tipoVenta');
+  if(f.ml) chip('Mercado Libre', 'ml');
+  [['sucursales', 'Sucursal'], ['vendedores', 'Vendedor'], ['marcas', 'Marca'], ['tipos', 'Tipo']].forEach(([c, n]) => f[c].forEach(v => chip(n + ': ' + v, c, v)));
+  $('dvChips').innerHTML = chips.length ? '<span class="sub" style="margin:0 6px 0 0;">Filtros:</span>' + chips.join('') : '';
+  const n = chips.length; $('btnFiltros').textContent = '⚙️ Filtros' + (n ? ` (${n})` : '');
+}
+$('dvChips').addEventListener('click', ev => { const b = ev.target.closest('[data-quitar]'); if(b) quitarFiltro(b.dataset.quitar, b.dataset.valor); });
+
+// Hacer clic en una fila de la tabla filtra por ese elemento y pasa a Productos y servicios.
+function filtrarPorFila(i){
+  const fila = E.filasTabla[i]; if(!fila) return;
+  if(E.tab === 'producto'){ E.filtros.q = fila.clave; $('dvBuscar').value = fila.clave; }
+  else{ const campo = { vendedor: 'vendedores', sucursal: 'sucursales', marca: 'marcas', tipo: 'tipos' }[E.tab]; if(!E.filtros[campo].includes(fila.clave)) E.filtros[campo] = [...E.filtros[campo], fila.clave]; E.tab = 'producto'; }
+  pintarTodo();
+}
+
+// ---------- cálculos de la vista actual ----------
+function datosActuales(){
+  const base = DV.filtrar(E.lineas, E.filtros);
+  const r = E.rango, c = comparacion();
+  const actual = base.filter(l => DV.enRango(l, r));
+  const previa = c ? base.filter(l => DV.enRango(l, c)) : null;
+  return { base, actual, previa, c };
+}
+
+function pintarTodo(){
+  if(!E.datos) return;
+  const d = datosActuales();
+  pintarEstado(); pintarChips(); pintarTabs(); pintarAviso(); pintarDatos();
+  pintarKpis(d);
+  const mensual = E.tab === 'mensual';
+  $('dvVistaNormal').style.display = mensual ? 'none' : '';
+  $('dvVistaMensual').style.display = mensual ? '' : 'none';
+  $('dvBuscar').parentElement.style.display = '';
+  if(mensual) pintarMensual(d); else { pintarGraficos(d); pintarTabla(d); }
+}
+
+function pintarEstado(){
+  const c = comparacion();
+  const meses = E.datos ? DV.ultimosMeses(E.hoy, 1) : [];
+  const ult = E.datos ? Object.values(E.datos.estado).map(x => x.actualizadoEn).filter(Boolean).sort().slice(-1)[0] : null;
+  $('dvEstado').innerHTML = (E.cargando ? '<span class="dv-cargando">Cargando…</span> ' : '') +
+    (E.rango ? `Período: <b>${escapeHtml(DV.etiquetaRango(E.rango))}</b>${c ? ` · comparado con <b>${escapeHtml(DV.etiquetaRango(c))}</b>` : ''}` : '') +
+    (ult ? ` · Última lectura desde Bsale: <b>${escapeHtml(fechaHora(ult))}</b>` : '');
+}
+function pintarTabs(){
+  $('dvTabs').innerHTML = TABS.map(([id, nombre]) => `<button class="${E.tab === id ? 'activo' : ''}" onclick="seleccionarTab('${id}')">${nombre}</button>`).join('');
+}
+
+// Meses del período que todavía no se han leído de Bsale
+function mesesFaltantes(){
+  if(!E.datos) return [];
+  const rs = [E.rango]; const c = comparacion(); if(c) rs.push(c);
+  const meses = new Set();
+  rs.forEach(r => { for(let m = DV.primeroDelMes(r.desde); m <= r.hasta; m = DV.sumarMeses(m, 1)) meses.add(m.slice(0, 7)); });
+  if(E.tab === 'mensual') DV.ultimosMeses(E.hoy, E.mensual.meses).forEach(m => meses.add(m));
+  return [...meses].sort().filter(m => { const e = E.datos.estado[m]; return !e || !e.completo; });
+}
+function pintarAviso(){
+  const f = mesesFaltantes();
+  $('dvAviso').innerHTML = f.length
+    ? `<div class="dv-aviso">⚠️ Faltan datos de <b>${f.map(m => escapeHtml(DV.mesNombre(m))).join(', ')}</b>: los números de esos meses están incompletos. ${E.esAdmin ? '<button class="btn-primary btn-compact" onclick="traerMeses(mesesFaltantes())">Traerlos desde Bsale</button>' : 'Pídele a un administrador que los traiga desde Bsale.'}</div>`
+    : '';
+}
+
+// ---------- KPIs ----------
+function pintarKpis(d){
+  const t = DV.totales(d.actual), b = d.previa ? DV.totales(d.previa) : null;
+  const tarjeta = (titulo, valor, actual, base, sub, tipo) => {
+    const v = b ? DV.variacion(actual, base) : null;
+    return `<div class="dv-kpi"><span>${titulo}</span><b>${valor}</b>${b ? `<small>${varHtml(v, true)} <span class="sub" style="margin:0;">vs ${tipo === 'pct' ? fmtPct(base, 1) : tipo === 'num' ? fmtNum(base) : fmtMoneda(base)}</span></small>` : '<small>&nbsp;</small>'}${sub ? `<small class="sub" style="margin:0;">${sub}</small>` : ''}</div>`;
+  };
+  let h = tarjeta('Ventas totales', fmtMoneda(t.venta), t.venta, b && b.venta, '', 'mon');
+  if(E.esAdmin){
+    const dif = b && t.margenPct != null && b.margenPct != null ? t.margenPct - b.margenPct : null;
+    h += `<div class="dv-kpi"><span>Margen</span><b>${fmtPct(t.margenPct, 2)}</b>${b && dif != null ? `<small>${dif >= 0 ? '<span class="dv-sube">▲ ' : '<span class="dv-baja">▼ '}${fmtNum(Math.abs(dif), 1)} pts</span> <span class="sub" style="margin:0;">vs ${fmtPct(b.margenPct, 2)}</span></small>` : '<small>&nbsp;</small>'}<small class="sub" style="margin:0;">${t.margen != null ? fmtMoneda(t.margen) + ' · ' : ''}costo conocido en ${fmtPct(t.cobertura, 0)} de la venta</small></div>`;
+  }
+  h += tarjeta('Unidades vendidas', fmtNum(t.cant), t.cant, b && b.cant, '', 'num');
+  h += tarjeta('N° de ventas', fmtNum(t.ventas), t.ventas, b && b.ventas, '', 'num');
+  h += tarjeta('Ticket promedio', t.ticket != null ? fmtMoneda(t.ticket) : '—', t.ticket || 0, b && b.ticket, '', 'mon');
+  $('dvKpis').innerHTML = h;
+}
+
+// ---------- gráficos ----------
+function pintarGraficos(d){
+  const r = E.rango, c = d.c;
+  const gran = E.gran === 'auto' ? DV.granularidadSugerida(r) : E.gran;
+  const s = DV.serie(d.base, r, gran), sc = c ? DV.serie(d.base, c, gran) : null;
+  $('dvTituloEvolucion').textContent = 'Evolución de la venta total · ' + ({ dia: 'por día', semana: 'por semana', mes: 'por mes' })[gran];
+  const W = 640, H = 230, pl = 54, pr = 10, pt = 12, pb = 28;
+  const max = Math.max(1, ...s.map(x => x.venta), ...(sc ? sc.map(x => x.venta) : [0]));
+  const paso = (() => { const e = Math.pow(10, Math.floor(Math.log10(max))); const f = max / e; return (f <= 1.2 ? 0.25 : f <= 2.5 ? 0.5 : f <= 5 ? 1 : 2) * e; })();
+  const tope = Math.ceil(max / paso) * paso;
+  const x0 = i => pl + (i + 0.5) * ((W - pl - pr) / s.length), ancho = Math.max(2, Math.min(34, ((W - pl - pr) / s.length) * 0.7));
+  const y = v => pt + (H - pt - pb) * (1 - v / tope);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="dv-svg" role="img" aria-label="Evolución de la venta total">`;
+  for(let v = 0; v <= tope + 1; v += paso) svg += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" class="dv-grid"/><text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end" class="dv-eje">${fmtCorto(v)}</text>`;
+  s.forEach((p, i) => { const cmp = sc && sc[i] ? sc[i] : null; svg += `<rect x="${x0(i) - ancho / 2}" y="${y(p.venta)}" width="${ancho}" height="${Math.max(0, y(0) - y(p.venta))}" class="dv-barra-s" rx="2"><title>${escapeHtml(p.etiqueta)}: ${fmtMoneda(p.venta)}${cmp ? ' · comparación: ' + fmtMoneda(cmp.venta) : ''}</title></rect>`; });
+  const cada = Math.ceil(s.length / 12);
+  s.forEach((p, i) => { if(i % cada === 0) svg += `<text x="${x0(i)}" y="${H - 8}" text-anchor="middle" class="dv-eje">${escapeHtml(p.etiqueta)}</text>`; });
+  if(sc && sc.length){ svg += `<polyline fill="none" class="dv-linea" points="${sc.slice(0, s.length).map((p, i) => x0(i) + ',' + y(p.venta)).join(' ')}"/>`; sc.slice(0, s.length).forEach((p, i) => { svg += `<circle cx="${x0(i)}" cy="${y(p.venta)}" r="2.5" class="dv-punto"><title>${escapeHtml(p.etiqueta)} (comparación): ${fmtMoneda(p.venta)}</title></circle>`; }); }
+  svg += '</svg>';
+  $('dvEvolucion').innerHTML = svg + `<div class="dv-leyenda"><span><i class="dv-barra-s"></i> ${escapeHtml(DV.etiquetaRango(r))}</span>${c ? `<span><i class="dv-linea-l"></i> ${escapeHtml(DV.etiquetaRango(c))}</span>` : ''}</div>`;
+  pintarTop(d);
+}
+function pintarTop(d){
+  const dim = E.tab;
+  const filas = DV.agrupar(d.actual, dim);
+  const { top, otros } = DV.topN(filas, 10);
+  const total = filas.reduce((s, x) => s + x.venta, 0);
+  $('dvTituloTop').textContent = 'Top 10 ' + TITULO_TOP[dim];
+  const cubierto = total > 0 ? top.reduce((s, x) => s + x.venta, 0) / total * 100 : 0;
+  $('dvSubTop').textContent = total > 0 ? fmtNum(cubierto, 1) + '% de las ventas totales' : '';
+  if(!top.length){ $('dvTop').innerHTML = '<p class="empty-note">No hay ventas con estos filtros.</p>'; return; }
+  const max = top[0].venta;
+  $('dvTop').innerHTML = top.map(f => `<div class="dv-fila-top"><span class="dv-nombre-top" title="${escapeHtml(f.nombre)}">${escapeHtml(f.nombre)}</span><span class="dv-pista"><i style="width:${Math.max(0.5, f.venta / max * 100)}%"></i></span><span class="dv-valor-top">${E.modoGrafico === 'pct' ? fmtPct(f.participacion, 1) : fmtMoneda(f.venta)}</span></div>`).join('') +
+    (otros ? `<div class="dv-fila-top dv-otros"><span class="dv-nombre-top">${escapeHtml(otros.nombre)}</span><span class="dv-pista"></span><span class="dv-valor-top">${E.modoGrafico === 'pct' ? fmtPct(total > 0 ? otros.venta / total * 100 : 0, 1) : fmtMoneda(otros.venta)}</span></div>` : '');
+}
+
+// ---------- tabla ----------
+function columnasTabla(){
+  const dim = E.tab, hayComp = !!comparacion(), adm = E.esAdmin;
+  const cols = [
+    { titulo: NOMBRE_DIM[dim], valor: f => f.nombre, html: (f, i) => `<td data-valor="${escapeHtml(f.nombre)}"><button class="dv-enlace" data-fila="${i}" title="Filtrar por este elemento">${escapeHtml(f.nombre)}</button>${dim === 'producto' ? '<br><span class="sub" style="margin:0;">' + escapeHtml(f.clave) + '</span>' : ''}</td>` },
+    { titulo: 'Cantidad', valor: f => f.cant, html: f => `<td class="amount" data-valor="${f.cant}">${fmtNum(f.cant)}</td>` },
+  ];
+  if(dim !== 'producto') cols.push({ titulo: 'N° de ventas', valor: f => f.ventas, html: f => `<td class="amount" data-valor="${f.ventas}">${fmtNum(f.ventas)}</td>` });
+  cols.push({ titulo: 'Venta total', valor: f => Math.round(f.venta), html: f => `<td class="amount" data-valor="${f.venta}"><b>${fmtMoneda(f.venta)}</b></td>` });
+  cols.push({ titulo: 'Participación', valor: f => fmtNum(f.participacion, 1) + '%', html: f => `<td class="amount" data-valor="${f.participacion}">${fmtPct(f.participacion, 1)}</td>` });
+  if(adm){
+    cols.push({ titulo: 'Margen %', valor: f => f.margenPct == null ? '' : fmtNum(f.margenPct, 2) + '%', html: f => `<td class="amount" data-valor="${f.margenPct ?? ''}" title="Cobertura del costo: ${fmtPct(f.cobertura, 0)} de la venta">${fmtPct(f.margenPct, 2)}</td>` });
+    cols.push({ titulo: 'Margen', valor: f => f.margen == null ? '' : Math.round(f.margen), html: f => `<td class="amount" data-valor="${f.margen ?? ''}">${f.margen == null ? '—' : fmtMoneda(f.margen)}</td>` });
+  }
+  if(hayComp){
+    cols.push({ titulo: 'Venta en la comparación', valor: f => f.base ? Math.round(f.base.venta) : 0, html: f => `<td class="amount" data-valor="${f.base ? f.base.venta : 0}">${f.base ? fmtMoneda(f.base.venta) : '<span class="sub" style="margin:0;">sin ventas</span>'}</td>` });
+    cols.push({ titulo: 'Diferencia $', valor: f => Math.round(f.difVenta), html: f => `<td class="amount" data-valor="${f.difVenta}"><span class="${f.difVenta >= 0 ? 'dv-sube' : 'dv-baja'}">${f.difVenta >= 0 ? '+' : '-'}${fmtMoneda(Math.abs(f.difVenta))}</span></td>` });
+    cols.push({ titulo: 'Variación %', valor: f => f.varPct == null ? '' : fmtNum(f.varPct, 1) + '%', html: f => `<td class="amount" data-valor="${f.varPct ?? -1e9}">${f.varPct == null ? '<span class="sub" style="margin:0;">nuevo</span>' : varHtml(f.varPct, true)}</td>` });
+  }
+  return cols;
+}
+function pintarTabla(d){
+  const dim = E.tab;
+  let filas = DV.agrupar(d.actual, dim);
+  if(d.previa){
+    // las filas que vendían antes y ahora no también cuentan en la comparación
+    const antes = DV.agrupar(d.previa, dim);
+    const claves = new Set(filas.map(f => f.clave));
+    const perdidas = antes.filter(f => !claves.has(f.clave)).map(f => ({ clave: f.clave, nombre: f.nombre, cant: 0, neto: 0, venta: 0, ventas: 0, ticket: null, margen: null, margenPct: null, cobertura: null, participacion: 0, productos: 0 }));
+    filas = DV.conComparacion([...filas, ...perdidas], antes);
+  }
+  E.filasTabla = filas;
+  const t = DV.totales(d.actual);
+  $('dvResumenTabla').textContent = `${fmtNum(filas.length)} ${filas.length === 1 ? 'elemento' : 'elementos'} · ${fmtNum(t.cant)} unidades · ${fmtMoneda(t.venta)} en ventas`;
+  if(!filas.length){ $('dvTabla').innerHTML = '<p class="empty-note">No hay ventas en este período con los filtros elegidos.</p>'; return; }
+  const cols = columnasTabla();
+  $('dvTabla').innerHTML = '<table id="tablaDetalle"><thead><tr>' + cols.map((c, i) => `<th${i ? ' class="amount"' : ''}>${c.titulo}</th>`).join('') + '</tr></thead><tbody>' +
+    filas.map((f, i) => '<tr>' + cols.map(c => c.html(f, i)).join('') + '</tr>').join('') + '</tbody></table>';
+}
+$('dvTabla').addEventListener('click', ev => { const b = ev.target.closest('[data-fila]'); if(b) filtrarPorFila(Number(b.dataset.fila)); });
+
+function exportarCsv(){
+  if(!E.datos) return;
+  const nombre = 'detalle-ventas-' + E.tab + '-' + E.rango.desde + '_' + E.rango.hasta + '.csv';
+  let texto;
+  if(E.tab === 'mensual'){ const m = E.matriz; if(!m) return; texto = DV.aCsv(m.filas, [{ titulo: NOMBRE_DIM[E.mensual.dim], valor: f => f.nombre }, ...m.meses.map((mes, i) => ({ titulo: DV.mesNombre(mes), valor: f => Math.round(f.valores[i]) })), { titulo: 'Total', valor: f => Math.round(f.total) }]); }
+  else texto = DV.aCsv(E.filasTabla, columnasTabla().map(c => ({ titulo: c.titulo, valor: c.valor })));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + texto], { type: 'text/csv;charset=utf-8' })); a.download = nombre; a.click(); URL.revokeObjectURL(a.href);
+}
+
+// ---------- comparativo mensual ----------
+function pintarMensual(d){
+  const ms = DV.ultimosMeses(E.hoy, E.mensual.meses);
+  const matriz = DV.matrizMensual(d.base, E.mensual.dim, E.mensual.metrica, ms, 15, E.hoy);
+  E.matriz = matriz;
+  const fmt = v => (E.mensual.metrica === 'cant' ? fmtNum(v) : fmtMoneda(v));
+  $('dvMensualNota').textContent = `Los últimos ${ms.length} meses` + (matriz.parcial ? ` (el último es el mes en curso: llega hasta hoy, y se compara con el mes anterior solo hasta el día ${Number(matriz.hastaDia)})` : '') + '. Se aplican los filtros de arriba. Muestra los 15 elementos que más vendieron en total; el resto va en "Otros".';
+  if(!matriz.filas.length){ $('dvMatriz').innerHTML = '<p class="empty-note">No hay ventas en estos meses con los filtros elegidos.</p>'; return; }
+  const max = Math.max(1, ...matriz.filas.flatMap(f => f.valores));
+  $('dvMatriz').innerHTML = '<table id="tablaMensual"><thead><tr><th>' + NOMBRE_DIM[E.mensual.dim] + '</th>' + ms.map((m, i) => `<th class="amount">${escapeHtml(DV.mesCorto(m))}${matriz.parcial && i === ms.length - 1 ? ' (a hoy)' : ''}</th>`).join('') + '<th class="amount">Total</th><th class="amount" title="' + (matriz.parcial ? 'El mes en curso contra el mes anterior hasta el mismo día' : 'El último mes contra el anterior') + '">Último mes vs anterior' + (matriz.parcial ? ' (mismo día)' : '') + '</th></tr></thead><tbody>' +
+    matriz.filas.map(f => `<tr><td data-valor="${escapeHtml(f.nombre)}"><b>${escapeHtml(f.nombre)}</b></td>` + f.valores.map(v => `<td class="amount dv-calor" data-valor="${v}" style="--i:${(v / max).toFixed(3)}">${v ? fmt(v) : '<span class="sub" style="margin:0;">·</span>'}</td>`).join('') + `<td class="amount" data-valor="${f.total}"><b>${fmt(f.total)}</b></td><td class="amount" data-valor="${f.var ?? -1e9}">${varHtml(f.var, true)}</td></tr>`).join('') +
+    `</tbody><tfoot><tr><td><b>Total</b></td>${matriz.totales.map(v => `<td class="amount"><b>${fmt(v)}</b></td>`).join('')}<td class="amount"><b>${fmt(matriz.totalGeneral)}</b></td><td class="amount">${varHtml(matriz.varUltimo, true)}</td></tr></tfoot></table>`;
+}
+
+// ---------- datos desde Bsale ----------
+function pintarDatos(){
+  const ests = E.datos.estado, hace12 = DV.ultimosMeses(E.hoy, 13);
+  const completos = hace12.filter(m => ests[m] && ests[m].completo).length;
+  $('dvDatosResumen').textContent = `— ${completos} de ${hace12.length} meses leídos`;
+  if($('dvDatos').dataset.trayendo === '1') return; // no se repinta mientras se está leyendo
+  const filas = hace12.slice().reverse().map(m => { const e = ests[m] || {}; return `<tr><td>${escapeHtml(DV.mesNombre(m))}</td><td>${e.completo ? '<span class="dv-sube">✔ leído</span>' : e.hecho ? '<span class="dv-igual">⏳ a medias</span>' : '<span class="sub" style="margin:0;">sin leer</span>'}</td><td class="amount">${e.documentos ? fmtNum(e.documentos) : '—'}</td><td>${escapeHtml(fechaHora(e.actualizadoEn))}</td>${E.esAdmin ? `<td><button class="btn-ghost btn-compact" onclick="traerMeses(['${m}'], true)">${e.completo ? 'Volver a leer' : 'Leer'}</button></td>` : ''}</tr>`; }).join('');
+  $('dvDatosCuerpo').innerHTML = `<div class="sub" style="margin:8px 0;">Cada mes se lee de Bsale una vez y queda guardado; el mes en curso conviene actualizarlo cuando quieras cifras al día. ${E.esAdmin ? '' : 'Solo un administrador puede traer meses desde Bsale.'}</div>
+    ${E.esAdmin ? `<div class="dv-fbotones" style="justify-content:flex-start;margin:0 0 8px;"><button class="btn-primary" onclick="traerMeses(['${E.hoy.slice(0, 7)}'], true)">🔄 Actualizar este mes</button><button class="btn-ghost" onclick="traerMeses(${escapeHtml(JSON.stringify(hace12.filter(m => !(ests[m] && ests[m].completo))))})">Traer los meses que faltan (últimos 13)</button></div>` : ''}
+    <div id="dvProgreso" class="dv-progreso" style="display:none;"></div>
+    <div class="tabla-wrap"><table><thead><tr><th>Mes</th><th>Estado</th><th class="amount">Documentos</th><th>Última lectura</th>${E.esAdmin ? '<th data-sin-orden></th>' : ''}</tr></thead><tbody>${filas}</tbody></table></div>`;
+}
+async function traerMeses(meses, refrescar){
+  if(!meses || !meses.length || E.trayendo) return;
+  E.trayendo = true; $('dvDatos').open = true; $('dvDatos').dataset.trayendo = '1';
+  let prog = $('dvProgreso'); if(!prog){ pintarDatos(); prog = $('dvProgreso'); }
+  const mostrar = t => { prog.style.display = ''; prog.innerHTML = t; };
+  const orden = meses.slice().sort().reverse(); // lo más reciente primero
+  let error = null;
+  for(let i = 0; i < orden.length && !error; i++){
+    const mes = orden[i]; let primera = true, completo = false, vueltas = 0;
+    while(!completo && !error && vueltas < 60){
+      vueltas++;
+      try{
+        const res = await fetch('/api/negocio?recurso=ventas-detalle-sync&mes=' + mes + (refrescar && primera ? '&refrescar=1' : ''), { method: 'POST' });
+        const d = await res.json(); primera = false;
+        if(!res.ok || d.error){ error = d.error || ('HTTP ' + res.status); if(d.detail) error += ' — ' + d.detail; break; }
+        completo = !!d.completo;
+        const global = Math.round(((i + (completo ? 1 : d.porcentaje / 100)) / orden.length) * 100);
+        mostrar(`<div class="dv-barra-prog"><i style="width:${global}%"></i></div><b>${global}%</b> · ${escapeHtml(DV.mesNombre(mes))}: ${d.porcentaje}% (${escapeHtml(d.fase)}${d.docs && d.docs.total ? ' · ' + fmtNum(d.docs.hecho) + ' de ' + fmtNum(d.docs.total) + ' documentos' : ''}) · mes ${i + 1} de ${orden.length}`);
+      }catch(err){ error = err.message; }
+    }
+  }
+  E.trayendo = null; $('dvDatos').dataset.trayendo = '0';
+  E.cargado = null; // se vuelve a pedir lo leído
+  await actualizar();
+  prog = $('dvProgreso'); if(prog){ prog.style.display = ''; prog.innerHTML = error ? '<span class="pp-mal" style="color:#a11d1d;">No se pudo terminar: ' + escapeHtml(error) + '</span>' : '<span class="dv-sube">✔ Listo: los datos quedaron al día.</span>'; }
+}
+
+// ---------- inicio ----------
+function iniciarSelectores(){
+  $('dvPreset').innerHTML = DV.PRESETS.map(([id, n]) => `<option value="${id}">${n}</option>`).join('') + '<option value="custom">Personalizado…</option>';
+  $('dvPreset').value = E.preset;
+}
+(async function iniciar(){
+  cargarSesionUsuario();
+  E.hoy = hoyChile(); E.rango = DV.presetRango('mes', E.hoy);
+  iniciarSelectores(); pintarTabs();
+  await actualizar();
+})();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>
