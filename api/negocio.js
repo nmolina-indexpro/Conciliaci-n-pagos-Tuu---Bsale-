@@ -18448,6 +18448,12 @@ async function manejarPedidoPantallaPrueba(req, res) {
 // GET  ?recurso=ventas-detalle&desde=AAAA-MM-DD&hasta=AAAA-MM-DD  -> líneas del rango (diccionarios + arreglos cortos) y estado de lectura de cada mes.
 // POST ?recurso=ventas-detalle-sync&mes=AAAA-MM[&refrescar=1]      -> lee de Bsale ese mes por tandas (catálogo, documentos, costos); se repite hasta completo (con %).
 const DETALLE_PESO = { catalogo: 10, docs: 60, costos: 30 }; // para el % de avance de la lectura de un mes
+// Qué es cada documento para el Detalle de ventas: 'venta' (boleta, factura...), 'nc' (nota de crédito: RESTA de la venta, es la venta real) o null (cotización: no cuenta).
+const clasificarDocumentoDV = (tipo) => {
+  const nombre = (tipo && tipo.name) || '';
+  if (/cotizaci[oó]n/i.test(nombre)) return null;
+  return (tipo && tipo.isCreditNote === 1) || /nota de cr[eé]dito/i.test(nombre) ? 'nc' : 'venta';
+};
 
 async function manejarVentasDetalle(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -18481,7 +18487,7 @@ async function manejarVentasDetalleSync(req, res, sesion) {
     const sql = await getSql();
     await asegurarTablaVentasDetalle(sql);
     await asegurarTablaComparativoVentas(sql); // guarda el avance (comparativo_estado) y el catálogo y los costos que comparte con el Comparativo de ventas
-    const clave = 'vd-' + mes;
+    const clave = 'vd2-' + mes; // vd2: desde que se descuentan las notas de crédito; los meses leídos antes (vd-) hay que volver a leerlos para incluirlas
     if (req.query.refrescar === '1') await sql`UPDATE comparativo_estado SET offset_a = 0, total_a = NULL, completo = false, actualizado_en = now() WHERE clave = ${clave};`;
     // El catálogo cambia poco: se vuelve a leer cada 14 días (mismo criterio que el Comparativo de ventas, con el que comparte las tablas).
     await sql`UPDATE comparativo_estado SET offset_a = 0, total_a = NULL, completo = false WHERE clave LIKE 'cat-%' AND completo AND actualizado_en < now() - interval '14 days';`;
@@ -18506,7 +18512,7 @@ async function manejarVentasDetalleSync(req, res, sesion) {
       try { const ro = await fetchConTimeout(`${BSALE_BASE}/offices.json?limit=50`, { headers: { access_token: token } }, 15000); if (ro.ok) await guardarSucursalesDV(sql, (await ro.json()).items || []); } catch (e) { console.warn('[ventas-detalle] sucursales:', e.message); }
       const r = rangoEpochMesComparativo(mes);
       const urlBase = `${BSALE_BASE}/documents.json?emissiondaterange=[${r.desde},${r.hasta}]&expand=[document_type,details,payments,user]&limit=${PUNTOS_SYNC_LIMIT}&offset=`;
-      await comparativoAvanzar(sql, clave, (o) => urlBase + o, (items) => guardarLineasDV(sql, lineasDeDocumentosDV(items, mes, { vendedores, esVentaReal })), ctx, false);
+      await comparativoAvanzar(sql, clave, (o) => urlBase + o, (items) => guardarLineasDV(sql, lineasDeDocumentosDV(items, mes, { vendedores, clasificar: clasificarDocumentoDV })), ctx, false);
       por[clave] = (await sql.query('SELECT clave, offset_a, total_a, completo FROM comparativo_estado WHERE clave = $1', [clave])).rows[0] || por[clave];
     }
     const docsCompleto = !!(por[clave] && por[clave].completo);

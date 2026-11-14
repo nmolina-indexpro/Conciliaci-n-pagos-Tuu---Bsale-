@@ -2,6 +2,7 @@
 // Cálculo de la página "Detalle de ventas": períodos y comparaciones, filtros, totales, agrupaciones y series de tiempo.
 // Funciones puras (sin DOM ni red): en el navegador quedan en window.DV y en Node se cargan con require (así se prueban).
 // Las cifras siguen el criterio de Bsale: "Venta total" lleva IVA (neto x 1,19) y el margen se calcula sobre el neto.
+// Las notas de crédito vienen con cantidad y monto NEGATIVOS: restan de la venta (es la venta real). No cuentan como "ventas" (N° de ventas).
 (function (raiz, fabrica) {
   if (typeof module === 'object' && module.exports) module.exports = fabrica(); else raiz.DV = fabrica();
 })(typeof self !== 'undefined' ? self : this, function () {
@@ -66,7 +67,8 @@
   function prepararLineas(datos) {
     const d = datos.dic;
     return datos.lineas.map((l) => ({
-      f: l[0], doc: l[1], sku: d.skus[l[2]], vend: d.vendedores[l[3]], suc: d.sucursales[l[4]], ml: (l[5] & 1) === 1, on: (l[5] & 2) === 2, cant: l[6], neto: l[7], costo: l[8],
+      f: l[0], doc: l[1], sku: d.skus[l[2]], vend: d.vendedores[l[3]], suc: d.sucursales[l[4]], ml: (l[5] & 1) === 1, on: (l[5] & 2) === 2, nc: (l[5] & 4) === 4, cant: l[6], neto: l[7], costo: l[8],
+      tdoc: d.tiposDoc && l[9] != null ? d.tiposDoc[l[9]] : null,
     }));
   }
   const enRango = (l, r) => l.f >= r.desde && l.f <= r.hasta;
@@ -84,44 +86,56 @@
       if (ven && !ven.has(l.vend)) return false;
       if (mar && !mar.has(l.sku.marca)) return false;
       if (tip && !tip.has(l.sku.tipo)) return false;
-      if (q && !(sinTildes(l.sku.nombre).includes(q) || sinTildes(l.sku.sku).includes(q))) return false;
+      if (q && !(sinTildes(l.sku.nombre).includes(q) || sinTildes(l.sku.sku).includes(q) || sinTildes(l.sku.producto).includes(q))) return false;
       return true;
     });
   }
 
   // ---------- totales y agrupaciones
-  const vacio = () => ({ cant: 0, neto: 0, docs: new Set(), netoConCosto: 0, costo: 0 });
+  const vacio = () => ({ cant: 0, neto: 0, docs: new Set(), ncDocs: new Set(), ncNeto: 0, ncCant: 0, netoConCosto: 0, costo: 0 });
   function sumar(t, l) {
-    t.cant += l.cant; t.neto += l.neto; t.docs.add(l.doc);
+    t.cant += l.cant; t.neto += l.neto;
+    if (l.nc) { t.ncDocs.add(l.doc); t.ncNeto += l.neto; t.ncCant += l.cant; } else t.docs.add(l.doc); // una nota de crédito resta venta pero no es una venta
     if (l.costo != null) { t.netoConCosto += l.neto; t.costo += l.costo; }
   }
   function cerrar(t) {
     const margen = t.netoConCosto - t.costo;
     return {
       cant: t.cant, neto: t.neto, venta: t.neto * IVA, ventas: t.docs.size, ticket: t.docs.size ? (t.neto * IVA) / t.docs.size : null,
+      ncVenta: t.ncNeto * IVA, ncCant: t.ncCant, ncDocs: t.ncDocs.size,
       // Solo cuenta lo que tiene costo conocido; el % es sobre esas mismas ventas y la cobertura dice qué parte de la venta tenía costo.
       margen: t.netoConCosto > 0 ? margen : null, margenPct: t.netoConCosto > 0 ? (margen / t.netoConCosto) * 100 : null, cobertura: t.neto > 0 ? (t.netoConCosto / t.neto) * 100 : null,
     };
   }
   function totales(lineas) { const t = vacio(); for (const l of lineas) sumar(t, l); return cerrar(t); }
   const CLAVES = {
-    producto: (l) => l.sku.sku, vendedor: (l) => l.vend, sucursal: (l) => l.suc, marca: (l) => l.sku.marca, tipo: (l) => l.sku.tipo,
+    producto: (l) => l.sku.producto || l.sku.nombre, vendedor: (l) => l.vend, sucursal: (l) => l.suc, marca: (l) => l.sku.marca, tipo: (l) => l.sku.tipo,
   };
-  const NOMBRES = { producto: (l) => l.sku.nombre, vendedor: (l) => l.vend, sucursal: (l) => l.suc, marca: (l) => l.sku.marca, tipo: (l) => l.sku.tipo };
+  const NOMBRES = { producto: (l) => l.sku.producto || l.sku.nombre, vendedor: (l) => l.vend, sucursal: (l) => l.suc, marca: (l) => l.sku.marca, tipo: (l) => l.sku.tipo };
   function agrupar(lineas, dimension) {
     const clave = CLAVES[dimension], nombre = NOMBRES[dimension], m = new Map();
     for (const l of lineas) {
       const k = clave(l);
-      if (!m.has(k)) m.set(k, { clave: k, nombre: nombre(l), t: vacio(), skus: new Set() });
+      if (!m.has(k)) m.set(k, { clave: k, nombre: nombre(l), t: vacio(), skus: new Set(), sku: l.sku.sku });
       const g = m.get(k); sumar(g.t, l); g.skus.add(l.sku.sku);
     }
     const total = [...m.values()].reduce((s, g) => s + g.t.neto, 0) * IVA;
-    return [...m.values()].map((g) => { const c = cerrar(g.t); return { clave: g.clave, nombre: g.nombre, ...c, participacion: total > 0 ? (c.venta / total) * 100 : 0, productos: g.skus.size }; }).sort((a, b) => b.venta - a.venta);
+    return [...m.values()].map((g) => { const c = cerrar(g.t); return { clave: g.clave, nombre: g.nombre, sku: g.sku, ...c, participacion: total > 0 ? (c.venta / total) * 100 : 0, productos: g.skus.size }; }).sort((a, b) => b.venta - a.venta);
   }
   // Une el período actual con el comparado por clave: añade comparacion (venta, cant), difVenta y varPct.
   function conComparacion(filas, filasBase) {
     const base = new Map((filasBase || []).map((f) => [f.clave, f]));
     return filas.map((f) => { const b = base.get(f.clave); return { ...f, base: b ? { venta: b.venta, cant: b.cant, margen: b.margen } : null, difVenta: b ? f.venta - b.venta : f.venta, varPct: variacion(f.venta, b ? b.venta : 0) }; });
+  }
+  // Ventas por tipo de documento (boleta, factura, nota de crédito...): sirve para conciliar el total contra el reporte de Bsale.
+  function desglosePorTipoDoc(lineas) {
+    const m = new Map();
+    for (const l of lineas) {
+      const k = l.tdoc || (l.nc ? 'Nota de crédito' : 'Documento de venta');
+      if (!m.has(k)) m.set(k, { nombre: k, docs: new Set(), cant: 0, neto: 0, nc: false });
+      const x = m.get(k); x.docs.add(l.doc); x.cant += l.cant; x.neto += l.neto; if (l.nc) x.nc = true;
+    }
+    return [...m.values()].map((x) => ({ nombre: x.nombre, docs: x.docs.size, cant: x.cant, venta: x.neto * IVA, nc: x.nc })).sort((a, b) => (a.nc - b.nc) || (b.venta - a.venta));
   }
   // Variación porcentual (null si no hay base: dividir por cero no dice nada).
   const variacion = (actual, base) => (base > 0 ? ((actual - base) / base) * 100 : null);
@@ -194,7 +208,7 @@
   }
 
   return {
-    IVA, PRESETS, presetRango, rangoComparacion, etiquetaRango, prepararLineas, enRango, filtrar, totales, agrupar, conComparacion, variacion, topN, casillas, granularidadSugerida, serie,
+    IVA, PRESETS, desglosePorTipoDoc, presetRango, rangoComparacion, etiquetaRango, prepararLineas, enRango, filtrar, totales, agrupar, conComparacion, variacion, topN, casillas, granularidadSugerida, serie,
     matrizMensual, mesesDeLineas, ultimosMeses, aCsv, sumarDias, diasEntre, sumarMeses, primeroDelMes, ultimoDelMes, lunesDe, fechaCorta, mesNombre, mesCorto,
   };
 });

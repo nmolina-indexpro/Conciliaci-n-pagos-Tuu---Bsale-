@@ -267,7 +267,7 @@
   </header>
 
   <h1>📊 Detalle de ventas</h1>
-  <div class="sub">Las ventas de Bsale por producto, vendedor, sucursal, marca y tipo de producto, con comparación contra el período anterior o contra el mismo período del año pasado. <b>Venta total</b> lleva IVA; el margen se calcula sobre el neto. No descuenta notas de crédito.</div>
+  <div class="sub">Las ventas de Bsale por producto, vendedor, sucursal, marca y tipo de producto, con comparación contra el período anterior o contra el mismo período del año pasado. <b>Venta total</b> lleva IVA y ya descuenta las notas de crédito (es la venta real); el margen se calcula sobre el neto.</div>
 
   <div class="dv-barra">
     <div class="dv-campo"><label for="dvPreset">Período</label>
@@ -313,6 +313,7 @@
   <div class="dv-tabs" id="dvTabs"></div>
   <div class="dv-buscar"><span>🔍</span><input type="text" id="dvBuscar" placeholder="Buscar producto por nombre o SKU…" oninput="buscarProducto(this.value)"></div>
   <div class="dv-kpis" id="dvKpis"></div>
+  <details class="dv-panel" id="dvDesglose"><summary><b>🔎 Desglose por tipo de documento</b> <span class="sub" style="margin:0;">— para conciliar con el reporte de Bsale</span></summary><div id="dvDesgloseCuerpo"></div></details>
 
   <div id="dvVistaNormal">
     <div class="dv-graficos">
@@ -365,7 +366,7 @@ let rolActual = 'usuario', seqCarga = 0;
 
 function escapeHtml(t){ return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 const fmtNum = (n, d = 0) => new Intl.NumberFormat('es-CL', { maximumFractionDigits: d, minimumFractionDigits: d }).format(n || 0);
-const fmtMoneda = n => '$' + fmtNum(Math.round(n || 0));
+const fmtMoneda = n => (n < 0 ? '-' : '') + '
 const fmtPct = (n, d = 1) => (n == null ? '—' : fmtNum(n, d) + '%');
 const fmtCorto = n => { const a = Math.abs(n); return (n < 0 ? '-' : '') + '$' + (a >= 1e6 ? fmtNum(a / 1e6, 1) + ' M' : a >= 1e3 ? fmtNum(a / 1e3, 0) + ' mil' : fmtNum(a)); };
 const hoyChile = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
@@ -517,7 +518,7 @@ function pintarTodo(){
   if(!E.datos) return;
   const d = datosActuales();
   pintarEstado(); pintarChips(); pintarTabs(); pintarAviso(); pintarDatos();
-  pintarKpis(d);
+  pintarKpis(d); pintarDesglose(d);
   const mensual = E.tab === 'mensual';
   $('dvVistaNormal').style.display = mensual ? 'none' : '';
   $('dvVistaMensual').style.display = mensual ? '' : 'none';
@@ -560,7 +561,7 @@ function pintarKpis(d){
     const v = b ? DV.variacion(actual, base) : null;
     return `<div class="dv-kpi"><span>${titulo}</span><b>${valor}</b>${b ? `<small>${varHtml(v, true)} <span class="sub" style="margin:0;">vs ${tipo === 'pct' ? fmtPct(base, 1) : tipo === 'num' ? fmtNum(base) : fmtMoneda(base)}</span></small>` : '<small>&nbsp;</small>'}${sub ? `<small class="sub" style="margin:0;">${sub}</small>` : ''}</div>`;
   };
-  let h = tarjeta('Ventas totales', fmtMoneda(t.venta), t.venta, b && b.venta, '', 'mon');
+  let h = tarjeta('Ventas totales', fmtMoneda(t.venta), t.venta, b && b.venta, t.ncDocs ? `incluye ${fmtNum(t.ncDocs)} nota${t.ncDocs === 1 ? '' : 's'} de crédito: ${fmtMoneda(t.ncVenta)}` : 'sin notas de crédito', 'mon');
   if(E.esAdmin){
     const dif = b && t.margenPct != null && b.margenPct != null ? t.margenPct - b.margenPct : null;
     h += `<div class="dv-kpi"><span>Margen</span><b>${fmtPct(t.margenPct, 2)}</b>${b && dif != null ? `<small>${dif >= 0 ? '<span class="dv-sube">▲ ' : '<span class="dv-baja">▼ '}${fmtNum(Math.abs(dif), 1)} pts</span> <span class="sub" style="margin:0;">vs ${fmtPct(b.margenPct, 2)}</span></small>` : '<small>&nbsp;</small>'}<small class="sub" style="margin:0;">${t.margen != null ? fmtMoneda(t.margen) + ' · ' : ''}costo conocido en ${fmtPct(t.cobertura, 0)} de la venta</small></div>`;
@@ -569,6 +570,14 @@ function pintarKpis(d){
   h += tarjeta('N° de ventas', fmtNum(t.ventas), t.ventas, b && b.ventas, '', 'num');
   h += tarjeta('Ticket promedio', t.ticket != null ? fmtMoneda(t.ticket) : '—', t.ticket || 0, b && b.ticket, '', 'mon');
   $('dvKpis').innerHTML = h;
+}
+
+function pintarDesglose(d){
+  const filas = DV.desglosePorTipoDoc(d.actual), t = DV.totales(d.actual);
+  if(!filas.length){ $('dvDesgloseCuerpo').innerHTML = '<p class="empty-note">No hay documentos en este período con los filtros elegidos.</p>'; return; }
+  $('dvDesgloseCuerpo').innerHTML = '<div class="tabla-wrap"><table><thead><tr><th>Tipo de documento</th><th class="amount">Documentos</th><th class="amount">Unidades</th><th class="amount">Venta total (con IVA)</th></tr></thead><tbody>' +
+    filas.map(f => `<tr><td>${escapeHtml(f.nombre)}${f.nc ? ' <span class="sub" style="margin:0;">(resta)</span>' : ''}</td><td class="amount">${fmtNum(f.docs)}</td><td class="amount">${fmtNum(f.cant)}</td><td class="amount ${f.venta < 0 ? 'dv-baja' : ''}">${f.venta < 0 ? '-' : ''}${fmtMoneda(Math.abs(f.venta))}</td></tr>`).join('') +
+    `</tbody><tfoot><tr><td><b>Venta real</b></td><td class="amount"><b>${fmtNum(t.ventas)}</b> ventas</td><td class="amount"><b>${fmtNum(t.cant)}</b></td><td class="amount"><b>${fmtMoneda(t.venta)}</b></td></tr></tfoot></table></div><div class="sub" style="margin:6px 0 0;">Cada documento de venta suma y cada nota de crédito resta. "N° de ventas" cuenta solo los documentos de venta; el ticket promedio es la venta real dividida por ese número.</div>`;
 }
 
 // ---------- gráficos ----------
@@ -611,7 +620,7 @@ function pintarTop(d){
 function columnasTabla(){
   const dim = E.tab, hayComp = !!comparacion(), adm = E.esAdmin;
   const cols = [
-    { titulo: NOMBRE_DIM[dim], valor: f => f.nombre, html: (f, i) => `<td data-valor="${escapeHtml(f.nombre)}"><button class="dv-enlace" data-fila="${i}" title="Filtrar por este elemento">${escapeHtml(f.nombre)}</button>${dim === 'producto' ? '<br><span class="sub" style="margin:0;">' + escapeHtml(f.clave) + '</span>' : ''}</td>` },
+    { titulo: NOMBRE_DIM[dim], valor: f => f.nombre, html: (f, i) => `<td data-valor="${escapeHtml(f.nombre)}"><button class="dv-enlace" data-fila="${i}" title="Filtrar por este elemento">${escapeHtml(f.nombre)}</button>${dim === 'producto' ? '<br><span class="sub" style="margin:0;">' + (f.productos > 1 ? fmtNum(f.productos) + ' variantes' : escapeHtml(f.sku)) + '</span>' : ''}</td>` },
     { titulo: 'Cantidad', valor: f => f.cant, html: f => `<td class="amount" data-valor="${f.cant}">${fmtNum(f.cant)}</td>` },
   ];
   if(dim !== 'producto') cols.push({ titulo: 'N° de ventas', valor: f => f.ventas, html: f => `<td class="amount" data-valor="${f.ventas}">${fmtNum(f.ventas)}</td>` });
@@ -678,11 +687,380 @@ function pintarDatos(){
   const completos = hace12.filter(m => ests[m] && ests[m].completo).length;
   $('dvDatosResumen').textContent = `— ${completos} de ${hace12.length} meses leídos`;
   if($('dvDatos').dataset.trayendo === '1') return; // no se repinta mientras se está leyendo
-  const filas = hace12.slice().reverse().map(m => { const e = ests[m] || {}; return `<tr><td>${escapeHtml(DV.mesNombre(m))}</td><td>${e.completo ? '<span class="dv-sube">✔ leído</span>' : e.hecho ? '<span class="dv-igual">⏳ a medias</span>' : '<span class="sub" style="margin:0;">sin leer</span>'}</td><td class="amount">${e.documentos ? fmtNum(e.documentos) : '—'}</td><td>${escapeHtml(fechaHora(e.actualizadoEn))}</td>${E.esAdmin ? `<td><button class="btn-ghost btn-compact" onclick="traerMeses(['${m}'], true)">${e.completo ? 'Volver a leer' : 'Leer'}</button></td>` : ''}</tr>`; }).join('');
-  $('dvDatosCuerpo').innerHTML = `<div class="sub" style="margin:8px 0;">Cada mes se lee de Bsale una vez y queda guardado; el mes en curso conviene actualizarlo cuando quieras cifras al día. ${E.esAdmin ? '' : 'Solo un administrador puede traer meses desde Bsale.'}</div>
+  const filas = hace12.slice().reverse().map(m => { const e = ests[m] || {}; return `<tr><td>${escapeHtml(DV.mesNombre(m))}</td><td>${e.completo ? '<span class="dv-sube">✔ leído</span>' : e.hecho ? '<span class="dv-igual">⏳ a medias</span>' : '<span class="sub" style="margin:0;">sin leer</span>'}</td><td class="amount">${e.documentos ? fmtNum(e.documentos) : '—'}</td><td class="amount">${e.notasCredito ? fmtNum(e.notasCredito) : '—'}</td><td>${escapeHtml(fechaHora(e.actualizadoEn))}</td>${E.esAdmin ? `<td><button class="btn-ghost btn-compact" onclick="traerMeses(['${m}'], true)">${e.completo ? 'Volver a leer' : 'Leer'}</button></td>` : ''}</tr>`; }).join('');
+  $('dvDatosCuerpo').innerHTML = `<div class="sub" style="margin:8px 0;">Cada mes se lee de Bsale una vez y queda guardado; el mes en curso conviene actualizarlo cuando quieras cifras al día. <b>Los meses leídos antes de que se agregaran las notas de crédito aparecen como "sin leer": hay que leerlos de nuevo.</b> ${E.esAdmin ? '' : 'Solo un administrador puede traer meses desde Bsale.'}</div>
     ${E.esAdmin ? `<div class="dv-fbotones" style="justify-content:flex-start;margin:0 0 8px;"><button class="btn-primary" onclick="traerMeses(['${E.hoy.slice(0, 7)}'], true)">🔄 Actualizar este mes</button><button class="btn-ghost" onclick="traerMeses(${escapeHtml(JSON.stringify(hace12.filter(m => !(ests[m] && ests[m].completo))))})">Traer los meses que faltan (últimos 13)</button></div>` : ''}
     <div id="dvProgreso" class="dv-progreso" style="display:none;"></div>
-    <div class="tabla-wrap"><table><thead><tr><th>Mes</th><th>Estado</th><th class="amount">Documentos</th><th>Última lectura</th>${E.esAdmin ? '<th data-sin-orden></th>' : ''}</tr></thead><tbody>${filas}</tbody></table></div>`;
+    <div class="tabla-wrap"><table><thead><tr><th>Mes</th><th>Estado</th><th class="amount">Documentos</th><th class="amount">Notas de crédito</th><th>Última lectura</th>${E.esAdmin ? '<th data-sin-orden></th>' : ''}</tr></thead><tbody>${filas}</tbody></table></div>`;
+}
+async function traerMeses(meses, refrescar){
+  if(!meses || !meses.length || E.trayendo) return;
+  E.trayendo = true; $('dvDatos').open = true; $('dvDatos').dataset.trayendo = '1';
+  let prog = $('dvProgreso'); if(!prog){ pintarDatos(); prog = $('dvProgreso'); }
+  const mostrar = t => { prog.style.display = ''; prog.innerHTML = t; };
+  const orden = meses.slice().sort().reverse(); // lo más reciente primero
+  let error = null;
+  for(let i = 0; i < orden.length && !error; i++){
+    const mes = orden[i]; let primera = true, completo = false, vueltas = 0;
+    while(!completo && !error && vueltas < 60){
+      vueltas++;
+      try{
+        const res = await fetch('/api/negocio?recurso=ventas-detalle-sync&mes=' + mes + (refrescar && primera ? '&refrescar=1' : ''), { method: 'POST' });
+        const d = await res.json(); primera = false;
+        if(!res.ok || d.error){ error = d.error || ('HTTP ' + res.status); if(d.detail) error += ' — ' + d.detail; break; }
+        completo = !!d.completo;
+        const global = Math.round(((i + (completo ? 1 : d.porcentaje / 100)) / orden.length) * 100);
+        mostrar(`<div class="dv-barra-prog"><i style="width:${global}%"></i></div><b>${global}%</b> · ${escapeHtml(DV.mesNombre(mes))}: ${d.porcentaje}% (${escapeHtml(d.fase)}${d.docs && d.docs.total ? ' · ' + fmtNum(d.docs.hecho) + ' de ' + fmtNum(d.docs.total) + ' documentos' : ''}) · mes ${i + 1} de ${orden.length}`);
+      }catch(err){ error = err.message; }
+    }
+  }
+  E.trayendo = null; $('dvDatos').dataset.trayendo = '0';
+  E.cargado = null; // se vuelve a pedir lo leído
+  await actualizar();
+  prog = $('dvProgreso'); if(prog){ prog.style.display = ''; prog.innerHTML = error ? '<span class="pp-mal" style="color:#a11d1d;">No se pudo terminar: ' + escapeHtml(error) + '</span>' : '<span class="dv-sube">✔ Listo: los datos quedaron al día.</span>'; }
+}
+
+// ---------- inicio ----------
+function iniciarSelectores(){
+  $('dvPreset').innerHTML = DV.PRESETS.map(([id, n]) => `<option value="${id}">${n}</option>`).join('') + '<option value="custom">Personalizado…</option>';
+  $('dvPreset').value = E.preset;
+}
+(async function iniciar(){
+  cargarSesionUsuario();
+  E.hoy = hoyChile(); E.rango = DV.presetRango('mes', E.hoy);
+  iniciarSelectores(); pintarTabs();
+  await actualizar();
+})();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>
+ + fmtNum(Math.round(Math.abs(n || 0)));
+const fmtPct = (n, d = 1) => (n == null ? '—' : fmtNum(n, d) + '%');
+const fmtCorto = n => { const a = Math.abs(n); return (n < 0 ? '-' : '') + '$' + (a >= 1e6 ? fmtNum(a / 1e6, 1) + ' M' : a >= 1e3 ? fmtNum(a / 1e3, 0) + ' mil' : fmtNum(a)); };
+const hoyChile = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+function fechaHora(iso){ return iso ? new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'; }
+function varHtml(p, conFlecha){
+  if(p == null) return '<span class="sub" style="margin:0;">—</span>';
+  const sube = p >= 0, cls = Math.abs(p) < 0.05 ? 'dv-igual' : sube ? 'dv-sube' : 'dv-baja';
+  return `<span class="${cls}">${conFlecha ? (sube ? '▲ ' : '▼ ') : (sube ? '+' : '')}${fmtNum(p, 1)}%</span>`;
+}
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    rolActual = u.rol;
+    $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){ const nav = $('navUsuarios'); if(nav) nav.style.display = ''; }
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- período, comparación y datos necesarios ----------
+function comparacion(){ return DV.rangoComparacion(E.rango, E.comparar); }
+function rangoNecesario(){
+  const rs = [E.rango]; const c = comparacion(); if(c) rs.push(c);
+  if(E.tab === 'mensual'){ const ms = DV.ultimosMeses(E.hoy, E.mensual.meses); rs.push({ desde: ms[0] + '-01', hasta: E.hoy }); }
+  return { desde: rs.map(r => r.desde).sort()[0], hasta: rs.map(r => r.hasta).sort().slice(-1)[0] };
+}
+async function asegurarDatos(){
+  const n = rangoNecesario();
+  if(E.cargado && E.cargado.desde <= n.desde && E.cargado.hasta >= n.hasta) return true;
+  const desde = E.cargado ? (E.cargado.desde < n.desde ? E.cargado.desde : n.desde) : n.desde;
+  const hasta = E.cargado ? (E.cargado.hasta > n.hasta ? E.cargado.hasta : n.hasta) : n.hasta;
+  const mi = ++seqCarga;
+  E.cargando = true; pintarEstado();
+  try{
+    const res = await fetch('/api/negocio?recurso=ventas-detalle&desde=' + desde + '&hasta=' + hasta);
+    const d = await res.json();
+    if(mi !== seqCarga) return false;
+    if(!res.ok || d.error){ $('dvTabla').innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(d.error || 'Error') + (d.detail ? ' — ' + escapeHtml(d.detail) : '') + '</p>'; E.cargando = false; pintarEstado(); return false; }
+    E.datos = d; E.hoy = d.hoy; E.esAdmin = !!d.esAdmin; E.lineas = DV.prepararLineas(d); E.cargado = { desde: d.desde, hasta: d.hasta };
+    E.cargando = false;
+    return true;
+  }catch(err){ E.cargando = false; $('dvTabla').innerHTML = '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(err.message) + '</p>'; pintarEstado(); return false; }
+}
+async function actualizar(){
+  if(!(await asegurarDatos())) return;
+  pintarTodo();
+}
+
+function cambiarPreset(id){
+  E.preset = id;
+  $('dvCustom').style.display = id === 'custom' ? '' : 'none';
+  if(id === 'custom'){ $('dvDesde').value = E.rango.desde; $('dvHasta').value = E.rango.hasta; return; }
+  E.rango = DV.presetRango(id, E.hoy); E.gran = 'auto'; $('dvGran').value = 'auto'; actualizar();
+}
+function cambiarFechas(){
+  const d = $('dvDesde').value, h = $('dvHasta').value;
+  if(!d || !h || d > h) return;
+  if(DV.diasEntre(d, h) > 800){ alert('Elige un período de hasta unos 2 años.'); return; }
+  E.rango = { desde: d, hasta: h }; E.gran = 'auto'; $('dvGran').value = 'auto'; actualizar();
+}
+function cambiarComparar(v){ E.comparar = v; actualizar(); }
+function cambiarGran(v){ E.gran = v; pintarGraficos(datosActuales()); }
+function cambiarModoGrafico(m){ E.modoGrafico = m; $('btnModoValor').classList.toggle('activo', m === 'valor'); $('btnModoPct').classList.toggle('activo', m === 'pct'); pintarGraficos(datosActuales()); }
+function seleccionarTab(t){ E.tab = t; actualizar(); }
+function cambiarMensual(){ E.mensual = { dim: $('mDim').value, metrica: $('mMetrica').value, meses: Number($('mMeses').value) }; actualizar(); }
+let temporizadorBusqueda = null;
+function buscarProducto(v){ E.filtros.q = v; clearTimeout(temporizadorBusqueda); temporizadorBusqueda = setTimeout(() => { if(E.datos) pintarTodo(); }, 200); }
+
+// ---------- filtros ----------
+function alternarFiltros(){
+  const el = $('dvFiltros'); const abrir = el.style.display === 'none';
+  el.style.display = abrir ? '' : 'none';
+  if(abrir) pintarOpcionesFiltros();
+}
+function opcionesDe(campo){
+  const m = new Map();
+  for(const l of E.lineas){ const v = campo(l); m.set(v, (m.get(v) || 0) + l.neto); }
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0]);
+}
+function pintarLista(id, valores, marcados, clave){
+  $(id).innerHTML = valores.length ? valores.map((v, i) => `<label class="dv-op"><input type="checkbox" data-f="${clave}" value="${escapeHtml(v)}" ${marcados.includes(v) ? 'checked' : ''}> ${escapeHtml(v)}</label>`).join('') : '<span class="sub" style="margin:0;">Sin datos</span>';
+}
+function pintarOpcionesFiltros(){
+  pintarLista('fSucursales', opcionesDe(l => l.suc), E.filtros.sucursales, 'sucursales');
+  pintarLista('fVendedores', opcionesDe(l => l.vend), E.filtros.vendedores, 'vendedores');
+  pintarLista('fMarcas', opcionesDe(l => l.sku.marca), E.filtros.marcas, 'marcas');
+  pintarLista('fTipos', opcionesDe(l => l.sku.tipo), E.filtros.tipos, 'tipos');
+  document.querySelectorAll('input[name=fTipoVenta]').forEach(r => { r.checked = r.value === E.filtros.tipoVenta; });
+  $('fMl').checked = E.filtros.ml;
+}
+function aplicarFiltros(){
+  const marcados = clave => [...document.querySelectorAll(`input[data-f="${clave}"]:checked`)].map(i => i.value);
+  const tv = document.querySelector('input[name=fTipoVenta]:checked');
+  E.filtros = { ...E.filtros, tipoVenta: tv ? tv.value : '', ml: $('fMl').checked, sucursales: marcados('sucursales'), vendedores: marcados('vendedores'), marcas: marcados('marcas'), tipos: marcados('tipos') };
+  $('dvFiltros').style.display = 'none';
+  pintarTodo();
+}
+function restablecerFiltros(){
+  E.filtros = { q: '', tipoVenta: '', ml: false, sucursales: [], vendedores: [], marcas: [], tipos: [] };
+  $('dvBuscar').value = '';
+  pintarOpcionesFiltros(); pintarTodo();
+}
+function quitarFiltro(clave, valor){
+  if(['sucursales', 'vendedores', 'marcas', 'tipos'].includes(clave)) E.filtros[clave] = E.filtros[clave].filter(x => x !== valor);
+  else if(clave === 'q'){ E.filtros.q = ''; $('dvBuscar').value = ''; }
+  else if(clave === 'tipoVenta') E.filtros.tipoVenta = '';
+  else if(clave === 'ml') E.filtros.ml = false;
+  if($('dvFiltros').style.display !== 'none') pintarOpcionesFiltros();
+  pintarTodo();
+}
+function pintarChips(){
+  const f = E.filtros, chips = [];
+  const chip = (t, clave, valor) => chips.push(`<button class="dv-chip" data-quitar="${clave}" data-valor="${escapeHtml(valor ?? '')}" title="Quitar este filtro">${escapeHtml(t)} ✕</button>`);
+  if(f.q) chip('Búsqueda: ' + f.q, 'q');
+  if(f.tipoVenta) chip('Venta ' + (f.tipoVenta === 'online' ? 'online' : 'directa'), 'tipoVenta');
+  if(f.ml) chip('Mercado Libre', 'ml');
+  [['sucursales', 'Sucursal'], ['vendedores', 'Vendedor'], ['marcas', 'Marca'], ['tipos', 'Tipo']].forEach(([c, n]) => f[c].forEach(v => chip(n + ': ' + v, c, v)));
+  $('dvChips').innerHTML = chips.length ? '<span class="sub" style="margin:0 6px 0 0;">Filtros:</span>' + chips.join('') : '';
+  const n = chips.length; $('btnFiltros').textContent = '⚙️ Filtros' + (n ? ` (${n})` : '');
+}
+$('dvChips').addEventListener('click', ev => { const b = ev.target.closest('[data-quitar]'); if(b) quitarFiltro(b.dataset.quitar, b.dataset.valor); });
+
+// Hacer clic en una fila de la tabla filtra por ese elemento y pasa a Productos y servicios.
+function filtrarPorFila(i){
+  const fila = E.filasTabla[i]; if(!fila) return;
+  if(E.tab === 'producto'){ E.filtros.q = fila.clave; $('dvBuscar').value = fila.clave; }
+  else{ const campo = { vendedor: 'vendedores', sucursal: 'sucursales', marca: 'marcas', tipo: 'tipos' }[E.tab]; if(!E.filtros[campo].includes(fila.clave)) E.filtros[campo] = [...E.filtros[campo], fila.clave]; E.tab = 'producto'; }
+  pintarTodo();
+}
+
+// ---------- cálculos de la vista actual ----------
+function datosActuales(){
+  const base = DV.filtrar(E.lineas, E.filtros);
+  const r = E.rango, c = comparacion();
+  const actual = base.filter(l => DV.enRango(l, r));
+  const previa = c ? base.filter(l => DV.enRango(l, c)) : null;
+  return { base, actual, previa, c };
+}
+
+function pintarTodo(){
+  if(!E.datos) return;
+  const d = datosActuales();
+  pintarEstado(); pintarChips(); pintarTabs(); pintarAviso(); pintarDatos();
+  pintarKpis(d); pintarDesglose(d);
+  const mensual = E.tab === 'mensual';
+  $('dvVistaNormal').style.display = mensual ? 'none' : '';
+  $('dvVistaMensual').style.display = mensual ? '' : 'none';
+  $('dvBuscar').parentElement.style.display = '';
+  if(mensual) pintarMensual(d); else { pintarGraficos(d); pintarTabla(d); }
+}
+
+function pintarEstado(){
+  const c = comparacion();
+  const meses = E.datos ? DV.ultimosMeses(E.hoy, 1) : [];
+  const ult = E.datos ? Object.values(E.datos.estado).map(x => x.actualizadoEn).filter(Boolean).sort().slice(-1)[0] : null;
+  $('dvEstado').innerHTML = (E.cargando ? '<span class="dv-cargando">Cargando…</span> ' : '') +
+    (E.rango ? `Período: <b>${escapeHtml(DV.etiquetaRango(E.rango))}</b>${c ? ` · comparado con <b>${escapeHtml(DV.etiquetaRango(c))}</b>` : ''}` : '') +
+    (ult ? ` · Última lectura desde Bsale: <b>${escapeHtml(fechaHora(ult))}</b>` : '');
+}
+function pintarTabs(){
+  $('dvTabs').innerHTML = TABS.map(([id, nombre]) => `<button class="${E.tab === id ? 'activo' : ''}" onclick="seleccionarTab('${id}')">${nombre}</button>`).join('');
+}
+
+// Meses del período que todavía no se han leído de Bsale
+function mesesFaltantes(){
+  if(!E.datos) return [];
+  const rs = [E.rango]; const c = comparacion(); if(c) rs.push(c);
+  const meses = new Set();
+  rs.forEach(r => { for(let m = DV.primeroDelMes(r.desde); m <= r.hasta; m = DV.sumarMeses(m, 1)) meses.add(m.slice(0, 7)); });
+  if(E.tab === 'mensual') DV.ultimosMeses(E.hoy, E.mensual.meses).forEach(m => meses.add(m));
+  return [...meses].sort().filter(m => { const e = E.datos.estado[m]; return !e || !e.completo; });
+}
+function pintarAviso(){
+  const f = mesesFaltantes();
+  $('dvAviso').innerHTML = f.length
+    ? `<div class="dv-aviso">⚠️ Faltan datos de <b>${f.map(m => escapeHtml(DV.mesNombre(m))).join(', ')}</b>: los números de esos meses están incompletos. ${E.esAdmin ? '<button class="btn-primary btn-compact" onclick="traerMeses(mesesFaltantes())">Traerlos desde Bsale</button>' : 'Pídele a un administrador que los traiga desde Bsale.'}</div>`
+    : '';
+}
+
+// ---------- KPIs ----------
+function pintarKpis(d){
+  const t = DV.totales(d.actual), b = d.previa ? DV.totales(d.previa) : null;
+  const tarjeta = (titulo, valor, actual, base, sub, tipo) => {
+    const v = b ? DV.variacion(actual, base) : null;
+    return `<div class="dv-kpi"><span>${titulo}</span><b>${valor}</b>${b ? `<small>${varHtml(v, true)} <span class="sub" style="margin:0;">vs ${tipo === 'pct' ? fmtPct(base, 1) : tipo === 'num' ? fmtNum(base) : fmtMoneda(base)}</span></small>` : '<small>&nbsp;</small>'}${sub ? `<small class="sub" style="margin:0;">${sub}</small>` : ''}</div>`;
+  };
+  let h = tarjeta('Ventas totales', fmtMoneda(t.venta), t.venta, b && b.venta, t.ncDocs ? `incluye ${fmtNum(t.ncDocs)} nota${t.ncDocs === 1 ? '' : 's'} de crédito: ${fmtMoneda(t.ncVenta)}` : 'sin notas de crédito', 'mon');
+  if(E.esAdmin){
+    const dif = b && t.margenPct != null && b.margenPct != null ? t.margenPct - b.margenPct : null;
+    h += `<div class="dv-kpi"><span>Margen</span><b>${fmtPct(t.margenPct, 2)}</b>${b && dif != null ? `<small>${dif >= 0 ? '<span class="dv-sube">▲ ' : '<span class="dv-baja">▼ '}${fmtNum(Math.abs(dif), 1)} pts</span> <span class="sub" style="margin:0;">vs ${fmtPct(b.margenPct, 2)}</span></small>` : '<small>&nbsp;</small>'}<small class="sub" style="margin:0;">${t.margen != null ? fmtMoneda(t.margen) + ' · ' : ''}costo conocido en ${fmtPct(t.cobertura, 0)} de la venta</small></div>`;
+  }
+  h += tarjeta('Unidades vendidas', fmtNum(t.cant), t.cant, b && b.cant, '', 'num');
+  h += tarjeta('N° de ventas', fmtNum(t.ventas), t.ventas, b && b.ventas, '', 'num');
+  h += tarjeta('Ticket promedio', t.ticket != null ? fmtMoneda(t.ticket) : '—', t.ticket || 0, b && b.ticket, '', 'mon');
+  $('dvKpis').innerHTML = h;
+}
+
+function pintarDesglose(d){
+  const filas = DV.desglosePorTipoDoc(d.actual), t = DV.totales(d.actual);
+  if(!filas.length){ $('dvDesgloseCuerpo').innerHTML = '<p class="empty-note">No hay documentos en este período con los filtros elegidos.</p>'; return; }
+  $('dvDesgloseCuerpo').innerHTML = '<div class="tabla-wrap"><table><thead><tr><th>Tipo de documento</th><th class="amount">Documentos</th><th class="amount">Unidades</th><th class="amount">Venta total (con IVA)</th></tr></thead><tbody>' +
+    filas.map(f => `<tr><td>${escapeHtml(f.nombre)}${f.nc ? ' <span class="sub" style="margin:0;">(resta)</span>' : ''}</td><td class="amount">${fmtNum(f.docs)}</td><td class="amount">${fmtNum(f.cant)}</td><td class="amount ${f.venta < 0 ? 'dv-baja' : ''}">${f.venta < 0 ? '-' : ''}${fmtMoneda(Math.abs(f.venta))}</td></tr>`).join('') +
+    `</tbody><tfoot><tr><td><b>Venta real</b></td><td class="amount"><b>${fmtNum(t.ventas)}</b> ventas</td><td class="amount"><b>${fmtNum(t.cant)}</b></td><td class="amount"><b>${fmtMoneda(t.venta)}</b></td></tr></tfoot></table></div><div class="sub" style="margin:6px 0 0;">Cada documento de venta suma y cada nota de crédito resta. "N° de ventas" cuenta solo los documentos de venta; el ticket promedio es la venta real dividida por ese número.</div>`;
+}
+
+// ---------- gráficos ----------
+function pintarGraficos(d){
+  const r = E.rango, c = d.c;
+  const gran = E.gran === 'auto' ? DV.granularidadSugerida(r) : E.gran;
+  const s = DV.serie(d.base, r, gran), sc = c ? DV.serie(d.base, c, gran) : null;
+  $('dvTituloEvolucion').textContent = 'Evolución de la venta total · ' + ({ dia: 'por día', semana: 'por semana', mes: 'por mes' })[gran];
+  const W = 640, H = 230, pl = 54, pr = 10, pt = 12, pb = 28;
+  const max = Math.max(1, ...s.map(x => x.venta), ...(sc ? sc.map(x => x.venta) : [0]));
+  const paso = (() => { const e = Math.pow(10, Math.floor(Math.log10(max))); const f = max / e; return (f <= 1.2 ? 0.25 : f <= 2.5 ? 0.5 : f <= 5 ? 1 : 2) * e; })();
+  const tope = Math.ceil(max / paso) * paso;
+  const x0 = i => pl + (i + 0.5) * ((W - pl - pr) / s.length), ancho = Math.max(2, Math.min(34, ((W - pl - pr) / s.length) * 0.7));
+  const y = v => pt + (H - pt - pb) * (1 - v / tope);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="dv-svg" role="img" aria-label="Evolución de la venta total">`;
+  for(let v = 0; v <= tope + 1; v += paso) svg += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" class="dv-grid"/><text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end" class="dv-eje">${fmtCorto(v)}</text>`;
+  s.forEach((p, i) => { const cmp = sc && sc[i] ? sc[i] : null; svg += `<rect x="${x0(i) - ancho / 2}" y="${y(p.venta)}" width="${ancho}" height="${Math.max(0, y(0) - y(p.venta))}" class="dv-barra-s" rx="2"><title>${escapeHtml(p.etiqueta)}: ${fmtMoneda(p.venta)}${cmp ? ' · comparación: ' + fmtMoneda(cmp.venta) : ''}</title></rect>`; });
+  const cada = Math.ceil(s.length / 12);
+  s.forEach((p, i) => { if(i % cada === 0) svg += `<text x="${x0(i)}" y="${H - 8}" text-anchor="middle" class="dv-eje">${escapeHtml(p.etiqueta)}</text>`; });
+  if(sc && sc.length){ svg += `<polyline fill="none" class="dv-linea" points="${sc.slice(0, s.length).map((p, i) => x0(i) + ',' + y(p.venta)).join(' ')}"/>`; sc.slice(0, s.length).forEach((p, i) => { svg += `<circle cx="${x0(i)}" cy="${y(p.venta)}" r="2.5" class="dv-punto"><title>${escapeHtml(p.etiqueta)} (comparación): ${fmtMoneda(p.venta)}</title></circle>`; }); }
+  svg += '</svg>';
+  $('dvEvolucion').innerHTML = svg + `<div class="dv-leyenda"><span><i class="dv-barra-s"></i> ${escapeHtml(DV.etiquetaRango(r))}</span>${c ? `<span><i class="dv-linea-l"></i> ${escapeHtml(DV.etiquetaRango(c))}</span>` : ''}</div>`;
+  pintarTop(d);
+}
+function pintarTop(d){
+  const dim = E.tab;
+  const filas = DV.agrupar(d.actual, dim);
+  const { top, otros } = DV.topN(filas, 10);
+  const total = filas.reduce((s, x) => s + x.venta, 0);
+  $('dvTituloTop').textContent = 'Top 10 ' + TITULO_TOP[dim];
+  const cubierto = total > 0 ? top.reduce((s, x) => s + x.venta, 0) / total * 100 : 0;
+  $('dvSubTop').textContent = total > 0 ? fmtNum(cubierto, 1) + '% de las ventas totales' : '';
+  if(!top.length){ $('dvTop').innerHTML = '<p class="empty-note">No hay ventas con estos filtros.</p>'; return; }
+  const max = top[0].venta;
+  $('dvTop').innerHTML = top.map(f => `<div class="dv-fila-top"><span class="dv-nombre-top" title="${escapeHtml(f.nombre)}">${escapeHtml(f.nombre)}</span><span class="dv-pista"><i style="width:${Math.max(0.5, f.venta / max * 100)}%"></i></span><span class="dv-valor-top">${E.modoGrafico === 'pct' ? fmtPct(f.participacion, 1) : fmtMoneda(f.venta)}</span></div>`).join('') +
+    (otros ? `<div class="dv-fila-top dv-otros"><span class="dv-nombre-top">${escapeHtml(otros.nombre)}</span><span class="dv-pista"></span><span class="dv-valor-top">${E.modoGrafico === 'pct' ? fmtPct(total > 0 ? otros.venta / total * 100 : 0, 1) : fmtMoneda(otros.venta)}</span></div>` : '');
+}
+
+// ---------- tabla ----------
+function columnasTabla(){
+  const dim = E.tab, hayComp = !!comparacion(), adm = E.esAdmin;
+  const cols = [
+    { titulo: NOMBRE_DIM[dim], valor: f => f.nombre, html: (f, i) => `<td data-valor="${escapeHtml(f.nombre)}"><button class="dv-enlace" data-fila="${i}" title="Filtrar por este elemento">${escapeHtml(f.nombre)}</button>${dim === 'producto' ? '<br><span class="sub" style="margin:0;">' + (f.productos > 1 ? fmtNum(f.productos) + ' variantes' : escapeHtml(f.sku)) + '</span>' : ''}</td>` },
+    { titulo: 'Cantidad', valor: f => f.cant, html: f => `<td class="amount" data-valor="${f.cant}">${fmtNum(f.cant)}</td>` },
+  ];
+  if(dim !== 'producto') cols.push({ titulo: 'N° de ventas', valor: f => f.ventas, html: f => `<td class="amount" data-valor="${f.ventas}">${fmtNum(f.ventas)}</td>` });
+  cols.push({ titulo: 'Venta total', valor: f => Math.round(f.venta), html: f => `<td class="amount" data-valor="${f.venta}"><b>${fmtMoneda(f.venta)}</b></td>` });
+  cols.push({ titulo: 'Participación', valor: f => fmtNum(f.participacion, 1) + '%', html: f => `<td class="amount" data-valor="${f.participacion}">${fmtPct(f.participacion, 1)}</td>` });
+  if(adm){
+    cols.push({ titulo: 'Margen %', valor: f => f.margenPct == null ? '' : fmtNum(f.margenPct, 2) + '%', html: f => `<td class="amount" data-valor="${f.margenPct ?? ''}" title="Cobertura del costo: ${fmtPct(f.cobertura, 0)} de la venta">${fmtPct(f.margenPct, 2)}</td>` });
+    cols.push({ titulo: 'Margen', valor: f => f.margen == null ? '' : Math.round(f.margen), html: f => `<td class="amount" data-valor="${f.margen ?? ''}">${f.margen == null ? '—' : fmtMoneda(f.margen)}</td>` });
+  }
+  if(hayComp){
+    cols.push({ titulo: 'Venta en la comparación', valor: f => f.base ? Math.round(f.base.venta) : 0, html: f => `<td class="amount" data-valor="${f.base ? f.base.venta : 0}">${f.base ? fmtMoneda(f.base.venta) : '<span class="sub" style="margin:0;">sin ventas</span>'}</td>` });
+    cols.push({ titulo: 'Diferencia $', valor: f => Math.round(f.difVenta), html: f => `<td class="amount" data-valor="${f.difVenta}"><span class="${f.difVenta >= 0 ? 'dv-sube' : 'dv-baja'}">${f.difVenta >= 0 ? '+' : '-'}${fmtMoneda(Math.abs(f.difVenta))}</span></td>` });
+    cols.push({ titulo: 'Variación %', valor: f => f.varPct == null ? '' : fmtNum(f.varPct, 1) + '%', html: f => `<td class="amount" data-valor="${f.varPct ?? -1e9}">${f.varPct == null ? '<span class="sub" style="margin:0;">nuevo</span>' : varHtml(f.varPct, true)}</td>` });
+  }
+  return cols;
+}
+function pintarTabla(d){
+  const dim = E.tab;
+  let filas = DV.agrupar(d.actual, dim);
+  if(d.previa){
+    // las filas que vendían antes y ahora no también cuentan en la comparación
+    const antes = DV.agrupar(d.previa, dim);
+    const claves = new Set(filas.map(f => f.clave));
+    const perdidas = antes.filter(f => !claves.has(f.clave)).map(f => ({ clave: f.clave, nombre: f.nombre, cant: 0, neto: 0, venta: 0, ventas: 0, ticket: null, margen: null, margenPct: null, cobertura: null, participacion: 0, productos: 0 }));
+    filas = DV.conComparacion([...filas, ...perdidas], antes);
+  }
+  E.filasTabla = filas;
+  const t = DV.totales(d.actual);
+  $('dvResumenTabla').textContent = `${fmtNum(filas.length)} ${filas.length === 1 ? 'elemento' : 'elementos'} · ${fmtNum(t.cant)} unidades · ${fmtMoneda(t.venta)} en ventas`;
+  if(!filas.length){ $('dvTabla').innerHTML = '<p class="empty-note">No hay ventas en este período con los filtros elegidos.</p>'; return; }
+  const cols = columnasTabla();
+  $('dvTabla').innerHTML = '<table id="tablaDetalle"><thead><tr>' + cols.map((c, i) => `<th${i ? ' class="amount"' : ''}>${c.titulo}</th>`).join('') + '</tr></thead><tbody>' +
+    filas.map((f, i) => '<tr>' + cols.map(c => c.html(f, i)).join('') + '</tr>').join('') + '</tbody></table>';
+}
+$('dvTabla').addEventListener('click', ev => { const b = ev.target.closest('[data-fila]'); if(b) filtrarPorFila(Number(b.dataset.fila)); });
+
+function exportarCsv(){
+  if(!E.datos) return;
+  const nombre = 'detalle-ventas-' + E.tab + '-' + E.rango.desde + '_' + E.rango.hasta + '.csv';
+  let texto;
+  if(E.tab === 'mensual'){ const m = E.matriz; if(!m) return; texto = DV.aCsv(m.filas, [{ titulo: NOMBRE_DIM[E.mensual.dim], valor: f => f.nombre }, ...m.meses.map((mes, i) => ({ titulo: DV.mesNombre(mes), valor: f => Math.round(f.valores[i]) })), { titulo: 'Total', valor: f => Math.round(f.total) }]); }
+  else texto = DV.aCsv(E.filasTabla, columnasTabla().map(c => ({ titulo: c.titulo, valor: c.valor })));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + texto], { type: 'text/csv;charset=utf-8' })); a.download = nombre; a.click(); URL.revokeObjectURL(a.href);
+}
+
+// ---------- comparativo mensual ----------
+function pintarMensual(d){
+  const ms = DV.ultimosMeses(E.hoy, E.mensual.meses);
+  const matriz = DV.matrizMensual(d.base, E.mensual.dim, E.mensual.metrica, ms, 15, E.hoy);
+  E.matriz = matriz;
+  const fmt = v => (E.mensual.metrica === 'cant' ? fmtNum(v) : fmtMoneda(v));
+  $('dvMensualNota').textContent = `Los últimos ${ms.length} meses` + (matriz.parcial ? ` (el último es el mes en curso: llega hasta hoy, y se compara con el mes anterior solo hasta el día ${Number(matriz.hastaDia)})` : '') + '. Se aplican los filtros de arriba. Muestra los 15 elementos que más vendieron en total; el resto va en "Otros".';
+  if(!matriz.filas.length){ $('dvMatriz').innerHTML = '<p class="empty-note">No hay ventas en estos meses con los filtros elegidos.</p>'; return; }
+  const max = Math.max(1, ...matriz.filas.flatMap(f => f.valores));
+  $('dvMatriz').innerHTML = '<table id="tablaMensual"><thead><tr><th>' + NOMBRE_DIM[E.mensual.dim] + '</th>' + ms.map((m, i) => `<th class="amount">${escapeHtml(DV.mesCorto(m))}${matriz.parcial && i === ms.length - 1 ? ' (a hoy)' : ''}</th>`).join('') + '<th class="amount">Total</th><th class="amount" title="' + (matriz.parcial ? 'El mes en curso contra el mes anterior hasta el mismo día' : 'El último mes contra el anterior') + '">Último mes vs anterior' + (matriz.parcial ? ' (mismo día)' : '') + '</th></tr></thead><tbody>' +
+    matriz.filas.map(f => `<tr><td data-valor="${escapeHtml(f.nombre)}"><b>${escapeHtml(f.nombre)}</b></td>` + f.valores.map(v => `<td class="amount dv-calor" data-valor="${v}" style="--i:${(v / max).toFixed(3)}">${v ? fmt(v) : '<span class="sub" style="margin:0;">·</span>'}</td>`).join('') + `<td class="amount" data-valor="${f.total}"><b>${fmt(f.total)}</b></td><td class="amount" data-valor="${f.var ?? -1e9}">${varHtml(f.var, true)}</td></tr>`).join('') +
+    `</tbody><tfoot><tr><td><b>Total</b></td>${matriz.totales.map(v => `<td class="amount"><b>${fmt(v)}</b></td>`).join('')}<td class="amount"><b>${fmt(matriz.totalGeneral)}</b></td><td class="amount">${varHtml(matriz.varUltimo, true)}</td></tr></tfoot></table>`;
+}
+
+// ---------- datos desde Bsale ----------
+function pintarDatos(){
+  const ests = E.datos.estado, hace12 = DV.ultimosMeses(E.hoy, 13);
+  const completos = hace12.filter(m => ests[m] && ests[m].completo).length;
+  $('dvDatosResumen').textContent = `— ${completos} de ${hace12.length} meses leídos`;
+  if($('dvDatos').dataset.trayendo === '1') return; // no se repinta mientras se está leyendo
+  const filas = hace12.slice().reverse().map(m => { const e = ests[m] || {}; return `<tr><td>${escapeHtml(DV.mesNombre(m))}</td><td>${e.completo ? '<span class="dv-sube">✔ leído</span>' : e.hecho ? '<span class="dv-igual">⏳ a medias</span>' : '<span class="sub" style="margin:0;">sin leer</span>'}</td><td class="amount">${e.documentos ? fmtNum(e.documentos) : '—'}</td><td class="amount">${e.notasCredito ? fmtNum(e.notasCredito) : '—'}</td><td>${escapeHtml(fechaHora(e.actualizadoEn))}</td>${E.esAdmin ? `<td><button class="btn-ghost btn-compact" onclick="traerMeses(['${m}'], true)">${e.completo ? 'Volver a leer' : 'Leer'}</button></td>` : ''}</tr>`; }).join('');
+  $('dvDatosCuerpo').innerHTML = `<div class="sub" style="margin:8px 0;">Cada mes se lee de Bsale una vez y queda guardado; el mes en curso conviene actualizarlo cuando quieras cifras al día. <b>Los meses leídos antes de que se agregaran las notas de crédito aparecen como "sin leer": hay que leerlos de nuevo.</b> ${E.esAdmin ? '' : 'Solo un administrador puede traer meses desde Bsale.'}</div>
+    ${E.esAdmin ? `<div class="dv-fbotones" style="justify-content:flex-start;margin:0 0 8px;"><button class="btn-primary" onclick="traerMeses(['${E.hoy.slice(0, 7)}'], true)">🔄 Actualizar este mes</button><button class="btn-ghost" onclick="traerMeses(${escapeHtml(JSON.stringify(hace12.filter(m => !(ests[m] && ests[m].completo))))})">Traer los meses que faltan (últimos 13)</button></div>` : ''}
+    <div id="dvProgreso" class="dv-progreso" style="display:none;"></div>
+    <div class="tabla-wrap"><table><thead><tr><th>Mes</th><th>Estado</th><th class="amount">Documentos</th><th class="amount">Notas de crédito</th><th>Última lectura</th>${E.esAdmin ? '<th data-sin-orden></th>' : ''}</tr></thead><tbody>${filas}</tbody></table></div>`;
 }
 async function traerMeses(meses, refrescar){
   if(!meses || !meses.length || E.trayendo) return;
