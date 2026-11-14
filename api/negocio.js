@@ -18443,7 +18443,7 @@ async function manejarPedidoPantallaPrueba(req, res) {
     return res.status(200).json({ error: 'No se pudo armar el correo de prueba', detail: String(e.message || e).slice(0, 200) });
   }
 }
-// Cron diario (13:00 UTC): recordatorio de pedidos activos que llevan 3 o más días sin cambiar de estado, repetido cada 3 días mientras sigan igual.
+// Cron diario (13:10 UTC): recordatorio de pedidos que llevan 3 o más días pendientes de compra, repetido cada 3 días hasta que se marquen como comprados.
 // Un solo correo con todos. Solo sale si hay pedidos. ?probar=1&para=... ("Enviar prueba") manda lo que haya sin marcar nada (o un ejemplo si no hay pedidos).
 async function manejarPedidosPantallaRecordatorio(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
@@ -18454,12 +18454,12 @@ async function manejarPedidosPantallaRecordatorio(req, res) {
     await asegurarTablaPedidosPantalla(sql);
     const probar = esPruebaNotif(req);
     if (probar) {
-      const { rows } = await sql.query("SELECT id FROM pedidos_pantalla WHERE estado = ANY($1::text[]) ORDER BY creado_en LIMIT 15", [['pendiente_compra', 'comprado', 'en_transito', 'recibido']]);
+      const { rows } = await sql.query("SELECT id FROM pedidos_pantalla WHERE estado = 'pendiente_compra' ORDER BY creado_en LIMIT 15");
       const reales = [];
       for (const r of rows) reales.push(await leerPedidoPP(sql, r.id));
       const lista = reales.length ? reales : [
-        { id: 1, cliente_nombre: 'Cliente de ejemplo', modelo: 'HP Pavilion 15-eg0010la', producto_sku: 'PNORMAL156LED30', estado: 'pendiente_compra', dias_sin_cambio: 3 },
-        { id: 2, cliente_nombre: 'Otro cliente de ejemplo', modelo: 'Lenovo IdeaPad 3 15ITL6', producto_sku: null, estado: 'comprado', dias_sin_cambio: 6 },
+        { id: 1, cliente_nombre: 'Cliente de ejemplo', modelo: 'HP Pavilion 15-eg0010la', producto_sku: 'PNORMAL156LED30', estado: 'pendiente_compra', abono_realizado: true, dias_sin_cambio: 6 },
+        { id: 2, cliente_nombre: 'Otro cliente de ejemplo', modelo: 'Lenovo IdeaPad 3 15ITL6', producto_sku: null, estado: 'pendiente_compra', abono_realizado: false, dias_sin_cambio: 3 },
       ];
       const { asunto, html } = armarCorreoRecordatorioPedidosPantalla(lista, { urlBase: URL_BASE_APP, ejemplo: !reales.length });
       const r = await enviarCorreo({ para: String(req.query.para || ''), asunto: '[PRUEBA] ' + asunto, html });
@@ -18467,7 +18467,7 @@ async function manejarPedidosPantallaRecordatorio(req, res) {
     }
     if (!(await notificacionDebeEnviarse(sql, 'pedido-pantalla-recordatorio'))) return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
     const candidatos = await pedidosParaRecordarPP(sql);
-    if (!candidatos.length) return res.status(200).json({ ok: true, enviado: false, motivo: 'ningún pedido lleva 3 días o más sin cambiar de estado' });
+    if (!candidatos.length) return res.status(200).json({ ok: true, enviado: false, motivo: 'ningún pedido lleva 3 días o más pendiente de compra' });
     const ids = await reclamarRecordatoriosPP(sql, candidatos.map((p) => p.id));
     if (!ids.length) return res.status(200).json({ ok: true, enviado: false, motivo: 'otro proceso ya envió estos recordatorios' });
     const lista = candidatos.filter((p) => ids.includes(p.id));

@@ -19,11 +19,11 @@ Usuarios > Notificaciones). El correo no lleva montos.
 
 ## Recordatorio a los 3 días
 
-Todas las mañanas (cron 13:10 UTC) el ERP revisa los pedidos activos (pendiente de compra, comprado, en tránsito y recibido). Si uno lleva **3 días o más sin
-cambiar de estado**, sale un correo de recordatorio (notificación «Pantalla a pedido sin cambio de estado en 3 días», mismos destinatarios) con una tabla de todos
-los pedidos que cumplen, el más urgente primero y qué hay que hacer en cada uno. Si siguen igual, el recordatorio **se repite cada 3 días**. Cambiar el estado
-reinicia el reloj; editar otros datos (proveedor, notas, etc.) no. Los pedidos entregados o cancelados no generan recordatorio, y si no hay ninguno que cumpla no
-sale correo. «Enviar prueba» en Usuarios > Notificaciones manda un ejemplo con los pedidos que haya (o datos de ejemplo).
+Todas las mañanas (cron 13:10 UTC) el ERP revisa los pedidos **pendientes de compra**. Si uno lleva **3 días o más sin comprarse**, sale un correo de
+recordatorio (notificación «Pantalla a pedido sin comprar tras 3 días», mismos destinatarios) con una tabla de todos los que cumplen, el más antiguo primero. Si
+siguen sin comprarse, el recordatorio **se repite cada 3 días**. En cuanto el pedido pasa a «Comprado» (o a cualquier otro estado) deja de avisar; los comprados, en
+tránsito, recibidos, entregados y cancelados no generan recordatorio. Editar otros datos (proveedor, notas, etc.) no reinicia la cuenta, solo el cambio de estado.
+Si no hay ningún pedido que cumpla no sale correo. «Enviar prueba» en Usuarios > Notificaciones manda un ejemplo con los pendientes que haya (o datos de ejemplo).
 
 ## Lista de pedidos (segunda pestaña)
 
