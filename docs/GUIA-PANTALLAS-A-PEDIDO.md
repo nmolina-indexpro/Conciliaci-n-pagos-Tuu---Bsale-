@@ -13,8 +13,17 @@ y la lista les sigue la pista hasta entregarlos. No hay nada automático con Sho
 4. **Tiempo de espera** que se le dijo al cliente, en días (botones de 15, 18, 20, 22 y 25, o cualquier número; por defecto 20). Con eso se calcula la fecha
    prometida.
 
-El pedido queda **pendiente de compra**, se enciende la alerta de la página y sale un correo (notificación «Pantalla a pedido pendiente de compra»; se administra
-en Usuarios > Notificaciones y se puede apagar o cambiar de destinatarios). El correo no lleva montos.
+El pedido queda **pendiente de compra**, se enciende la alerta de la página y sale un correo «Nuevo pedido de pantalla: ejecutar la compra» (notificación
+«Pantalla a pedido nueva»). Llega a nmolina@indexpro.cl y a nathalia@indexstore.cl (direcciones fijas; se pueden sumar más personas, apagar o cambiar en
+Usuarios > Notificaciones). El correo no lleva montos.
+
+## Recordatorio a los 3 días
+
+Todas las mañanas (cron 13:10 UTC) el ERP revisa los pedidos activos (pendiente de compra, comprado, en tránsito y recibido). Si uno lleva **3 días o más sin
+cambiar de estado**, sale un correo de recordatorio (notificación «Pantalla a pedido sin cambio de estado en 3 días», mismos destinatarios) con una tabla de todos
+los pedidos que cumplen, el más urgente primero y qué hay que hacer en cada uno. Si siguen igual, el recordatorio **se repite cada 3 días**. Cambiar el estado
+reinicia el reloj; editar otros datos (proveedor, notas, etc.) no. Los pedidos entregados o cancelados no generan recordatorio, y si no hay ninguno que cumpla no
+sale correo. «Enviar prueba» en Usuarios > Notificaciones manda un ejemplo con los pedidos que haya (o datos de ejemplo).
 
 ## Lista de pedidos (segunda pestaña)
 

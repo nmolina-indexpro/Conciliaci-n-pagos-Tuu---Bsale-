@@ -157,6 +157,10 @@
     {
       "path": "/api/negocio?recurso=google-ads-resumen-semanal",
       "schedule": "0 13 * * 0"
+    },
+    {
+      "path": "/api/negocio?recurso=pedidos-pantalla-recordatorio",
+      "schedule": "10 13 * * *"
     }
   ],
   "headers": [

@@ -29,9 +29,9 @@ import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidir
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { asegurarTablaVentasDetalle, lineasDeDocumentos as lineasDeDocumentosDV, guardarLineas as guardarLineasDV, guardarSucursales as guardarSucursalesDV, leerDetalle as leerDetalleDV, estadoMeses as estadoMesesDV, mesesEntre as mesesEntreDV, mesValido as mesValidoDV, diaValido as diaValidoDV, MAX_MESES_CONSULTA as MAX_MESES_DV } from '../lib/detalle-ventas.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
-import { DIAS_ESTIMADOS_DEFECTO as DIAS_PEDIDO_PANTALLA, listarPedidos as listarPedidosPP, leerPedido as leerPedidoPP, resumirPedidos as resumirPedidosPP, aplicarCambios as aplicarCambiosPP, crearPedido as crearPedidoPP, reclamarAviso as reclamarAvisoPP, asegurarTablaPedidosPantalla } from '../lib/pedidos-pantalla.js';
+import { DIAS_ESTIMADOS_DEFECTO as DIAS_PEDIDO_PANTALLA, listarPedidos as listarPedidosPP, leerPedido as leerPedidoPP, resumirPedidos as resumirPedidosPP, aplicarCambios as aplicarCambiosPP, crearPedido as crearPedidoPP, reclamarAviso as reclamarAvisoPP, asegurarTablaPedidosPantalla, pedidosParaRecordar as pedidosParaRecordarPP, reclamarRecordatorios as reclamarRecordatoriosPP, soltarRecordatorios as soltarRecordatoriosPP } from '../lib/pedidos-pantalla.js';
 import { buscarProductos as buscarProductosCatalogoPP } from '../lib/pedidos-pantalla-catalogo.js';
-import { armarCorreoPedidoPantalla } from '../lib/correo-pedido-pantalla.js';
+import { armarCorreoPedidoPantalla, armarCorreoRecordatorioPedidosPantalla } from '../lib/correo-pedido-pantalla.js';
 import { armarCorreoInsumosCriticos } from '../lib/correo-insumo.js';
 import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadores.js';
 import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGORIAS as CATEGORIAS_CONTABILIDAD, CATEGORIA_IDS as CATEGORIA_IDS_CONTABILIDAD, categoriaEfectiva, resumir as resumirContabilidad, analizarContabilidad } from '../lib/contabilidad.js';
@@ -188,6 +188,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'resumen-cambios-recordatorio') return manejarResumenCambiosRecordatorio(req, res);
   if (req.query.recurso === 'resumen-cambios-proponer') return manejarCambiosProponerCron(req, res);
   if (req.query.recurso === 'traspaso-stock-notificar') return manejarTraspasoStockNotificar(req, res);
+  if (req.query.recurso === 'pedidos-pantalla-recordatorio') return manejarPedidosPantallaRecordatorio(req, res);
   if (req.query.recurso === 'recepciones-stock-notificar') return manejarRecepcionesStockNotificar(req, res);
   if (req.query.recurso === 'ventas-efectivo-notificar') return manejarVentasEfectivoNotificar(req, res);
   if (req.query.recurso === 'mercadolibre-sync') return manejarMercadoLibreSyncCron(req, res);
@@ -5566,6 +5567,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'ventas-efectivo-diario': manejarVentasEfectivoNotificar,
       'transito-envio-nuevo': manejarTransitoEnvioNuevoPrueba,
       'pedido-pantalla-nuevo': manejarPedidoPantallaPrueba,
+      'pedido-pantalla-recordatorio': manejarPedidosPantallaRecordatorio,
       'insumos-stock-critico': manejarInsumoCriticoPrueba,
       'nas-informe-revision': manejarNasBackupInformeCron,
       'electronica-leccion': manejarElectronicaEnviar,
@@ -18439,6 +18441,45 @@ async function manejarPedidoPantallaPrueba(req, res) {
     return res.status(200).json({ ok: true, enviado: !!(r && r.enviado), motivo: r && r.motivo });
   } catch (e) {
     return res.status(200).json({ error: 'No se pudo armar el correo de prueba', detail: String(e.message || e).slice(0, 200) });
+  }
+}
+// Cron diario (13:00 UTC): recordatorio de pedidos activos que llevan 3 o más días sin cambiar de estado, repetido cada 3 días mientras sigan igual.
+// Un solo correo con todos. Solo sale si hay pedidos. ?probar=1&para=... ("Enviar prueba") manda lo que haya sin marcar nada (o un ejemplo si no hay pedidos).
+async function manejarPedidosPantallaRecordatorio(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    await asegurarTablaPedidosPantalla(sql);
+    const probar = esPruebaNotif(req);
+    if (probar) {
+      const { rows } = await sql.query("SELECT id FROM pedidos_pantalla WHERE estado = ANY($1::text[]) ORDER BY creado_en LIMIT 15", [['pendiente_compra', 'comprado', 'en_transito', 'recibido']]);
+      const reales = [];
+      for (const r of rows) reales.push(await leerPedidoPP(sql, r.id));
+      const lista = reales.length ? reales : [
+        { id: 1, cliente_nombre: 'Cliente de ejemplo', modelo: 'HP Pavilion 15-eg0010la', producto_sku: 'PNORMAL156LED30', estado: 'pendiente_compra', dias_sin_cambio: 3 },
+        { id: 2, cliente_nombre: 'Otro cliente de ejemplo', modelo: 'Lenovo IdeaPad 3 15ITL6', producto_sku: null, estado: 'comprado', dias_sin_cambio: 6 },
+      ];
+      const { asunto, html } = armarCorreoRecordatorioPedidosPantalla(lista, { urlBase: URL_BASE_APP, ejemplo: !reales.length });
+      const r = await enviarCorreo({ para: String(req.query.para || ''), asunto: '[PRUEBA] ' + asunto, html });
+      return res.status(200).json({ ok: true, enviado: !!(r && r.enviado), motivo: r && r.motivo, pedidos: reales.length });
+    }
+    if (!(await notificacionDebeEnviarse(sql, 'pedido-pantalla-recordatorio'))) return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    const candidatos = await pedidosParaRecordarPP(sql);
+    if (!candidatos.length) return res.status(200).json({ ok: true, enviado: false, motivo: 'ningún pedido lleva 3 días o más sin cambiar de estado' });
+    const ids = await reclamarRecordatoriosPP(sql, candidatos.map((p) => p.id));
+    if (!ids.length) return res.status(200).json({ ok: true, enviado: false, motivo: 'otro proceso ya envió estos recordatorios' });
+    const lista = candidatos.filter((p) => ids.includes(p.id));
+    const destinatarios = await obtenerSuscriptoresEmail(sql, 'pedido-pantalla-recordatorio');
+    const { asunto, html } = armarCorreoRecordatorioPedidosPantalla(lista, { urlBase: URL_BASE_APP });
+    const envios = [];
+    for (const para of destinatarios) envios.push({ para, ...(await enviarCorreo({ para, asunto, html })) });
+    if (envios.some((e) => e.enviado !== false)) await marcarNotificacionEnviada(sql, 'pedido-pantalla-recordatorio', { asunto, html });
+    else await soltarRecordatoriosPP(sql, ids); // nadie lo recibió: se reintenta en la próxima ejecución
+    return res.status(200).json({ ok: true, enviado: envios.some((e) => e.enviado !== false), pedidos: lista.length, envios });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo enviar el recordatorio de pedidos de pantalla', detail: String(e.message || e).slice(0, 200) });
   }
 }
 // ===================== PANTALLAS A PEDIDO (fin) =====================
