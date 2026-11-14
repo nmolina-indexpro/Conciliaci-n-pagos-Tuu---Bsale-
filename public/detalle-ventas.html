@@ -152,6 +152,7 @@
   .dv-valor-top{font-family:'IBM Plex Mono',monospace;font-size:11.5px;min-width:78px;} .dv-otros{color:var(--muted);}
   .dv-resumen{font-size:12.5px;color:var(--muted);margin:0 0 8px;}
   .dv-enlace{background:none;border:none;padding:0;font:inherit;font-weight:600;color:var(--text);text-align:left;cursor:pointer;} .dv-enlace:hover{color:var(--primary);text-decoration:underline;}
+  tr.dv-sin-ventas td{color:var(--muted);background:var(--surface-2);}
   td.dv-calor{background:rgba(15,118,110,calc(var(--i) * 0.28));}
   tfoot td{border-top:2px solid var(--line);background:var(--surface-2);}
 </style>
@@ -330,6 +331,7 @@
       </div>
     </div>
     <div class="dv-resumen" id="dvResumenTabla"></div>
+    <label class="dv-op" id="dvVerPerdidasBox" style="display:none;margin:0 0 8px;"><input type="checkbox" id="dvVerPerdidas" onchange="E.verPerdidas = this.checked; pintarTodo();"> <span id="dvVerPerdidasTxt"></span></label>
     <div class="tabla-wrap" id="dvTabla"><p class="empty-note">Cargando…</p></div>
   </div>
 
@@ -358,7 +360,7 @@ const NOMBRE_DIM = { producto: 'Producto o servicio', vendedor: 'Vendedor', sucu
 const TITULO_TOP = { producto: 'productos y servicios', vendedor: 'vendedores', sucursal: 'sucursales', marca: 'marcas', tipo: 'tipos de productos' };
 const E = {
   tab: 'producto', preset: 'mes', rango: null, comparar: 'anterior', gran: 'auto', modoGrafico: 'valor',
-  filtros: { q: '', tipoVenta: '', ml: false, sucursales: [], vendedores: [], marcas: [], tipos: [] },
+  filtros: { q: '', tipoVenta: '', ml: false, sucursales: [], vendedores: [], marcas: [], tipos: [] }, verPerdidas: false,
   datos: null, lineas: [], cargado: null, hoy: null, esAdmin: false, filasTabla: [], cargando: false, trayendo: null,
   mensual: { dim: 'producto', metrica: 'venta', meses: 12 },
 };
@@ -644,16 +646,22 @@ function pintarTabla(d){
     // las filas que vendían antes y ahora no también cuentan en la comparación
     const antes = DV.agrupar(d.previa, dim);
     const claves = new Set(filas.map(f => f.clave));
-    const perdidas = antes.filter(f => !claves.has(f.clave)).map(f => ({ clave: f.clave, nombre: f.nombre, cant: 0, neto: 0, venta: 0, ventas: 0, ticket: null, margen: null, margenPct: null, cobertura: null, participacion: 0, productos: 0 }));
+    const perdidas = antes.filter(f => !claves.has(f.clave)).map(f => ({ soloComparacion: true, clave: f.clave, nombre: f.nombre, cant: 0, neto: 0, venta: 0, ventas: 0, ticket: null, margen: null, margenPct: null, cobertura: null, participacion: 0, productos: 0 }));
     filas = DV.conComparacion([...filas, ...perdidas], antes);
   }
+  // Lo que vendió solo en el período comparado (y en este no) aparece con cantidad 0: se muestra solo si la persona lo pide.
+  const soloComp = filas.filter(f => f.soloComparacion);
+  const hayComp = soloComp.length > 0;
+  $('dvVerPerdidasBox').style.display = hayComp ? '' : 'none';
+  $('dvVerPerdidasTxt').textContent = hayComp ? `Mostrar también los ${fmtNum(soloComp.length)} que vendieron solo en el período comparado (en este tienen cantidad 0)` : '';
+  if(!E.verPerdidas) filas = filas.filter(f => !f.soloComparacion);
   E.filasTabla = filas;
   const t = DV.totales(d.actual);
   $('dvResumenTabla').textContent = `${fmtNum(filas.length)} ${filas.length === 1 ? 'elemento' : 'elementos'} · ${fmtNum(t.cant)} unidades · ${fmtMoneda(t.venta)} en ventas`;
   if(!filas.length){ $('dvTabla').innerHTML = '<p class="empty-note">No hay ventas en este período con los filtros elegidos.</p>'; return; }
   const cols = columnasTabla();
   $('dvTabla').innerHTML = '<table id="tablaDetalle"><thead><tr>' + cols.map((c, i) => `<th${i ? ' class="amount"' : ''}>${c.titulo}</th>`).join('') + '</tr></thead><tbody>' +
-    filas.map((f, i) => '<tr>' + cols.map(c => c.html(f, i)).join('') + '</tr>').join('') + '</tbody></table>';
+    filas.map((f, i) => '<tr' + (f.soloComparacion ? ' class="dv-sin-ventas"' : '') + '>' + cols.map(c => c.html(f, i)).join('') + '</tr>').join('') + '</tbody></table>';
 }
 $('dvTabla').addEventListener('click', ev => { const b = ev.target.closest('[data-fila]'); if(b) filtrarPorFila(Number(b.dataset.fila)); });
 
