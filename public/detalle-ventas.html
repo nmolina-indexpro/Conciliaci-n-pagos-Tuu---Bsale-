@@ -158,6 +158,20 @@
   .dv-seg button{background:var(--surface);border:none;border-right:1px solid var(--line);padding:8px 13px;font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;}
   .dv-seg button:last-child{border-right:none;} .dv-seg button:hover{color:var(--text);background:var(--surface-2);}
   .dv-seg button.activo{background:var(--primary);color:#fff;}
+  .dv-kpi small b{font-size:inherit;font-family:inherit;}
+  .dv-pron-controles{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:0 0 12px;}
+  .dv-pron-grande{background:var(--surface);border:1.5px solid var(--primary);border-radius:14px;padding:16px 22px;margin-bottom:14px;box-shadow:var(--shadow);}
+  .dv-pron-etiqueta{display:block;font-size:12px;color:var(--primary);font-weight:700;text-transform:uppercase;letter-spacing:.4px;}
+  .dv-pron-cifra{display:block;font-family:'Space Grotesk',sans-serif;font-size:40px;line-height:1.15;margin:2px 0 6px;}
+  .dv-pron-sub{font-size:13px;margin:3px 0;}
+  .dv-pron-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px;}
+  @media (max-width:1100px){.dv-pron-grid{grid-template-columns:repeat(2,1fr);}}
+  .dv-linea-real{stroke:var(--primary);stroke-width:2.8;fill:none;} .dv-linea-ant{stroke:#9CA3AF;stroke-width:1.8;fill:none;} .dv-linea-prev{stroke:var(--amber);stroke-width:2.6;stroke-dasharray:6 4;fill:none;}
+  .dv-punto-real{fill:var(--primary);} i.dv-gris-l{display:inline-block;width:16px;border-top:2px solid #9CA3AF;vertical-align:3px;}
+  .dv-dias{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;} .dv-dias div{background:var(--surface-2);border-radius:8px;padding:8px 10px;text-align:center;}
+  .dv-dias span{display:block;font-size:11px;color:var(--muted);font-weight:600;} .dv-dias b{font-size:13px;}
+  @media (max-width:900px){.dv-dias{grid-template-columns:repeat(2,1fr);}}
+  .dv-lista-ia{margin:4px 0 10px;padding-left:20px;font-size:13px;line-height:1.5;}
   tfoot td{border-top:2px solid var(--line);background:var(--surface-2);}
 </style>
 <meta name="theme-color" content="#0F766E">
@@ -275,11 +289,11 @@
   <div class="sub">Las ventas de Bsale por producto, vendedor, sucursal, marca y tipo de producto, con comparación contra el período anterior o contra el mismo período del año pasado. <b>Venta total</b> lleva IVA y ya descuenta las notas de crédito (es la venta real); el margen se calcula sobre el neto.</div>
 
   <div class="dv-barra">
-    <div class="dv-campo"><label for="dvPreset">Período</label>
+    <div class="dv-campo" id="dvCampoPeriodo"><label for="dvPreset">Período</label>
       <select id="dvPreset" onchange="cambiarPreset(this.value)"></select></div>
     <div class="dv-campo" id="dvCustom" style="display:none;"><label for="dvDesde">Desde / hasta</label>
       <span><input type="date" id="dvDesde" onchange="cambiarFechas()"> <input type="date" id="dvHasta" onchange="cambiarFechas()"></span></div>
-    <div class="dv-campo"><label>Comparar con</label>
+    <div class="dv-campo" id="dvCampoComparar"><label>Comparar con</label>
       <div class="dv-seg" id="dvComparar" role="group" aria-label="Comparar con">
         <button type="button" data-modo="ninguna" onclick="cambiarComparar('ninguna')" title="Ver solo el período elegido, sin comparar">Sin comparación</button>
         <button type="button" data-modo="mes" onclick="cambiarComparar('mes')" title="Las mismas fechas, un mes antes (por ejemplo, del 1 al 14 de noviembre contra del 1 al 14 de octubre)">Mes anterior (misma fecha)</button>
@@ -340,6 +354,8 @@
     <div class="tabla-wrap" id="dvTabla"><p class="empty-note">Cargando…</p></div>
   </div>
 
+  <div id="dvVistaPronostico" style="display:none;"><div id="dvPronosticoCuerpo"></div></div>
+
   <div id="dvVistaMensual" style="display:none;">
     <div class="dv-barra" style="margin-top:6px;">
       <div class="dv-campo"><label for="mDim">Ver por</label><select id="mDim" onchange="cambiarMensual()">
@@ -360,12 +376,12 @@
 <script src="detalle-ventas-calculo.js"></script>
 <script>
 const $ = id => document.getElementById(id);
-const TABS = [['producto', 'Productos y servicios'], ['vendedor', 'Vendedores'], ['sucursal', 'Sucursales'], ['marca', 'Marcas'], ['tipo', 'Tipos de productos'], ['mensual', 'Comparativo mensual']];
+const TABS = [['producto', 'Productos y servicios'], ['vendedor', 'Vendedores'], ['sucursal', 'Sucursales'], ['marca', 'Marcas'], ['tipo', 'Tipos de productos'], ['mensual', 'Comparativo mensual'], ['pronostico', '📈 Pronóstico']];
 const NOMBRE_DIM = { producto: 'Producto o servicio', vendedor: 'Vendedor', sucursal: 'Sucursal', marca: 'Marca', tipo: 'Tipo de producto' };
 const TITULO_TOP = { producto: 'productos y servicios', vendedor: 'vendedores', sucursal: 'sucursales', marca: 'marcas', tipo: 'tipos de productos' };
 const E = {
   tab: 'producto', preset: 'mes', rango: null, comparar: 'mes', gran: 'auto', modoGrafico: 'valor',
-  filtros: { q: '', tipoVenta: '', ml: false, sucursales: [], vendedores: [], marcas: [], tipos: [] }, verPerdidas: false,
+  filtros: { q: '', tipoVenta: '', ml: false, sucursales: [], vendedores: [], marcas: [], tipos: [] }, verPerdidas: false, incluirHoy: false, pron: null, ia: null, iaCargando: false,
   datos: null, lineas: [], cargado: null, hoy: null, esAdmin: false, filasTabla: [], cargando: false, trayendo: null,
   mensual: { dim: 'producto', metrica: 'venta', meses: 12 },
 };
@@ -406,6 +422,7 @@ function comparacion(){ return DV.rangoComparacion(E.rango, E.comparar); }
 function rangoNecesario(){
   const rs = [E.rango]; const c = comparacion(); if(c) rs.push(c);
   if(E.tab === 'mensual'){ const ms = DV.ultimosMeses(E.hoy, E.mensual.meses); rs.push({ desde: ms[0] + '-01', hasta: E.hoy }); }
+  if(E.tab === 'pronostico') rs.push({ desde: DV.sumarMeses(DV.primeroDelMes(E.hoy), -12), hasta: E.hoy }); // 13 meses: base del pronóstico y el mismo mes del año anterior
   return { desde: rs.map(r => r.desde).sort()[0], hasta: rs.map(r => r.hasta).sort().slice(-1)[0] };
 }
 async function asegurarDatos(){
@@ -535,11 +552,18 @@ function pintarTodo(){
   const d = datosActuales();
   pintarEstado(); pintarChips(); pintarTabs(); pintarAviso(); pintarDatos();
   pintarKpis(d); pintarDesglose(d);
-  const mensual = E.tab === 'mensual';
-  $('dvVistaNormal').style.display = mensual ? 'none' : '';
+  const mensual = E.tab === 'mensual', pron = E.tab === 'pronostico';
+  $('dvVistaNormal').style.display = mensual || pron ? 'none' : '';
   $('dvVistaMensual').style.display = mensual ? '' : 'none';
+  $('dvVistaPronostico').style.display = pron ? '' : 'none';
+  // el pronóstico no usa el período ni la comparación ni las tarjetas del período: se ocultan en esa pestaña
+  $('dvCampoPeriodo').style.display = $('dvCampoComparar').style.display = pron ? 'none' : '';
+  $('dvCustom').style.display = pron || E.preset !== 'custom' ? 'none' : '';
+  $('dvKpis').style.display = pron ? 'none' : '';
+  $('dvDesglose').style.display = pron ? 'none' : '';
+  if(pron) $('dvEstado').innerHTML = '';
   $('dvBuscar').parentElement.style.display = '';
-  if(mensual) pintarMensual(d); else { pintarGraficos(d); pintarTabla(d); }
+  if(pron) pintarPronostico(); else if(mensual) pintarMensual(d); else { pintarGraficos(d); pintarTabla(d); }
 }
 
 function pintarEstado(){
@@ -561,6 +585,7 @@ function mesesFaltantes(){
   const meses = new Set();
   rs.forEach(r => { for(let m = DV.primeroDelMes(r.desde); m <= r.hasta; m = DV.sumarMeses(m, 1)) meses.add(m.slice(0, 7)); });
   if(E.tab === 'mensual') DV.ultimosMeses(E.hoy, E.mensual.meses).forEach(m => meses.add(m));
+  if(E.tab === 'pronostico') DV.ultimosMeses(E.hoy, 13).forEach(m => meses.add(m));
   return [...meses].sort().filter(m => { const e = E.datos.estado[m]; return !e || !e.completo; });
 }
 function pintarAviso(){
@@ -684,6 +709,7 @@ function exportarCsv(){
   const nombre = 'detalle-ventas-' + E.tab + '-' + E.rango.desde + '_' + E.rango.hasta + '.csv';
   let texto;
   if(E.tab === 'mensual'){ const m = E.matriz; if(!m) return; texto = DV.aCsv(m.filas, [{ titulo: NOMBRE_DIM[E.mensual.dim], valor: f => f.nombre }, ...m.meses.map((mes, i) => ({ titulo: DV.mesNombre(mes), valor: f => Math.round(f.valores[i]) })), { titulo: 'Total', valor: f => Math.round(f.total) }]); }
+  else if(E.tab === 'pronostico'){ const P = E.pron; if(!P || !P.actual) return; const A = P.actual; texto = DV.aCsv(A.ruta.real.map((v, i) => ({ dia: i + 1, real: v, previsto: A.ruta.previsto[i], anterior: (P.rutaAnterior || [])[i] })), [{ titulo: 'Día del mes', valor: f => f.dia }, { titulo: 'Vendido acumulado', valor: f => f.real == null ? '' : Math.round(f.real) }, { titulo: 'Pronóstico acumulado', valor: f => f.previsto == null ? '' : Math.round(f.previsto) }, { titulo: 'Mes anterior acumulado', valor: f => f.anterior == null ? '' : Math.round(f.anterior) }]); }
   else texto = DV.aCsv(E.filasTabla, columnasTabla().map(c => ({ titulo: c.titulo, valor: c.valor })));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['﻿' + texto], { type: 'text/csv;charset=utf-8' })); a.download = nombre; a.click(); URL.revokeObjectURL(a.href);
@@ -701,6 +727,134 @@ function pintarMensual(d){
   $('dvMatriz').innerHTML = '<table id="tablaMensual"><thead><tr><th>' + NOMBRE_DIM[E.mensual.dim] + '</th>' + ms.map((m, i) => `<th class="amount">${escapeHtml(DV.mesCorto(m))}${matriz.parcial && i === ms.length - 1 ? ' (a hoy)' : ''}</th>`).join('') + '<th class="amount">Total</th><th class="amount" title="' + (matriz.parcial ? 'El mes en curso contra el mes anterior hasta el mismo día' : 'El último mes contra el anterior') + '">Último mes vs anterior' + (matriz.parcial ? ' (mismo día)' : '') + '</th></tr></thead><tbody>' +
     matriz.filas.map(f => `<tr><td data-valor="${escapeHtml(f.nombre)}"><b>${escapeHtml(f.nombre)}</b></td>` + f.valores.map(v => `<td class="amount dv-calor" data-valor="${v}" style="--i:${(v / max).toFixed(3)}">${v ? fmt(v) : '<span class="sub" style="margin:0;">·</span>'}</td>`).join('') + `<td class="amount" data-valor="${f.total}"><b>${fmt(f.total)}</b></td><td class="amount" data-valor="${f.var ?? -1e9}">${varHtml(f.var, true)}</td></tr>`).join('') +
     `</tbody><tfoot><tr><td><b>Total</b></td>${matriz.totales.map(v => `<td class="amount"><b>${fmt(v)}</b></td>`).join('')}<td class="amount"><b>${fmt(matriz.totalGeneral)}</b></td><td class="amount">${varHtml(matriz.varUltimo, true)}</td></tr></tfoot></table>`;
+}
+
+// ---------- pronóstico de venta del mes ----------
+const diaChile = iso => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+function describirFiltros(){
+  const f = E.filtros, p = [];
+  if(f.q) p.push('búsqueda "' + f.q + '"');
+  if(f.tipoVenta) p.push('venta ' + (f.tipoVenta === 'online' ? 'online' : 'directa'));
+  if(f.ml) p.push('Mercado Libre');
+  [['sucursales', 'sucursal'], ['vendedores', 'vendedor'], ['marcas', 'marca'], ['tipos', 'tipo de producto']].forEach(([c, n]) => { if(f[c].length) p.push(n + ': ' + f[c].join(', ')); });
+  return p.join('; ');
+}
+// Último día con datos COMPLETOS del mes en curso: ayer, sin pasar de lo que alcanzó la última lectura de Bsale (el día de la lectura puede estar a medias).
+function corteDatos(est){
+  if(!est || !est.completo || !est.actualizadoEn) return null;
+  const lec = diaChile(est.actualizadoEn);
+  const corte = E.incluirHoy ? E.hoy : DV.sumarDias(E.hoy, -1), tope = E.incluirHoy ? lec : DV.sumarDias(lec, -1);
+  return tope < corte ? tope : corte;
+}
+function controlesPronostico(corte, est){
+  const desactualizado = corte && corte < DV.sumarDias(E.hoy, E.incluirHoy ? 0 : -1);
+  return `<div class="dv-pron-controles">
+    <label class="dv-op" style="margin:0;"><input type="checkbox" ${E.incluirHoy ? 'checked' : ''} onchange="E.incluirHoy = this.checked; E.ia = null; pintarTodo();"> Contar también el día de hoy <span class="sub" style="margin:0;">(puede estar incompleto)</span></label>
+    <span class="sub" style="margin:0;">${corte ? 'Datos completos hasta el <b>' + escapeHtml(DV.fechaCorta(corte)) + '</b>' : ''}${est && est.actualizadoEn ? ' · última lectura desde Bsale: ' + escapeHtml(fechaHora(est.actualizadoEn)) : ''}</span>
+  </div>
+  ${desactualizado ? `<div class="dv-aviso">⚠️ Los datos de este mes llegan hasta el ${escapeHtml(DV.fechaCorta(corte))}: faltan los días siguientes, así que el pronóstico puede quedar corto. ${E.esAdmin ? '<button class="btn-primary btn-compact" onclick="traerMeses([\'' + E.hoy.slice(0, 7) + '\'], true)">🔄 Actualizar este mes</button>' : 'Pídele a un administrador que actualice el mes.'}</div>` : ''}`;
+}
+function graficoPronostico(P){
+  const A = P.actual, n = A.dias, W = 680, H = 260, pl = 58, pr = 14, pt = 14, pb = 28;
+  const ant = P.rutaAnterior || [];
+  const max = Math.max(1, ...A.ruta.real.filter(v => v != null), ...A.ruta.previsto.filter(v => v != null), ...ant);
+  const paso = (() => { const e = Math.pow(10, Math.floor(Math.log10(max))); const f = max / e; return (f <= 1.2 ? 0.25 : f <= 2.5 ? 0.5 : f <= 5 ? 1 : 2) * e; })();
+  const tope = Math.ceil(max / paso) * paso;
+  const x = i => pl + (i - 1) * ((W - pl - pr) / (n - 1)), y = v => pt + (H - pt - pb) * (1 - v / tope);
+  const trazo = serie => { let d = ''; serie.forEach((v, i) => { if(v == null) return; d += (d ? 'L' : 'M') + x(i + 1).toFixed(1) + ' ' + y(v).toFixed(1) + ' '; }); return d; };
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="dv-svg" role="img" aria-label="Venta acumulada del mes y pronóstico">`;
+  for(let v = 0; v <= tope + 1; v += paso) svg += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" class="dv-grid"/><text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end" class="dv-eje">${fmtCorto(v)}</text>`;
+  for(let d = 1; d <= n; d++) if(d === 1 || d % 5 === 0 || d === n) svg += `<text x="${x(d)}" y="${H - 8}" text-anchor="middle" class="dv-eje">${d}</text>`;
+  if(ant.length) svg += `<path d="${trazo(ant)}" class="dv-linea-ant"><title>Mes anterior</title></path>`;
+  svg += `<path d="${trazo(A.ruta.previsto)}" class="dv-linea-prev"><title>Pronóstico</title></path>`;
+  svg += `<path d="${trazo(A.ruta.real)}" class="dv-linea-real"><title>Lo vendido</title></path>`;
+  svg += `<circle cx="${x(A.c)}" cy="${y(A.acumulado)}" r="4" class="dv-punto-real"><title>Corte: día ${A.c}, ${fmtMoneda(A.acumulado)}</title></circle>`;
+  svg += `<circle cx="${x(n)}" cy="${y(A.combinada)}" r="4" class="dv-punto"><title>Pronóstico a fin de mes: ${fmtMoneda(A.combinada)}</title></circle>`;
+  svg += '</svg>';
+  return svg + `<div class="dv-leyenda"><span><i class="dv-barra-s"></i> Lo vendido (acumulado)</span><span><i class="dv-linea-l"></i> Pronóstico</span>${ant.length ? `<span><i class="dv-gris-l"></i> ${escapeHtml(DV.mesNombre(P.mesAnterior))}</span>` : ''}</div>`;
+}
+function claveIA(){ const A = E.pron && E.pron.actual; return A ? [A.mes, A.corte, Math.round(A.combinada), describirFiltros()].join('|') : ''; }
+function htmlIA(){
+  const r = E.ia && E.ia.clave === claveIA() ? E.ia : null;
+  if(E.iaCargando) return '<p class="empty-note">Analizando con Gemini…</p>';
+  if(!r) return '<p class="empty-note">Pulsa el botón para que la IA interprete este pronóstico.</p>';
+  if(r.error) return '<p class="empty-note" style="color:#a11d1d;">' + escapeHtml(r.error) + (r.detail ? ' — ' + escapeHtml(r.detail) : '') + '</p>';
+  const col = { alta: 'dv-sube', media: 'dv-igual', baja: 'dv-baja' }[r.confianza] || 'dv-igual';
+  return `<p style="margin:0 0 8px;font-size:13.5px;line-height:1.5;">${escapeHtml(r.resumen)} <span class="${col}">Confianza ${escapeHtml(r.confianza)}.</span></p>
+    ${r.riesgos && r.riesgos.length ? '<b style="font-size:12.5px;">Qué podría desviarlo</b><ul class="dv-lista-ia">' + r.riesgos.map(x => '<li>' + escapeHtml(x) + '</li>').join('') + '</ul>' : ''}
+    ${r.acciones && r.acciones.length ? '<b style="font-size:12.5px;">Qué conviene hacer</b><ul class="dv-lista-ia">' + r.acciones.map(x => '<li>' + escapeHtml(x) + '</li>').join('') + '</ul>' : ''}`;
+}
+async function analizarPronosticoIA(){
+  const P = E.pron, A = P && P.actual; if(!A || E.iaCargando) return;
+  const clave = claveIA();
+  const pr = P.prueba || { filas: [] };
+  const pronostico = {
+    mes: A.mes, corte: A.corte, dias_mes: A.dias, dias_transcurridos: A.c, acumulado: A.acumulado,
+    proyeccion: { combinada: A.combinada, rango: A.rango, ritmo: A.ritmo ? A.ritmo.valor : null, diaSemana: A.diaSemana.valor, porcentajeTipico: A.porcentajeTipico },
+    mes_anterior: P.totalMesAnterior, mismo_mes_anio_anterior: P.totalMismoMesAnio, meses_anteriores: P.totales, promedio_dia_semana: P.promedioDiaSemana,
+    prueba: { errorMedioPct: pr.errorMedioPct, sesgoPct: pr.sesgoPct, filas: pr.filas.map(f => ({ mes: f.mes, proyectado: f.proyectado, real: f.real, errorPct: f.errorPct })) },
+    filtros: describirFiltros(),
+  };
+  E.iaCargando = true; if($('dvIA')) $('dvIA').innerHTML = htmlIA(); const b = $('btnIA'); if(b) b.disabled = true;
+  try{
+    const res = await fetch('/api/negocio?recurso=ventas-detalle-ia', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pronostico }) });
+    const d = await res.json();
+    E.ia = (!res.ok || d.error) ? { clave, error: d.error || 'No se pudo analizar', detail: d.detail } : { clave, ...d };
+  }catch(err){ E.ia = { clave, error: err.message }; }
+  E.iaCargando = false; if($('dvIA')) $('dvIA').innerHTML = htmlIA(); const b2 = $('btnIA'); if(b2) b2.disabled = false;
+}
+function pintarPronostico(){
+  const cont = $('dvPronosticoCuerpo');
+  const mes = E.hoy.slice(0, 7), est = E.datos.estado[mes], nombreMes = DV.mesNombre(mes);
+  const corte = corteDatos(est);
+  if(!corte){
+    cont.innerHTML = `<div class="dv-aviso">Para pronosticar <b>${escapeHtml(nombreMes)}</b> primero hay que leer este mes desde Bsale. ${E.esAdmin ? '<button class="btn-primary btn-compact" onclick="traerMeses([\'' + mes + '\'], true)">Traer este mes</button>' : 'Pídele a un administrador que lo traiga.'}</div>`;
+    return;
+  }
+  const controles = controlesPronostico(corte, est);
+  if(corte < mes + '-01'){ cont.innerHTML = controles + '<p class="empty-note">Todavía no hay días completos de ' + escapeHtml(nombreMes) + ' para proyectar. Vuelve mañana o marca «Contar también el día de hoy».</p>'; return; }
+  const lineas = DV.filtrar(E.lineas, E.filtros);
+  const completos = Object.keys(E.datos.estado).filter(m => m < mes && E.datos.estado[m].completo);
+  const P = DV.pronostico({ lineas, hoy: E.hoy, corte, mesesCompletos: completos });
+  E.pron = P;
+  const A = P.actual;
+  if(!A){ cont.innerHTML = controles + '<p class="empty-note">Con los filtros elegidos todavía no hay ventas suficientes este mes para proyectar.</p>'; return; }
+  const filtros = describirFiltros();
+  const comparaTxt = (total, m) => total != null ? `${varHtml(DV.variacion(A.combinada, total), true)} <span class="sub" style="margin:0;">vs ${fmtMoneda(total)} en ${escapeHtml(DV.mesNombre(m))}</span>` : `<span class="sub" style="margin:0;">${escapeHtml(DV.mesNombre(m))}: mes sin leer</span>`;
+  const pr = P.prueba, hayPrueba = pr && pr.filas.length >= 3;
+  const conf = !hayPrueba ? null : pr.errorMedioPct <= 8 ? ['alta', 'dv-sube'] : pr.errorMedioPct <= 15 ? ['media', 'dv-igual'] : ['baja', 'dv-baja'];
+  let igualar = '';
+  if(P.totalMesAnterior != null){
+    const falta = P.totalMesAnterior - A.acumulado;
+    igualar = falta <= 0 ? `Ya superaste lo vendido en ${escapeHtml(DV.mesNombre(P.mesAnterior))} (+${fmtMoneda(-falta)}).` : `Para igualar ${escapeHtml(DV.mesNombre(P.mesAnterior))} hay que vender <b>${fmtMoneda(falta / A.diasFaltan)}</b> por día (lo esperado es ${fmtMoneda(A.promedioDiarioFalta)}).`;
+  }
+  const tarjeta = (t, v, s) => `<div class="dv-kpi"><span>${t}</span><b>${v}</b><small class="sub" style="margin:0;">${s}</small></div>`;
+  cont.innerHTML = controles + `
+    <div class="dv-pron-grande">
+      <span class="dv-pron-etiqueta">Venta proyectada de ${escapeHtml(nombreMes)}</span>
+      <b class="dv-pron-cifra">${fmtMoneda(A.combinada)}</b>
+      <div class="dv-pron-sub">Rango probable: <b>${fmtMoneda(A.rango.desde)}</b> a <b>${fmtMoneda(A.rango.hasta)}</b></div>
+      <div class="dv-pron-sub">Llevas <b>${fmtMoneda(A.acumulado)}</b> en ${A.c} de ${A.dias} días (${fmtPct(A.acumulado / A.combinada * 100, 1)} de lo proyectado)${filtros ? ' · con los filtros: ' + escapeHtml(filtros) : ''}</div>
+      <div class="dv-pron-sub">${comparaTxt(P.totalMesAnterior, P.mesAnterior)} · ${comparaTxt(P.totalMismoMesAnio, P.mesAnio)}</div>
+      ${conf ? `<div class="dv-pron-sub">Confianza: <span class="${conf[1]}">${conf[0]}</span> <span class="sub" style="margin:0;">(en ${pr.filas.length} meses anteriores el error medio fue de ${fmtNum(pr.errorMedioPct, 1)}%)</span></div>` : '<div class="dv-pron-sub"><span class="dv-igual">Estimación gruesa:</span> <span class="sub" style="margin:0;">hay pocos meses leídos para medir qué tan acertado es el método (lee los meses anteriores desde «Datos desde Bsale»).</span></div>'}
+    </div>
+    <div class="dv-pron-grid">
+      ${tarjeta('Por el ritmo de los meses anteriores', A.ritmo ? fmtMoneda(A.ritmo.valor) : '—', A.ritmo ? `En los últimos ${A.ritmo.meses} meses, los primeros ${A.c} días fueron cerca del <b>${fmtNum(A.porcentajeTipico, 0)}%</b> del mes.` : 'Faltan meses anteriores leídos.')}
+      ${tarjeta('Por día de la semana', fmtMoneda(A.diaSemana.valor), `Lo vendido más ${fmtMoneda(A.diaSemana.restante)} que se esperan en los ${A.diasFaltan} días que faltan (promedio de cada día en 12 semanas).`)}
+      ${tarjeta('Falta por vender', fmtMoneda(A.restante), `Unos ${fmtMoneda(A.promedioDiarioFalta)} por día; hasta ahora llevas ${fmtMoneda(A.promedioDiarioActual)} por día.`)}
+      ${tarjeta('Mes anterior', P.totalMesAnterior != null ? fmtMoneda(P.totalMesAnterior) : '—', igualar || 'El mes anterior no está leído.')}
+    </div>
+    <div class="dv-graficos" style="grid-template-columns:1.3fr 1fr;">
+      <div class="dv-tarjeta"><div class="dv-tarjeta-cab"><b>Venta acumulada del mes</b></div>${graficoPronostico(P)}</div>
+      <div class="dv-tarjeta"><div class="dv-tarjeta-cab"><b>¿Qué tan acertado ha sido?</b></div>
+        <div class="sub" style="margin:0 0 6px;">Repite el pronóstico como si se hubiera hecho el día ${A.c} de cada mes anterior (usando solo los meses previos) y lo compara con lo que de verdad se vendió.</div>
+        ${pr && pr.filas.length ? '<table><thead><tr><th>Mes</th><th class="amount">Proyectado</th><th class="amount">Real</th><th class="amount">Error</th></tr></thead><tbody>' + pr.filas.map(f => `<tr><td>${escapeHtml(DV.mesNombre(f.mes))}</td><td class="amount">${fmtMoneda(f.proyectado)}</td><td class="amount">${fmtMoneda(f.real)}</td><td class="amount"><span class="${Math.abs(f.errorPct) <= 5 ? 'dv-sube' : Math.abs(f.errorPct) <= 10 ? 'dv-igual' : 'dv-baja'}">${f.errorPct >= 0 ? '+' : ''}${fmtNum(f.errorPct, 1)}%</span></td></tr>`).join('') + `</tbody><tfoot><tr><td colspan="3"><b>Error medio</b>${pr.sesgoPct != null ? ' · tiende a proyectar ' + (pr.sesgoPct >= 0 ? 'de más' : 'de menos') + ' (' + (pr.sesgoPct >= 0 ? '+' : '') + fmtNum(pr.sesgoPct, 1) + '%)' : ''}</td><td class="amount"><b>${fmtNum(pr.errorMedioPct, 1)}%</b></td></tr></tfoot></table>` : '<p class="empty-note">Hacen falta al menos 4 meses leídos para probarlo.</p>'}
+      </div>
+    </div>
+    <div class="dv-tarjeta" style="margin-top:14px;"><div class="dv-tarjeta-cab"><b>Lo que se vende cada día de la semana</b><span class="sub" style="margin:0;">promedio de las últimas 12 semanas, sin contar el día más alto ni el más bajo</span></div>
+      <div class="dv-dias">${P.promedioDiaSemana.map(x => `<div><span>${escapeHtml(x.dia)}</span><b>${fmtMoneda(x.promedio)}</b></div>`).join('')}</div></div>
+    ${E.esAdmin ? `<div class="dv-tarjeta" style="margin-top:14px;"><div class="dv-tarjeta-cab"><b>🤖 Interpretación con IA (Gemini)</b><button class="btn-primary btn-compact" id="btnIA" onclick="analizarPronosticoIA()">Interpretar el pronóstico</button></div><div class="sub" style="margin:0 0 8px;">La IA no cambia la cifra: la interpreta y señala qué la puede desviar.</div><div id="dvIA">${htmlIA()}</div></div>` : ''}
+    <div class="sub" style="margin-top:12px;line-height:1.5;">Cómo se calcula: la venta es la real (con IVA, descontadas las notas de crédito) y respeta los filtros de arriba. El pronóstico es el promedio de dos métodos: el <b>ritmo</b> (cuánto del mes suele estar vendido a esta altura) y el <b>día de la semana</b> (lo vendido más lo que se espera cada día que falta). No considera feriados ni eventos como Black Friday; por eso conviene mirar el rango y la prueba de arriba.</div>`;
 }
 
 // ---------- datos desde Bsale ----------

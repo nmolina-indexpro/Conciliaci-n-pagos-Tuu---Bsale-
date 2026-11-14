@@ -202,6 +202,107 @@
   // Los n meses que terminan en el mes de "hoy" (incluido), del más antiguo al más reciente.
   function ultimosMeses(hoy, n) { const out = []; let m = primeroDelMes(hoy); for (let i = 0; i < n; i++) { out.unshift(m.slice(0, 7)); m = sumarMeses(m, -1); } return out; }
 
+  // ---------- pronóstico de venta del mes ----------
+  // Dos métodos, ambos sobre la venta real con IVA por día (las notas de crédito restan):
+  //  - ritmo: en los meses anteriores, los primeros c días fueron el X% del mes; si este mes llevamos A, el mes cerraría en A / X%. Se toma la mediana de los meses base.
+  //  - día de la semana: lo vendido hasta hoy + lo que se espera vender cada día que falta, según el promedio de ese día de la semana en las últimas 12 semanas.
+  // El pronóstico es el promedio de los dos. La prueba de meses anteriores repite el cálculo como si se hubiera hecho el mismo día de cada mes pasado (usando solo
+  // los meses anteriores a ese) y lo compara con lo que de verdad se vendió, para saber cuánto fiarse. No considera feriados ni eventos: eso lo ve la IA como riesgo.
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const diasDelMes = (mes) => Number(ultimoDelMes(mes + '-01').slice(8, 10));
+  const NOMBRES_DIA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+  const diaSemana = (iso) => (new Date(aMs(iso)).getUTCDay() + 6) % 7; // lunes = 0
+  function ventaPorDia(lineas) { const m = {}; for (const l of lineas) m[l.f] = (m[l.f] || 0) + l.neto * IVA; return m; }
+  function percentil(arr, p) {
+    const a = [...arr].sort((x, y) => x - y); if (!a.length) return null;
+    const i = (a.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
+    return a[lo] + (a[hi] - a[lo]) * (i - lo);
+  }
+  const mediana = (a) => percentil(a, 0.5);
+  const promedio = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
+  // Promedio sin el valor más alto ni el más bajo (un día excepcional no debe mover el promedio de un día de la semana)
+  function mediaRecortada(a) { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); const u = s.length >= 6 ? s.slice(1, -1) : s; return u.reduce((q, x) => q + x, 0) / u.length; }
+  function acumulado(porDia, mes, c) { let s = 0; const n = diasDelMes(mes); for (let d = 1; d <= Math.min(c, n); d++) s += porDia[mes + '-' + pad2(d)] || 0; return s; }
+
+  function porRitmo(porDia, mes, c, base) {
+    const acum = acumulado(porDia, mes, c), proy = [], ratios = [];
+    for (const m of base) {
+      const tot = acumulado(porDia, m, 31), cum = acumulado(porDia, m, c);
+      if (tot > 0 && cum > 0) { ratios.push(cum / tot); proy.push(acum / (cum / tot)); }
+    }
+    if (!proy.length || !(acum > 0)) return null;
+    return { valor: mediana(proy), minimo: Math.min(...proy), maximo: Math.max(...proy), p20: percentil(proy, 0.2), p80: percentil(proy, 0.8), meses: proy.length, ratioTipico: mediana(ratios) };
+  }
+  function porDiaSemana(porDia, mes, c, semanas) {
+    const corte = mes + '-' + pad2(c), desde = sumarDias(corte, -(semanas * 7) + 1);
+    const muestras = [[], [], [], [], [], [], []];
+    for (let d = desde; d <= corte; d = sumarDias(d, 1)) muestras[diaSemana(d)].push(porDia[d] || 0);
+    const prom = muestras.map(mediaRecortada);
+    const acum = acumulado(porDia, mes, c), n = diasDelMes(mes), diario = [];
+    let restante = 0;
+    for (let k = c + 1; k <= n; k++) { const fecha = mes + '-' + pad2(k), e = prom[diaSemana(fecha)]; restante += e; diario.push({ dia: k, fecha, esperado: e }); }
+    return { valor: acum + restante, restante, promedios: prom, diario };
+  }
+  // mes 'AAAA-MM'; corte = último día completo ('AAAA-MM-DD', dentro del mes); base = meses completos anteriores ('AAAA-MM'). null si no se puede.
+  function pronosticoMes(porDia, mes, corte, base) {
+    if (!corte || corte.slice(0, 7) !== mes) return null;
+    const c = Number(corte.slice(8, 10)), n = diasDelMes(mes);
+    if (c < 1 || c >= n) return null;
+    const acum = acumulado(porDia, mes, c);
+    const r = porRitmo(porDia, mes, c, base), d = porDiaSemana(porDia, mes, c, 12);
+    const valores = [r && r.valor, d.valor].filter((x) => x != null && Number.isFinite(x));
+    if (!valores.length || !(acum > 0)) return null;
+    const combinada = promedio(valores);
+    const bajos = [r && r.p20, d.valor, combinada].filter((x) => x != null), altos = [r && r.p80, d.valor, combinada].filter((x) => x != null);
+    const desde = Math.max(acum, Math.min(...bajos)), hasta = Math.max(...altos);
+    // ruta acumulada para el gráfico: lo real hasta el corte y, desde ahí, lo esperado de cada día escalado para llegar a la cifra pronosticada
+    const falta = n - c, k = d.restante > 0 ? (combinada - acum) / d.restante : null;
+    const real = [], previsto = []; let a = 0, p = acum;
+    for (let i = 1; i <= n; i++) {
+      if (i <= c) { a += porDia[mes + '-' + pad2(i)] || 0; real.push(a); previsto.push(i === c ? acum : null); }
+      else { p += k != null ? d.diario[i - c - 1].esperado * k : (combinada - acum) / falta; real.push(null); previsto.push(p); }
+    }
+    return {
+      mes, corte, c, dias: n, acumulado: acum, ritmo: r, diaSemana: d, combinada, rango: { desde, hasta }, porcentajeTipico: r ? r.ratioTipico * 100 : null,
+      restante: combinada - acum, promedioDiarioActual: acum / c, promedioDiarioFalta: (combinada - acum) / falta, diasFaltan: falta, ruta: { real, previsto },
+    };
+  }
+  // Repite el pronóstico en los últimos meses completos, usando solo los meses anteriores a cada uno y el mismo día de corte.
+  function pruebaMeses(porDia, mesesCompletos, c, max) {
+    const ms = [...mesesCompletos].sort(), filas = [];
+    for (let i = ms.length - 1; i >= 0 && filas.length < (max || 8); i--) {
+      const m = ms[i], base = ms.slice(Math.max(0, i - 12), i);
+      if (base.length < 3) continue;
+      const cc = Math.min(c, diasDelMes(m) - 1);
+      const p = pronosticoMes(porDia, m, m + '-' + pad2(cc), base), real = acumulado(porDia, m, 31);
+      if (!p || !(real > 0)) continue;
+      filas.push({ mes: m, corteDia: cc, proyectado: p.combinada, real, errorPct: ((p.combinada - real) / real) * 100 });
+    }
+    filas.reverse();
+    return { filas, errorMedioPct: filas.length ? promedio(filas.map((x) => Math.abs(x.errorPct))) : null, sesgoPct: filas.length ? promedio(filas.map((x) => x.errorPct)) : null };
+  }
+  // Todo junto para la página. lineas: ya filtradas (los filtros de la página se aplican antes). mesesCompletos: meses leídos por completo de Bsale, sin el mes en curso.
+  function pronostico({ lineas, hoy, corte, mesesCompletos }) {
+    const mes = hoy.slice(0, 7), porDia = ventaPorDia(lineas);
+    const completos = (mesesCompletos || []).filter((m) => m < mes && acumulado(porDia, m, 31) > 0).sort();
+    const base = completos.slice(-12);
+    const actual = pronosticoMes(porDia, mes, corte, base);
+    const prev = DVmesAnterior(mes), anio = sumarMeses(mes + '-01', -12).slice(0, 7);
+    const total = (m) => (completos.includes(m) ? acumulado(porDia, m, 31) : null);
+    let anterior = null;
+    if (actual) { // ruta del mes anterior para compararla en el gráfico
+      const np = diasDelMes(prev); anterior = [];
+      let a = 0; for (let i = 1; i <= Math.min(actual.dias, np); i++) { a += porDia[prev + '-' + pad2(i)] || 0; anterior.push(a); }
+    }
+    return {
+      mes, base, actual, rutaAnterior: anterior, totalMesAnterior: total(prev), totalMismoMesAnio: total(anio), mesAnterior: prev, mesAnio: anio,
+      prueba: actual ? pruebaMeses(porDia, completos, actual.c, 8) : null,
+      totales: completos.slice(-13).map((m) => ({ mes: m, total: acumulado(porDia, m, 31) })),
+      promedioDiaSemana: actual ? actual.diaSemana.promedios.map((v, i) => ({ dia: NOMBRES_DIA[i], promedio: v })) : [],
+    };
+  }
+  const DVmesAnterior = (mes) => sumarMeses(mes + '-01', -1).slice(0, 7);
+
   // ---------- exportar
   function aCsv(filas, columnas) {
     const celda = (v) => { const s = v == null ? '' : String(v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
@@ -209,7 +310,7 @@
   }
 
   return {
-    IVA, PRESETS, desglosePorTipoDoc, presetRango, rangoComparacion, etiquetaRango, prepararLineas, enRango, filtrar, totales, agrupar, conComparacion, variacion, topN, casillas, granularidadSugerida, serie,
+    IVA, PRESETS, desglosePorTipoDoc, ventaPorDia, pronosticoMes, pruebaMeses, pronostico, NOMBRES_DIA, presetRango, rangoComparacion, etiquetaRango, prepararLineas, enRango, filtrar, totales, agrupar, conComparacion, variacion, topN, casillas, granularidadSugerida, serie,
     matrizMensual, mesesDeLineas, ultimosMeses, aCsv, sumarDias, diasEntre, sumarMeses, primeroDelMes, ultimoDelMes, lunesDe, fechaCorta, mesNombre, mesCorto,
   };
 });

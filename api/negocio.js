@@ -28,6 +28,7 @@ import { seleccionarRecepciones, armarCorreoRecepciones, leerRecepcionesReciente
 import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidirAvisos, armarCorreoTraspasoStock } from '../lib/traspaso-stock.js';
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { asegurarTablaVentasDetalle, lineasDeDocumentos as lineasDeDocumentosDV, guardarLineas as guardarLineasDV, guardarSucursales as guardarSucursalesDV, leerDetalle as leerDetalleDV, estadoMeses as estadoMesesDV, mesesEntre as mesesEntreDV, mesValido as mesValidoDV, diaValido as diaValidoDV, MAX_MESES_CONSULTA as MAX_MESES_DV } from '../lib/detalle-ventas.js';
+import { SISTEMA_PRONOSTICO_IA, HERRAMIENTA_PRONOSTICO_IA, armarEntradaPronostico, textoParaIA as textoParaIAPronostico, normalizarAnalisisPronostico } from '../lib/detalle-ventas-pronostico-ia.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
 import { DIAS_ESTIMADOS_DEFECTO as DIAS_PEDIDO_PANTALLA, listarPedidos as listarPedidosPP, leerPedido as leerPedidoPP, resumirPedidos as resumirPedidosPP, aplicarCambios as aplicarCambiosPP, crearPedido as crearPedidoPP, reclamarAviso as reclamarAvisoPP, asegurarTablaPedidosPantalla, pedidosParaRecordar as pedidosParaRecordarPP, reclamarRecordatorios as reclamarRecordatoriosPP, soltarRecordatorios as soltarRecordatoriosPP } from '../lib/pedidos-pantalla.js';
 import { buscarProductos as buscarProductosCatalogoPP } from '../lib/pedidos-pantalla-catalogo.js';
@@ -341,6 +342,7 @@ export default async function handler(req, res) {
   if (recurso === 'comparativo-ventas-sync') return manejarComparativoVentasSync(req, res, sesion);
   if (recurso === 'ventas-detalle') return manejarVentasDetalle(req, res, sesion);
   if (recurso === 'ventas-detalle-sync') return manejarVentasDetalleSync(req, res, sesion);
+  if (recurso === 'ventas-detalle-ia') return manejarVentasDetalleIA(req, res, sesion);
   if (recurso === 'comparativo-marca') return manejarComparativoMarca(req, res, sesion);
   if (recurso === 'contabilidad' || recurso === 'contabilidad-sync' || recurso === 'contabilidad-categoria' || recurso === 'contabilidad-analisis') return manejarContabilidad(req, res, sesion);
   if (recurso === 'precios-sku-variacion') return manejarPreciosSkuVariacion(req, res, sesion);
@@ -18574,6 +18576,22 @@ async function manejarVentasDetalleSync(req, res, sesion) {
     return res.status(200).json({ mes, fase: completo ? 'listo' : fase, porcentaje: completo ? 100 : Math.min(99, porcentaje), completo, docs: { completo: docsCompleto, hecho: por[clave] ? Math.min(por[clave].offset_a, por[clave].total_a ?? por[clave].offset_a) : 0, total: por[clave] ? por[clave].total_a : null }, costos });
   } catch (err) {
     return res.status(200).json({ error: 'Error leyendo las ventas desde Bsale', detail: String(err.message || err).slice(0, 240) });
+  }
+}
+// POST ?recurso=ventas-detalle-ia { pronostico } -> interpretación con Gemini del pronóstico de venta del mes (la cifra la calcula la página; la IA no la cambia). Solo administradores.
+async function manejarVentasDetalleIA(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede pedir el análisis con IA' });
+  if (!process.env.GEMINI_API_KEY) return res.status(200).json({ error: 'Falta configurar GEMINI_API_KEY en el servidor' });
+  const entrada = armarEntradaPronostico((req.body || {}).pronostico);
+  if (!entrada) return res.status(400).json({ error: 'El pronóstico que se mandó no es válido' });
+  try {
+    const bruto = await llamarGeminiEstructurado(SISTEMA_PRONOSTICO_IA, textoParaIAPronostico(entrada), HERRAMIENTA_PRONOSTICO_IA, { maxTokens: 2048 });
+    const analisis = normalizarAnalisisPronostico(bruto);
+    if (!analisis.resumen) return res.status(200).json({ error: 'La IA no devolvió un análisis. Vuelve a intentarlo.' });
+    return res.status(200).json({ ok: true, ...analisis });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo hacer el análisis con IA', detail: String(err.message || err).slice(0, 200) });
   }
 }
 // ===================== DETALLE DE VENTAS (fin) =====================
