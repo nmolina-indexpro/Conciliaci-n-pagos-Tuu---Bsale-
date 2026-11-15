@@ -178,6 +178,34 @@
   #toast.err{background:var(--red);}
   .btn-volver{display:none;}
 
+  /* ---- Vistas (Bandeja | Métricas | Configuración | Cliente 360) ---- */
+  .vistas{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
+  .vista{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);padding:7px 16px;font-size:12.5px;}
+  .vista.activa{background:var(--primary);border-color:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .filtros-m{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px;}
+  .campo-m{display:flex;gap:5px;align-items:center;}
+  .campo-m label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600;}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:18px;}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);}
+  .kpi .lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+  .kpi .big{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:700;margin-top:4px;}
+  .kpi .nota{font-size:11.5px;color:var(--muted);margin-top:3px;}
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);margin-bottom:18px;}
+  .seccion h3{font-family:'Space Grotesk',sans-serif;font-size:15px;margin:0 0 4px;}
+  .seccion .sub{margin-bottom:10px;}
+  .tabla-wrap{overflow-x:auto;}
+  table.t{width:100%;border-collapse:collapse;font-size:13px;}
+  table.t th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;font-size:10.5px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  table.t td{padding:9px;border-bottom:1px solid var(--line);}
+  table.t .num{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .dos-col{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px;}
+  .fila-lista{display:flex;gap:8px;align-items:center;margin-bottom:6px;}
+  .fila-lista input[type=text]{flex:1;min-width:0;}
+  .nota-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:10px 14px;font-size:12.5px;margin-bottom:14px;}
+  .nota-box.err{background:var(--red-bg);border-color:#F5B5B5;}
+  .barra{height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden;min-width:70px;}
+  .barra > span{display:block;height:100%;background:var(--primary);}
+
   /* ---- Celular y pantallas angostas: una vista a la vez (lista -> detalle) ---- */
   @media (max-width:1100px){
     body{padding:14px 12px 24px;}
@@ -319,12 +347,37 @@
     </div>
     <div class="toolbar-acciones">
       <button class="btn-ghost btn-compact" id="btnCarritos" style="display:none" onclick="revisarCarritos()" title="Busca en Shopify los carritos abandonados y crea un lead por cada uno nuevo">🛒 Revisar carritos</button>
-      <button class="btn-ghost btn-compact" id="btnCatalogo" style="display:none" onclick="abrirCatalogo()" title="Servicios, precios y condiciones impresas en la orden">⚙ Catálogo de servicios</button>
       <button class="btn-ghost btn-compact" onclick="cargarLista(true)">↻ Actualizar</button>
       <button class="btn-ghost" onclick="abrirNuevaOS()">🔧 Nueva orden de servicio</button>
       <button class="btn-primary" onclick="abrirNuevo()">+ Nuevo ticket</button>
     </div>
   </div>
+
+  <div class="vistas" role="tablist" id="vistas">
+    <button class="vista activa" data-vista="bandeja" onclick="cambiarVista('bandeja')">Bandeja</button>
+    <button class="vista" data-vista="metricas" onclick="cambiarVista('metricas')">Métricas</button>
+    <button class="vista" data-vista="config" onclick="cambiarVista('config')">Configuración</button>
+  </div>
+
+  <!-- Vista: Métricas -->
+  <div id="vistaMetricas" class="vista-panel" style="display:none">
+    <div class="filtros-m">
+      <div class="campo-m"><label for="mDesde">Desde</label><input type="date" id="mDesde" onchange="cargarMetricas()"></div>
+      <div class="campo-m"><label for="mHasta">Hasta</label><input type="date" id="mHasta" onchange="cargarMetricas()"></div>
+      <button class="btn-ghost btn-compact" onclick="rangoMetricas(7)">7 días</button>
+      <button class="btn-ghost btn-compact" onclick="rangoMetricas(30)">30 días</button>
+      <button class="btn-ghost btn-compact" onclick="rangoMetricas(90)">90 días</button>
+      <button class="btn-ghost btn-compact" onclick="rangoMetricas('mes')">Mes actual</button>
+      <span id="mEstado" class="sub"></span>
+    </div>
+    <div id="mContenido"><div class="empty-note">Cargando…</div></div>
+  </div>
+
+  <!-- Vista: Cliente 360 -->
+  <div id="vistaCliente" class="vista-panel" style="display:none"></div>
+
+  <!-- Vista: Configuración -->
+  <div id="vistaConfig" class="vista-panel" style="display:none"></div>
 
   <div class="tk-app" id="app">
     <!-- Columna 1: lista de tickets -->
@@ -636,7 +689,8 @@ function panelContacto(d){
     <div class="prop"><div class="contacto-nombre">${esc(c.nombre || 'Sin nombre')}</div>
       ${c.email ? `<div class="valor"><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></div>` : ''}
       ${tel ? `<div class="valor">${esc(tel)}</div>` : '<div class="valor" style="color:var(--muted)">Sin teléfono</div>'}
-      ${c.rut ? `<div class="valor" style="color:var(--muted)">RUT ${esc(c.rut)}</div>` : ''}</div></div></details>`;
+      ${c.rut ? `<div class="valor" style="color:var(--muted)">RUT ${esc(c.rut)}</div>` : ''}</div>
+    ${c.id ? `<button class="btn-ghost btn-compact" onclick="abrirCliente(${c.id})">Ver cliente 360 →</button>` : ''}</div></details>`;
 }
 function panelClave(d){
   const t = tiempoEspera(d);
@@ -653,7 +707,7 @@ function panelClave(d){
   </div></details>`;
 }
 function selectLista(id, lista, valor, conVacio){
-  return `<select id="${id}">${conVacio ? '<option value="">—</option>' : ''}${lista.map(o => `<option value="${o.clave}"${o.clave === valor ? ' selected' : ''}>${esc(o.etiqueta)}</option>`).join('')}</select>`;
+  return `<select id="${id}">${conVacio ? '<option value="">—</option>' : ''}${lista.filter(o => o.activo !== false || o.clave === valor).map(o => `<option value="${o.clave}"${o.clave === valor ? ' selected' : ''}>${esc(o.etiqueta)}</option>`).join('')}</select>`;
 }
 function panelInfoTicket(d){
   let campos = `<div class="prop"><label>Origen</label><div class="valor">${esc(etiquetaOrigen(d.origen))}</div></div>
@@ -790,14 +844,23 @@ function bannerWa(d){
   if(!yaContactado) return '';
   return `<div class="banner-wa"><span>Ya iniciaste el contacto por WhatsApp. ¿Cerramos el lead como <b>Contactado</b>?</span><button class="btn-primary btn-compact" onclick="cerrarContactado('whatsapp')">Cerrar como Contactado WSP</button></div>`;
 }
+// Plantillas editables en Configuración: {nombre}, {producto}, {pedido} y {orden} se rellenan con los datos del ticket; si falta el dato, se omite.
+const PLANTILLAS_RESPALDO = {
+  lead: 'Hola {nombre}, te escribimos de IndexStore por tu consulta{producto}. ¿En qué podemos ayudarte?',
+  postventa: 'Hola {nombre}, te escribimos de IndexStore por tu solicitud de postventa{pedido}.',
+  servicio_tecnico: 'Hola {nombre}, te escribimos de IndexStore por tu equipo{orden} en servicio técnico.',
+  por_retirar: 'Hola {nombre}, tu equipo{orden} está listo para retirar en IndexStore. Te esperamos con tu orden de servicio y tu documento de identidad.',
+};
 function mensajeWa(d){
-  const n = (d.cliente_nombre || '').split(/\s+/)[0];
-  const saludo = n ? `Hola ${n}, ` : 'Hola, ';
-  if(d.tipo === 'lead') return `${saludo}te escribimos de IndexStore por tu consulta${d.producto_interes ? ' de ' + d.producto_interes : ''}. ¿En qué podemos ayudarte?`;
-  if(d.tipo === 'postventa') return `${saludo}te escribimos de IndexStore por tu solicitud de postventa${d.numero_pedido ? ' (pedido ' + d.numero_pedido + ')' : ''}.`;
-  const os = d.numero_os ? ` (orden N° ${d.numero_os})` : '';
-  if(d.estado === 'por_retirar') return `${saludo}tu equipo${os} está listo para retirar en IndexStore. Te esperamos con tu orden de servicio y tu documento de identidad.`;
-  return `${saludo}te escribimos de IndexStore por tu equipo${os} en servicio técnico.`;
+  const pl = Object.assign({}, PLANTILLAS_RESPALDO, E.cfg.plantillasWa || {});
+  const clave = d.tipo === 'servicio_tecnico' && d.estado === 'por_retirar' ? 'por_retirar' : d.tipo;
+  const v = {
+    nombre: (d.cliente_nombre || '').split(/\s+/)[0],
+    producto: d.producto_interes ? ' de ' + d.producto_interes : '',
+    pedido: d.numero_pedido ? ' (pedido ' + d.numero_pedido + ')' : '',
+    orden: d.numero_os ? ' (orden N° ' + d.numero_os + ')' : '',
+  };
+  return String(pl[clave] || '').replace(/\{(nombre|producto|pedido|orden)\}/g, (_, k) => v[k]).replace(/\s+,/g, ',').replace(/Hola ,/, 'Hola,').replace(/ {2,}/g, ' ').trim();
 }
 
 // ---------- Orden de servicio impresa ----------
@@ -1127,6 +1190,164 @@ async function guardarCondiciones(){
     const j = await post({ accion:'condiciones_guardar', condiciones: $('catCondiciones').value });
     E.cfg.condicionesOs = j.condicionesOs; toast('Condiciones guardadas');
   }catch(err){ $('catError').textContent = err.message; }
+}
+
+// ---------- Vistas: Bandeja | Métricas | Configuración | Cliente 360 ----------
+function cambiarVista(v){
+  E.vista = v;
+  document.querySelectorAll('#vistas .vista').forEach(b => b.classList.toggle('activa', b.dataset.vista === v));
+  $('app').style.display = v === 'bandeja' ? '' : 'none';
+  $('vistaMetricas').style.display = v === 'metricas' ? '' : 'none';
+  $('vistaConfig').style.display = v === 'config' ? '' : 'none';
+  $('vistaCliente').style.display = v === 'cliente' ? '' : 'none';
+  if(v === 'metricas'){ if(!$('mDesde').value) rangoMetricas(30); else if(!E.mCargadas) cargarMetricas(); }
+  if(v === 'config') renderConfig();
+  window.scrollTo({ top: 0 });
+}
+const fmtN = n => n == null ? '—' : Number(n).toLocaleString('es-CL');
+const fmtHoras = h => h == null ? '—' : h >= 48 ? (h / 24).toFixed(1).replace('.', ',') + ' días' : String(h).replace('.', ',') + ' h';
+const fmtMin = m => m == null ? '—' : m >= 120 ? Math.round(m / 60) + ' h' : m + ' min';
+const pct = n => n == null ? '—' : String(n).replace('.', ',') + ' %';
+
+function rangoMetricas(d){
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone:'America/Santiago' });
+  const [y, m] = hoy.split('-').map(Number);
+  const resta = (s, n) => { const [a, b, c] = s.split('-').map(Number); const dt = new Date(Date.UTC(a, b - 1, c)); dt.setUTCDate(dt.getUTCDate() - n); return dt.toISOString().slice(0, 10); };
+  $('mHasta').value = hoy;
+  $('mDesde').value = d === 'mes' ? `${y}-${String(m).padStart(2, '0')}-01` : resta(hoy, d - 1);
+  cargarMetricas();
+}
+async function cargarMetricas(){
+  const token = E.mToken = (E.mToken || 0) + 1;
+  const qs = new URLSearchParams({ recurso:'tickets-metricas', desde: $('mDesde').value, hasta: $('mHasta').value });
+  $('mEstado').textContent = 'Calculando…';
+  try{
+    const rapido = await api('/api/negocio?' + qs + '&sin_conversion=1');
+    if(token !== E.mToken) return;
+    E.mCargadas = true; pintarMetricas(rapido.metricas, 'cargando');
+    $('mEstado').textContent = 'Consultando pedidos de Shopify para la conversión…';
+    const completo = await api('/api/negocio?' + qs);
+    if(token !== E.mToken) return;
+    pintarMetricas(completo.metricas, 'listo'); $('mEstado').textContent = '';
+  }catch(err){ if(token === E.mToken){ $('mEstado').textContent = ''; $('mContenido').innerHTML = `<div class="nota-box err">No se pudieron calcular las métricas: ${esc(err.message)}</div>`; } }
+}
+function pintarMetricas(m, conv){
+  const tp = m.porTipo, suma = k => tp.reduce((s, t) => s + (t[k] || 0), 0);
+  const c = m.conversion;
+  const kpi = (l, b, n) => `<div class="kpi"><div class="lbl">${l}</div><div class="big">${b}</div><div class="nota">${n || ''}</div></div>`;
+  let h = `<div class="kpis">
+    ${kpi('Tickets creados', fmtN(m.total), `${m.desde} al ${m.hasta}`)}
+    ${kpi('Sin resolver', fmtN(suma('abiertos')), 'de los creados en el período')}
+    ${kpi('Primer contacto (leads)', fmtMin(m.primerContacto.mediana_min), `mediana · ${fmtN(m.primerContacto.leads_contactados)} leads contactados`)}
+    ${kpi('Abandono en postventa', pct(m.tasaAbandono.tasa), `${m.tasaAbandono.abandonados} abandonados de ${m.tasaAbandono.abandonados + m.tasaAbandono.cerrados} cerrados`)}
+    ${kpi('Lead → pedido', conv === 'cargando' ? '…' : c && c.disponible ? pct(c.tasa) : '—', c && c.disponible ? `${c.convertidos} de ${c.leads} leads (${c.dias} días)` : conv === 'cargando' ? 'calculando' : 'no disponible')}
+  </div>`;
+  h += `<div class="seccion"><h3>Por tipo de ticket</h3><div class="sub">"Sin resolución" son los que se cierran sin resolverse (leads sin datos, postventa abandonada, órdenes cerradas sin entrega). El tiempo de cierre no los incluye.</div>
+    <div class="tabla-wrap"><table class="t"><thead><tr><th>Tipo</th><th class="num">Creados</th><th class="num">Sin resolver</th><th class="num">Resueltos</th><th class="num">Sin resolución</th><th class="num">Cierre promedio</th><th class="num">Cierre mediana</th></tr></thead><tbody>
+    ${tp.map(t => `<tr><td>${esc(t.etiqueta)}</td><td class="num">${fmtN(t.total)}</td><td class="num">${fmtN(t.abiertos)}</td><td class="num">${fmtN(t.resueltos)}</td><td class="num">${fmtN(t.sinResolucion)}</td><td class="num" data-valor="${t.cierre_prom_h ?? ''}">${fmtHoras(t.cierre_prom_h)}</td><td class="num" data-valor="${t.cierre_mediana_h ?? ''}">${fmtHoras(t.cierre_mediana_h)}</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+  h += `<div class="dos-col"><div class="seccion"><h3>Por origen</h3><div class="sub">De dónde llegan los tickets.</div><div class="tabla-wrap"><table class="t"><thead><tr><th>Origen</th><th class="num">Total</th><th class="num">Leads</th><th class="num">Postventa</th><th class="num">Serv. técnico</th></tr></thead><tbody>
+    ${m.porOrigen.length ? m.porOrigen.map(o => `<tr><td>${esc(o.etiqueta)}</td><td class="num">${fmtN(o.total)}</td><td class="num">${fmtN(o.porTipo.lead || 0)}</td><td class="num">${fmtN(o.porTipo.postventa || 0)}</td><td class="num">${fmtN(o.porTipo.servicio_tecnico || 0)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty-note">Sin tickets en el período.</td></tr>'}
+    </tbody></table></div></div>
+    <div class="seccion"><h3>Carga por agente</h3><div class="sub">Lo abierto hoy y lo cerrado dentro del período.</div><div class="tabla-wrap"><table class="t"><thead><tr><th>Agente</th><th class="num">Abiertos hoy</th><th class="num">Sin movimiento +24 h</th><th class="num">Cerrados</th></tr></thead><tbody>
+    ${m.cargaPorAgente.length ? m.cargaPorAgente.map(a => `<tr><td>${esc(a.nombre)}</td><td class="num">${fmtN(a.abiertos)}</td><td class="num">${fmtN(a.sin_movimiento)}</td><td class="num">${fmtN(a.cerrados)}</td></tr>`).join('') : '<tr><td colspan="4" class="empty-note">Sin datos.</td></tr>'}
+    </tbody></table></div></div></div>`;
+  h += `<div class="seccion"><h3>Conversión de lead a pedido</h3><div class="sub">Un lead cuenta como convertido si el mismo correo o teléfono hizo un pedido en Shopify dentro de los ${(c && c.dias) || 7} días siguientes. Es una pista, no una prueba de que el contacto causó la venta.</div>`;
+  if(conv === 'cargando') h += '<div class="empty-note">Calculando…</div>';
+  else if(!c || !c.disponible) h += `<div class="nota-box err">No se pudo calcular: ${esc((c && c.error) || 'Shopify no está disponible')}</div>`;
+  else {
+    if(c.truncado) h += '<div class="nota-box err">Hay más pedidos que el máximo que se revisa (2.500): acorta el período para un resultado completo.</div>';
+    h += `<div class="tabla-wrap"><table class="t"><thead><tr><th>Origen</th><th class="num">Leads</th><th class="num">Convertidos</th><th class="num">Conversión</th><th></th></tr></thead><tbody>
+      ${c.porOrigen.map(o => `<tr><td>${esc(o.etiqueta)}</td><td class="num">${fmtN(o.leads)}</td><td class="num">${fmtN(o.convertidos)}</td><td class="num" data-valor="${o.tasa ?? 0}">${pct(o.tasa)}</td><td style="width:140px"><div class="barra"><span style="width:${Math.min(100, o.tasa || 0)}%"></span></div></td></tr>`).join('')}
+      </tbody></table></div><div class="sub" style="margin-top:8px">${fmtN(c.pedidos_revisados)} pedidos revisados. Shopify solo entrega los últimos 60 días de pedidos si la app no tiene el permiso de historial completo.</div>`;
+  }
+  h += '</div>';
+  $('mContenido').innerHTML = h;
+}
+
+// ---------- Cliente 360 ----------
+async function abrirCliente(id){
+  cambiarVista('cliente');
+  $('vistaCliente').innerHTML = '<div class="empty-note">Reuniendo tickets, pedidos y documentos…</div>';
+  try{
+    const j = await api('/api/negocio?recurso=tickets-metricas&cliente=' + id);
+    pintarCliente(j.ficha);
+  }catch(err){ $('vistaCliente').innerHTML = `<button class="btn-ghost btn-compact" onclick="cambiarVista('bandeja')">← Volver a la bandeja</button><div class="nota-box err" style="margin-top:12px">${esc(err.message)}</div>`; }
+}
+function pintarCliente(f){
+  const c = f.cliente, tel = limpiaTel(c.telefono);
+  const abiertos = f.tickets.filter(t => !t.cerrado).length;
+  const link = (u, t) => u && /^https?:\/\//i.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--primary)">${esc(t)} ↗</a>` : esc(t);
+  let h = `<button class="btn-ghost btn-compact" onclick="cambiarVista('bandeja')">← Volver a la bandeja</button>
+    <div class="seccion" style="margin-top:12px"><div style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:center">
+      <div style="display:flex;gap:14px;align-items:center">${avatar(c.nombre || '?', true)}<div><h3 style="font-size:20px;margin:0">${esc(c.nombre || 'Sin nombre')}</h3>
+        <div class="sub" style="margin:4px 0 0">${[c.rut && 'RUT ' + c.rut, c.telefono, c.email].filter(Boolean).map(esc).join(' · ') || 'Sin datos de contacto'}</div></div></div>
+      ${tel ? `<a href="https://wa.me/${tel.length === 9 ? '56' + tel : tel}" target="_blank" rel="noopener"><button class="btn-wa btn-compact">💬 WhatsApp</button></a>` : ''}</div></div>
+    <div class="kpis">
+      <div class="kpi"><div class="lbl">Tickets</div><div class="big">${f.tickets.length}</div><div class="nota">${abiertos} abierto${abiertos === 1 ? '' : 's'}</div></div>
+      <div class="kpi"><div class="lbl">Pedidos en Shopify</div><div class="big">${f.pedidos.length}</div><div class="nota">${f.errores.shopify ? 'sin datos' : 'encontrados'}</div></div>
+      <div class="kpi"><div class="lbl">Documentos Bsale</div><div class="big">${f.documentos.length}</div><div class="nota">último año</div></div></div>`;
+  if(f.avisos) h += f.avisos.map(a => `<div class="nota-box">${esc(a)}</div>`).join('');
+  if(f.errores.shopify) h += `<div class="nota-box err">Shopify: ${esc(f.errores.shopify)}</div>`;
+  if(f.errores.bsale) h += `<div class="nota-box err">Bsale: ${esc(f.errores.bsale)}</div>`;
+  h += `<div class="seccion"><h3>Tickets</h3><div class="tabla-wrap"><table class="t"><thead><tr><th>N°</th><th>Tipo</th><th>Asunto</th><th>Estado</th><th>Creado</th></tr></thead><tbody>
+    ${f.tickets.map(t => `<tr style="cursor:pointer" onclick="verTicketDesdeCliente(${t.id})"><td class="num">#${t.numero}${t.numero_os ? ' · OS ' + t.numero_os : ''}</td><td>${esc(etiquetaTipo(t.tipo))}</td><td>${esc(t.asunto || '')}</td><td>${badgeEstado(t.tipo, t.estado)}</td><td data-valor="${esc(String(t.creado_en).slice(0, 10))}">${esc(fmtFechaLarga(t.creado_en).slice(0, 10))}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-note">Sin tickets.</td></tr>'}
+    </tbody></table></div></div>`;
+  h += `<div class="dos-col"><div class="seccion"><h3>Pedidos de Shopify</h3><div class="tabla-wrap"><table class="t"><thead><tr><th>Pedido</th><th>Fecha</th><th>Pago</th><th>Despacho</th><th class="num">Total</th></tr></thead><tbody>
+    ${f.pedidos.map(p => `<tr><td>${esc(p.nombre)}${p.cancelado ? ' <span class="badge rojo">Cancelado</span>' : ''}</td><td data-valor="${esc(String(p.creado_en).slice(0, 10))}">${esc(fmtFechaLarga(p.creado_en).slice(0, 10))}</td><td>${esc(etq(p.pago))}</td><td>${esc(etq(p.despacho))}</td><td class="num" data-valor="${p.total ?? 0}">${p.total ? '$' + fmtN(p.total) : '—'}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-note">Sin pedidos encontrados.</td></tr>'}
+    </tbody></table></div></div>
+    <div class="seccion"><h3>Documentos de Bsale</h3><div class="tabla-wrap"><table class="t"><thead><tr><th>Documento</th><th>Fecha</th><th class="num">Total</th></tr></thead><tbody>
+    ${f.documentos.map(d => `<tr><td>${link(d.url, d.tipo + ' N° ' + d.numero)}${d.anulado ? ' <span class="badge rojo">Anulado</span>' : ''}${d.esNotaCredito ? ' <span class="badge ambar">Resta</span>' : ''}</td><td data-valor="${esc(d.fecha || '')}">${esc(d.fecha ? d.fecha.split('-').reverse().join('-') : '—')}</td><td class="num" data-valor="${d.total ?? 0}">${d.total ? '$' + fmtN(d.total) : '—'}</td></tr>`).join('') || '<tr><td colspan="3" class="empty-note">Sin documentos en el último año.</td></tr>'}
+    </tbody></table></div></div></div>`;
+  $('vistaCliente').innerHTML = h;
+}
+function verTicketDesdeCliente(id){ cambiarVista('bandeja'); abrirTicket(id); }
+
+// ---------- Configuración ----------
+function renderConfig(){
+  const admin = E.esAdmin, dis = admin ? '' : ' disabled';
+  const filaLista = (x, grupo) => `<div class="fila-lista" data-clave="${esc(x.clave || '')}"><input type="text" class="lEtq" value="${esc(x.etiqueta)}" maxlength="80"${dis}><label class="chk" style="display:flex;gap:5px;align-items:center;font-size:12px;white-space:nowrap"><input type="checkbox" class="lAct" ${x.activo !== false ? 'checked' : ''}${dis} style="width:auto"> Activo</label></div>`;
+  const pl = E.cfg.plantillasWa || {};
+  const plantilla = (k, titulo) => `<div class="campo-pl" style="margin-bottom:12px"><label style="font-size:11.5px;color:var(--muted);font-weight:600;display:block;margin-bottom:4px">${titulo}</label><textarea id="pl_${k}" rows="2"${dis}>${esc(pl[k] || '')}</textarea></div>`;
+  $('vistaConfig').innerHTML = `
+    ${admin ? '' : '<div class="nota-box">Solo un administrador puede cambiar la configuración. Aquí puedes verla.</div>'}
+    <div class="dos-col">
+      <div class="seccion"><h3>Agentes</h3><div class="sub">Los agentes son los usuarios del ERP. Se crean y desactivan en Usuarios.</div>
+        <div class="tabla-wrap"><table class="t"><thead><tr><th>Nombre</th></tr></thead><tbody>${E.agentes.map(a => `<tr><td>${avatar(a.nombre)} ${esc(a.nombre)}</td></tr>`).join('')}</tbody></table></div>
+        ${admin ? '<div style="margin-top:10px"><a href="usuarios.html"><button class="btn-ghost btn-compact">Ir a Usuarios</button></a></div>' : ''}</div>
+      <div class="seccion"><h3>Catálogo de servicios y condiciones</h3><div class="sub">Códigos SER, precios y el texto de condiciones que se imprime en la orden de servicio.</div>
+        <div class="sub">${(E.cfg.servicios || []).filter(s => s.activo).length} servicios activos.</div>
+        ${admin ? '<button class="btn-primary btn-compact" onclick="abrirCatalogo()">Abrir el catálogo</button>' : ''}</div>
+    </div>
+    <div class="dos-col">
+      <div class="seccion"><h3>Motivos de postventa</h3><div class="sub">Lista cerrada. Un motivo desactivado deja de ofrecerse, pero los tickets antiguos lo conservan.</div>
+        <div id="listaMotivos">${(E.cfg.motivosPostventa || []).map(x => filaLista(x)).join('')}</div>
+        ${admin ? '<button class="btn-ghost btn-compact" onclick="agregarFilaLista(\'listaMotivos\')">+ Agregar motivo</button>' : ''}</div>
+      <div class="seccion"><h3>Tipos de producto</h3><div class="sub">Lista cerrada: evita errores de tipeo como "Caragdor".</div>
+        <div id="listaTipos">${(E.cfg.tiposProducto || []).map(x => filaLista(x)).join('')}</div>
+        ${admin ? '<button class="btn-ghost btn-compact" onclick="agregarFilaLista(\'listaTipos\')">+ Agregar tipo de producto</button>' : ''}</div>
+    </div>
+    ${admin ? '<div style="margin-bottom:18px"><button class="btn-primary" onclick="guardarListasConfig()">Guardar listas</button> <span id="cfgListasMsg" class="sub"></span></div>' : ''}
+    <div class="seccion"><h3>Plantillas de mensajes de WhatsApp</h3><div class="sub">Se rellenan al pulsar "Contactar por WhatsApp". Puedes usar <b>{nombre}</b>, <b>{producto}</b>, <b>{pedido}</b> y <b>{orden}</b>; si el dato no existe, se omite.</div>
+      ${plantilla('lead', 'Lead de venta')}${plantilla('postventa', 'Postventa')}${plantilla('servicio_tecnico', 'Servicio técnico')}${plantilla('por_retirar', 'Servicio técnico: equipo listo para retirar')}
+      ${admin ? '<button class="btn-primary btn-compact" onclick="guardarPlantillasConfig()">Guardar plantillas</button> <span id="cfgPlMsg" class="sub"></span>' : ''}</div>`;
+}
+function agregarFilaLista(id){
+  const d = document.createElement('div'); d.className = 'fila-lista'; d.dataset.clave = '';
+  d.innerHTML = '<input type="text" class="lEtq" maxlength="80" placeholder="Nombre de la opción"><label class="chk" style="display:flex;gap:5px;align-items:center;font-size:12px;white-space:nowrap"><input type="checkbox" class="lAct" checked style="width:auto"> Activo</label>';
+  $(id).appendChild(d); d.querySelector('input').focus();
+}
+function leerLista(id){ return [...$(id).querySelectorAll('.fila-lista')].map(f => ({ clave: f.dataset.clave || undefined, etiqueta: f.querySelector('.lEtq').value, activo: f.querySelector('.lAct').checked })).filter(x => x.etiqueta.trim()); }
+async function guardarListasConfig(){
+  try{
+    const j = await post({ accion:'listas_guardar', motivos: leerLista('listaMotivos'), tipos: leerLista('listaTipos') });
+    E.cfg.motivosPostventa = j.motivosPostventa; E.cfg.tiposProducto = j.tiposProducto; renderConfig(); toast('Listas guardadas');
+  }catch(err){ toast(err.message, true); }
+}
+async function guardarPlantillasConfig(){
+  const cuerpo = { accion:'plantillas_guardar' }; for(const k of ['lead', 'postventa', 'servicio_tecnico', 'por_retirar']) cuerpo[k] = $('pl_' + k).value;
+  try{ const j = await post(cuerpo); E.cfg.plantillasWa = j.plantillasWa; renderConfig(); toast('Plantillas guardadas'); }
+  catch(err){ toast(err.message, true); }
 }
 
 // ---------- Inicio ----------

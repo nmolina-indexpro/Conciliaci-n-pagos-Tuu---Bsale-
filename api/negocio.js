@@ -24,6 +24,7 @@ import { manejarTickets } from '../lib/tickets.js';
 import { manejarTicketsPublico, sincronizarCarritos } from '../lib/tickets-entrada.js';
 import { manejarChatPublico, manejarChatAdmin } from '../lib/chat.js';
 import { manejarTicketsPostventa } from '../lib/tickets-postventa.js';
+import { manejarTicketsMetricas } from '../lib/tickets-metricas.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
 import { elegirPrecioSku } from '../lib/precios-sku.js';
@@ -285,6 +286,16 @@ export default async function handler(req, res) {
   // Módulo de Tickets del ERP (reemplazo de Zoho Desk, fase 1): bandeja, detalle y cambios. Ver lib/tickets.js.
   if (recurso === 'tickets') return manejarTickets(req, res, sesion, getSql);
   if (recurso === 'tickets-carritos') return manejarTicketsCarritos(req, res, sesion);
+  // Métricas de Tickets (incluye la conversión de lead a pedido, que consulta Shopify) y Cliente 360 (tickets + pedidos de Shopify + documentos de Bsale).
+  if (recurso === 'tickets-metricas') {
+    const tokenBsaleM = process.env.BSALE_ACCESS_TOKEN;
+    const bsaleGetM = tokenBsaleM ? async (ruta) => {
+      const r = await fetchConTimeout(BSALE_BASE + ruta, { headers: { access_token: tokenBsaleM } }, 20000);
+      if (!r.ok) throw new Error('Bsale HTTP ' + r.status);
+      return r.json();
+    } : null;
+    return manejarTicketsMetricas(req, res, sesion, { getSql, gql: descuentosWebGql, bsaleGet: bsaleGetM });
+  }
   // Chat en vivo (reemplazo de SalesIQ): bandeja de los ejecutivos. Ver lib/chat.js.
   if (recurso === 'chat') return manejarChatAdmin(req, res, sesion, getSql);
   // Ficha de postventa: pedido de Shopify + documentos de Bsale + registro de la nota de crédito (lib/tickets-postventa.js).
