@@ -20,6 +20,7 @@ import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
 import { armarComunicacionZoho, filasCorreosDesdeZoho, guardarFilasZoho, ticketEnVentana, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
+import { manejarTickets } from '../lib/tickets.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
 import { elegirPrecioSku } from '../lib/precios-sku.js';
@@ -271,6 +272,8 @@ export default async function handler(req, res) {
   if (recurso === 'reportes') return manejarReportes(req, res, sesion);
   if (recurso === 'home-indicadores') return manejarHomeIndicadores(req, res, sesion);
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
+  // Módulo de Tickets del ERP (reemplazo de Zoho Desk, fase 1): bandeja, detalle y cambios. Ver lib/tickets.js.
+  if (recurso === 'tickets') return manejarTickets(req, res, sesion, getSql);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
   if (recurso === 'facturas-compra') return manejarFacturasCompra(req, res, sesion);
   if (recurso === 'clientes-puntos') return manejarClientesPuntos(req, res, sesion);
