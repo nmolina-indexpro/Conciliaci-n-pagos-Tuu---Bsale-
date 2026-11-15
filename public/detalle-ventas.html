@@ -710,7 +710,7 @@ function exportarCsv(){
   const nombre = 'detalle-ventas-' + E.tab + '-' + E.rango.desde + '_' + E.rango.hasta + '.csv';
   let texto;
   if(E.tab === 'mensual'){ const m = E.matriz; if(!m) return; texto = DV.aCsv(m.filas, [{ titulo: NOMBRE_DIM[E.mensual.dim], valor: f => f.nombre }, ...m.meses.map((mes, i) => ({ titulo: DV.mesNombre(mes), valor: f => Math.round(f.valores[i]) })), { titulo: 'Total', valor: f => Math.round(f.total) }]); }
-  else if(E.tab === 'pronostico'){ const P = E.pron; if(!P || !P.actual) return; const A = P.actual; texto = DV.aCsv(A.ruta.real.map((v, i) => ({ dia: i + 1, real: v, previsto: A.ruta.previsto[i], anterior: (P.rutaAnterior || [])[i] })), [{ titulo: 'Día del mes', valor: f => f.dia }, { titulo: 'Vendido acumulado', valor: f => f.real == null ? '' : Math.round(f.real) }, { titulo: 'Pronóstico acumulado', valor: f => f.previsto == null ? '' : Math.round(f.previsto) }, { titulo: 'Mes anterior acumulado', valor: f => f.anterior == null ? '' : Math.round(f.anterior) }]); }
+  else if(E.tab === 'pronostico'){ const P = E.pron; if(!P || !P.actual) return; const A = P.actual; texto = DV.aCsv(A.ruta.real.map((v, i) => ({ dia: i + 1, real: v, previsto: A.ruta.previsto[i], anterior: (P.rutaAnterior || [])[i], mreal: P.margen ? P.margen.ruta.real[i] : null, mprev: P.margen ? P.margen.ruta.previsto[i] : null })), [{ titulo: 'Día del mes', valor: f => f.dia }, { titulo: 'Vendido acumulado', valor: f => f.real == null ? '' : Math.round(f.real) }, { titulo: 'Pronóstico acumulado', valor: f => f.previsto == null ? '' : Math.round(f.previsto) }, { titulo: 'Mes anterior acumulado', valor: f => f.anterior == null ? '' : Math.round(f.anterior) }, ...(P.margen ? [{ titulo: 'Margen acumulado', valor: f => f.mreal == null ? '' : Math.round(f.mreal) }, { titulo: 'Margen pronóstico acumulado', valor: f => f.mprev == null ? '' : Math.round(f.mprev) }] : [])]); }
   else texto = DV.aCsv(E.filasTabla, columnasTabla().map(c => ({ titulo: c.titulo, valor: c.valor })));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['﻿' + texto], { type: 'text/csv;charset=utf-8' })); a.download = nombre; a.click(); URL.revokeObjectURL(a.href);
@@ -774,6 +774,42 @@ function graficoPronostico(P){
   svg += '</svg>';
   return svg + `<div class="dv-leyenda"><span><i class="dv-barra-s"></i> Lo vendido (acumulado)</span><span><i class="dv-linea-l"></i> Pronóstico</span>${ant.length ? `<span><i class="dv-gris-l"></i> ${escapeHtml(DV.mesNombre(P.mesAnterior))}</span>` : ''}</div>`;
 }
+// Proyección del margen del mes (solo administradores: la página pide el margen únicamente si E.esAdmin). Mismos métodos que la venta, aplicados al margen diario.
+function bloqueMargen(P){
+  if(!E.esAdmin) return '';
+  const M = P.margen;
+  if(!M) return '<div class="dv-tarjeta" style="margin-top:14px;"><div class="dv-tarjeta-cab"><b>Margen proyectado</b></div><p class="empty-note">No hay margen que proyectar: este mes todavía no tiene ventas con costo conocido con los filtros elegidos.</p></div>';
+  const A = M.actual, pr = M.prueba, hayPrueba = pr && pr.filas.length >= 3;
+  const conf = !hayPrueba ? null : pr.errorMedioPct <= 8 ? ['alta', 'dv-sube'] : pr.errorMedioPct <= 15 ? ['media', 'dv-igual'] : ['baja', 'dv-baja'];
+  const comp = (total, m) => total != null ? `${varHtml(DV.variacion(A.combinada, total), true)} <span class="sub" style="margin:0;">vs ${fmtMoneda(total)} en ${escapeHtml(DV.mesNombre(m))}</span>` : `<span class="sub" style="margin:0;">${escapeHtml(DV.mesNombre(m))}: mes sin leer</span>`;
+  const pts = (a, b) => (a != null && b != null ? `${a - b >= 0 ? '<span class="dv-sube">▲ ' : '<span class="dv-baja">▼ '}${fmtNum(Math.abs(a - b), 1)} pts</span>` : '');
+  const tarj = (tt, v, s) => `<div class="dv-kpi"><span>${tt}</span><b>${v}</b><small class="sub" style="margin:0;">${s}</small></div>`;
+  const filasPrueba = pr && pr.filas.length ? '<table><thead><tr><th>Mes</th><th class="amount">Proyectado</th><th class="amount">Real</th><th class="amount">Error</th></tr></thead><tbody>' + pr.filas.map(f => `<tr><td>${escapeHtml(DV.mesNombre(f.mes))}</td><td class="amount">${fmtMoneda(f.proyectado)}</td><td class="amount">${fmtMoneda(f.real)}</td><td class="amount"><span class="${Math.abs(f.errorPct) <= 8 ? 'dv-sube' : Math.abs(f.errorPct) <= 15 ? 'dv-igual' : 'dv-baja'}">${f.errorPct >= 0 ? '+' : ''}${fmtNum(f.errorPct, 1)}%</span></td></tr>`).join('') + `</tbody><tfoot><tr><td colspan="3"><b>Error medio</b>${pr.sesgoPct != null ? ' · tiende a proyectar ' + (pr.sesgoPct >= 0 ? 'de más' : 'de menos') + ' (' + (pr.sesgoPct >= 0 ? '+' : '') + fmtNum(pr.sesgoPct, 1) + '%)' : ''}</td><td class="amount"><b>${fmtNum(pr.errorMedioPct, 1)}%</b></td></tr></tfoot></table>` : '<p class="empty-note">Hacen falta al menos 4 meses leídos para probarlo.</p>';
+  return `<h3 style="margin:22px 0 8px;font-size:16px;">Proyección del margen <span class="sub" style="margin:0;font-weight:400;">· solo se ve para administradores</span></h3>
+    <div class="dv-pron-grande">
+      <span class="dv-pron-etiqueta">Margen proyectado de ${escapeHtml(DV.mesNombre(P.mes))}</span>
+      <b class="dv-pron-cifra">${fmtMoneda(A.combinada)}</b>
+      <div class="dv-pron-sub">Rango probable: <b>${fmtMoneda(A.rango.desde)}</b> a <b>${fmtMoneda(A.rango.hasta)}</b>${M.pctProyectado != null ? ' · margen esperado de <b>' + fmtPct(M.pctProyectado, 1) + '</b> sobre lo vendido con costo' : ''}</div>
+      <div class="dv-pron-sub">Llevas <b>${fmtMoneda(A.acumulado)}</b> de margen en ${A.c} de ${A.dias} días${M.pctActual != null ? ' (' + fmtPct(M.pctActual, 1) + ' de margen hasta hoy)' : ''}</div>
+      <div class="dv-pron-sub">${comp(M.totalMesAnterior, P.mesAnterior)} · ${comp(M.totalMismoMesAnio, P.mesAnio)}</div>
+      ${M.pctMesAnterior != null && M.pctProyectado != null ? `<div class="dv-pron-sub">Margen %: ${fmtPct(M.pctProyectado, 1)} proyectado ${pts(M.pctProyectado, M.pctMesAnterior)} <span class="sub" style="margin:0;">vs ${fmtPct(M.pctMesAnterior, 1)} en ${escapeHtml(DV.mesNombre(P.mesAnterior))}</span></div>` : ''}
+      ${conf ? `<div class="dv-pron-sub">Confianza: <span class="${conf[1]}">${conf[0]}</span> <span class="sub" style="margin:0;">(en ${pr.filas.length} meses anteriores el error medio fue de ${fmtNum(pr.errorMedioPct, 1)}%)</span></div>` : '<div class="dv-pron-sub"><span class="dv-igual">Estimación gruesa:</span> <span class="sub" style="margin:0;">hay pocos meses leídos para medir qué tan acertado es.</span></div>'}
+      ${M.cobertura != null ? `<div class="dv-pron-sub ${M.cobertura < 80 ? 'dv-baja' : ''}">El costo se conoce en ${fmtPct(M.cobertura, 0)} de la venta del mes${M.cobertura < 80 ? ': el margen real puede ser distinto del proyectado' : ''}.</div>` : ''}
+    </div>
+    <div class="dv-pron-grid">
+      ${tarj('Por el ritmo de los meses anteriores', A.ritmo ? fmtMoneda(A.ritmo.valor) : '—', A.ritmo ? `Los primeros ${A.c} días suelen traer cerca del <b>${fmtNum(A.porcentajeTipico, 0)}%</b> del margen del mes.` : 'Faltan meses anteriores leídos.')}
+      ${tarj('Por día de la semana', fmtMoneda(A.diaSemana.valor), `Lo ganado más ${fmtMoneda(A.diaSemana.restante)} esperados en los ${A.diasFaltan} días que faltan.`)}
+      ${tarj('Falta por ganar', fmtMoneda(A.restante), `Unos ${fmtMoneda(A.promedioDiarioFalta)} de margen por día; hasta ahora llevas ${fmtMoneda(A.promedioDiarioActual)} por día.`)}
+      ${tarj('Mes anterior', M.totalMesAnterior != null ? fmtMoneda(M.totalMesAnterior) : '—', M.pctMesAnterior != null ? fmtPct(M.pctMesAnterior, 1) + ' de margen' : 'El mes anterior no está leído.')}
+    </div>
+    <div class="dv-graficos" style="grid-template-columns:1.3fr 1fr;">
+      <div class="dv-tarjeta"><div class="dv-tarjeta-cab"><b>Margen acumulado del mes</b></div>${graficoPronostico({ actual: A, rutaAnterior: M.rutaAnterior, mesAnterior: P.mesAnterior })}</div>
+      <div class="dv-tarjeta"><div class="dv-tarjeta-cab"><b>¿Qué tan acertado ha sido el margen?</b></div>
+        <div class="sub" style="margin:0 0 6px;">Repite la proyección del margen el día ${A.c} de cada mes anterior (usando solo los meses previos) y la compara con el margen real. El margen se mueve más que la venta, por eso el error suele ser mayor.</div>
+        ${filasPrueba}
+      </div>
+    </div>`;
+}
 function claveIA(){ const A = E.pron && E.pron.actual; return A ? [A.mes, A.corte, Math.round(A.combinada), describirFiltros()].join('|') : ''; }
 function htmlIA(){
   const r = E.ia && E.ia.clave === claveIA() ? E.ia : null;
@@ -795,6 +831,7 @@ async function analizarPronosticoIA(){
     mes_anterior: P.totalMesAnterior, mismo_mes_anio_anterior: P.totalMismoMesAnio, meses_anteriores: P.totales, promedio_dia_semana: P.promedioDiaSemana,
     prueba: { errorMedioPct: pr.errorMedioPct, sesgoPct: pr.sesgoPct, filas: pr.filas.map(f => ({ mes: f.mes, proyectado: f.proyectado, real: f.real, errorPct: f.errorPct })) },
     filtros: describirFiltros(),
+    margen: P.margen ? { acumulado: P.margen.actual.acumulado, proyectado: P.margen.actual.combinada, rango: P.margen.actual.rango, pctProyectado: P.margen.pctProyectado, pctMesAnterior: P.margen.pctMesAnterior, mesAnterior: P.margen.totalMesAnterior, cobertura: P.margen.cobertura, errorMedioPct: P.margen.prueba ? P.margen.prueba.errorMedioPct : null } : null,
   };
   E.iaCargando = true; if($('dvIA')) $('dvIA').innerHTML = htmlIA(); const b = $('btnIA'); if(b) b.disabled = true;
   try{
@@ -816,7 +853,7 @@ function pintarPronostico(){
   if(corte < mes + '-01'){ cont.innerHTML = controles + '<p class="empty-note">Todavía no hay días completos de ' + escapeHtml(nombreMes) + ' para proyectar. Vuelve mañana o marca «Contar también el día de hoy».</p>'; return; }
   const lineas = DV.filtrar(E.lineas, E.filtros);
   const completos = Object.keys(E.datos.estado).filter(m => m < mes && E.datos.estado[m].completo);
-  const P = DV.pronostico({ lineas, hoy: E.hoy, corte, mesesCompletos: completos });
+  const P = DV.pronostico({ lineas, hoy: E.hoy, corte, mesesCompletos: completos, conMargen: E.esAdmin });
   E.pron = P;
   const A = P.actual;
   if(!A){ cont.innerHTML = controles + '<p class="empty-note">Con los filtros elegidos todavía no hay ventas suficientes este mes para proyectar.</p>'; return; }
@@ -852,10 +889,11 @@ function pintarPronostico(){
         ${pr && pr.filas.length ? '<table><thead><tr><th>Mes</th><th class="amount">Proyectado</th><th class="amount">Real</th><th class="amount">Error</th></tr></thead><tbody>' + pr.filas.map(f => `<tr><td>${escapeHtml(DV.mesNombre(f.mes))}</td><td class="amount">${fmtMoneda(f.proyectado)}</td><td class="amount">${fmtMoneda(f.real)}</td><td class="amount"><span class="${Math.abs(f.errorPct) <= 5 ? 'dv-sube' : Math.abs(f.errorPct) <= 10 ? 'dv-igual' : 'dv-baja'}">${f.errorPct >= 0 ? '+' : ''}${fmtNum(f.errorPct, 1)}%</span></td></tr>`).join('') + `</tbody><tfoot><tr><td colspan="3"><b>Error medio</b>${pr.sesgoPct != null ? ' · tiende a proyectar ' + (pr.sesgoPct >= 0 ? 'de más' : 'de menos') + ' (' + (pr.sesgoPct >= 0 ? '+' : '') + fmtNum(pr.sesgoPct, 1) + '%)' : ''}</td><td class="amount"><b>${fmtNum(pr.errorMedioPct, 1)}%</b></td></tr></tfoot></table>` : '<p class="empty-note">Hacen falta al menos 4 meses leídos para probarlo.</p>'}
       </div>
     </div>
+    ${bloqueMargen(P)}
     <div class="dv-tarjeta" style="margin-top:14px;"><div class="dv-tarjeta-cab"><b>Lo que se vende cada día de la semana</b><span class="sub" style="margin:0;">promedio de las últimas 12 semanas, sin contar el día más alto ni el más bajo</span></div>
       <div class="dv-dias">${P.promedioDiaSemana.map(x => `<div><span>${escapeHtml(x.dia)}</span><b>${fmtMoneda(x.promedio)}</b></div>`).join('')}</div></div>
     ${E.esAdmin ? `<div class="dv-tarjeta" style="margin-top:14px;"><div class="dv-tarjeta-cab"><b>🤖 Interpretación con IA (Gemini)</b><button class="btn-primary btn-compact" id="btnIA" onclick="analizarPronosticoIA()">Interpretar el pronóstico</button></div><div class="sub" style="margin:0 0 8px;">La IA no cambia la cifra: la interpreta y señala qué la puede desviar.</div><div id="dvIA">${htmlIA()}</div></div>` : ''}
-    <div class="sub" style="margin-top:12px;line-height:1.5;">Cómo se calcula: la venta es la real (con IVA, descontadas las notas de crédito) y respeta los filtros de arriba. El pronóstico es el promedio de dos métodos: el <b>ritmo</b> (cuánto del mes suele estar vendido a esta altura) y el <b>día de la semana</b> (lo vendido más lo que se espera cada día que falta). No considera feriados ni eventos como Black Friday; por eso conviene mirar el rango y la prueba de arriba.</div>`;
+    <div class="sub" style="margin-top:12px;line-height:1.5;">Cómo se calcula: la venta es la real (con IVA, descontadas las notas de crédito) y respeta los filtros de arriba. El pronóstico es el promedio de dos métodos: el <b>ritmo</b> (cuánto del mes suele estar vendido a esta altura) y el <b>día de la semana</b> (lo vendido más lo que se espera cada día que falta). No considera feriados ni eventos como Black Friday; por eso conviene mirar el rango y la prueba de arriba.${E.esAdmin ? ' El margen se proyecta con los mismos métodos sobre el margen diario (neto menos costo) de lo que tiene costo conocido; si el costo falta en parte de la venta, el margen real puede diferir.' : ''}</div>`;
 }
 
 // ---------- datos desde Bsale ----------

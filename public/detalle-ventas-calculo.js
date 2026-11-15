@@ -212,7 +212,18 @@
   const diasDelMes = (mes) => Number(ultimoDelMes(mes + '-01').slice(8, 10));
   const NOMBRES_DIA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
   const diaSemana = (iso) => (new Date(aMs(iso)).getUTCDay() + 6) % 7; // lunes = 0
-  function ventaPorDia(lineas) { const m = {}; for (const l of lineas) m[l.f] = (m[l.f] || 0) + l.neto * IVA; return m; }
+  // tipo: 'venta' (neto x IVA, por defecto) | 'margen' (neto - costo, solo líneas con costo conocido) | 'netoConCosto' (neto de las líneas con costo conocido: base del % de margen)
+  function ventaPorDia(lineas, tipo) {
+    const m = {};
+    for (const l of lineas) {
+      let v;
+      if (tipo === 'margen') v = l.costo != null ? l.neto - l.costo : 0;
+      else if (tipo === 'netoConCosto') v = l.costo != null ? l.neto : 0;
+      else v = l.neto * IVA;
+      if (v) m[l.f] = (m[l.f] || 0) + v;
+    }
+    return m;
+  }
   function percentil(arr, p) {
     const a = [...arr].sort((x, y) => x - y); if (!a.length) return null;
     const i = (a.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
@@ -282,7 +293,7 @@
     return { filas, errorMedioPct: filas.length ? promedio(filas.map((x) => Math.abs(x.errorPct))) : null, sesgoPct: filas.length ? promedio(filas.map((x) => x.errorPct)) : null };
   }
   // Todo junto para la página. lineas: ya filtradas (los filtros de la página se aplican antes). mesesCompletos: meses leídos por completo de Bsale, sin el mes en curso.
-  function pronostico({ lineas, hoy, corte, mesesCompletos }) {
+  function pronostico({ lineas, hoy, corte, mesesCompletos, conMargen }) {
     const mes = hoy.slice(0, 7), porDia = ventaPorDia(lineas);
     const completos = (mesesCompletos || []).filter((m) => m < mes && acumulado(porDia, m, 31) > 0).sort();
     const base = completos.slice(-12);
@@ -294,8 +305,27 @@
       const np = diasDelMes(prev); anterior = [];
       let a = 0; for (let i = 1; i <= Math.min(actual.dias, np); i++) { a += porDia[prev + '-' + pad2(i)] || 0; anterior.push(a); }
     }
+    // Margen (solo si se pide, es decir, para administradores): los mismos dos métodos sobre el margen diario (neto - costo de lo que tiene costo conocido).
+    // El % de margen proyectado = margen proyectado / neto con costo proyectado. Cobertura = parte de la venta del mes que tiene costo conocido.
+    let margen = null;
+    if (conMargen && actual) {
+      const pm = ventaPorDia(lineas, 'margen'), pn = ventaPorDia(lineas, 'netoConCosto');
+      const am = pronosticoMes(pm, mes, corte, base), an = pronosticoMes(pn, mes, corte, base);
+      if (am) {
+        const tm = (m) => (completos.includes(m) ? acumulado(pm, m, 31) : null), tn = (m) => (completos.includes(m) ? acumulado(pn, m, 31) : null);
+        const pct = (m, n) => (m != null && n > 0 ? (m / n) * 100 : null);
+        margen = {
+          actual: am, netoConCosto: an,
+          pctProyectado: an ? pct(am.combinada, an.combinada) : null, pctActual: pct(am.acumulado, an ? an.acumulado : 0),
+          cobertura: actual.acumulado > 0 && an ? (an.acumulado / (actual.acumulado / IVA)) * 100 : null,
+          totalMesAnterior: tm(prev), pctMesAnterior: pct(tm(prev), tn(prev)), totalMismoMesAnio: tm(anio), pctMismoMesAnio: pct(tm(anio), tn(anio)),
+          prueba: pruebaMeses(pm, completos, actual.c, 8), ruta: am.ruta,
+          rutaAnterior: (() => { const np = diasDelMes(prev), r = []; let a = 0; for (let i = 1; i <= Math.min(actual.dias, np); i++) { a += pm[prev + '-' + pad2(i)] || 0; r.push(a); } return r; })(),
+        };
+      }
+    }
     return {
-      mes, base, actual, rutaAnterior: anterior, totalMesAnterior: total(prev), totalMismoMesAnio: total(anio), mesAnterior: prev, mesAnio: anio,
+      mes, base, actual, margen, rutaAnterior: anterior, totalMesAnterior: total(prev), totalMismoMesAnio: total(anio), mesAnterior: prev, mesAnio: anio,
       prueba: actual ? pruebaMeses(porDia, completos, actual.c, 8) : null,
       totales: completos.slice(-13).map((m) => ({ mes: m, total: acumulado(porDia, m, 31) })),
       promedioDiaSemana: actual ? actual.diaSemana.promedios.map((v, i) => ({ dia: NOMBRES_DIA[i], promedio: v })) : [],
