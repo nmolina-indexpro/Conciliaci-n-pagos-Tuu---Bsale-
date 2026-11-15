@@ -22,6 +22,7 @@ import { armarComunicacionZoho, filasCorreosDesdeZoho, guardarFilasZoho, ticketE
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
 import { manejarTickets } from '../lib/tickets.js';
 import { manejarTicketsPublico, sincronizarCarritos } from '../lib/tickets-entrada.js';
+import { manejarChatPublico, manejarChatAdmin } from '../lib/chat.js';
 import { manejarTicketsPostventa } from '../lib/tickets-postventa.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
@@ -242,6 +243,9 @@ export default async function handler(req, res) {
   // campo trampa, tiempo mínimo y tope por IP) y la tarea programada de carritos abandonados (CRON_SECRET). Ver lib/tickets-entrada.js y middleware.ts.
   if (req.query.recurso === 'tickets-publico') return manejarTicketsPublico(req, res, { getSql, gql: descuentosWebGql });
   if (req.query.recurso === 'tickets-carritos-cron') return manejarTicketsCarritosCron(req, res);
+  // Chat en vivo: lo llama el widget del sitio (navegador del visitante, sin sesión). Seguridad: origen permitido, campo trampa, tiempo mínimo, tope por IP
+  // (lib/seguridad.js) y token aleatorio por conversación. Ver lib/chat.js y middleware.ts (esChatPublico).
+  if (req.query.recurso === 'chat-publico') return manejarChatPublico(req, res, { getSql });
   if (req.query.recurso === 'auth-recuperar-password') return manejarAuthRecuperarPassword(req, res);
   if (req.query.recurso === 'auth-resetear-password') return manejarAuthResetearPassword(req, res);
 
@@ -281,6 +285,8 @@ export default async function handler(req, res) {
   // Módulo de Tickets del ERP (reemplazo de Zoho Desk, fase 1): bandeja, detalle y cambios. Ver lib/tickets.js.
   if (recurso === 'tickets') return manejarTickets(req, res, sesion, getSql);
   if (recurso === 'tickets-carritos') return manejarTicketsCarritos(req, res, sesion);
+  // Chat en vivo (reemplazo de SalesIQ): bandeja de los ejecutivos. Ver lib/chat.js.
+  if (recurso === 'chat') return manejarChatAdmin(req, res, sesion, getSql);
   // Ficha de postventa: pedido de Shopify + documentos de Bsale + registro de la nota de crédito (lib/tickets-postventa.js).
   if (recurso === 'tickets-postventa') {
     const tokenBsale = process.env.BSALE_ACCESS_TOKEN;

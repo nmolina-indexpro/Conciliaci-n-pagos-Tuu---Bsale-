@@ -23,7 +23,14 @@ const RUTAS_PUBLICAS = new Set([
   '/reset-password.html',
   '/cotizar-tienda.js',
   '/tickets-formulario.js', // script que conectan las landings y formularios del sitio al módulo de Tickets
+  '/chat-widget.js', // widget del chat en vivo que carga indexstore.cl
 ]);
+
+// Chat en vivo: lo llama el widget del sitio (sin sesión). Se distingue por ?recurso= (no se exime todo /api/negocio).
+// La seguridad la hace el handler: origen permitido + campo trampa + tiempo mínimo + tope por IP, y el token aleatorio de cada conversación.
+function esChatPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'chat-publico';
+}
 
 // Formularios públicos de Tickets (landings, postventa, NAS) y la tarea programada de carritos abandonados de Shopify. Se distinguen por
 // ?recurso= (no se exime todo /api/negocio). La seguridad la hace cada handler: origen permitido + campo trampa + tope por IP, y CRON_SECRET.
@@ -243,6 +250,7 @@ export default async function middleware(req) {
     esBuscadorIaRegistrarPublico(pathname, url.searchParams) ||
     esTicketsPublicoPublico(pathname, url.searchParams) ||
     esTicketsCarritosCronPublico(pathname, url.searchParams) ||
+    esChatPublico(pathname, url.searchParams) ||
     esAuthRecuperarPasswordPublico(pathname, url.searchParams) ||
     esAuthResetearPasswordPublico(pathname, url.searchParams)
   ) return; // deja pasar sin exigir sesión
