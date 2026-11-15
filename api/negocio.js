@@ -22,6 +22,7 @@ import { armarComunicacionZoho, filasCorreosDesdeZoho, guardarFilasZoho, ticketE
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
 import { manejarTickets } from '../lib/tickets.js';
 import { manejarTicketsPublico, sincronizarCarritos } from '../lib/tickets-entrada.js';
+import { manejarTicketsPostventa } from '../lib/tickets-postventa.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
 import { elegirPrecioSku } from '../lib/precios-sku.js';
@@ -280,6 +281,16 @@ export default async function handler(req, res) {
   // Módulo de Tickets del ERP (reemplazo de Zoho Desk, fase 1): bandeja, detalle y cambios. Ver lib/tickets.js.
   if (recurso === 'tickets') return manejarTickets(req, res, sesion, getSql);
   if (recurso === 'tickets-carritos') return manejarTicketsCarritos(req, res, sesion);
+  // Ficha de postventa: pedido de Shopify + documentos de Bsale + registro de la nota de crédito (lib/tickets-postventa.js).
+  if (recurso === 'tickets-postventa') {
+    const tokenBsale = process.env.BSALE_ACCESS_TOKEN;
+    const bsaleGet = tokenBsale ? async (ruta) => {
+      const r = await fetchConTimeout(BSALE_BASE + ruta, { headers: { access_token: tokenBsale } }, 20000);
+      if (!r.ok) throw new Error('Bsale HTTP ' + r.status);
+      return r.json();
+    } : null;
+    return manejarTicketsPostventa(req, res, sesion, { getSql, gql: descuentosWebGql, bsaleGet });
+  }
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
   if (recurso === 'facturas-compra') return manejarFacturasCompra(req, res, sesion);
   if (recurso === 'clientes-puntos') return manejarClientesPuntos(req, res, sesion);

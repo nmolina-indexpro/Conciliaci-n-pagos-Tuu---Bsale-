@@ -318,7 +318,9 @@
     </div>
     <div class="toolbar-acciones">
       <button class="btn-ghost btn-compact" id="btnCarritos" style="display:none" onclick="revisarCarritos()" title="Busca en Shopify los carritos abandonados y crea un lead por cada uno nuevo">🛒 Revisar carritos</button>
+      <button class="btn-ghost btn-compact" id="btnCatalogo" style="display:none" onclick="abrirCatalogo()" title="Servicios, precios y condiciones impresas en la orden">⚙ Catálogo de servicios</button>
       <button class="btn-ghost btn-compact" onclick="cargarLista(true)">↻ Actualizar</button>
+      <button class="btn-ghost" onclick="abrirNuevaOS()">🔧 Nueva orden de servicio</button>
       <button class="btn-primary" onclick="abrirNuevo()">+ Nuevo ticket</button>
     </div>
   </div>
@@ -404,6 +406,58 @@
   </div>
 </div>
 
+<!-- Modal: nueva orden de servicio (mesón) -->
+<div class="modal-fondo" id="modalOS" onclick="if(event.target===this)cerrarOS()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tituloOS" style="width:640px">
+    <h2 id="tituloOS">Nueva orden de servicio</h2>
+    <div class="campo"><label for="osBuscar">Buscar cliente (RUT, teléfono, correo o nombre)</label><input id="osBuscar" oninput="buscarClienteOS()" placeholder="Ej.: 12.345.678-5 o 9 1234 5678" autocomplete="off"><div id="osResultados"></div></div>
+    <div class="dos">
+      <div class="campo"><label for="osNombre">Nombre del cliente</label><input id="osNombre" maxlength="200"></div>
+      <div class="campo"><label for="osRut">RUT</label><input id="osRut" maxlength="20" placeholder="12.345.678-5"></div>
+    </div>
+    <div class="dos">
+      <div class="campo"><label for="osTelefono">Teléfono</label><input id="osTelefono" inputmode="tel"></div>
+      <div class="campo"><label for="osEmail">Correo</label><input id="osEmail" type="email" maxlength="200"></div>
+    </div>
+    <div class="dos">
+      <div class="campo"><label for="osTipo">Tipo de equipo</label><select id="osTipo"><option>Notebook</option><option>PC de escritorio</option><option>All-in-one</option><option>Impresora</option><option>Tablet</option><option>Otro</option></select></div>
+      <div class="campo"><label for="osMarca">Marca</label><input id="osMarca" maxlength="60"></div>
+    </div>
+    <div class="dos">
+      <div class="campo"><label for="osModelo">Modelo</label><input id="osModelo" maxlength="100"></div>
+      <div class="campo"><label for="osSerie">N° de serie</label><input id="osSerie" maxlength="80"></div>
+    </div>
+    <div class="campo"><label for="osAccesorios">Accesorios recibidos</label><input id="osAccesorios" maxlength="500" placeholder="Ej.: cargador, bolso"></div>
+    <div class="campo"><label for="osMotivo">Motivo de ingreso</label><textarea id="osMotivo" rows="3"></textarea></div>
+    <div class="dos">
+      <div class="campo"><label for="osServicio">Servicio del catálogo</label><select id="osServicio" onchange="servicioElegido()"></select></div>
+      <div class="campo"><label for="osPresupuesto">Presupuesto ($)</label><input id="osPresupuesto" type="number" min="0" step="1"></div>
+    </div>
+    <div class="dos">
+      <div class="campo"><label for="osFechaEst">Entrega estimada</label><input id="osFechaEst" type="date"></div>
+      <div class="campo"><label for="osAgente">Propietario</label><select id="osAgente"></select></div>
+    </div>
+    <label class="chk" style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="osRetiro" style="width:auto"> Retiro inmediato (el cliente espera el equipo)</label>
+    <div class="err-msg" id="osError"></div>
+    <div class="pie"><button class="btn-ghost" onclick="cerrarOS()">Cancelar</button><button class="btn-primary" id="btnCrearOS" onclick="crearOS()">Crear orden</button></div>
+  </div>
+</div>
+
+<!-- Modal: catálogo de servicios y condiciones (administradores) -->
+<div class="modal-fondo" id="modalCatalogo" onclick="if(event.target===this)cerrarCatalogo()">
+  <div class="modal" role="dialog" aria-modal="true" style="width:720px">
+    <h2>Catálogo de servicios</h2>
+    <div class="sub" style="margin-bottom:10px">Los códigos SER vienen del historial de Zoho. Completa los nombres y precios; el precio de lista se sugiere al crear la orden.</div>
+    <div class="tabla-wrap" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr><th style="text-align:left;padding:6px">Código</th><th style="text-align:left;padding:6px">Nombre</th><th style="text-align:left;padding:6px">Precio ($)</th><th style="text-align:left;padding:6px">Horas</th><th style="padding:6px">Activo</th><th></th></tr></thead>
+      <tbody id="catBody"></tbody></table></div>
+    <h2 style="margin-top:18px;font-size:15px">Condiciones impresas en la orden</h2>
+    <textarea id="catCondiciones" rows="5"></textarea>
+    <div class="err-msg" id="catError"></div>
+    <div class="pie"><button class="btn-ghost" onclick="cerrarCatalogo()">Cerrar</button><button class="btn-primary" onclick="guardarCondiciones()">Guardar condiciones</button></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script src="restriccion-usuario.js"></script>
@@ -455,7 +509,7 @@ async function api(url, opciones){
   if(j.error) throw new Error(j.detail ? `${j.error}: ${j.detail}` : j.error);
   return j;
 }
-function post(cuerpo){ return api(API, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(cuerpo) }); }
+function post(cuerpo, recurso){ return api(recurso ? '/api/negocio?recurso=' + recurso : API, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(cuerpo) }); }
 
 // ---------- Sesión ----------
 async function cargarSesion(){
@@ -464,7 +518,7 @@ async function cargarSesion(){
     if(!res.ok){ location.href = '/login.html'; return; }
     const u = await res.json();
     $('userBox').innerHTML = `<span>Hola, <b>${esc(u.nombre || u.email)}</b></span>`;
-    if(u.rol === 'admin'){ E.esAdmin = true; $('btnCarritos').style.display = ''; ['navUsuarios','navActualizaciones','navMercadoLibre'].forEach(i => { const n = $(i); if(n) n.style.display = ''; }); }
+    if(u.rol === 'admin'){ E.esAdmin = true; $('btnCarritos').style.display = ''; $('btnCatalogo').style.display = ''; ['navUsuarios','navActualizaciones','navMercadoLibre'].forEach(i => { const n = $(i); if(n) n.style.display = ''; }); }
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
   }catch(e){ /* silencioso */ }
@@ -538,7 +592,7 @@ function renderLista(){
         <div class="asunto">${esc(t.asunto || '(sin asunto)')}</div>
         ${avatar(t.agente_nombre)}
       </div>
-      <div class="meta"><span class="num">#${t.numero}</span><span>·</span><span>${esc(t.cliente_nombre || 'Sin nombre')}</span></div>
+      <div class="meta"><span class="num">#${t.numero}</span>${t.numero_os ? `<span class="num">OS ${t.numero_os}</span>` : ''}<span>·</span><span>${esc(t.cliente_nombre || 'Sin nombre')}</span>${t.retiro_inmediato ? '<span class="badge ambar" style="padding:1px 7px;font-size:10px">Retiro inmediato</span>' : ''}</div>
       <div class="pie">
         <span class="fecha">🕑 ${fmtFechaCorta(t.creado_en)}${t.sin_movimiento ? ' · sin movimiento' : ''}</span>
         ${badgeEstado(t.tipo, t.estado)}
@@ -619,9 +673,79 @@ function panelInfoTicket(d){
       <div class="prop"><label>N° de boleta o factura</label><input id="fDocumento" value="${esc(p.numero_documento || '')}" maxlength="40"></div>
       <div class="prop"><label>Resumen de resolución</label><textarea id="fResumen" rows="3">${esc(p.resumen_resolucion || '')}</textarea></div>`;
   }
-  const guardable = d.tipo !== 'servicio_tecnico';
+  else if(d.tipo === 'servicio_tecnico'){
+    const o = d.orden || {};
+    const servicios = (E.cfg.servicios || []).filter(s => s.activo || s.codigo === o.servicio_codigo);
+    const optServ = '<option value="">—</option>' + servicios.map(s => `<option value="${esc(s.codigo)}"${s.codigo === o.servicio_codigo ? ' selected' : ''}>${esc(s.codigo)} · ${esc(s.nombre)}${s.precio_clp ? ' · $' + Number(s.precio_clp).toLocaleString('es-CL') : ''}</option>`).join('');
+    campos += `<div class="prop"><label>N° de orden de servicio</label><div class="valor"><b style="font-size:16px">${esc(o.numero_os)}</b>${o.retiro_inmediato ? ' <span class="badge ambar">Retiro inmediato</span>' : ''}</div></div>
+      <div class="prop"><label>Equipo</label><input id="oTipo" list="listaEquipos" value="${esc(o.equipo_tipo || '')}" maxlength="40" placeholder="Tipo (notebook, PC…)"></div>
+      <div class="prop"><label>Marca y modelo</label><div style="display:flex;gap:6px"><input id="oMarca" value="${esc(o.marca || '')}" maxlength="60" placeholder="Marca"><input id="oModelo" value="${esc(o.modelo || '')}" maxlength="100" placeholder="Modelo"></div></div>
+      <div class="prop"><label>N° de serie</label><input id="oSerie" value="${esc(o.numero_serie || '')}" maxlength="80"></div>
+      <div class="prop"><label>Accesorios recibidos</label><textarea id="oAccesorios" rows="2">${esc(o.accesorios_recibidos || '')}</textarea></div>
+      <div class="prop"><label>Motivo de ingreso</label><textarea id="oMotivo" rows="3">${esc(o.motivo_ingreso || '')}</textarea></div>
+      <div class="prop"><label>Servicio del catálogo</label><select id="oServicio">${optServ}</select></div>
+      <div class="prop"><label>Diagnóstico</label><textarea id="oDiagnostico" rows="3">${esc(o.diagnostico || '')}</textarea></div>
+      <div class="prop"><label>Presupuesto ($)</label><input id="oPresupuesto" type="number" min="0" step="1" value="${o.presupuesto_clp ?? ''}"></div>
+      <div class="prop"><label>Aprobado por el cliente</label><select id="oAprobado"><option value="">Pendiente</option><option value="si"${o.aprobado_cliente === true ? ' selected' : ''}>Sí</option><option value="no"${o.aprobado_cliente === false ? ' selected' : ''}>No</option></select></div>
+      <div class="prop"><label>Entrega estimada</label><input id="oFechaEst" type="date" value="${o.fecha_entrega_estimada ? String(o.fecha_entrega_estimada).slice(0, 10) : ''}"></div>
+      ${o.fecha_entrega ? `<div class="prop"><label>Entregado el</label><div class="valor">${esc(String(o.fecha_entrega).slice(0, 10).split('-').reverse().join('-'))}</div></div>` : ''}
+      <label class="chk" style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="oRetiro"${o.retiro_inmediato ? ' checked' : ''} style="width:auto"> Retiro inmediato</label>
+      <datalist id="listaEquipos"><option>Notebook</option><option>PC de escritorio</option><option>All-in-one</option><option>Impresora</option><option>Tablet</option><option>Otro</option></datalist>`;
+  }
   return `<details class="panel" open><summary>Información sobre el ticket</summary><div class="cuerpo">${campos}
-    ${guardable ? '<button class="btn-ghost btn-compact" onclick="guardarDetalle()">Guardar datos</button>' : '<div class="sub">Los datos de la orden de servicio llegan en el siguiente paso.</div>'}</div></details>`;
+    <button class="btn-ghost btn-compact" onclick="guardarDetalle()">Guardar datos</button></div></details>`;
+}
+
+// ---- Postventa: pedido de Shopify, documentos de Bsale y nota de crédito ----
+E.fichas = {};
+function panelPedido(d){
+  if(d.tipo !== 'postventa') return '';
+  return `<details class="panel" open><summary>Pedido y documentos</summary><div class="cuerpo" id="pedidoCuerpo"><div class="sub">Consultando Shopify y Bsale…</div></div></details>`;
+}
+async function cargarFichaPostventa(id, forzar){
+  const c = E.fichas[id];
+  if(c && !forzar && Date.now() - c.t < 120000){ pintarFicha(id, c.f); return; }
+  try{
+    const j = await api('/api/negocio?recurso=tickets-postventa&id=' + id);
+    E.fichas[id] = { t: Date.now(), f: j.ficha };
+    if(E.sel === id) pintarFicha(id, j.ficha);
+  }catch(err){ const el = $('pedidoCuerpo'); if(el && E.sel === id) el.innerHTML = `<div class="sub" style="color:var(--red)">No se pudo consultar: ${esc(err.message)}</div>`; }
+}
+const ESTADOS_ENVIO = { DELIVERED:'Entregado', IN_TRANSIT:'En tránsito', OUT_FOR_DELIVERY:'En reparto', FULFILLED:'Enviado', READY_FOR_PICKUP:'Listo para retirar', ATTEMPTED_DELIVERY:'Intento de entrega', FAILURE:'Fallido', CONFIRMED:'Confirmado', LABEL_PRINTED:'Etiqueta impresa', LABEL_PURCHASED:'Etiqueta comprada', UNFULFILLED:'Sin enviar', PARTIALLY_FULFILLED:'Envío parcial', PAID:'Pagado', PENDING:'Pendiente', REFUNDED:'Reembolsado', PARTIALLY_REFUNDED:'Reembolso parcial', VOIDED:'Anulado', AUTHORIZED:'Autorizado' };
+const etq = s => ESTADOS_ENVIO[String(s || '').toUpperCase()] || (s ? String(s).replace(/_/g, ' ').toLowerCase() : '—');
+function pintarFicha(id, f){
+  const el = $('pedidoCuerpo'); if(!el || E.sel !== id) return;
+  let h = '';
+  const p = f.pedido;
+  if(f.sinPedido) h += '<div class="sub">Este ticket no tiene número de pedido. Agrégalo en "Información sobre el ticket" y guarda.</div>';
+  else if(!p) h += `<div class="sub">${f.errores.shopify ? 'Shopify: ' + esc(f.errores.shopify) : 'No se encontró el pedido ' + esc(f.numero_pedido || '') + ' en Shopify.'}</div>`;
+  else {
+    h += `<div class="prop"><label>Pedido</label><div class="valor"><b>${esc(p.nombre)}</b> · ${esc(fmtFechaCorta(p.creado_en))}${p.cancelado ? ' <span class="badge rojo">Cancelado</span>' : ''}</div>
+      <div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap"><span class="badge teal">Pago: ${esc(etq(p.estado_pago))}</span><span class="badge teal">Despacho: ${esc(etq(p.estado_despacho))}</span></div>
+      ${p.envio_a ? `<div class="sub" style="margin-top:5px">Envío a ${esc(p.envio_a)}</div>` : ''}</div>
+      <div class="prop"><label>Productos</label>${p.productos.map(i => `<div class="valor" style="font-size:12.5px">${esc(i.cantidad)} × ${esc(i.titulo)}${i.sku ? ` <span class="sub">${esc(i.sku)}</span>` : ''}</div>`).join('') || '<div class="valor">—</div>'}</div>`;
+    const segs = p.envios.flatMap(e => e.seguimiento.length ? e.seguimiento.map(s => ({ ...s, estado: e.estado, entregado: e.entregado_en })) : [{ estado: e.estado, entregado: e.entregado_en }]);
+    if(segs.length) h += `<div class="prop"><label>Seguimiento</label>${segs.map(s => `<div class="valor" style="font-size:12.5px">${esc(etq(s.estado))}${s.entregado ? ' · ' + esc(fmtFechaCorta(s.entregado)) : ''}${s.numero ? ' · ' + (s.url && /^https?:\/\//i.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.empresa ? s.empresa + ' ' : '')}${esc(s.numero)} ↗</a>` : esc(s.numero)) : ''}</div>`).join('')}</div>`;
+  }
+  if(f.errores && f.errores.shopify && p) h += `<div class="sub" style="color:var(--amber)">Shopify: ${esc(f.errores.shopify)}</div>`;
+  h += `<div class="prop"><label>Documentos de Bsale</label>${f.documentos.length ? f.documentos.map(x => x.noEncontrado
+      ? `<div class="valor" style="font-size:12.5px">${esc(x.tipo)} N° ${esc(x.numero)} <span class="sub">(no encontrada en Bsale)</span></div>`
+      : `<div class="valor" style="font-size:12.5px">${x.url && /^https?:\/\//i.test(x.url) ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.tipo)} N° ${esc(x.numero)} ↗</a>` : esc(x.tipo + ' N° ' + x.numero)}${x.anulado ? ' <span class="badge rojo">Anulado</span>' : ''}${x.sinConfirmar ? ' <span class="badge ambar" title="Coincide solo por el número escrito en el ticket: confirma que es del cliente">Sin confirmar</span>' : ''}${x.total ? ' · $' + Number(x.total).toLocaleString('es-CL') : ''}</div>`).join('') : '<div class="valor sub">Sin documentos asociados</div>'}
+    ${f.errores && f.errores.bsale ? `<div class="sub" style="color:var(--amber)">Bsale: ${esc(f.errores.bsale)}</div>` : ''}</div>`;
+  h += `<div class="prop"><label>Nota de crédito</label>${f.nota_credito_numero
+      ? `<div class="valor"><span class="badge verde">NC N° ${esc(f.nota_credito_numero)}</span></div>`
+      : `<div class="sub" style="margin-bottom:6px">Emítela en Bsale y registra aquí su número.</div><button class="btn-ghost btn-compact" onclick="registrarNC()">Registrar nota de crédito</button>`}</div>
+    <button class="btn-ghost btn-compact" onclick="cargarFichaPostventa(${id}, true)">↻ Volver a consultar</button>`;
+  el.innerHTML = h;
+}
+async function registrarNC(){
+  const n = prompt('Número de la nota de crédito emitida en Bsale:');
+  if(!n) return;
+  try{
+    const j = await post({ id: E.sel, accion: 'nc', numero: n }, 'tickets-postventa');
+    toast(j.aviso || 'Nota de crédito registrada');
+    cargarFichaPostventa(E.sel, true); refrescarSeleccionado();
+  }catch(err){ toast(err.message, true); }
 }
 function panelOtros(d){
   if(!d.otrosTickets || !d.otrosTickets.length) return '';
@@ -630,7 +754,8 @@ function panelOtros(d){
 }
 function renderProps(){
   const d = E.d; if(!d){ return; }
-  $('propsScroll').innerHTML = panelContacto(d) + panelClave(d) + panelInfoTicket(d) + panelOtros(d);
+  $('propsScroll').innerHTML = panelContacto(d) + panelClave(d) + panelInfoTicket(d) + panelPedido(d) + panelOtros(d);
+  if(d.tipo === 'postventa') cargarFichaPostventa(d.id);
 }
 async function seleccionarOtro(id){
   // el ticket puede no estar en la lista filtrada actual: se abre igual
@@ -640,7 +765,7 @@ async function seleccionarOtro(id){
 // ---------- Columna principal ----------
 function conversaciones(d){
   const items = [];
-  items.push({ clase:'', quien: d.cliente_nombre || 'Cliente', cuando: d.creado_en, cuerpo: d.descripcion || d.asunto || '', etiqueta:'<span class="tag-cont">Solicitud original</span>', cliente:true });
+  items.push({ clase:'', quien: d.cliente_nombre || 'Cliente', cuando: d.creado_en, cuerpo: d.descripcion || (d.orden && d.orden.motivo_ingreso ? 'Motivo de ingreso: ' + d.orden.motivo_ingreso : '') || d.asunto || '', etiqueta:'<span class="tag-cont">' + (d.orden ? 'Ingreso del equipo' : 'Solicitud original') + '</span>', cliente:true });
   for(const e of d.eventos){
     if(e.tipo === 'comentario_interno') items.push({ clase:'privada', quien: e.autor_nombre, cuando: e.creado_en, cuerpo: e.contenido, etiqueta:'<span class="tag-priv">Privado</span>' });
     else if(e.tipo === 'contacto_cliente') items.push({ clase:'', quien: e.autor_nombre, cuando: e.creado_en, cuerpo: e.contenido, etiqueta:'<span class="tag-cont">Contacto con cliente</span>' });
@@ -669,7 +794,46 @@ function mensajeWa(d){
   const saludo = n ? `Hola ${n}, ` : 'Hola, ';
   if(d.tipo === 'lead') return `${saludo}te escribimos de IndexStore por tu consulta${d.producto_interes ? ' de ' + d.producto_interes : ''}. ¿En qué podemos ayudarte?`;
   if(d.tipo === 'postventa') return `${saludo}te escribimos de IndexStore por tu solicitud de postventa${d.numero_pedido ? ' (pedido ' + d.numero_pedido + ')' : ''}.`;
-  return `${saludo}te escribimos de IndexStore por tu equipo en servicio técnico.`;
+  const os = d.numero_os ? ` (orden N° ${d.numero_os})` : '';
+  if(d.estado === 'por_retirar') return `${saludo}tu equipo${os} está listo para retirar en IndexStore. Te esperamos con tu orden de servicio y tu documento de identidad.`;
+  return `${saludo}te escribimos de IndexStore por tu equipo${os} en servicio técnico.`;
+}
+
+// ---------- Orden de servicio impresa ----------
+function imprimirOrden(){
+  const d = E.d, o = d && d.orden; if(!o) return;
+  const c = d.cliente || {};
+  const f = iso => iso ? String(iso).slice(0, 10).split('-').reverse().join('-') : '—';
+  const fila = (k, v) => `<tr><th>${esc(k)}</th><td>${v ? esc(v) : '—'}</td></tr>`;
+  const srv = (E.cfg.servicios || []).find(s => s.codigo === o.servicio_codigo);
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Orden de servicio N° ${esc(o.numero_os)}</title>
+<style>
+  @page{size:A4;margin:16mm}
+  body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13px;margin:0}
+  .cab{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0F766E;padding-bottom:10px;margin-bottom:14px}
+  .cab img{height:46px}
+  .num{text-align:right}.num b{font-size:22px;color:#0F766E;display:block}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;margin:16px 0 6px;color:#0F766E}
+  table{width:100%;border-collapse:collapse}
+  th{width:32%;text-align:left;font-weight:600;color:#555;padding:5px 8px;border-bottom:1px solid #ddd;vertical-align:top}
+  td{padding:5px 8px;border-bottom:1px solid #ddd;white-space:pre-wrap}
+  .ret{display:inline-block;border:1.5px solid #D97706;color:#D97706;padding:2px 8px;border-radius:5px;font-weight:700;font-size:12px;margin-top:6px}
+  .firmas{display:flex;gap:40px;margin-top:56px}.firmas div{flex:1;border-top:1px solid #111;text-align:center;padding-top:5px;font-size:12px}
+  .cond{margin-top:20px;font-size:11.5px;color:#444;line-height:1.5;white-space:pre-wrap;border:1px solid #ddd;border-radius:6px;padding:10px}
+  .btn{position:fixed;top:10px;right:10px;padding:8px 14px;font-size:13px}@media print{.btn{display:none}}
+</style></head><body>
+<button class="btn" onclick="window.print()">Imprimir</button>
+<div class="cab"><div><img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore"><div style="margin-top:6px;color:#555">Orden de servicio técnico</div></div>
+<div class="num">N° de orden<b>${esc(o.numero_os)}</b><span style="color:#555">Ingreso: ${esc(fmtFechaLarga(d.creado_en))}</span>${o.retiro_inmediato ? '<br><span class="ret">RETIRO INMEDIATO</span>' : ''}</div></div>
+<h2>Cliente</h2><table>${fila('Nombre', c.nombre)}${fila('RUT', c.rut)}${fila('Teléfono', c.telefono)}${fila('Correo', c.email)}</table>
+<h2>Equipo recibido</h2><table>${fila('Tipo', o.equipo_tipo)}${fila('Marca y modelo', [o.marca, o.modelo].filter(Boolean).join(' '))}${fila('N° de serie', o.numero_serie)}${fila('Accesorios recibidos', o.accesorios_recibidos)}</table>
+<h2>Servicio</h2><table>${fila('Motivo de ingreso', o.motivo_ingreso)}${fila('Servicio', srv ? srv.codigo + ' · ' + srv.nombre : o.servicio_codigo)}${fila('Diagnóstico', o.diagnostico)}${fila('Presupuesto', o.presupuesto_clp ? '$' + Number(o.presupuesto_clp).toLocaleString('es-CL') : '')}${fila('Entrega estimada', f(o.fecha_entrega_estimada))}</table>
+<div class="firmas"><div>Firma del cliente</div><div>Recepción IndexStore</div></div>
+<div class="cond"><b>Condiciones</b>\n${esc(E.cfg.condicionesOs || '')}</div>
+<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>`;
+  const w = window.open('', '_blank');
+  if(!w){ toast('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
 }
 function renderMain(){
   const d = E.d; if(!d) return;
@@ -680,13 +844,14 @@ function renderMain(){
   const cintaEstilo = { azul:'background:#E4ECFD;color:#2563EB', ambar:'background:#FDF0DC;color:#D97706', verde:'background:#E3F6E8;color:#15803D', gris:'background:#F1F3EC;color:#6B7568', teal:'background:#E3F2F0;color:#0B5C55' }[cintaClase];
   const tel = limpiaTel(d.cliente_telefono);
   const btnWa = (tel && !d.cerrado) ? `<button class="btn-wa btn-compact" onclick="contactarWa()">💬 Contactar por WhatsApp</button>` : '';
+  const btnImprimir = d.tipo === 'servicio_tecnico' && d.orden ? `<button class="btn-ghost btn-compact" onclick="imprimirOrden()">🖨 Imprimir orden</button>` : '';
   const btnReabrir = d.cerrado ? `<button class="btn-ghost btn-compact" onclick="cambiarEstado('abierto')">Volver a abrir ticket</button>` : '';
   $('colMain').innerHTML = `
     <div class="main-head">
       <button class="btn-ghost btn-compact btn-volver" onclick="volverALista()">← Volver a la lista</button>
       <span class="cinta" style="${cintaEstilo}">${esc(e.etiqueta)}</span>
       <div class="main-titulo"><h2>${esc(d.asunto || '(sin asunto)')}</h2>
-        <div class="main-acciones">${btnWa}${btnReabrir}</div></div>
+        <div class="main-acciones">${btnImprimir}${btnWa}${btnReabrir}</div></div>
       <div class="main-meta"><span class="num">#${d.numero}</span><span>${esc(d.cliente_nombre || 'Sin nombre')}</span><span>🕑 ${fmtFechaLarga(d.creado_en)}</span>
         <span class="chip-tiempo" title="Tiempo desde que se creó">${d.cerrado ? 'Duración' : 'Abierto'}: ${esc(fmtDur((d.cerrado ? new Date(d.cerrado_en) : Date.now()) - new Date(d.creado_en)))}</span>
         ${d.sin_asignar ? '<span class="badge rojo">Sin asignar</span>' : ''}${d.sin_movimiento ? '<span class="badge ambar">Sin movimiento +24 h</span>' : ''}</div>
@@ -775,6 +940,11 @@ function guardarDetalle(){
   const cuerpo = { accion:'detalle' };
   if(d.tipo === 'lead') cuerpo.producto_interes = g('fProducto');
   if(d.tipo === 'postventa'){ cuerpo.motivo = g('fMotivo'); cuerpo.tipo_producto = g('fTipoProd'); cuerpo.numero_pedido = g('fPedido'); cuerpo.numero_documento = g('fDocumento'); cuerpo.resumen_resolucion = g('fResumen'); }
+  if(d.tipo === 'servicio_tecnico'){
+    Object.assign(cuerpo, { equipo_tipo: g('oTipo'), marca: g('oMarca'), modelo: g('oModelo'), numero_serie: g('oSerie'), accesorios_recibidos: g('oAccesorios'), motivo_ingreso: g('oMotivo'),
+      servicio_codigo: g('oServicio'), diagnostico: g('oDiagnostico'), presupuesto_clp: g('oPresupuesto'), aprobado_cliente: g('oAprobado'), fecha_entrega_estimada: g('oFechaEst'), retiro_inmediato: $('oRetiro').checked });
+  }
+  if(d.tipo === 'postventa') delete E.fichas[d.id]; // el N° de pedido pudo cambiar: se vuelve a consultar
   aplicar(cuerpo, 'Datos guardados');
 }
 async function enviarRespuesta(){
@@ -876,8 +1046,90 @@ async function crearTicket(){
   finally{ $('btnCrear').disabled = false; }
 }
 
+// ---------- Nueva orden de servicio (mesón) ----------
+let _clientesOS = [], _bco = null;
+function abrirNuevaOS(){
+  ['osBuscar','osNombre','osRut','osTelefono','osEmail','osMarca','osModelo','osSerie','osAccesorios','osMotivo','osPresupuesto','osFechaEst'].forEach(i => $(i).value = '');
+  $('osRetiro').checked = false; $('osTipo').selectedIndex = 0; $('osResultados').innerHTML = ''; $('osError').textContent = '';
+  $('osServicio').innerHTML = '<option value="">— Sin servicio definido —</option>' + (E.cfg.servicios || []).filter(s => s.activo).map(s => `<option value="${esc(s.codigo)}">${esc(s.codigo)} · ${esc(s.nombre)}${s.precio_clp ? ' · $' + Number(s.precio_clp).toLocaleString('es-CL') : ''}</option>`).join('');
+  $('osAgente').innerHTML = '<option value="">Sin asignar</option>' + E.agentes.map(a => `<option value="${a.id}"${a.id === E.yo ? ' selected' : ''}>${esc(a.nombre)}</option>`).join('');
+  $('modalOS').classList.add('abierto'); $('osBuscar').focus();
+}
+function cerrarOS(){ $('modalOS').classList.remove('abierto'); }
+function buscarClienteOS(){
+  clearTimeout(_bco);
+  const q = $('osBuscar').value.trim();
+  if(q.length < 3){ $('osResultados').innerHTML = ''; return; }
+  _bco = setTimeout(async () => {
+    try{
+      const j = await api(API + '&clientes=' + encodeURIComponent(q));
+      _clientesOS = j.clientes;
+      $('osResultados').innerHTML = j.clientes.length
+        ? `<div style="border:1px solid var(--line);border-radius:9px;margin-top:6px;overflow:hidden">${j.clientes.map((c, i) => `<div class="otros-t" style="padding:8px 12px" onclick="elegirClienteOS(${i})"><span><b>${esc(c.nombre || 'Sin nombre')}</b> <span class="sub">${esc([c.rut, c.telefono, c.email].filter(Boolean).join(' · '))}</span></span><span class="badge teal">Usar</span></div>`).join('')}</div>`
+        : '<div class="sub" style="margin-top:6px">No hay clientes con ese dato: completa los campos para crear uno nuevo.</div>';
+    }catch(err){ $('osResultados').innerHTML = ''; }
+  }, 300);
+}
+function elegirClienteOS(i){
+  const c = _clientesOS[i]; if(!c) return;
+  $('osNombre').value = c.nombre || ''; $('osRut').value = c.rut || ''; $('osTelefono').value = c.telefono || ''; $('osEmail').value = c.email || '';
+  $('osResultados').innerHTML = ''; $('osBuscar').value = ''; $('osMarca').focus();
+}
+function servicioElegido(){
+  const s = (E.cfg.servicios || []).find(x => x.codigo === $('osServicio').value);
+  if(s && s.precio_clp && !$('osPresupuesto').value) $('osPresupuesto').value = s.precio_clp;
+}
+async function crearOS(){
+  const v = id => $(id).value;
+  if(!v('osNombre').trim()){ $('osError').textContent = 'Indica el nombre del cliente.'; return; }
+  if(!v('osTelefono').trim() && !v('osEmail').trim()){ $('osError').textContent = 'Indica un teléfono o un correo de contacto.'; return; }
+  if(!v('osMotivo').trim()){ $('osError').textContent = 'Describe el motivo de ingreso.'; return; }
+  const cuerpo = { accion:'crear', tipo:'servicio_tecnico', origen:'meson', agente_id: v('osAgente') || null,
+    cliente:{ nombre: v('osNombre'), rut: v('osRut'), telefono: v('osTelefono'), email: v('osEmail') },
+    orden:{ equipo_tipo: v('osTipo'), marca: v('osMarca'), modelo: v('osModelo'), numero_serie: v('osSerie'), accesorios_recibidos: v('osAccesorios'), motivo_ingreso: v('osMotivo'),
+      servicio_codigo: v('osServicio'), presupuesto_clp: v('osPresupuesto'), fecha_entrega_estimada: v('osFechaEst'), retiro_inmediato: $('osRetiro').checked } };
+  $('btnCrearOS').disabled = true; $('osError').textContent = '';
+  try{
+    const j = await post(cuerpo);
+    cerrarOS(); toast(`Orden N° ${j.ticket.numero_os} creada`);
+    $('selVista').value = 'abiertos'; $('selTipo').value = ''; $('inpBuscar').value = '';
+    await cargarLista(); await abrirTicket(j.ticket.id);
+    if(confirm(`¿Imprimir ahora la orden N° ${j.ticket.numero_os}?`)) imprimirOrden();
+  }catch(err){ $('osError').textContent = err.message; }
+  finally{ $('btnCrearOS').disabled = false; }
+}
+
+// ---------- Catálogo de servicios (administradores) ----------
+function abrirCatalogo(){ renderCatalogo(); $('catCondiciones').value = E.cfg.condicionesOs || ''; $('catError').textContent = ''; $('modalCatalogo').classList.add('abierto'); }
+function cerrarCatalogo(){ $('modalCatalogo').classList.remove('abierto'); }
+function renderCatalogo(){
+  const fila = (s, nuevo) => `<tr data-codigo="${esc(s.codigo)}">
+    <td style="padding:4px"><input class="cCod" value="${esc(s.codigo)}" ${nuevo ? '' : 'readonly'} style="width:90px" maxlength="20"></td>
+    <td style="padding:4px"><input class="cNom" value="${esc(s.nombre)}" style="width:100%;min-width:160px" maxlength="120"></td>
+    <td style="padding:4px"><input class="cPre" type="number" min="0" value="${s.precio_clp ?? ''}" style="width:100px"></td>
+    <td style="padding:4px"><input class="cHor" type="number" min="0" step="0.5" value="${s.tiempo_estimado_h ?? ''}" style="width:70px"></td>
+    <td style="padding:4px;text-align:center"><input class="cAct" type="checkbox" ${s.activo ? 'checked' : ''} style="width:auto"></td>
+    <td style="padding:4px"><button class="btn-ghost btn-compact" onclick="guardarServicioFila(this)">Guardar</button></td></tr>`;
+  $('catBody').innerHTML = (E.cfg.servicios || []).map(s => fila(s, false)).join('')
+    + fila({ codigo:'', nombre:'', precio_clp:null, tiempo_estimado_h:null, activo:true }, true);
+}
+async function guardarServicioFila(btn){
+  const tr = btn.closest('tr'), q = c => tr.querySelector(c);
+  btn.disabled = true; $('catError').textContent = '';
+  try{
+    const j = await post({ accion:'servicio_guardar', codigo: q('.cCod').value, nombre: q('.cNom').value, precio_clp: q('.cPre').value, tiempo_estimado_h: q('.cHor').value, activo: q('.cAct').checked });
+    E.cfg.servicios = j.servicios; renderCatalogo(); toast('Servicio guardado');
+  }catch(err){ $('catError').textContent = err.message; btn.disabled = false; }
+}
+async function guardarCondiciones(){
+  try{
+    const j = await post({ accion:'condiciones_guardar', condiciones: $('catCondiciones').value });
+    E.cfg.condicionesOs = j.condicionesOs; toast('Condiciones guardadas');
+  }catch(err){ $('catError').textContent = err.message; }
+}
+
 // ---------- Inicio ----------
-document.addEventListener('keydown', e => { if(e.key === 'Escape'){ cerrarNuevo(); cerrarCanal(); } });
+document.addEventListener('keydown', e => { if(e.key === 'Escape'){ cerrarNuevo(); cerrarCanal(); cerrarOS(); cerrarCatalogo(); } });
 // Actualización suave cada minuto, solo con la pestaña visible
 setInterval(() => { if(!document.hidden && !$('modalNuevo').classList.contains('abierto')) cargarLista(); }, 60000);
 document.addEventListener('visibilitychange', () => { if(!document.hidden) cargarLista(); });
