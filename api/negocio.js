@@ -34,6 +34,7 @@ import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidir
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { asegurarTablaVentasDetalle, lineasDeDocumentos as lineasDeDocumentosDV, guardarLineas as guardarLineasDV, guardarSucursales as guardarSucursalesDV, leerDetalle as leerDetalleDV, estadoMeses as estadoMesesDV, mesesEntre as mesesEntreDV, mesValido as mesValidoDV, diaValido as diaValidoDV, MAX_MESES_CONSULTA as MAX_MESES_DV } from '../lib/detalle-ventas.js';
 import { SISTEMA_PRONOSTICO_IA, HERRAMIENTA_PRONOSTICO_IA, armarEntradaPronostico, textoParaIA as textoParaIAPronostico, normalizarAnalisisPronostico } from '../lib/detalle-ventas-pronostico-ia.js';
+import { armarResumenSemanal, mesesParaActualizar as mesesResumenVentas, rangoNecesario as rangoResumenVentas, prepararLineasResumen, TIPOS_RESUMEN as TIPOS_RESUMEN_VENTAS } from '../lib/ventas-resumen-correo.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
 import { DIAS_ESTIMADOS_DEFECTO as DIAS_PEDIDO_PANTALLA, listarPedidos as listarPedidosPP, leerPedido as leerPedidoPP, resumirPedidos as resumirPedidosPP, aplicarCambios as aplicarCambiosPP, crearPedido as crearPedidoPP, reclamarAviso as reclamarAvisoPP, asegurarTablaPedidosPantalla, pedidosParaRecordar as pedidosParaRecordarPP, reclamarRecordatorios as reclamarRecordatoriosPP, soltarRecordatorios as soltarRecordatoriosPP } from '../lib/pedidos-pantalla.js';
 import { buscarProductos as buscarProductosCatalogoPP } from '../lib/pedidos-pantalla-catalogo.js';
@@ -198,6 +199,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'pedidos-pantalla-recordatorio') return manejarPedidosPantallaRecordatorio(req, res);
   if (req.query.recurso === 'recepciones-stock-notificar') return manejarRecepcionesStockNotificar(req, res);
   if (req.query.recurso === 'ventas-efectivo-notificar') return manejarVentasEfectivoNotificar(req, res);
+  if (req.query.recurso === 'ventas-resumen-semanal') return manejarVentasResumenSemanal(req, res);
   if (req.query.recurso === 'mercadolibre-sync') return manejarMercadoLibreSyncCron(req, res);
   if (req.query.recurso === 'cambio-imagen') return manejarCambioImagen(req, res);
   if (req.query.recurso === 'bsale-webhook') return manejarBsaleWebhook(req, res);
@@ -5605,6 +5607,8 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'traspaso-stock-modelos': manejarTraspasoStockNotificar,
       'recepciones-stock-diario': manejarRecepcionesStockNotificar,
       'ventas-efectivo-diario': manejarVentasEfectivoNotificar,
+      'ventas-resumen-lunes': (rq, rs) => manejarVentasResumenSemanal({ ...rq, query: { ...rq.query, tipo: 'lunes' } }, rs),
+      'ventas-resumen-viernes': (rq, rs) => manejarVentasResumenSemanal({ ...rq, query: { ...rq.query, tipo: 'viernes' } }, rs),
       'transito-envio-nuevo': manejarTransitoEnvioNuevoPrueba,
       'pedido-pantalla-nuevo': manejarPedidoPantallaPrueba,
       'pedido-pantalla-recordatorio': manejarPedidosPantallaRecordatorio,
@@ -18633,6 +18637,75 @@ async function manejarVentasDetalleIA(req, res, sesion) {
   }
 }
 // ===================== DETALLE DE VENTAS (fin) =====================
+
+// ===================== RESUMEN SEMANAL DE VENTAS (lunes y viernes) =====================
+// Correos 'ventas-resumen-lunes' y 'ventas-resumen-viernes' (lib/ventas-resumen-correo.js): venta día por día, productos y servicios, comparativos, cómo va el mes y el pronóstico de
+// venta y margen. EXCEPCIÓN pedida a la regla de "sin montos": lleva cifras y va solo a administradores (correosFijos de lib/notificaciones.js).
+// Los crons (vercel.json) llaman a ?recurso=ventas-resumen-semanal en dos modos, siempre con CRON_SECRET:
+//   &sync=1            -> solo lee de Bsale los meses que hacen falta (se repite unos minutos antes del envío: cada llamada avanza ~40 s y la lectura sigue donde quedó);
+//   &tipo=lunes|viernes -> termina la lectura si falta, arma el correo con lo que hay en ventas_detalle y lo envía.
+// ?probar=1&para=correo manda una prueba solo a esa persona SIN leer de Bsale (usa lo que ya está guardado); ?solo_ver=1 devuelve el correo armado sin enviar.
+async function llamarSyncDetalleDV(mes, refrescar) {
+  const cap = { cuerpo: null };
+  const resFalsa = { status() { return this; }, json(o) { cap.cuerpo = o; return this; }, setHeader() { return this; }, end() { return this; } };
+  await manejarVentasDetalleSync({ method: 'POST', query: { mes, refrescar: refrescar ? '1' : '0' } }, resFalsa, { rol: 'admin' });
+  return cap.cuerpo || {};
+}
+// Deja al día los meses del correo: un mes ya leído hace más de 3 horas se vuelve a leer desde cero; uno a medio leer sigue donde quedó; uno reciente solo termina lo que le falte
+// (costos). Devuelve { listo, meses } sin pasarse del tiempo de la función (lo que no alcance lo sigue la próxima llamada).
+async function actualizarMesesResumenVentas(sql, meses, inicio) {
+  const estado = await estadoMesesDV(sql, meses);
+  const salida = []; let listo = true;
+  for (const m of meses) {
+    if (Date.now() - inicio > 15000) { listo = false; salida.push({ mes: m, omitido: true }); continue; }
+    const e = estado[m] || {};
+    const reciente = e.completo && e.actualizadoEn && Date.now() - new Date(e.actualizadoEn).getTime() < 3 * 3600000;
+    const r = await llamarSyncDetalleDV(m, !!e.completo && !reciente);
+    salida.push({ mes: m, completo: !!r.completo, porcentaje: r.porcentaje ?? null, error: r.error || null });
+    if (!r.completo) listo = false;
+  }
+  return { listo, meses: salida };
+}
+async function manejarVentasResumenSemanal(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  const auth = req.headers.authorization || '';
+  if (!secretoEsperado || auth !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  const inicio = Date.now();
+  try {
+    const hoy = fechaHoyChile();
+    const dow = new Date(hoy + 'T12:00:00Z').getUTCDay(); // 1 = lunes, 5 = viernes
+    const tipo = req.query.tipo === 'viernes' || (!req.query.tipo && dow === 5) ? 'viernes' : 'lunes';
+    const tipoNotif = TIPOS_RESUMEN_VENTAS[tipo];
+    const soloSync = req.query.sync === '1', soloVer = req.query.solo_ver === '1';
+    const probar = esPruebaNotif(req) || soloVer;
+    const token = process.env.BSALE_ACCESS_TOKEN;
+    const sql = await getSql();
+    await asegurarTablaNotificaciones(sql);
+    if (!probar && !(await notificacionDebeEnviarse(sql, tipoNotif))) return res.status(200).json({ ok: true, enviado: false, motivo: 'notificación inactiva o no corresponde hoy según su frecuencia' });
+    let sync = null;
+    if (!probar) {
+      if (!token) return res.status(200).json({ ok: false, enviado: false, motivo: 'Falta BSALE_ACCESS_TOKEN en el servidor' });
+      sync = await actualizarMesesResumenVentas(sql, mesesResumenVentas(tipo, hoy), inicio);
+      if (soloSync) return res.status(200).json({ ok: true, enviado: false, sync });
+    }
+    const rango = rangoResumenVentas(tipo, hoy);
+    const datos = await leerDetalleDV(sql, rango.desde, rango.hasta, { esAdmin: true }); // el margen necesita el costo: el correo va solo a administradores
+    const estado = await estadoMesesDV(sql, mesesEntreDV(rango.desde, hoy));
+    const diaChile = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const { asunto, html, resumen } = armarResumenSemanal({ tipo, hoy, lineas: prepararLineasResumen(datos), estado, urlBase: URL_BASE_APP, diaChile });
+    if (soloVer) return res.status(200).json({ ok: true, enviado: false, asunto, html, resumen, sync });
+    const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, tipoNotif);
+    if (!destinatarios.length) return res.status(200).json({ ok: true, enviado: false, motivo: 'La notificación no tiene destinatarios' });
+    const envios = [];
+    for (const para of destinatarios) envios.push({ para, ...(await enviarCorreo({ para, asunto: asuntoDePrueba(req, asunto), html })) });
+    const enviado = envios.some((e) => e.enviado !== false);
+    if (enviado && !probar) await marcarNotificacionEnviada(sql, tipoNotif, { asunto, html });
+    return res.status(200).json({ ok: true, enviado, tipo, semana: `${resumen.desde} a ${resumen.hasta}`, sync, envios });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error armando el resumen semanal de ventas', detail: String(err.message || err).slice(0, 240) });
+  }
+}
+// ===================== RESUMEN SEMANAL DE VENTAS (fin) =====================
 
 async function manejarFiltrosUso(req, res, _sesion) {
   try {

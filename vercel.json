@@ -173,6 +173,26 @@
     {
       "path": "/api/negocio?recurso=pedidos-pantalla-recordatorio",
       "schedule": "10 13 * * *"
+    },
+    {
+      "path": "/api/negocio?recurso=ventas-resumen-semanal&sync=1",
+      "schedule": "35 10 * * 1,5"
+    },
+    {
+      "path": "/api/negocio?recurso=ventas-resumen-semanal&sync=1",
+      "schedule": "42 10 * * 1,5"
+    },
+    {
+      "path": "/api/negocio?recurso=ventas-resumen-semanal&sync=1",
+      "schedule": "49 10 * * 1,5"
+    },
+    {
+      "path": "/api/negocio?recurso=ventas-resumen-semanal&tipo=lunes",
+      "schedule": "0 11 * * 1"
+    },
+    {
+      "path": "/api/negocio?recurso=ventas-resumen-semanal&tipo=viernes",
+      "schedule": "0 11 * * 5"
     }
   ],
   "headers": [
