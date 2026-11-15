@@ -15,6 +15,18 @@
   },
   "crons": [
     {
+      "path": "/api/negocio?recurso=tickets-carritos-cron",
+      "schedule": "40 11 * * *"
+    },
+    {
+      "path": "/api/negocio?recurso=tickets-carritos-cron",
+      "schedule": "40 15 * * *"
+    },
+    {
+      "path": "/api/negocio?recurso=tickets-carritos-cron",
+      "schedule": "40 19 * * *"
+    },
+    {
       "path": "/api/negocio?recurso=wa-clic-ads-cron",
       "schedule": "30 11 * * *"
     },

@@ -22,7 +22,17 @@ const RUTAS_PUBLICAS = new Set([
   '/recuperar-password.html',
   '/reset-password.html',
   '/cotizar-tienda.js',
+  '/tickets-formulario.js', // script que conectan las landings y formularios del sitio al módulo de Tickets
 ]);
+
+// Formularios públicos de Tickets (landings, postventa, NAS) y la tarea programada de carritos abandonados de Shopify. Se distinguen por
+// ?recurso= (no se exime todo /api/negocio). La seguridad la hace cada handler: origen permitido + campo trampa + tope por IP, y CRON_SECRET.
+function esTicketsPublicoPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'tickets-publico';
+}
+function esTicketsCarritosCronPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'tickets-carritos-cron';
+}
 
 // getSql también sirve en Edge (@vercel/postgres es fetch-based, sin nada
 // de Node puro) -- se usa acá abajo para revisar en vivo, en cada
@@ -231,6 +241,8 @@ export default async function middleware(req) {
     esModelosCompatiblesRecordatorioPublico(pathname, url.searchParams) ||
     esIndexscalePixelPublico(pathname, url.searchParams) ||
     esBuscadorIaRegistrarPublico(pathname, url.searchParams) ||
+    esTicketsPublicoPublico(pathname, url.searchParams) ||
+    esTicketsCarritosCronPublico(pathname, url.searchParams) ||
     esAuthRecuperarPasswordPublico(pathname, url.searchParams) ||
     esAuthResetearPasswordPublico(pathname, url.searchParams)
   ) return; // deja pasar sin exigir sesión

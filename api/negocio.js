@@ -21,6 +21,7 @@ import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores
 import { armarComunicacionZoho, filasCorreosDesdeZoho, guardarFilasZoho, ticketEnVentana, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
 import { manejarTickets } from '../lib/tickets.js';
+import { manejarTicketsPublico, sincronizarCarritos } from '../lib/tickets-entrada.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
 import { elegirPrecioSku } from '../lib/precios-sku.js';
@@ -236,6 +237,10 @@ export default async function handler(req, res) {
   // token aleatorio de un solo uso que se manda al correo registrado, no
   // algo ligado a sesión. Ver también middleware.ts
   // (esAuthRecuperarPasswordPublico / esAuthResetearPasswordPublico).
+  // Tickets: formularios públicos de las landings, postventa y NAS (los llama el navegador del visitante, sin sesión; seguridad: origen permitido,
+  // campo trampa, tiempo mínimo y tope por IP) y la tarea programada de carritos abandonados (CRON_SECRET). Ver lib/tickets-entrada.js y middleware.ts.
+  if (req.query.recurso === 'tickets-publico') return manejarTicketsPublico(req, res, { getSql, gql: descuentosWebGql });
+  if (req.query.recurso === 'tickets-carritos-cron') return manejarTicketsCarritosCron(req, res);
   if (req.query.recurso === 'auth-recuperar-password') return manejarAuthRecuperarPassword(req, res);
   if (req.query.recurso === 'auth-resetear-password') return manejarAuthResetearPassword(req, res);
 
@@ -274,6 +279,7 @@ export default async function handler(req, res) {
   if (recurso === 'zoho-tickets') return manejarZohoTickets(req, res, sesion);
   // Módulo de Tickets del ERP (reemplazo de Zoho Desk, fase 1): bandeja, detalle y cambios. Ver lib/tickets.js.
   if (recurso === 'tickets') return manejarTickets(req, res, sesion, getSql);
+  if (recurso === 'tickets-carritos') return manejarTicketsCarritos(req, res, sesion);
   if (recurso === 'alerta-conciliacion') return manejarAlertaConciliacion(req, res, sesion);
   if (recurso === 'facturas-compra') return manejarFacturasCompra(req, res, sesion);
   if (recurso === 'clientes-puntos') return manejarClientesPuntos(req, res, sesion);
@@ -18655,6 +18661,39 @@ async function manejarWaClicAds(req, res) {
 
 // Cron diario: vincula los mensajes recibidos que traen un código y sube a Google Ads la conversión offline de cada uno.
 // ?solo_ver=1 vincula pero no sube (para revisar). Devuelve solo cantidades.
+// ---------------- Tickets: carritos abandonados de Shopify -> leads ----------------
+// Se consulta con una versión de la API más nueva que el resto del ERP (2024-10): los campos de contacto del cliente (defaultEmailAddress /
+// defaultPhoneNumber) y abandonedCheckouts están en la 2025-07. Se puede cambiar con SHOPIFY_API_VERSION_CARRITOS.
+async function gqlCarritosShopify() {
+  const acceso = await obtenerAccesoShopify();
+  if (!acceso) throw new Error('Faltan las credenciales de Shopify en el servidor (SHOPIFY_STORE_DOMAIN / CLIENT_ID / CLIENT_SECRET)');
+  const version = (process.env.SHOPIFY_API_VERSION_CARRITOS || '2025-07').trim();
+  return async (query, variables) => {
+    const r = await fetchConTimeout(`https://${acceso.domain}/admin/api/${version}/graphql.json`, {
+      method: 'POST', headers: { 'X-Shopify-Access-Token': acceso.accessToken, 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables }),
+    }, 20000);
+    if (!r.ok) throw new Error(`Shopify HTTP ${r.status}`);
+    return r.json();
+  };
+}
+async function ejecutarSyncCarritos() {
+  const sql = await getSql();
+  return sincronizarCarritos(sql, await gqlCarritosShopify(), { horas: 48 });
+}
+async function manejarTicketsCarritosCron(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try { return res.status(200).json({ ok: true, ...(await ejecutarSyncCarritos()) }); }
+  catch (e) { return res.status(200).json({ error: 'No se pudieron revisar los carritos abandonados', detail: String(e.message || e).slice(0, 300) }); }
+}
+// Botón "Revisar carritos ahora" de la página Tickets (solo administradores).
+async function manejarTicketsCarritos(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede revisar los carritos' });
+  try { return res.status(200).json({ ok: true, ...(await ejecutarSyncCarritos()) }); }
+  catch (e) { return res.status(200).json({ error: 'No se pudieron revisar los carritos abandonados', detail: String(e.message || e).slice(0, 300) }); }
+}
+
 async function manejarWaClicAdsCron(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
   const auth = req.headers.authorization || '';

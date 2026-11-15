@@ -317,6 +317,7 @@
       <div class="sub">Leads de venta, postventa y servicio técnico. <span id="status"></span></div>
     </div>
     <div class="toolbar-acciones">
+      <button class="btn-ghost btn-compact" id="btnCarritos" style="display:none" onclick="revisarCarritos()" title="Busca en Shopify los carritos abandonados y crea un lead por cada uno nuevo">🛒 Revisar carritos</button>
       <button class="btn-ghost btn-compact" onclick="cargarLista(true)">↻ Actualizar</button>
       <button class="btn-primary" onclick="abrirNuevo()">+ Nuevo ticket</button>
     </div>
@@ -463,7 +464,7 @@ async function cargarSesion(){
     if(!res.ok){ location.href = '/login.html'; return; }
     const u = await res.json();
     $('userBox').innerHTML = `<span>Hola, <b>${esc(u.nombre || u.email)}</b></span>`;
-    if(u.rol === 'admin'){ E.esAdmin = true; ['navUsuarios','navActualizaciones','navMercadoLibre'].forEach(i => { const n = $(i); if(n) n.style.display = ''; }); }
+    if(u.rol === 'admin'){ E.esAdmin = true; $('btnCarritos').style.display = ''; ['navUsuarios','navActualizaciones','navMercadoLibre'].forEach(i => { const n = $(i); if(n) n.style.display = ''; }); }
     aplicarRestriccionesUsuario(u.rol);
     aplicarRestriccionPaginas(u.paginas);
   }catch(e){ /* silencioso */ }
@@ -606,6 +607,10 @@ function panelInfoTicket(d){
     const l = d.lead || {};
     campos += `<div class="prop"><label>Producto de interés</label><input id="fProducto" value="${esc(l.producto_interes || '')}" maxlength="200"></div>
       <div class="prop"><label>Canal de contacto</label><div class="valor">${esc(({whatsapp:'WhatsApp',correo:'Correo',telefono:'Teléfono'})[l.canal_contacto] || '—')}</div></div>`;
+    const at = l.atribucion || {};
+    const camp = [at.utm_source, at.utm_campaign].filter(Boolean).join(' · ');
+    if(camp || at.gclid) campos += `<div class="prop"><label>Campaña</label><div class="valor">${esc(camp || 'Google Ads')}${at.gclid ? ' <span class="sub">(anuncio de Google)</span>' : ''}</div></div>`;
+    if(at.pagina) campos += `<div class="prop"><label>Página de origen</label><div class="valor" style="font-size:12px;word-break:break-all">${esc(at.pagina)}</div></div>`;
   }else if(d.tipo === 'postventa'){
     const p = d.postventa || {};
     campos += `<div class="prop"><label>Motivo</label>${selectLista('fMotivo', E.cfg.motivosPostventa, p.motivo, true)}</div>
@@ -818,6 +823,17 @@ async function subirArchivos(files){
   }
   if(subidos){ toast(subidos === 1 ? 'Adjunto agregado' : `${subidos} adjuntos agregados`); renderDetalle(); cargarLista(); }
 }
+
+async function revisarCarritos(){
+  const b = $('btnCarritos'); b.disabled = true; const txt = b.textContent; b.textContent = 'Revisando…';
+  try{
+    const j = await post2('tickets-carritos');
+    toast(j.creados ? `${j.creados} lead${j.creados === 1 ? '' : 's'} nuevo${j.creados === 1 ? '' : 's'} desde carritos abandonados` : `Sin carritos nuevos (${j.revisados} revisados)`);
+    cargarLista();
+  }catch(err){ toast(err.message, true); }
+  finally{ b.disabled = false; b.textContent = txt; }
+}
+function post2(recurso){ return api('/api/negocio?recurso=' + recurso, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:'{}' }); }
 
 // ---------- Nuevo ticket ----------
 function abrirNuevo(){
