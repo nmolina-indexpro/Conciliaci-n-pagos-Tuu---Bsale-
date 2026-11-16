@@ -15,6 +15,18 @@
   },
   "crons": [
     {
+      "path": "/api/negocio?recurso=tickets-zoho-sync-cron",
+      "schedule": "10 12 * * *"
+    },
+    {
+      "path": "/api/negocio?recurso=tickets-zoho-sync-cron",
+      "schedule": "10 16 * * *"
+    },
+    {
+      "path": "/api/negocio?recurso=tickets-zoho-sync-cron",
+      "schedule": "10 20 * * *"
+    },
+    {
       "path": "/api/negocio?recurso=tickets-carritos-cron",
       "schedule": "40 11 * * *"
     },

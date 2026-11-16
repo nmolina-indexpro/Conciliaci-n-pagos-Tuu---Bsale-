@@ -40,6 +40,10 @@ function esTicketsPublicoPublico(pathname, searchParams) {
 function esTicketsCarritosCronPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'tickets-carritos-cron';
 }
+// Copia periódica desde Zoho Desk durante la operación en paralelo (CRON_SECRET en el handler; no hace nada si el interruptor está apagado).
+function esTicketsZohoSyncCronPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'tickets-zoho-sync-cron';
+}
 
 // getSql también sirve en Edge (@vercel/postgres es fetch-based, sin nada
 // de Node puro) -- se usa acá abajo para revisar en vivo, en cada
@@ -250,6 +254,7 @@ export default async function middleware(req) {
     esBuscadorIaRegistrarPublico(pathname, url.searchParams) ||
     esTicketsPublicoPublico(pathname, url.searchParams) ||
     esTicketsCarritosCronPublico(pathname, url.searchParams) ||
+    esTicketsZohoSyncCronPublico(pathname, url.searchParams) ||
     esChatPublico(pathname, url.searchParams) ||
     esAuthRecuperarPasswordPublico(pathname, url.searchParams) ||
     esAuthResetearPasswordPublico(pathname, url.searchParams)

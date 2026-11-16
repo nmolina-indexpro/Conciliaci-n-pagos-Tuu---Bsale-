@@ -25,6 +25,7 @@ import { manejarTicketsPublico, sincronizarCarritos } from '../lib/tickets-entra
 import { manejarChatPublico, manejarChatAdmin } from '../lib/chat.js';
 import { manejarTicketsPostventa } from '../lib/tickets-postventa.js';
 import { manejarTicketsMetricas } from '../lib/tickets-metricas.js';
+import { manejarTicketsMigracion, asegurarColumnasZoho, leerParalelo as leerParaleloZoho, sincronizarParalelo as sincronizarParaleloZoho } from '../lib/tickets-zoho.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
 import { elegirPrecioSku } from '../lib/precios-sku.js';
@@ -246,6 +247,7 @@ export default async function handler(req, res) {
   // campo trampa, tiempo mínimo y tope por IP) y la tarea programada de carritos abandonados (CRON_SECRET). Ver lib/tickets-entrada.js y middleware.ts.
   if (req.query.recurso === 'tickets-publico') return manejarTicketsPublico(req, res, { getSql, gql: descuentosWebGql });
   if (req.query.recurso === 'tickets-carritos-cron') return manejarTicketsCarritosCron(req, res);
+  if (req.query.recurso === 'tickets-zoho-sync-cron') return manejarTicketsZohoSyncCron(req, res);
   // Chat en vivo: lo llama el widget del sitio (navegador del visitante, sin sesión). Seguridad: origen permitido, campo trampa, tiempo mínimo, tope por IP
   // (lib/seguridad.js) y token aleatorio por conversación. Ver lib/chat.js y middleware.ts (esChatPublico).
   if (req.query.recurso === 'chat-publico') return manejarChatPublico(req, res, { getSql });
@@ -288,6 +290,8 @@ export default async function handler(req, res) {
   // Módulo de Tickets del ERP (reemplazo de Zoho Desk, fase 1): bandeja, detalle y cambios. Ver lib/tickets.js.
   if (recurso === 'tickets') return manejarTickets(req, res, sesion, getSql);
   if (recurso === 'tickets-carritos') return manejarTicketsCarritos(req, res, sesion);
+  // Migración desde Zoho Desk y operación en paralelo (solo administradores). Ver lib/tickets-zoho.js.
+  if (recurso === 'tickets-migracion') return manejarTicketsMigracion(req, res, sesion, { getSql, zohoGet: crearZohoGetTickets() });
   // Métricas de Tickets (incluye la conversión de lead a pedido, que consulta Shopify) y Cliente 360 (tickets + pedidos de Shopify + documentos de Bsale).
   if (recurso === 'tickets-metricas') {
     const tokenBsaleM = process.env.BSALE_ACCESS_TOKEN;
@@ -6402,6 +6406,40 @@ async function manejarZohoTickets(req, res, sesion) {
   } catch (err) {
     return res.status(200).json({ error: 'Error consultando Zoho Desk', detail: String(err), tickets: [] });
   }
+}
+
+// Cliente de la API de Zoho Desk para la migración de Tickets (lib/tickets-zoho.js): devuelve null si faltan las credenciales. El access_token se pide una sola vez
+// por instancia (Zoho limita cuántos se pueden renovar) y las 5 consultas en paralelo de un lote comparten esa misma petición.
+let zohoTicketsToken = null;
+function crearZohoGetTickets() {
+  const { ZOHO_ORG_ID, ZOHO_DC, ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN } = process.env;
+  if (!ZOHO_ORG_ID || !ZOHO_CLIENT_ID || !ZOHO_CLIENT_SECRET || !ZOHO_REFRESH_TOKEN) return null;
+  const dc = ZOHO_DC || 'com';
+  return async (ruta) => {
+    if (!zohoTicketsToken || Date.now() > zohoTicketsToken.hasta) {
+      const promesa = obtenerAccessTokenZoho();
+      zohoTicketsToken = { promesa, hasta: Date.now() + 45 * 60000 };
+      promesa.catch(() => { zohoTicketsToken = null; });
+    }
+    const token = await zohoTicketsToken.promesa;
+    const r = await fetchConTimeout(`https://desk.zoho.${dc}/api/v1${ruta}`, { headers: { orgId: ZOHO_ORG_ID, Authorization: `Zoho-oauthtoken ${token}` } }, 25000);
+    if (r.status === 204) return { data: [] };
+    if (!r.ok) throw new Error(`Zoho Desk HTTP ${r.status}${r.status === 429 ? ' (límite de consultas)' : ''}: ${(await r.text().catch(() => '')).slice(0, 150)}`);
+    return r.json();
+  };
+}
+// Tarea programada del paralelo: copia lo nuevo de Zoho solo si el interruptor de Configuración está encendido (CRON_SECRET, sin sesión).
+async function manejarTicketsZohoSyncCron(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarColumnasZoho(sql);
+    if (!(await leerParaleloZoho(sql)).activo) return res.status(200).json({ ok: true, omitido: 'la operación en paralelo está apagada' });
+    const zohoGet = crearZohoGetTickets();
+    if (!zohoGet) return res.status(200).json({ error: 'Zoho Desk no está configurado en el servidor' });
+    return res.status(200).json({ ok: true, ...(await sincronizarParaleloZoho(sql, zohoGet)) });
+  } catch (e) { return res.status(200).json({ error: 'No se pudo copiar desde Zoho', detail: String(e.message || e).slice(0, 300) }); }
 }
 
 // Comunicación del cliente de una cotización que vive en Zoho Desk (servicio técnico): Luiggi ingresa el equipo,

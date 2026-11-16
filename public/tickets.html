@@ -916,7 +916,7 @@ function renderMain(){
       <span class="cinta" style="${cintaEstilo}">${esc(e.etiqueta)}</span>
       <div class="main-titulo"><h2>${esc(d.asunto || '(sin asunto)')}</h2>
         <div class="main-acciones">${btnImprimir}${btnWa}${btnReabrir}</div></div>
-      <div class="main-meta"><span class="num">#${d.numero}</span><span>${esc(d.cliente_nombre || 'Sin nombre')}</span><span>🕑 ${fmtFechaLarga(d.creado_en)}</span>
+      <div class="main-meta"><span class="num">#${d.numero}</span>${d.zoho_ticket_id ? `<a href="https://desk.zoho.com/support/indexpro/ShowHomePage.do#Cases/dv/${encodeURIComponent(d.zoho_ticket_id)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--primary);text-decoration:none" title="Abre el ticket original en Zoho Desk (conversación e historial completos)">Zoho${d.zoho_numero ? ' #' + d.zoho_numero : ''} ↗</a>` : ''}<span>${esc(d.cliente_nombre || 'Sin nombre')}</span><span>🕑 ${fmtFechaLarga(d.creado_en)}</span>
         <span class="chip-tiempo" title="Tiempo desde que se creó">${d.cerrado ? 'Duración' : 'Abierto'}: ${esc(fmtDur((d.cerrado ? new Date(d.cerrado_en) : Date.now()) - new Date(d.creado_en)))}</span>
         ${d.sin_asignar ? '<span class="badge rojo">Sin asignar</span>' : ''}${d.sin_movimiento ? '<span class="badge ambar">Sin movimiento +24 h</span>' : ''}</div>
       <div class="tabs">
@@ -1330,7 +1330,98 @@ function renderConfig(){
     ${admin ? '<div style="margin-bottom:18px"><button class="btn-primary" onclick="guardarListasConfig()">Guardar listas</button> <span id="cfgListasMsg" class="sub"></span></div>' : ''}
     <div class="seccion"><h3>Plantillas de mensajes de WhatsApp</h3><div class="sub">Se rellenan al pulsar "Contactar por WhatsApp". Puedes usar <b>{nombre}</b>, <b>{producto}</b>, <b>{pedido}</b> y <b>{orden}</b>; si el dato no existe, se omite.</div>
       ${plantilla('lead', 'Lead de venta')}${plantilla('postventa', 'Postventa')}${plantilla('servicio_tecnico', 'Servicio técnico')}${plantilla('por_retirar', 'Servicio técnico: equipo listo para retirar')}
-      ${admin ? '<button class="btn-primary btn-compact" onclick="guardarPlantillasConfig()">Guardar plantillas</button> <span id="cfgPlMsg" class="sub"></span>' : ''}</div>`;
+      ${admin ? '<button class="btn-primary btn-compact" onclick="guardarPlantillasConfig()">Guardar plantillas</button> <span id="cfgPlMsg" class="sub"></span>' : ''}</div>
+    ${admin ? '<div id="cfgMigracion"><div class="seccion"><h3>Migración desde Zoho Desk</h3><div class="sub">Cargando…</div></div></div>' : ''}`;
+  if(admin) cargarMigracion();
+}
+
+// ---------- Migración desde Zoho Desk (administradores) ----------
+const fechaHaceMeses = m => { const d = new Date(); d.setMonth(d.getMonth() - m); return d.toLocaleDateString('en-CA', { timeZone:'America/Santiago' }); };
+async function cargarMigracion(){
+  try{
+    const j = await api('/api/negocio?recurso=tickets-migracion');
+    E.mig = j; pintarMigracion();
+  }catch(err){ const el = $('cfgMigracion'); if(el) el.innerHTML = `<div class="seccion"><h3>Migración desde Zoho Desk</h3><div class="nota-box err">${esc(err.message)}</div></div>`; }
+}
+function pintarMigracion(informe){
+  const el = $('cfgMigracion'); if(!el || !E.mig) return;
+  const j = E.mig, c = j.cuadre, p = j.paralelo || {};
+  const ult = p.ultimo_resultado;
+  el.innerHTML = `<div class="seccion"><h3>Migración desde Zoho Desk</h3>
+    <div class="sub">Trae los tickets de los 5 departamentos de la fase 1 (Solicitudes Venta, NAS, Post-Venta, S.Técnico y ST retiro inmediato). Soporte TI (INDEXPRO) sigue en Zoho. Se puede repetir sin duplicar: lo que ya está se actualiza, y si alguien tocó un ticket en el ERP, la copia no lo pisa.</div>
+    ${j.configurado ? '' : '<div class="nota-box err">Zoho Desk no está configurado en el servidor (faltan ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN o ZOHO_ORG_ID en Vercel).</div>'}
+    <div class="filtros-m"><div class="campo-m"><label for="migDesde">Migrar desde</label><input type="date" id="migDesde" value="${esc((E.migDesde) || fechaHaceMeses(12))}" onchange="E.migDesde=this.value"></div>
+      <button class="btn-ghost" id="btnMigSim" onclick="ejecutarMigracion(true)"${j.configurado ? '' : ' disabled'}>1. Simular (no guarda nada)</button>
+      <button class="btn-primary" id="btnMigImp" onclick="ejecutarMigracion(false)"${j.configurado ? '' : ' disabled'}>2. Importar</button>
+      <button class="btn-ghost btn-compact" id="btnMigStop" style="display:none" onclick="E.migCancel=true">Detener</button></div>
+    <div id="migProgreso"></div><div id="migInforme">${informe || ''}</div>
+    <h3 style="margin-top:18px;font-size:14px">Cuadre con Zoho</h3><div class="sub">Lo recorrido en Zoho contra lo que hay en el ERP, por departamento y estado. La importación debe cuadrar antes de pasar a la operación en paralelo.</div>
+    <div class="tabla-wrap"><table class="t"><thead><tr><th>Departamento</th><th class="num">En Zoho</th><th class="num">En el ERP</th><th>Estado</th></tr></thead><tbody>
+      ${c.filas.map(f => `<tr><td>${esc(f.nombre)}${f.desde ? ` <span class="sub">desde ${esc(f.desde)}</span>` : ''}</td><td class="num">${fmtN(f.zoho_revisados)}</td><td class="num">${fmtN(f.erp_total)}</td>
+        <td>${!f.desde ? '<span class="badge gris">Sin importar</span>' : f.cuadra ? '<span class="badge verde">Cuadra</span>' : !f.terminado ? '<span class="badge ambar">Incompleto</span>' : '<span class="badge rojo">No cuadra</span>'}
+          ${f.detalle.length ? `<details style="display:inline-block;margin-left:8px"><summary class="sub" style="cursor:pointer;display:inline">por estado</summary><div style="font-size:12px;margin-top:4px">${f.detalle.map(x => `${esc(estadoInfo(f.tipo, x.estado).etiqueta)}: Zoho ${x.zoho} · ERP ${x.erp}${x.erp < x.zoho ? ' ⚠' : ''}`).join('<br>')}</div></details>` : ''}${f.errores ? ` <span class="badge rojo">${f.errores} con error</span>` : ''}</td></tr>`).join('')}
+    </tbody></table></div>
+    <h3 style="margin-top:18px;font-size:14px">Operación en paralelo</h3>
+    <div class="sub">Mientras dura, los formularios nuevos escriben solo en el ERP y una tarea copia varias veces al día lo que todavía entre a Zoho en estos departamentos (y refresca el estado de los tickets abiertos que vienen de Zoho). Los tickets copiados reciben un N° del ERP y guardan el de Zoho aparte. Al cortar, se apaga y se desactivan los departamentos en Zoho.</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0">
+      <span class="badge ${p.activo ? 'verde' : 'gris'}">${p.activo ? 'Encendida' : 'Apagada'}</span>
+      <button class="btn-ghost btn-compact" onclick="alternarParalelo(${!p.activo})"${j.configurado ? '' : ' disabled'}>${p.activo ? 'Apagar' : 'Encender'} la operación en paralelo</button>
+      <button class="btn-ghost btn-compact" id="btnSyncZoho" onclick="sincronizarAhoraZoho()"${j.configurado ? '' : ' disabled'}>Copiar de Zoho ahora</button>
+      <span class="sub">${p.ultima_sync ? 'Última copia: ' + esc(fmtFechaLarga(p.ultima_sync)) : 'Aún sin copias'}${ult ? ` · ${ult.nuevos} nuevos, ${ult.actualizados} actualizados, ${ult.conflictos} conflictos${ult.errores && ult.errores.length ? ', ' + ult.errores.length + ' con error' : ''}` : ''}</span></div></div>`;
+}
+async function ejecutarMigracion(simular){
+  const desde = $('migDesde').value; E.migDesde = desde;
+  if(!desde){ toast('Elige desde qué fecha migrar', true); return; }
+  if(!simular && !confirm(`Se importarán a Tickets los tickets creados desde el ${desde.split('-').reverse().join('-')} en los 5 departamentos. Se puede repetir sin duplicar. ¿Continuar?`)) return;
+  E.migCancel = false; ['btnMigSim', 'btnMigImp'].forEach(i => $(i).disabled = true); $('btnMigStop').style.display = '';
+  const deps = E.mig.departamentos, tot = { revisados:0, creados:0, actualizados:0, sin_cambios:0, conflictos:0, errores:[] };
+  const informe = []; const sinEq = new Map();
+  const ahora = Date.now(), t0 = new Date(desde + 'T00:00:00-03:00').getTime();
+  try{
+    for(let i = 0; i < deps.length && !E.migCancel; i++){
+      const d = deps[i]; let from = 0, acum = { revisados:0, creados:0, actualizados:0, sin_cambios:0, conflictos:0, porEstado:{}, porOrigen:{}, desconocidos:[], muestra:[], errores:0 };
+      for(;;){
+        const j = await post({ accion:'lote', dept: d.id, from, desde, simular }, 'tickets-migracion');
+        for(const k of ['revisados', 'creados', 'actualizados', 'sin_cambios', 'conflictos']){ acum[k] += j[k] || 0; tot[k] += j[k] || 0; }
+        for(const [k, v] of Object.entries(j.porEstado || {})) acum.porEstado[k] = (acum.porEstado[k] || 0) + v;
+        for(const [k, v] of Object.entries(j.porOrigen || {})) acum.porOrigen[k] = (acum.porOrigen[k] || 0) + v;
+        (j.estadosDesconocidos || []).forEach(x => { if(!acum.desconocidos.includes(x)) acum.desconocidos.push(x); });
+        if(acum.muestra.length < 3) acum.muestra.push(...(j.muestra || []).slice(0, 3 - acum.muestra.length));
+        acum.errores += (j.errores || []).length; tot.errores.push(...(j.errores || []));
+        (j.sinEquivalente || []).forEach(a => sinEq.set(a.id, a.nombre));
+        // Avance real de este departamento: de hoy hacia la fecha de corte (los tickets vienen del más nuevo al más antiguo)
+        const frac = j.terminado ? 1 : j.ultima_fecha ? Math.min(1, Math.max(0, (ahora - new Date(j.ultima_fecha).getTime()) / (ahora - t0))) : 0;
+        const global = Math.round(((i + frac) / deps.length) * 100);
+        $('migProgreso').innerHTML = `<div class="sub" style="margin:10px 0 4px"><b>${global} %</b> — ${esc(d.nombre)} (${Math.round(frac * 100)} %) · ${fmtN(tot.revisados)} tickets revisados${simular ? ' (simulación)' : ''}</div><div class="barra" style="height:10px"><span style="width:${global}%"></span></div>`;
+        if(j.terminado || E.migCancel) break;
+        from = j.siguiente;
+      }
+      informe.push({ d, acum });
+    }
+    $('migProgreso').innerHTML = `<div class="sub" style="margin:10px 0">${E.migCancel ? 'Detenido.' : '<b>100 %</b> — terminado.'} ${simular ? 'Simulación: no se guardó nada.' : ''}</div>`;
+    const etiquetaE = (tipo, k) => estadoInfo(tipo, k).etiqueta;
+    const html = `<div class="seccion" style="margin-top:12px"><h3>${simular ? 'Resultado de la simulación' : 'Resultado de la importación'}</h3>
+      ${simular ? '<div class="sub">Así quedarían los tickets. Revisa los estados, los orígenes inferidos y los agentes sin usuario antes de importar.</div>' : `<div class="sub">${fmtN(tot.creados)} creados · ${fmtN(tot.actualizados)} actualizados · ${fmtN(tot.sin_cambios)} sin cambios · ${fmtN(tot.conflictos)} no copiados porque se editaron en el ERP.</div>`}
+      ${tot.errores.length ? `<div class="nota-box err">${tot.errores.length} tickets con error (ej.: ${esc(tot.errores[0].error)}). Repite la importación para reintentarlos.</div>` : ''}
+      ${sinEq.size ? `<div class="nota-box">Agentes de Zoho sin usuario equivalente en el ERP (sus tickets quedan sin propietario, con una nota): <b>${esc([...sinEq.values()].join(', '))}</b>. Créalos en Usuarios con el mismo correo y vuelve a importar.</div>` : ''}
+      <div class="tabla-wrap"><table class="t"><thead><tr><th>Departamento</th><th class="num">Tickets</th><th>Estados (en el ERP)</th><th>Orígenes</th></tr></thead><tbody>
+      ${informe.map(({ d, acum }) => `<tr><td>${esc(d.nombre)}</td><td class="num">${fmtN(acum.revisados)}</td>
+        <td style="font-size:12px">${Object.entries(acum.porEstado).map(([k, v]) => `${esc(etiquetaE(d.tipo, k))}: ${v}`).join('<br>') || '—'}${acum.desconocidos.length ? `<br><span class="badge ambar">Estados de Zoho no reconocidos: ${esc(acum.desconocidos.join(', '))}</span>` : ''}</td>
+        <td style="font-size:12px">${Object.entries(acum.porOrigen).map(([k, v]) => `${esc(etiquetaOrigen(k))}: ${v}`).join('<br>') || '—'}</td></tr>`).join('')}
+      </tbody></table></div>
+      ${simular ? `<div class="sub" style="margin-top:10px">Ejemplos: ${informe.flatMap(x => x.acum.muestra).slice(0, 6).map(m => `#${m.zoho} “${esc(m.asunto)}” → ${esc(etiquetaTipo(m.tipo))} / ${esc(etiquetaE(m.tipo, m.estado))}`).join(' · ') || '—'}</div>` : ''}</div>`;
+    if(!simular){ await cargarMigracion(); $('migInforme').innerHTML = html; } else pintarMigracion(html);
+  }catch(err){ $('migProgreso').innerHTML = `<div class="nota-box err" style="margin-top:10px">Se interrumpió: ${esc(err.message)}. Puedes volver a ejecutarlo: no duplica.</div>`; }
+  finally{ ['btnMigSim', 'btnMigImp'].forEach(i => { const b = $(i); if(b) b.disabled = false; }); const s = $('btnMigStop'); if(s) s.style.display = 'none'; }
+}
+async function alternarParalelo(activo){
+  try{ const j = await post({ accion:'paralelo', activo }, 'tickets-migracion'); E.mig.paralelo = j.paralelo; pintarMigracion(); toast(activo ? 'Operación en paralelo encendida' : 'Operación en paralelo apagada'); }
+  catch(err){ toast(err.message, true); }
+}
+async function sincronizarAhoraZoho(){
+  const b = $('btnSyncZoho'); b.disabled = true; const t = b.textContent; b.textContent = 'Copiando…';
+  try{ const j = await post({ accion:'sincronizar' }, 'tickets-migracion'); toast(`${j.nuevos} nuevos, ${j.actualizados} actualizados${j.errores.length ? ', ' + j.errores.length + ' con error' : ''}`, j.errores.length > 0); await cargarMigracion(); cargarLista(); }
+  catch(err){ toast(err.message, true); b.disabled = false; b.textContent = t; }
 }
 function agregarFilaLista(id){
   const d = document.createElement('div'); d.className = 'fila-lista'; d.dataset.clave = '';
