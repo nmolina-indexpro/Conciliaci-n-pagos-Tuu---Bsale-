@@ -67,6 +67,15 @@ function esWebhookWhatsappPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'whatsapp-webhook';
 }
 
+// Mailing: el webhook de eventos de SES (lo llama SNS), el worker de envío (lo llama QStash) y la baja de suscripción (la abre el destinatario desde
+// su correo; vercel.json reescribe /u/:token a ?recurso=mk-baja) no traen cookie de sesión. Se distinguen por ?recurso= (no se exime todo /api/negocio) y
+// se autentican dentro del handler: firma SNS, firma QStash y token HMAC (lib/mailing/manejar.js). Los recursos mk-* con sesión (importar, lanzar) NO están aquí.
+function esMailingPublico(pathname, searchParams) {
+  if (pathname.startsWith('/u/')) return true;
+  const recurso = searchParams.get('recurso');
+  return pathname === '/api/negocio' && (recurso === 'mk-webhook-ses' || recurso === 'mk-worker-enviar-lote' || recurso === 'mk-baja');
+}
+
 // El cron diario de alertas de Sitio Web (ver vercel.json y
 // manejarAlertasSitioWebNotificar en api/negocio.js) lo dispara Vercel
 // Cron, sin la cookie de sesión de esta app -> mismo motivo y mismo
@@ -239,6 +248,7 @@ export default async function middleware(req) {
   if (
     RUTAS_PUBLICAS.has(pathname) ||
     esWebhookWhatsappPublico(pathname, url.searchParams) ||
+    esMailingPublico(pathname, url.searchParams) ||
     esAlertasSitioWebNotificarPublico(pathname, url.searchParams) ||
     esServicioTecnicoResumenSemanalPublico(pathname, url.searchParams) ||
     esCotizacionesSeguimientoDiarioPublico(pathname, url.searchParams) ||

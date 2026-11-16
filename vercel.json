@@ -207,6 +207,9 @@
       "schedule": "0 11 * * 5"
     }
   ],
+  "rewrites": [
+    { "source": "/u/:token", "destination": "/api/negocio?recurso=mk-baja&token=:token" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

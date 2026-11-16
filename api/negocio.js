@@ -21,6 +21,7 @@ import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores
 import { armarComunicacionZoho, filasCorreosDesdeZoho, guardarFilasZoho, ticketEnVentana, CASILLA_ZOHO } from '../lib/zoho-cotizaciones.js';
 import { calcularMetricasTickets } from '../lib/zoho-metricas.js';
 import { manejarTickets } from '../lib/tickets.js';
+import { manejarMailingPublico, manejarMailingAdmin, RECURSOS_MAILING_PUBLICOS, esRecursoMailing } from '../lib/mailing/manejar.js';
 import { manejarTicketsPublico, sincronizarCarritos } from '../lib/tickets-entrada.js';
 import { manejarChatPublico, manejarChatAdmin } from '../lib/chat.js';
 import { manejarTicketsPostventa } from '../lib/tickets-postventa.js';
@@ -154,6 +155,9 @@ export default async function handler(req, res) {
   // (esWebhookWhatsappPublico), que deja pasar ESTA combinación puntual de
   // pathname+recurso sin sesión.
   if (req.query.recurso === 'whatsapp-webhook') return manejarWhatsappWebhook(req, res);
+  // Mailing (reemplazo de Zoho Campaigns): webhook de eventos de SES (firma SNS), worker de envío (firma QStash) y baja de suscripción (token HMAC;
+  // /u/:token se reescribe a ?recurso=mk-baja en vercel.json). Sin sesión: cada uno se autentica solo. Ver lib/mailing/manejar.js y middleware.ts (esMailingPublico).
+  if (RECURSOS_MAILING_PUBLICOS.includes(req.query.recurso)) return manejarMailingPublico(req, res, { getSql });
   // El cron diario de alertas de Sitio Web tampoco trae cookie de sesión
   // (lo llama Vercel Cron, no un navegador) -> mismo patrón que el webhook
   // de WhatsApp: se resuelve antes del chequeo de sesión, con su propia
@@ -266,6 +270,8 @@ export default async function handler(req, res) {
     if (bloqueo.reintentarEnSeg) res.setHeader('Retry-After', String(bloqueo.reintentarEnSeg));
     return res.status(bloqueo.status).json(bloqueo.cuerpo);
   }
+  // Módulo de Mailing con sesión (importar contactos, lanzar campañas; solo administradores). Ver lib/mailing/manejar.js.
+  if (esRecursoMailing(recurso)) return manejarMailingAdmin(req, res, sesion, { getSql });
   if (recurso === 'notificacion-probar') return manejarNotificacionProbar(req, res, sesion);
   if (recurso === 'cambios-propuesta') return manejarCambiosPropuesta(req, res, sesion);
   if (recurso === 'criticos') return manejarCriticos(req, res, sesion);
