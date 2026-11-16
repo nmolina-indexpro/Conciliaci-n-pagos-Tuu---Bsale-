@@ -61,6 +61,7 @@ function aplicarRestriccionPaginas(paginas) {
     if (href === 'usuarios.html') return; // se rige por rol, no por perfil
     if (href === 'actualizaciones-erp.html') return; // igual que Usuarios: solo administradores
     if (href === 'mercadolibre.html') return; // igual que Usuarios: solo administradores
+    if (href === 'mailing.html') return; // igual que Usuarios: solo administradores (el servidor también lo exige)
     if (!paginas.includes(href)) a.style.display = 'none';
     // módulos que viven dentro de otra página pero también son una página con su propio permiso (Buscador IA, Descuentos web)
     const requiere = a.getAttribute('data-requiere');

@@ -12,7 +12,10 @@ Complementa `MAILING_MODULE.md` (especificación) y `schema.sql` (esquema de ref
 | Lanzar campaña (congela HTML, arma `mk_sends`, encola en QStash) | `lib/mailing/lanzar.js`, `plantilla.js`, `firma-qstash.js` |
 | Worker de lotes (envío por SES, SigV4 sin SDK) | `lib/mailing/worker.js`, `ses.js`, `sigv4.js` |
 | Baja `/u/:token` (GET confirma, POST suprime / one-click) | `lib/mailing/baja.js`, `token-baja.js` |
-| Pruebas | `tests/mailing/*.test.js` (`npm test`, 39 pruebas) |
+| Pantalla del ERP (solo administradores): resumen y estado de la configuración, campañas, contactos y listas, plantillas | `public/mailing.html` (enlace «✉️ Mailing» en el menú ⚙️ de todas las páginas) |
+| Operaciones de la pantalla: listas, plantillas con vista previa, campañas (guardar, programar, pausar, cancelar, duplicar), estimación de audiencia, envío de prueba, reporte, búsqueda de contactos | `lib/mailing/admin.js` |
+| Campañas programadas (cron cada hora, 11–23 UTC) | `mk-programadas-cron` en `lib/mailing/manejar.js` + `vercel.json` |
+| Pruebas | `tests/mailing/*.test.js` (`npm test`, 50 pruebas) |
 
 ## Decisiones que se apartan de la especificación
 
@@ -26,6 +29,12 @@ Complementa `MAILING_MODULE.md` (especificación) y `schema.sql` (esquema de ref
 | `POST /api/mk/webhooks/ses` | `POST /api/negocio?recurso=mk-webhook-ses` | firma SNS |
 | `POST /api/mk/worker/send-batch` | `POST /api/negocio?recurso=mk-worker-enviar-lote` | firma QStash |
 | `GET/POST /u/:token` | `/u/:token` → `?recurso=mk-baja&token=` | token HMAC |
+| `POST /campaigns/:id/test` | `POST ?recurso=mk-campana-probar` `{id, para}` | sesión, solo admin |
+| `GET /campaigns/:id/report` | `GET ?recurso=mk-campana-reporte&id=` | sesión, solo admin |
+| (nuevo) | `mk-panel`, `mk-listas`, `mk-plantillas`, `mk-campanas`, `mk-campana-estimar`, `mk-contactos` | sesión, solo admin |
+| (nuevo) cron de programadas | `GET ?recurso=mk-programadas-cron` | `CRON_SECRET` |
+
+Todo `mk-*` con sesión exige rol admin en el servidor (el envío masivo no está en los perfiles de acceso: la página es exclusiva de administradores, como Usuarios y Mercado Libre).
 
 - **Sin SDK de AWS ni de Upstash:** SigV4, verificación SNS y JWT de QStash se hacen con `node:crypto`. SigV4 se validó contra el vector oficial `get-vanilla` de AWS.
 - **Reclamo de lotes con «arriendo»:** `mk_sends.queued_at` hace de arriendo (se reclaman 50 filas con `FOR UPDATE SKIP LOCKED` y `queued_at = ahora + 5 min`). Lotes simultáneos o reintentos de QStash no toman al mismo destinatario. Un lote caído a medias se recupera solo: al vencer el arriendo, el lote de seguimiento lo retoma.
@@ -55,6 +64,8 @@ QSTASH_CURRENT_SIGNING_KEY=
 QSTASH_NEXT_SIGNING_KEY=
 MK_UNSUB_SECRET=              # largo y aleatorio; si se cambia, los enlaces de baja ya enviados dejan de funcionar
 MK_PUBLIC_BASE_URL=https://erp.indexstore.cl
+MK_FROM_DOMAINS=news.indexstore.cl,news.indexpro.cl   # opcional pero recomendado: solo se puede enviar desde estos dominios
+CRON_SECRET=                  # ya existe en el ERP; lo usa también el cron de campañas programadas
 ```
 
 `POSTGRES_URL` ya existe. `MK_PUBLIC_BASE_URL` debe ser exactamente el origen que QStash llama: la firma de QStash incluye la URL del worker y se compara contra `MK_PUBLIC_BASE_URL + /api/negocio?recurso=mk-worker-enviar-lote`.
@@ -69,11 +80,12 @@ MK_PUBLIC_BASE_URL=https://erp.indexstore.cl
 
 ## Qué falta para operar
 
-- Pantalla del ERP (Comercial > Mailing): importar, listas, plantillas, crear/lanzar campaña, reporte. Recordar agregarla a `PAGINAS_DISPONIBLES` + `GRUPOS_PAGINAS` (`usuarios.html`).
-- `POST /campaigns/:id/test` (envío de prueba), `GET /campaigns/:id/report`, cron de campañas programadas (`scheduled_at`), `segments/:id/count`, sync nocturno Bsale/Shopify (fases 2–4 de la especificación).
+- Segmentos dinámicos y `segments/:id/count`, sync nocturno Bsale/Shopify y automatizaciones (fases 2–4 de la especificación).
+- Si se quiere que Mailing lo usen personas que no son administradoras, hay que sumarlo a `PAGINAS_DISPONIBLES` + `GRUPOS_PAGINAS` y relajar el rol en `manejarMailingAdmin`; hoy es solo admin a propósito.
+- **Campañas programadas:** Vercel Cron (plan Hobby) ejecuta cada entrada «dentro de la hora indicada», no al minuto. Una campaña programada a las 09:00 sale en la primera revisión después de esa hora (puede demorar hasta ~1 hora). Si se necesita puntualidad exacta, programar con QStash (`Upstash-Not-Before`) en vez de cron.
 - Calentamiento de volumen: lo define la operación (empezar con ~1.000 por envío); el código no lo limita.
 - Plantillas: la pregunta abierta «¿editor visual o HTML/MJML?» sigue abierta; hoy la plantilla es HTML.
 
 ## Cómo se probó y qué no
 
-`npm test` ejecuta 39 pruebas. Las de integración corren la migración y todas las consultas contra **Postgres real en memoria (PGlite)**, no contra Neon: cubren exclusión de supresiones, no duplicado en reintentos y lotes concurrentes, eventos de SES, pausa automática y baja. Las firmas SNS y QStash se prueban con claves generadas en la prueba. **No se probó contra SES, SNS ni QStash reales** (no hay cuentas todavía): el primer envío real debe hacerse con una lista interna.
+`npm test` ejecuta 50 pruebas. La pantalla se recorrió en el navegador contra un servidor local con la API real sobre PGlite y SES/QStash simulados (importación con progreso, lista, plantilla con vista previa, campaña, prueba, lanzamiento y reporte); en celular no hay desborde horizontal. Las de integración corren la migración y todas las consultas contra **Postgres real en memoria (PGlite)**, no contra Neon: cubren exclusión de supresiones, no duplicado en reintentos y lotes concurrentes, eventos de SES, pausa automática y baja. Las firmas SNS y QStash se prueban con claves generadas en la prueba. **No se probó contra SES, SNS ni QStash reales** (no hay cuentas todavía): el primer envío real debe hacerse con una lista interna.

@@ -71,11 +71,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const usuarios = document.getElementById('navUsuarios');
   const actualizaciones = document.getElementById('navActualizaciones');
   const mercadolibre = document.getElementById('navMercadoLibre');
+  const mailing = document.getElementById('navMailing');
   if(!usuarios || !actualizaciones || !window.MutationObserver) return;
   new MutationObserver(() => {
     if(usuarios.style.display !== 'none'){
       actualizaciones.style.display = '';
       if(mercadolibre) mercadolibre.style.display = '';
+      if(mailing) mailing.style.display = '';
     }
   }).observe(usuarios, { attributes: true, attributeFilter: ['style'] });
 });

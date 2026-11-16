@@ -73,7 +73,7 @@ function esWebhookWhatsappPublico(pathname, searchParams) {
 function esMailingPublico(pathname, searchParams) {
   if (pathname.startsWith('/u/')) return true;
   const recurso = searchParams.get('recurso');
-  return pathname === '/api/negocio' && (recurso === 'mk-webhook-ses' || recurso === 'mk-worker-enviar-lote' || recurso === 'mk-baja');
+  return pathname === '/api/negocio' && (recurso === 'mk-webhook-ses' || recurso === 'mk-worker-enviar-lote' || recurso === 'mk-baja' || recurso === 'mk-programadas-cron');
 }
 
 // El cron diario de alertas de Sitio Web (ver vercel.json y

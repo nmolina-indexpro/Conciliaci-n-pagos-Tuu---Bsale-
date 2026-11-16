@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Mailing — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 18px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  @media (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:18px 20px;}
+  .card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:8px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;color:var(--text);}
+  .card .pct{font-size:13px;font-weight:700;color:var(--primary);margin-top:2px;}
+  .card.destacada{background:var(--primary-dim);border-color:var(--primary);}
+
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-top:16px;color:var(--text);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  #syncStatus{font-size:12px;color:var(--muted);margin-top:10px;}
+  #syncStatus.err{color:var(--red);}
+
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:12px;padding:7px 13px;}
+
+  .filtros{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  input[type=text]{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 12px;border-radius:9px;font-size:13.5px;}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;position:sticky;top:0;z-index:2;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  th.amount, td.amount{text-align:right;}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .btn-icono{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1.5px solid var(--line);background:var(--surface);text-decoration:none;font-size:13px;cursor:pointer;transition:all .15s;}
+  .btn-icono:hover{border-color:var(--primary);background:var(--primary-dim);}
+  .sku-code{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);}
+  .badge-caida{display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;font-size:11px;background:var(--red-bg);color:var(--red);}
+  .chk-group{display:flex;flex-direction:column;gap:3px;}
+  .efecto-linea{font-size:11.5px;line-height:1.35;margin-bottom:6px;}
+  .efecto-linea.ok{color:var(--green);} .efecto-linea.mal{color:var(--red);} .efecto-linea.espera{color:var(--muted);} .efecto-linea.aviso{color:#8A5A00;}
+  .efecto-linea .efecto-sub{display:block;color:var(--muted);font-size:10.5px;}
+  .chk-mini{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;}
+  .chk-mini input{margin:0;cursor:pointer;}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(31,42,36,.45);z-index:100;align-items:center;justify-content:center;padding:16px;}
+  .modal-overlay.open{display:flex;}
+  .modal-box{background:var(--surface);border-radius:16px;padding:24px 26px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:min(520px,100%);max-height:86vh;overflow-y:auto;}
+  .modal-box h3{margin:0 0 4px 0;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;}
+  .comentario-item{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-left:3px solid var(--line);padding:2px 0 2px 10px;font-size:12.5px;}
+  .comentario-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+  #modalComentarioNuevo{width:100%;margin-top:14px;min-height:70px;padding:10px;border-radius:8px;border:1.5px solid var(--line);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;}
+  input[type=text],input[type=number],input[type=date],input[type=email],input[type=search],input[type=datetime-local],select,textarea{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 10px;border-radius:8px;font-size:13px;}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);}
+  textarea{resize:vertical;}
+  label.l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:4px;}
+  .campo{margin-bottom:12px;} .campo input[type=text],.campo input[type=email],.campo input[type=number],.campo input[type=datetime-local],.campo select,.campo textarea{width:100%;}
+  .fila2{display:grid;grid-template-columns:1fr 1fr;gap:12px;} @media (max-width:640px){.fila2{grid-template-columns:1fr;}}
+  .nota{font-size:11.5px;color:var(--muted);line-height:1.45;margin-top:4px;}
+  .btn-peligro{background:var(--surface);color:var(--red);border:1.5px solid var(--red);} .btn-peligro:hover:not(:disabled){background:var(--red-bg);}
+
+  .tabs{display:flex;gap:6px;margin:4px 0 18px;border-bottom:2px solid var(--line);overflow-x:auto;}
+  .tab{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;background:none;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;padding:10px 18px;cursor:pointer;color:var(--muted);white-space:nowrap;border-radius:0;}
+  .tab:hover{color:var(--text);} .tab.activo{color:var(--primary);border-bottom-color:var(--primary);}
+
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 18px;}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow);}
+  .kpi span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;}
+  .kpi b{display:block;font-family:'Space Grotesk',sans-serif;font-size:24px;margin-top:2px;}
+  .kpi small{font-size:11.5px;color:var(--muted);}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);margin-bottom:16px;}
+  .panel h3{font-family:'Space Grotesk',sans-serif;font-size:15px;margin:0 0 10px;}
+  .barra{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
+  .barra .espacio{flex:1;}
+
+  .estado{display:inline-block;padding:2px 10px;border-radius:999px;font-weight:700;font-size:11px;white-space:nowrap;}
+  .e-draft{background:var(--surface-2);color:var(--muted);} .e-scheduled{background:var(--blue-bg);color:var(--blue);} .e-sending{background:var(--amber-dim);color:var(--amber);}
+  .e-paused{background:var(--red-bg);color:var(--red);} .e-sent{background:var(--green-bg);color:var(--green);} .e-cancelled{background:var(--surface-2);color:var(--muted);} .e-failed{background:var(--red-bg);color:var(--red);}
+  .e-subscribed{background:var(--green-bg);color:var(--green);} .e-unsubscribed,.e-pending{background:var(--surface-2);color:var(--muted);} .e-bounced,.e-complained{background:var(--red-bg);color:var(--red);}
+  .check{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;} .check:last-child{border-bottom:none;}
+  .check .ico{font-size:16px;line-height:1.2;} .check small{display:block;color:var(--muted);font-size:11.5px;}
+  .lista-checks{max-height:170px;overflow-y:auto;border:1.5px solid var(--line);border-radius:8px;padding:6px 10px;background:var(--surface);}
+  .lista-checks label{display:flex;gap:8px;align-items:center;font-size:13px;padding:3px 0;cursor:pointer;} .lista-checks small{color:var(--muted);margin-left:auto;}
+  .progreso{height:10px;background:var(--surface-2);border-radius:999px;overflow:hidden;margin:8px 0 4px;} .progreso i{display:block;height:100%;background:var(--primary);width:0;transition:width .2s;}
+  .resultado{background:var(--surface-2);border-radius:10px;padding:10px 14px;font-size:13px;line-height:1.6;margin-top:10px;}
+  .mensaje{position:fixed;right:20px;bottom:20px;max-width:380px;background:var(--text);color:#fff;border-radius:10px;padding:12px 16px;font-size:13px;display:none;z-index:200;box-shadow:var(--shadow);} .mensaje.err{background:var(--red);} .mensaje.ok{background:var(--green);}
+  .modal-box.ancho{width:min(940px,100%);} .modal-box.medio{width:min(640px,100%);}
+  .modal-cabecera{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;} .cerrar{background:none;color:var(--muted);font-size:20px;padding:0 6px;box-shadow:none;}
+  .acciones{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;}
+  .error-form{color:var(--red);font-size:12.5px;min-height:16px;margin:6px 0;}
+  .codigo{font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%;min-height:300px;}
+  .vista{width:100%;height:420px;border:1.5px solid var(--line);border-radius:10px;background:#fff;}
+  .barras{display:flex;align-items:flex-end;gap:2px;height:70px;border-bottom:1px solid var(--line);} .barras div{flex:1;max-width:22px;background:var(--primary);min-width:3px;border-radius:2px 2px 0 0;}
+  .tabla-chica td,.tabla-chica th{padding:6px 8px;}
+  .oculto{display:none !important;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<link rel="stylesheet" href="responsive.css">
+</head>
+<body>
+<div class="wrap">
+
+<header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="mailing.html" id="navMailing" style="display:none;">✉️ Mailing</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+          <a href="contabilidad.html">Contabilidad</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
+          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+          <a href="pedidos-pantallas.html">Pantallas a pedido</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="detalle-ventas.html">Detalle de ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html">Modelos compatibles</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="tickets.html">Tickets ERP</a>
+          <a href="chat-en-vivo.html">Chat en vivo</a>
+          <a href="eficiencia-tickets.html">Tickets</a>
+          <a href="soporte-indexpro.html">IndexPro</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+          <a href="electronica.html">Electrónica</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="frecuencia-precio.html">Frecuencia y precio</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="search-console.html">Search Console</a>
+          <a href="instagram.html">Instagram</a>
+          <a href="comparativo-ventas.html">Comparativo de ventas</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <h1>✉️ Mailing</h1>
+  <div class="sub">Campañas de correo masivo con Amazon SES, en reemplazo de Zoho Campaigns. Importa contactos, arma listas y plantillas, prueba el correo y lánzalo. Cada correo lleva enlace de baja y quien se da de baja, rebota o reclama queda excluido de todas las campañas.</div>
+
+  <div id="soloAdmin" class="panel oculto">Esta sección es solo para administradores.</div>
+
+  <div id="contenido">
+  <div class="tabs" role="tablist">
+    <button type="button" class="tab activo" data-tab="resumen">📊 Resumen</button>
+    <button type="button" class="tab" data-tab="campanas">✉️ Campañas</button>
+    <button type="button" class="tab" data-tab="contactos">👥 Contactos y listas</button>
+    <button type="button" class="tab" data-tab="plantillas">🧩 Plantillas</button>
+  </div>
+
+  <section id="vista-resumen"></section>
+  <section id="vista-campanas" class="oculto"></section>
+  <section id="vista-contactos" class="oculto"></section>
+  <section id="vista-plantillas" class="oculto"></section>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this) cerrarModal()">
+  <div class="modal-box" id="modal" onclick="event.stopPropagation()"></div>
+</div>
+<div class="mensaje" id="mensaje"></div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="etiquetas-botones.js"></script>
+<script src="menu-herramientas.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let rolActual = 'usuario', correoActual = '', P = null; // P = panel (lo último que devolvió el servidor)
+let campanaAbierta = null, sondeo = null;
+
+const ESTADOS = { draft: 'Borrador', scheduled: 'Programada', sending: 'Enviando', paused: 'Pausada', sent: 'Enviada', cancelled: 'Cancelada', failed: 'Fallida' };
+const ESTADOS_CONTACTO = { subscribed: 'Suscrito', unsubscribed: 'Dado de baja', bounced: 'Rebotó', complained: 'Reclamó', pending: 'Pendiente' };
+const MOTIVOS = { unsubscribe: 'Baja', hard_bounce: 'Rebote', complaint: 'Queja', manual: 'Manual', zoho_import: 'Importado de Zoho' };
+
+function escapeHtml(t){ return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+const fmtNum = n => new Intl.NumberFormat('es-CL').format(n || 0);
+const fmtPct = n => (n === null || n === undefined ? '—' : String(n).replace('.', ',') + ' %');
+const fechaHora = iso => iso ? new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+const pct = (a, b) => (b > 0 ? Math.round(a / b * 1000) / 10 : null);
+
+function aviso(texto, tipo){
+  const el = $('mensaje'); el.className = 'mensaje ' + (tipo || ''); el.textContent = texto; el.style.display = 'block';
+  clearTimeout(el._t); el._t = setTimeout(() => { el.style.display = 'none'; }, 6500);
+}
+async function api(recurso, { metodo = 'GET', query = {}, body } = {}){
+  const qs = new URLSearchParams({ recurso, ...query });
+  const res = await fetch('/api/negocio?' + qs, { method: metodo, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
+  let json = {}; try { json = await res.json(); } catch(e){ /* sin cuerpo */ }
+  if(!res.ok) throw Object.assign(new Error(json.error || ('Error ' + res.status)), { estado: res.status, datos: json });
+  return json;
+}
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    rolActual = u.rol; correoActual = u.email || '';
+    $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    aplicarRestriccionesUsuario(u.rol);
+    aplicarRestriccionPaginas(u.paginas);
+    if(u.rol === 'admin'){ const nav = $('navUsuarios'); if(nav) nav.style.display = ''; }
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){ await fetch('/api/auth-session', { method: 'DELETE' }); location.href = '/login.html'; }
+
+// ---------- Modal ----------
+function abrirModal(html, clase){ $('modal').className = 'modal-box ' + (clase || ''); $('modal').innerHTML = html; $('modalOverlay').classList.add('open'); }
+function cerrarModal(){ $('modalOverlay').classList.remove('open'); $('modal').innerHTML = ''; campanaAbierta = null; clearInterval(sondeo); }
+function cabeceraModal(titulo, sub){ return `<div class="modal-cabecera"><div><h3>${titulo}</h3>${sub ? `<div class="nota">${sub}</div>` : ''}</div><button type="button" class="cerrar" onclick="cerrarModal()" aria-label="Cerrar">×</button></div>`; }
+function confirmar(titulo, cuerpoHtml, textoOk, peligro){
+  return new Promise(resolver => {
+    abrirModal(cabeceraModal(titulo) + `<div style="font-size:13.5px;line-height:1.55;">${cuerpoHtml}</div><div class="acciones" style="justify-content:flex-end;"><button class="btn-ghost" id="cfNo">Cancelar</button><button class="${peligro ? 'btn-peligro' : 'btn-primary'}" id="cfSi">${textoOk}</button></div>`, 'medio');
+    $('cfNo').onclick = () => { cerrarModal(); resolver(false); }; $('cfSi').onclick = () => { cerrarModal(); resolver(true); };
+  });
+}
+
+// ---------- Pestañas ----------
+function verTab(t){
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('activo', b.dataset.tab === t));
+  ['resumen', 'campanas', 'contactos', 'plantillas'].forEach(x => $('vista-' + x).classList.toggle('oculto', x !== t));
+  history.replaceState(null, '', '#' + t);
+}
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => verTab(b.dataset.tab)));
+
+async function recargar(){
+  try{ P = await api('mk-panel'); }catch(e){ aviso(e.message, 'err'); return; }
+  pintarResumen(); pintarCampanas(); pintarContactos(); pintarPlantillas();
+}
+
+// ---------- Resumen ----------
+function faltantes(){
+  const c = P.config, f = [];
+  if(!c.ses) f.push('Amazon SES (claves AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)');
+  if(!c.cola) f.push('la cola de envío QStash (QSTASH_TOKEN y claves de firma)');
+  if(!c.baja) f.push('el secreto de los enlaces de baja (MK_UNSUB_SECRET)');
+  return f;
+}
+function pintarResumen(){
+  const c = P.config, co = P.contactos, sup = P.supresiones;
+  const item = (ok, titulo, detalle) => `<div class="check"><span class="ico">${ok ? '✅' : '⚠️'}</span><div><b>${titulo}</b><small>${detalle}</small></div></div>`;
+  const enviadas = P.campanas.filter(x => x.status === 'sent').length;
+  $('vista-resumen').innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><span>Contactos suscritos</span><b>${fmtNum(co.subscribed)}</b><small>de ${fmtNum(co.total)} contactos</small></div>
+      <div class="kpi"><span>Excluidos (global)</span><b>${fmtNum(sup.total)}</b><small>bajas, rebotes y quejas</small></div>
+      <div class="kpi"><span>Listas</span><b>${fmtNum(P.listas.length)}</b></div>
+      <div class="kpi"><span>Campañas enviadas</span><b>${fmtNum(enviadas)}</b><small>${fmtNum(P.campanas.length)} en total</small></div>
+    </div>
+    <div class="panel"><h3>Estado de la configuración</h3>
+      ${item(c.ses, 'Envío por Amazon SES', c.ses ? 'Credenciales cargadas' + (c.configuration_set ? ' · configuration set «' + escapeHtml(c.configuration_set) + '»' : ' · falta SES_CONFIGURATION_SET (sin él no llegan aperturas, clics ni rebotes)') : 'Faltan las claves de AWS en Vercel. Sin ellas no se puede enviar.')}
+      ${item(c.cola, 'Cola de lotes (QStash)', c.cola ? 'Lista' : 'Faltan QSTASH_TOKEN, QSTASH_CURRENT_SIGNING_KEY y QSTASH_NEXT_SIGNING_KEY. Sin cola no se puede lanzar una campaña.')}
+      ${item(c.eventos, 'Eventos de SES (entregas, rebotes, aperturas, clics)', c.eventos ? 'Tópico de SNS configurado' : 'Falta MK_SNS_TOPIC_ARN: sin él no se valida que los eventos vengan de tu tópico.')}
+      ${item(c.baja, 'Enlace de baja', c.baja ? 'Los correos llevan un enlace de baja firmado en <b>' + escapeHtml(c.base_publica) + '/u/…</b>' : 'Falta MK_UNSUB_SECRET. Sin él no se pueden armar los enlaces de baja.')}
+      ${item(c.programadas, 'Campañas programadas', c.programadas ? 'Se revisan cada hora (Vercel Cron puede demorar hasta una hora dentro de la hora indicada).' : 'Falta CRON_SECRET: las campañas programadas no se lanzarían solas.')}
+      ${item(c.dominios_remitente.length > 0, 'Dominios de remitente', c.dominios_remitente.length ? 'Solo se puede enviar desde: ' + c.dominios_remitente.map(escapeHtml).join(', ') : 'Sin restricción (MK_FROM_DOMAINS vacío). Conviene limitarlo a los subdominios verificados en SES.')}
+    </div>
+    <div class="panel"><h3>Últimas campañas</h3>${P.campanas.length ? tablaCampanas(P.campanas.slice(0, 5)) : '<p class="nota">Aún no hay campañas.</p>'}</div>`;
+}
+
+// ---------- Campañas ----------
+const badge = s => `<span class="estado e-${s}">${ESTADOS[s] || s}</span>`;
+function tablaCampanas(lista){
+  return `<div class="tabla-wrap"><table><thead><tr><th>Campaña</th><th>Estado</th><th>Fecha</th><th class="amount">Destinatarios</th><th class="amount">Entregados</th><th class="amount">Aperturas</th><th class="amount">Clics</th><th class="amount">Rebotes</th><th class="amount">Bajas</th><th data-sin-orden></th></tr></thead><tbody>` +
+    lista.map(c => {
+      const fecha = c.finished_at || c.started_at || c.scheduled_at || c.created_at;
+      return `<tr><td><b>${escapeHtml(c.name)}</b><div class="nota">${escapeHtml(c.subject)}</div></td><td data-valor="${c.status}">${badge(c.status)}${c.status === 'paused' && c.pause_reason ? `<div class="nota" style="color:var(--red)">${escapeHtml(c.pause_reason)}</div>` : ''}</td>
+        <td data-valor="${new Date(fecha).getTime()}">${fechaHora(fecha)}</td>
+        <td class="amount" data-valor="${c.total_recipients || 0}">${fmtNum(c.total_recipients)}</td><td class="amount" data-valor="${c.total_delivered || 0}">${fmtNum(c.total_delivered)}</td>
+        <td class="amount" data-valor="${pct(c.unique_opens, c.total_delivered) ?? -1}">${fmtPct(pct(c.unique_opens, c.total_delivered))}</td><td class="amount" data-valor="${pct(c.unique_clicks, c.total_delivered) ?? -1}">${fmtPct(pct(c.unique_clicks, c.total_delivered))}</td>
+        <td class="amount" data-valor="${c.total_bounced || 0}">${fmtNum(c.total_bounced)}</td><td class="amount" data-valor="${c.total_unsubscribes || 0}">${fmtNum(c.total_unsubscribes)}</td>
+        <td><button class="btn-ghost btn-compact" onclick="abrirCampana('${c.id}')">Abrir</button></td></tr>`;
+    }).join('') + '</tbody></table></div>';
+}
+function pintarCampanas(){
+  $('vista-campanas').innerHTML = `<div class="barra"><button class="btn-primary" onclick="formCampana()">➕ Nueva campaña</button><span class="espacio"></span></div>` +
+    (P.campanas.length ? tablaCampanas(P.campanas) : '<p class="nota">Aún no hay campañas. Crea una plantilla y una lista primero.</p>') +
+    '<p class="nota">Las aperturas se inflan por la protección de privacidad de Apple Mail y los filtros que abren los correos solos: el clic y las respuestas son la señal más confiable.</p>';
+  if(window.__ordenarTablas) window.__ordenarTablas();
+}
+
+function formCampana(c){
+  if(!P.plantillas.length) return aviso('Primero crea una plantilla', 'err');
+  if(!P.listas.length) return aviso('Primero crea una lista de contactos', 'err');
+  c = c || {};
+  const aud = c.audience || {}, sel = new Set(aud.lists || []), exc = new Set(aud.exclude_lists || []);
+  const dominios = P.config.dominios_remitente;
+  const checks = (nombre, set) => P.listas.map(l => `<label><input type="checkbox" name="${nombre}" value="${l.id}" ${set.has(l.id) ? 'checked' : ''}> ${escapeHtml(l.name)} <small>${fmtNum(l.suscritos)} suscritos</small></label>`).join('');
+  abrirModal(cabeceraModal(c.id ? 'Editar campaña' : 'Nueva campaña') + `
+    <div class="campo"><label class="l">Nombre interno</label><input type="text" id="fNombre" maxlength="120" value="${escapeHtml(c.name || '')}" placeholder="Ej: Ofertas cargadores — noviembre"></div>
+    <div class="fila2">
+      <div class="campo"><label class="l">Plantilla</label><select id="fPlantilla" onchange="alCambiarPlantilla()">${P.plantillas.map(t => `<option value="${t.id}" ${t.id === c.template_id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}</select></div>
+      <div class="campo"><label class="l">Asunto</label><input type="text" id="fAsunto" maxlength="200" value="${escapeHtml(c.subject || '')}"></div>
+    </div>
+    <div class="fila2">
+      <div class="campo"><label class="l">Nombre del remitente</label><input type="text" id="fDeNombre" maxlength="80" value="${escapeHtml(c.from_name || 'IndexStore')}"></div>
+      <div class="campo"><label class="l">Correo del remitente</label><input type="email" id="fDeCorreo" value="${escapeHtml(c.from_email || '')}" placeholder="ofertas@news.indexstore.cl">
+        <div class="nota">${dominios.length ? 'Dominios permitidos: ' + dominios.map(escapeHtml).join(', ') : 'Debe ser un correo de un dominio verificado en SES.'}</div></div>
+    </div>
+    <div class="fila2">
+      <div class="campo"><label class="l">Responder a (opcional)</label><input type="email" id="fResponder" value="${escapeHtml(c.reply_to || '')}" placeholder="ventas@indexstore.cl"></div>
+      <div class="campo"><label class="l">Velocidad (correos por segundo)</label><input type="number" id="fRate" min="1" max="200" value="${c.rate_per_sec || 14}"><div class="nota">SES parte con 14 por segundo; no la subas hasta que AWS suba el límite de tu cuenta.</div></div>
+    </div>
+    <div class="fila2">
+      <div class="campo"><label class="l">Enviar a (listas)</label><div class="lista-checks">${checks('fListas', sel)}</div></div>
+      <div class="campo"><label class="l">Excluir (listas)</label><div class="lista-checks">${checks('fExcluir', exc)}</div><div class="nota">Quienes estén en alguna de estas no reciben el correo.</div></div>
+    </div>
+    <div class="error-form" id="fError"></div>
+    <div class="acciones" style="justify-content:flex-end;"><button class="btn-ghost" onclick="cerrarModal()">Cancelar</button><button class="btn-primary" id="fGuardar" onclick="guardarCampana('${c.id || ''}')">Guardar</button></div>`, 'ancho');
+  if(!c.id) alCambiarPlantilla(true);
+}
+function alCambiarPlantilla(soloSiVacio){
+  const t = P.plantillas.find(x => x.id === $('fPlantilla').value);
+  if(t && (!soloSiVacio || !$('fAsunto').value)) $('fAsunto').value = t.subject;
+}
+async function guardarCampana(id){
+  const marcadas = n => [...document.querySelectorAll(`input[name=${n}]:checked`)].map(x => x.value);
+  const btn = $('fGuardar'); btn.disabled = true; $('fError').textContent = '';
+  try{
+    const r = await api('mk-campanas', { metodo: 'POST', body: { accion: 'guardar', id: id || undefined, name: $('fNombre').value, template_id: $('fPlantilla').value, subject: $('fAsunto').value, from_name: $('fDeNombre').value,
+      from_email: $('fDeCorreo').value, reply_to: $('fResponder').value, rate_per_sec: $('fRate').value, lists: marcadas('fListas'), exclude_lists: marcadas('fExcluir') } });
+    await recargar(); aviso('Campaña guardada', 'ok'); abrirCampana(r.id);
+  }catch(e){ $('fError').textContent = e.message; btn.disabled = false; }
+}
+
+async function abrirCampana(id){
+  campanaAbierta = id; clearInterval(sondeo);
+  await pintarDetalle();
+  sondeo = setInterval(() => { const c = P.campanas.find(x => x.id === id); if(campanaAbierta === id && c && ['sending', 'scheduled'].includes(c.status)) refrescarDetalle(); }, 10000);
+}
+async function refrescarDetalle(){ try{ P = await api('mk-panel'); pintarCampanas(); pintarResumen(); await pintarDetalle(true); }catch(e){ /* sigue con lo que hay */ } }
+
+function botonesCampana(c){
+  const b = (txt, fn, clase) => `<button class="${clase || 'btn-ghost'} btn-compact" onclick="${fn}">${txt}</button>`;
+  const s = c.status, l = [];
+  if(['draft', 'scheduled'].includes(s)) l.push(b('✏️ Editar', `formCampana(P.campanas.find(x=>x.id==='${c.id}'))`));
+  if(['draft', 'scheduled', 'paused'].includes(s)) l.push(b('🧪 Enviar prueba', `formPrueba('${c.id}')`));
+  if(s === 'draft') l.push(b('🚀 Lanzar ahora', `lanzar('${c.id}')`, 'btn-primary'), b('🕒 Programar', `formProgramar('${c.id}')`));
+  if(s === 'scheduled') l.push(b('Quitar programación', `accion('${c.id}','desprogramar')`));
+  if(s === 'paused') l.push(b('▶ Reanudar', `lanzar('${c.id}', true)`, 'btn-primary'));
+  if(s === 'sending') l.push(b('⏸ Pausar', `accion('${c.id}','pausar')`));
+  if(['draft', 'scheduled', 'sending', 'paused'].includes(s)) l.push(b('Cancelar campaña', `accion('${c.id}','cancelar',true)`, 'btn-peligro'));
+  l.push(b('Duplicar', `accion('${c.id}','duplicar')`));
+  if((['draft', 'cancelled'].includes(s)) && !c.total_sent) l.push(b('Eliminar', `accion('${c.id}','eliminar',true)`, 'btn-peligro'));
+  return l.join('');
+}
+async function pintarDetalle(silencioso){
+  const c = P.campanas.find(x => x.id === campanaAbierta);
+  if(!c) return cerrarModal();
+  let r = null;
+  try{ r = await api('mk-campana-reporte', { query: { id: c.id } }); }catch(e){ if(!silencioso) aviso(e.message, 'err'); }
+  const ts = r ? r.totales : {}, tasas = r ? r.tasas : {};
+  const listasNombres = ids => (ids || []).map(i => (P.listas.find(l => l.id === i) || { name: '(lista eliminada)' }).name).map(escapeHtml).join(', ') || '—';
+  const kpi = (t, v, s) => `<div class="kpi"><span>${t}</span><b>${v}</b>${s ? `<small>${s}</small>` : ''}</div>`;
+  abrirModal(cabeceraModal(escapeHtml(c.name) + ' ' + badge(c.status), `Asunto: ${escapeHtml(c.subject)} · De: ${escapeHtml(c.from_name)} &lt;${escapeHtml(c.from_email)}&gt;`) +
+    (c.status === 'paused' && c.pause_reason ? `<div class="resultado" style="background:var(--red-bg);color:var(--red);">⏸ ${escapeHtml(c.pause_reason)}</div>` : '') +
+    (c.status === 'scheduled' ? `<div class="resultado" style="background:var(--blue-bg);">🕒 Programada para ${fechaHora(c.scheduled_at)} (se lanza en la primera revisión horaria después de esa hora)</div>` : '') +
+    `<div class="nota" style="margin-top:8px;">Enviar a: ${listasNombres((c.audience || {}).lists)} · Excluir: ${listasNombres((c.audience || {}).exclude_lists)}</div>
+    <div class="acciones">${botonesCampana(c)}</div>` +
+    (r ? `<div class="kpis">
+      ${kpi('Destinatarios', fmtNum(ts.destinatarios))}${kpi('Enviados', fmtNum(ts.enviados))}${kpi('Entregados', fmtNum(ts.entregados), fmtPct(tasas.entrega))}
+      ${kpi('Aperturas', fmtNum(ts.aperturas), fmtPct(tasas.apertura))}${kpi('Clics', fmtNum(ts.clics), fmtPct(tasas.clic))}
+      ${kpi('Rebotes', fmtNum(ts.rebotes), fmtPct(tasas.rebote))}${kpi('Quejas', fmtNum(ts.quejas), fmtPct(tasas.queja))}${kpi('Bajas', fmtNum(ts.bajas), fmtPct(tasas.baja))}
+    </div>
+    <div class="nota">Estados de envío: ${Object.entries(r.estados).map(([k, v]) => `${escapeHtml(k)} ${fmtNum(v)}`).join(' · ') || '—'}. Se pausa sola si los rebotes superan 5 % o las quejas 0,1 % (con al menos 200 envíos).</div>
+    ${r.curva.length ? `<h3 style="margin:16px 0 6px;font-size:14px;">Actividad por hora (aperturas y clics)</h3><div class="barras">${(() => { const max = Math.max(...r.curva.map(x => x.aperturas + x.clics), 1); return r.curva.map(x => `<div style="height:${Math.max(3, (x.aperturas + x.clics) / max * 100)}%" title="${fechaHora(x.hora)}: ${x.aperturas} aperturas, ${x.clics} clics"></div>`).join(''); })()}</div>` : ''}
+    ${r.enlaces.length ? `<h3 style="margin:16px 0 6px;font-size:14px;">Enlaces más clicados</h3><div class="tabla-wrap"><table class="tabla-chica"><thead><tr><th>Enlace</th><th class="amount">Clics</th><th class="amount">Personas</th></tr></thead><tbody>${r.enlaces.map(e => `<tr><td style="word-break:break-all;">${escapeHtml(e.url)}</td><td class="amount">${e.clics}</td><td class="amount">${e.personas}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${r.problemas.length ? `<h3 style="margin:16px 0 6px;font-size:14px;">Rebotes permanentes y quejas (ya excluidos de futuras campañas)</h3><div class="tabla-wrap"><table class="tabla-chica"><thead><tr><th>Correo</th><th>Tipo</th><th>Fecha</th></tr></thead><tbody>${r.problemas.map(p => `<tr><td>${escapeHtml(p.email)}</td><td>${p.tipo === 'complaint' ? 'Queja' : 'Rebote'}</td><td>${fechaHora(p.occurred_at)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${r.fallidos.length ? `<h3 style="margin:16px 0 6px;font-size:14px;">Envíos fallidos</h3><div class="tabla-wrap"><table class="tabla-chica"><thead><tr><th>Correo</th><th>Motivo</th></tr></thead><tbody>${r.fallidos.map(p => `<tr><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.error || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}` : ''), 'ancho');
+}
+
+async function accion(id, acc, peligro){
+  const textos = { cancelar: ['Cancelar campaña', 'La campaña dejará de enviarse y no se podrá reanudar. Los correos ya enviados no se pueden retirar.', 'Sí, cancelar'], eliminar: ['Eliminar campaña', 'Se borra la campaña. Esta acción no se puede deshacer.', 'Sí, eliminar'] };
+  if(textos[acc] && !(await confirmar(textos[acc][0], textos[acc][1], textos[acc][2], true))) return;
+  try{
+    const r = await api('mk-campanas', { metodo: 'POST', body: { accion: acc, id } });
+    await recargar();
+    if(acc === 'duplicar'){ aviso('Campaña duplicada como borrador', 'ok'); return abrirCampana(r.id); }
+    if(acc === 'eliminar'){ cerrarModal(); return aviso('Campaña eliminada', 'ok'); }
+    aviso('Listo', 'ok'); campanaAbierta = id; await pintarDetalle(true);
+  }catch(e){ aviso(e.message, 'err'); }
+}
+
+async function lanzar(id, reanudar){
+  const c = P.campanas.find(x => x.id === id);
+  const f = faltantes();
+  if(f.length) return aviso('Falta configurar ' + f.join(', ') + '. Ver la pestaña Resumen.', 'err');
+  let e = null;
+  if(!reanudar){
+    try{ e = await api('mk-campana-estimar', { metodo: 'POST', body: { id } }); }catch(err){ return aviso(err.message, 'err'); }
+    if(!e.enviables) return aviso('La audiencia queda vacía: no hay contactos suscritos en esas listas.', 'err');
+  }
+  const ok = await confirmar(reanudar ? 'Reanudar campaña' : 'Lanzar campaña',
+    reanudar ? `Se retoma el envío de «${escapeHtml(c.name)}» a quienes aún no lo recibieron.` :
+    `<p style="margin:0 0 8px;">Se enviará «<b>${escapeHtml(c.name)}</b>» a <b>${fmtNum(e.enviables)}</b> personas.</p>
+     <p style="margin:0 0 8px;">${e.excluidos ? `${fmtNum(e.excluidos)} más quedan fuera por haberse dado de baja, rebotado o reclamado.` : 'Nadie queda fuera por bajas, rebotes o quejas.'}</p>
+     <p style="margin:0 0 8px;">Asunto: <b>${escapeHtml(c.subject)}</b><br>Remitente: <b>${escapeHtml(c.from_name)} &lt;${escapeHtml(c.from_email)}&gt;</b></p>
+     <p style="margin:0;color:var(--red);">Una vez que empieza no se pueden retirar los correos ya enviados. ¿Hiciste una prueba?</p>`, reanudar ? 'Reanudar' : 'Sí, enviar');
+  if(!ok) return;
+  try{
+    const r = await api('mk-campana-lanzar', { metodo: 'POST', query: { id } });
+    aviso(`Campaña en marcha: ${fmtNum(r.destinatarios)} correos en ${r.lotes} lotes`, 'ok');
+    await recargar(); abrirCampana(id);
+  }catch(err){ aviso(err.message, 'err'); await recargar(); }
+}
+
+function formProgramar(id){
+  const manana = new Date(Date.now() + 86400000); manana.setHours(9, 0, 0, 0);
+  const local = new Date(manana.getTime() - manana.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  abrirModal(cabeceraModal('Programar envío') + `<div class="campo"><label class="l">Fecha y hora</label><input type="datetime-local" id="pFecha" value="${local}"></div>
+    <div class="nota">La campaña se lanza sola en la primera revisión horaria después de esa hora. Antes de que salga puedes volver a editarla o cancelarla. La cantidad de destinatarios se calcula al momento de enviar.</div>
+    <div class="error-form" id="pError"></div>
+    <div class="acciones" style="justify-content:flex-end;"><button class="btn-ghost" onclick="abrirCampana('${id}')">Volver</button><button class="btn-primary" id="pOk">Programar</button></div>`, 'medio');
+  $('pOk').onclick = async () => {
+    const v = $('pFecha').value; if(!v){ $('pError').textContent = 'Elige fecha y hora'; return; }
+    try{ await api('mk-campanas', { metodo: 'POST', body: { accion: 'programar', id, scheduled_at: new Date(v).toISOString() } }); await recargar(); aviso('Campaña programada', 'ok'); abrirCampana(id); }
+    catch(e){ $('pError').textContent = e.message; }
+  };
+}
+
+function formPrueba(id){
+  abrirModal(cabeceraModal('Enviar prueba') + `<div class="campo"><label class="l">Correos de prueba (hasta 5, separados por coma)</label><input type="text" id="tPara" value="${escapeHtml(correoActual)}"></div>
+    <div class="nota">Sale con el asunto «[PRUEBA] …», datos de muestra (Camila Soto) y un enlace de baja que no afecta a ningún contacto. Revisa también la carpeta de spam.</div>
+    <div class="error-form" id="tError"></div><div id="tResultado"></div>
+    <div class="acciones" style="justify-content:flex-end;"><button class="btn-ghost" onclick="abrirCampana('${id}')">Volver</button><button class="btn-primary" id="tOk">Enviar prueba</button></div>`, 'medio');
+  $('tOk').onclick = async () => {
+    $('tOk').disabled = true; $('tError').textContent = '';
+    try{
+      const r = await api('mk-campana-probar', { metodo: 'POST', body: { id, para: $('tPara').value } });
+      $('tResultado').innerHTML = '<div class="resultado">' + r.resultados.map(x => x.enviado ? `✅ ${escapeHtml(x.para)} enviado` : `❌ ${escapeHtml(x.para)}: ${escapeHtml(x.error)}`).join('<br>') + '</div>';
+    }catch(e){ $('tError').textContent = e.message; }
+    $('tOk').disabled = false;
+  };
+}
+
+// ---------- Contactos y listas ----------
+function pintarContactos(){
+  const co = P.contactos;
+  $('vista-contactos').innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><span>Suscritos</span><b>${fmtNum(co.subscribed)}</b></div>
+      <div class="kpi"><span>Dados de baja</span><b>${fmtNum(co.unsubscribed)}</b></div>
+      <div class="kpi"><span>Rebotados</span><b>${fmtNum(co.bounced)}</b></div>
+      <div class="kpi"><span>Reclamaron</span><b>${fmtNum(co.complained)}</b></div>
+    </div>
+    <div class="panel"><h3>Listas</h3>
+      <div class="barra"><button class="btn-primary btn-compact" onclick="formLista()">➕ Nueva lista</button></div>
+      ${P.listas.length ? `<div class="tabla-wrap"><table><thead><tr><th>Lista</th><th class="amount">Contactos</th><th class="amount">Suscritos</th><th>Creada</th><th data-sin-orden></th></tr></thead><tbody>${P.listas.map(l => `<tr><td><b>${escapeHtml(l.name)}</b>${l.description ? `<div class="nota">${escapeHtml(l.description)}</div>` : ''}</td><td class="amount" data-valor="${l.miembros}">${fmtNum(l.miembros)}</td><td class="amount" data-valor="${l.suscritos}">${fmtNum(l.suscritos)}</td><td data-valor="${new Date(l.created_at).getTime()}">${fechaHora(l.created_at)}</td>
+        <td><button class="btn-ghost btn-compact" onclick="formLista('${l.id}')">Renombrar</button> <button class="btn-peligro btn-compact" onclick="eliminarLista('${l.id}')">Eliminar</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="nota">Aún no hay listas. Crea una e importa contactos en ella.</p>'}
+    </div>
+    <div class="panel"><h3>Importar desde CSV (Zoho Campaigns u otro)</h3>
+      <div class="nota" style="margin:-4px 0 10px;">Importa primero el archivo de <b>bajas, rebotes y quejas</b> y después los contactos: así nadie que ya se dio de baja vuelve a recibir correos. Un contacto que ya existe no se reactiva ni se le pisan los datos. Se puede repetir sin duplicar.</div>
+      <div class="fila2">
+        <div class="campo"><label class="l">¿Qué trae el archivo?</label><select id="iTipo" onchange="alCambiarTipoImport()"><option value="contactos">Contactos</option><option value="supresiones">Bajas, rebotes o quejas</option></select></div>
+        <div class="campo" id="iListaBox"><label class="l">Agregar a la lista</label><select id="iLista"><option value="">(no agregar a ninguna)</option>${P.listas.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}</select></div>
+        <div class="campo oculto" id="iCatBox"><label class="l">Si el archivo no dice el motivo</label><select id="iCat"><option value="">Pedir columna de motivo</option><option value="unsubscribe">Son bajas</option><option value="hard_bounce">Son rebotes</option><option value="complaint">Son quejas</option></select></div>
+      </div>
+      <div class="campo"><label class="l">Archivo .csv</label><input type="file" id="iArchivo" accept=".csv,text/csv"><div class="nota">Necesita una columna de correo (Email, Contact Email o Correo). Reconoce Nombre, Apellido, Empresa, RUT, Línea de negocio y Etiquetas; el resto queda como atributos.</div></div>
+      <button class="btn-primary" id="iBoton" onclick="importar()">Importar</button>
+      <div id="iProgreso" class="oculto"><div class="progreso"><i id="iBarra"></i></div><div class="nota" id="iTexto"></div></div>
+      <div id="iResultado"></div>
+    </div>
+    <div class="panel"><h3>Buscar un contacto</h3>
+      <div class="barra"><input type="search" id="bQ" placeholder="Correo o parte del correo" style="width:300px;" onkeydown="if(event.key==='Enter') buscarContacto()"><button class="btn-ghost" onclick="buscarContacto()">Buscar</button></div>
+      <div id="bResultado"></div>
+    </div>`;
+  if(window.__ordenarTablas) window.__ordenarTablas();
+}
+function alCambiarTipoImport(){ const s = $('iTipo').value === 'supresiones'; $('iListaBox').classList.toggle('oculto', s); $('iCatBox').classList.toggle('oculto', !s); }
+
+function formLista(id){
+  const l = id ? P.listas.find(x => x.id === id) : {};
+  abrirModal(cabeceraModal(id ? 'Renombrar lista' : 'Nueva lista') + `<div class="campo"><label class="l">Nombre</label><input type="text" id="lNombre" maxlength="120" value="${escapeHtml(l.name || '')}"></div>
+    <div class="campo"><label class="l">Descripción (opcional)</label><input type="text" id="lDesc" maxlength="300" value="${escapeHtml(l.description || '')}"></div>
+    <div class="error-form" id="lError"></div><div class="acciones" style="justify-content:flex-end;"><button class="btn-ghost" onclick="cerrarModal()">Cancelar</button><button class="btn-primary" id="lOk">Guardar</button></div>`, 'medio');
+  $('lOk').onclick = async () => {
+    try{ await api('mk-listas', { metodo: 'POST', body: { accion: id ? 'renombrar' : 'crear', id, name: $('lNombre').value, description: $('lDesc').value } }); cerrarModal(); await recargar(); aviso('Lista guardada', 'ok'); }
+    catch(e){ $('lError').textContent = e.message; }
+  };
+}
+async function eliminarLista(id){
+  const l = P.listas.find(x => x.id === id);
+  if(!(await confirmar('Eliminar lista', `Se elimina la lista «${escapeHtml(l.name)}». Los ${fmtNum(l.miembros)} contactos no se borran, solo dejan de pertenecer a ella.`, 'Sí, eliminar', true))) return;
+  try{ await api('mk-listas', { metodo: 'POST', body: { accion: 'eliminar', id } }); await recargar(); aviso('Lista eliminada', 'ok'); }catch(e){ aviso(e.message, 'err'); }
+}
+
+// Parte el CSV en tandas (Vercel limita cada petición a 4,5 MB): respeta saltos de línea dentro de comillas y repite la cabecera en cada tanda.
+function partirCsv(texto){
+  texto = texto.replace(/^﻿/, '');
+  const lineas = []; let actual = '', comillas = false;
+  for(let i = 0; i < texto.length; i++){
+    const ch = texto[i];
+    if(ch === '"') comillas = !comillas;
+    if(ch === '\n' && !comillas){ lineas.push(actual.replace(/\r$/, '')); actual = ''; } else actual += ch;
+  }
+  if(actual.trim()) lineas.push(actual.replace(/\r$/, ''));
+  const llenas = lineas.filter(l => l.trim());
+  const cabecera = llenas[0] || '', filas = llenas.slice(1), tandas = [];
+  let grupo = [], largo = 0;
+  for(const f of filas){
+    grupo.push(f); largo += f.length + 1;
+    if(grupo.length >= 5000 || largo > 2000000){ tandas.push(grupo); grupo = []; largo = 0; }
+  }
+  if(grupo.length) tandas.push(grupo);
+  return { cabecera, tandas, total: filas.length };
+}
+async function importar(){
+  const archivo = $('iArchivo').files[0];
+  if(!archivo) return aviso('Elige un archivo .csv', 'err');
+  const tipo = $('iTipo').value;
+  const { cabecera, tandas, total } = partirCsv(await archivo.text());
+  if(!total) return aviso('El archivo no tiene filas', 'err');
+  if(!(await confirmar('Importar archivo', `Se importarán <b>${fmtNum(total)}</b> filas de «${escapeHtml(archivo.name)}» como <b>${tipo === 'contactos' ? 'contactos' : 'bajas, rebotes o quejas'}</b>.`, 'Importar'))) return;
+  const sumas = { filas: 0, invalidos: 0, duplicados_en_archivo: 0, contactos_nuevos: 0, contactos_existentes: 0, supresiones_nuevas: 0, supresiones_ya_existentes: 0, contactos_marcados: 0, agregados_a_lista: 0 };
+  let ejemplos = [], hechas = 0;
+  $('iBoton').disabled = true; $('iResultado').innerHTML = ''; $('iProgreso').classList.remove('oculto');
+  const mostrar = () => { const p = Math.round(hechas / total * 100); $('iBarra').style.width = p + '%'; $('iTexto').textContent = `${p}% — ${fmtNum(hechas)} de ${fmtNum(total)} filas revisadas`; };
+  mostrar();
+  try{
+    for(const filas of tandas){
+      const r = await api('mk-contactos-importar', { metodo: 'POST', body: { csv: cabecera + '\n' + filas.join('\n'), tipo, categoria: $('iCat').value || undefined, lista_id: tipo === 'contactos' ? ($('iLista').value || undefined) : undefined } });
+      for(const k of Object.keys(sumas)) sumas[k] += r[k] || 0;
+      ejemplos = ejemplos.concat(r.ejemplos_invalidos || []).slice(0, 20);
+      hechas += filas.length; mostrar();
+    }
+    const lineas = tipo === 'contactos'
+      ? [`<b>${fmtNum(sumas.contactos_nuevos)}</b> contactos nuevos · ${fmtNum(sumas.contactos_existentes)} ya existían`, $('iLista').value ? `${fmtNum(sumas.agregados_a_lista)} agregados a la lista` : '']
+      : [`<b>${fmtNum(sumas.supresiones_nuevas)}</b> exclusiones nuevas · ${fmtNum(sumas.supresiones_ya_existentes)} ya estaban`, `${fmtNum(sumas.contactos_marcados)} contactos existentes marcados como no suscritos`];
+    const resumen = `<div class="resultado">✅ Listo. ${lineas.filter(Boolean).join('<br>')}<br>${fmtNum(sumas.invalidos)} filas descartadas (correo inválido o sin motivo) · ${fmtNum(sumas.duplicados_en_archivo)} repetidas dentro del archivo` +
+      (ejemplos.length ? `<details style="margin-top:6px;"><summary>Ver ejemplos de filas descartadas</summary>${ejemplos.map(x => `Línea ${x.linea}: ${escapeHtml(x.email)} — ${escapeHtml(x.motivo)}`).join('<br>')}</details>` : '') + '</div>';
+    await recargar(); // vuelve a dibujar la pestaña (contadores y listas): el resultado se muestra después para que no se borre
+    $('iResultado').innerHTML = resumen;
+  }catch(e){
+    $('iResultado').innerHTML = `<div class="resultado" style="background:var(--red-bg);color:var(--red);">❌ ${escapeHtml(e.message)}. Se alcanzaron a revisar ${fmtNum(hechas)} de ${fmtNum(total)} filas; puedes volver a importar el mismo archivo sin duplicar nada.</div>`;
+  }
+  if($('iBoton')) $('iBoton').disabled = false;
+}
+
+async function buscarContacto(){
+  const q = $('bQ').value.trim();
+  if(q.length < 3) return aviso('Escribe al menos 3 caracteres', 'err');
+  try{
+    const r = await api('mk-contactos', { query: { q } });
+    const filas = r.contactos.map(c => `<tr><td><b>${escapeHtml(c.email)}</b><div class="nota">${escapeHtml([c.first_name, c.last_name, c.company_name].filter(Boolean).join(' · '))}</div></td><td><span class="estado e-${c.status}">${ESTADOS_CONTACTO[c.status] || c.status}</span></td>
+      <td>${c.supresion ? escapeHtml(MOTIVOS[c.supresion] || c.supresion) + (c.suprimido_el ? ' · ' + fechaHora(c.suprimido_el) : '') + (c.supresion_detalle ? `<div class="nota">${escapeHtml(c.supresion_detalle)}</div>` : '') : '—'}</td>
+      <td>${(c.listas || []).map(escapeHtml).join(', ') || '—'}</td><td>${fechaHora(c.last_sent_at) || '—'}</td><td>${escapeHtml(c.consent_source || '—')}${c.consent_at ? ' · ' + fechaHora(c.consent_at) : ''}</td></tr>`).join('');
+    const solo = r.solo_suprimidos.map(s => `<tr><td><b>${escapeHtml(s.email)}</b><div class="nota">No está como contacto</div></td><td>—</td><td>${escapeHtml(MOTIVOS[s.reason] || s.reason)} · ${fechaHora(s.created_at)}</td><td>—</td><td>—</td><td>—</td></tr>`).join('');
+    $('bResultado').innerHTML = (filas || solo) ? `<div class="tabla-wrap"><table class="tabla-chica"><thead><tr><th>Contacto</th><th>Estado</th><th>Exclusión global</th><th>Listas</th><th>Último envío</th><th>Consentimiento</th></tr></thead><tbody>${filas}${solo}</tbody></table></div>` : '<p class="nota">No se encontró ese correo.</p>';
+  }catch(e){ aviso(e.message, 'err'); }
+}
+
+// ---------- Plantillas ----------
+const BASE_HTML = `<!DOCTYPE html>
+<html lang="es"><body style="margin:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px;">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;">
+      <tr><td style="padding:28px 28px 8px;font-size:20px;font-weight:bold;color:#111827;">Hola {{first_name|cliente}} 👋</td></tr>
+      <tr><td style="padding:8px 28px;font-size:15px;line-height:1.6;color:#374151;">Escribe aquí tu mensaje. Puedes usar {{first_name|cliente}}, {{last_name}}, {{company_name}} y {{email}}.</td></tr>
+      <tr><td align="center" style="padding:20px 28px 32px;"><a href="https://indexstore.cl" style="background:#0F766E;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:bold;display:inline-block;">Ver ofertas</a></td></tr>
+    </table>
+  </td></tr></table>
+</body></html>`;
+function pintarPlantillas(){
+  $('vista-plantillas').innerHTML = `<div class="barra"><button class="btn-primary" onclick="formPlantilla()">➕ Nueva plantilla</button></div>` +
+    (P.plantillas.length ? `<div class="tabla-wrap"><table><thead><tr><th>Plantilla</th><th>Asunto</th><th>Modificada</th><th data-sin-orden></th></tr></thead><tbody>${P.plantillas.map(t => `<tr><td><b>${escapeHtml(t.name)}</b></td><td>${escapeHtml(t.subject)}</td><td data-valor="${new Date(t.updated_at).getTime()}">${fechaHora(t.updated_at)}</td>
+      <td><button class="btn-ghost btn-compact" onclick="formPlantilla('${t.id}')">Editar</button> <button class="btn-peligro btn-compact" onclick="eliminarPlantilla('${t.id}')">Eliminar</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="nota">Aún no hay plantillas.</p>') +
+    '<p class="nota">Cada correo lleva automáticamente el aviso de publicidad, el remitente y el enlace de baja si la plantilla no incluye <code>{{unsubscribe_url}}</code>. Variables: {{first_name}}, {{last_name}}, {{company_name}}, {{email}}; con valor por defecto así: {{first_name|cliente}}.</p>';
+  if(window.__ordenarTablas) window.__ordenarTablas();
+}
+async function formPlantilla(id){
+  let t = { name: '', subject: '', preheader: '', html: BASE_HTML };
+  if(id){ try{ t = (await api('mk-plantillas', { query: { id } })).plantilla; }catch(e){ return aviso(e.message, 'err'); } }
+  abrirModal(cabeceraModal(id ? 'Editar plantilla' : 'Nueva plantilla') + `
+    <div class="fila2"><div class="campo"><label class="l">Nombre interno</label><input type="text" id="pNombre" maxlength="120" value="${escapeHtml(t.name)}"></div>
+    <div class="campo"><label class="l">Asunto</label><input type="text" id="pAsunto" maxlength="200" value="${escapeHtml(t.subject)}" placeholder="Ej: {{first_name|Hola}}, ofertas para ti"></div></div>
+    <div class="campo"><label class="l">Texto de vista previa (preheader)</label><input type="text" id="pPre" maxlength="200" value="${escapeHtml(t.preheader || '')}"><div class="nota">Lo que se ve junto al asunto en la bandeja de entrada.</div></div>
+    <div class="campo"><label class="l">HTML del correo</label><textarea id="pHtml" class="codigo" spellcheck="false">${escapeHtml(t.html)}</textarea></div>
+    <div id="pVistaBox" class="oculto"><label class="l">Vista previa (datos de muestra)</label><div class="nota" id="pVistaAsunto"></div><iframe class="vista" id="pVista" sandbox></iframe><div class="nota">En esta vista las imágenes solo cargan desde el CDN de Shopify; en el correo real puedes usar otras direcciones.</div></div>
+    <div class="error-form" id="pError"></div>
+    <div class="acciones" style="justify-content:flex-end;"><button class="btn-ghost" onclick="cerrarModal()">Cancelar</button><button class="btn-ghost" onclick="vistaPlantilla()">👁 Vista previa</button><button class="btn-primary" id="pOk" onclick="guardarPlantilla('${id || ''}')">Guardar</button></div>`, 'ancho');
+}
+async function vistaPlantilla(){
+  try{
+    const r = await api('mk-plantillas', { metodo: 'POST', body: { accion: 'vista', html: $('pHtml').value, preheader: $('pPre').value, subject: $('pAsunto').value } });
+    $('pVistaBox').classList.remove('oculto'); $('pVistaAsunto').textContent = 'Asunto: ' + r.asunto; $('pVista').srcdoc = r.html; $('pError').textContent = '';
+  }catch(e){ $('pError').textContent = e.message; }
+}
+async function guardarPlantilla(id){
+  $('pOk').disabled = true;
+  try{ await api('mk-plantillas', { metodo: 'POST', body: { accion: 'guardar', id: id || undefined, name: $('pNombre').value, subject: $('pAsunto').value, preheader: $('pPre').value, html: $('pHtml').value } }); cerrarModal(); await recargar(); aviso('Plantilla guardada', 'ok'); }
+  catch(e){ $('pError').textContent = e.message; $('pOk').disabled = false; }
+}
+async function eliminarPlantilla(id){
+  const t = P.plantillas.find(x => x.id === id);
+  if(!(await confirmar('Eliminar plantilla', `Se elimina «${escapeHtml(t.name)}». Esta acción no se puede deshacer.`, 'Sí, eliminar', true))) return;
+  try{ await api('mk-plantillas', { metodo: 'POST', body: { accion: 'eliminar', id } }); await recargar(); aviso('Plantilla eliminada', 'ok'); }catch(e){ aviso(e.message, 'err'); }
+}
+
+// ---------- Inicio ----------
+(async function iniciar(){
+  await cargarSesionUsuario();
+  if(rolActual !== 'admin'){ $('contenido').classList.add('oculto'); $('soloAdmin').classList.remove('oculto'); return; }
+  await recargar();
+  const t = location.hash.replace('#', '');
+  verTab(['resumen', 'campanas', 'contactos', 'plantillas'].includes(t) ? t : 'resumen');
+})();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>

@@ -205,7 +205,20 @@
     {
       "path": "/api/negocio?recurso=ventas-resumen-semanal&tipo=viernes",
       "schedule": "0 11 * * 5"
-    }
+    },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 11 * * *" },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 12 * * *" },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 13 * * *" },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 14 * * *" },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 15 * * *" },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 16 * * *" },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 17 * * *" },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 18 * * *" },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 19 * * *" },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 20 * * *" },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 21 * * *" },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 22 * * *" },
+    { "path": "/api/negocio?recurso=mk-programadas-cron", "schedule": "5 23 * * *" }
   ],
   "rewrites": [
     { "source": "/u/:token", "destination": "/api/negocio?recurso=mk-baja&token=:token" }
