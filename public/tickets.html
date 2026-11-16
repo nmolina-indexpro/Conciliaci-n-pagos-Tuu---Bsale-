@@ -893,7 +893,7 @@ function imprimirOrden(){
 <h2>Equipo recibido</h2><table>${fila('Tipo', o.equipo_tipo)}${fila('Marca y modelo', [o.marca, o.modelo].filter(Boolean).join(' '))}${fila('N° de serie', o.numero_serie)}${fila('Accesorios recibidos', o.accesorios_recibidos)}</table>
 <h2>Servicio</h2><table>${fila('Motivo de ingreso', o.motivo_ingreso)}${fila('Servicio', srv ? srv.codigo + ' · ' + srv.nombre : o.servicio_codigo)}${fila('Diagnóstico', o.diagnostico)}${fila('Presupuesto', o.presupuesto_clp ? '$' + Number(o.presupuesto_clp).toLocaleString('es-CL') : '')}${fila('Entrega estimada', f(o.fecha_entrega_estimada))}</table>
 <div class="firmas"><div>Firma del cliente</div><div>Recepción IndexStore</div></div>
-<div class="cond"><b>Condiciones</b>\n${esc(E.cfg.condicionesOs || '')}</div>
+<div class="cond">${/condiciones/i.test(E.cfg.condicionesOs || '') ? '' : '<b>Condiciones</b>\n'}${esc(E.cfg.condicionesOs || '')}</div>
 <script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>`;
   const w = window.open('', '_blank');
   if(!w){ toast('El navegador bloqueó la ventana de impresión: permite las ventanas emergentes para este sitio', true); return; }

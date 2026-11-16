@@ -19,6 +19,22 @@ Soporte TI (INDEXPRO) sigue en Zoho hasta la fase 2.
 Se traen los tickets creados desde la fecha que elijas (por defecto, 12 meses), del más nuevo al más antiguo, de a 100. **No se migran los hilos de conversación**: el ticket del ERP
 lleva un enlace "Zoho #N ↗" al original, donde queda la conversación completa mientras se mantenga la licencia.
 
+## Lo que se comprobó con datos reales (15-nov-2026)
+
+Se leyeron tickets reales de cada departamento (solo lectura, desde el conector de Zoho Desk) y se ajustó el mapeo a lo que mostraron:
+
+- Los estados de leads vienen como **"Contactado WSP (cerrado)"** (con el "(cerrado)") y el departamento NAS usa **"Open" / "Closed"** en inglés: ya se reconocen.
+- En los **leads el ticket y el contacto de Zoho suelen venir sin correo ni teléfono**: el nombre, el correo y el WhatsApp están en la *descripción* ("Correo: …", "WhatsApp: …"). El origen se infiere de la
+  *clasificación* ("LEAD Pantalla", "Carrito Abandonado"), del asunto ("Contactar: Landing cargadores") y de la línea "De donde viene:". En los carritos se rescatan producto y monto.
+- Los avisos de **postventa** y de **servicio técnico** traen al final textos legales idénticos (políticas de retracto, términos y condiciones): no se copian a cada ticket.
+- En servicio técnico el servicio llega como **"(SER008) - Diagnóstico para Notebook y PC"**: la migración crea en el catálogo los servicios que falten con su nombre real y corrige el nombre de los que aún no tienen precio.
+  También se leen el RUT y la fecha de entrega estimada ("F.E. de Entrega: 12-ago-2026").
+- El campo de Zoho **"Número Pedido, Boleta o Factura" trae casi siempre el N° de la boleta o factura** (p. ej. 42938), no el del pedido de Shopify (#10269). Muchas son ventas en tienda que no existen en Shopify.
+  Por eso la ficha de postventa busca el pedido por nombre y, si no, por las etiquetas `BO-/FA-/NV-`; y el documento de Bsale con ese número solo se da por bueno si el correo o RUT del cliente del documento coincide
+  con el del ticket (si no, "Sin confirmar" y no se enlaza).
+- Las **condiciones impresas** de la orden de servicio ahora son, por defecto, los *Términos y condiciones* reales que IndexStore ya envía en Zoho (inventario, respaldo, intervenciones previas, riesgos, garantía de 6 meses y abandono).
+- Contra la tienda real también se validaron las consultas de pedidos, de carritos abandonados y de pedidos por etiqueta. El ERP usa su propia app de Shopify: sus permisos pueden ser menores que los del conector.
+
 ## Cómo se mapea
 
 - **N° de ticket:** se conserva el de Zoho si es anterior a 26633 y no está tomado. Si no, recibe el siguiente del ERP y el de Zoho queda en `zoho_numero` (se puede buscar por cualquiera de los dos).
