@@ -37,6 +37,7 @@ import { asegurarTablaVentasDetalle, lineasDeDocumentos as lineasDeDocumentosDV,
 import { SISTEMA_PRONOSTICO_IA, HERRAMIENTA_PRONOSTICO_IA, armarEntradaPronostico, textoParaIA as textoParaIAPronostico, normalizarAnalisisPronostico } from '../lib/detalle-ventas-pronostico-ia.js';
 import { armarResumenSemanal, mesesParaActualizar as mesesResumenVentas, rangoNecesario as rangoResumenVentas, prepararLineasResumen, TIPOS_RESUMEN as TIPOS_RESUMEN_VENTAS } from '../lib/ventas-resumen-correo.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
+import { armarCorreoCotizacionWebNueva, avisarCotizacionWebNueva } from '../lib/correo-cotizacion-web.js';
 import { DIAS_ESTIMADOS_DEFECTO as DIAS_PEDIDO_PANTALLA, listarPedidos as listarPedidosPP, leerPedido as leerPedidoPP, resumirPedidos as resumirPedidosPP, aplicarCambios as aplicarCambiosPP, crearPedido as crearPedidoPP, reclamarAviso as reclamarAvisoPP, asegurarTablaPedidosPantalla, pedidosParaRecordar as pedidosParaRecordarPP, reclamarRecordatorios as reclamarRecordatoriosPP, soltarRecordatorios as soltarRecordatoriosPP } from '../lib/pedidos-pantalla.js';
 import { buscarProductos as buscarProductosCatalogoPP } from '../lib/pedidos-pantalla-catalogo.js';
 import { armarCorreoPedidoPantalla, armarCorreoRecordatorioPedidosPantalla } from '../lib/correo-pedido-pantalla.js';
@@ -5614,6 +5615,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'ventas-resumen-lunes': (rq, rs) => manejarVentasResumenSemanal({ ...rq, query: { ...rq.query, tipo: 'lunes' } }, rs),
       'ventas-resumen-viernes': (rq, rs) => manejarVentasResumenSemanal({ ...rq, query: { ...rq.query, tipo: 'viernes' } }, rs),
       'transito-envio-nuevo': manejarTransitoEnvioNuevoPrueba,
+      'cotizacion-web-nueva': manejarCotizacionWebNuevaPrueba,
       'pedido-pantalla-nuevo': manejarPedidoPantallaPrueba,
       'pedido-pantalla-recordatorio': manejarPedidosPantallaRecordatorio,
       'insumos-stock-critico': manejarInsumoCriticoPrueba,
@@ -10612,6 +10614,7 @@ async function manejarCotizacionWeb(req, res) {
     await asegurarTablaCotizacionesWeb(sql);
     const deps = {
       sql, enviarCorreo, clave: claveEsperada,
+      avisarEquipo: (fila, lineas) => avisarCotizacionWebNueva({ sql, enviarCorreo }, fila, lineas), // notificación 'cotizacion-web-nueva'
       gql: await descuentosWebGql(),
       bsale: (ruta, init = {}) => fetchConTimeout(BSALE_BASE + ruta, { ...init, headers: { access_token: token, ...(init.headers || {}) } }, 25000),
     };
@@ -10631,6 +10634,24 @@ async function manejarCotizacionWeb(req, res) {
   } catch (err) {
     console.error('cotizacion-web error', err);
     return res.status(500).json({ error: 'No pudimos procesar la cotización. Intenta de nuevo en unos minutos.' });
+  }
+}
+
+// "Enviar prueba" de Usuarios > Notificaciones: manda a quien lo pidió el aviso de la cotización web más reciente (o un ejemplo si todavía no hay ninguna).
+async function manejarCotizacionWebNuevaPrueba(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaCotizacionesWeb(sql);
+    const { rows } = await sql.query('SELECT * FROM cotizaciones_web ORDER BY creado_en DESC LIMIT 1');
+    const f = rows[0] || { bsale_numero: '9999', razon_social: 'Empresa de ejemplo SpA', nombre: 'Cliente de ejemplo', email: 'cliente@ejemplo.cl', telefono: '+56 9 1234 5678', rut: '76.123.456-7', comuna: 'Providencia', envio_nombre: 'Retiro en tienda', vence_en: new Date(Date.now() + 3 * 86400000).toISOString(),
+      items: [{ sku: 'BAT-0001', titulo: 'Batería de ejemplo', cantidad: 1 }, { sku: 'CAR-0002', titulo: 'Cargador de ejemplo', cantidad: 2 }] };
+    const { asunto, html } = armarCorreoCotizacionWebNueva(f, f.items, { urlBase: URL_BASE_APP, ejemplo: !rows[0] });
+    const r = await enviarCorreo({ para: String(req.query.para || ''), asunto: '[PRUEBA] ' + asunto, html });
+    return res.status(200).json({ ok: true, enviado: !!(r && r.enviado), motivo: r && r.motivo });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo armar el correo de prueba', detail: String(e.message || e).slice(0, 200) });
   }
 }
 
