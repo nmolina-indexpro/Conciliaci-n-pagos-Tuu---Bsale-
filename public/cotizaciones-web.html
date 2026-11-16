@@ -51,6 +51,15 @@
   .btn-pago{font:inherit;font-size:12px;padding:4px 10px;border-radius:8px;border:1px solid var(--border,#cbd5e1);background:var(--surface,#fff);color:inherit;cursor:pointer;margin-top:4px;}
   .btn-pago:hover{border-color:var(--blue,#2563eb);}
   .vacio{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  .sel-gestion{padding:5px 8px;font-size:12px;border-radius:8px;min-width:130px;}
+  .inp-comentario{width:230px;padding:6px 8px;font-size:12px;border-radius:8px;}
+  .btn-quitar{font:inherit;font-size:12px;padding:4px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer;box-shadow:none;font-weight:600;}
+  .btn-quitar:hover:not(:disabled){border-color:var(--red);color:var(--red);background:var(--surface);}
+  tr.fila-quitada td{opacity:.55;}
+  tr.fila-cancelada td:not(:nth-child(7)):not(:nth-child(8)):not(:last-child){color:var(--muted);}
+  .filtros{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;margin:0 0 12px;}
+  .filtros label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600;margin-bottom:4px;}
+  .filtros .chk{display:flex;gap:6px;align-items:center;font-size:12.5px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);margin:0 0 8px;}
   .uso-cols{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
   @media (max-width:1000px){.uso-cols{grid-template-columns:1fr;}}
   .barra{display:inline-block;height:8px;background:var(--primary);border-radius:4px;vertical-align:middle;min-width:2px;}
@@ -70,7 +79,13 @@
 
 <div class="seccion">
   <h2>Cotizaciones creadas</h2>
-  <p class="sub" style="margin:2px 0 12px">Las últimas 200. «Pago iniciado» significa que el cliente pulsó «Generar compra» y fue al carro de Shopify; no confirma que haya pagado (eso se ve en el pedido).</p>
+  <p class="sub" style="margin:2px 0 12px">Las últimas 200. «Pago iniciado» significa que el cliente pulsó «Generar compra» y fue al carro de Shopify; no confirma que haya pagado (eso se ve en el pedido).
+    <b>Gestión</b> y <b>Comentario</b> son tuyos: sirven para llevar el seguimiento (no cambian nada en Bsale ni lo que ve el cliente). <b>Enlace de pago</b> solo dice si el cliente todavía puede pagar desde el enlace del correo (vale 3 días desde que se crea): «vencida» no significa que la cotización esté perdida.</p>
+  <div class="filtros">
+    <div><label for="f-gestion">Mostrar</label>
+      <select id="f-gestion"><option value="">Todas</option><option value="sin_gestionar">Sin gestionar</option><option value="seguimiento">En seguimiento</option><option value="cancelada">Canceladas</option><option value="compro">Compraron</option></select></div>
+    <label class="chk"><input type="checkbox" id="f-ocultas"> Mostrar también las quitadas del listado</label>
+  </div>
   <div class="tabla-wrap"><table id="tabla"></table></div>
 </div>
 
@@ -102,16 +117,47 @@ const fmt = n => Math.round(n || 0).toLocaleString('es-CL');
 const fh = iso => iso ? new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
 if (/[?&]embed=1/.test(location.search)) $('volver').style.display = 'none';
 
+const GESTIONES = { sin_gestionar: 'Sin gestionar', seguimiento: 'En seguimiento', cancelada: 'Cancelada', compro: 'Compró' };
+let ultimo = null; // última respuesta del servidor (para repintar al filtrar o si un cambio falla)
 function pintar(d) {
-  const c = d.cotizaciones;
-  const vig = c.filter(x => x.estado === 'vigente').length, venc = c.filter(x => x.estado === 'vencida').length, pago = c.filter(x => x.pago_iniciado_en).length, porRevisar = c.filter(x => x.pago === 'comprobante').length;
-  $('kpis').innerHTML = [['Creadas', c.length], ['Vigentes', vig], ['Vencidas', venc], ['Con pago iniciado', pago], ['Comprobantes por revisar', porRevisar]].map(([l, v]) => `<div class="kpi"><div class="lbl">${l}</div><div class="big">${fmt(v)}</div></div>`).join('');
-  if (!c.length) { $('tabla').innerHTML = '<tbody><tr><td class="vacio">Todavía no hay cotizaciones.</td></tr></tbody>'; return; }
+  ultimo = d;
+  const c = d.cotizaciones.filter(x => !x.oculta); // los KPI cuentan solo lo que está en el listado
+  const vig = c.filter(x => x.estado === 'vigente').length, venc = c.filter(x => x.estado === 'vencida').length, pago = c.filter(x => x.pago_iniciado_en).length, porRevisar = c.filter(x => x.pago === 'comprobante').length, seg = c.filter(x => x.gestion === 'seguimiento').length;
+  $('kpis').innerHTML = [['Creadas', c.length], ['En seguimiento', seg], ['Enlace vigente', vig], ['Enlace vencido', venc], ['Con pago iniciado', pago], ['Comprobantes por revisar', porRevisar]].map(([l, v]) => `<div class="kpi"><div class="lbl">${l}</div><div class="big">${fmt(v)}</div></div>`).join('');
+  const filtro = $('f-gestion').value;
+  const lista = d.cotizaciones.filter(x => !filtro || (x.gestion || 'sin_gestionar') === filtro);
+  if (!d.cotizaciones.length) { $('tabla').innerHTML = '<tbody><tr><td class="vacio">Todavía no hay cotizaciones.</td></tr></tbody>'; return; }
+  if (!lista.length) { $('tabla').innerHTML = '<tbody><tr><td class="vacio">No hay cotizaciones con ese filtro.</td></tr></tbody>'; return; }
   const badge = e => ({ vigente: 'verde', vencida: 'gris', comprada: 'azul', anulada: 'rojo' }[e] || 'gris');
-  $('tabla').innerHTML = '<thead><tr><th>N° Bsale</th><th>Creada</th><th>Cliente</th><th>Productos</th><th>Comuna</th><th class="amount">Total</th><th>Estado</th><th>Vence</th><th>Pago iniciado</th><th>Pago por transferencia</th><th>Correo</th><th>Vistas</th></tr></thead><tbody>' +
-    c.map(x => `<tr><td>${x.bsale_url ? `<a href="${esc(urlSegura(x.bsale_url))}" target="_blank" rel="noopener">${esc(x.bsale_numero)}</a>` : esc(x.bsale_numero)}</td><td>${fh(x.creado_en)}</td><td>${esc(x.razon_social)}<br><small>${esc(x.nombre)} · ${esc(x.email)}</small></td>` +
-      `<td>${x.items.map(i => `${esc(i.cantidad)} × ${esc(i.titulo)}`).join('<br>')}</td><td>${esc(x.comuna)}<br><small>${esc(x.envio_nombre)}</small></td><td class="amount">$${fmt(x.total)}</td><td><span class="badge ${badge(x.estado)}">${esc(x.estado)}</span></td><td>${fh(x.vence_en)}</td><td>${fh(x.pago_iniciado_en)}</td><td>${celdaPago(x)}</td><td>${x.correo_enviado ? '✓' : '<span class="badge rojo">No salió</span>'}</td><td class="amount">${esc(x.vistas)}</td></tr>`).join('') + '</tbody>';
+  const celdaGestion = x => `<select class="sel-gestion" data-id="${x.id}" title="Qué estás haciendo con esta cotización">${Object.entries(GESTIONES).map(([k, t]) => `<option value="${k}" ${(x.gestion || 'sin_gestionar') === k ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  const celdaComentario = x => `<input type="text" class="inp-comentario" data-id="${x.id}" maxlength="500" value="${esc(x.comentario || '')}" placeholder="Comentario…" title="${esc(x.gestion_por ? 'Último cambio: ' + x.gestion_por + ' · ' + fh(x.gestion_en) : 'Escribe y presiona Enter o sal del campo para guardar')}">`;
+  $('tabla').innerHTML = '<thead><tr><th>N° Bsale</th><th>Creada</th><th>Cliente</th><th>Productos</th><th>Comuna</th><th class="amount">Total</th><th>Gestión</th><th>Comentario</th><th title="Si el cliente todavía puede pagar desde el enlace del correo (vale 3 días desde que se crea)">Enlace de pago</th><th>Vence</th><th>Pago iniciado</th><th>Pago por transferencia</th><th>Correo</th><th>Vistas</th><th data-sin-orden>Acciones</th></tr></thead><tbody>' +
+    lista.map(x => `<tr class="${x.oculta ? 'fila-quitada' : ''} ${x.gestion === 'cancelada' ? 'fila-cancelada' : ''}"><td>${x.bsale_url ? `<a href="${esc(urlSegura(x.bsale_url))}" target="_blank" rel="noopener">${esc(x.bsale_numero)}</a>` : esc(x.bsale_numero)}</td><td>${fh(x.creado_en)}</td><td>${esc(x.razon_social)}<br><small>${esc(x.nombre)} · ${esc(x.email)}</small></td>` +
+      `<td>${x.items.map(i => `${esc(i.cantidad)} × ${esc(i.titulo)}`).join('<br>')}</td><td>${esc(x.comuna)}<br><small>${esc(x.envio_nombre)}</small></td><td class="amount">$${fmt(x.total)}</td><td data-valor="${esc(x.gestion || 'sin_gestionar')}">${celdaGestion(x)}</td><td data-valor="${esc(x.comentario || '')}">${celdaComentario(x)}</td><td><span class="badge ${badge(x.estado)}">${esc(x.estado)}</span></td><td>${fh(x.vence_en)}</td><td>${fh(x.pago_iniciado_en)}</td><td>${celdaPago(x)}</td><td>${x.correo_enviado ? '✓' : '<span class="badge rojo">No salió</span>'}</td><td class="amount">${esc(x.vistas)}</td>` +
+      `<td><button type="button" class="btn-quitar" data-id="${x.id}" data-oculta="${x.oculta ? '0' : '1'}" title="${x.oculta ? 'Volver a mostrar en el listado' : 'Quitar de este listado (no se borra en Bsale)'}">${x.oculta ? '↩ Restaurar' : '🗑 Quitar'}</button></td></tr>`).join('') + '</tbody>';
 }
+// Gestión interna: estado, comentario y quitar del listado
+async function gestionar(id, cambios, aviso) {
+  const d = await cargar({ gestionar: Number(id), ...cambios });
+  if (d) $('msg').innerHTML = '<div class="nota ok">' + aviso + '</div>';
+  else if (ultimo) pintar(ultimo); // si falló, el campo vuelve a lo que estaba guardado
+}
+document.addEventListener('change', ev => {
+  const s = ev.target.closest('.sel-gestion');
+  if (s) return void gestionar(s.dataset.id, { gestion: s.value }, 'Estado guardado: ' + GESTIONES[s.value] + '.');
+  const i = ev.target.closest('.inp-comentario');
+  if (i) return void gestionar(i.dataset.id, { comentario: i.value }, 'Comentario guardado.');
+});
+document.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.closest('.inp-comentario')) ev.target.blur(); });
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('.btn-quitar'); if (!b) return;
+  const quitar = b.dataset.oculta === '1';
+  if (quitar && !confirm('¿Quitar esta cotización del listado? No se borra en Bsale ni para el cliente; podrás verla de nuevo con «Mostrar también las quitadas del listado».')) return;
+  b.disabled = true;
+  gestionar(b.dataset.id, { oculta: quitar }, quitar ? 'Cotización quitada del listado.' : 'Cotización restaurada en el listado.');
+});
+$('f-gestion').addEventListener('change', () => { if (ultimo) pintar(ultimo); });
+$('f-ocultas').addEventListener('change', () => cargar());
 function celdaPago(x) {
   const p = x.pago || '';
   if (!p) return '<span class="sub">—</span>';
@@ -134,7 +180,7 @@ document.addEventListener('click', async ev => {
 });
 async function cargar(cuerpo) {
   try {
-    const r = await fetch('/api/negocio?recurso=cotizacion-web-admin', cuerpo ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) } : undefined);
+    const r = await fetch('/api/negocio?recurso=cotizacion-web-admin' + ($('f-ocultas').checked ? '&ocultas=1' : ''), cuerpo ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) } : undefined);
     const d = await r.json();
     if (d.error) { $('msg').innerHTML = `<div class="nota err">${esc(d.error)}</div>`; return; }
     pintar(d); return d;

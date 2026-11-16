@@ -62,7 +62,7 @@ import { leerCommitsDelDia, armarEntradaIA, normalizarPropuestas, propuestasSinI
 import { armarDocumento, compararConApp, cuerpoBsale } from '../lib/bsale-emision.js';
 import { registrarEventoCotizacion, resumenUsoCotizacion } from '../lib/cotizacion-web-uso.js';
 import { ordenarColecciones, listarColecciones } from '../lib/orden-colecciones.js';
-import { asegurarTablaCotizacionesWeb, crearCotizacion, verCotizacion, comprarCotizacion, transferenciaCotizacion, subirComprobante as subirComprobanteCotizacionWeb, revisarComprobante as revisarComprobanteCotizacionWeb, solicitarPerfil as solicitarPerfilCotizacionWeb, verificarPerfil as verificarPerfilCotizacionWeb, leerConfig as leerConfigCotizacionWeb, guardarConfig as guardarConfigCotizacionWeb, estadoEfectivo as estadoCotizacionWeb } from '../lib/cotizacion-web.js';
+import { asegurarTablaCotizacionesWeb, crearCotizacion, verCotizacion, comprarCotizacion, transferenciaCotizacion, subirComprobante as subirComprobanteCotizacionWeb, revisarComprobante as revisarComprobanteCotizacionWeb, solicitarPerfil as solicitarPerfilCotizacionWeb, verificarPerfil as verificarPerfilCotizacionWeb, leerConfig as leerConfigCotizacionWeb, guardarConfig as guardarConfigCotizacionWeb, estadoEfectivo as estadoCotizacionWeb, gestionarCotizacion as gestionarCotizacionWeb } from '../lib/cotizacion-web.js';
 import { ETIQUETA_ENVIO_GRATIS, aplicarEtiquetaEnvioGratis, estadoDeSku, productosConEtiqueta, estadoDescuentoEnvio, crearDescuentoEnvioGratis } from '../lib/envio-gratis-shopify.js';
 import { validarFiltroEvento, asegurarTablaFiltrosUso, resumenFiltrosUso } from '../lib/filtros-uso.js';
 import { rangoDesdeHasta, esFechaDia } from '../lib/rango-fechas.js';
@@ -10623,7 +10623,10 @@ async function manejarCotizacionWebAdmin(req, res, sesion) {
     }
     if (req.method === 'POST') {
       const b = req.body || {};
-      if (b.revisar) { // aprobar o rechazar un comprobante
+      if (b.gestionar) { // gestión interna (estado, comentario, quitar del listado): cualquier usuario con acceso a la página
+        const r = await gestionarCotizacionWeb(sql, b.gestionar, { gestion: b.gestion, comentario: b.comentario, oculta: b.oculta }, sesion.nombre || sesion.email);
+        if (r.error) return res.status(200).json({ error: r.error });
+      } else if (b.revisar) { // aprobar o rechazar un comprobante
         if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo administradores pueden aprobar o rechazar un pago' });
         const deps = { sql, enviarCorreo };
         const r = await revisarComprobanteCotizacionWeb(deps, { id: b.id, decision: b.revisar, motivo: b.motivo, usuario: sesion.nombre || sesion.email });
@@ -10634,7 +10637,7 @@ async function manejarCotizacionWebAdmin(req, res, sesion) {
         return res.status(200).json({ ok: true, config: await leerConfigCotizacionWeb(sql) });
       }
     } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-    const { rows } = await sql.query(`SELECT id, estado, bsale_numero, bsale_url, email, nombre, telefono, rut, razon_social, comuna, metodo_pago, envio_nombre, envio_precio, total, correo_enviado, creado_en, vence_en, pago_iniciado_en, vistas, items, pago, comprobante_nombre, comprobante_tipo, comprobante_en, pago_revisado_por, pago_revisado_en, pago_motivo, (comprobante IS NOT NULL) AS tiene_comprobante FROM cotizaciones_web ORDER BY creado_en DESC LIMIT 200`);
+    const { rows } = await sql.query(`SELECT id, estado, bsale_numero, bsale_url, email, nombre, telefono, rut, razon_social, comuna, metodo_pago, envio_nombre, envio_precio, total, correo_enviado, creado_en, vence_en, pago_iniciado_en, vistas, items, pago, comprobante_nombre, comprobante_tipo, comprobante_en, pago_revisado_por, pago_revisado_en, pago_motivo, gestion, comentario, gestion_por, gestion_en, oculta, (comprobante IS NOT NULL) AS tiene_comprobante FROM cotizaciones_web WHERE ($1::boolean OR NOT oculta) ORDER BY creado_en DESC LIMIT 200`, [req.query && req.query.ocultas === '1']); // las quitadas del listado solo salen con ?ocultas=1
     const configCompleta = await leerConfigCotizacionWeb(sql);
     return res.status(200).json({
       config: sesion.rol === 'admin' ? configCompleta : { estado: configCompleta.estado }, // datos bancarios y correos solo para administradores
