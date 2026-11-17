@@ -14,7 +14,7 @@
 //
 // El access_token vive SOLO en el servidor (variable de entorno BSALE_ACCESS_TOKEN).
 
-import { getSql, asegurarTablaStockExtra } from '../lib/db.js';
+import { getSql, eliminarStockExtraManual } from '../lib/db.js';
 import { sesionVigente, limitarMemoria, respuestaLimite } from '../lib/seguridad.js';
 
 const BSALE_BASE = 'https://api.bsale.io/v1';
@@ -124,10 +124,16 @@ function ajustarASiguienteDiaHabil(dateStr) {
   return dateStr;
 }
 
-// Stock actual de todos los SKU (Bsale + el stock adicional cargado a mano), para el modo ?soloStock=1. Se guarda 90 s en memoria: varias pestañas o
-// personas con la página abierta comparten una sola lectura de Bsale en vez de repetirla cada una.
+// Antes el stock era el de Bsale MÁS un "stock adicional" cargado a mano (lote Daxis del 12-ago-2026) que nunca se ajustaba. Se eliminó: el stock es solo el de
+// Bsale. Esto borra la tabla que quedó en la base (una vez por instancia; ya no se lee ni se escribe en ningún lado) y puede quitarse cuando ya no exista.
+async function retirarStockManual() {
+  try { await eliminarStockExtraManual(await getSql()); } catch (dbErr) { /* sin base de datos no importa: el stock ya no la usa */ }
+}
+
+// Stock actual de todos los SKU (el de Bsale), para el modo ?soloStock=1. Se guarda 90 s en memoria: varias pestañas o personas con la página abierta
+// comparten una sola lectura de Bsale en vez de repetirla cada una.
 const TTL_STOCK_MS = 90000;
-let cacheStockSolo = null; // { ms, en, stockPorSku, extraPorSku, truncado }
+let cacheStockSolo = null; // { ms, en, stockPorSku, truncado }
 async function leerStockActual(token) {
   if (cacheStockSolo && Date.now() - cacheStockSolo.ms < TTL_STOCK_MS) return cacheStockSolo;
   const { items, truncado } = await fetchAllPages((offset, limit) => `/stocks.json?expand=variant&limit=${limit}&offset=${offset}`, token, 50, 60);
@@ -137,14 +143,8 @@ async function leerStockActual(token) {
     if (!code) continue;
     stockPorSku[code] = (stockPorSku[code] || 0) + (s.quantityAvailable ?? s.quantity ?? 0);
   }
-  const extraPorSku = {};
-  try {
-    const sql = await getSql();
-    await asegurarTablaStockExtra(sql);
-    const { rows } = await sql`SELECT sku, cantidad FROM stock_extra;`;
-    for (const e of rows) extraPorSku[e.sku] = e.cantidad;
-  } catch (dbErr) { /* sin base de datos: solo el stock de Bsale, igual que el análisis completo */ }
-  cacheStockSolo = { ms: Date.now(), en: new Date().toISOString(), stockPorSku, extraPorSku, truncado };
+  await retirarStockManual();
+  cacheStockSolo = { ms: Date.now(), en: new Date().toISOString(), stockPorSku, truncado };
   return cacheStockSolo;
 }
 
@@ -180,7 +180,7 @@ export default async function handler(req, res) {
     try {
       const d = await leerStockActual(token);
       const stock = {};
-      for (const c of codigos) stock[c] = d.stockPorSku[c] == null && d.truncado ? null : (d.stockPorSku[c] || 0) + (d.extraPorSku[c] || 0);
+      for (const c of codigos) stock[c] = d.stockPorSku[c] == null && d.truncado ? null : (d.stockPorSku[c] || 0);
       return res.status(200).json({ stock, actualizadoEn: d.en, truncado: d.truncado });
     } catch (err) {
       return res.status(200).json({ error: 'Error consultando el stock', detail: String(err) });
@@ -387,19 +387,8 @@ export default async function handler(req, res) {
       stockPorSku[code] = (stockPorSku[code] || 0) + (s.quantityAvailable ?? s.quantity ?? 0);
     }
 
-    // Stock adicional cargado a mano (mercadería recibida que todavía no se
-    // ingresó como stock en Bsale, ej. un lote Daxis recién llegado) -> se
-    // suma al de Bsale. Si la base de datos no está disponible, sigue
-    // funcionando igual, solo sin el extra.
-    const stockExtraPorSku = {};
-    try {
-      const sql = await getSql();
-      await asegurarTablaStockExtra(sql);
-      const { rows: extras } = await sql`SELECT sku, nombre, cantidad FROM stock_extra;`;
-      for (const e of extras) stockExtraPorSku[e.sku] = { cantidad: e.cantidad, nombre: e.nombre };
-    } catch (dbErr) {
-      // sin BD disponible, se sigue solo con el stock de Bsale
-    }
+    // El stock es solo el de Bsale: el "stock adicional" cargado a mano (lote Daxis de agosto) se eliminó (ver retirarStockManual).
+    await retirarStockManual();
 
     // ---- 3) Catálogo: clasificación (producto/servicio), categoría, y el
     // mapa id de variante -> SKU (las recepciones solo traen el id interno de
@@ -659,8 +648,7 @@ export default async function handler(req, res) {
     const todosLosCodigos = new Set([
       ...Object.keys(ventasPorSku),
       ...Object.keys(stockPorSku),
-      ...Object.keys(comprasPorSku),
-      ...Object.keys(stockExtraPorSku)
+      ...Object.keys(comprasPorSku)
     ]);
 
     // Heurística de respaldo por si el catálogo no cargó: excluir por nombre
@@ -678,7 +666,7 @@ export default async function handler(req, res) {
       .filter(code => (categoriaPorCode[code] || 'Sin categoría') !== 'Sin categoría')
       .map(code => {
         const venta = ventasPorSku[code] || { nombre: code, unidades: 0, montoNeto: 0, numDocs: 0, semana1: 0, semana2: 0, semana3: 0, semana4: 0 };
-        const stockActual = (stockPorSku[code] || 0) + (stockExtraPorSku[code]?.cantidad || 0);
+        const stockActual = stockPorSku[code] || 0;
         const compradas = comprasPorSku[code] || 0;
         const ventaDiaria = venta.unidades / numDias;
 
