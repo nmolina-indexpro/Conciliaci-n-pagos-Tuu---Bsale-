@@ -124,6 +124,30 @@ function ajustarASiguienteDiaHabil(dateStr) {
   return dateStr;
 }
 
+// Stock actual de todos los SKU (Bsale + el stock adicional cargado a mano), para el modo ?soloStock=1. Se guarda 90 s en memoria: varias pestañas o
+// personas con la página abierta comparten una sola lectura de Bsale en vez de repetirla cada una.
+const TTL_STOCK_MS = 90000;
+let cacheStockSolo = null; // { ms, en, stockPorSku, extraPorSku, truncado }
+async function leerStockActual(token) {
+  if (cacheStockSolo && Date.now() - cacheStockSolo.ms < TTL_STOCK_MS) return cacheStockSolo;
+  const { items, truncado } = await fetchAllPages((offset, limit) => `/stocks.json?expand=variant&limit=${limit}&offset=${offset}`, token, 50, 60);
+  const stockPorSku = {};
+  for (const s of items) {
+    const code = s.variant?.code;
+    if (!code) continue;
+    stockPorSku[code] = (stockPorSku[code] || 0) + (s.quantityAvailable ?? s.quantity ?? 0);
+  }
+  const extraPorSku = {};
+  try {
+    const sql = await getSql();
+    await asegurarTablaStockExtra(sql);
+    const { rows } = await sql`SELECT sku, cantidad FROM stock_extra;`;
+    for (const e of rows) extraPorSku[e.sku] = e.cantidad;
+  } catch (dbErr) { /* sin base de datos: solo el stock de Bsale, igual que el análisis completo */ }
+  cacheStockSolo = { ms: Date.now(), en: new Date().toISOString(), stockPorSku, extraPorSku, truncado };
+  return cacheStockSolo;
+}
+
 export default async function handler(req, res) {
   // Defensa en profundidad: middleware.ts (Edge) ya bloquea con 401 a quien
   // no tenga sesión antes de llegar acá, pero acá además se necesita el rol
@@ -145,6 +169,22 @@ export default async function handler(req, res) {
   const token = process.env.BSALE_ACCESS_TOKEN;
   if (!token) {
     return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no configurada en el servidor', skus: [] });
+  }
+
+  // Modo "solo stock": el stock actual de unos SKU (?codigos=A,B,C), con la misma cuenta del análisis completo (Bsale + stock adicional manual), sin repetir
+  // el análisis de ventas y recepciones. Lo usa Compras > Importación Daxis para refrescar el stock solo. Un SKU que no aparece porque la lista de Bsale se
+  // truncó viene como null (no se sabe) en vez de 0, para no mostrar "sin stock" por un tope de páginas.
+  if (req.query.soloStock === '1') {
+    const codigos = String(req.query.codigos || '').split(',').map(c => c.trim()).filter(Boolean).slice(0, 300);
+    if (!codigos.length) return res.status(400).json({ error: 'Faltan los códigos (codigos=A,B,C)' });
+    try {
+      const d = await leerStockActual(token);
+      const stock = {};
+      for (const c of codigos) stock[c] = d.stockPorSku[c] == null && d.truncado ? null : (d.stockPorSku[c] || 0) + (d.extraPorSku[c] || 0);
+      return res.status(200).json({ stock, actualizadoEn: d.en, truncado: d.truncado });
+    } catch (err) {
+      return res.status(200).json({ error: 'Error consultando el stock', detail: String(err) });
+    }
   }
 
   const hoy = new Date();

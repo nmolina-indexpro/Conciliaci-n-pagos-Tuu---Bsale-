@@ -434,7 +434,8 @@
         <button class="btn-ghost btn-compact" id="daxisFiltroCargador" onclick="filtrarDaxisCategoria('cargador-daxis')">🔌 Cargadores</button>
         <button class="btn-ghost btn-compact" id="daxisFiltroBateria" onclick="filtrarDaxisCategoria('bateria-daxis')">🔋 Baterías</button>
       </div>
-      <div id="daxisWrap" style="margin-top:14px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
+      <div class="empty-note" style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><span id="daxisStockTexto">El stock se lee de Bsale al cargar la página y se actualiza solo cada 5 minutos.</span><button class="btn-ghost btn-compact" id="btnStockDaxis" onclick="actualizarStockDaxis(true)" title="Vuelve a leer el stock de estos productos en Bsale">↻ Actualizar stock ahora</button></div>
+      <div id="daxisWrap" style="margin-top:6px;"><p class="empty-note">Se carga junto con "Analizar".</p></div>
     </div>
   </div>
   </div>
@@ -548,6 +549,7 @@
 <script src="restriccion-usuario.js"></script>
 <script src="etiquetas-botones.js"></script>
 <script src="menu-herramientas.js"></script>
+<script src="sondeo-activo.js"></script>
 <script src="preferencias-vista.js"></script>
 <script>
 const $ = id => document.getElementById(id);
@@ -651,6 +653,7 @@ function clasificar(sku){
 }
 
 async function cargar(){
+  cargandoCatalogo = true;
   const dias = parseInt($('diasInput').value, 10) || 30;
   const status = $('status');
   status.className = '';
@@ -722,12 +725,60 @@ async function cargar(){
     renderIntcomex();
     renderTabla();
     renderResumenModulos();
+    stockDaxisEn = new Date(); errorStockDaxis = null; pintarInfoStockDaxis(); // el stock recién leído es el de este momento
 
     status.className = 'ok';
     status.textContent = `Listo — ${res.docsRevisados} documentos revisados, ${res.startDate} a ${res.endDate}`;
   }catch(err){
     status.className = 'err';
     status.textContent = 'Error: ' + err.message;
+  }finally{
+    cargandoCatalogo = false;
+  }
+}
+
+// ---------- Stock de Importación Daxis: se actualiza solo ----------
+// El stock sale de Bsale al cargar la página. Mientras la persona está en el módulo Daxis se vuelve a leer cada 5 minutos (solo el stock de estos SKU,
+// no el análisis completo; ver ?soloStock=1 en api/bsale-sku-report.js) y con el botón. La cobertura se recalcula con la misma venta diaria y la tabla
+// se vuelve a pintar sola. No corre con la pestaña oculta o sin uso (sondeo-activo.js) ni mientras se está cargando el catálogo.
+const INTERVALO_STOCK_DAXIS_MS = 300000;
+let moduloActualCompras = null, cargandoCatalogo = false, actualizandoStockDaxis = false, stockDaxisEn = null, errorStockDaxis = null;
+function codigosDaxis(){
+  return datosSkus.filter(s => filtrosRapidos['cargador-daxis'](s) || filtrosRapidos['bateria-daxis'](s)).map(s => s.code);
+}
+function pintarInfoStockDaxis(){
+  const el = $('daxisStockTexto'); if(!el) return;
+  const hora = stockDaxisEn ? stockDaxisEn.toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hour12: false }) : null;
+  el.innerHTML = (hora ? `Stock de Bsale leído a las <b>${hora}</b>.` : 'El stock se lee de Bsale al cargar la página.') + ' Se actualiza solo cada 5 minutos mientras estás en esta pestaña.' +
+    (errorStockDaxis ? ` <span style="color:var(--red);">No se pudo actualizar: ${escapeHtml(errorStockDaxis)}</span>` : '');
+}
+async function actualizarStockDaxis(manual){
+  if(actualizandoStockDaxis || cargandoCatalogo || !datosSkus.length) return;
+  const codigos = codigosDaxis();
+  if(!codigos.length) return;
+  actualizandoStockDaxis = true;
+  const boton = $('btnStockDaxis');
+  if(boton){ boton.disabled = true; boton.textContent = 'Actualizando…'; }
+  try{
+    const d = await fetch('/api/bsale-sku-report?soloStock=1&codigos=' + encodeURIComponent(codigos.join(','))).then(r => r.json());
+    if(d.error) throw new Error(d.detail || d.error);
+    let cambios = 0;
+    for(const s of datosSkus){
+      const n = d.stock[s.code];
+      if(n == null) continue; // Bsale no entregó este SKU esta vez: se deja el valor anterior
+      if(n !== s.stockActual) cambios++;
+      s.stockActual = n;
+      const v = s.ventaDiariaPromedio || 0;
+      s.diasCobertura = v > 0 ? Math.round(n / v) : (n > 0 ? null : 0); // misma cuenta que api/bsale-sku-report.js
+    }
+    stockDaxisEn = new Date(d.actualizadoEn); errorStockDaxis = null;
+    if(cambios || manual){ renderDaxis(); renderDM(); renderTabla(); renderResumenModulos(); }
+  }catch(err){
+    errorStockDaxis = err.message;
+  }finally{
+    actualizandoStockDaxis = false;
+    if(boton){ boton.disabled = false; boton.textContent = '↻ Actualizar stock ahora'; }
+    pintarInfoStockDaxis();
   }
 }
 
@@ -2620,6 +2671,9 @@ function irModulo(clave, sinHash){
   const marco = $('frame-' + clave);
   if(marco && !marco.getAttribute('src')) marco.setAttribute('src', marco.dataset.src);
   try{ if(!sinHash) history.replaceState(null, '', '#' + clave); }catch(e){ /* sin historial disponible */ }
+  moduloActualCompras = clave;
+  // al volver al módulo Daxis, si el stock tiene más de 2 minutos se actualiza de inmediato
+  if(clave === 'daxis' && stockDaxisEn && Date.now() - stockDaxisEn.getTime() > 120000) actualizarStockDaxis(false);
 }
 function moduloDesdeHash(){
   const h = (location.hash || '').replace('#', '');
@@ -2709,6 +2763,8 @@ async function cargarSesionUsuario(){
     await cargarPreferencias('compras');
     await cargar();
     calcularRecomendacionPresupuesto();
+    // Stock de Importación Daxis al día: se vuelve a leer solo mientras la persona está en ese módulo, con la pestaña a la vista y en uso
+    sondeoActivo(() => { if(moduloActualCompras === 'daxis') actualizarStockDaxis(false); }, { ms: INTERVALO_STOCK_DAXIS_MS, inactividadMin: 15 });
   }catch(err){ /* silencioso: no bloquea el resto de la página */ }
 }
 async function cerrarSesion(){
