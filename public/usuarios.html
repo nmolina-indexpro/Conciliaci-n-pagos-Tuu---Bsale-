@@ -123,6 +123,7 @@
   .grupo-head .todo{font-weight:600;font-size:10.5px;color:var(--primary);cursor:pointer;background:none;border:none;padding:0;}
   .chk{display:flex;align-items:center;gap:7px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);margin:0;padding:2.5px 0;cursor:pointer;}
   .chk input{padding:0;margin:0;accent-color:var(--primary);}
+  .chk.sub{margin-left:20px;color:var(--muted);}
   .nota-perfil{font-size:11.5px;color:var(--muted);margin-top:10px;}
 
   /* ---- Notificaciones: una fila por alerta, en columnas ---- */
@@ -207,13 +208,13 @@
         <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
         <div class="nav-dropdown-menu" id="navCompras">
           <a href="compras.html#resumen">Resumen</a>
-          <a href="compras.html#catalogo">Catálogo completo</a>
-          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
-          <a href="compras.html#daxis">Importación Daxis</a>
-          <a href="compras.html#dm">Compras DM</a>
-          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#catalogo" data-requiere="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion" data-requiere="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis" data-requiere="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm" data-requiere="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex" data-requiere="compras.html#intcomex">Compras Intcomex</a>
           <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
-          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="compras.html#comparador" data-requiere="compras.html#comparador">Comparativa de cotizaciones</a>
           <a href="alertas-stock.html">Alertas de Stock</a>
           <a href="productos-en-transito.html">Productos en tránsito</a>
           <a href="pedidos-pantallas.html">Pantallas a pedido</a>
@@ -405,7 +406,13 @@ const PAGINAS_LABELS = {
   'index.html': 'Flujo de Caja',
   'conciliacion.html': 'Conciliación',
   'contabilidad.html': 'Contabilidad',
-  'compras.html': 'Compras',
+  'compras.html': 'Compras (Resumen)',
+  'compras.html#catalogo': 'Catálogo completo',
+  'compras.html#recomendacion': 'Recomendación con presupuesto',
+  'compras.html#daxis': 'Importación Daxis',
+  'compras.html#dm': 'Compras DM',
+  'compras.html#intcomex': 'Compras Intcomex',
+  'compras.html#comparador': 'Comparativa de cotizaciones',
   'alertas-stock.html': 'Alertas de Stock',
   'productos-en-transito.html': 'Productos en tránsito',
   'pedidos-pantallas.html': 'Pantallas a pedido',
@@ -446,7 +453,7 @@ const PAGINAS_LABELS = {
 const GRUPOS_PAGINAS = [
   ['General', ['home.html', 'guia-uso.html']],
   ['Finanzas', ['index.html', 'conciliacion.html', 'contabilidad.html']],
-  ['Compras', ['compras.html', 'alertas-stock.html', 'productos-en-transito.html', 'pedidos-pantallas.html', 'insumos-servicio-tecnico.html']],
+  ['Compras', ['compras.html', 'compras.html#catalogo', 'compras.html#recomendacion', 'compras.html#daxis', 'compras.html#dm', 'compras.html#intcomex', 'compras.html#comparador', 'alertas-stock.html', 'productos-en-transito.html', 'pedidos-pantallas.html', 'insumos-servicio-tecnico.html']],
   ['Comercial', ['oportunidades-comerciales.html', 'detalle-ventas.html', 'cotizaciones-clientes.html', 'compra-agil.html', 'metas-de-venta.html', 'clientes-whatsapp.html', 'llamadas.html', 'indexscale.html', 'modelos-compatibles.html']],
   ['Soporte', ['tickets.html', 'chat-en-vivo.html', 'eficiencia-tickets.html', 'soporte-indexpro.html']],
   ['Servicio técnico', ['servicio-tecnico.html', 'identificacion-modelos.html', 'electronica.html']],
@@ -591,7 +598,7 @@ function renderDetallePerfil(){
     <div class="grupo">
       <div class="grupo-head"><span>${esc(nombre)} <span style="color:var(--muted);font-weight:500;">${marcadas}/${paginas.length}</span></span>
         <button class="todo" onclick="marcarGrupo('${esc(nombre)}', ${marcadas === paginas.length ? 'false' : 'true'})">${marcadas === paginas.length ? 'Ninguna' : 'Todas'}</button></div>
-      ${paginas.map(p => `<label class="chk"><input type="checkbox" ${perfilSel.paginas.has(p) ? 'checked' : ''} onchange="marcarPagina('${p}', this.checked)"> ${esc(PAGINAS_LABELS[p] || p)}</label>`).join('')}
+      ${paginas.map(p => `<label class="chk${p.includes('#') ? ' sub' : ''}"><input type="checkbox" ${perfilSel.paginas.has(p) ? 'checked' : ''} onchange="marcarPagina('${p}', this.checked)"> ${esc(PAGINAS_LABELS[p] || p)}</label>`).join('')}
     </div>`;
   }).join('');
   cont.innerHTML = `
@@ -614,8 +621,14 @@ function actualizarBotonPerfil(){
   const esNuevo = perfilSel.id === null;
   btn.disabled = esNuevo ? !perfilSel.nombre.trim() : claveSet(perfilSel.paginas) === perfilSel.original;
 }
+// Las pestañas de una página (compras.html#dm) dependen de la página: marcar una marca también la página; quitar la página quita sus pestañas.
 function marcarPagina(pagina, marcada){
-  if(marcada) perfilSel.paginas.add(pagina); else perfilSel.paginas.delete(pagina);
+  const base = pagina.split('#')[0];
+  if(marcada){ perfilSel.paginas.add(pagina); if(pagina.includes('#')) perfilSel.paginas.add(base); }
+  else{
+    perfilSel.paginas.delete(pagina);
+    if(!pagina.includes('#')) [...perfilSel.paginas].filter(p => p.startsWith(base + '#')).forEach(p => perfilSel.paginas.delete(p));
+  }
   renderDetallePerfil();
 }
 function marcarGrupo(nombre, marcar){

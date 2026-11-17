@@ -188,13 +188,13 @@
         <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
         <div class="nav-dropdown-menu" id="navCompras">
           <a href="compras.html#resumen">Resumen</a>
-          <a href="compras.html#catalogo">Catálogo completo</a>
-          <a href="compras.html#recomendacion">Recomendación con presupuesto</a>
-          <a href="compras.html#daxis">Importación Daxis</a>
-          <a href="compras.html#dm">Compras DM</a>
-          <a href="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#catalogo" data-requiere="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion" data-requiere="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis" data-requiere="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm" data-requiere="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex" data-requiere="compras.html#intcomex">Compras Intcomex</a>
           <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
-          <a href="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="compras.html#comparador" data-requiere="compras.html#comparador">Comparativa de cotizaciones</a>
           <a href="alertas-stock.html">Alertas de Stock</a>
           <a href="productos-en-transito.html">Productos en tránsito</a>
           <a href="pedidos-pantallas.html">Pantallas a pedido</a>
@@ -2638,6 +2638,15 @@ function quitarModuloCompras(clave){
   document.querySelectorAll('.sw-item[data-modulo="' + clave + '"], #mod-' + clave + ', #resCard-' + clave).forEach(e => e.remove());
   document.querySelectorAll('#navCompras a[href$="#' + clave + '"]').forEach(a => a.style.display = 'none');
 }
+// Pestañas con permiso propio en el perfil ("compras.html#<pestaña>", ver lib/paginas-perfil.js). Sin el permiso se OCULTAN (no se quitan del todo, como Insumos):
+// el resto de la página las sigue llenando con sus datos y, si faltara su contenido, el código fallaría. El Resumen va con la página; Insumos es una página aparte.
+const PESTANAS_CON_PERMISO = ['catalogo', 'recomendacion', 'daxis', 'dm', 'intcomex', 'comparador'];
+function ocultarModuloCompras(clave){
+  const ix = MODULOS_COMPRAS.indexOf(clave);
+  if(ix >= 0) MODULOS_COMPRAS.splice(ix, 1);
+  document.querySelectorAll('.sw-item[data-modulo="' + clave + '"], #mod-' + clave + ', #resCard-' + clave).forEach(e => { e.classList.remove('activo'); e.style.display = 'none'; });
+  document.querySelectorAll('#navCompras a[href$="#' + clave + '"]').forEach(a => a.style.display = 'none');
+}
 
 // Tarjetas del Resumen: una por módulo, con una cifra clave y un aviso si hay algo urgente.
 function setResumenModulo(clave, nivel, pill, datos, msg){
@@ -2682,6 +2691,10 @@ async function cargarSesionUsuario(){
     aplicarRestriccionPaginas(u.paginas);
     // Insumos de Servicio Técnico es una página con su propio permiso: sin él, no aparece aquí
     if(Array.isArray(u.paginas) && !u.paginas.includes('insumos-servicio-tecnico.html')){ quitarModuloCompras('insumos'); if(!MODULOS_COMPRAS.includes(moduloDesdeHash())) irModulo('resumen', true); }
+    if(Array.isArray(u.paginas)){
+      PESTANAS_CON_PERMISO.filter(m => !u.paginas.includes('compras.html#' + m)).forEach(ocultarModuloCompras);
+      irModulo(moduloDesdeHash(), true); // si se abrió con el # de una pestaña sin permiso, cae en el Resumen
+    }
     aplicarRestriccionMargenes(u.rol);
     if(u.rol === 'admin'){
       const nav = document.getElementById('navUsuarios');
