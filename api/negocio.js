@@ -30,6 +30,7 @@ import { manejarTicketsMetricas } from '../lib/tickets-metricas.js';
 import { manejarTicketsMigracion, asegurarColumnasZoho, leerParalelo as leerParaleloZoho, sincronizarParalelo as sincronizarParaleloZoho } from '../lib/tickets-zoho.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
+import { refrescarFechasRelativas } from '../lib/correo-base.js';
 import { elegirPrecioSku } from '../lib/precios-sku.js';
 import { extraerVentasEfectivo, armarCorreoVentasEfectivo, leerDocumentos as leerDocumentosEfectivo, ventasEfectivoYaAvisadas, marcarVentasEfectivoAvisadas, ayerChile as ayerChileEfectivo, VENTANA_DIAS as VENTANA_EFECTIVO_DIAS } from '../lib/ventas-efectivo.js';
 import { seleccionarRecepciones, armarCorreoRecepciones, leerRecepcionesRecientes, leerInfoVariantes, leerMiniaturas, recepcionesYaAvisadas, marcarRecepcionesAvisadas, ayerChile, sumarDias } from '../lib/recepciones-stock.js';
@@ -5685,7 +5686,8 @@ async function manejarNotificacionProbar(req, res, sesion) {
       const asuntoOriginal = ult[0].ultimo_asunto || TIPOS_NOTIFICACION[tipo].nombre;
       const destinatarios = [];
       for (const para of dest) {
-        const e = await enviarCorreo({ para, asunto: `Reenvío · ${asuntoOriginal}`, html: ult[0].ultimo_html });
+        // Los textos relativos a la fecha ("llega en 9 días") se recalculan contra el día en que se reenvía; el resto queda tal cual se envió.
+        const e = await enviarCorreo({ para, asunto: `Reenvío · ${asuntoOriginal}`, html: refrescarFechasRelativas(ult[0].ultimo_html, fechaHoyChile()) });
         destinatarios.push({ para, enviado: e.enviado !== false });
       }
       return res.status(200).json({ ok: true, enviado: destinatarios.some(d => d.enviado), destinatarios, asunto: asuntoOriginal, enviadoOriginalEn: ult[0].ultimo_envio_en || null });
@@ -5721,7 +5723,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
     const motivo = r.motivo || r.error || 'hoy no hay datos para armar este correo';
     const { rows } = await sql`SELECT ultimo_asunto, ultimo_html FROM notificaciones_config WHERE tipo = ${tipo};`;
     if (rows[0] && rows[0].ultimo_html) {
-      const e = await enviarCorreo({ para: destino, asunto: `[PRUEBA · último envío real] ${rows[0].ultimo_asunto || TIPOS_NOTIFICACION[tipo].nombre}`, html: rows[0].ultimo_html });
+      const e = await enviarCorreo({ para: destino, asunto: `[PRUEBA · último envío real] ${rows[0].ultimo_asunto || TIPOS_NOTIFICACION[tipo].nombre}`, html: refrescarFechasRelativas(rows[0].ultimo_html, fechaHoyChile()) });
       if (e.enviado === false) return res.status(200).json({ ok: false, enviado: false, destino, error: 'No se pudo enviar el correo', detail: e.motivo || e.error || null });
       return res.status(200).json({ ok: true, enviado: true, destino, ultimoEnvio: true, motivo });
     }
