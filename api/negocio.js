@@ -5675,6 +5675,22 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'electronica-leccion': manejarElectronicaEnviar,
     };
     // Reenvío a TODOS los destinatarios configurados (solo para los tipos que lo permiten): ?todos=1. Es un envío real: queda registrado como último correo.
+    // ?todos=1 (sin regenerar): reenvía a todos los destinatarios el ÚLTIMO correo que se envió de esa notificación (asunto y contenido tal cual se guardaron), con "Reenvío" al comienzo del asunto.
+    // No cuenta como un envío nuevo: no cambia el "último envío" ni la miniatura.
+    if (req.query.todos === '1' && req.query.regenerar !== '1') {
+      const { rows: ult } = await sql`SELECT ultimo_asunto, ultimo_html, ultimo_envio_en FROM notificaciones_config WHERE tipo = ${tipo};`;
+      if (!ult[0] || !ult[0].ultimo_html) return res.status(200).json({ ok: false, enviado: false, motivo: 'Esta notificación todavía no tiene un correo enviado que reenviar.' });
+      const dest = await obtenerSuscriptoresEmail(sql, tipo);
+      if (!dest.length) return res.status(200).json({ ok: false, enviado: false, motivo: 'La notificación no tiene destinatarios.' });
+      const asuntoOriginal = ult[0].ultimo_asunto || TIPOS_NOTIFICACION[tipo].nombre;
+      const destinatarios = [];
+      for (const para of dest) {
+        const e = await enviarCorreo({ para, asunto: `Reenvío · ${asuntoOriginal}`, html: ult[0].ultimo_html });
+        destinatarios.push({ para, enviado: e.enviado !== false });
+      }
+      return res.status(200).json({ ok: true, enviado: destinatarios.some(d => d.enviado), destinatarios, asunto: asuntoOriginal, enviadoOriginalEn: ult[0].ultimo_envio_en || null });
+    }
+    // ?todos=1&regenerar=1: arma el correo de nuevo con los datos de ahora y lo manda a todos (solo los tipos que lo permiten).
     if (req.query.todos === '1') {
       if (!['productos-estancados-flags', 'servicio-tecnico-resumen-semanal'].includes(tipo)) return res.status(400).json({ error: 'Este tipo de notificación no permite reenviar a todos desde aquí' });
       const cap = { status: 200, cuerpo: null };
