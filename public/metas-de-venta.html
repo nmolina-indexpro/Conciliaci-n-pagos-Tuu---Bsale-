@@ -635,7 +635,8 @@ function renderServicios(data){
       <div class="tabla-wrap"><table><thead><tr><th>Tipo</th><th>Cantidad</th></tr></thead><tbody>${mio.porTipo.map(t => `<tr><td>${escapeHtmlCot(t.nombre)}</td><td>${fmtNum(t.unidades)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
   } else {
     $('seccionMiAvanceServicios').style.display = 'none';
-    $('seccionSinDatosServicios').style.display = '';
+    // El aviso "tu usuario no aparece" es para el vendedor que no ve su avance; a un administrador que solo mira el ranking no le sirve.
+    $('seccionSinDatosServicios').style.display = esAdmin ? 'none' : '';
   }
 
   const ranking = $('seccionRankingServicios');
