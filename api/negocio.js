@@ -396,6 +396,7 @@ export default async function handler(req, res) {
   if (recurso === 'comparativo-ventas-sync') return manejarComparativoVentasSync(req, res, sesion);
   if (recurso === 'ventas-detalle') return manejarVentasDetalle(req, res, sesion);
   if (recurso === 'ventas-detalle-sync') return manejarVentasDetalleSync(req, res, sesion);
+  if (recurso === 'ventas-detalle-hoy') return manejarVentasDetalleHoy(req, res, sesion);
   if (recurso === 'ventas-detalle-ia') return manejarVentasDetalleIA(req, res, sesion);
   if (recurso === 'comparativo-marca') return manejarComparativoMarca(req, res, sesion);
   if (recurso === 'contabilidad' || recurso === 'contabilidad-sync' || recurso === 'contabilidad-categoria' || recurso === 'contabilidad-analisis') return manejarContabilidad(req, res, sesion);
@@ -18755,6 +18756,79 @@ async function manejarVentasDetalleSync(req, res, sesion) {
     return res.status(200).json({ mes, fase: completo ? 'listo' : fase, porcentaje: completo ? 100 : Math.min(99, porcentaje), completo, docs: { completo: docsCompleto, hecho: por[clave] ? Math.min(por[clave].offset_a, por[clave].total_a ?? por[clave].offset_a) : 0, total: por[clave] ? por[clave].total_a : null }, costos });
   } catch (err) {
     return res.status(200).json({ error: 'Error leyendo las ventas desde Bsale', detail: String(err.message || err).slice(0, 240) });
+  }
+}
+// POST ?recurso=ventas-detalle-hoy -> pone al día lo reciente de Bsale SIN releer el mes: lee solo los documentos desde el día anterior a la última lectura del mes en curso hasta hoy
+// (lo que pasó entre una lectura y otra) y los guarda igual que la lectura completa; al terminar, la lectura del mes queda marcada como de ahora. La página lo llama sola al abrirse y cada
+// pocos minutos (ventas "en línea"). Lo puede llamar cualquier usuario con acceso a la página: solo lee Bsale y guarda las mismas líneas. Se repite hasta listo=true (reanuda donde quedó);
+// si el mes en curso nunca se leyó completo, responde necesitaMes=true (hay que traerlo con ventas-detalle-sync). Un aviso reciente (menos de 40 s) no vuelve a pedir nada a Bsale.
+const HOY_ENFRIAMIENTO_MS = 40000;
+async function manejarVentasDetalleHoy(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+  const inicio = Date.now();
+  try {
+    const sql = await getSql();
+    await asegurarTablaVentasDetalle(sql);
+    await asegurarTablaComparativoVentas(sql);
+    const diaChile = (v) => new Date(v).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+    const hoy = fechaHoyChile(), mes = hoy.slice(0, 7), claveMes = 'vd2-' + mes;
+    const { rows: em } = await sql`SELECT completo, actualizado_en FROM comparativo_estado WHERE clave = ${claveMes};`;
+    if (!em[0] || !em[0].completo) return res.status(200).json({ ok: true, listo: false, necesitaMes: true, mes, motivo: 'El mes en curso todavía no se ha leído completo desde Bsale' });
+    // ventana: desde el día anterior a la última lectura (o ayer, si es más reciente) hasta hoy
+    const anteayer = (iso) => new Date(Date.parse(iso + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10);
+    const lecturaDia = diaChile(em[0].actualizado_en);
+    const desdeLectura = anteayer(lecturaDia), ayer = anteayer(hoy);
+    const desde = desdeLectura < ayer ? desdeLectura : ayer;
+    const clave = 'vdh-' + desde;
+    // 'vdh-ultima' recuerda cuándo terminó la última puesta al día (la ventana cambia de día en día; este aviso no)
+    await sql`INSERT INTO comparativo_estado (clave, completo, actualizado_en) VALUES ('vdh-ultima', true, 'epoch') ON CONFLICT (clave) DO NOTHING;`;
+    const { rows: eu } = await sql`SELECT actualizado_en FROM comparativo_estado WHERE clave = 'vdh-ultima';`;
+    if (eu[0].actualizado_en && Date.now() - new Date(eu[0].actualizado_en).getTime() < HOY_ENFRIAMIENTO_MS) return res.status(200).json({ ok: true, listo: true, omitido: true, actualizadoEn: em[0].actualizado_en, desde, hasta: hoy });
+    await sql`INSERT INTO comparativo_estado (clave) VALUES (${clave}) ON CONFLICT (clave) DO NOTHING;`;
+    const { rows: eh } = await sql`SELECT offset_a, total_a, completo, actualizado_en FROM comparativo_estado WHERE clave = ${clave};`;
+    // una lectura nueva empieza de cero; una a medio hacer sigue donde quedó
+    if (eh[0].completo) await sql`UPDATE comparativo_estado SET offset_a = 0, total_a = NULL, completo = false, actualizado_en = now() WHERE clave = ${clave};`;
+    let vendedores = new Map();
+    try { vendedores = await obtenerMapaVendedores(token); } catch (e) { console.warn('[ventas-detalle-hoy] vendedores:', e.message); }
+    const epoch = (iso) => Math.floor(Date.parse(iso + 'T00:00:00Z') / 1000);
+    const finEpoch = epoch(new Date(Date.parse(hoy + 'T00:00:00Z') + 86400000).toISOString().slice(0, 10)) - 1;
+    const urlBase = `${BSALE_BASE}/documents.json?emissiondaterange=[${epoch(desde)},${finEpoch}]&expand=[document_type,details,payments,user]&limit=${PUNTOS_SYNC_LIMIT}&offset=`;
+    const meses = []; for (let d = desde.slice(0, 7); d <= mes; d = new Date(Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)), 1)).toISOString().slice(0, 7)) meses.push(d);
+    let ultima = 0;
+    const ctx = {
+      token, restante: () => PUNTOS_SYNC_PRESUPUESTO_MS - (Date.now() - inicio),
+      ritmo: async (n) => { const espera = n * PUNTOS_SYNC_INTERVALO_MIN_MS - (Date.now() - ultima); if (espera > 0) await new Promise((r) => setTimeout(r, espera)); ultima = Date.now(); },
+    };
+    let documentos = 0;
+    const r = await comparativoAvanzar(sql, clave, (o) => urlBase + o, async (items) => {
+      documentos += items.length;
+      // una página puede traer documentos de dos meses (cuando la ventana cruza el cambio de mes): se arman las líneas de cada mes y se guardan juntas
+      const ids = new Set(), filas = [];
+      for (const m of meses) { const l = lineasDeDocumentosDV(items, m, { vendedores, clasificar: clasificarDocumentoDV }); l.ids.forEach((i) => ids.add(i)); filas.push(...l.filas); }
+      await guardarLineasDV(sql, { ids: [...ids], filas });
+    }, ctx, false);
+    if (!r.completo) {
+      const hecho = r.total ? Math.min(99, Math.round((r.hecho / r.total) * 100)) : 0;
+      return res.status(200).json({ ok: true, listo: false, porcentaje: hecho, desde, hasta: hoy, documentos });
+    }
+    // la ventana quedó leída completa: el mes en curso queda al día hasta este instante
+    const ahoraIso = new Date().toISOString();
+    await sql`UPDATE comparativo_estado SET actualizado_en = ${ahoraIso} WHERE clave = ${claveMes} AND completo;`;
+    await sql`UPDATE comparativo_estado SET actualizado_en = ${ahoraIso} WHERE clave = 'vdh-ultima';`;
+    // costos de los productos que aparecieron en esos días (los que ya se leyeron hace menos de 30 días no se vuelven a pedir)
+    let costosListos = true;
+    try {
+      const { rows: pend } = await sql.query(
+        `SELECT s.sku, c.variante_id FROM (SELECT DISTINCT sku FROM ventas_detalle WHERE fecha >= $1::date) s
+           LEFT JOIN comparativo_catalogo c ON c.sku = s.sku LEFT JOIN comparativo_costos k ON k.sku = s.sku
+          WHERE k.sku IS NULL OR k.leido_en < now() - interval '30 days' ORDER BY s.sku`, [desde]);
+      if (pend.length) { const rc = await comparativoLeerCostos(sql, pend, ctx); costosListos = rc.completo; }
+    } catch (e) { console.warn('[ventas-detalle-hoy] costos:', e.message); costosListos = false; }
+    return res.status(200).json({ ok: true, listo: true, porcentaje: 100, desde, hasta: hoy, documentos, costosListos, actualizadoEn: new Date().toISOString() });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo actualizar lo de hoy desde Bsale', detail: String(err.message || err).slice(0, 240) });
   }
 }
 // POST ?recurso=ventas-detalle-ia { pronostico } -> interpretación con Gemini del pronóstico de venta del mes (la cifra la calcula la página; la IA no la cambia). Solo administradores.

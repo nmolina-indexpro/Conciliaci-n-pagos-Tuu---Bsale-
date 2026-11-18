@@ -383,7 +383,8 @@ const TABS = [['producto', 'Productos y servicios'], ['vendedor', 'Vendedores'],
 const NOMBRE_DIM = { producto: 'Producto o servicio', vendedor: 'Vendedor', sucursal: 'Sucursal', marca: 'Marca', tipo: 'Tipo de producto' };
 const TITULO_TOP = { producto: 'productos y servicios', vendedor: 'vendedores', sucursal: 'sucursales', marca: 'marcas', tipo: 'tipos de productos' };
 const E = {
-  tab: 'producto', preset: 'mes', rango: null, comparar: 'mes', gran: 'auto', modoGrafico: 'valor',
+  tab: 'producto', preset: 'hoy', rango: null, comparar: 'mes', gran: 'auto', modoGrafico: 'valor', // la página abre siempre en "Hoy", con lo de hoy ya leído de Bsale (ver ponerAlDia)
+  alDia: null, ultimaAlDia: 0,
   filtros: { q: '', tipoVenta: '', ml: false, sucursales: [], vendedores: [], marcas: [], tipos: [] }, verPerdidas: false, incluirHoy: false, pron: null, ia: null, iaCargando: false,
   datos: null, lineas: [], cargado: null, hoy: null, esAdmin: false, filasTabla: [], cargando: false, trayendo: null,
   mensual: { dim: 'producto', metrica: 'venta', meses: 12 },
@@ -575,7 +576,42 @@ function pintarEstado(){
   const ult = E.datos ? Object.values(E.datos.estado).map(x => x.actualizadoEn).filter(Boolean).sort().slice(-1)[0] : null;
   $('dvEstado').innerHTML = (E.cargando ? '<span class="dv-cargando">Cargando…</span> ' : '') +
     (E.rango ? `Período: <b>${escapeHtml(DV.etiquetaRango(E.rango))}</b>${c ? ` · comparado con <b>${escapeHtml(DV.etiquetaRango(c))}</b>` : ''}` : '') +
-    (ult ? ` · Última lectura desde Bsale: <b>${escapeHtml(fechaHora(ult))}</b>` : '');
+    (ult ? ` · Última lectura desde Bsale: <b>${escapeHtml(fechaHora(ult))}</b>` : '') + textoAlDia();
+}
+// Estado de la puesta al día en línea (lo de hoy se lee solo de Bsale al abrir la página y cada 5 minutos)
+function textoAlDia(){
+  const a = E.alDia; if(!a) return '';
+  if(a.estado === 'cargando') return ` · <span class="dv-cargando">🔄 ${a.texto ? escapeHtml(a.texto) : 'Actualizando lo de hoy desde Bsale…'}${a.pct ? ' ' + a.pct + '%' : ''}</span>`;
+  if(a.estado === 'listo') return ` · <span class="dv-sube">● En línea</span> <span class="sub" style="margin:0;">(actualizado ${escapeHtml(fechaHora(a.en).slice(-5))})</span> <button type="button" class="btn-ghost btn-compact" onclick="ponerAlDia(true)" title="Leer de Bsale lo que se vendió desde la última lectura">🔄 Actualizar ahora</button>`;
+  if(a.estado === 'mes') return ` · <span class="dv-igual">El mes en curso aún no se leyó completo desde Bsale${E.esAdmin ? '' : ' (pídele a un administrador que lo traiga)'}</span>`;
+  return ` · <span style="color:#a11d1d;">No se pudo actualizar desde Bsale: ${escapeHtml(a.error || '')}</span> <button type="button" class="btn-ghost btn-compact" onclick="ponerAlDia(true)">Reintentar</button>`;
+}
+// Pone al día lo reciente desde Bsale: pide al servidor solo los documentos desde la última lectura hasta hoy (se repite hasta terminar) y vuelve a pintar.
+// Si el mes en curso nunca se leyó completo, un administrador lo trae entero (con su barra de avance).
+async function ponerAlDia(forzar){
+  if(!E.datos || E.trayendo || (E.alDia && E.alDia.estado === 'cargando')) return;
+  if(hoyChile() !== E.hoy && E.preset !== 'custom'){ E.hoy = hoyChile(); E.rango = DV.presetRango(E.preset, E.hoy); E.cargado = null; } // pasó la medianoche con la página abierta
+  E.alDia = { estado: 'cargando', pct: 0 }; pintarEstado();
+  let fin = null, omitido = false;
+  try{
+    for(let i = 0; i < 12 && !fin; i++){
+      const res = await fetch('/api/negocio?recurso=ventas-detalle-hoy', { method: 'POST' });
+      const d = await res.json();
+      if(!res.ok || d.error){ fin = { estado: 'error', error: d.detail || d.error || ('HTTP ' + res.status) }; break; }
+      if(d.necesitaMes){ fin = { estado: 'mes', mes: d.mes }; break; }
+      if(d.listo){ fin = { estado: 'listo', en: d.actualizadoEn || new Date().toISOString() }; omitido = !!d.omitido; break; }
+      E.alDia = { estado: 'cargando', pct: d.porcentaje || 0 }; pintarEstado();
+    }
+    if(!fin) fin = { estado: 'error', error: 'la lectura no alcanzó a terminar; se reintenta sola en unos minutos' };
+  }catch(err){ fin = { estado: 'error', error: err.message }; }
+  E.ultimaAlDia = Date.now();
+  if(fin.estado === 'mes' && E.esAdmin){
+    E.alDia = { estado: 'cargando', pct: 0, texto: 'Leyendo el mes en curso completo desde Bsale (la primera vez demora un poco)…' }; pintarEstado();
+    await traerMeses([fin.mes], false);
+    fin = { estado: 'listo', en: new Date().toISOString() }; omitido = true; // traerMeses ya volvió a pintar con lo leído
+  }
+  E.alDia = fin;
+  if(fin.estado === 'listo' && !omitido){ E.cargado = null; await actualizar(); } else pintarEstado();
 }
 function pintarTabs(){
   $('dvTabs').innerHTML = TABS.map(([id, nombre]) => `<button class="${E.tab === id ? 'activo' : ''}" onclick="seleccionarTab('${id}')">${nombre}</button>`).join('');
@@ -946,9 +982,12 @@ function iniciarSelectores(){
 }
 (async function iniciar(){
   cargarSesionUsuario();
-  E.hoy = hoyChile(); E.rango = DV.presetRango('mes', E.hoy);
+  E.hoy = hoyChile(); E.rango = DV.presetRango(E.preset, E.hoy); // siempre abre en "Hoy"
   iniciarSelectores(); pintarTabs();
-  await actualizar();
+  await actualizar();   // primero lo que ya hay guardado (rápido)...
+  ponerAlDia(false);    // ...y enseguida lo de hoy, en línea desde Bsale
+  setInterval(() => { if(!document.hidden) ponerAlDia(false); }, 5 * 60000);
+  document.addEventListener('visibilitychange', () => { if(!document.hidden && Date.now() - E.ultimaAlDia > 5 * 60000) ponerAlDia(false); });
 })();
 </script>
 <script src="tablas-ordenables.js"></script>
