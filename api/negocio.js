@@ -15,6 +15,7 @@ import { hashPassword } from '../lib/auth-node.js';
 import { sesionVigente, controlarAcceso, controlarPublicoPorIp, respuestaLimite, limitarMemoria } from '../lib/seguridad.js';
 import { normalizarConfig as normalizarConfigDW, analizarProducto as analizarProductoDW, permisosShopify as permisosShopifyDW, listarProductos as listarProductosDW, aplicarEtiquetas as aplicarEtiquetasDW, estadoWebhook as estadoWebhookDW, registrarWebhook as registrarWebhookDW, costosBsale as costosBsaleDW, resultadosPedidos as resultadosPedidosDW, rangoResultados as rangoResultadosDW, claveAviso as claveAvisoDW, tieneCambios as tieneCambiosDW, estadoDescuentos as estadoDescuentosDW, crearDescuentoFuncion as crearDescuentoFuncionDW, productosAlCarro as productosAlCarroDW } from '../lib/descuentos-web.js';
 import { enviarCorreo, enviarCorreoIndexpro, enviarCorreoIndexscale } from '../lib/mailer.js';
+import { listarDescontinuados as listarDescontinuadosCD, marcarDescontinuado as marcarDescontinuadoCD, enCaminoPorSku as enCaminoPorSkuCD } from '../lib/compras-daxis.js';
 import { correoSemanalNasBackup, correoRevisionNasBackup } from '../lib/nas-backup-correo.js';
 import { parsearRegistroFonoip } from '../lib/llamadas-fonoip.js';
 import { asignacionesPorVendedor, primerNombreCoincide } from '../lib/vendedores-cotizacion.js';
@@ -405,6 +406,7 @@ export default async function handler(req, res) {
   if (recurso === 'insumos-st-avisar') return manejarInsumosStAvisar(req, res, sesion);
   if (recurso === 'compras-dm-excluidos') return manejarComprasDMExcluidos(req, res, sesion);
   if (recurso === 'compras-proveedor-asignado') return manejarComprasProveedorAsignado(req, res, sesion);
+  if (recurso === 'compras-daxis') return manejarComprasDaxis(req, res, sesion);
   if (recurso === 'recomendacion-compra-excluidos') return manejarRecomendacionCompraExcluidos(req, res, sesion);
   if (recurso === 'compras-intcomex-excluidos') return manejarComprasIntcomexExcluidos(req, res, sesion);
   if (recurso === 'compras-intcomex-comentarios') return manejarComprasIntcomexComentarios(req, res, sesion);
@@ -4489,6 +4491,30 @@ async function manejarComprasProveedorAsignado(req, res, sesion) {
       if (!proveedor) {
         await sql`DELETE FROM compras_proveedor_asignado WHERE sku = ${sku};`;
         return res.status(200).json({ ok: true, proveedor: null });
+// Importación Daxis (Compras): productos descontinuados (se marcan en la tabla y no se vuelven a mostrar) y lo que viene en camino de cada SKU (Productos en tránsito).
+//   GET ?skus=A,B,C                         -> { descontinuados: [{ sku, por, en }], enCamino: { SKU: [{ referencia, estado, tipoTransporte, fechaEta, cantidad }] } }
+//   PUT { sku, descontinuado: true|false }  -> marca o reactiva. Es reversible, así que lo puede hacer cualquiera con acceso a Compras.
+async function manejarComprasDaxis(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    if (req.method === 'GET') {
+      const skus = String(req.query.skus || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 400);
+      let enCamino = {}, errorEnCamino = null;
+      try { enCamino = await enCaminoPorSkuCD(sql, skus); } catch (e) { errorEnCamino = String(e.message || e).slice(0, 160); }
+      return res.status(200).json({ descontinuados: await listarDescontinuadosCD(sql), enCamino, errorEnCamino });
+    }
+    if (req.method === 'PUT') {
+      const sku = String(req.body?.sku || '').trim();
+      if (!sku || sku.length > 100) return res.status(400).json({ error: 'Falta el SKU' });
+      await marcarDescontinuadoCD(sql, sku, req.body?.descontinuado !== false, sesion.nombre || sesion.email);
+      return res.status(200).json({ ok: true, sku, descontinuado: req.body?.descontinuado !== false });
+    }
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en Importación Daxis', detail: String(err.message || err).slice(0, 200) });
+  }
+}
+
       }
       if (!PROVEEDORES_ASIGNABLES.includes(proveedor)) return res.status(400).json({ error: 'Proveedor inválido (DM o Intcomex)' });
       await sql`
