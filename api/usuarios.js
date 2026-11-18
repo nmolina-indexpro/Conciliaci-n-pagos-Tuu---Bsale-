@@ -7,7 +7,7 @@ import { getSql, asegurarTablaUsuarios, asegurarTablaPerfiles, asegurarTablaNoti
 import { hashPassword, usuarioDesdeRequest } from '../lib/auth-node.js';
 import { sesionVigente } from '../lib/seguridad.js';
 import { enviarCorreo, consultarEventosBrevo, resumirEntregaBrevo } from '../lib/mailer.js';
-import { TIPOS_NOTIFICACION, CATEGORIAS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto } from '../lib/notificaciones.js';
+import { TIPOS_NOTIFICACION, CATEGORIAS_NOTIFICACION, asegurarConfigYSuscriptoresPorDefecto, programacionDe, validarFrecuencia, advertenciaConfig } from '../lib/notificaciones.js';
 import { TIPO_RESUMEN_CAMBIOS, fechaHoyChile, enviarResumenCambios, sanitizarHtmlResumen, armarCorreoResumen, armarContenidoCambios } from '../lib/resumen-cambios.js';
 import { asegurarCambiosRegistro, validarCambio } from '../lib/cambios-registro.js';
 import { paginasEfectivas, paginasParaGuardar } from '../lib/paginas-perfil.js';
@@ -406,6 +406,8 @@ async function manejarNotificaciones(req, res, sql) {
         activa: c.activa !== false,
         frecuencia: c.frecuencia || 'diaria',
         diaSemana: c.dia_semana ?? null,
+        // Programación real del cron (ver PROGRAMACION_NOTIFICACION): la página limita la frecuencia a lo que realmente se puede cumplir y avisa si la configuración guardada no se cumpliría
+        programacion: programacionDe(tipo), advertencia: advertenciaConfig(tipo, c),
         ultimoEnvioEn: c.ultimo_envio_en || null,
         ultimoAsunto: c.ultimo_asunto || null, tieneVista: Boolean(c.tiene_vista),
         correosFijos: info.correosFijos || [],
@@ -492,6 +494,11 @@ async function manejarNotificaciones(req, res, sql) {
     const { tipo, activa, frecuencia, diaSemana, agregarUsuarioId, quitarUsuarioId } = req.body || {};
     if (!tipo || !TIPOS_NOTIFICACION[tipo]) return res.status(400).json({ error: 'Tipo de notificación inválido' });
     await asegurarConfigYSuscriptoresPorDefecto(sql, tipo);
+    // No se acepta una frecuencia que el cron no puede cumplir (el correo no saldría nunca)
+    if (frecuencia === 'diaria' || frecuencia === 'semanal') {
+      const errorFrecuencia = validarFrecuencia(tipo, frecuencia, (typeof diaSemana === 'number' && diaSemana >= 0 && diaSemana <= 6) ? diaSemana : 0);
+      if (errorFrecuencia) return res.status(400).json({ error: errorFrecuencia });
+    }
 
     if (typeof activa === 'boolean') {
       await sql`UPDATE notificaciones_config SET activa = ${activa} WHERE tipo = ${tipo};`;

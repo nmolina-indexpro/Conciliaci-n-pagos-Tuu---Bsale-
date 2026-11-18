@@ -68,7 +68,7 @@
     },
     {
       "path": "/api/negocio?recurso=servicio-tecnico-resumen-semanal",
-      "schedule": "0 13 * * 1"
+      "schedule": "0 13 * * *"
     },
     {
       "path": "/api/negocio?recurso=electronica-enviar",
@@ -168,7 +168,7 @@
     },
     {
       "path": "/api/negocio?recurso=modelos-compatibles-recordatorio",
-      "schedule": "0 13 * * 1"
+      "schedule": "0 13 * * *"
     },
     {
       "path": "/api/negocio?recurso=insumos-st-avisar-cron",
