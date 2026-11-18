@@ -40,6 +40,7 @@ import { SISTEMA_PRONOSTICO_IA, HERRAMIENTA_PRONOSTICO_IA, armarEntradaPronostic
 import { armarResumenSemanal, mesesParaActualizar as mesesResumenVentas, rangoNecesario as rangoResumenVentas, prepararLineasResumen, TIPOS_RESUMEN as TIPOS_RESUMEN_VENTAS } from '../lib/ventas-resumen-correo.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
 import { armarCorreoCotizacionWebNueva, avisarCotizacionWebNueva } from '../lib/correo-cotizacion-web.js';
+import { META_LIMPIEZAS_MENSUAL, limpiezasPorVendedor, vincularVendedor as vincularVendedorMeta } from '../lib/metas-servicios.js';
 import { DIAS_ESTIMADOS_DEFECTO as DIAS_PEDIDO_PANTALLA, listarPedidos as listarPedidosPP, leerPedido as leerPedidoPP, resumirPedidos as resumirPedidosPP, aplicarCambios as aplicarCambiosPP, crearPedido as crearPedidoPP, reclamarAviso as reclamarAvisoPP, asegurarTablaPedidosPantalla, pedidosParaRecordar as pedidosParaRecordarPP, reclamarRecordatorios as reclamarRecordatoriosPP, soltarRecordatorios as soltarRecordatoriosPP } from '../lib/pedidos-pantalla.js';
 import { buscarProductos as buscarProductosCatalogoPP } from '../lib/pedidos-pantalla-catalogo.js';
 import { armarCorreoPedidoPantalla, armarCorreoRecordatorioPedidosPantalla } from '../lib/correo-pedido-pantalla.js';
@@ -3829,7 +3830,26 @@ async function manejarAccesoriosVendedores(req, res, sesion) {
 
     const sinAsignar = porVendedor.get(-1);
 
+    // Metas de servicios: limpiezas de cualquier tipo vendidas por vendedor en el mismo mes (lib/metas-servicios.js). Salen los vendedores permitidos aunque lleven 0.
+    const baseServicios = usuariosBsale
+      .map(u => ({ vendedorId: u.id, nombre: vendedoresPorId.get(u.id), email: emailVendedorPorId.get(u.id) || null }))
+      .filter(u => ACCESORIOS_VENDEDORES_PERMITIDOS.some(p => normalizarTexto(u.nombre).includes(p)));
+    const resServicios = limpiezasPorVendedor(ventas, {
+      catalogoPorSku, vendedoresPorId, emailPorId: emailVendedorPorId, base: baseServicios,
+      permitidos: ACCESORIOS_VENDEDORES_PERMITIDOS, normalizar: normalizarTexto, hastaStr, meta: META_LIMPIEZAS_MENSUAL,
+    });
+    const miServiciosId = vincularVendedorMeta(resServicios.vendedores, sesion, normalizarTexto);
+    for (const v of resServicios.vendedores) delete v.email; // el correo solo sirve para el cruce de arriba
+
     return res.status(200).json({
+      servicios: {
+        meta: META_LIMPIEZAS_MENSUAL,
+        vendedores: resServicios.vendedores,
+        miVendedorId: miServiciosId,
+        limpiezasSinVendedorAsignado: resServicios.sinVendedor,
+        // Solo administradores: los servicios vistos este mes y cuáles cuentan como limpieza, para confirmar rápido que se están contando los correctos.
+        diagnostico: sesion.rol === 'admin' ? { serviciosVistosEsteMes: resServicios.vistos.slice(0, 30) } : undefined,
+      },
       mes: hastaStr.slice(0, 7),
       hoyDia,
       meta: ACCESORIOS_META_MENSUAL,

@@ -338,7 +338,7 @@
 
   <div>
     <h1>Metas <span>de venta</span></h1>
-    <div class="sub">Avance de cada vendedor hacia su meta mensual de venta de accesorios y productos de vitrina.</div>
+    <div class="sub">Avance de cada vendedor hacia sus metas del mes: venta de accesorios y productos de vitrina, y limpiezas de servicio técnico.</div>
   </div>
 
   <div id="tabAccesorios">
@@ -376,6 +376,40 @@
         </div>
       </div>
       <div id="wrapRankingAccesorios"><p class="empty-note">Cargando...</p></div>
+    </div>
+  </div>
+
+  <div id="tabServicios" style="margin-top:34px;">
+    <h1 style="font-size:22px;">Metas <span>de servicios</span></h1>
+    <div class="sub" style="margin-bottom:12px;">Limpiezas de notebook de cualquier tipo. Meta: <b id="srvMetaTexto">10 limpiezas</b> por vendedor al mes — el avance de abajo es acumulado dentro del mes elegido arriba.</div>
+
+    <div class="seccion" id="seccionMiAvanceServicios" style="display:none;">
+      <div class="seccion-head">
+        <div>
+          <h2>🎯 Tu avance en limpiezas — <span id="srvMesLabelMio">este mes</span></h2>
+          <div class="sub" id="srvMiResumen"></div>
+        </div>
+      </div>
+      <div id="srvMiBarra"></div>
+      <div id="wrapMisSemanasServicios" style="margin-top:14px;"></div>
+    </div>
+
+    <div class="seccion" id="seccionSinDatosServicios" style="display:none;">
+      <p class="empty-note">Tu usuario no aparece entre los vendedores con meta de servicios (o tu nombre de usuario no coincide con tu nombre de vendedor en Bsale — avísale a un administrador si esto no se ve bien).</p>
+    </div>
+
+    <div class="seccion" id="seccionRankingServicios" style="display:none;">
+      <div class="seccion-head">
+        <div>
+          <h2>🏆 Todos los vendedores — limpiezas de <span id="srvMesLabelRanking">este mes</span></h2>
+          <div class="sub">Solo visible para administradores. Ordenado de mayor a menor cantidad de limpiezas vendidas en el mes.</div>
+        </div>
+      </div>
+      <div id="wrapRankingServicios"><p class="empty-note">Cargando...</p></div>
+      <details id="detalleServicios" style="margin-top:12px;display:none;">
+        <summary class="sub" style="cursor:pointer;">¿Qué servicios se están contando como limpieza?</summary>
+        <div id="wrapDiagnosticoServicios" style="margin-top:8px;"></div>
+      </details>
     </div>
   </div>
 
@@ -503,6 +537,7 @@ function etiquetaMesAccesorios(mesStr){
 }
 function renderAccesorios(data){
   ultimosDatosAccesorios = data;
+  renderServicios(data); // la misma respuesta trae las dos metas (accesorios y servicios)
   $('accMetaTexto').textContent = fmtMoneda(data.meta);
   const etiquetaMes = etiquetaMesAccesorios(data.mes);
   $('accMesLabelMio').textContent = etiquetaMes;
@@ -570,6 +605,60 @@ function renderAccesorios(data){
   } else {
     seccionRanking.style.display = 'none';
   }
+}
+
+// ---------- Metas de servicios (limpiezas) ----------
+const nLimpiezas = n => `${fmtNum(n)} ${n === 1 ? 'limpieza' : 'limpiezas'}`;
+function renderServicios(data){
+  const s = data && data.servicios;
+  if(!s){ $('tabServicios').style.display = 'none'; return; }
+  $('tabServicios').style.display = '';
+  $('srvMetaTexto').textContent = nLimpiezas(s.meta);
+  const etiquetaMes = etiquetaMesAccesorios(data.mes);
+  $('srvMesLabelMio').textContent = etiquetaMes;
+  $('srvMesLabelRanking').textContent = etiquetaMes;
+
+  const mio = s.vendedores.find(v => v.vendedorId === s.miVendedorId);
+  if(mio){
+    $('seccionMiAvanceServicios').style.display = '';
+    $('seccionSinDatosServicios').style.display = 'none';
+    $('srvMiResumen').textContent = mio.cumplioMeta
+      ? `¡Meta cumplida! Llevas ${nLimpiezas(mio.unidades)} este mes. 🎉`
+      : `Llevas ${fmtNum(mio.unidades)} de ${nLimpiezas(s.meta)} este mes — te ${mio.faltante === 1 ? 'falta 1' : 'faltan ' + fmtNum(mio.faltante)} para la meta.`;
+    $('srvMiBarra').innerHTML = barraProgresoAccesorios(mio.unidades, s.meta);
+    $('wrapMisSemanasServicios').innerHTML = `
+      <div class="tabla-wrap"><table><thead><tr><th>Semana</th><th>Hasta el día</th><th>Limpiezas acumuladas en el mes</th><th>Estado</th></tr></thead>
+      <tbody>${mio.semanas.map(w => `
+        <tr><td>Semana ${w.semana}</td><td>Día ${w.diaHasta}</td><td>${fmtNum(w.acumulado)}</td>
+        <td>${w.cumplida ? '<span class="badge si">Meta cumplida ✓</span>' : `Faltan ${fmtNum(w.faltante)}`}</td></tr>`).join('')}</tbody></table></div>
+      ${mio.porTipo.length ? `<h4 style="margin:18px 0 8px 0;font-family:'Space Grotesk',sans-serif;font-size:13px;">Por tipo de limpieza</h4>
+      <div class="tabla-wrap"><table><thead><tr><th>Tipo</th><th>Cantidad</th></tr></thead><tbody>${mio.porTipo.map(t => `<tr><td>${escapeHtmlCot(t.nombre)}</td><td>${fmtNum(t.unidades)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+  } else {
+    $('seccionMiAvanceServicios').style.display = 'none';
+    $('seccionSinDatosServicios').style.display = '';
+  }
+
+  const ranking = $('seccionRankingServicios');
+  if(!esAdmin){ ranking.style.display = 'none'; return; }
+  ranking.style.display = '';
+  $('wrapRankingServicios').innerHTML = s.vendedores.length === 0
+    ? '<p class="empty-note">No hay vendedores con meta de servicios este mes.</p>'
+    : `<div class="tabla-wrap"><table><thead><tr><th>Vendedor</th><th>Limpiezas</th><th>Por tipo</th><th>Avance</th><th>Meta</th></tr></thead>
+      <tbody>${s.vendedores.map(v => `
+        <tr>
+          <td>${escapeHtmlCot(v.nombre)}</td>
+          <td>${fmtNum(v.unidades)}</td>
+          <td>${v.porTipo.length ? v.porTipo.map(t => `${escapeHtmlCot(t.nombre)} ×${fmtNum(t.unidades)}`).join('<br>') : '<span class="empty-note">—</span>'}</td>
+          <td style="min-width:140px;">${barraProgresoAccesorios(v.unidades, s.meta)}</td>
+          <td>${v.cumplioMeta ? '<span class="badge si">✓ Cumplida</span>' : `Faltan ${fmtNum(v.faltante)}`}</td>
+        </tr>`).join('')}</tbody></table></div>
+      ${s.limpiezasSinVendedorAsignado ? `<div class="sub" style="margin-top:10px;">+ ${nLimpiezas(s.limpiezasSinVendedorAsignado)} sin vendedor asignado en Bsale (no entran al ranking).</div>` : ''}`;
+  const vistos = s.diagnostico && s.diagnostico.serviciosVistosEsteMes;
+  $('detalleServicios').style.display = vistos ? '' : 'none';
+  if(vistos) $('wrapDiagnosticoServicios').innerHTML = vistos.length
+    ? `<div class="tabla-wrap"><table><thead><tr><th>Servicio vendido este mes</th><th>Unidades</th><th>¿Cuenta como limpieza?</th></tr></thead><tbody>${vistos.map(x => `<tr><td>${escapeHtmlCot(x.nombre)}</td><td>${fmtNum(x.unidades)}</td><td>${x.cuenta ? '<span class="badge si">Sí</span>' : 'No'}</td></tr>`).join('')}</tbody></table></div>
+      <div class="sub" style="margin-top:6px;">Cuenta como limpieza todo servicio cuyo nombre, descripción o comentario diga «limpi…» (limpieza, limpiar…).</div>`
+    : '<p class="empty-note">No se vendió ningún servicio este mes.</p>';
 }
 
 // ---------- Sesión ----------
