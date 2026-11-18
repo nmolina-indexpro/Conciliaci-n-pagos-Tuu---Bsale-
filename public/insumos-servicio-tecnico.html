@@ -78,6 +78,13 @@
   .comp-lbl{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--primary);cursor:pointer;white-space:nowrap;} .comp-lbl input{width:16px;height:16px;cursor:pointer;accent-color:var(--primary);}
   .comp-fecha{margin-top:5px;font-size:11.5px;color:var(--text);white-space:nowrap;} .comp-fecha input{border:1.5px solid var(--line);border-radius:7px;padding:3px 5px;font-size:12px;font-family:'IBM Plex Mono',monospace;background:var(--surface);color:var(--text);}
   .comp-quien{margin-top:3px;font-size:10.5px;color:var(--muted);}
+  .btn-solicitar{background:var(--primary);color:#fff;border:0;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;white-space:nowrap;} .btn-solicitar:hover{background:var(--primary-dark);}
+  .btn-recibido{margin-top:6px;background:var(--green-bg);color:var(--green);border:1.5px solid var(--green);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;white-space:nowrap;} .btn-recibido:hover{background:var(--green);color:#fff;}
+  .chip-sol{display:inline-block;font-size:11.5px;font-weight:700;color:var(--red);background:var(--red-bg);border-radius:999px;padding:3px 9px;white-space:nowrap;}
+  .tabs-insumos{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px;}
+  .tab-insumos{background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:8px 14px;font-size:12.5px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;color:var(--muted);cursor:pointer;} .tab-insumos:hover{border-color:var(--primary);color:var(--primary);}
+  .tab-insumos.activa{background:var(--primary);border-color:var(--primary);color:#fff;} .tab-insumos .cuenta{opacity:.8;font-weight:600;margin-left:4px;}
+  .tipo-badge{display:inline-block;margin-left:6px;font-size:10.5px;font-weight:700;border-radius:999px;padding:1px 7px;vertical-align:middle;} .tipo-badge.interno{background:var(--blue-bg);color:var(--blue);} .tipo-badge.venta{background:var(--primary-dim);color:var(--primary-dark);}
   .banner-aviso{margin-top:12px;padding:10px 14px;border-radius:10px;font-size:12.5px;background:var(--amber-dim);color:#7a4a05;line-height:1.5;} .banner-aviso.ok{background:var(--green-bg);color:var(--green);font-weight:600;}
   .btn-ghost-mini{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;border:1.5px solid currentColor;background:transparent;color:inherit;border-radius:7px;padding:3px 10px;cursor:pointer;margin-left:6px;}
   .btn-basura:hover{border-color:var(--red);background:var(--red-bg);}
@@ -295,15 +302,29 @@
 
   <h1>Insumos de Servicio Técnico</h1>
 
-  <div class="seccion" id="seccionInsumos" style="margin-top:6px;">
+  <div class="seccion" id="seccionSolicitudes" style="margin-top:6px;">
     <div class="seccion-head">
       <div>
-        <h2>🧰 Insumos de Servicio Técnico</h2>
-        <div class="sub" style="margin-bottom:0;">Productos de la categoría "Insumos" en Bsale (tornillos, pasta térmica, alcohol isopropílico, etc.) -- stock actual y último ingreso, para saber qué reponer.</div>
+        <h2>📨 Solicitudes de stock en curso</h2>
+        <div class="sub" style="margin-bottom:0;">Lo que se pidió comprar y todavía no llega. Cuando el producto llega y se recibe, pulsa <b>Recibido</b>: vuelve a su stock normal y se puede solicitar otra vez.</div>
+      </div>
+    </div>
+    <div id="panelSolicitudes"><p class="empty-note">Cargando…</p></div>
+  </div>
+
+  <div class="seccion" id="seccionInsumos">
+    <div class="seccion-head">
+      <div>
+        <h2>🧰 Insumos</h2>
+        <div class="sub" id="subInsumos" style="margin-bottom:0;"></div>
       </div>
       <div class="seccion-head-acciones">
         <button class="btn-primary" id="btnCargarInsumos" onclick="cargarInsumos()">🔄 Actualizar</button>
       </div>
+    </div>
+    <div class="tabs-insumos">
+      <button type="button" class="tab-insumos activa" id="tabInterno" onclick="cambiarVistaInsumos('interno')">🔧 Insumos internos ST / Bodega <span class="cuenta" id="cuentaInterno"></span></button>
+      <button type="button" class="tab-insumos" id="tabVenta" onclick="cambiarVistaInsumos('venta')">🛒 Productos a la venta (categoría Insumos) <span class="cuenta" id="cuentaVenta"></span></button>
     </div>
     <div class="toolbar-extra">
       <input type="text" id="buscarInsumoInput" placeholder="Buscar insumo o SKU..." oninput="renderInsumos()">
@@ -363,6 +384,39 @@ async function cerrarSesion(){
 // se vende con SKU "SER..."). No se sincroniza automático al cargar la
 // página -- golpea Bsale en vivo (puede tardar), el usuario decide cuándo.
 let insumosActuales = [];
+// Los "INSUMO ST/BODEGA ..." son para los trabajos internos de Servicio Técnico (no se venden); el resto de la categoría "Insumos" son productos que se venden a clientes.
+const esInsumoInterno = s => /insumos?\s*st\b/i.test(s.nombre || '');
+let vistaInsumos = 'interno';
+const TEXTO_VISTA = {
+  interno: 'Insumos internos de Servicio Técnico y bodega ("INSUMO ST/BODEGA …"): se usan en los trabajos y reparaciones, no se venden. Stock actual y último ingreso, para saber qué reponer.',
+  venta: 'Productos de la categoría "Insumos" que se venden a los clientes (pasta térmica, etc.). Stock actual y último ingreso, para saber qué reponer.',
+};
+function cambiarVistaInsumos(v){ vistaInsumos = v; renderInsumos(); }
+function renderSolicitudes(){
+  const el = $('panelSolicitudes');
+  if(!el) return;
+  const activas = insumosActuales.filter(s => (configInsumos[s.code] || {}).critico);
+  if(!activas.length){ el.innerHTML = '<p class="empty-note">No hay solicitudes de stock en curso. Para pedir stock, usa el botón <b>📥 Solicitar stock</b> de cada producto.</p>'; return; }
+  // Primero lo que todavía no se compra; después lo que viene en camino, por fecha de llegada.
+  const ordenadas = [...activas].sort((a, b) => {
+    const ca = configInsumos[a.code], cb = configInsumos[b.code];
+    if(!!ca.comprado !== !!cb.comprado) return ca.comprado ? 1 : -1;
+    return String(ca.llegada || '').localeCompare(String(cb.llegada || ''));
+  });
+  const filas = ordenadas.map(s => {
+    const c = configInsumos[s.code], j = escapeHtml(JSON.stringify(String(s.code)));
+    const atrasado = c.comprado && c.llegada && c.llegada < hoyIso();
+    const estado = !c.comprado ? '<span class="chip-sol">⏳ Por comprar</span>'
+      : '<span class="en-camino' + (atrasado ? ' atrasado' : '') + '" style="display:inline-block;margin:0;">' + (atrasado ? '⏰ Atrasado: debía llegar el ' : '🚚 Comprado · llega el ') + fmtFechaIso(c.llegada) + '</span>';
+    const cuando = c.criticoEn ? new Date(c.criticoEn).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+    return '<tr><td class="servicio">' + escapeHtml(s.nombre) + '<span class="tipo-badge ' + (esInsumoInterno(s) ? 'interno">Interno' : 'venta">A la venta') + '</span><br><span class="sku-code">SKU: ' + escapeHtml(s.code) + '</span></td>' +
+      '<td class="mes amount">' + fmtNum(c.sugerencia) + '</td><td class="mes amount">' + fmtNum(s.stockActual) + '</td>' +
+      '<td class="mes">' + escapeHtml(c.criticoPor || '—') + (cuando ? '<br><span class="comp-quien">' + escapeHtml(cuando) + '</span>' : '') + '</td>' +
+      '<td class="mes">' + estado + (c.comprado && c.compradoPor ? '<div class="comp-quien">Lo compró ' + escapeHtml(c.compradoPor) + '</div>' : '') + '</td>' +
+      '<td class="mes"><button type="button" class="btn-recibido" style="margin:0;" onclick="marcarRecibido(' + j + ')">✅ Recibido</button></td></tr>';
+  }).join('');
+  el.innerHTML = '<div class="tabla-wrap"><table><thead><tr><th>Producto</th><th title="Unidades que se pidió comprar">Cantidad pedida</th><th>Stock actual</th><th>Lo solicitó</th><th>Estado</th><th data-sin-orden></th></tr></thead><tbody>' + filas + '</tbody></table></div>';
+}
 let sortColInsumos = 'stockActual';
 let sortAscInsumos = true; // stock más bajo primero -- lo más urgente de reponer
 const normalizarCategoriaInsumo = c => (c || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -391,7 +445,7 @@ async function cargarInsumos(){
     // Los insumos eliminados a mano no vuelven a aparecer, aunque Bsale los siga teniendo.
     insumosActuales = (data.skus || []).filter(s => normalizarCategoriaInsumo(s.categoria) === 'insumos' && !eliminadosInsumos.has(s.code));
     renderInsumos();
-    $('statusInsumos').textContent = `Listo — ${fmtNum(insumosActuales.length)} insumos encontrados en Bsale (categoría "Insumos").`;
+    $('statusInsumos').textContent = `Listo — ${fmtNum(insumosActuales.length)} productos de la categoría "Insumos" en Bsale (${fmtNum(insumosActuales.filter(esInsumoInterno).length)} internos ST/Bodega y ${fmtNum(insumosActuales.filter(s => !esInsumoInterno(s)).length)} a la venta).`;
   }catch(err){
     $('statusInsumos').textContent = 'Error: ' + err.message;
     $('wrapInsumos').innerHTML = '<p class="empty-note">Error al cargar.</p>';
@@ -509,34 +563,36 @@ async function putCritico(sku, cuerpo){
 }
 function textoAviso(aviso){
   if(!aviso) return '';
-  if(aviso.agrupado) return ' Compras recibirá un solo correo con todo lo que marques (sale a los ' + aviso.esperaMin + ' min sin cambios).';
+  if(aviso.agrupado) return ' Compras recibirá un solo correo con todo lo que solicites (sale a los ' + aviso.esperaMin + ' min sin cambios).';
   return '';
 }
 const fmtFechaIso = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); return m ? m[3] + '-' + m[2] + '-' + m[1] : '—'; };
 const hoyIso = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
-async function marcarCritico(sku, chk){
+// "Solicitar stock": avisa a compras (mismo correo agrupado de siempre, a nmolina@indexpro.cl y quienes estén suscritos) cuántas unidades comprar.
+async function solicitarStock(sku){
   const nombre = contextoInsumo(sku).nombre;
-  if(chk.checked){
-    const previa = (configInsumos[sku] || {}).sugerencia || '';
-    const txt = prompt('STOCK CRÍTICO: ' + nombre + '\n\n¿Cuántas unidades recomiendas comprar?\n\nCompras recibirá UN solo correo con todo lo que marques (con el link de compra de cada insumo).', previa);
-    if(txt === null){ chk.checked = false; return; }
-    const n = Number(String(txt).trim());
-    if(!Number.isInteger(n) || n < 1){ alert('Escribe un número entero de 1 en adelante.'); chk.checked = false; return; }
-    try{
-      const d = await putCritico(sku, { critico: true, sugerencia: n });
-      configInsumos[sku] = { ...(configInsumos[sku] || {}), critico: true, sugerencia: n, criticoPor: d.por, comprado: false, llegada: null };
-      avisoInsumo(sku + ': stock crítico, sugieres comprar ' + n + '.' + textoAviso(d.aviso));
-    }catch(err){ avisoInsumo('No se pudo guardar: ' + err.message); chk.checked = false; }
-    renderInsumos(); refrescarEstadoInsumos();
-  }else{
-    if(!confirm('¿Ya se repuso "' + nombre + '"? Se quita la marca de stock crítico, la sugerencia de compra y la información de compra.')){ chk.checked = true; return; }
-    try{
-      await putCritico(sku, { critico: false });
-      configInsumos[sku] = { ...(configInsumos[sku] || {}), critico: false, sugerencia: null, comprado: false, llegada: null };
-      avisoInsumo(sku + ': ya no está en stock crítico.');
-    }catch(err){ avisoInsumo('No se pudo guardar: ' + err.message); chk.checked = true; }
-    renderInsumos(); refrescarEstadoInsumos();
-  }
+  const previa = (configInsumos[sku] || {}).sugerencia || '';
+  const txt = prompt('SOLICITAR STOCK: ' + nombre + '\n\n¿Cuántas unidades se necesitan comprar?\n\nCompras recibirá UN solo correo con todo lo que solicites (con el link de compra de cada producto).', previa);
+  if(txt === null) return;
+  const n = Number(String(txt).trim());
+  if(!Number.isInteger(n) || n < 1){ alert('Escribe un número entero de 1 en adelante.'); return; }
+  try{
+    const d = await putCritico(sku, { critico: true, sugerencia: n });
+    configInsumos[sku] = { ...(configInsumos[sku] || {}), critico: true, sugerencia: n, criticoPor: d.por, criticoEn: new Date().toISOString(), comprado: false, llegada: null };
+    avisoInsumo(sku + ': stock solicitado (' + n + ' un.).' + textoAviso(d.aviso));
+  }catch(err){ avisoInsumo('No se pudo guardar: ' + err.message); }
+  renderInsumos(); refrescarEstadoInsumos();
+}
+// "Recibido": el producto llegó y se recibió. Se borra la solicitud (cantidad y compra) y vuelve a su stock actual; si hace falta comprar de nuevo, se solicita otra vez.
+async function marcarRecibido(sku){
+  const nombre = contextoInsumo(sku).nombre;
+  if(!confirm('¿Ya llegó y se recibió "' + nombre + '"?\n\nSe cierra la solicitud de stock (cantidad y compra) y el producto vuelve a su stock actual. Cuando haga falta de nuevo, lo solicitas otra vez.')) return;
+  try{
+    await putCritico(sku, { critico: false });
+    configInsumos[sku] = { ...(configInsumos[sku] || {}), critico: false, sugerencia: null, comprado: false, llegada: null };
+    avisoInsumo(sku + ': recibido. Vuelve a su stock normal.');
+  }catch(err){ avisoInsumo('No se pudo guardar: ' + err.message); }
+  renderInsumos(); refrescarEstadoInsumos();
 }
 async function cambiarSugerencia(sku, input){
   const n = Number(String(input.value).trim());
@@ -557,11 +613,13 @@ function textoEnCamino(c){
   const atrasado = c.llegada && c.llegada < hoyIso();
   return '<div class="en-camino' + (atrasado ? ' atrasado' : '') + '" title="' + escapeHtml('Lo compró ' + (c.compradoPor || 'compras')) + '">' + (atrasado ? '⏰ Atrasado: debía llegar el ' : '🚚 Comprado · en camino · llega el ') + fmtFechaIso(c.llegada) + '</div>';
 }
-function celdaCritico(sku){
-  const c = configInsumos[sku] || {}, crit = !!c.critico;
-  const pie = crit && c.criticoPor ? 'Lo marcó ' + c.criticoPor + (c.criticoEn ? ' · ' + new Date(c.criticoEn).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '') : 'Márcalo cuando quede poco: compras recibe un aviso por correo';
-  return '<label class="crit-lbl" title="' + escapeHtml(pie) + '"><input type="checkbox" ' + (crit ? 'checked' : '') + ' onchange="marcarCritico(' + escapeHtml(JSON.stringify(String(sku))) + ', this)"> ⚠ Crítico</label>' +
-    (crit ? '<div class="crit-sug">Comprar <input type="number" min="1" step="1" value="' + escapeHtml(c.sugerencia ?? '') + '" onchange="cambiarSugerencia(' + escapeHtml(JSON.stringify(String(sku))) + ', this)" title="Unidades que recomiendas comprar"> un.</div>' + textoEnCamino(c) : '');
+function celdaSolicitud(sku){
+  const c = configInsumos[sku] || {}, crit = !!c.critico, s = escapeHtml(JSON.stringify(String(sku)));
+  if(!crit) return '<button type="button" class="btn-solicitar" title="Avisa a compras por correo que hay que comprar este producto" onclick="solicitarStock(' + s + ')">📥 Solicitar stock</button>';
+  const pie = 'Lo solicitó ' + (c.criticoPor || '—') + (c.criticoEn ? ' · ' + new Date(c.criticoEn).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
+  return '<span class="chip-sol" title="' + escapeHtml(pie) + '">📨 Stock solicitado</span>' +
+    '<div class="crit-sug">Comprar <input type="number" min="1" step="1" value="' + escapeHtml(c.sugerencia ?? '') + '" onchange="cambiarSugerencia(' + s + ', this)" title="Unidades a comprar"> un.</div>' + textoEnCamino(c) +
+    '<div><button type="button" class="btn-recibido" title="Marcar cuando el producto llegó y fue recibido" onclick="marcarRecibido(' + s + ')">✅ Recibido</button></div>';
 }
 // Columna Compra: quien compra marca "Comprado" y la fecha estimada de llegada
 async function putCompra(sku, cuerpo){
@@ -611,7 +669,7 @@ async function cambiarLlegada(sku, input){
 }
 function celdaCompra(sku){
   const c = configInsumos[sku] || {};
-  if(!c.critico) return '<span class="empty-note" title="Solo los insumos en stock crítico tienen compra">—</span>';
+  if(!c.critico) return '<span class="empty-note" title="La compra se registra cuando hay una solicitud de stock">—</span>';
   const s = escapeHtml(JSON.stringify(String(sku)));
   return '<label class="comp-lbl"><input type="checkbox" ' + (c.comprado ? 'checked' : '') + ' onchange="marcarComprado(' + s + ', this)"> 📦 Comprado</label>' +
     '<div class="comp-fecha">Llega <input type="date" value="' + escapeHtml(c.llegada || '') + '" onchange="cambiarLlegada(' + s + ', this)" title="Fecha estimada de llegada"></div>' +
@@ -626,13 +684,13 @@ function pintarAvisoPendiente(d){
   const el = $('bannerAvisoInsumos');
   if(!el) return;
   if(d && d.avisoEnviado){
-    el.innerHTML = '<div class="banner-aviso ok">✓ Se envió a compras el aviso de ' + d.avisoEnviado.insumos + (d.avisoEnviado.insumos === 1 ? ' insumo' : ' insumos') + ' en stock crítico.</div>';
+    el.innerHTML = '<div class="banner-aviso ok">✓ Se envió a compras el aviso de ' + d.avisoEnviado.insumos + (d.avisoEnviado.insumos === 1 ? ' solicitud' : ' solicitudes') + ' de stock.</div>';
     clearTimeout(el._t); el._t = setTimeout(() => { el.innerHTML = ''; }, 20000);
     return;
   }
   if(d && d.pendiente){
     const p = d.pendiente;
-    el.innerHTML = '<div class="banner-aviso">⏳ <b>' + p.cantidad + (p.cantidad === 1 ? ' insumo' : ' insumos') + ' en stock crítico sin avisar a compras.</b> Se enviará UN solo correo' +
+    el.innerHTML = '<div class="banner-aviso">⏳ <b>' + p.cantidad + (p.cantidad === 1 ? ' solicitud' : ' solicitudes') + ' de stock sin avisar a compras.</b> Se enviará UN solo correo' +
       (p.enviaEn ? ' a eso de las <b>' + horaCorta(p.enviaEn) + '</b> si no marcas nada más' : '') + '. <button type="button" class="btn-ghost-mini" onclick="enviarAvisoAhora(this)">Enviar ahora</button></div>';
     return;
   }
@@ -685,9 +743,14 @@ function renderInsumos(){
     return;
   }
   const busqueda = ($('buscarInsumoInput').value || '').trim().toLowerCase();
-  const lista = insumosActuales.filter(s => !busqueda || (s.nombre || '').toLowerCase().includes(busqueda) || (s.code || '').toLowerCase().includes(busqueda));
+  const internos = insumosActuales.filter(esInsumoInterno), aLaVenta = insumosActuales.filter(s => !esInsumoInterno(s));
+  $('cuentaInterno').textContent = '(' + fmtNum(internos.length) + ')'; $('cuentaVenta').textContent = '(' + fmtNum(aLaVenta.length) + ')';
+  $('tabInterno').classList.toggle('activa', vistaInsumos === 'interno'); $('tabVenta').classList.toggle('activa', vistaInsumos === 'venta');
+  $('subInsumos').textContent = TEXTO_VISTA[vistaInsumos];
+  renderSolicitudes();
+  const lista = (vistaInsumos === 'interno' ? internos : aLaVenta).filter(s => !busqueda || (s.nombre || '').toLowerCase().includes(busqueda) || (s.code || '').toLowerCase().includes(busqueda));
   if(!lista.length){
-    $('wrapInsumos').innerHTML = '<p class="empty-note">Ningún insumo calza con la búsqueda.</p>';
+    $('wrapInsumos').innerHTML = '<p class="empty-note">' + (busqueda ? 'Ningún producto de esta pestaña calza con la búsqueda.' : 'No hay productos en esta pestaña.') + '</p>';
     return;
   }
   const col = sortColInsumos;
@@ -719,7 +782,7 @@ function renderInsumos(){
       <td class="mes amount">${s.ultimoCosto != null ? fmtMoneda(s.ultimoCosto) : '—'}</td>
       <td class="mes amount">${s.proveedor ? escapeHtml(s.proveedor) : '—'}</td>
       <td class="mes amount">${linkHtml} <button class="btn-icono" title="Agregar/editar link de compra" onclick="editarLinkInsumo(${escapeHtml(JSON.stringify(String(s.code)))})">✏️</button></td>
-      <td class="mes">${celdaCritico(s.code)}</td>
+      <td class="mes">${celdaSolicitud(s.code)}</td>
       <td class="mes">${celdaCompra(s.code)}</td>
       <td class="mes">${inputComentario(s.code)}</td>
       <td class="mes"><button class="btn-icono btn-basura" title="Eliminar este insumo de la lista (definitivo)" onclick="eliminarInsumo(${escapeHtml(JSON.stringify(String(s.code)))})">🗑️</button></td>
@@ -735,8 +798,8 @@ function renderInsumos(){
         ${th('ultimoCosto', 'Último costo de ingreso')}
         ${th('proveedor', 'Proveedor')}
         <th>Link de compra</th>
-        <th title="Lo marca quien usa el insumo y sugiere cuántas unidades comprar; compras recibe un solo correo con todo lo marcado">Stock crítico</th>
-        <th title="Lo marca quien compra: Comprado + fecha estimada de llegada. El técnico lo ve en camino">Compra</th>
+        <th title="Lo pide quien usa el producto, con las unidades a comprar; compras recibe un solo correo con todo lo solicitado. Al llegar, se marca Recibido">Solicitar stock</th>
+        <th title="Lo marca quien compra: Comprado + fecha estimada de llegada. Quien lo pidió lo ve en camino">Compra</th>
         <th>Comentario</th>
         <th title="Eliminar de la lista (definitivo)"></th>
       </tr></thead>
