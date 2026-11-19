@@ -55,6 +55,8 @@
   .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
   .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);padding:9px 16px;}
   .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-danger{background:var(--red-bg);color:var(--red);border:1.5px solid transparent;padding:9px 16px;}
+  .btn-danger:hover:not(:disabled){border-color:var(--red);}
   .btn-ghost.active{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
   .btn-compact{font-size:12px;padding:7px 13px;}
 
@@ -896,8 +898,30 @@ function renderListaMovimientosDia(){
       <div style="display:flex;align-items:center;gap:10px;">
         <span class="mov-monto ${claseMovimiento(m.categoria)}">${montoConSigno(m)}</span>
         <button class="btn-ghost btn-compact" onclick="editarMovimiento(${m.id})">✏️ Editar</button>
+        <button class="btn-danger btn-compact" title="Eliminar este movimiento" onclick="eliminarMovimiento(${m.id})">🗑️ Eliminar</button>
       </div>
     </div>`).join('');
+}
+
+// Elimina un movimiento programado (ingreso o egreso): borrado definitivo, pide confirmación y deja el detalle a la vista.
+async function eliminarMovimiento(id){
+  const mov = movimientosDelMes.find(m => m.id === id);
+  if(!mov) return;
+  const errorEl = $('modalDiaError');
+  errorEl.innerHTML = '';
+  const detalle = mov.categoria + (mov.nota ? ' — ' + mov.nota : '') + ' (' + montoConSigno(mov) + ')';
+  if(!confirm(['¿Eliminar este movimiento?', detalle, 'El borrado es definitivo.'].join('\n\n'))) return;
+  try{
+    const res = await fetch('/api/negocio?recurso=calendario-pagos&id=' + encodeURIComponent(id), { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || data.error){ errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">${escapeHtml(data.error || 'No se pudo eliminar')}</div>`; return; }
+    if(movEditandoId === id) movEditandoId = null;
+    await cargarCalendarioMes();
+    renderListaMovimientosDia();
+    cargarProyeccionSaldoBci();
+  }catch(err){
+    errorEl.innerHTML = `<div class="note-box" style="border-color:#F5B5B5;background:var(--red-bg);">Error: ${escapeHtml(err.message)}</div>`;
+  }
 }
 
 // Editar un movimiento ya programado (monto, categoría y nota) sin borrarlo y volver a crearlo.
