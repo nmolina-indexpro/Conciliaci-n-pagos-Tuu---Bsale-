@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/png" href="/favicon.png">
-<title>Pantallas a pedido — IndexStore</title>
+<title>Productos a pedido — IndexStore</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -210,7 +210,7 @@
           <a href="compras.html#comparador" data-requiere="compras.html#comparador">Comparativa de cotizaciones</a>
           <a href="alertas-stock.html">Alertas de Stock</a>
           <a href="productos-en-transito.html">Productos en tránsito</a>
-          <a href="pedidos-pantallas.html" class="active">Pantallas a pedido</a>
+          <a href="pedidos-pantallas.html" class="active">Productos a pedido</a>
         </div>
       </div>
       <div class="nav-dropdown">
@@ -279,8 +279,8 @@
     <div class="user-box" id="userBox"></div>
   </header>
 
-  <h1>🖥️ Pantallas a pedido</h1>
-  <div class="sub">Modelos de pantalla de notebook que no tenemos en stock y se importan a pedido (15 a 25 días). Anota el pedido del cliente con su abono y el tiempo de espera que se le dijo, y sigue cada uno hasta entregarlo.</div>
+  <h1>📦 Productos a pedido</h1>
+  <div class="sub">Productos que no tenemos en stock y se compran a pedido (pantallas, baterías, cargadores o cualquier otro; del catálogo o no; normalmente 15 a 25 días). Anota el pedido del cliente con su abono y el tiempo de espera que se le dijo, y sigue cada uno hasta entregarlo.</div>
 
   <div id="ppAlerta"></div>
   <div class="pp-kpis" id="ppKpis"></div>
@@ -307,7 +307,7 @@
           <option value="cancelado">Cancelados</option>
           <option value="todos">Todos</option>
         </select></div>
-      <div><label for="ppBuscar">Buscar</label><input type="text" id="ppBuscar" placeholder="Cliente, modelo, SKU, proveedor…" oninput="pintarTabla()" style="width:260px;"></div>
+      <div><label for="ppBuscar">Buscar</label><input type="text" id="ppBuscar" placeholder="Cliente, producto, SKU, proveedor…" oninput="pintarTabla()" style="width:260px;"></div>
       <div class="pp-acciones"><button class="btn-primary" onclick="verTab('nuevo')">➕ Anotar pedido</button></div>
     </div>
     <div id="ppResumen" class="sub" style="margin:6px 0 8px;"></div>
@@ -440,6 +440,7 @@ function formularioHtml(pref, p){
   const dias = p.dias_estimados ?? datos.diasPorDefecto ?? 20;
   const abonoSi = !!p.abono_realizado;
   const fact = !!p.requiere_factura;
+  const fuera = !!p.fuera_catalogo;
   return `
     <fieldset class="pp-seccion"><legend>1. Cliente</legend>
       <div class="pp-grid">
@@ -459,18 +460,19 @@ function formularioHtml(pref, p){
     </fieldset>
 
     <fieldset class="pp-seccion"><legend>2. Producto</legend>
-      <div class="pp-campo"><label for="${pref}_buscar">Buscar en el catálogo de la tienda (por SKU o modelo)</label>
-        <input type="text" id="${pref}_buscar" placeholder="Ej: pavilion 15, PSLIM156, ideapad 3…" autocomplete="off" oninput="programarBusqueda('${pref}')">
+      <label class="pp-check"><input type="checkbox" id="${pref}_fuera" ${fuera ? 'checked' : ''} onchange="alternarFuera('${pref}')"> Este producto <b>no está en el catálogo</b> (lo anoto a mano)</label>
+      <div class="pp-campo" id="${pref}_bloqueCatalogo" style="${fuera ? 'display:none;' : ''}"><label for="${pref}_buscar">Buscar en el catálogo de la tienda (por SKU, nombre o modelo)</label>
+        <input type="text" id="${pref}_buscar" placeholder="Ej: pavilion 15, PSLIM156, cargador, batería…" autocomplete="off" oninput="programarBusqueda('${pref}')">
         <div class="pp-resultados" id="${pref}_resultados"></div>
       </div>
       <div id="${pref}_elegido"></div>
       <input type="hidden" id="${pref}_imagen" value="${escapeHtml(p.producto_imagen || '')}"><input type="hidden" id="${pref}_url" value="${escapeHtml(p.producto_url || '')}">
       <div class="pp-grid">
-        ${campo(pref, 'modelo', 'Modelo de la pantalla / notebook *', p.modelo, { extra: 'maxlength="200"' })}
-        ${campo(pref, 'sku', 'SKU (si lo tiene)', p.producto_sku, { extra: 'maxlength="80"' })}
-        ${campo(pref, 'parte', 'N° de parte (opcional)', p.numero_parte, { extra: 'maxlength="120"' })}
+        ${campo(pref, 'modelo', fuera ? 'Producto (nombre y modelo) *' : 'Producto *', p.modelo, { extra: 'maxlength="200"' })}
+        <div id="${pref}_bloqueSku" style="${fuera ? 'display:none;' : ''}">${campo(pref, 'sku', 'SKU (si lo tiene)', p.producto_sku, { extra: 'maxlength="80"' })}</div>
+        ${campo(pref, 'parte', 'N° de parte / referencia (opcional)', p.numero_parte, { extra: 'maxlength="120"' })}
       </div>
-      <div class="pp-nota">Si el modelo no está en el catálogo, escríbelo a mano: no hace falta elegir uno de la lista.</div>
+      <div class="pp-nota">Elige el producto de la lista y se llenan el nombre, el SKU y la foto. Si no está en el catálogo, marca la casilla de arriba y descríbelo a mano.</div>
     </fieldset>
 
     <fieldset class="pp-seccion"><legend>3. Abono y tiempo de espera</legend>
@@ -493,6 +495,14 @@ function marcarChips(pref){
   const v = Number(($(pref + '_dias') || {}).value);
   document.querySelectorAll('#' + pref + '_dias ~ .pp-chip').forEach(b => b.classList.toggle('activo', Number(b.dataset.d) === v));
 }
+// Producto que no está en el catálogo: se oculta el buscador y el SKU, se limpia lo que se había elegido de la tienda y el nombre se escribe a mano.
+function alternarFuera(pref){
+  const fuera = $(pref + '_fuera').checked;
+  $(pref + '_bloqueCatalogo').style.display = fuera ? 'none' : '';
+  $(pref + '_bloqueSku').style.display = fuera ? 'none' : '';
+  const et = document.querySelector('label[for="' + pref + '_modelo"]'); if(et) et.textContent = fuera ? 'Producto (nombre y modelo) *' : 'Producto *';
+  if(fuera){ poner(pref + '_sku', ''); poner(pref + '_imagen', ''); poner(pref + '_url', ''); $(pref + '_buscar').value = ''; $(pref + '_resultados').innerHTML = ''; mostrarElegido(pref); }
+}
 function alternarFactura(pref){ $(pref + '_datosFactura').style.display = $(pref + '_factura').checked ? '' : 'none'; }
 function alternarAbono(pref){
   const si = $(pref + '_abono').value === 'si';
@@ -506,7 +516,7 @@ function leerFormulario(pref){
   return {
     cliente_nombre: v('nombre'), cliente_telefono: v('tel'), cliente_email: v('email'), cliente_comuna: v('comuna'),
     requiere_factura: factura, fact_rut: factura ? v('rut') : '', fact_razon_social: factura ? v('razon') : '', fact_giro: factura ? v('giro') : '', fact_direccion: factura ? v('direccion') : '', fact_comuna: factura ? v('comunaFact') : '',
-    modelo: v('modelo'), producto_sku: v('sku'), producto_imagen: v('imagen'), producto_url: v('url'), numero_parte: v('parte'),
+    modelo: v('modelo'), producto_sku: v('sku'), producto_imagen: v('imagen'), producto_url: v('url'), fuera_catalogo: $(pref + '_fuera').checked, numero_parte: v('parte'),
     abono_realizado: abono, abono: abono ? v('monto') : '', abono_medio: abono ? v('medio') : '', dias_estimados: v('dias'), nota_interna: v('nota'),
   };
 }
@@ -527,11 +537,11 @@ async function buscarProducto(pref, q){
     const d = await res.json();
     if($(pref + '_buscar').value.trim() !== q) return; // ya escribió otra cosa
     if(res.status === 429){ caja.innerHTML = '<div class="pp-res-msg">Muchas búsquedas seguidas: espera un momento.</div>'; return; }
-    if(d.error){ caja.innerHTML = '<div class="pp-res-msg">No se pudo consultar el catálogo (' + escapeHtml(d.error) + '). Puedes escribir el modelo a mano.</div>'; return; }
+    if(d.error){ caja.innerHTML = '<div class="pp-res-msg">No se pudo consultar el catálogo (' + escapeHtml(d.error) + '). Puedes anotar el producto a mano (marca «No está en el catálogo»).</div>'; return; }
     resultadosBusqueda[pref] = d.productos || [];
-    if(!resultadosBusqueda[pref].length){ caja.innerHTML = '<div class="pp-res-msg">No hay productos con ese texto. Puedes escribir el modelo a mano.</div>'; return; }
+    if(!resultadosBusqueda[pref].length){ caja.innerHTML = '<div class="pp-res-msg">No hay productos con ese texto. Puedes anotar el producto a mano (marca «No está en el catálogo»).</div>'; return; }
     caja.innerHTML = resultadosBusqueda[pref].map((p, i) => `<button type="button" class="pp-res" onclick="elegirProducto('${pref}', ${i})">
-      ${p.imagen ? `<img src="${escapeHtml(fotoMini(p.imagen, 80))}" alt="" loading="lazy">` : '<span class="pp-sinfoto">🖥️</span>'}
+      ${p.imagen ? `<img src="${escapeHtml(fotoMini(p.imagen, 80))}" alt="" loading="lazy">` : '<span class="pp-sinfoto">📦</span>'}
       <span class="pp-res-txt"><b>${escapeHtml(p.titulo)}${p.variante ? ' · ' + escapeHtml(p.variante) : ''}</b><small>${p.sku ? 'SKU ' + escapeHtml(p.sku) : 'sin SKU'}${p.stock != null ? ' · stock ' + fmtNum(p.stock) : ''}${p.precio ? ' · ' + fmtMoneda(p.precio) : ''}${p.estado && p.estado !== 'ACTIVE' ? ' · ' + escapeHtml(p.estado === 'DRAFT' ? 'borrador' : String(p.estado).toLowerCase()) : ''}</small></span></button>`).join('');
   }catch(err){ caja.innerHTML = '<div class="pp-res-msg">No se pudo buscar: ' + escapeHtml(err.message) + '</div>'; }
 }
@@ -614,8 +624,8 @@ function pintarTabla(){
     filas.map(p => {
       const wa = telefonoWa(p.cliente_telefono);
       const cliente = `<b>${escapeHtml(p.cliente_nombre || 'Sin nombre')}</b>${p.cliente_telefono ? '<br>' + (wa ? `<a href="https://wa.me/${wa}" target="_blank" rel="noopener noreferrer" title="Escribir por WhatsApp">💬 ${escapeHtml(p.cliente_telefono)}</a>` : escapeHtml(p.cliente_telefono)) : ''}${p.cliente_email ? '<br><span class="sub" style="margin:0;">' + escapeHtml(p.cliente_email) + '</span>' : ''}${p.cliente_comuna ? '<br><span class="sub" style="margin:0;">' + escapeHtml(p.cliente_comuna) + '</span>' : ''}${p.requiere_factura ? `<br><span class="pp-factura" title="${escapeHtml((p.fact_razon_social || '') + ' · ' + (p.fact_rut || ''))}">🧾 Factura</span>` : ''}`;
-      const foto = p.producto_imagen ? `<img class="pp-foto" src="${escapeHtml(fotoMini(p.producto_imagen, 96))}" alt="" loading="lazy">` : '<span class="pp-foto pp-sinfoto">🖥️</span>';
-      const producto = `<div class="pp-prodcelda">${foto}<div><b>${escapeHtml(p.modelo || 'Sin modelo')}</b>${p.producto_sku ? '<br><span class="sub" style="margin:0;">SKU ' + escapeHtml(p.producto_sku) + '</span>' : ''}${p.numero_parte ? '<br><span class="sub" style="margin:0;">N° ' + escapeHtml(p.numero_parte) + '</span>' : ''}</div></div>`;
+      const foto = p.producto_imagen ? `<img class="pp-foto" src="${escapeHtml(fotoMini(p.producto_imagen, 96))}" alt="" loading="lazy">` : '<span class="pp-foto pp-sinfoto">📦</span>';
+      const producto = `<div class="pp-prodcelda">${foto}<div><b>${escapeHtml(p.modelo || 'Sin producto')}</b>${p.producto_sku ? '<br><span class="sub" style="margin:0;">SKU ' + escapeHtml(p.producto_sku) + '</span>' : ''}${p.fuera_catalogo ? '<br><span class="sub" style="margin:0;">fuera de catálogo</span>' : ''}${p.numero_parte ? '<br><span class="sub" style="margin:0;">N° ' + escapeHtml(p.numero_parte) + '</span>' : ''}</div></div>`;
       const abono = p.abono_realizado ? `<b>${fmtMoneda(p.abono)}</b><br><span class="sub" style="margin:0;">${escapeHtml(MEDIOS[p.abono_medio] || '')}</span>` : '<span class="pp-sin">Sin abono</span>';
       return `<tr class="pp-${escapeHtml(p.estado)}"><td data-valor="${p.id}"><b>${numeroPedido(p.id)}</b><br><span class="sub" style="margin:0;">${fechaCorta(p.fecha_pedido)}</span></td>` +
         `<td data-valor="${escapeHtml(p.cliente_nombre || '')}">${cliente}</td><td data-valor="${escapeHtml(p.modelo || '')}">${producto}</td>` +
@@ -629,10 +639,10 @@ function pintarTabla(){
 let modalId = null;
 function mensajeWa(p){
   const n = (p.cliente_nombre || '').split(' ')[0] || '';
-  const modelo = p.modelo || 'tu pantalla';
-  if(p.estado === 'comprado' || p.estado === 'en_transito') return `Hola ${n}, te escribimos de IndexStore: tu pantalla (${modelo}) ya está ${p.estado === 'comprado' ? 'comprada' : 'en camino'}.` + (p.fecha_eta ? ` Estimamos que llega cerca del ${fechaCorta(p.fecha_eta)}.` : '') + ' Te avisamos apenas la tengamos.';
-  if(p.estado === 'recibido') return `Hola ${n}, ya llegó tu pantalla (${modelo}). Puedes pasar a retirarla o coordinamos el envío.`;
-  return `Hola ${n}, te escribimos de IndexStore por tu pedido de pantalla (${modelo}). El plazo estimado es de unos ${p.dias_estimados || datos.diasPorDefecto} días.`;
+  const modelo = p.modelo || 'tu producto';
+  if(p.estado === 'comprado' || p.estado === 'en_transito') return `Hola ${n}, te escribimos de IndexStore: tu pedido (${modelo}) ya fue comprado${p.estado === 'en_transito' ? ' y viene en camino' : ''}.` + (p.fecha_eta ? ` Estimamos que llega cerca del ${fechaCorta(p.fecha_eta)}.` : '') + ' Te avisamos apenas lo tengamos.';
+  if(p.estado === 'recibido') return `Hola ${n}, ya llegó tu pedido (${modelo}). Puedes pasar a retirarlo o coordinamos el envío.`;
+  return `Hola ${n}, te escribimos de IndexStore por tu pedido (${modelo}). El plazo estimado es de unos ${p.dias_estimados || datos.diasPorDefecto} días.`;
 }
 function abrirModal(id, paraComprar){
   const p = datos.pedidos.find(x => x.id === id); if(!p) return;

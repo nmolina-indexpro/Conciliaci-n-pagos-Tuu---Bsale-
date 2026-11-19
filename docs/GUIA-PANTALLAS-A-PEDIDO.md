@@ -1,26 +1,28 @@
-# Pantallas a pedido (Compras > Pantallas a pedido)
+# Productos a pedido (Compras > Productos a pedido)
 
-Para modelos de pantalla de notebook que no se tienen en stock pero se pueden importar (la mayoría tarda entre 15 y 25 días). Los pedidos se **anotan a mano**
+Para cualquier producto que no se tiene en stock y se compra a pedido (pantallas, baterías, cargadores u otros; la mayoría tarda entre 15 y 25 días). Antes el módulo
+se llamaba «Pantallas a pedido» y solo era para pantallas; la dirección de la página (pedidos-pantallas.html) y los permisos no cambian. Los pedidos se **anotan a mano**
 y la lista les sigue la pista hasta entregarlos. No hay nada automático con Shopify: no hay producto de abono ni avisos de pedidos.
 
 ## Anotar un pedido (primera pestaña)
 
 1. **Cliente:** nombre (obligatorio), WhatsApp, correo (hace falta al menos uno de los dos), comuna. Si la empresa quiere **factura**: RUT (se valida el dígito
    verificador), razón social, giro, dirección y comuna de facturación.
-2. **Producto:** se busca en el catálogo de la tienda por SKU o modelo y se elige de la lista (muestra la foto, el SKU, el stock y el precio). Al elegirlo se
-   llenan el modelo, el SKU y la foto. Si el modelo no está en el catálogo se escribe a mano. Opcional: número de parte.
+2. **Producto:** puede ser cualquiera. Se busca en el catálogo de la tienda por SKU, nombre o modelo y se elige de la lista (muestra la foto, el SKU, el stock y el
+   precio); al elegirlo se llenan el nombre, el SKU y la foto. Si el producto **no está en el catálogo**, se marca la casilla «Este producto no está en el catálogo» y se
+   describe a mano (nombre y modelo); en la lista queda con la marca «fuera de catálogo». Opcional: número de parte o referencia.
 3. **Abono:** ¿se realizó abono? Si es que sí: monto y medio (**Link de pago**, **Transferencia** o **Shopify**).
 4. **Tiempo de espera** que se le dijo al cliente, en días (botones de 15, 18, 20, 22 y 25, o cualquier número; por defecto 20). Con eso se calcula la fecha
    prometida.
 
-El pedido queda **pendiente de compra**, se enciende la alerta de la página y sale un correo «Nuevo pedido de pantalla: ejecutar la compra» (notificación
-«Pantalla a pedido nueva»). Llega a nmolina@indexpro.cl y a nathalia@indexstore.cl (direcciones fijas; se pueden sumar más personas, apagar o cambiar en
+El pedido queda **pendiente de compra**, se enciende la alerta de la página y sale un correo «Nuevo pedido de producto: ejecutar la compra» (notificación
+«Producto a pedido nuevo»). Llega a nmolina@indexpro.cl y a nathalia@indexstore.cl (direcciones fijas; se pueden sumar más personas, apagar o cambiar en
 Usuarios > Notificaciones). El correo no lleva montos.
 
 ## Recordatorio a los 3 días
 
 Todas las mañanas (cron 13:10 UTC) el ERP revisa los pedidos **pendientes de compra**. Si uno lleva **3 días o más sin comprarse**, sale un correo de
-recordatorio (notificación «Pantalla a pedido sin comprar tras 3 días», mismos destinatarios) con una tabla de todos los que cumplen, el más antiguo primero. Si
+recordatorio (notificación «Producto a pedido sin comprar tras 3 días», mismos destinatarios) con una tabla de todos los que cumplen, el más antiguo primero. Si
 siguen sin comprarse, el recordatorio **se repite cada 3 días**. En cuanto el pedido pasa a «Comprado» (o a cualquier otro estado) deja de avisar; los comprados, en
 tránsito, recibidos, entregados y cancelados no generan recordatorio. Editar otros datos (proveedor, notas, etc.) no reinicia la cuenta, solo el cambio de estado.
 Si no hay ningún pedido que cumpla no sale correo. «Enviar prueba» en Usuarios > Notificaciones manda un ejemplo con los pendientes que haya (o datos de ejemplo).

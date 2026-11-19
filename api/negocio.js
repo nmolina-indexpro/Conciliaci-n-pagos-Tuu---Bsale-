@@ -18542,7 +18542,7 @@ async function manejarVariacionPrecioProductos(req, res, _sesion) {
   }
 }
 
-// ===================== PANTALLAS A PEDIDO =====================
+// ===================== PRODUCTOS A PEDIDO (antes "Pantallas a pedido") =====================
 // Pedidos de pantallas de notebook que no están en stock y se importan a pedido (15 a 25 días). Se anotan a mano: cliente, producto (con la foto del
 // catálogo de la tienda), abono, días de espera que se le dijeron al cliente y datos de facturación. La lista les sigue la pista hasta entregarlos.
 // Lógica y validaciones en lib/pedidos-pantalla.js.
@@ -18604,7 +18604,7 @@ async function manejarPedidosPantalla(req, res, sesion) {
     }
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
-    return res.status(200).json({ error: 'Error en Pantallas a pedido', detail: String(err.message || err).slice(0, 200) });
+    return res.status(200).json({ error: 'Error en Productos a pedido', detail: String(err.message || err).slice(0, 200) });
   }
 }
 
@@ -18661,10 +18661,10 @@ async function manejarPedidosPantallaRecordatorio(req, res) {
     else await soltarRecordatoriosPP(sql, ids); // nadie lo recibió: se reintenta en la próxima ejecución
     return res.status(200).json({ ok: true, enviado: envios.some((e) => e.enviado !== false), pedidos: lista.length, envios });
   } catch (e) {
-    return res.status(200).json({ error: 'No se pudo enviar el recordatorio de pedidos de pantalla', detail: String(e.message || e).slice(0, 200) });
+    return res.status(200).json({ error: 'No se pudo enviar el recordatorio de pedidos de productos', detail: String(e.message || e).slice(0, 200) });
   }
 }
-// ===================== PANTALLAS A PEDIDO (fin) =====================
+// ===================== PRODUCTOS A PEDIDO (fin) =====================
 
 // ===================== DETALLE DE VENTAS (Comercial) =====================
 // Ventas de Bsale por producto, vendedor, sucursal, marca y tipo de producto, con comparativos entre períodos (lógica en lib/detalle-ventas.js).
