@@ -5751,6 +5751,17 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'electronica-leccion': manejarElectronicaEnviar,
     };
     // Reenvío a TODOS los destinatarios configurados (solo para los tipos que lo permiten): ?todos=1. Es un envío real: queda registrado como último correo.
+    // ?vista=1: arma el correo con los datos de ahora y lo DEVUELVE sin enviar nada (para revisarlo antes de que salga). Solo los tipos cuyo handler admite ?solo_ver=1.
+    if (req.query.vista === '1') {
+      if (!['servicio-tecnico-resumen-semanal', 'whatsapp-ejecutivos-diario', 'modelos-compatibles-pendientes', 'traspaso-stock-modelos', 'google-ads-resumen-semanal'].includes(tipo)) return res.status(400).json({ error: 'Esta notificación no tiene vista previa con datos de ahora' });
+      const cap = { status: 200, cuerpo: null };
+      const resFalsa = { status(c) { cap.status = c; return this; }, json(o) { cap.cuerpo = o; return this; }, setHeader() { return this; }, end() { return this; } };
+      await crons[tipo]({ method: 'GET', headers: { authorization: `Bearer ${process.env.CRON_SECRET || ''}` }, query: { solo_ver: '1' } }, resFalsa);
+      const b = cap.cuerpo || {};
+      if (cap.status >= 400) return res.status(200).json({ ok: false, error: b.error || `Falló (HTTP ${cap.status})`, detail: b.detail || null });
+      if (!b.html) return res.status(200).json({ ok: false, motivo: b.motivo || b.error || 'Hoy no hay datos para armar este correo.' });
+      return res.status(200).json({ ok: true, asunto: b.asunto, html: b.html });
+    }
     // ?todos=1 (sin regenerar): reenvía a todos los destinatarios el ÚLTIMO correo que se envió de esa notificación (asunto y contenido tal cual se guardaron), con "Reenvío" al comienzo del asunto.
     // No cuenta como un envío nuevo: no cambia el "último envío" ni la miniatura.
     if (req.query.todos === '1' && req.query.regenerar !== '1') {

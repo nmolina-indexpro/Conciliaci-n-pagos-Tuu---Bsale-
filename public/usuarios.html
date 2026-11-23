@@ -830,7 +830,7 @@ function renderNotificaciones(){
           </div></td>
           <td class="empty-note" title="${n.ultimoEnvioEn ? esc(new Date(n.ultimoEnvioEn).toLocaleString('es-CL')) : ''}">${ultimo || 'Sin envíos'}</td>
           <td>${miniaturaCorreoHtml(n)}</td>
-          <td class="notif-prueba"><button class="btn-prueba" id="btnPrueba_${n.tipo}" onclick="enviarPruebaNotificacion('${n.tipo}')" title="Te manda este correo solo a ti, con [PRUEBA] en el asunto">✉️ Enviar prueba</button><br><button class="btn-prueba" style="margin-top:4px;" id="btnReenviar_${n.tipo}" onclick="reenviarATodos('${n.tipo}')" title="Vuelve a mandar a todos sus destinatarios el último correo que se envió de esta notificación">📨 Reenviar a todos</button>${['productos-estancados-flags', 'servicio-tecnico-resumen-semanal'].includes(n.tipo) ? `<br><button class="btn-prueba" style="margin-top:4px;" id="btnRegenerar_${n.tipo}" onclick="reenviarATodos('${n.tipo}', true)" title="Arma el correo de nuevo con los datos de ahora y lo manda a todos sus destinatarios">↻ Enviar con datos de hoy</button>` : ''}<div class="msg-prueba" id="msgPrueba_${n.tipo}"></div></td>
+          <td class="notif-prueba"><button class="btn-prueba" id="btnPrueba_${n.tipo}" onclick="enviarPruebaNotificacion('${n.tipo}')" title="Te manda este correo solo a ti, con [PRUEBA] en el asunto">✉️ Enviar prueba</button>${['servicio-tecnico-resumen-semanal', 'whatsapp-ejecutivos-diario', 'modelos-compatibles-pendientes', 'traspaso-stock-modelos', 'google-ads-resumen-semanal'].includes(n.tipo) ? `<br><button class="btn-prueba" style="margin-top:4px;" id="btnVista_${n.tipo}" onclick="verAntesDeEnviar('${n.tipo}')" title="Arma el correo con los datos de ahora y te lo muestra aquí, sin enviarlo a nadie">👁 Ver antes de enviar</button>` : ''}<br><button class="btn-prueba" style="margin-top:4px;" id="btnReenviar_${n.tipo}" onclick="reenviarATodos('${n.tipo}')" title="Vuelve a mandar a todos sus destinatarios el último correo que se envió de esta notificación">📨 Reenviar a todos</button>${['productos-estancados-flags', 'servicio-tecnico-resumen-semanal'].includes(n.tipo) ? `<br><button class="btn-prueba" style="margin-top:4px;" id="btnRegenerar_${n.tipo}" onclick="reenviarATodos('${n.tipo}', true)" title="Arma el correo de nuevo con los datos de ahora y lo manda a todos sus destinatarios">↻ Enviar con datos de hoy</button>` : ''}<div class="msg-prueba" id="msgPrueba_${n.tipo}"></div></td>
         </tr>${n.tipo === 'resumen-cambios-diario' ? filaEnlaceResumen() : ''}`;
       })()).join('')}
       </tbody>
@@ -864,6 +864,24 @@ async function enviarPruebaNotificacion(tipo){
   btn.disabled = false; btn.textContent = textoOriginal;
 }
 // Reenvía el correo (envío real, no de prueba) a TODOS los destinatarios configurados de esa notificación. Pide confirmación mostrando quiénes lo recibirán.
+// Muestra el correo armado con los datos de ahora, SIN enviarlo (puede tardar unos segundos: lee Bsale y otras fuentes).
+async function verAntesDeEnviar(tipo){
+  const n = listaNotificaciones.find(x => x.tipo === tipo); if(!n) return;
+  $('tituloVistaCorreo').textContent = n.nombre + ' · vista previa con datos de ahora';
+  $('infoVistaCorreo').textContent = 'Armando el correo con los datos de ahora… puede tardar hasta un minuto. No se envía a nadie.';
+  $('marcoVistaCorreo').srcdoc = '';
+  $('modalVistaCorreo').classList.add('abierto');
+  try{
+    const res = await fetch('/api/negocio?recurso=notificacion-probar&vista=1&tipo=' + encodeURIComponent(tipo), { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if(data.ok && data.html){
+      $('infoVistaCorreo').textContent = 'Asunto: ' + data.asunto + ' · Esto es solo una vista previa: no se envió a nadie.';
+      $('marcoVistaCorreo').srcdoc = marcoCorreo(data.html);
+    }else{
+      $('infoVistaCorreo').textContent = data.motivo || ((data.error || 'No se pudo armar el correo') + (data.detail ? ' (' + data.detail + ')' : ''));
+    }
+  }catch(err){ $('infoVistaCorreo').textContent = 'Error: ' + err.message; }
+}
 // regenerar = false: reenvía el ÚLTIMO correo que se envió (tal cual); regenerar = true: arma el correo de nuevo con los datos de ahora (solo algunos tipos).
 async function reenviarATodos(tipo, regenerar){
   const n = listaNotificaciones.find(x => x.tipo === tipo), btn = $((regenerar ? 'btnRegenerar_' : 'btnReenviar_') + tipo), msg = $('msgPrueba_' + tipo);
