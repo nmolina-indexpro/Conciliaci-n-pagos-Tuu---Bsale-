@@ -4043,6 +4043,80 @@ async function manejarServiciosPorMes(req, res, sesion) {
   }
 }
 
+// Sincroniza SOLO los últimos N días de servicios (SKU "SER...") desde Bsale, sin estado ni reanudación: la usa el correo semanal de Servicio Técnico para no depender de que
+// alguien apriete "Sincronizar" en la página (si no, el correo contaba solo lo que había quedado de la última sincronización manual y mostraba muy pocos servicios).
+// Mismas reglas que manejarSyncServiciosTecnico (ventas reales, SKU que empieza con SER, sin SERINDEX ni "Soporte Informático"). Si lee toda la ventana, también saca de la base
+// las filas de esa ventana que Bsale ya no entrega (documentos anulados o corregidos). Devuelve { completo, desde, hasta, filas, leidos }.
+async function sincronizarServiciosRecientes(sql, token, { dias = 21, presupuestoMs = 28000 } = {}) {
+  const inicio = Date.now();
+  const hastaStr = new Date().toISOString().slice(0, 10);
+  const desdeStr = new Date(Date.now() - dias * 86400000).toISOString().slice(0, 10);
+  const rangeStart = Math.floor(new Date(`${desdeStr}T00:00:00-04:00`).getTime() / 1000) - 6 * 3600;
+  const rangeEnd = Math.floor(new Date(`${hastaStr}T23:59:59-04:00`).getTime() / 1000) + 6 * 3600;
+  const vendedoresPorId = await obtenerMapaVendedores(token);
+  const TANDA = 6;
+  let offset = 0, total = null, terminado = false, leidos = 0, ultimaPeticion = 0;
+  const filas = [];
+  while (!terminado && Date.now() - inicio < presupuestoMs) {
+    const offsets = [];
+    for (let i = 0; i < TANDA; i++) { const off = offset + i * PUNTOS_SYNC_LIMIT; if (total != null && off >= total) break; offsets.push(off); }
+    if (!offsets.length) { terminado = true; break; }
+    const espera = (offsets.length * PUNTOS_SYNC_INTERVALO_MIN_MS) - (Date.now() - ultimaPeticion);
+    if (espera > 0) await new Promise(r => setTimeout(r, espera));
+    ultimaPeticion = Date.now();
+    const respuestas = await Promise.all(offsets.map(async off => {
+      const r = await fetchConTimeout(`${BSALE_BASE}/documents.json?emissiondaterange=[${rangeStart},${rangeEnd}]&expand=[document_type,details,user,client]&limit=${PUNTOS_SYNC_LIMIT}&offset=${off}`, { headers: { access_token: token } }, 15000);
+      if (!r.ok) throw new Error(`Bsale HTTP ${r.status} en documents.json`);
+      return r.json();
+    }));
+    let paginaIncompleta = false;
+    const items = [];
+    for (const data of respuestas) {
+      if (typeof data.count === 'number') total = data.count;
+      const its = data.items || [];
+      items.push(...its);
+      if (its.length < PUNTOS_SYNC_LIMIT) paginaIncompleta = true;
+    }
+    leidos += items.length;
+    for (const doc of items.filter(d => d.state === 0 && !d.cancellationStatus && esVentaReal(d.document_type))) {
+      const porSku = new Map();
+      for (const det of doc.details?.items || []) {
+        const codigo = (det.variant?.code || '').toUpperCase();
+        if (!codigo.startsWith('SER') || SKUS_SERVICIO_EXCLUIDOS.has(codigo)) continue;
+        const nombre = det.variant?.description || det.comment || det.note || codigo;
+        if (SERVICIO_EXCLUIDO_REGEX.test(nombre)) continue;
+        const previa = porSku.get(codigo) || { nombre, cantidad: 0, monto: 0 };
+        previa.cantidad += Number(det.quantity) || 0;
+        previa.monto += (Number(det.quantity) || 0) * (Number(det.netUnitValue) || 0);
+        porSku.set(codigo, previa);
+      }
+      const fecha = doc.emissionDate ? new Date(doc.emissionDate * 1000).toISOString().slice(0, 10) : null;
+      if (!fecha) continue;
+      const vendedorId = doc.user?.id || null;
+      for (const [sku, v] of porSku.entries()) {
+        filas.push({ documentoId: doc.id, sku, nombre: v.nombre, fecha, cantidad: v.cantidad, monto: v.monto, vendedorId, vendedorNombre: vendedorId ? (vendedoresPorId.get(vendedorId) || `Usuario #${vendedorId}`) : null, clienteId: doc.client?.id || null, clienteNombre: doc.client ? nombreClienteDoc(doc.client) : null });
+      }
+    }
+    offset += offsets.length * PUNTOS_SYNC_LIMIT;
+    terminado = paginaIncompleta || (total != null && offset >= total);
+  }
+  const marca = new Date().toISOString();
+  for (let i = 0; i < filas.length; i += 500) {
+    const lote = filas.slice(i, i + 500);
+    await sql.query(
+      `INSERT INTO bsale_servicios_ventas (documento_id, sku, nombre, fecha, cantidad, monto, vendedor_id, vendedor_nombre, cliente_id, cliente_nombre, sincronizado_en)
+       SELECT * FROM UNNEST ($1::int[], $2::text[], $3::text[], $4::date[], $5::numeric[], $6::numeric[], $7::int[], $8::text[], $9::int[], $10::text[], $11::timestamptz[])
+       ON CONFLICT (documento_id, sku) DO UPDATE SET nombre = EXCLUDED.nombre, fecha = EXCLUDED.fecha, cantidad = EXCLUDED.cantidad, monto = EXCLUDED.monto,
+         vendedor_id = EXCLUDED.vendedor_id, vendedor_nombre = EXCLUDED.vendedor_nombre, cliente_id = EXCLUDED.cliente_id, cliente_nombre = EXCLUDED.cliente_nombre, sincronizado_en = EXCLUDED.sincronizado_en;`,
+      [lote.map(f => f.documentoId), lote.map(f => f.sku), lote.map(f => f.nombre), lote.map(f => f.fecha), lote.map(f => f.cantidad), lote.map(f => f.monto),
+        lote.map(f => f.vendedorId), lote.map(f => f.vendedorNombre), lote.map(f => f.clienteId), lote.map(f => f.clienteNombre), lote.map(() => marca)]
+    );
+  }
+  // Leída toda la ventana: lo que quedó en ella sin haberse visto en esta pasada ya no existe en Bsale (anulado o corregido)
+  if (terminado) await sql`DELETE FROM bsale_servicios_ventas WHERE fecha BETWEEN ${desdeStr}::date AND ${hastaStr}::date AND sincronizado_en < ${marca}::timestamptz;`;
+  return { completo: terminado, desde: desdeStr, hasta: hastaStr, filas: filas.length, leidos, sincronizadoEn: marca };
+}
+
 async function manejarSyncServiciosTecnico(req, res, sesion) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede sincronizar Servicio Técnico' });
@@ -5738,12 +5812,12 @@ async function manejarNotificacionProbar(req, res, sesion) {
 // nathalia@indexstore.cl con un resumen de Servicio Técnico de la semana
 // recién terminada (lunes a domingo) -- pedido del usuario. Lo dispara un
 // cron de Vercel (ver vercel.json), sin sesión de usuario -- protegido por
-// CRON_SECRET (mismo patrón que manejarAlertasSitioWebNotificar). Lee
-// bsale_servicios_ventas tal cual está sincronizado (no llama a Bsale de
-// nuevo ni fuerza una resincronización -- un resync completo de 365 días
-// no cabe en una sola invocación); si nadie ha sincronizado hace tiempo, el
-// correo lo deja explícito con la fecha de "última sincronización" en vez
-// de fallar en silencio. Destinatarios: ver
+// CRON_SECRET (mismo patrón que manejarAlertasSitioWebNotificar). Antes de
+// contar, actualiza desde Bsale los servicios de las últimas 3 semanas
+// (sincronizarServiciosRecientes; el resync completo de 365 días no cabe en
+// una invocación, pero 21 días sí); si esa lectura falla o no termina, el
+// correo lo avisa y deja la fecha de "última sincronización" en vez de
+// fallar en silencio. Destinatarios: ver
 // TIPOS_NOTIFICACION['servicio-tecnico-resumen-semanal'] / página Usuarios.
 async function manejarServicioTecnicoResumenSemanal(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
@@ -5783,7 +5857,7 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
         SELECT sku, MAX(nombre) AS nombre, SUM(cantidad)::numeric AS cantidad, SUM(monto)::numeric AS monto
         FROM bsale_servicios_ventas
         WHERE fecha >= ${desde} AND fecha <= ${hasta}
-          AND COALESCE(nombre, '') !~* 'soporte\s*inform[aá]tico'
+          AND COALESCE(nombre, '') !~* 'soporte\\s*inform[aá]tico'
         GROUP BY sku ORDER BY cantidad DESC;
       `;
       const filas = rows.filter(r => !SKUS_SERVICIO_EXCLUIDOS.has(r.sku));
@@ -5792,25 +5866,38 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
       return { filas, cantidadTotal, montoTotal };
     };
 
+    // Antes de contar, se ACTUALIZAN desde Bsale los servicios de las últimas 3 semanas (no se depende de la sincronización manual de la página: si nadie la hacía, el correo
+    // mostraba solo unos pocos servicios de la semana). Va en paralelo con la lectura de Zoho Desk para no pasarse de los 60 s de la función: los indicadores operativos del
+    // dashboard de la página reutilizan el mismo cálculo y la misma caché de 5 minutos del endpoint; si Zoho no responde o no está configurado, el correo sale igual y lo avisa.
+    let zoho = null, zohoError = null, sincronizacion = null, errorSincronizacion = null;
+    const tokenBsale = (process.env.BSALE_ACCESS_TOKEN || '').trim();
+    await Promise.all([
+      (async () => {
+        if (!tokenBsale) { errorSincronizacion = 'BSALE_ACCESS_TOKEN no está configurado'; return; }
+        try { sincronizacion = await sincronizarServiciosRecientes(sql, tokenBsale, { dias: 21, presupuestoMs: 30000 }); } catch (e) { errorSincronizacion = String(e.message || e).slice(0, 200); }
+      })(),
+      (async () => {
+        try {
+          const r = await consultarMetricasZohoInterno();
+          if (r.configurado === false) zohoError = 'Zoho Desk no está configurado';
+          else if (r.error) zohoError = [r.error, r.detail].filter(Boolean).join(': ').slice(0, 220);
+          else zoho = r;
+        } catch (e) { zohoError = String(e.message || e); }
+      })(),
+    ]);
+
     const [semana, semanaPrevia] = await Promise.all([
       traerResumen(fmtFecha(inicioSemana), fmtFecha(finSemana)),
       traerResumen(fmtFecha(inicioSemanaPrevia), fmtFecha(finSemanaPrevia)),
     ]);
 
     const { rows: estadoRows } = await sql`SELECT * FROM bsale_servicios_sync_estado WHERE id = 1;`;
-    const ultimaSincronizacion = estadoRows[0]?.ultima_pasada_completa_en || null;
+    // Si la actualización de hoy leyó toda la ventana, "sincronizado hasta" es este momento; si no, el correo avisa que las cifras pueden estar incompletas.
+    const sincronizadoHoy = sincronizacion && sincronizacion.completo;
+    const ultimaSincronizacion = sincronizadoHoy ? sincronizacion.sincronizadoEn : (estadoRows[0]?.ultima_pasada_completa_en || null);
+    const avisoBsale = sincronizadoHoy ? null : (errorSincronizacion ? `No se pudo actualizar desde Bsale (${errorSincronizacion})` : sincronizacion ? 'La lectura de Bsale no alcanzó a terminar' : null);
 
-    // Indicadores operativos del dashboard de la página (Zoho Desk): se reutiliza el mismo cálculo y la misma caché de 5 minutos del endpoint
-    // de la página. Si Zoho no responde o no está configurado, el correo sale igual con la parte de Bsale y lo avisa.
-    let zoho = null, zohoError = null;
-    try {
-      const r = await consultarMetricasZohoInterno();
-      if (r.configurado === false) zohoError = 'Zoho Desk no está configurado';
-      else if (r.error) zohoError = r.error;
-      else zoho = r;
-    } catch (e) { zohoError = String(e.message || e); }
-
-    const { asunto, html } = armarCorreoServicioTecnico({ semana, semanaPrevia, inicio: fmtFecha(inicioSemana), fin: fmtFecha(finSemana), zoho, zohoError, ultimaSincronizacion, urlBase: URL_BASE_APP });
+    const { asunto, html } = armarCorreoServicioTecnico({ semana, semanaPrevia, inicio: fmtFecha(inicioSemana), fin: fmtFecha(finSemana), zoho, zohoError, ultimaSincronizacion, avisoBsale, urlBase: URL_BASE_APP });
     if (req.query.solo_ver === '1') return res.status(200).json({ ok: true, enviado: false, asunto, html });
 
     const destinatarios = destinatariosDePrueba(req) || await obtenerSuscriptoresEmail(sql, 'servicio-tecnico-resumen-semanal');
