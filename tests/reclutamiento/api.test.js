@@ -124,3 +124,39 @@ test('si dos personas reservan el mismo espacio a la vez, solo una lo logra', as
     const { rows } = await t.sql`SELECT count(*)::int AS n FROM reclutamiento_reservas WHERE estado = 'confirmada';`; assert.equal(rows[0].n, 1);
   } finally { await t.cerrar(); }
 });
+
+test('cada entrevista tiene su propio enlace de videollamada y se le puede avisar al postulante', async () => {
+  const t = await montar();
+  try {
+    await t.admin({ accion: 'importar', postulantes: [{ nombre: 'Ana Pérez', email: 'ana@correo.cl' }, { nombre: 'Beto Rojas' }] });
+    const lista = (await t.admin(null)).cuerpo.postulantes, ana = lista.find(p => p.nombre === 'Ana Pérez'), beto = lista.find(p => p.nombre === 'Beto Rojas');
+    const tokAna = new URL(ana.enlace).searchParams.get('t'), tokBeto = new URL(beto.enlace).searchParams.get('t');
+    const esp = (await t.pub('GET', { t: tokAna })).cuerpo.espacios;
+    // sin enlace general ni propio: el postulante no ve enlace; el aviso al equipo dice que falta
+    let r = await t.pub('POST', { t: tokAna, accion: 'reservar', inicio: esp[0].inicio });
+    assert.equal(r.cuerpo.reserva.enlace_video, null); assert.match(t.correos.at(-1).html, /Falta el enlace de la videollamada/);
+    assert.equal((await t.admin(null)).cuerpo.postulantes.find(p => p.id === ana.id).reserva_enlace, null);
+    // quien no tiene entrevista no puede recibir enlace
+    assert.equal((await t.admin({ accion: 'enlace_reserva', id: beto.id, enlace: 'https://meet.google.com/aaa-bbbb-ccc' })).codigo, 409);
+    // enlace inválido
+    assert.equal((await t.admin({ accion: 'enlace_reserva', id: ana.id, enlace: 'javascript:alert(1)' })).codigo, 400);
+    // guardar sin avisar: no sale correo; el postulante lo ve al abrir su página
+    const antes = t.correos.length;
+    r = await t.admin({ accion: 'enlace_reserva', id: ana.id, enlace: 'https://meet.google.com/aaa-bbbb-ccc' });
+    assert.equal(r.codigo, 200); assert.equal(r.cuerpo.avisado, false); assert.equal(t.correos.length, antes);
+    assert.equal((await t.pub('GET', { t: tokAna })).cuerpo.reserva.enlace_video, 'https://meet.google.com/aaa-bbbb-ccc');
+    // guardar y avisar: sale el correo al postulante con el enlace
+    r = await t.admin({ accion: 'enlace_reserva', id: ana.id, enlace: 'https://meet.google.com/ddd-eeee-fff', avisar: true });
+    assert.equal(r.cuerpo.avisado, true); const c = t.correos.at(-1);
+    assert.equal(c.para, 'ana@correo.cl'); assert.match(c.asunto, /Enlace de tu videollamada/); assert.ok(c.html.includes('https://meet.google.com/ddd-eeee-fff'));
+    // avisar sin correo registrado: se rechaza (hay que pegarlo en Indeed)
+    await t.pub('POST', { t: tokBeto, accion: 'reservar', inicio: esp[1].inicio, email: 'beto@correo.cl' });
+    await t.sql`UPDATE reclutamiento_postulantes SET email = NULL WHERE id = ${beto.id};`;
+    assert.equal((await t.admin({ accion: 'enlace_reserva', id: beto.id, enlace: 'https://meet.google.com/ggg-hhhh-iii', avisar: true })).codigo, 409);
+    // si hay un enlace general, lo usan las entrevistas que no tienen el suyo
+    const cfg = (await t.admin(null)).cuerpo.config; await t.admin({ accion: 'config', config: { ...cfg, enlace_video: 'https://meet.google.com/general' } });
+    assert.equal((await t.pub('GET', { t: tokBeto })).cuerpo.reserva.enlace_video, 'https://meet.google.com/ggg-hhhh-iii', 'el propio de la entrevista manda sobre el general');
+    await t.admin({ accion: 'enlace_reserva', id: beto.id, enlace: '' });
+    assert.equal((await t.pub('GET', { t: tokBeto })).cuerpo.reserva.enlace_video, 'https://meet.google.com/general');
+  } finally { await t.cerrar(); }
+});

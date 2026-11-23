@@ -431,7 +431,7 @@
           <label>Anticipación (horas)<input type="number" id="cfgAnt" min="0" max="720"></label></div>
         <div class="r-fila"><label>Primer día<input type="date" id="cfgIni"></label><label>Último día<input type="date" id="cfgFin"></label>
           <label class="r-chk"><input type="checkbox" id="cfgActiva"> Agenda abierta</label></div>
-        <div class="r-fila"><label style="flex:1 1 100%;">Enlace de la videollamada (Meet, Zoom, Teams…)<input type="text" id="cfgVideo" placeholder="https://meet.google.com/…"></label></div>
+        <div class="r-fila"><label style="flex:1 1 100%;">Enlace general de la videollamada (opcional: cada entrevista puede tener el suyo, se agrega en la ficha del postulante)<input type="text" id="cfgVideo" placeholder="https://meet.google.com/…"></label></div>
         <div class="r-fila"><label style="flex:1 1 100%;">Mensaje para el postulante (opcional, se muestra en su página y en el correo)<input type="text" id="cfgAviso" maxlength="500"></label></div>
         <button type="button" class="btn-primary" id="btnGuardarCfg">Guardar horarios</button>
       </div>
@@ -724,7 +724,7 @@ function renderListaR(){
       return '<tr><td class="r-nombre" data-valor="' + escapeHtml(p.nombre) + '"><b>' + escapeHtml(p.nombre) + '</b><small>' + escapeHtml(p.ubicacion || '') + '</small><small>' + (p.email ? escapeHtml(p.email) : '<span style="color:var(--red)">Sin correo</span>') + (p.telefono ? ' · ' + escapeHtml(p.telefono) : '') + '</small></td>' +
         '<td class="num" data-valor="' + (p.fecha_postulacion || '') + '">' + (p.fecha_postulacion ? p.fecha_postulacion.split('-').reverse().join('-') : '—') + '</td><td class="r-filtro">' + (filtro || '—') + '</td>' +
         '<td><select class="estado-sel e-' + (p.estado === 'agendado' ? 'comprada' : p.estado === 'descartado' ? 'pendiente' : p.estado === 'nuevo' ? 'pendiente' : 'cotizando') + '" onchange="actualizarR(' + p.id + ',{estado:this.value})">' + Object.keys(ESTADOS_R).map(k => '<option value="' + k + '"' + (k === p.estado ? ' selected' : '') + '>' + ESTADOS_R[k] + '</option>').join('') + '</select></td>' +
-        '<td data-valor="' + (p.reserva_inicio || '') + '" style="white-space:nowrap;">' + (p.reserva_inicio ? '<b>' + escapeHtml(fmtRFecha(p.reserva_inicio)) + ' ' + escapeHtml(fmtRHora(p.reserva_inicio)) + '</b>' : '<span class="h-quien">Sin agendar</span>') + '</td>' +
+        '<td data-valor="' + (p.reserva_inicio || '') + '" style="white-space:nowrap;">' + (p.reserva_inicio ? '<b>' + escapeHtml(fmtRFecha(p.reserva_inicio)) + ' ' + escapeHtml(fmtRHora(p.reserva_inicio)) + '</b><small style="display:block;font-size:11px;color:' + (p.reserva_enlace ? 'var(--green)' : 'var(--red)') + ';">' + (p.reserva_enlace ? '✓ Con enlace de videollamada' : 'Falta el enlace de videollamada') + '</small>' : '<span class="h-quien">Sin agendar</span>') + '</td>' +
         '<td><div class="r-acc"><button type="button" class="btn-ver" onclick="copiarEnlaceR(' + p.id + ')">Copiar enlace</button><button type="button" class="btn-ver" onclick="copiarMensajeR(' + p.id + ')">Copiar mensaje</button></div></td>' +
         '<td><button type="button" class="btn-ver" onclick="verPostulanteR(' + p.id + ')">Ver</button></td></tr>';
     }).join('') + '</tbody>';
@@ -746,6 +746,7 @@ function verPostulanteR(id){
     '<dt>Postuló</dt><dd>' + (p.fecha_postulacion ? p.fecha_postulacion.split('-').reverse().join('-') : '—') + ' · ' + escapeHtml(p.cargo || '') + (urlSegura(p.url_perfil) ? ' · <a href="' + escapeHtml(urlSegura(p.url_perfil)) + '" target="_blank" rel="noopener noreferrer">Ver en Indeed ↗</a>' : '') + '</dd>' +
     Object.keys(preg).filter(k => r[k]).map(k => '<dt>' + preg[k] + '</dt><dd>' + escapeHtml(r[k]) + '</dd>').join('') +
     (p.resumen ? '<dt>Resumen del CV</dt><dd>' + escapeHtml(p.resumen) + '</dd>' : '') +
+    (p.reserva_inicio ? '<dt>Videollamada de esta entrevista (' + escapeHtml(fmtRFecha(p.reserva_inicio) + ' ' + fmtRHora(p.reserva_inicio)) + ')</dt><dd><input type="text" id="rdVideo" value="' + escapeHtml(p.reserva_enlace || '') + '" placeholder="Pega aquí el enlace de Meet de esta entrevista" style="width:100%;font-size:13px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;"><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;"><button type="button" class="btn-ghost" onclick="guardarEnlaceR(' + p.id + ',false)">Guardar enlace</button><button type="button" class="btn-primary" onclick="guardarEnlaceR(' + p.id + ',true)">Guardar y avisar al postulante por correo</button></div></dd>' : '') +
     '<dt>Correo (editar)</dt><dd><input type="text" id="rdEmail" value="' + escapeHtml(p.email || '') + '" style="width:100%;font-size:13px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;"></dd>' +
     '<dt>Notas del equipo</dt><dd><textarea id="rdNotas" rows="3">' + escapeHtml(p.notas || '') + '</textarea></dd>' +
     '<dt>Enlace personal de agenda</dt><dd style="word-break:break-all;"><a href="' + escapeHtml(p.enlace) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(p.enlace) + '</a></dd></dl>' +
@@ -753,6 +754,13 @@ function verPostulanteR(id){
     (p.reserva_inicio ? '<button type="button" class="btn-ghost" onclick="cancelarReservaR(' + p.id + ')">Cancelar su entrevista</button>' : '') +
     '<button type="button" class="btn-ghost" onclick="regenerarR(' + p.id + ')">Nuevo enlace</button><button type="button" class="btn-ghost" style="color:var(--red)" onclick="eliminarR(' + p.id + ')">Eliminar</button></div>';
   $('modalEle').classList.add('abierto');
+}
+async function guardarEnlaceR(id, avisar){
+  const p = postR(id), enlace = $('rdVideo').value.trim();
+  if(avisar){ if(!enlace){ avisoR('Escribe primero el enlace', 'err'); return; } if(!confirm('Se enviará un correo a ' + (p.email || 'esta persona') + ' con el enlace de su videollamada. ¿Continuar?')) return; }
+  avisoR('Guardando…', '');
+  try{ const d = await apiR({ accion: 'enlace_reserva', id, enlace, avisar }); RC.datos = await apiR(); renderR(); avisoR(avisar ? (d.avisado ? 'Enlace guardado y correo enviado ✓' : (d.aviso || 'Enlace guardado')) : 'Enlace guardado ✓', 'ok'); verPostulanteR(id); }
+  catch(e){ avisoR('No se guardó: ' + e.message, 'err'); }
 }
 async function guardarDetalleR(id){ await actualizarR(id, { email: $('rdEmail').value, notas: $('rdNotas').value }); cerrarModal(); }
 async function cancelarReservaR(id){ if(!confirm('¿Cancelar la entrevista de esta persona? Su espacio quedará libre.')) return; try{ await apiR({ accion: 'cancelar_reserva', id }); RC.datos = await apiR(); renderR(); cerrarModal(); avisoR('Entrevista cancelada', 'ok'); }catch(e){ avisoR(e.message, 'err'); } }
