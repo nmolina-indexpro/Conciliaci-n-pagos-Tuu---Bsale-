@@ -436,7 +436,7 @@
         <button type="button" class="btn-primary" id="btnGuardarCfg">Guardar horarios</button>
       </div>
       <h2 style="font-family:'Space Grotesk',sans-serif;font-size:15px;margin:18px 0 4px;">Espacios del calendario</h2>
-      <div class="sub">Toca un espacio libre para bloquearlo (o uno bloqueado para liberarlo). «Pronto» = dentro del plazo de anticipación, todavía no se ofrece.</div>
+      <div class="sub">Toca un espacio libre para bloquearlo (o uno bloqueado para liberarlo). «Dentro del plazo» = falta menos que la anticipación configurada y todavía no se ofrece: tócalo para ofrecerlo igual, o usa «Ofrecer este día solo desde…» para abrir un día completo desde la hora que quieras.</div>
       <div id="rcEspacios"></div>
     </div>
 
@@ -773,12 +773,24 @@ function renderCalendarioR(){
   $('cfgDesde').value = c.desde; $('cfgHasta').value = c.hasta; $('cfgDur').value = c.duracion_min; $('cfgDes').value = c.descanso_min; $('cfgAnt').value = c.anticipacion_horas;
   $('cfgIni').value = c.fecha_desde; $('cfgFin').value = c.fecha_hasta; $('cfgActiva').checked = !!c.activa; $('cfgVideo').value = c.enlace_video || ''; $('cfgAviso').value = c.aviso || '';
   const porDia = {}; RC.datos.espacios.forEach(e => (porDia[e.fecha] = porDia[e.fecha] || []).push(e));
-  const nombres = { libre: 'Libre', ocupado: '', bloqueado: 'Bloqueado', pronto: 'Pronto' };
-  $('rcEspacios').innerHTML = Object.keys(porDia).sort().map(f => '<div class="r-dia">' + escapeHtml(fmtRFecha(porDia[f][0].inicio)) + '</div><div class="r-slots">' +
-    porDia[f].map(e => '<button type="button" class="r-slot ' + e.estado + '"' + (e.estado === 'libre' || e.estado === 'bloqueado' ? ' onclick="alternarEspacioR(\'' + e.inicio + '\',\'' + e.estado + '\')"' : ' disabled') + '>' + escapeHtml(e.hora) + '<small>' + escapeHtml(e.estado === 'ocupado' ? (e.postulante || 'Agendado') : nombres[e.estado]) + '</small></button>').join('') + '</div>').join('') || '<div class="empty-note">No hay espacios en el período configurado.</div>';
+  const nombres = { libre: 'Libre', ocupado: '', bloqueado: 'Bloqueado', pronto: 'Dentro del plazo' };
+  $('rcEspacios').innerHTML = Object.keys(porDia).sort().map(f => {
+    const L = porDia[f], horas = L.filter(e => e.estado !== 'ocupado').map(e => e.hora), primera = (L.find(e => e.estado === 'libre') || {}).hora;
+    const ctl = horas.length ? '<span style="margin-left:10px;font-weight:500;font-size:12px;text-transform:none;color:var(--muted);">Ofrecer este día solo desde <select id="dd_' + f + '" style="font-size:12px;padding:3px 6px;border:1.5px solid var(--line);border-radius:6px;">' + horas.map(h => '<option value="' + h + '"' + (h === primera ? ' selected' : '') + '>' + h + '</option>').join('') + '</select> <button type="button" class="btn-ver" onclick="diaDesdeR(\'' + f + '\')">Aplicar</button></span>' : '';
+    return '<div class="r-dia">' + escapeHtml(fmtRFecha(L[0].inicio)) + ctl + '</div><div class="r-slots">' +
+      L.map(e => {
+        const accion = e.estado === 'libre' ? (e.forzado ? 'deshabilitar' : 'bloquear') : e.estado === 'bloqueado' ? 'desbloquear' : e.estado === 'pronto' ? 'habilitar' : '';
+        const nombreEst = e.estado === 'ocupado' ? (e.postulante || 'Agendado') : (e.estado === 'libre' && e.forzado ? 'Habilitado' : nombres[e.estado]);
+        return '<button type="button" class="r-slot ' + e.estado + '"' + (accion ? ' title="' + ({ bloquear: 'Toca para bloquearlo', deshabilitar: 'Toca para quitar la excepción de plazo', desbloquear: 'Toca para liberarlo', habilitar: 'Toca para ofrecerlo igual' })[accion] + '" onclick="accionEspacioR(\'' + e.inicio + '\',\'' + accion + '\')"' : ' disabled') + '>' + escapeHtml(e.hora) + '<small>' + escapeHtml(nombreEst) + '</small></button>';
+      }).join('') + '</div>';
+  }).join('') || '<div class="empty-note">No hay espacios en el período configurado.</div>';
 }
-async function alternarEspacioR(inicio, estado){
-  try{ await apiR({ accion: estado === 'libre' ? 'bloquear' : 'desbloquear', inicio }); RC.datos = await apiR(); renderR(); }catch(e){ avisoR(e.message, 'err'); }
+async function accionEspacioR(inicio, accion){
+  try{ await apiR({ accion, inicio }); RC.datos = await apiR(); renderR(); }catch(e){ avisoR(e.message, 'err'); }
+}
+async function diaDesdeR(fecha){
+  const hora = $('dd_' + fecha).value;
+  try{ await apiR({ accion: 'dia_desde', fecha, hora }); RC.datos = await apiR(); renderR(); avisoR('Listo: ese día se ofrece desde las ' + hora, 'ok'); }catch(e){ avisoR(e.message, 'err'); }
 }
 async function guardarConfigR(){
   const config = { dias: [...document.querySelectorAll('#cfgDias input:checked')].map(i => Number(i.value)), desde: $('cfgDesde').value, hasta: $('cfgHasta').value, duracion_min: Number($('cfgDur').value), descanso_min: Number($('cfgDes').value),

@@ -160,3 +160,38 @@ test('cada entrevista tiene su propio enlace de videollamada y se le puede avisa
     assert.equal((await t.pub('GET', { t: tokBeto })).cuerpo.reserva.enlace_video, 'https://meet.google.com/general');
   } finally { await t.cerrar(); }
 });
+
+test('el administrador puede ofrecer un día dentro del plazo solo desde cierta hora y ampliar el horario', async () => {
+  const t = await montar();
+  try {
+    await t.admin({ accion: 'importar', postulantes: [{ nombre: 'Ana Pérez', email: 'ana@correo.cl' }] });
+    const ana = (await t.admin(null)).cuerpo.postulantes[0], tok = new URL(ana.enlace).searchParams.get('t');
+    const del24 = async () => (await t.admin(null)).cuerpo.espacios.filter(e => e.fecha === '2026-11-24');
+    // martes 24: con 24 h de anticipación todo está «pronto»
+    assert.ok((await del24()).every(e => e.estado === 'pronto'));
+    // ampliar el horario hasta las 17:30: 10:30 … 16:30 (7 espacios)
+    const cfg = (await t.admin(null)).cuerpo.config;
+    assert.equal((await t.admin({ accion: 'config', config: { ...cfg, hasta: '17:30' } })).codigo, 200);
+    assert.equal((await del24()).length, 7);
+    // ofrecer el día solo desde las 12:30
+    assert.equal((await t.admin({ accion: 'dia_desde', fecha: '2026-11-24', hora: '12:30' })).codigo, 200);
+    const d = await del24();
+    assert.deepEqual(d.filter(e => e.estado === 'bloqueado').map(e => e.hora), ['10:30', '11:30']);
+    assert.deepEqual(d.filter(e => e.estado === 'libre').map(e => e.hora), ['12:30', '13:30', '14:30', '15:30', '16:30']);
+    // el postulante los ve y puede reservar uno; el de las 10:30 sigue cerrado
+    const pub = (await t.pub('GET', { t: tok })).cuerpo.espacios.filter(e => e.fecha === '2026-11-24');
+    assert.equal(pub.length, 5);
+    assert.equal((await t.pub('POST', { t: tok, accion: 'reservar', inicio: '2026-11-24T13:30:00.000Z' })).codigo, 409);
+    assert.equal((await t.pub('POST', { t: tok, accion: 'reservar', inicio: pub[0].inicio })).codigo, 200);
+    // volver a aplicar no toca el espacio ya reservado; quitar la excepción de uno lo cierra
+    assert.equal((await t.admin({ accion: 'dia_desde', fecha: '2026-11-24', hora: '13:30' })).codigo, 200);
+    assert.equal((await del24()).find(e => e.hora === '12:30').estado, 'ocupado');
+    assert.equal((await t.admin({ accion: 'deshabilitar', inicio: pub[4].inicio })).codigo, 200);
+    assert.equal((await del24()).find(e => e.hora === '16:30').estado, 'pronto');
+    assert.equal((await t.admin({ accion: 'habilitar', inicio: pub[4].inicio })).codigo, 200);
+    assert.equal((await del24()).find(e => e.hora === '16:30').estado, 'libre');
+    // validaciones
+    assert.equal((await t.admin({ accion: 'dia_desde', fecha: '2026-11-24', hora: '25:00' })).codigo, 400);
+    assert.equal((await t.admin({ accion: 'dia_desde', fecha: '2026-11-29', hora: '12:30' })).codigo, 400, 'domingo no está en el calendario');
+  } finally { await t.cerrar(); }
+});
