@@ -169,6 +169,31 @@
   input.h-precio:focus,input.h-nota:focus{outline:none;border-color:var(--primary);}
   body.sin-margenes .solo-admin{display:none !important;}
   .h-quien{font-size:11px;color:var(--muted);white-space:nowrap;}
+  .r-config{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .r-fila{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;align-items:flex-end;}
+  .r-fila label{font-size:11.5px;font-weight:600;color:var(--muted);display:flex;flex-direction:column;gap:4px;}
+  .r-fila input[type=time],.r-fila input[type=number],.r-fila input[type=date],.r-fila input[type=text]{font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);}
+  .r-fila input[type=number]{width:96px;}
+  .r-chk{flex-direction:row !important;align-items:center;gap:6px !important;font-size:12.5px !important;}
+  .r-dias{display:flex;gap:6px;flex-wrap:wrap;}
+  .r-dias label{display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;background:var(--surface);}
+  .r-dias label:has(input:checked){background:var(--primary-dim);border-color:var(--primary);color:var(--primary);}
+  .r-dia{margin:12px 0 4px;font-weight:700;font-size:13px;text-transform:capitalize;}
+  .r-slots{display:flex;gap:8px;flex-wrap:wrap;}
+  .r-slot{font-family:'Plus Jakarta Sans',sans-serif;font-size:12.5px;font-weight:600;border:1.5px solid var(--line);border-radius:9px;padding:7px 11px;background:var(--surface);cursor:pointer;text-align:left;line-height:1.3;}
+  .r-slot small{display:block;font-weight:500;color:var(--muted);}
+  .r-slot.libre{border-color:#B7E2C2;background:var(--green-bg);color:var(--green);}
+  .r-slot.ocupado{border-color:#B9CBF7;background:var(--blue-bg);color:var(--blue);cursor:default;}
+  .r-slot.bloqueado{border-color:#F4BABA;background:var(--red-bg);color:var(--red);}
+  .r-slot.pronto{opacity:.55;cursor:default;}
+  td.r-nombre{white-space:normal;min-width:190px;}
+  td.r-nombre b{display:block;} td.r-nombre small{display:block;color:var(--muted);font-size:11.5px;line-height:1.4;}
+  td.r-filtro{white-space:normal;max-width:240px;font-size:11.5px;color:var(--muted);line-height:1.4;}
+  .r-acc{display:flex;gap:6px;flex-wrap:wrap;}
+  .r-acc button{padding:5px 10px;font-size:11.5px;}
+  .r-det dt{font-weight:700;font-size:11px;color:var(--primary);text-transform:uppercase;letter-spacing:.4px;margin-top:12px;}
+  .r-det dd{margin:2px 0 0;font-size:13.5px;line-height:1.55;}
+  .r-det textarea{width:100%;font-family:inherit;font-size:13px;padding:8px;border:1.5px solid var(--line);border-radius:8px;}
   @media (max-width:720px){ .filtros input[type="text"]{width:100%;} }
 </style>
 <meta name="theme-color" content="#0F766E">
@@ -301,6 +326,7 @@
     <button type="button" class="tab" data-tab="conceptos">📚 Conceptos (40)</button>
     <button type="button" class="tab" data-tab="entrevista">🎤 Entrevista al técnico</button>
     <button type="button" class="tab" data-tab="herramientas">🧰 Herramientas</button>
+    <button type="button" class="tab" data-tab="postulantes" id="tabPostulantes" hidden>👥 Postulantes</button>
   </div>
 
   <div class="seccion" id="tab-programa">
@@ -368,6 +394,59 @@
     </div>
     <div class="tabla-wrap"><table id="tablaH"></table></div>
     <div class="empty-note" id="vacioH" style="display:none;">Ninguna herramienta coincide con el filtro.</div>
+  </div>
+
+  <div class="seccion" id="tab-postulantes" style="display:none;">
+    <div class="seccion-head"><div>
+      <h2>👥 Postulantes y agenda de entrevistas</h2>
+      <div class="sub" style="margin-bottom:0;">Lista de postulantes de Indeed y calendario para que cada uno elija su horario de entrevista por videollamada con su enlace personal. Solo lo ven los administradores: contiene datos personales.</div>
+    </div><div class="guardado-h" id="guardadoR"></div></div>
+    <div class="grid" id="kpiR">
+      <div class="card"><div class="lbl">Postulantes</div><div class="big" id="rTotal">—</div></div>
+      <div class="card"><div class="lbl">Con entrevista agendada</div><div class="big" id="rAgendados">—</div></div>
+      <div class="card"><div class="lbl">Espacios libres</div><div class="big" id="rLibres">—</div></div>
+      <div class="card"><div class="lbl">Sin correo</div><div class="big" id="rSinCorreo">—</div></div>
+    </div>
+    <div class="tabs" id="subtabsR">
+      <button type="button" class="tab activa" data-sub="lista">Postulantes</button>
+      <button type="button" class="tab" data-sub="calendario">Calendario y horarios</button>
+      <button type="button" class="tab" data-sub="importar">Importar</button>
+    </div>
+
+    <div id="rc-lista">
+      <div class="filtros">
+        <input type="text" id="buscarR" placeholder="🔍 Buscar por nombre, correo o comuna…" autocomplete="off">
+        <select id="fEstadoR"><option value="">Todos los estados</option><option value="nuevo">Nuevo</option><option value="invitado">Invitado</option><option value="agendado">Agendado</option><option value="entrevistado">Entrevistado</option><option value="descartado">Descartado</option><option value="contratado">Contratado</option></select>
+      </div>
+      <div class="tabla-wrap"><table id="tablaR"></table></div>
+      <div class="empty-note" id="vacioR" style="display:none;">Todavía no hay postulantes. Importa la lista en la pestaña «Importar».</div>
+    </div>
+
+    <div id="rc-calendario" style="display:none;">
+      <h2 style="font-family:'Space Grotesk',sans-serif;font-size:15px;margin:4px 0 8px;">Tus horarios disponibles</h2>
+      <div class="r-config">
+        <div class="r-dias" id="cfgDias"></div>
+        <div class="r-fila"><label>Desde<input type="time" id="cfgDesde"></label><label>Hasta<input type="time" id="cfgHasta"></label>
+          <label>Duración (min)<input type="number" id="cfgDur" min="10" max="240" step="5"></label><label>Descanso (min)<input type="number" id="cfgDes" min="0" max="120" step="5"></label>
+          <label>Anticipación (horas)<input type="number" id="cfgAnt" min="0" max="720"></label></div>
+        <div class="r-fila"><label>Primer día<input type="date" id="cfgIni"></label><label>Último día<input type="date" id="cfgFin"></label>
+          <label class="r-chk"><input type="checkbox" id="cfgActiva"> Agenda abierta</label></div>
+        <div class="r-fila"><label style="flex:1 1 100%;">Enlace de la videollamada (Meet, Zoom, Teams…)<input type="text" id="cfgVideo" placeholder="https://meet.google.com/…"></label></div>
+        <div class="r-fila"><label style="flex:1 1 100%;">Mensaje para el postulante (opcional, se muestra en su página y en el correo)<input type="text" id="cfgAviso" maxlength="500"></label></div>
+        <button type="button" class="btn-primary" id="btnGuardarCfg">Guardar horarios</button>
+      </div>
+      <h2 style="font-family:'Space Grotesk',sans-serif;font-size:15px;margin:18px 0 4px;">Espacios del calendario</h2>
+      <div class="sub">Toca un espacio libre para bloquearlo (o uno bloqueado para liberarlo). «Pronto» = dentro del plazo de anticipación, todavía no se ofrece.</div>
+      <div id="rcEspacios"></div>
+    </div>
+
+    <div id="rc-importar" style="display:none;">
+      <h2 style="font-family:'Space Grotesk',sans-serif;font-size:15px;margin:4px 0 4px;">Importar postulantes</h2>
+      <div class="sub">Pega una lista en formato JSON o carga el archivo. Si un postulante ya existe (mismo identificador de Indeed o mismo correo), se actualiza sin duplicarlo ni cambiar su enlace.</div>
+      <input type="file" id="rcArchivo" accept=".json,application/json" style="margin-bottom:8px;">
+      <textarea id="rcJson" rows="8" style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:12px;padding:10px;border:1.5px solid var(--line);border-radius:8px;" placeholder='[{"nombre":"Ana Pérez","email":"ana@correo.cl","telefono":"+56 9 1234 5678","ubicacion":"Santiago","fecha_postulacion":"2026-11-20","indeed_id":"abc123","respuestas":{"experiencia":"4"}}]'></textarea>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><button type="button" class="btn-primary" id="btnImportar">Importar</button><button type="button" class="btn-ghost" id="btnNuevoR">+ Agregar uno a mano</button><span id="rcImpMsg" class="sub" style="margin:0;"></span></div>
+    </div>
   </div>
 
   <div class="empty-note">Datos conceptuales para estudio: no reemplazan el esquemático del equipo específico. Mucho de lo que se estudia depende del fabricante, la plataforma y el modelo. La inyección de voltaje, la programación de memorias y el calor sobre chips son prácticas para hacer con supervisión.</div>
@@ -600,10 +679,124 @@ async function cambiarHerramienta(n, cambios){
   renderHerramientas();
 }
 
+// ---- Postulantes y agenda de entrevistas (solo administradores) ----
+const HASH_INICIAL = location.hash; // para abrir «Postulantes» si el administrador entra con #postulantes (la pestaña se muestra recién al conocer su rol)
+const RC = { datos: null, cargado: false, sub: 'lista' };
+const ESTADOS_R = { nuevo: 'Nuevo', invitado: 'Invitado', agendado: 'Agendado', entrevistado: 'Entrevistado', descartado: 'Descartado', contratado: 'Contratado' };
+const DIAS_R = [[1, 'Lun'], [2, 'Mar'], [3, 'Mié'], [4, 'Jue'], [5, 'Vie'], [6, 'Sáb'], [0, 'Dom']];
+const ZONA_R = 'America/Santiago';
+const fmtRFecha = iso => new Intl.DateTimeFormat('es-CL', { timeZone: ZONA_R, weekday: 'short', day: '2-digit', month: '2-digit' }).format(new Date(iso));
+const fmtRHora = iso => new Intl.DateTimeFormat('es-CL', { timeZone: ZONA_R, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso));
+function avisoR(texto, clase){ const e = $('guardadoR'); e.textContent = texto; e.className = 'guardado-h ' + (clase || ''); if(clase === 'ok') setTimeout(() => { if(e.textContent === texto){ e.textContent = ''; e.className = 'guardado-h'; } }, 2500); }
+async function apiR(cuerpo){
+  const res = await fetch('/api/negocio?recurso=reclutamiento', cuerpo ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) } : undefined);
+  const d = await res.json().catch(() => ({}));
+  if(!res.ok || d.error) throw new Error(d.error || ('HTTP ' + res.status));
+  return d;
+}
+async function cargarPostulantes(forzar){
+  if(RC.cargado && !forzar){ renderR(); return; }
+  try{ RC.datos = await apiR(); RC.cargado = true; renderR(); }
+  catch(e){ avisoR('No se pudo cargar: ' + e.message, 'err'); }
+}
+function mensajeInvitacionR(p){
+  const nombre = String(p.nombre || '').trim().split(/\s+/)[0] || ''; const n = nombre.charAt(0).toUpperCase() + nombre.slice(1).toLowerCase();
+  return 'Hola, ' + n + ': gracias por postularte al cargo de ' + (p.cargo || 'Técnico/a Electrónico/a en reparación de placas madre de notebooks') + '. Para avanzar, agenda tu entrevista por videollamada eligiendo el horario que más te acomode en este enlace: ' + p.enlace + '\n\nLos horarios disponibles son de martes a viernes. Si no te acomoda ninguno o tienes alguna duda, responde este mensaje.';
+}
+async function copiarR(texto, aviso){
+  try{ await navigator.clipboard.writeText(texto); avisoR(aviso, 'ok'); }
+  catch(e){ const ta = document.createElement('textarea'); ta.value = texto; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); avisoR(aviso, 'ok'); }catch(_){ avisoR('No se pudo copiar', 'err'); } ta.remove(); }
+}
+function renderR(){
+  const d = RC.datos; if(!d) return;
+  const P = d.postulantes, libres = d.espacios.filter(e => e.estado === 'libre').length;
+  $('rTotal').textContent = P.length; $('rAgendados').textContent = P.filter(p => p.reserva_inicio).length; $('rLibres').textContent = libres; $('rSinCorreo').textContent = P.filter(p => !p.email).length;
+  document.querySelectorAll('#subtabsR .tab').forEach(b => b.classList.toggle('activa', b.dataset.sub === RC.sub));
+  ['lista', 'calendario', 'importar'].forEach(k => { $('rc-' + k).style.display = k === RC.sub ? '' : 'none'; });
+  if(RC.sub === 'lista') renderListaR(); else if(RC.sub === 'calendario') renderCalendarioR();
+}
+function renderListaR(){
+  const d = RC.datos, q = $('buscarR').value.toLowerCase().trim(), est = $('fEstadoR').value;
+  const L = d.postulantes.filter(p => (!est || p.estado === est) && (!q || (p.nombre + ' ' + (p.email || '') + ' ' + (p.ubicacion || '')).toLowerCase().includes(q)));
+  $('tablaR').innerHTML = '<thead><tr><th>Postulante</th><th>Postuló</th><th>Lo que respondió</th><th>Estado</th><th>Entrevista</th><th data-sin-orden>Enlace de agenda</th><th data-sin-orden></th></tr></thead><tbody>' +
+    L.map(p => {
+      const r = p.respuestas || {}, filtro = ['experiencia', 'smd', 'esquemas'].map(k => r[k] ? '<b>' + ({ experiencia: 'Años', smd: 'SMD', esquemas: 'Esquemas' })[k] + ':</b> ' + escapeHtml(String(r[k]).slice(0, 70)) : '').filter(Boolean).join('<br>');
+      return '<tr><td class="r-nombre" data-valor="' + escapeHtml(p.nombre) + '"><b>' + escapeHtml(p.nombre) + '</b><small>' + escapeHtml(p.ubicacion || '') + '</small><small>' + (p.email ? escapeHtml(p.email) : '<span style="color:var(--red)">Sin correo</span>') + (p.telefono ? ' · ' + escapeHtml(p.telefono) : '') + '</small></td>' +
+        '<td class="num" data-valor="' + (p.fecha_postulacion || '') + '">' + (p.fecha_postulacion ? p.fecha_postulacion.split('-').reverse().join('-') : '—') + '</td><td class="r-filtro">' + (filtro || '—') + '</td>' +
+        '<td><select class="estado-sel e-' + (p.estado === 'agendado' ? 'comprada' : p.estado === 'descartado' ? 'pendiente' : p.estado === 'nuevo' ? 'pendiente' : 'cotizando') + '" onchange="actualizarR(' + p.id + ',{estado:this.value})">' + Object.keys(ESTADOS_R).map(k => '<option value="' + k + '"' + (k === p.estado ? ' selected' : '') + '>' + ESTADOS_R[k] + '</option>').join('') + '</select></td>' +
+        '<td data-valor="' + (p.reserva_inicio || '') + '" style="white-space:nowrap;">' + (p.reserva_inicio ? '<b>' + escapeHtml(fmtRFecha(p.reserva_inicio)) + ' ' + escapeHtml(fmtRHora(p.reserva_inicio)) + '</b>' : '<span class="h-quien">Sin agendar</span>') + '</td>' +
+        '<td><div class="r-acc"><button type="button" class="btn-ver" onclick="copiarEnlaceR(' + p.id + ')">Copiar enlace</button><button type="button" class="btn-ver" onclick="copiarMensajeR(' + p.id + ')">Copiar mensaje</button></div></td>' +
+        '<td><button type="button" class="btn-ver" onclick="verPostulanteR(' + p.id + ')">Ver</button></td></tr>';
+    }).join('') + '</tbody>';
+  $('vacioR').style.display = d.postulantes.length ? 'none' : '';
+}
+const postR = id => RC.datos.postulantes.find(x => x.id === id);
+function copiarEnlaceR(id){ const p = postR(id); if(p) copiarR(p.enlace, 'Enlace de ' + p.nombre.split(' ')[0] + ' copiado'); }
+function copiarMensajeR(id){ const p = postR(id); if(p) copiarR(mensajeInvitacionR(p), 'Mensaje para ' + p.nombre.split(' ')[0] + ' copiado: pégalo en Indeed'); }
+async function actualizarR(id, cambios){
+  avisoR('Guardando…', '');
+  try{ await apiR({ accion: 'actualizar', id, ...cambios }); RC.datos = await apiR(); renderR(); avisoR('Guardado ✓', 'ok'); }
+  catch(e){ avisoR('No se guardó: ' + e.message, 'err'); renderR(); }
+}
+function verPostulanteR(id){
+  const p = postR(id); if(!p) return; const r = p.respuestas || {};
+  const preg = { experiencia: 'Años de experiencia en placas de notebook', smd: 'Reemplazo de SMD con microscopio y aire caliente', esquemas: 'Esquemas y boardview' };
+  $('modalCuerpo').innerHTML = '<h2 id="modalTitulo">' + escapeHtml(p.nombre) + '</h2><div class="meta"><span class="badge-nivel pend">' + escapeHtml(ESTADOS_R[p.estado] || p.estado) + '</span>' + (p.estado_indeed ? '<span class="badge-nivel pend">En Indeed: ' + escapeHtml(p.estado_indeed) + '</span>' : '') + (p.reserva_inicio ? '<span class="badge-nivel n1">Entrevista: ' + escapeHtml(fmtRFecha(p.reserva_inicio) + ' ' + fmtRHora(p.reserva_inicio)) + '</span>' : '') + '</div>' +
+    '<dl class="r-det"><dt>Contacto</dt><dd>' + (p.email ? escapeHtml(p.email) : '<i>Sin correo</i>') + (p.telefono ? ' · ' + escapeHtml(p.telefono) : '') + '<br>' + escapeHtml(p.ubicacion || '') + '</dd>' +
+    '<dt>Postuló</dt><dd>' + (p.fecha_postulacion ? p.fecha_postulacion.split('-').reverse().join('-') : '—') + ' · ' + escapeHtml(p.cargo || '') + (urlSegura(p.url_perfil) ? ' · <a href="' + escapeHtml(urlSegura(p.url_perfil)) + '" target="_blank" rel="noopener noreferrer">Ver en Indeed ↗</a>' : '') + '</dd>' +
+    Object.keys(preg).filter(k => r[k]).map(k => '<dt>' + preg[k] + '</dt><dd>' + escapeHtml(r[k]) + '</dd>').join('') +
+    (p.resumen ? '<dt>Resumen del CV</dt><dd>' + escapeHtml(p.resumen) + '</dd>' : '') +
+    '<dt>Correo (editar)</dt><dd><input type="text" id="rdEmail" value="' + escapeHtml(p.email || '') + '" style="width:100%;font-size:13px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;"></dd>' +
+    '<dt>Notas del equipo</dt><dd><textarea id="rdNotas" rows="3">' + escapeHtml(p.notas || '') + '</textarea></dd>' +
+    '<dt>Enlace personal de agenda</dt><dd style="word-break:break-all;"><a href="' + escapeHtml(p.enlace) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(p.enlace) + '</a></dd></dl>' +
+    '<div class="acciones"><button type="button" class="btn-primary" onclick="guardarDetalleR(' + p.id + ')">Guardar</button><button type="button" class="btn-ghost" onclick="copiarMensajeR(' + p.id + ')">Copiar mensaje</button>' +
+    (p.reserva_inicio ? '<button type="button" class="btn-ghost" onclick="cancelarReservaR(' + p.id + ')">Cancelar su entrevista</button>' : '') +
+    '<button type="button" class="btn-ghost" onclick="regenerarR(' + p.id + ')">Nuevo enlace</button><button type="button" class="btn-ghost" style="color:var(--red)" onclick="eliminarR(' + p.id + ')">Eliminar</button></div>';
+  $('modalEle').classList.add('abierto');
+}
+async function guardarDetalleR(id){ await actualizarR(id, { email: $('rdEmail').value, notas: $('rdNotas').value }); cerrarModal(); }
+async function cancelarReservaR(id){ if(!confirm('¿Cancelar la entrevista de esta persona? Su espacio quedará libre.')) return; try{ await apiR({ accion: 'cancelar_reserva', id }); RC.datos = await apiR(); renderR(); cerrarModal(); avisoR('Entrevista cancelada', 'ok'); }catch(e){ avisoR(e.message, 'err'); } }
+async function regenerarR(id){ if(!confirm('El enlace actual dejará de funcionar. ¿Crear uno nuevo?')) return; try{ await apiR({ accion: 'regenerar_token', id }); RC.datos = await apiR(); renderR(); cerrarModal(); avisoR('Enlace nuevo creado', 'ok'); }catch(e){ avisoR(e.message, 'err'); } }
+async function eliminarR(id){ if(!confirm('Se borrarán todos los datos de esta persona (postulación y reservas). No se puede deshacer. ¿Continuar?')) return; try{ await apiR({ accion: 'eliminar', id }); RC.datos = await apiR(); renderR(); cerrarModal(); avisoR('Postulante eliminado', 'ok'); }catch(e){ avisoR(e.message, 'err'); } }
+
+function renderCalendarioR(){
+  const c = RC.datos.config;
+  $('cfgDias').innerHTML = DIAS_R.map(([n, l]) => '<label><input type="checkbox" value="' + n + '"' + (c.dias.includes(n) ? ' checked' : '') + '> ' + l + '</label>').join('');
+  $('cfgDesde').value = c.desde; $('cfgHasta').value = c.hasta; $('cfgDur').value = c.duracion_min; $('cfgDes').value = c.descanso_min; $('cfgAnt').value = c.anticipacion_horas;
+  $('cfgIni').value = c.fecha_desde; $('cfgFin').value = c.fecha_hasta; $('cfgActiva').checked = !!c.activa; $('cfgVideo').value = c.enlace_video || ''; $('cfgAviso').value = c.aviso || '';
+  const porDia = {}; RC.datos.espacios.forEach(e => (porDia[e.fecha] = porDia[e.fecha] || []).push(e));
+  const nombres = { libre: 'Libre', ocupado: '', bloqueado: 'Bloqueado', pronto: 'Pronto' };
+  $('rcEspacios').innerHTML = Object.keys(porDia).sort().map(f => '<div class="r-dia">' + escapeHtml(fmtRFecha(porDia[f][0].inicio)) + '</div><div class="r-slots">' +
+    porDia[f].map(e => '<button type="button" class="r-slot ' + e.estado + '"' + (e.estado === 'libre' || e.estado === 'bloqueado' ? ' onclick="alternarEspacioR(\'' + e.inicio + '\',\'' + e.estado + '\')"' : ' disabled') + '>' + escapeHtml(e.hora) + '<small>' + escapeHtml(e.estado === 'ocupado' ? (e.postulante || 'Agendado') : nombres[e.estado]) + '</small></button>').join('') + '</div>').join('') || '<div class="empty-note">No hay espacios en el período configurado.</div>';
+}
+async function alternarEspacioR(inicio, estado){
+  try{ await apiR({ accion: estado === 'libre' ? 'bloquear' : 'desbloquear', inicio }); RC.datos = await apiR(); renderR(); }catch(e){ avisoR(e.message, 'err'); }
+}
+async function guardarConfigR(){
+  const config = { dias: [...document.querySelectorAll('#cfgDias input:checked')].map(i => Number(i.value)), desde: $('cfgDesde').value, hasta: $('cfgHasta').value, duracion_min: Number($('cfgDur').value), descanso_min: Number($('cfgDes').value),
+    anticipacion_horas: Number($('cfgAnt').value), fecha_desde: $('cfgIni').value, fecha_hasta: $('cfgFin').value, activa: $('cfgActiva').checked, enlace_video: $('cfgVideo').value, aviso: $('cfgAviso').value };
+  avisoR('Guardando…', '');
+  try{ await apiR({ accion: 'config', config }); RC.datos = await apiR(); renderR(); avisoR('Horarios guardados ✓', 'ok'); }catch(e){ avisoR('No se guardó: ' + e.message, 'err'); }
+}
+async function importarR(){
+  let lista; try{ lista = JSON.parse($('rcJson').value); }catch(e){ $('rcImpMsg').textContent = 'El texto no es un JSON válido.'; return; }
+  if(!Array.isArray(lista)) lista = [lista];
+  $('rcImpMsg').textContent = 'Importando…';
+  try{ const d = await apiR({ accion: 'importar', postulantes: lista }); $('rcImpMsg').textContent = d.importados + ' nuevos, ' + d.actualizados + ' actualizados' + (d.errores.length ? ' · ' + d.errores.length + ' con error: ' + d.errores.join('; ') : ''); $('rcJson').value = ''; RC.datos = await apiR(); renderR(); }
+  catch(e){ $('rcImpMsg').textContent = 'No se importó: ' + e.message; }
+}
+async function nuevoR(){
+  const nombre = prompt('Nombre completo del postulante:'); if(!nombre) return;
+  const email = prompt('Correo (opcional):') || '';
+  try{ await apiR({ accion: 'crear', postulante: { nombre, email, origen: 'Manual' } }); RC.datos = await apiR(); RC.sub = 'lista'; renderR(); avisoR('Postulante agregado', 'ok'); }catch(e){ avisoR(e.message, 'err'); }
+}
+
 // ---- Pestañas ----
 function irTab(t){
-  if(!['programa', 'conceptos', 'entrevista', 'herramientas'].includes(t)) t = 'programa';
-  ['programa', 'conceptos', 'entrevista', 'herramientas'].forEach(k => { $('tab-' + k).style.display = k === t ? '' : 'none'; });
+  if(!['programa', 'conceptos', 'entrevista', 'herramientas', 'postulantes'].includes(t)) t = 'programa';
+  if(t === 'postulantes' && $('tabPostulantes').hidden) t = 'programa';
+  ['programa', 'conceptos', 'entrevista', 'herramientas', 'postulantes'].forEach(k => { $('tab-' + k).style.display = k === t ? '' : 'none'; });
+  if(t === 'postulantes') cargarPostulantes();
   if(t === 'herramientas' && !HERR.cargadas) cargarHerramientas();
   document.querySelectorAll('#tabs .tab').forEach(b => b.classList.toggle('activa', b.dataset.tab === t));
   if(location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
@@ -620,6 +813,7 @@ async function cargarSesionUsuario(){
     aplicarRestriccionMargenes(u.rol); // los precios de compra solo los ve un administrador
     aplicarRestriccionPaginas(u.paginas);
     if(u.rol === 'admin'){
+      $('tabPostulantes').hidden = false; if(HASH_INICIAL === '#postulantes') irTab('postulantes');
       ['navUsuarios', 'navActualizaciones', 'navMercadoLibre'].forEach(id => { const n = $(id); if(n) n.style.display = ''; });
     }
     claveAvance = 'electronica-avance-v1:' + String(u.email || u.nombre || 'anonimo').toLowerCase();
@@ -636,6 +830,10 @@ async function cerrarSesion(){
   ['buscarC', 'fCat', 'fPrio', 'fPendC'].forEach(id => $(id).addEventListener(id === 'buscarC' ? 'input' : 'change', renderConceptos));
   ['buscarH', 'fEstadoH', 'fPrioH', 'fCatH'].forEach(id => $(id).addEventListener(id === 'buscarH' ? 'input' : 'change', renderHerramientas));
   document.querySelectorAll('#tabs .tab').forEach(b => b.addEventListener('click', () => irTab(b.dataset.tab)));
+  document.querySelectorAll('#subtabsR .tab').forEach(b => b.addEventListener('click', () => { RC.sub = b.dataset.sub; renderR(); }));
+  ['buscarR', 'fEstadoR'].forEach(id => $(id).addEventListener(id === 'buscarR' ? 'input' : 'change', renderListaR));
+  $('btnGuardarCfg').addEventListener('click', guardarConfigR); $('btnImportar').addEventListener('click', importarR); $('btnNuevoR').addEventListener('click', nuevoR);
+  $('rcArchivo').addEventListener('change', e => { const f = e.target.files[0]; if(f){ const rd = new FileReader(); rd.onload = () => { $('rcJson').value = String(rd.result || ''); }; rd.readAsText(f); } });
   window.addEventListener('hashchange', () => irTab(location.hash.slice(1)));
   irTab(location.hash.slice(1));
   cargarDatos().then(cargarSesionUsuario);

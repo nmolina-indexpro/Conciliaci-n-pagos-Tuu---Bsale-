@@ -51,6 +51,7 @@ import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGO
 import { asegurarTablaContabilidad, asegurarTablaInsumosSt } from '../lib/db.js';
 import { asegurarTablaElectronicaHerramientas } from '../lib/db.js';
 import { validarCambioHerramienta, armarHerramientas } from '../lib/electronica-herramientas.js';
+import { agendaPublica as agendaPublicaRecl, reclutamiento as reclutamientoRecl } from '../lib/reclutamiento-api.js';
 import { asegurarTablaNasBackup } from '../lib/db.js';
 import { CLIENTES as CLIENTES_NAS_BACKUP, consolidarEventos as consolidarEventosNasBackup, textoDesdeCorreoCrudo as textoCorreoNasBackup, parsearCorreoHbs as parsearCorreoHbsNasBackup, parsearAlertaNas as parsearAlertaNasBackup, clientePorNas as clientePorNasBackup, normalizarEvento as normalizarEventoNasBackup, resumirCliente as resumirClienteNasBackup, filasDesdeHistorial as filasHistorialNasBackup, esFalla as esFallaNasBackup, esAviso as esAvisoNasBackup } from '../lib/nas-backup.js';
 import { paginasEfectivas } from '../lib/paginas-perfil.js';
@@ -190,6 +191,8 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'whatsapp-ejecutivos-notificar-diario') return manejarWhatsappEjecutivosNotificarDiario(req, res);
   // Cron (lunes, miércoles y viernes, 08:00 Chile) de la Academia de Electrónica. Ver vercel.json, middleware.ts (esElectronicaEnviarPublico) y lib/electronica-correo.js.
   if (req.query.recurso === 'electronica-enviar') return manejarElectronicaEnviar(req, res);
+  // Agenda de entrevistas: la usa el postulante con su enlace personal, sin sesión (ver middleware.ts esAgendaPublica, lib/seguridad.js y manejarAgendaPublica).
+  if (req.query.recurso === 'agenda-publica') return manejarAgendaPublica(req, res);
   // Cron semanal (domingo) del resumen de Google Ads. Ver vercel.json,
   // middleware.ts (esGoogleAdsResumenSemanalPublico) y lib/google-ads-resumen.js.
   if (req.query.recurso === 'google-ads-resumen-semanal') return manejarGoogleAdsResumenSemanal(req, res);
@@ -288,6 +291,8 @@ export default async function handler(req, res) {
   if (recurso === 'electronica') return res.status(200).json({ ok: true, ...ELECTRONICA, lecciones: LECCIONES_ELECTRONICA, componentes: todosLosComponentesPorEnvio() });
   // Electrónica > Herramientas: checklist de compra de las herramientas del técnico (GET lista, POST guarda un cambio de estado, precio o nota).
   if (recurso === 'electronica-herramientas') return manejarElectronicaHerramientas(req, res, sesion);
+  // Electrónica > Postulantes (solo administradores): lista de postulantes, agenda de entrevistas y bloqueos.
+  if (recurso === 'reclutamiento') return manejarReclutamiento(req, res, sesion);
   if (recurso === 'identificacion-modelo-foto') return manejarIdentificacionModeloFoto(req, res, sesion);
   if (recurso === 'productos-nuevos-registro') return manejarProductosNuevosRegistro(req, res, sesion);
   if (recurso === 'productos-nuevos-resumen') return manejarProductosNuevosResumen(req, res, sesion);
@@ -5923,6 +5928,12 @@ async function manejarServicioTecnicoResumenSemanal(req, res) {
   }
 }
 
+// ═══ Reclutamiento: postulantes de Indeed + agenda de entrevistas (Electrónica > Postulantes) ═══
+// La lógica vive en lib/reclutamiento-api.js (se prueba contra Postgres real en tests/reclutamiento/api.test.js); aquí solo se montan las dos puertas en esta función
+// (el plan de Vercel está al tope de funciones): ?recurso=reclutamiento (sesión de administrador) y ?recurso=agenda-publica (sin sesión, con el token del postulante).
+const depsReclutamiento = () => ({ getSql, enviarCorreo, urlBase: URL_BASE_APP, asegurarTablaNotificaciones, notificacionDebeEnviarse, obtenerSuscriptoresEmail, marcarNotificacionEnviada });
+const manejarAgendaPublica = (req, res) => agendaPublicaRecl(req, res, depsReclutamiento());
+const manejarReclutamiento = (req, res, sesion) => reclutamientoRecl(req, res, sesion, depsReclutamiento());
 // Checklist de herramientas del técnico electrónico (pestaña «Herramientas» de Servicio Técnico > Electrónica). Cualquier usuario con acceso a la página ve y
 // marca el estado y las notas; el precio (costo de la empresa) solo lo ve y lo registra un administrador. Lógica de validación: lib/electronica-herramientas.js.
 async function manejarElectronicaHerramientas(req, res, sesion) {

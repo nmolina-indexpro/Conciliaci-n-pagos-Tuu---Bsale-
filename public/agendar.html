@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Agenda tu entrevista — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#EEF2F9;--surface:#fff;--line:#D3DFF3;--text:#1B2A41;--muted:#64748B;--navy:#0B2A5B;--blue:#0B57D0;--blue-dim:#E8F0FE;--green:#12713A;--green-bg:#E3F6EA;--red:#B91C1C;--red-bg:#FDE2E2;--amber:#92400E;--amber-bg:#FEF3C7;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  header{background:var(--navy);color:#fff;padding:22px 16px 20px}
+  .wrap{max-width:760px;margin:0 auto;padding:0 16px}
+  header .wrap{padding:0}
+  .marca{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#9DB8EA;font-weight:700}
+  h1{font-family:'Space Grotesk',sans-serif;font-size:26px;line-height:1.2;margin:6px 0 4px}
+  header p{margin:0;color:#C9D9F7;font-size:14px}
+  main.wrap{padding-top:18px;padding-bottom:40px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 18px;margin-bottom:16px;box-shadow:0 1px 2px rgba(11,42,91,.05)}
+  .card h2{font-family:'Space Grotesk',sans-serif;font-size:17px;margin:0 0 4px;color:var(--navy)}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 12px}
+  .aviso{border-radius:10px;padding:10px 12px;font-size:13.5px;line-height:1.5;margin-bottom:12px}
+  .aviso.ok{background:var(--green-bg);color:var(--green)} .aviso.err{background:var(--red-bg);color:var(--red)} .aviso.info{background:var(--amber-bg);color:var(--amber)}
+  .mes{margin-bottom:18px}
+  .mes h3{font-family:'Space Grotesk',sans-serif;font-size:15px;margin:0 0 8px}
+  .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .dow{font-size:11px;color:var(--muted);text-align:center;font-weight:600;text-transform:uppercase}
+  .dia{height:56px;border-radius:10px;border:1.5px solid transparent;background:transparent;color:#9AA7BB;font:inherit;font-size:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0}
+  .dia.libre{background:var(--blue-dim);color:var(--blue);border-color:#C5D8FA;font-weight:700;cursor:pointer}
+  .dia.libre small{font-size:10px;font-weight:600;opacity:.8}
+  .dia.libre:hover,.dia.sel{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .dia.libre.sel small,.dia.libre:hover small{opacity:.95}
+  .horas{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 4px}
+  .hora{font:inherit;font-weight:700;font-size:14px;border:1.5px solid var(--line);background:#fff;color:var(--navy);border-radius:10px;padding:10px 14px;cursor:pointer}
+  .hora:hover{border-color:var(--blue);color:var(--blue)} .hora.sel{background:var(--navy);border-color:var(--navy);color:#fff}
+  label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin:10px 0 4px}
+  input[type=email],input[type=tel]{width:100%;font:inherit;font-size:15px;padding:11px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--text)}
+  input:focus{outline:none;border-color:var(--blue)}
+  button.principal{font:inherit;font-weight:700;font-size:15px;background:var(--blue);color:#fff;border:0;border-radius:10px;padding:12px 20px;cursor:pointer;margin-top:12px}
+  button.principal:disabled{opacity:.5;cursor:not-allowed}
+  button.sec{font:inherit;font-weight:600;font-size:13.5px;background:#fff;color:var(--navy);border:1.5px solid var(--line);border-radius:10px;padding:9px 14px;cursor:pointer;margin:6px 8px 0 0;text-decoration:none;display:inline-block}
+  button.sec:hover{border-color:var(--blue);color:var(--blue)} button.sec.peligro:hover{border-color:var(--red);color:var(--red)}
+  .conf{font-family:'Space Grotesk',sans-serif;font-size:22px;color:var(--navy);margin:2px 0 6px}
+  .nota{font-size:12px;color:var(--muted);line-height:1.5;margin-top:12px}
+  .vacio{color:var(--muted);font-size:14px;padding:6px 0}
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <div class="marca">IndexStore · Entrevista</div>
+  <h1 id="titulo">Agenda tu entrevista</h1>
+  <p id="subtitulo">Elige el día y la hora que más te acomode.</p>
+</div></header>
+<main class="wrap">
+  <div id="mensaje"></div>
+  <div class="card" id="cargando">Cargando horarios…</div>
+
+  <div class="card" id="cardReserva" hidden>
+    <h2>✅ Tu entrevista está agendada</h2>
+    <div class="conf" id="confCuando"></div>
+    <p class="sub" id="confDetalle"></p>
+    <div id="confAcciones"></div>
+  </div>
+
+  <div class="card" id="cardCalendario" hidden>
+    <h2 id="tituloCal">1. Elige el día</h2>
+    <p class="sub">Los días en azul tienen horarios libres. Horarios en hora de Chile.</p>
+    <div id="meses"></div>
+    <div id="bloqueHoras" hidden>
+      <h2 style="margin-top:6px">2. Elige la hora</h2>
+      <p class="sub" id="subHoras"></p>
+      <div class="horas" id="horas"></div>
+    </div>
+    <div id="bloqueForm" hidden>
+      <h2 style="margin-top:14px">3. Confirma tus datos</h2>
+      <label for="email" id="lblEmail">Tu correo (te enviaremos la confirmación y el enlace de la videollamada)</label>
+      <input type="email" id="email" autocomplete="email" placeholder="nombre@correo.com">
+      <label for="tel">Tu teléfono (opcional)</label>
+      <input type="tel" id="tel" autocomplete="tel" placeholder="+56 9 ...">
+      <button class="principal" id="btnConfirmar" type="button">Confirmar entrevista</button>
+      <p class="nota">Usaremos tus datos solo para coordinar esta entrevista. Si quieres que los borremos, escríbenos por Indeed.</p>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const ZONA = 'America/Santiago';
+const token = new URLSearchParams(location.search).get('t') || '';
+let datos = null, diaSel = null, inicioSel = null;
+
+const esc = t => String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const fmtFechaLarga = iso => new Intl.DateTimeFormat('es-CL', { timeZone: ZONA, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iso));
+const fmtHora = iso => new Intl.DateTimeFormat('es-CL', { timeZone: ZONA, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso));
+function mostrar(texto, clase){ $('mensaje').innerHTML = texto ? '<div class="aviso ' + clase + '">' + esc(texto) + '</div>' : ''; }
+function urlSegura(u){ u = String(u || '').trim(); return /^https?:\/\//i.test(u) ? u : ''; }
+
+async function api(cuerpo){
+  const url = '/api/negocio?recurso=agenda-publica' + (cuerpo ? '' : '&t=' + encodeURIComponent(token));
+  const res = await fetch(url, cuerpo ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ t: token, ...cuerpo }) } : undefined);
+  const d = await res.json().catch(() => ({}));
+  if(!res.ok) { const e = new Error(d.error || 'No se pudo completar la operación'); e.status = res.status; throw e; }
+  return d;
+}
+
+async function cargar(){
+  if(!token){ $('cargando').hidden = true; mostrar('Este enlace no es válido. Pídenos uno nuevo por Indeed.', 'err'); return; }
+  try{
+    datos = await api();
+    $('cargando').hidden = true;
+    $('titulo').textContent = 'Hola, ' + datos.nombre;
+    $('subtitulo').textContent = 'Agenda tu entrevista por videollamada de ' + datos.duracion_min + ' minutos' + (datos.cargo ? ' · ' + datos.cargo : '') + '.';
+    if(datos.aviso) mostrar(datos.aviso, 'info');
+    render();
+  }catch(e){ $('cargando').hidden = true; mostrar(e.message, 'err'); }
+}
+
+function render(){
+  const r = datos.reserva;
+  $('cardReserva').hidden = !r;
+  if(r){
+    $('confCuando').textContent = (fmtFechaLarga(r.inicio) + ', ' + fmtHora(r.inicio)).replace(/^./, s => s.toUpperCase());
+    $('confDetalle').textContent = 'Hasta las ' + fmtHora(r.fin) + ' (hora de Chile). Entrevista por videollamada.';
+    const video = urlSegura(r.enlace_video);
+    $('confAcciones').innerHTML =
+      (video ? '<a class="sec" style="background:var(--blue);color:#fff;border-color:var(--blue)" href="' + esc(video) + '" target="_blank" rel="noopener noreferrer">Abrir la videollamada</a>' : '<p class="sub">Te enviaremos el enlace de la videollamada antes de la entrevista.</p>') +
+      '<button class="sec" type="button" onclick="descargarIcs()">Agregar a mi calendario</button>' +
+      (r.puedeCambiar ? '<button class="sec" type="button" onclick="mostrarCalendario()">Cambiar horario</button><button class="sec peligro" type="button" onclick="cancelar()">Cancelar entrevista</button>' : '<p class="nota">Si necesitas cambiar el horario, escríbenos por Indeed.</p>');
+  }
+  const verCal = !r && datos.activa;
+  $('cardCalendario').hidden = !verCal;
+  if(!datos.activa && !r) mostrar('La agenda no está disponible por ahora. Te avisaremos cuando abramos nuevos horarios.', 'info');
+  if(verCal) pintarCalendario();
+}
+
+function mostrarCalendario(){ $('cardCalendario').hidden = false; $('tituloCal').textContent = 'Elige tu nuevo día'; pintarCalendario(); $('cardCalendario').scrollIntoView({ behavior: 'smooth' }); }
+
+function pintarCalendario(){
+  diaSel = null; inicioSel = null; $('bloqueHoras').hidden = true; $('bloqueForm').hidden = true;
+  const porDia = {};
+  datos.espacios.forEach(e => (porDia[e.fecha] = porDia[e.fecha] || []).push(e));
+  const fechas = Object.keys(porDia).sort();
+  if(!fechas.length){ $('meses').innerHTML = '<div class="vacio">Por ahora no hay horarios disponibles. Vuelve a abrir este enlace más tarde.</div>'; return; }
+  const meses = [...new Set(fechas.map(f => f.slice(0, 7)))];
+  $('meses').innerHTML = meses.map(m => {
+    const [y, mo] = m.split('-').map(Number), primero = new Date(Date.UTC(y, mo - 1, 1)), ultimo = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+    const offset = (primero.getUTCDay() + 6) % 7; // lunes primero
+    let celdas = ['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(d => '<div class="dow">' + d + '</div>').join('') + '<div></div>'.repeat(offset);
+    for(let d = 1; d <= ultimo; d++){
+      const f = m + '-' + String(d).padStart(2, '0'), n = (porDia[f] || []).length;
+      celdas += n ? '<button type="button" class="dia libre" data-f="' + f + '">' + d + '<small>' + n + (n === 1 ? ' hora' : ' horas') + '</small></button>' : '<div class="dia">' + d + '</div>';
+    }
+    return '<div class="mes"><h3>' + new Intl.DateTimeFormat('es-CL', { timeZone: 'UTC', month: 'long', year: 'numeric' }).format(primero).replace(/^./, s => s.toUpperCase()).replace(' de ', ' ') + '</h3><div class="grid">' + celdas + '</div></div>';
+  }).join('');
+  document.querySelectorAll('.dia.libre').forEach(b => b.onclick = () => elegirDia(b.dataset.f, porDia));
+}
+
+function elegirDia(f, porDia){
+  diaSel = f; inicioSel = null; $('bloqueForm').hidden = true;
+  document.querySelectorAll('.dia.libre').forEach(b => b.classList.toggle('sel', b.dataset.f === f));
+  const lista = porDia[f];
+  $('subHoras').textContent = fmtFechaLarga(lista[0].inicio) + ' · hora de Chile';
+  $('horas').innerHTML = lista.map(e => '<button type="button" class="hora" data-i="' + esc(e.inicio) + '">' + fmtHora(e.inicio) + ' – ' + fmtHora(e.fin) + '</button>').join('');
+  document.querySelectorAll('.hora').forEach(b => b.onclick = () => elegirHora(b.dataset.i));
+  $('bloqueHoras').hidden = false; $('bloqueHoras').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function elegirHora(inicio){
+  inicioSel = inicio;
+  document.querySelectorAll('.hora').forEach(b => b.classList.toggle('sel', b.dataset.i === inicio));
+  $('lblEmail').textContent = datos.tieneCorreo ? 'Tu correo (opcional: si lo dejas vacío usaremos el de tu postulación)' : 'Tu correo (te enviaremos la confirmación y el enlace de la videollamada)';
+  $('bloqueForm').hidden = false; $('bloqueForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+$('btnConfirmar').onclick = async () => {
+  const email = $('email').value.trim();
+  if(!datos.tieneCorreo && !email){ mostrar('Escribe tu correo para enviarte la confirmación.', 'err'); $('email').focus(); return; }
+  if(email && !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)){ mostrar('El correo no parece válido.', 'err'); $('email').focus(); return; }
+  $('btnConfirmar').disabled = true; $('btnConfirmar').textContent = 'Confirmando…'; mostrar('', '');
+  try{
+    const d = await api({ accion: 'reservar', inicio: inicioSel, email, telefono: $('tel').value.trim() });
+    datos.reserva = d.reserva; datos.tieneCorreo = true; render();
+    mostrar(d.correoEnviado ? 'Listo. Te enviamos la confirmación por correo.' : 'Listo, tu entrevista quedó agendada. Guarda esta página: no pudimos enviarte el correo de confirmación.', d.correoEnviado ? 'ok' : 'info');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }catch(e){
+    mostrar(e.message, 'err');
+    if(e.status === 409){ try{ datos = await api(); render(); }catch(_){} } // el horario ya no estaba libre: se actualiza la lista
+  }
+  $('btnConfirmar').disabled = false; $('btnConfirmar').textContent = 'Confirmar entrevista';
+};
+
+async function cancelar(){
+  if(!confirm('¿Quieres cancelar tu entrevista? Podrás elegir otro horario después.')) return;
+  try{ await api({ accion: 'cancelar' }); datos = await api(); render(); mostrar('Tu entrevista fue cancelada. Puedes elegir otro horario cuando quieras.', 'info'); }
+  catch(e){ mostrar(e.message, 'err'); }
+}
+
+function descargarIcs(){
+  const r = datos.reserva; if(!r) return;
+  const f = iso => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//IndexStore//Entrevista//ES', 'BEGIN:VEVENT', 'UID:entrevista-' + f(r.inicio) + '@indexstore.cl', 'DTSTAMP:' + f(new Date().toISOString()),
+    'DTSTART:' + f(r.inicio), 'DTEND:' + f(r.fin), 'SUMMARY:Entrevista IndexStore (videollamada)', 'DESCRIPTION:' + (urlSegura(r.enlace_video) ? 'Videollamada: ' + r.enlace_video : 'Te enviaremos el enlace de la videollamada.'),
+    'BEGIN:VALARM', 'TRIGGER:-PT30M', 'ACTION:DISPLAY', 'DESCRIPTION:Entrevista en 30 minutos', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' })); a.download = 'entrevista-indexstore.ics'; a.click();
+}
+cargar();
+</script>
+</body>
+</html>

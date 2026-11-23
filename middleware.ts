@@ -134,6 +134,12 @@ function esImagenElectronicaPublica(pathname) {
   return /^\/img-electronica\/[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)$/.test(pathname);
 }
 
+// Agenda de entrevistas (Electrónica > Postulantes): el postulante abre su enlace personal (agendar.html?t=TOKEN) sin iniciar sesión. La API (recurso agenda-publica) solo
+// entrega el nombre de pila y los espacios libres, y se protege con el token de cada postulante y un tope por IP (lib/seguridad.js).
+function esAgendaPublica(pathname, searchParams) {
+  return pathname === '/agendar.html' || (pathname === '/api/negocio' && searchParams.get('recurso') === 'agenda-publica');
+}
+
 // Cron (lunes, miércoles y viernes) de la Academia de Electrónica -- mismo patrón que los de arriba (CRON_SECRET, sin sesión).
 function esElectronicaEnviarPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'electronica-enviar';
@@ -259,6 +265,7 @@ export default async function middleware(req) {
     esGoogleAdsResumenSemanalPublico(pathname, url.searchParams) ||
     esElectronicaEnviarPublico(pathname, url.searchParams) ||
     esImagenElectronicaPublica(pathname) ||
+    esAgendaPublica(pathname, url.searchParams) ||
     esModelosCompatiblesRecordatorioPublico(pathname, url.searchParams) ||
     esIndexscalePixelPublico(pathname, url.searchParams) ||
     esBuscadorIaRegistrarPublico(pathname, url.searchParams) ||
