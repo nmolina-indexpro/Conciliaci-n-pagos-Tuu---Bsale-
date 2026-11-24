@@ -86,7 +86,7 @@ function renderPanelBot(){
       <li>Precio, stock y enlace salen solo del catálogo. Si el borrador trae un precio o enlace que no vino de ahí, <b>se marca y pide ejecutivo</b>.</li>
       <li>No promete descuentos, reservas, plazos ni costos de envío, ni compatibilidad si el producto no nombra el modelo exacto.</li>
       <li>Reclamos, garantías en curso, servicio técnico, facturas, empresas, imágenes o audios: <b>escala a un ejecutivo</b>.</li>
-      <li>Se presenta como asistente virtual de IndexStore en su primer mensaje.</li>
+      <li>Se presenta como «el asistente de IndexStore» en su primer mensaje.</li>
       <li>Fase 1: <b>nunca envía solo</b>. Se mide cuántos borradores salen tal cual, editados o descartados antes de pensar en el envío automático.</li></ul>`);
   $('panelMotivo').innerHTML = cabeceraPanelBot(modoBadge) + `<div class="pm-cuerpo">${nota}${kpis}${lote}${horario}${conocimiento}${guardar}${reglas}</div>`;
   renderHorarioBot();

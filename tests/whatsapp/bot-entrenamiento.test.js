@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { reiniciarUnaVez } from '../../lib/una-vez.js';
 import { asegurarTablaWhatsappBot } from '../../lib/db.js';
 import {
-  construirSystemBot, elegirPreguntasModelo, momentoDentroDeHorario, dentroDeHorarioBot, normalizarPropuesta,
+  construirSystemBot, elegirPreguntasModelo, momentoDentroDeHorario, dentroDeHorarioBot, normalizarPropuesta, limpiarSaltosDeLinea,
   HORARIO_BOT_DEFECTO, SALUDO_DEFECTO, CONOCIMIENTO_DEFECTO,
 } from '../../lib/whatsapp-bot.js';
 import {
@@ -47,7 +47,45 @@ test('el saludo solo se pide en el primer mensaje del bot', () => {
   assert.ok(!siguiente.includes('saludo de bienvenida'));
   assert.match(siguiente, /sin volver a presentarte/);
   const sinSaludo = construirSystemBot({ ...base, primeraRespuestaBot: true });
-  assert.match(sinSaludo, /saluda y di que eres el asistente virtual/);
+  assert.match(sinSaludo, /saluda y preséntate como «el asistente de IndexStore»/);
+});
+
+test('el bot se presenta como "el asistente de IndexStore", nunca como "asistente virtual"', () => {
+  for (const args of [{ primeraRespuestaBot: true }, { primeraRespuestaBot: true, saludo: SALUDO_DEFECTO }, { primeraRespuestaBot: false }]) {
+    const s = construirSystemBot({ ...base, ...args });
+    assert.match(s, /Eres el asistente de IndexStore/);
+    // la única mención permitida de "asistente virtual" es la prohibición explícita de decirlo
+    for (const linea of s.split('\n').filter(l => /asistente virtual/i.test(l))) assert.match(linea, /nunca digas «asistente virtual»/);
+  }
+  assert.ok(!SALUDO_DEFECTO.includes('virtual'));
+  assert.match(SALUDO_DEFECTO, /asistente de IndexStore/);
+  // si el cliente pregunta si es una persona, responde con honestidad
+  assert.match(construirSystemBot({ ...base }), /responde con honestidad que eres el asistente automático/);
+});
+
+test('el prompt exige saltos de línea reales y una ficha ordenada por producto', () => {
+  const s = construirSystemBot({ ...base });
+  assert.match(s, /FORMATO DEL MENSAJE/);
+  assert.match(s, /Usa saltos de línea REALES\. Nunca escribas la secuencia \\n como texto/);
+  assert.match(s, /cada una va en su propia ficha/);
+  assert.match(s, /el enlace solo, en una línea aparte/);
+  assert.match(s, /nunca las inventes/);
+});
+
+test('limpiarSaltosDeLinea convierte la secuencia \\n en saltos reales y ordena los espacios', () => {
+  assert.equal(limpiarSaltosDeLinea('Hola\\n\\nPara tu equipo:\\n1. Uno\\n2. Dos'), 'Hola\n\nPara tu equipo:\n1. Uno\n2. Dos');
+  assert.equal(limpiarSaltosDeLinea('A\\r\\nB'), 'A\nB');
+  assert.equal(limpiarSaltosDeLinea('A   \nB\n\n\n\nC  '), 'A\nB\n\nC');
+  assert.equal(limpiarSaltosDeLinea('Ya viene\nordenado'), 'Ya viene\nordenado');
+  assert.equal(limpiarSaltosDeLinea(null), '');
+});
+
+test('normalizarPropuesta deja el texto con saltos reales aunque la IA mande \\n como texto', () => {
+  const p = normalizarPropuesta({ texto: '¡Hola!\\n\\n*Versión HD*\\nhttps://www.indexstore.cl/products/a\\nPrecio: $74.900', confianza: 'alta', escalar: false },
+    { productos: [{ titulo: 'a', precio: 74900, url: 'https://www.indexstore.cl/products/a' }], conocimiento: CONOCIMIENTO_DEFECTO });
+  assert.ok(!p.texto.includes('\\n'));
+  assert.deepEqual(p.texto.split('\n'), ['¡Hola!', '', '*Versión HD*', 'https://www.indexstore.cl/products/a', 'Precio: $74.900']);
+  assert.deepEqual(p.alertas, []);
 });
 
 test('elegirPreguntasModelo devuelve todas si son pocas y las más parecidas si son muchas', () => {

@@ -9937,7 +9937,7 @@ async function buscarProductosBot(consulta) {
   let acceso = null;
   try { acceso = await obtenerAccesoShopify(); } catch { /* sigue abajo */ }
   if (!acceso) return { productos: [], aviso: 'El catálogo no está disponible ahora: no afirmes precio ni disponibilidad y escala.' };
-  const query = `query($q: String!) { products(first: 6, query: $q) { edges { node { title status onlineStoreUrl variants(first: 3) { edges { node { sku price title } } } } } } }`;
+  const query = `query($q: String!) { products(first: 6, query: $q) { edges { node { title description(truncateAt: 280) status onlineStoreUrl variants(first: 3) { edges { node { sku price title } } } } } } }`;
   const buscar = async ps => {
     const body = await shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, query, { q: ps.map(p => `title:*${p}*`).join(' AND ') });
     return (body.data?.products?.edges || []).map(e => e.node);
@@ -9954,7 +9954,8 @@ async function buscarProductosBot(consulta) {
     const publicado = n.status === 'ACTIVE' && !!n.onlineStoreUrl;
     const stock = await stockBsaleDeSku(v.sku);
     return {
-      titulo: n.title, sku: v.sku || null, precio: v.price != null ? Math.round(Number(v.price)) : null,
+      titulo: n.title, descripcion: String(n.description || '').replace(/\s+/g, ' ').trim().slice(0, 280) || null,
+      sku: v.sku || null, precio: v.price != null ? Math.round(Number(v.price)) : null,
       variantes: n.variants?.edges?.length || 1, publicado, url: publicado ? n.onlineStoreUrl : null,
       stock: stock == null ? 'sin dato' : stock,
     };
