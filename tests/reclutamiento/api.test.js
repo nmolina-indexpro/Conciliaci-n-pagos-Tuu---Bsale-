@@ -195,3 +195,23 @@ test('el administrador puede ofrecer un día dentro del plazo solo desde cierta 
     assert.equal((await t.admin({ accion: 'dia_desde', fecha: '2026-11-29', hora: '12:30' })).codigo, 400, 'domingo no está en el calendario');
   } finally { await t.cerrar(); }
 });
+
+test('el enlace vence 3 días después de terminada la entrevista y no filtra detalles técnicos', async () => {
+  const t = await montar();
+  try {
+    await t.admin({ accion: 'importar', postulantes: [{ nombre: 'Ana Pérez', email: 'ana@correo.cl' }, { nombre: 'Beto Rojas', email: 'beto@correo.cl' }, { nombre: 'Carla Soto', email: 'carla@correo.cl' }] });
+    const lista = (await t.admin(null)).cuerpo.postulantes, tok = n => new URL(lista.find(p => p.nombre.startsWith(n)).enlace).searchParams.get('t'), id = n => lista.find(p => p.nombre.startsWith(n)).id;
+    const hora = 3600000, reservaEn = async (n, finMs) => { const fin = new Date(AHORA.getTime() + finMs), ini = new Date(fin.getTime() - hora); await t.sql`INSERT INTO reclutamiento_reservas (postulante_id, inicio, fin) VALUES (${id(n)}, ${ini.toISOString()}, ${fin.toISOString()});`; };
+    await reservaEn('Ana', -4 * 24 * hora);   // terminó hace 4 días: vencido
+    await reservaEn('Beto', -2 * 24 * hora);  // terminó hace 2 días: sigue vigente
+    // Carla no tiene entrevista: sigue vigente
+    let r = await t.pub('GET', { t: tok('Ana') }); assert.equal(r.codigo, 410); assert.match(r.cuerpo.error, /venció/);
+    assert.equal((await t.pub('POST', { t: tok('Ana'), accion: 'cancelar' })).codigo, 410);
+    assert.equal((await t.pub('GET', { t: tok('Beto') })).codigo, 200);
+    assert.equal((await t.pub('GET', { t: tok('Carla') })).codigo, 200);
+    // un error interno no devuelve detalles al público
+    const roto = { ...t.deps, getSql: async () => { throw new Error('relation "secreta" does not exist'); } };
+    const rr = respuesta(); await agendaPublica({ method: 'GET', query: { t: tok('Carla') } }, rr, roto);
+    assert.equal(rr.codigo, 500); assert.ok(!JSON.stringify(rr.cuerpo).includes('secreta'));
+  } finally { await t.cerrar(); }
+});
