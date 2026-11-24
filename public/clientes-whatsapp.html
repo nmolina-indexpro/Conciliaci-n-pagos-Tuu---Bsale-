@@ -349,6 +349,39 @@
 
   .overlay-ficha-movil{display:none;}
   @media (max-width:1280px){.overlay-ficha-movil.abierto{display:block;position:fixed;inset:0;background:rgba(11,20,26,.4);z-index:140;}}
+
+  /* respuestas rápidas: lista que se abre sobre la barra de escribir al teclear "/" (igual que en WhatsApp Business) */
+  .chat-composer-wrap, .composer-hilo{position:relative;}
+  .menu-rapidas{position:absolute;left:10px;right:10px;bottom:calc(100% + 4px);max-height:min(320px,45vh);overflow-y:auto;background:#fff;border-radius:10px;box-shadow:0 2px 14px rgba(11,20,26,.28);z-index:30;padding:6px 0;font-family:'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;}
+  .menu-rapidas-titulo{padding:6px 16px 8px;font-size:13px;color:#667781;display:flex;align-items:center;gap:6px;}
+  .menu-rapidas-titulo svg{width:16px;height:16px;fill:#00A884;}
+  .rapida-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:0;padding:8px 16px;cursor:pointer;color:#111B21;}
+  .rapida-item:hover, .rapida-item.activa{background:#F0F2F5;}
+  .rapida-atajo{display:block;font-size:14.5px;font-weight:600;color:#008069;}
+  .rapida-texto{display:block;font-size:13px;line-height:18px;color:#667781;white-space:pre-line;max-height:36px;overflow:hidden;text-overflow:ellipsis;}
+  .menu-rapidas-vacio{padding:10px 16px 12px;font-size:13.5px;color:#667781;}
+
+  /* sección de configuración (acordeón al final de la página) */
+  .config-wa{margin-top:22px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);}
+  .config-wa>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:15px 20px;font-weight:700;font-size:15px;}
+  .config-wa>summary::-webkit-details-marker{display:none;}
+  .config-wa>summary .sub{font-weight:400;font-size:12px;flex:1;}
+  .config-wa>summary::after{content:'▾';margin-left:auto;color:var(--muted);}
+  .config-wa[open]>summary::after{content:'▴';}
+  .config-cuerpo{padding:0 20px 20px;}
+  .config-bloque{border-top:1px solid var(--line);padding:16px 0 4px;}
+  .config-bloque h3{margin:0 0 4px;font-size:14px;}
+  .config-bloque>.sub{margin:0 0 12px;}
+  .config-acciones{display:flex;flex-wrap:wrap;gap:8px;}
+  .rr-tabla td{vertical-align:top;font-size:13px;}
+  .rr-atajo{font-weight:700;color:#008069;white-space:nowrap;}
+  .rr-texto{white-space:pre-line;max-height:4.6em;overflow:hidden;color:var(--muted);min-width:240px;}
+  .rr-form{margin-top:14px;padding:14px;background:var(--surface-2);border-radius:12px;display:grid;gap:10px;}
+  .rr-form .rr-atajo-caja{display:flex;align-items:center;gap:6px;}
+  .rr-form .rr-atajo-caja span{font-size:18px;font-weight:700;color:#008069;}
+  .rr-form textarea{min-height:150px;resize:vertical;width:100%;line-height:1.45;}
+  .rr-form .rr-contador{font-size:11.5px;color:var(--muted);text-align:right;}
+  .rr-acciones{display:flex;gap:8px;flex-wrap:wrap;}
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -469,15 +502,6 @@
       <h1>💬 Clientes WhatsApp</h1>
       <div class="sub">Conversaciones, seguimiento comercial y analítica de WhatsApp Business.</div>
     </div>
-    <div id="accionesDemo" style="display:none;">
-      <button class="btn-primary btn-compact" onclick="analizarRecientesIA()" id="btnAnalizarRecientes">🤖 Analizar recientes (12h)</button>
-      <button class="btn-ghost btn-compact" onclick="analizarPendientesIA()" id="btnAnalizarPendientes">🤖 Analizar pendientes</button>
-      <button class="btn-ghost btn-compact" onclick="reanalizarDesactualizadas()" id="btnReanalizarDesactualizadas">🔄 Reanalizar desactualizadas</button>
-      <button class="btn-ghost btn-compact" onclick="actualizarShopifyEnLote()" id="btnActualizarShopify">🛒 Actualizar Shopify</button>
-      <button class="btn-ghost btn-compact" onclick="buscarVentasBsaleEnLote()" id="btnBuscarVentasBsale">🧾 Buscar ventas (Bsale/Shopify)</button>
-      <button class="btn-ghost btn-compact" onclick="reclasificarCierres()" id="btnReclasificarCierres" title="Cierres cordiales (&quot;ok&quot;, &quot;gracias&quot;) pasan a &quot;Consulta resuelta&quot;, y las conversaciones a las que ya se les envió el enlace del producto o una oferta dejan de contar como pérdida y pasan a &quot;Cotización&quot;, y las que recibieron el enlace de reseña de Google (la compra se concretó) pasan a &quot;Venta&quot;">✅ Reclasificar cierres, conversiones y ventas</button>
-      <button class="btn-ghost btn-compact" onclick="reanalizarProductoNoDisponible()" id="btnReanalizarProductoNoDisponible" title="Reanaliza las conversaciones marcadas como &quot;Otro&quot; o &quot;Producto incompatible&quot;, por si ahora corresponden al nuevo motivo &quot;Producto/marca que no vendemos&quot;">🔎 Reanalizar "no disponible"</button>
-    </div>
   </div>
   <div id="avisoConfig"></div>
 
@@ -492,6 +516,31 @@
   <div id="vistaConversaciones" class="vista-modulo activa"></div>
   <div id="vistaClientes" class="vista-modulo"></div>
   <div id="vistaAnalitica" class="vista-modulo"></div>
+
+  <!-- Configuración del módulo: acciones de análisis (solo administrador) y respuestas rápidas ("/" en la conversación) -->
+  <details class="config-wa" id="seccionConfigWa">
+    <summary>⚙️ Configuración <span class="sub">Respuestas rápidas y herramientas de análisis</span></summary>
+    <div class="config-cuerpo">
+      <div class="config-bloque">
+        <h3>⚡ Respuestas rápidas</h3>
+        <p class="sub">Textos guardados para contestar más rápido. En una conversación escribe <b>/</b> y elige una (también con el ícono ⚡ junto a la caja de texto): se inserta el texto, lo revisas y lo envías.</p>
+        <div id="panelRespuestasRapidas"><p class="sub">Cargando…</p></div>
+      </div>
+      <div class="config-bloque" id="accionesDemo" style="display:none;">
+        <h3>🤖 Análisis y actualización de datos</h3>
+        <p class="sub">Procesos en lote para ordenar y completar las conversaciones. Solo los ve un administrador.</p>
+        <div class="config-acciones">
+          <button class="btn-primary btn-compact" onclick="analizarRecientesIA()" id="btnAnalizarRecientes">🤖 Analizar recientes (12h)</button>
+          <button class="btn-ghost btn-compact" onclick="analizarPendientesIA()" id="btnAnalizarPendientes">🤖 Analizar pendientes</button>
+          <button class="btn-ghost btn-compact" onclick="reanalizarDesactualizadas()" id="btnReanalizarDesactualizadas">🔄 Reanalizar desactualizadas</button>
+          <button class="btn-ghost btn-compact" onclick="actualizarShopifyEnLote()" id="btnActualizarShopify">🛒 Actualizar Shopify</button>
+          <button class="btn-ghost btn-compact" onclick="buscarVentasBsaleEnLote()" id="btnBuscarVentasBsale">🧾 Buscar ventas (Bsale/Shopify)</button>
+          <button class="btn-ghost btn-compact" onclick="reclasificarCierres()" id="btnReclasificarCierres" title="Cierres cordiales (&quot;ok&quot;, &quot;gracias&quot;) pasan a &quot;Consulta resuelta&quot;, y las conversaciones a las que ya se les envió el enlace del producto o una oferta dejan de contar como pérdida y pasan a &quot;Cotización&quot;, y las que recibieron el enlace de reseña de Google (la compra se concretó) pasan a &quot;Venta&quot;">✅ Reclasificar cierres, conversiones y ventas</button>
+          <button class="btn-ghost btn-compact" onclick="reanalizarProductoNoDisponible()" id="btnReanalizarProductoNoDisponible" title="Reanaliza las conversaciones marcadas como &quot;Otro&quot; o &quot;Producto incompatible&quot;, por si ahora corresponden al nuevo motivo &quot;Producto/marca que no vendemos&quot;">🔎 Reanalizar "no disponible"</button>
+        </div>
+      </div>
+    </div>
+  </details>
 
 </div>
 

@@ -8,6 +8,7 @@
 //
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
+import { asegurarTablaRespuestasRapidas, listarRespuestas, crearRespuesta, actualizarRespuesta, eliminarRespuesta } from '../lib/whatsapp-respuestas-rapidas.js';
 
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaIndexscaleLeadsWeb, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, asegurarTablaDescuentosWeb, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
 import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, validarEmbudo as validarEmbudoBuscadorIa, validarDescuentoEvento as validarDescuentoEventoBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
@@ -467,6 +468,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-recontacto-motivo') return manejarWhatsappRecontactoMotivo(req, res, sesion);
   if (recurso === 'whatsapp-recontacto-clasificar-ia') return manejarWhatsappRecontactoClasificarIA(req, res, sesion);
   if (recurso === 'whatsapp-usuarios') return manejarWhatsappUsuarios(req, res, sesion);
+  if (recurso === 'whatsapp-respuestas-rapidas') return manejarWhatsappRespuestasRapidas(req, res, sesion);
   if (recurso === 'whatsapp-debug-categoria') return manejarWhatsappDebugCategoria(req, res, sesion);
   if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
   if (recurso === 'compra-agil-ordenes') return manejarCompraAgilOrdenes(req, res, sesion);
@@ -9101,6 +9103,29 @@ async function manejarWhatsappUsuarios(req, res, sesion) {
     return res.status(200).json({ usuarios: rows });
   } catch (err) {
     return res.status(500).json({ error: 'Error al cargar usuarios', detail: String(err) });
+  }
+}
+
+// Respuestas rápidas ("/" en la conversación). Todos los usuarios con acceso a WhatsApp las leen y las usan;
+// solo un administrador las crea, edita o elimina (así el equipo comparte los mismos textos, sin versiones sueltas).
+async function manejarWhatsappRespuestasRapidas(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaRespuestasRapidas(sql);
+    const esAdmin = sesion.rol === 'admin';
+    const usuario = sesion.nombre || sesion.email || null;
+    if (req.method !== 'GET') {
+      if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' });
+      if (!esAdmin) return res.status(403).json({ error: 'Solo un administrador puede cambiar las respuestas rápidas.' });
+      const body = req.body || {};
+      const r = req.method === 'POST' ? await crearRespuesta(sql, body, usuario)
+        : req.method === 'PUT' ? await actualizarRespuesta(sql, body.id, body, usuario)
+        : await eliminarRespuesta(sql, req.query?.id ?? body.id);
+      if (!r.ok) return res.status(r.estado).json({ error: r.error });
+    }
+    return res.status(200).json({ respuestas: await listarRespuestas(sql), esAdmin });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error con las respuestas rápidas', detail: String(err) });
   }
 }
 

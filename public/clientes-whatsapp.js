@@ -317,6 +317,7 @@ async function cargarSesionUsuario(){
       $('accionesDemo').style.display = '';
     }
     cargarUsuariosActivos();
+    cargarRespuestasRapidas();
     // Vínculo real desde Cotizaciones y ventas (coincidencia de teléfono) --
     // ?abrirConversacion=123 abre directo la bandeja en esa conversación en
     // vez del Dashboard por defecto.
@@ -557,6 +558,192 @@ function etiquetaDia(iso){
   return d.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric', timeZone: TZ_CHILE });
 }
 const SIN_SELECCION_HTML = `<div class="sin-seleccion">${WA_ICONO.chat}<div class="sin-titulo">Conversaciones de WhatsApp</div><div>Selecciona un chat de la lista para ver los mensajes y responder.</div></div>`;
+
+// ---------------- Respuestas rápidas ("/" en la conversación, como en WhatsApp Business) ----------------
+// Se guardan en la base (tabla whatsapp_respuestas_rapidas) y se administran en la sección Configuración, al final de la página.
+let respuestasRapidas = [];
+let rrEsAdmin = false;
+let rrFormAbierto = false, rrEditandoId = null, rrBorrador = { atajo: '', texto: '' };
+let menuRapidasEstado = { ta: null, items: [], activa: 0 };
+const sinTildes = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+async function cargarRespuestasRapidas(){
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-respuestas-rapidas');
+    const d = await res.json();
+    if (res.ok && !d.error) { respuestasRapidas = d.respuestas || []; rrEsAdmin = !!d.esAdmin; }
+  }catch(err){ /* sin respuestas: el módulo funciona igual */ }
+  renderPanelRespuestasRapidas();
+}
+const contenedorComposer = ta => ta ? ta.closest('.chat-composer-wrap, .composer-hilo') : null;
+const textoEsAtajo = v => v.startsWith('/') && !/\s/.test(v); // "/algo" sin espacios: todavía se está escribiendo el atajo
+function cerrarMenuRapidas(){
+  document.querySelectorAll('.menu-rapidas').forEach(m => m.remove());
+  menuRapidasEstado = { ta: null, items: [], activa: 0 };
+}
+function filtrarRapidas(q){
+  const n = sinTildes(q);
+  if (!n) return [...respuestasRapidas];
+  const primeras = [], resto = [];
+  for (const r of respuestasRapidas) {
+    const a = sinTildes(r.atajo);
+    if (a.startsWith(n)) primeras.push(r);
+    else if (a.includes(n) || sinTildes(r.texto).includes(n)) resto.push(r);
+  }
+  return primeras.concat(resto);
+}
+// Se llama en cada tecla: el menú se abre mientras el texto sea solo "/" + atajo (en las notas internas no aplica)
+function revisarMenuRapidas(ta){
+  const v = ta.value;
+  if (!textoEsAtajo(v) || ta.dataset.nota === '1') { cerrarMenuRapidas(); return; }
+  abrirMenuRapidas(ta, v.slice(1));
+}
+function abrirMenuRapidas(ta, q){
+  menuRapidasEstado = { ta, items: filtrarRapidas(q), activa: 0, q };
+  pintarMenuRapidas();
+}
+function pintarMenuRapidas(){
+  const { ta, items, activa, q } = menuRapidasEstado;
+  const cont = contenedorComposer(ta);
+  if (!cont) return;
+  let m = cont.querySelector('.menu-rapidas');
+  if (!m) { m = document.createElement('div'); m.className = 'menu-rapidas'; m.setAttribute('role', 'listbox'); cont.appendChild(m); }
+  const vacio = respuestasRapidas.length
+    ? `No hay respuestas rápidas que coincidan con «/${escapeHtml(q || '')}». Presiona Esc para escribir normal.`
+    : 'Todavía no hay respuestas rápidas. Un administrador las crea en Configuración, al final de esta página.';
+  m.innerHTML = `<div class="menu-rapidas-titulo">${WA_ICONO.rapidas} Respuestas rápidas</div>` + (items.length
+    ? items.map((r, i) => `<button type="button" class="rapida-item ${i === activa ? 'activa' : ''}" role="option" onmousedown="event.preventDefault(); elegirRespuestaRapida(${i})"><span class="rapida-atajo">/${escapeHtml(r.atajo)}</span><span class="rapida-texto">${escapeHtml(r.texto.replace(/\n\s*\n/g, '\n'))}</span></button>`).join('')
+    : `<div class="menu-rapidas-vacio">${vacio}</div>`);
+  const a = m.querySelector('.rapida-item.activa'); if (a) a.scrollIntoView({ block: 'nearest' });
+}
+function elegirRespuestaRapida(i){
+  const { ta, items } = menuRapidasEstado;
+  const r = items[i];
+  if (!ta || !r) return;
+  // Reemplaza el "/atajo" tecleado; si ya había texto escrito (menú abierto con el ícono ⚡), la respuesta va en una línea nueva
+  const base = textoEsAtajo(ta.value) ? '' : ta.value.replace(/\s+$/, '');
+  ta.value = base ? base + '\n' + r.texto : r.texto;
+  cerrarMenuRapidas();
+  if (/^composerBandeja\d+$/.test(ta.id)) guardarBorradorComposer(Number(ta.id.replace('composerBandeja', '')));
+  autoAltoComposer(ta);
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  ta.scrollTop = ta.scrollHeight;
+}
+// Teclado con el menú abierto: flechas para moverse, Enter o Tab para elegir, Esc para cerrar. Devuelve true si la tecla ya se usó.
+function teclaRapidas(ev, ta){
+  if (menuRapidasEstado.ta !== ta || !contenedorComposer(ta)?.querySelector('.menu-rapidas')) return false;
+  const n = menuRapidasEstado.items.length;
+  if (ev.key === 'Escape') { ev.preventDefault(); cerrarMenuRapidas(); return true; }
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    if (n) { menuRapidasEstado.activa = (menuRapidasEstado.activa + (ev.key === 'ArrowDown' ? 1 : n - 1)) % n; pintarMenuRapidas(); }
+    return true;
+  }
+  if (ev.key === 'Enter' || ev.key === 'Tab') {
+    if (n) { ev.preventDefault(); elegirRespuestaRapida(menuRapidasEstado.activa); return true; }
+    if (ev.key === 'Enter') { ev.preventDefault(); return true; } // sin coincidencias: no se envía "/algo" por error
+  }
+  return false;
+}
+// Ícono ⚡ junto a la caja de texto: abre (o cierra) la lista completa
+function abrirRapidasDesdeBoton(id){
+  const ta = $('composerBandeja' + id);
+  if (!ta) return;
+  if (menuRapidasEstado.ta === ta) { cerrarMenuRapidas(); return; }
+  ta.focus();
+  abrirMenuRapidas(ta, textoEsAtajo(ta.value) ? ta.value.slice(1) : '');
+}
+document.addEventListener('mousedown', e => { if (menuRapidasEstado.ta && !e.target.closest('.menu-rapidas, .btn-rapidas-wa, textarea')) cerrarMenuRapidas(); });
+
+// ---- Administración (sección Configuración) ----
+function renderPanelRespuestasRapidas(){
+  const p = $('panelRespuestasRapidas');
+  if (!p) return;
+  const filas = respuestasRapidas.map(r => `
+    <tr>
+      <td class="rr-atajo">/${escapeHtml(r.atajo)}</td>
+      <td><div class="rr-texto">${escapeHtml(r.texto)}</div></td>
+      <td data-valor="${escapeHtml(r.actualizadoEn || '')}">${r.actualizadoEn ? fmtFecha(r.actualizadoEn) : '—'}${r.actualizadoPor ? `<div class="sub" style="font-size:11px;">${escapeHtml(r.actualizadoPor)}</div>` : ''}</td>
+      ${rrEsAdmin ? `<td style="white-space:nowrap;"><button class="btn-ghost btn-compact" onclick="editarRespuestaRapida(${r.id})">✏️ Editar</button> <button class="btn-ghost btn-compact" onclick="eliminarRespuestaRapida(${r.id})">🗑️ Eliminar</button></td>` : ''}
+    </tr>`).join('');
+  const tabla = respuestasRapidas.length ? `
+    <div class="tabla-wrap"><table class="rr-tabla">
+      <thead><tr><th>Atajo</th><th>Texto</th><th>Actualizada</th>${rrEsAdmin ? '<th data-sin-orden>Acciones</th>' : ''}</tr></thead>
+      <tbody>${filas}</tbody>
+    </table></div>` : '<p class="sub">Todavía no hay respuestas rápidas.</p>';
+  const form = rrEsAdmin ? (rrFormAbierto ? `
+    <div class="rr-form" id="rrForm">
+      <b>${rrEditandoId ? 'Editar respuesta rápida' : 'Nueva respuesta rápida'}</b>
+      <div><label class="sub">Atajo (sin espacios; se usa escribiendo / y el atajo)</label>
+        <div class="rr-atajo-caja"><span>/</span><input type="text" id="rrAtajo" maxlength="40" placeholder="bisagras" value="${escapeHtml(rrBorrador.atajo)}" style="flex:1;"></div></div>
+      <div><label class="sub">Texto que se inserta (puedes usar *negrita*, emojis y saltos de línea)</label>
+        <textarea id="rrTexto" maxlength="4000" oninput="actualizarContadorRr()">${escapeHtml(rrBorrador.texto)}</textarea>
+        <div class="rr-contador" id="rrContador"></div></div>
+      <div class="rr-acciones">
+        <button class="btn-primary btn-compact" id="btnRrGuardar" onclick="guardarRespuestaRapida()">Guardar</button>
+        <button class="btn-ghost btn-compact" onclick="cerrarFormRespuestaRapida()">Cancelar</button>
+        <span id="rrMensaje" class="sub" style="align-self:center;"></span>
+      </div>
+    </div>` : `<div style="margin-top:12px;"><button class="btn-primary btn-compact" onclick="nuevaRespuestaRapida()">➕ Nueva respuesta rápida</button></div>`)
+    : '<p class="sub" style="margin-top:10px;">Solo un administrador puede crear o editar respuestas rápidas.</p>';
+  p.innerHTML = tabla + form;
+  actualizarContadorRr();
+}
+function actualizarContadorRr(){
+  const t = $('rrTexto'), c = $('rrContador');
+  if (t && c) c.textContent = `${t.value.length} / 4000 caracteres`;
+}
+function abrirFormRespuestaRapida(){
+  rrFormAbierto = true;
+  renderPanelRespuestasRapidas();
+  const f = $('rrForm'); if (f) f.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  const i = $('rrAtajo'); if (i) i.focus();
+}
+function nuevaRespuestaRapida(){ rrEditandoId = null; rrBorrador = { atajo: '', texto: '' }; abrirFormRespuestaRapida(); }
+function editarRespuestaRapida(id){
+  const r = respuestasRapidas.find(x => x.id === id);
+  if (!r) return;
+  rrEditandoId = id; rrBorrador = { atajo: r.atajo, texto: r.texto };
+  abrirFormRespuestaRapida();
+}
+function cerrarFormRespuestaRapida(){ rrFormAbierto = false; rrEditandoId = null; renderPanelRespuestasRapidas(); }
+function rrMensaje(texto, error){
+  const m = $('rrMensaje'); if (!m) return;
+  m.textContent = texto; m.style.color = error ? 'var(--red, #D93025)' : 'var(--green, #1A7F37)';
+}
+async function llamarRespuestasRapidas(metodo, cuerpo, query){
+  const res = await fetch('/api/negocio?recurso=whatsapp-respuestas-rapidas' + (query || ''), {
+    method: metodo, headers: { 'Content-Type': 'application/json' }, body: cuerpo ? JSON.stringify(cuerpo) : undefined,
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok || d.error) throw new Error(d.error || 'No se pudo completar la acción.');
+  respuestasRapidas = d.respuestas || [];
+  rrEsAdmin = !!d.esAdmin;
+}
+async function guardarRespuestaRapida(){
+  const atajo = $('rrAtajo').value, texto = $('rrTexto').value;
+  rrBorrador = { atajo, texto };
+  const btn = $('btnRrGuardar'); if (btn) btn.disabled = true;
+  rrMensaje('Guardando…', false);
+  try{
+    await llamarRespuestasRapidas(rrEditandoId ? 'PUT' : 'POST', { id: rrEditandoId, atajo, texto });
+    rrFormAbierto = false; rrEditandoId = null;
+    renderPanelRespuestasRapidas();
+  }catch(err){
+    rrMensaje(err.message, true);
+    if (btn) btn.disabled = false;
+  }
+}
+async function eliminarRespuestaRapida(id){
+  const r = respuestasRapidas.find(x => x.id === id);
+  if (!r || !confirm(`¿Eliminar la respuesta rápida /${r.atajo}? Esta acción no se puede deshacer.`)) return;
+  try{
+    await llamarRespuestasRapidas('DELETE', null, '&id=' + id);
+    if (rrEditandoId === id) { rrFormAbierto = false; rrEditandoId = null; }
+    renderPanelRespuestasRapidas();
+  }catch(err){ alert(err.message); }
+}
 
 function initConversaciones(){
   $('vistaConversaciones').innerHTML = `
@@ -932,7 +1119,7 @@ function renderChatBandeja(data, opts){
   // La "nota interna" (nunca se manda al cliente) es el ícono de nota; al activarlo la barra se pone amarilla.
   const btnNota = `<button class="wa-icono ${modo === 'nota' ? 'nota-activa' : ''}" onclick="cambiarComposerModo(${c.id}, '${modo === 'nota' ? 'responder' : 'nota'}')" title="${modo === 'nota' ? 'Volver a responder al cliente' : 'Nota interna: solo la ve el equipo, no se envía al cliente'}" aria-label="Nota interna">${WA_ICONO.nota}</button>`;
   const btnEnviar = textoBtn => `<button class="wa-icono verde composer-enviar" id="btnComposerBandeja${c.id}" onclick="accionComposerBandeja(${c.id})" title="${textoBtn}" aria-label="${textoBtn}">${WA_ICONO.enviar}</button>`;
-  const cajaTexto = (placeholder, clave) => `<div class="composer-caja"><textarea id="composerBandeja${c.id}" rows="1" placeholder="${placeholder}" oninput="guardarBorradorComposer(${c.id}); autoAltoComposer(this)" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); accionComposerBandeja(${c.id});}">${escapeHtml(borradoresComposer[c.id + ':' + clave] || '')}</textarea></div>`;
+  const cajaTexto = (placeholder, clave) => `<div class="composer-caja"><textarea id="composerBandeja${c.id}" rows="1" ${clave === 'nota' ? 'data-nota="1"' : ''} placeholder="${placeholder}" oninput="guardarBorradorComposer(${c.id}); autoAltoComposer(this); revisarMenuRapidas(this)" onkeydown="if(teclaRapidas(event,this)) return; if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); accionComposerBandeja(${c.id});}">${escapeHtml(borradoresComposer[c.id + ':' + clave] || '')}</textarea></div>`;
 
   let composerClase = '', composerHtml;
   if (modo === 'nota') {
@@ -942,7 +1129,7 @@ function renderChatBandeja(data, opts){
     composerHtml = `
       <div class="composer-herramientas">
         <button class="wa-icono" disabled title="Los adjuntos de salida todavía no están disponibles en este sistema -- solo se reciben, no se envían" aria-label="Adjuntar">${WA_ICONO.adjuntar}</button>
-        <button class="wa-icono" disabled title="Las respuestas rápidas todavía no están disponibles en este sistema" aria-label="Respuestas rápidas">${WA_ICONO.rapidas}</button>
+        <button class="wa-icono btn-rapidas-wa" onclick="abrirRapidasDesdeBoton(${c.id})" title="Respuestas rápidas (también puedes escribir / en la caja de texto)" aria-label="Respuestas rápidas">${WA_ICONO.rapidas}</button>
         <button class="wa-icono" onclick="pedirSugerenciaIA(${c.id})" id="btnSugerirIA${c.id}" title="Sugerir respuesta con IA (tú la revisas antes de enviar)" aria-label="Sugerir respuesta">${WA_ICONO.sugerir}</button>
         ${botModo && botModo !== 'apagado' ? `<button class="wa-icono" onclick="prepararRespuestaBot(${c.id}, false)" id="btnBot${c.id}" title="Preparar con bot: busca el producto en el catálogo (precio, stock, enlace) y redacta la respuesta" aria-label="Preparar con bot">${WA_ICONO.bot}</button>` : ''}
         ${btnNota}
@@ -1565,7 +1752,7 @@ function renderDetalleConversacion(data){
   // la calcula el servidor (fuente de verdad real), no este JS.
   const composerHtml = data.ventanaAbierta
     ? `<div class="composer-hilo">
-         <textarea id="composerTexto${c.id}" rows="1" placeholder="Escribe una respuesta…" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); enviarMensajeWhatsapp(${c.id});}"></textarea>
+         <textarea id="composerTexto${c.id}" rows="1" placeholder="Escribe una respuesta… (con / usas una respuesta rápida)" oninput="revisarMenuRapidas(this); autoAltoComposer(this)" onkeydown="if(teclaRapidas(event,this)) return; if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); enviarMensajeWhatsapp(${c.id});}"></textarea>
          <button class="btn-primary btn-compact btn-enviar" id="btnEnviarMensaje" onclick="enviarMensajeWhatsapp(${c.id})">Enviar</button>
        </div>`
     : `<div class="composer-cerrado">🔒 Pasaron más de 24h desde el último mensaje del cliente — WhatsApp ya no permite texto libre acá (se necesita una plantilla pre-aprobada, no disponible todavía).</div>`;
