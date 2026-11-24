@@ -707,6 +707,41 @@ async function copiarR(texto, aviso){
   try{ await navigator.clipboard.writeText(texto); avisoR(aviso, 'ok'); }
   catch(e){ const ta = document.createElement('textarea'); ta.value = texto; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); avisoR(aviso, 'ok'); }catch(_){ avisoR('No se pudo copiar', 'err'); } ta.remove(); }
 }
+// Correo de invitación para pegar en Outlook/Gmail: usa los datos de la agenda (días, horas, duración, anticipación) y el enlace personal de cada postulante.
+const NOMBRES_DIA_R = { 0: 'domingo', 1: 'lunes', 2: 'martes', 3: 'miércoles', 4: 'jueves', 5: 'viernes', 6: 'sábado' };
+function diasTextoR(dias){
+  const L = (dias || []).slice().sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)); if(!L.length) return '';
+  const orden = L.map(d => (d + 6) % 7), seguidos = orden.every((v, i) => i === 0 || v === orden[i - 1] + 1);
+  if(L.length > 2 && seguidos) return 'de ' + NOMBRES_DIA_R[L[0]] + ' a ' + NOMBRES_DIA_R[L[L.length - 1]];
+  const n = L.map(d => NOMBRES_DIA_R[d]); return n.length === 1 ? 'los ' + n[0] : 'los ' + n.slice(0, -1).join(', ') + ' y ' + n[n.length - 1];
+}
+function correoInvitacionR(p){
+  const c = RC.datos.config, e = escapeHtml, nombre = String(p.nombre || '').trim().split(/\s+/)[0] || '', n = nombre.charAt(0).toUpperCase() + nombre.slice(1).toLowerCase();
+  const cargo = 'Técnico/a Electrónico/a', dias = diasTextoR(c.dias), ant = c.anticipacion_horas;
+  const asunto = 'Agenda tu entrevista por videollamada – ' + cargo + ', IndexStore';
+  const cuando = 'Verás el calendario con los espacios libres, ' + dias + ' entre las ' + c.desde + ' y las ' + c.hasta + ' (hora de Chile). Elige uno y confirma.';
+  const html = '<p>Hola, ' + e(n) + ',</p>' +
+    '<p>Gracias por postular al cargo de ' + cargo + ' en IndexStore. Revisamos tu postulación y nos gustaría conocerte.</p>' +
+    '<p>El siguiente paso es una entrevista por videollamada de ' + c.duracion_min + ' minutos. Elige el horario que más te acomode en tu enlace personal:<br><a href="' + e(p.enlace) + '">' + e(p.enlace) + '</a></p>' +
+    '<p><b>Cómo funciona</b></p><ul><li>' + e(cuando) + '</li><li>Te llegará un correo con la confirmación y el enlace de la videollamada.</li><li>Puedes cambiar o cancelar tu horario desde el mismo enlace, hasta ' + ant + ' horas antes.</li></ul>' +
+    '<p><b>Para la entrevista</b></p><ul><li>Te llegará un link para la entrevista vía Google Meet.</li><li>Conéctate unos minutos antes, con buena luz y sonido.</li><li>Ten a mano ejemplos de reparaciones que hayas hecho: qué síntoma tenía el equipo, qué mediste y qué cambiaste.</li></ul>' +
+    '<p>Si no te acomoda ninguno de los horarios o tienes alguna duda, responde este mensaje y buscamos otra alternativa.</p><p>Quedo atento.</p>';
+  return { asunto, html };
+}
+function plantillaDetalleR(p){
+  const c = correoInvitacionR(p);
+  return '<dt>Correo para invitarle a agendar</dt><dd><div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Asunto: <b id="rdAsunto" style="color:var(--text);">' + escapeHtml(c.asunto) + '</b></div>' +
+    '<div id="rdCorreo" style="border:1.5px solid var(--line);border-radius:8px;padding:4px 14px;background:#fff;color:#222;font-size:13px;line-height:1.5;max-height:260px;overflow:auto;">' + c.html + '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;"><button type="button" class="btn-primary" onclick="copiarCorreoR()">Copiar correo</button><button type="button" class="btn-ghost" onclick="copiarAsuntoR()">Copiar asunto</button></div>' +
+    '<div style="font-size:11.5px;color:var(--muted);margin-top:4px;">Pégalo en un correo nuevo: conserva negritas, viñetas y el enlace. Tu firma se agrega sola.' + (p.email ? ' Para: ' + escapeHtml(p.email) : ' Este postulante no tiene correo: usa «Copiar mensaje» para el chat de Indeed.') + '</div></dd>';
+}
+function copiarCorreoR(){
+  const el = $('rdCorreo'); if(!el) return;
+  const sel = window.getSelection(), rango = document.createRange(); rango.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(rango);
+  let ok = false; try{ ok = document.execCommand('copy'); }catch(_){}
+  sel.removeAllRanges(); avisoR(ok ? 'Correo copiado: pégalo en un correo nuevo' : 'No se pudo copiar', ok ? 'ok' : 'err');
+}
+function copiarAsuntoR(){ const el = $('rdAsunto'); if(el) copiarR(el.textContent, 'Asunto copiado'); }
 function renderR(){
   const d = RC.datos; if(!d) return;
   const P = d.postulantes, libres = d.espacios.filter(e => e.estado === 'libre').length;
@@ -747,7 +782,7 @@ function verPostulanteR(id){
     Object.keys(preg).filter(k => r[k]).map(k => '<dt>' + preg[k] + '</dt><dd>' + escapeHtml(r[k]) + '</dd>').join('') +
     (p.resumen ? '<dt>Resumen del CV</dt><dd>' + escapeHtml(p.resumen) + '</dd>' : '') +
     (p.reserva_inicio ? '<dt>Videollamada de esta entrevista (' + escapeHtml(fmtRFecha(p.reserva_inicio) + ' ' + fmtRHora(p.reserva_inicio)) + ')</dt><dd><input type="text" id="rdVideo" value="' + escapeHtml(p.reserva_enlace || '') + '" placeholder="Pega aquí el enlace de Meet de esta entrevista" style="width:100%;font-size:13px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;"><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;"><button type="button" class="btn-ghost" onclick="guardarEnlaceR(' + p.id + ',false)">Guardar enlace</button><button type="button" class="btn-primary" onclick="guardarEnlaceR(' + p.id + ',true)">Guardar y avisar al postulante por correo</button></div></dd>' : '') +
-    '<dt>Correo (editar)</dt><dd><input type="text" id="rdEmail" value="' + escapeHtml(p.email || '') + '" style="width:100%;font-size:13px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;"></dd>' +
+    plantillaDetalleR(p) + '<dt>Correo (editar)</dt><dd><input type="text" id="rdEmail" value="' + escapeHtml(p.email || '') + '" style="width:100%;font-size:13px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;"></dd>' +
     '<dt>Notas del equipo</dt><dd><textarea id="rdNotas" rows="3">' + escapeHtml(p.notas || '') + '</textarea></dd>' +
     '<dt>Enlace personal de agenda</dt><dd style="word-break:break-all;"><a href="' + escapeHtml(p.enlace) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(p.enlace) + '</a></dd></dl>' +
     '<div class="acciones"><button type="button" class="btn-primary" onclick="guardarDetalleR(' + p.id + ')">Guardar</button><button type="button" class="btn-ghost" onclick="copiarMensajeR(' + p.id + ')">Copiar mensaje</button>' +
