@@ -501,9 +501,66 @@ let botModo = null; // modo del bot nocturno ('sombra' | 'apagado' | null si no 
 let botBorradorActual = null; // borrador pendiente del bot para la conversación abierta
 const botInsertado = {}; // {[conversacionId]: {id}} -- borrador del bot insertado en el compositor, para registrar cómo salió
 
+// ---------------- Estilo WhatsApp Business: íconos y utilidades ----------------
+// Íconos en SVG (trazos de Material Design, mismo aspecto que los de WhatsApp Web) y la silueta gris que WhatsApp muestra cuando un contacto no tiene foto.
+const WA_ICONO = {
+  buscar: '<svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>',
+  filtro: '<svg viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>',
+  tabla: '<svg viewBox="0 0 24 24"><path d="M10 10.02h5V21h-5zM17 21h3c1.1 0 2-.9 2-2v-9h-5v11zm3-18H5c-1.1 0-2 .9-2 2v3h19V5c0-1.1-.9-2-2-2zM3 19c0 1.1.9 2 2 2h3V10H3v9z"/></svg>',
+  bot: '<svg viewBox="0 0 24 24"><path d="M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zM7.5 11.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5S9.83 13 9 13s-1.5-.67-1.5-1.5zM16 17H8v-2h8v2zm-1-4c-.83 0-1.5-.67-1.5-1.5S14.17 10 15 10s1.5.67 1.5 1.5S15.83 13 15 13z"/></svg>',
+  info: '<svg viewBox="0 0 24 24"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>',
+  resolver: '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>',
+  cerrar: '<svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>',
+  volver: '<svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
+  enviar: '<svg viewBox="0 0 24 24"><path d="M1.101 21.757 23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z"/></svg>',
+  adjuntar: '<svg viewBox="0 0 24 24"><path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/></svg>',
+  rapidas: '<svg viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>',
+  sugerir: '<svg viewBox="0 0 24 24"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25L19 9zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12l-5.5-2.5zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25L19 15z"/></svg>',
+  nota: '<svg viewBox="0 0 24 24"><path d="M19 3H4.99C3.89 3 3 3.9 3 5l.01 14c0 1.1.89 2 1.99 2h10l6-6V5c0-1.1-.9-2-2-2zM7 8h10v2H7V8zm5 6H7v-2h5v2zm2 5.5V14h5.5L14 19.5z"/></svg>',
+  chat: '<svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>',
+};
+const WA_AVATAR = '<svg viewBox="0 0 212 212"><path d="M106 106c-17.5 0-31.7-14.2-31.7-31.7S88.5 42.6 106 42.6s31.7 14.2 31.7 31.7S123.5 106 106 106zm0 15.8c-29.4 0-88.9 14.8-88.9 44.4v22.2h177.8v-22.2c0-29.6-59.5-44.4-88.9-44.4z"/></svg>';
+const WA_TICK = {
+  enviado: '<svg viewBox="0 0 16 11" class="tick" aria-label="Enviado"><path d="M1.5 5.8 4.8 9 10.5 1.8"/></svg>',
+  entregado: '<svg viewBox="0 0 16 11" class="tick" aria-label="Entregado"><path d="M1 5.8 4.2 9 9.8 1.8M6 7.4 7.2 9 13.5 1.2"/></svg>',
+  leido: '<svg viewBox="0 0 16 11" class="tick leido" aria-label="Leído"><path d="M1 5.8 4.2 9 9.8 1.8M6 7.4 7.2 9 13.5 1.2"/></svg>',
+  fallo: '<svg viewBox="0 0 16 11" class="tick fallo" aria-label="No se pudo enviar"><path d="M8 1.5v5M8 9v.2"/></svg>',
+};
+// Tick de un mensaje que enviamos, según el estado que informa WhatsApp (sent / delivered / read / failed)
+function tickMensajeHtml(estado){
+  const e = String(estado || '').toLowerCase();
+  if (e === 'read') return WA_TICK.leido;
+  if (e === 'delivered') return WA_TICK.entregado;
+  if (e === 'failed') return WA_TICK.fallo;
+  return WA_TICK.enviado;
+}
+const TZ_CHILE = 'America/Santiago';
+const claveDiaChile = iso => new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ_CHILE });
+// Hora de la lista de chats como en WhatsApp: hoy la hora, ayer "Ayer", esta semana el día, antes la fecha
+function horaLista(iso){
+  if (!iso) return '';
+  const d = new Date(iso), k = claveDiaChile(iso), hoy = claveDiaChile(new Date()), ayer = claveDiaChile(Date.now() - 86400000);
+  if (k === hoy) return d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ_CHILE });
+  if (k === ayer) return 'Ayer';
+  const dias = Math.round((Date.parse(hoy) - Date.parse(k)) / 86400000);
+  if (dias > 0 && dias < 7) return d.toLocaleDateString('es-CL', { weekday: 'long', timeZone: TZ_CHILE });
+  return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: TZ_CHILE });
+}
+// Etiqueta del separador de día dentro del chat: HOY, AYER, el día de la semana o la fecha completa
+function etiquetaDia(iso){
+  const k = claveDiaChile(iso), hoy = claveDiaChile(new Date()), ayer = claveDiaChile(Date.now() - 86400000);
+  if (k === hoy) return 'Hoy';
+  if (k === ayer) return 'Ayer';
+  const dias = Math.round((Date.parse(hoy) - Date.parse(k)) / 86400000);
+  const d = new Date(iso);
+  if (dias > 0 && dias < 7) return d.toLocaleDateString('es-CL', { weekday: 'long', timeZone: TZ_CHILE });
+  return d.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric', timeZone: TZ_CHILE });
+}
+const SIN_SELECCION_HTML = `<div class="sin-seleccion">${WA_ICONO.chat}<div class="sin-titulo">Conversaciones de WhatsApp</div><div>Selecciona un chat de la lista para ver los mensajes y responder.</div></div>`;
+
 function initConversaciones(){
   $('vistaConversaciones').innerHTML = `
-    <div class="bandeja-toolbar">
+    <div class="bandeja-toolbar" id="barraVistaConv" style="display:none;">
       <div class="view-toggle">
         <button id="btnVistaBandeja" class="activo" onclick="cambiarVistaConv('bandeja')">📥 Bandeja</button>
         <button id="btnVistaTabla" onclick="cambiarVistaConv('tabla')">📋 Tabla</button>
@@ -543,20 +600,27 @@ function initConversaciones(){
       </div>
     </div>
 
-    <div id="vistaBandejaConv" class="bandeja-layout">
+    <div id="vistaBandejaConv" class="bandeja-layout wa-app">
       <div class="panel-lista activa" id="panelLista">
-        <div class="lista-head">
-          <div class="lista-indicadores" id="listaIndicadores"></div>
-          <div class="lista-buscador">
-            <span class="icono-buscar">🔍</span>
-            <input type="text" id="buscadorBandeja" placeholder="Buscar por nombre, teléfono, mensaje, producto, modelo o ID...">
+        <div class="wa-header">
+          <span class="wa-titulo">Chats</span>
+          <div class="wa-acciones">
+            <button class="wa-icono" id="btnFiltrosWa" onclick="toggleFiltrosConv()" title="Filtros" aria-label="Filtros">${WA_ICONO.filtro}</button>
+            <button class="wa-icono" id="btnBotWa" onclick="abrirPanelBot()" title="Bot nocturno: redacta respuestas fuera del horario de atención (modo sombra: tú revisas y envías)" aria-label="Bot nocturno">${WA_ICONO.bot}</button>
+            <button class="wa-icono" id="btnTablaWa" onclick="cambiarVistaConv('tabla')" title="Ver como tabla (supervisión)" aria-label="Ver como tabla">${WA_ICONO.tabla}</button>
           </div>
+        </div>
+        <div class="wa-buscador">
+          <div class="wa-buscador-caja">${WA_ICONO.buscar}<input type="text" id="buscadorBandeja" placeholder="Buscar un chat o iniciar uno nuevo" title="Busca por nombre, teléfono, mensaje, producto, modelo o ID"></div>
+        </div>
+        <div class="wa-chips">
           <div class="lista-tabs" id="listaTabs"></div>
+          <div class="lista-indicadores" id="listaIndicadores"></div>
         </div>
         <div class="lista-items" id="listaItemsBandeja"><p class="empty-note" style="padding:16px;">Cargando…</p></div>
         <div class="lista-paginacion" id="listaPaginacionBandeja"></div>
       </div>
-      <div class="panel-chat" id="panelChat"><div class="sin-seleccion">Selecciona una conversación de la lista para verla acá.</div></div>
+      <div class="panel-chat" id="panelChat">${SIN_SELECCION_HTML}</div>
       <div class="panel-ficha-bandeja" id="panelFichaBandeja"></div>
     </div>
     <div class="overlay-ficha-movil" id="overlayFichaMovil" onclick="cerrarFichaMovil()"></div>
@@ -584,6 +648,8 @@ function initConversaciones(){
     </div>
   `;
   renderTheadConv();
+  // La ficha ("Info. del contacto") queda como la dejó el ejecutivo la última vez (cerrada por defecto, como en WhatsApp)
+  try { if (localStorage.getItem('wa_ficha_abierta') === '1') $('vistaBandejaConv').classList.add('ficha-abierta'); } catch (e) { /* sin almacenamiento */ }
   $('buscadorBandeja').addEventListener('input', debounce(() => { convState.q = $('buscadorBandeja').value.trim(); convState.page = 1; cargarConversaciones(); }, 350));
   $('buscadorConv').addEventListener('input', debounce(() => { convState.q = $('buscadorConv').value.trim(); convState.page = 1; cargarConversaciones(); }, 350));
   cargarConversaciones();
@@ -593,6 +659,8 @@ function cambiarVistaConv(vistaUI){
   convState.vistaUI = vistaUI;
   $('btnVistaBandeja').classList.toggle('activo', vistaUI === 'bandeja');
   $('btnVistaTabla').classList.toggle('activo', vistaUI === 'tabla');
+  // La barra de vistas solo se muestra en la tabla; en la bandeja esos botones viven en la cabecera de la lista (como en WhatsApp)
+  $('barraVistaConv').style.display = vistaUI === 'tabla' ? '' : 'none';
   $('vistaBandejaConv').style.display = vistaUI === 'bandeja' ? '' : 'none';
   $('vistaTablaConv').style.display = vistaUI === 'tabla' ? '' : 'none';
   // Mismo texto de búsqueda en ambos inputs al cambiar de vista -- el
@@ -695,15 +763,14 @@ function irPaginaConv(p){ convState.page = p; cargarConversaciones(); }
 function renderListaIndicadores(contadores){
   const c = contadores || {};
   $('listaIndicadores').innerHTML = `
-    <div class="indicador-chip rojo" onclick="cambiarTabBandeja('pendientes')" title="Conversaciones sin ninguna respuesta todavía"><span class="num">${fmtNum(c.pendientes)}</span><span class="lbl-ind">Sin responder</span></div>
-    <div class="indicador-chip gris" onclick="filtrarSinAsignar()" title="Conversaciones sin responsable asignado"><span class="num">${fmtNum(c.sinAsignar)}</span><span class="lbl-ind">Sin asignar</span></div>
+    <button class="wa-chip" onclick="filtrarSinAsignar()" title="Conversaciones sin responsable asignado">Sin asignar <span class="n">${fmtNum(c.sinAsignar)}</span></button>
   `;
 }
 function renderListaTabs(contadores){
   const c = contadores || {};
-  const tabs = [['pendientes', 'Pendientes', c.pendientes], ['mias', 'Mías', c.mias], ['todas', 'Todas', c.todas]];
+  const tabs = [['todas', 'Todas', c.todas], ['pendientes', 'Pendientes', c.pendientes], ['mias', 'Mías', c.mias]];
   $('listaTabs').innerHTML = tabs.map(([clave, label, n]) => `
-    <button class="${convState.vista === clave ? 'activo' : ''}" onclick="cambiarTabBandeja('${clave}')">${label} <span class="num-tab">${fmtNum(n)}</span></button>
+    <button class="wa-chip ${clave === 'pendientes' ? 'rojo' : ''} ${convState.vista === clave ? 'activo' : ''}" onclick="cambiarTabBandeja('${clave}')" ${clave === 'pendientes' ? 'title="Conversaciones sin ninguna respuesta todavía"' : ''}>${label} <span class="n">${fmtNum(n)}</span></button>
   `).join('');
   const sel = $('selVistaTablaRapida');
   if (sel) {
@@ -747,23 +814,24 @@ function itemConvHtml(c){
   const info = estadoAtencionInfo(c);
   const alerta = alertaPrincipalInfo(c);
   const seleccionado = conversacionSeleccionadaId === c.id;
+  // "No leído" estilo WhatsApp: el cliente escribió y nadie ha respondido todavía (el último mensaje es suyo)
+  const esperaRespuesta = ['pendiente', 'vencida', 'en_atencion'].includes(info.clave);
+  const nombre = c.clienteNombre || fmtTelefonoLista(c.clienteTelefono) || 'Sin nombre';
+  const responsable = c.responsableNombre || (c.vendedorDetectado ? c.vendedorDetectado + ' 🤖' : 'Sin asignar');
+  const etiquetas = [responsable, c.categoria ? (CATEGORIA_LABEL[c.categoria] || c.categoria) : '', c.googleAds ? 'Google Ads' : ''].filter(Boolean).join(' · ');
   return `
-    <div class="item-conv ${seleccionado ? 'seleccionado' : ''}" onclick="seleccionarConversacionBandeja(${c.id})">
-      <div class="avatar-chip">${escapeHtml(iniciales(c.clienteNombre))}</div>
+    <div class="item-conv ${seleccionado ? 'seleccionado' : ''} ${esperaRespuesta ? 'no-leido' : ''}" onclick="seleccionarConversacionBandeja(${c.id})">
+      <div class="avatar-chip">${WA_AVATAR}</div>
       <div class="item-cuerpo">
         <div class="item-top-row">
-          <span class="item-nombre">${escapeHtml(c.clienteNombre || 'Sin nombre')}</span>
-          <span class="item-tiempo">${tiempoRelativo(c.ultimoMensajeEn || c.fecha)}</span>
+          <span class="item-nombre">${escapeHtml(nombre)}</span>
+          <span class="item-tiempo">${horaLista(c.ultimoMensajeEn || c.fecha)}</span>
         </div>
-        <div class="item-mensaje">${escapeHtml(c.ultimoMensaje || 'Sin mensajes')}</div>
-        <div class="item-meta-row">
-          <span class="item-estado-punto ${info.clave}" title="${info.label}"></span>
-          ${c.categoria ? `<span class="badge-mini b-gris">${escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria)}</span>` : ''}
-          <span class="sub" style="font-size:10.5px;">${escapeHtml(c.responsableNombre || (c.vendedorDetectado ? c.vendedorDetectado + ' 🤖' : 'Sin asignar'))}</span>
-          ${c.clienteTelefono ? `<span class="sub item-telefono" style="font-size:10.5px;">· 📞 ${escapeHtml(fmtTelefonoLista(c.clienteTelefono))}</span>` : ''}
-          ${c.googleAds ? `<span class="badge-mini b-gris" title="${escapeHtml(fuenteInfo(c).texto)}">📣 Google Ads</span>` : ''}
+        <div class="item-fila2">
+          <div class="item-mensaje">${c.ultimoMensajeDireccion === 'out' ? WA_TICK.enviado : ''}<span style="overflow:hidden;text-overflow:ellipsis;">${escapeHtml(c.ultimoMensaje || 'Sin mensajes')}</span></div>
+          ${esperaRespuesta ? `<span class="item-pendiente" title="${escapeHtml(alerta ? alerta.texto : info.label)}"></span>` : ''}
         </div>
-        ${alerta ? `<div style="margin-top:4px;"><span class="alerta-chip ${alerta.clase}" style="font-size:10px;padding:2px 7px;">${alerta.icono} ${escapeHtml(alerta.texto)}</span></div>` : ''}
+        <div class="item-etiquetas" ${alerta ? `style="color:${alerta.clase === 'critica' ? '#D93025' : '#8A5A00'};"` : ''} title="${escapeHtml(alerta ? alerta.texto : etiquetas)}">${alerta ? `${alerta.icono} ${escapeHtml(alerta.texto)}` : escapeHtml(etiquetas)}</div>
       </div>
     </div>
   `;
@@ -815,14 +883,23 @@ async function cargarDetalleBandeja(id, opts){
 // mandan por WhatsApp (ver whatsapp_notas_internas en lib/db.js).
 function hiloCombinadoHtml(mensajes, notas){
   const items = [
-    ...(mensajes || []).map(m => ({ t: new Date(m.marcaTiempo).getTime(), html: burbujaMensaje(m) })),
-    ...(notas || []).map(n => ({ t: new Date(n.fecha).getTime(), html: notaInternaHtml(n) })),
+    ...(mensajes || []).map(m => ({ t: new Date(m.marcaTiempo).getTime(), iso: m.marcaTiempo, dir: m.direccion === 'out' ? 'out' : 'in', nota: false, html: m })),
+    ...(notas || []).map(n => ({ t: new Date(n.fecha).getTime(), iso: n.fecha, dir: 'nota', nota: true, html: n })),
   ].sort((a, b) => a.t - b.t);
-  if (!items.length) return '<p class="empty-note">Sin mensajes registrados.</p>';
-  return items.map(it => it.html).join('');
+  if (!items.length) return '<p class="empty-note" style="align-self:center;background:#fff;padding:6px 12px;border-radius:7.5px;">Sin mensajes registrados.</p>';
+  // Como en WhatsApp: separador con el día cuando cambia, y la "cola" de la burbuja solo en el primer mensaje de cada tanda del mismo lado
+  let diaPrevio = null, dirPrevia = null;
+  return items.map(it => {
+    let sep = '';
+    const dia = claveDiaChile(it.iso);
+    if (dia !== diaPrevio) { sep = `<div class="fecha-sep">${escapeHtml(etiquetaDia(it.iso))}</div>`; diaPrevio = dia; dirPrevia = null; }
+    const cola = it.dir !== dirPrevia;
+    dirPrevia = it.dir;
+    return sep + (it.nota ? notaInternaHtml(it.html) : burbujaMensaje(it.html, cola));
+  }).join('');
 }
 function notaInternaHtml(n){
-  return `<div class="nota-interna-burbuja"><span class="nota-autor">📝 Nota interna — ${escapeHtml(n.autor)}</span>${escapeHtml(n.texto)}<span class="hora" style="display:block;text-align:right;margin-top:3px;">${fmtHora(n.fecha)}</span></div>`;
+  return `<div class="nota-interna-burbuja"><span class="nota-autor">${WA_ICONO.nota.replace('<svg', '<svg style="width:14px;height:14px;fill:#7A5209;vertical-align:-2px;margin-right:4px;"')}Nota interna — ${escapeHtml(n.autor)}</span>${escapeHtml(n.texto)}<span class="hora">${fmtHora(n.fecha)}</span></div>`;
 }
 function renderChatBandeja(data, opts){
   opts = opts || {};
@@ -851,59 +928,67 @@ function renderChatBandeja(data, opts){
       </div>
     </div>` : '';
 
-  const areaComposerHtml = modo === 'nota'
-    ? `<div class="composer-area">
-         <textarea id="composerBandeja${c.id}" rows="1" placeholder="Nota interna -- no se envía al cliente…" oninput="guardarBorradorComposer(${c.id})" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); accionComposerBandeja(${c.id});}">${escapeHtml(borradoresComposer[c.id + ':nota'] || '')}</textarea>
-         <button class="btn-primary btn-compact" id="btnComposerBandeja${c.id}" onclick="accionComposerBandeja(${c.id})">Guardar nota</button>
-       </div>`
-    : (data.ventanaAbierta
-        ? `<div class="composer-area">
-             <textarea id="composerBandeja${c.id}" rows="1" placeholder="Escribe una respuesta…" oninput="guardarBorradorComposer(${c.id})" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); accionComposerBandeja(${c.id});}">${escapeHtml(borradoresComposer[c.id + ':responder'] || '')}</textarea>
-             <button class="btn-primary btn-compact" id="btnComposerBandeja${c.id}" onclick="accionComposerBandeja(${c.id})">Enviar</button>
-           </div>
-           <div class="composer-extra">
-             <button class="btn-ghost btn-compact" disabled title="Los adjuntos de salida todavía no están disponibles en este sistema -- solo se reciben, no se envían">📎 Adjuntar</button>
-             <button class="btn-ghost btn-compact" disabled title="Las respuestas rápidas todavía no están disponibles en este sistema">💬 Respuestas rápidas</button>
-             <button class="btn-ghost btn-compact" onclick="pedirSugerenciaIA(${c.id})" id="btnSugerirIA${c.id}">✨ Sugerir respuesta</button>
-             ${botModo && botModo !== 'apagado' ? `<button class="btn-ghost btn-compact" onclick="prepararRespuestaBot(${c.id}, false)" id="btnBot${c.id}" title="El bot busca el producto en el catálogo (precio, stock, enlace) y redacta la respuesta">🤖 Preparar con bot</button>` : ''}
-           </div>`
-        : `<div class="composer-cerrado">🔒 Pasaron más de 24h desde el último mensaje del cliente — WhatsApp ya no permite texto libre acá (se necesita una plantilla pre-aprobada, no disponible todavía). La nota interna sigue disponible en la otra pestaña.</div>`);
+  // Barra para escribir al estilo WhatsApp: herramientas a la izquierda, caja blanca al centro, enviar a la derecha.
+  // La "nota interna" (nunca se manda al cliente) es el ícono de nota; al activarlo la barra se pone amarilla.
+  const btnNota = `<button class="wa-icono ${modo === 'nota' ? 'nota-activa' : ''}" onclick="cambiarComposerModo(${c.id}, '${modo === 'nota' ? 'responder' : 'nota'}')" title="${modo === 'nota' ? 'Volver a responder al cliente' : 'Nota interna: solo la ve el equipo, no se envía al cliente'}" aria-label="Nota interna">${WA_ICONO.nota}</button>`;
+  const btnEnviar = textoBtn => `<button class="wa-icono verde composer-enviar" id="btnComposerBandeja${c.id}" onclick="accionComposerBandeja(${c.id})" title="${textoBtn}" aria-label="${textoBtn}">${WA_ICONO.enviar}</button>`;
+  const cajaTexto = (placeholder, clave) => `<div class="composer-caja"><textarea id="composerBandeja${c.id}" rows="1" placeholder="${placeholder}" oninput="guardarBorradorComposer(${c.id}); autoAltoComposer(this)" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); accionComposerBandeja(${c.id});}">${escapeHtml(borradoresComposer[c.id + ':' + clave] || '')}</textarea></div>`;
 
+  let composerClase = '', composerHtml;
+  if (modo === 'nota') {
+    composerClase = 'modo-nota';
+    composerHtml = `<div class="composer-herramientas">${btnNota}</div>${cajaTexto('Escribe una nota interna (no se envía al cliente)', 'nota')}${btnEnviar('Guardar nota')}`;
+  } else if (data.ventanaAbierta) {
+    composerHtml = `
+      <div class="composer-herramientas">
+        <button class="wa-icono" disabled title="Los adjuntos de salida todavía no están disponibles en este sistema -- solo se reciben, no se envían" aria-label="Adjuntar">${WA_ICONO.adjuntar}</button>
+        <button class="wa-icono" disabled title="Las respuestas rápidas todavía no están disponibles en este sistema" aria-label="Respuestas rápidas">${WA_ICONO.rapidas}</button>
+        <button class="wa-icono" onclick="pedirSugerenciaIA(${c.id})" id="btnSugerirIA${c.id}" title="Sugerir respuesta con IA (tú la revisas antes de enviar)" aria-label="Sugerir respuesta">${WA_ICONO.sugerir}</button>
+        ${botModo && botModo !== 'apagado' ? `<button class="wa-icono" onclick="prepararRespuestaBot(${c.id}, false)" id="btnBot${c.id}" title="Preparar con bot: busca el producto en el catálogo (precio, stock, enlace) y redacta la respuesta" aria-label="Preparar con bot">${WA_ICONO.bot}</button>` : ''}
+        ${btnNota}
+      </div>
+      ${cajaTexto('Escribe un mensaje', 'responder')}${btnEnviar('Enviar')}`;
+  } else {
+    composerClase = 'cerrado';
+    composerHtml = `<div class="composer-cerrado">🔒 Pasaron más de 24h desde el último mensaje del cliente — WhatsApp ya no permite texto libre acá (se necesita una plantilla pre-aprobada, no disponible todavía).<br><button class="btn-ghost btn-compact" style="margin-top:8px;" onclick="cambiarComposerModo(${c.id}, 'nota')">Escribir una nota interna</button></div>`;
+  }
+
+  const nombreChat = ct?.nombre || fmtTelefonoLista(ct?.telefono) || 'Sin nombre';
   $('panelChat').innerHTML = `
     <div class="chat-head">
-      <div class="chat-head-id">
-        <button class="btn-ghost btn-compact btn-volver-lista" onclick="mostrarPanelMovil('lista')" title="Volver a la lista">←</button>
-        <div class="avatar-chip">${escapeHtml(iniciales(ct?.nombre))}</div>
-        <div>
-          <h2>${escapeHtml(ct?.nombre || 'Sin nombre')}</h2>
-          <div class="sub" style="font-size:11px;">WhatsApp · #${c.id}${c.categoria ? ' · ' + escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria) : ''}</div>
+      <button class="wa-icono btn-volver-lista" onclick="mostrarPanelMovil('lista')" title="Volver a la lista" aria-label="Volver a la lista">${WA_ICONO.volver}</button>
+      <div class="chat-head-id" onclick="toggleFicha()" title="Ver info. del contacto">
+        <div class="avatar-chip">${WA_AVATAR}</div>
+        <div style="min-width:0;">
+          <h2>${escapeHtml(nombreChat)}</h2>
+          <div class="chat-head-sub">${escapeHtml(ct?.nombre ? fmtTelefonoLista(ct?.telefono) : '')}${ct?.nombre && ct?.telefono ? ' · ' : ''}#${c.id}${c.categoria ? ' · ' + escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria) : ''}</div>
         </div>
       </div>
       <div class="chat-head-acciones">
         ${info.clave !== 'resuelta'
-          ? `<button class="btn-primary btn-compact" onclick="guardarCampoConvBandeja(${c.id}, 'estado', 'cerrada')">✓ Resolver</button>`
-          : `<span class="badge b-gris">Resuelta</span>`}
-        <button class="btn-ghost btn-compact btn-cerrar-panel-movil" onclick="mostrarPanelMovil('ficha')" title="Ver ficha del cliente">👤 Ficha</button>
+          ? `<button class="wa-icono" onclick="guardarCampoConvBandeja(${c.id}, 'estado', 'cerrada')" title="Marcar como resuelta" aria-label="Resolver conversación">${WA_ICONO.resolver}</button>`
+          : `<span class="badge b-gris" style="margin-right:6px;">Resuelta</span>`}
+        <button class="wa-icono ${fichaAbierta() ? 'activo' : ''}" id="btnInfoWa" onclick="toggleFicha()" title="Info. del contacto" aria-label="Info. del contacto">${WA_ICONO.info}</button>
       </div>
     </div>
     ${alerta ? `<div class="chat-alerta-pendiente">${alerta.icono} ${escapeHtml(alerta.texto)}</div>` : ''}
     <div class="chat-hilo-wrap" id="chatHiloWrap">${hilo}</div>
     ${botBorradorHtml(c.id)}
     ${sugerenciaHtml}
-    <div class="chat-composer-wrap">
-      <div class="composer-tabs">
-        <button class="${modo === 'responder' ? 'activo' : ''}" onclick="cambiarComposerModo(${c.id}, 'responder')">💬 Responder</button>
-        <button class="nota ${modo === 'nota' ? 'activo' : ''}" onclick="cambiarComposerModo(${c.id}, 'nota')">📝 Nota interna</button>
-      </div>
-      ${areaComposerHtml}
-    </div>
+    <div class="chat-composer-wrap ${composerClase}">${composerHtml}</div>
   `;
+  const taNueva = $('composerBandeja' + c.id); if (taNueva) autoAltoComposer(taNueva);
 
   const hiloNuevo = $('chatHiloWrap');
   if (hiloNuevo) {
     if (opts.forzarScroll || alFondoAntes) hiloNuevo.scrollTop = hiloNuevo.scrollHeight;
     else if (scrollViejo != null) hiloNuevo.scrollTop = scrollViejo;
   }
+}
+// La caja de texto crece con lo que se escribe (hasta ~5 líneas), como en WhatsApp
+function autoAltoComposer(el){
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
 }
 function cambiarComposerModo(id, modo){
   composerModoActual[id] = modo;
@@ -978,7 +1063,7 @@ function programarSeguimientoBandeja(id){
 // verdad -- nunca se manda sola.
 async function pedirSugerenciaIA(id){
   const btn = $('btnSugerirIA' + id);
-  if (btn) { btn.disabled = true; btn.textContent = '✨ Pensando…'; }
+  if (btn) { btn.disabled = true; btn.classList.add('pensando'); btn.title = 'Pensando…'; }
   try{
     const res = await fetch('/api/negocio?recurso=whatsapp-sugerir-respuesta', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversacionId: id }),
@@ -988,7 +1073,7 @@ async function pedirSugerenciaIA(id){
     sugerenciaIaActual = { conversacionId: id, texto: data.borrador };
     if (detalleBandejaActual && detalleBandejaActual.conversacion.id === id) renderChatBandeja(detalleBandejaActual, {});
   }catch(err){ alert('Error: ' + err.message); }
-  finally{ const b = $('btnSugerirIA' + id); if (b) { b.disabled = false; b.textContent = '✨ Sugerir respuesta'; } }
+  finally{ const b = $('btnSugerirIA' + id); if (b) { b.disabled = false; b.classList.remove('pensando'); b.title = 'Sugerir respuesta con IA (tú la revisas antes de enviar)'; } }
 }
 function insertarSugerenciaIA(id){
   if (!sugerenciaIaActual || sugerenciaIaActual.conversacionId !== id) return;
@@ -1034,7 +1119,7 @@ function actualizarEstadoBot(id, accion, textoFinal){
 }
 async function prepararRespuestaBot(convId, forzar){
   const btn = $('btnBot' + convId);
-  if(btn){ btn.disabled = true; btn.textContent = '🤖 Pensando…'; }
+  if(btn){ btn.disabled = true; btn.classList.add('pensando'); btn.title = 'Pensando…'; }
   try{
     const res = await fetch('/api/negocio?recurso=whatsapp-bot-generar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversacionId: convId, forzar: !!forzar }) });
     const d = await res.json();
@@ -1042,7 +1127,7 @@ async function prepararRespuestaBot(convId, forzar){
     botBorradorActual = d.borrador;
     if(detalleBandejaActual && detalleBandejaActual.conversacion.id === convId) renderChatBandeja(detalleBandejaActual, {});
   }catch(err){ alert('Error: ' + err.message); }
-  finally{ const b = $('btnBot' + convId); if(b){ b.disabled = false; b.textContent = '🤖 Preparar con bot'; } }
+  finally{ const b = $('btnBot' + convId); if(b){ b.disabled = false; b.classList.remove('pensando'); b.title = 'Preparar con bot: busca el producto en el catálogo (precio, stock, enlace) y redacta la respuesta'; } }
 }
 function insertarBorradorBot(convId){
   const b = botBorradorActual;
@@ -1123,14 +1208,17 @@ function renderFichaBandeja(data){
 
   $('panelFichaBandeja').innerHTML = `
     <div class="ficha-bandeja-head">
-      <h2 style="font-size:13.5px;margin:0;">Ficha del cliente</h2>
-      <button class="btn-ghost btn-compact btn-cerrar-panel-movil" title="Cerrar ficha" aria-label="Cerrar ficha" onclick="cerrarFichaMovil()">✕</button>
+      <button class="wa-icono" title="Cerrar" aria-label="Cerrar info. del contacto" onclick="toggleFicha(false)">${WA_ICONO.cerrar}</button>
+      <h2>Info. del contacto</h2>
     </div>
     <div class="ficha-bandeja-body">
+      <div class="wa-perfil">
+        <div class="avatar-grande">${WA_AVATAR}</div>
+        <div class="nombre">${escapeHtml(ct?.nombre || fmtTelefonoLista(ct?.telefono) || 'Sin nombre')}</div>
+        <div class="telefono">${enlaceWhatsappTelefono(ct?.telefono)}</div>
+      </div>
       <div class="ficha-grupo">
-        <h3>👤 Cliente</h3>
-        <div class="ficha-fila"><span>Nombre</span><b>${escapeHtml(ct?.nombre || 'Sin nombre')}</b></div>
-        <div class="ficha-fila"><span>Teléfono</span><b>${enlaceWhatsappTelefono(ct?.telefono)}</b></div>
+        <h3>Cliente</h3>
         <div class="ficha-fila"><span>1ª conversación</span><b>${fmtFecha(ct?.primeraConversacionEn)}</b></div>
         <div class="ficha-fila"><span>Última conversación</span><b>${fmtFecha(ct?.ultimaConversacionEn)}</b></div>
         ${fichaBsaleHtml(data.clienteBsale)}
@@ -1180,6 +1268,25 @@ function renderFichaBandeja(data){
 }
 
 // ---------------- Responsive: navegación lista/chat/ficha en pantallas chicas ----------------
+// "Info. del contacto" (la ficha): en pantalla ancha es una tercera columna que se abre y se cierra (y se recuerda); en pantallas más angostas se abre encima, como en WhatsApp.
+const FICHA_ANGOSTA = '(max-width:1280px)';
+function fichaAbierta(){
+  const f = $('panelFichaBandeja'), l = $('vistaBandejaConv');
+  if (!f || !l) return false;
+  return window.matchMedia(FICHA_ANGOSTA).matches ? f.classList.contains('abierta-movil') : l.classList.contains('ficha-abierta');
+}
+function toggleFicha(abrir){
+  const f = $('panelFichaBandeja'), l = $('vistaBandejaConv');
+  if (!f || !l) return;
+  if (abrir === undefined) abrir = !fichaAbierta();
+  if (window.matchMedia(FICHA_ANGOSTA).matches) {
+    if (abrir) mostrarPanelMovil('ficha'); else cerrarFichaMovil();
+  } else {
+    l.classList.toggle('ficha-abierta', !!abrir);
+    try { localStorage.setItem('wa_ficha_abierta', abrir ? '1' : '0'); } catch (e) { /* sin almacenamiento: no se recuerda */ }
+  }
+  const b = $('btnInfoWa'); if (b) b.classList.toggle('activo', !!abrir);
+}
 function mostrarPanelMovil(cual){
   if (cual === 'ficha') {
     $('panelFichaBandeja').classList.add('abierta-movil');
@@ -1194,6 +1301,7 @@ function mostrarPanelMovil(cual){
 function cerrarFichaMovil(){
   const f = $('panelFichaBandeja'); if (f) f.classList.remove('abierta-movil');
   const o = $('overlayFichaMovil'); if (o) o.classList.remove('abierto');
+  const b = $('btnInfoWa'); if (b && window.matchMedia(FICHA_ANGOSTA).matches) b.classList.remove('activo');
 }
 
 // ---------------- Tabla de supervisión (columnas reducidas por defecto) ----------------
@@ -1381,18 +1489,20 @@ function cerrarImagenAmpliada(){
 }
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') cerrarImagenAmpliada(); });
 
-function burbujaMensaje(m){
+function burbujaMensaje(m, cola){
   const clase = m.direccion === 'in' ? 'in' : 'out';
   let contenido;
   if (m.tipo === 'texto') {
     contenido = escapeHtml(m.texto || '');
   } else if (m.tipo === 'imagen' && m.mediaUrl) {
     const src = '/api/negocio?recurso=whatsapp-media&ref=' + encodeURIComponent(m.mediaUrl);
-    contenido = `<img src="${src}" loading="lazy" alt="Imagen" style="max-width:220px;max-height:220px;border-radius:8px;display:block;object-fit:cover;cursor:zoom-in;" onclick="event.stopPropagation(); abrirImagenAmpliada('${src.replace(/'/g, "\\'")}')" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'tipo-media',textContent:'📎 [imagen no disponible]'}))">`;
+    contenido = `<img src="${src}" loading="lazy" alt="Imagen" style="max-width:300px;width:100%;max-height:300px;border-radius:6px;display:block;object-fit:cover;cursor:zoom-in;" onclick="event.stopPropagation(); abrirImagenAmpliada('${src.replace(/'/g, "\\'")}')" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'tipo-media',textContent:'📎 [imagen no disponible]'}))">`;
   } else {
     contenido = `<span class="tipo-media">📎 [${escapeHtml(m.tipo)}]${m.texto ? ' — ' + escapeHtml(m.texto) : ''}</span>`;
   }
-  return `<div class="burbuja ${clase}">${contenido}<span class="hora">${fmtHora(m.marcaTiempo)}${m.estado ? ' · ' + escapeHtml(m.estado) : ''}</span></div>`;
+  // Los mensajes que enviamos muestran el tick según el estado que informa WhatsApp (enviado / entregado / leído / falló)
+  const tick = clase === 'out' ? tickMensajeHtml(m.estado) : '';
+  return `<div class="burbuja ${clase}${cola === true ? ' cola' : ''}">${contenido}<span class="hora">${fmtHora(m.marcaTiempo)}${tick}</span></div>`;
 }
 
 function bsaleMatchHtml(clienteBsale){
@@ -1404,9 +1514,7 @@ function renderDetalleConversacion(data){
   const c = data.conversacion, ct = data.contacto, ai = data.analisisIa;
   $('modalConvTitulo').innerHTML = `Conversación con ${escapeHtml(ct?.nombre || 'Sin nombre')} <span class="badge b-gris">#${c.id}</span>`;
 
-  const hilo = data.mensajes.length
-    ? data.mensajes.map(burbujaMensaje).join('')
-    : '<p class="empty-note">Sin mensajes registrados.</p>';
+  const hilo = hiloCombinadoHtml(data.mensajes, []);
 
   const etiquetasHtml = (data.etiquetas || []).map(e => `<span class="etiqueta-chip">${escapeHtml(e)}</span>`).join('') || '<span class="sub">Sin etiquetas</span>';
 
