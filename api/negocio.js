@@ -95,7 +95,8 @@ import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
 import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, detalleWaClics, numeroConectado as numeroConectadoWaAds, asegurarWaClicsAdsUnaVez as asegurarWaClicsAdsUnaVezWaAds, sqlOrigenGoogleAds, atribuirClics as atribuirClicsWaAds, borrarClicsDePrueba as borrarClicsDePruebaWaAds, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
-import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto } from '../lib/whatsapp-bot.js';
+import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto, elegirPreguntasModelo, momentoDentroDeHorario, SALUDO_CUANDO, SALUDO_DEFECTO, LIMITES_BOT, REGLAS_NO_PROMETER } from '../lib/whatsapp-bot.js';
+import { asegurarTablaEjemplosBot, listarEjemplos, crearEjemplo, actualizarEjemplo, cambiarActivoEjemplo, eliminarEjemplo } from '../lib/whatsapp-bot-ejemplos.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
 import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTablaMercadoLibre, leerConexion, borrarConexion, conectarConCodigo, probarLectura, lectorML } from '../lib/mercadolibre.js';
 import { asegurarTablaCotizacionesEliminadas, eliminarCotizaciones, anularCotizacionesDuplicadas, listarEliminadas, MOTIVO_ANULADA_BSALE } from '../lib/cotizaciones-limpieza.js';
@@ -448,6 +449,8 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-bot-borrador') return manejarWhatsappBotBorrador(req, res, sesion);
   if (recurso === 'whatsapp-bot-estado') return manejarWhatsappBotEstado(req, res, sesion);
   if (recurso === 'whatsapp-bot-lote') return manejarWhatsappBotLote(req, res, sesion);
+  if (recurso === 'whatsapp-bot-ejemplos') return manejarWhatsappBotEjemplos(req, res, sesion);
+  if (recurso === 'whatsapp-bot-probar') return manejarWhatsappBotProbar(req, res, sesion);
   if (recurso === 'whatsapp-analizar') return manejarWhatsappAnalizar(req, res, sesion);
   if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
   if (recurso === 'whatsapp-reanalizar-desactualizadas') return manejarWhatsappReanalizarDesactualizadas(req, res, sesion);
@@ -9892,7 +9895,7 @@ const HERRAMIENTAS_BOT_GEMINI = HERRAMIENTAS_BOT.map(t => ({ name: t.name, descr
 
 async function leerConfigBot(sql) {
   await asegurarTablaWhatsappBot(sql);
-  const { rows } = await sql`SELECT modo, horario, conocimiento, actualizado_por, actualizado_en FROM whatsapp_bot_config WHERE id = 1;`;
+  const { rows } = await sql`SELECT modo, horario, conocimiento, tono, reglas_extra, saludo_activo, saludo_cuando, saludo_texto, actualizado_por, actualizado_en FROM whatsapp_bot_config WHERE id = 1;`;
   const r = rows[0] || {};
   let horario = HORARIO_BOT_DEFECTO;
   try { if (r.horario) horario = validarHorario(r.horario); } catch { /* horario guardado inválido: se usa el de por defecto */ }
@@ -9901,6 +9904,13 @@ async function leerConfigBot(sql) {
     horario,
     conocimiento: String(r.conocimiento || '').trim() || CONOCIMIENTO_DEFECTO,
     conocimientoPersonalizado: !!String(r.conocimiento || '').trim(),
+    tono: String(r.tono || '').trim(),
+    reglasExtra: String(r.reglas_extra || '').trim(),
+    saludo: {
+      activo: r.saludo_activo === true,
+      cuando: SALUDO_CUANDO.includes(r.saludo_cuando) ? r.saludo_cuando : 'fuera_horario',
+      texto: String(r.saludo_texto || '').trim() || SALUDO_DEFECTO,
+    },
     actualizadoPor: r.actualizado_por || null, actualizadoEn: r.actualizado_en || null,
   };
 }
@@ -9957,6 +9967,52 @@ const DTO_BORRADOR_BOT = b => ({
   resumen: b.resumen || '', alertas: b.alertas || [], productos: b.productos || [], estado: b.estado, origen: b.origen, creadoEn: b.creado_en,
 });
 
+// Conversación con Gemini (function calling): el modelo puede pedir buscar_productos varias veces y termina con proponer_respuesta.
+// El contenido que devuelve el modelo se reenvía tal cual (incluye las "thought signatures" que exigen los modelos Gemini 3).
+// Lo usan los borradores de las conversaciones y el probador del panel del bot (que no guarda nada).
+async function correrIABot({ system, promptPartes, apiKey, limiteMs }) {
+  const inicio = Date.now();
+  const contenidos = [{ role: 'user', parts: mapearContenidoAGemini(promptPartes) }];
+  const productosVistos = [];
+  let tokensIn = 0, tokensOut = 0, propuesta = null;
+  for (let ronda = 0; ronda < 5 && !propuesta; ronda++) {
+    const restante = limiteMs - (Date.now() - inicio);
+    if (restante < 8000) throw new Error('Se acabó el tiempo antes de terminar la respuesta.');
+    const r = await fetchConTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${modeloBot()}:generateContent`, {
+      method: 'POST', headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: system }] },
+        contents: contenidos,
+        tools: [{ function_declarations: HERRAMIENTAS_BOT_GEMINI }],
+        tool_config: { function_calling_config: { mode: 'ANY' } },
+        generationConfig: { maxOutputTokens: 4096 },
+      }),
+    }, Math.min(30000, restante));
+    if (!r.ok) throw errorGemini(r.status, await r.text().catch(() => ''));
+    const d = await r.json();
+    tokensIn += d.usageMetadata?.promptTokenCount || 0;
+    tokensOut += (d.usageMetadata?.candidatesTokenCount || 0) + (d.usageMetadata?.thoughtsTokenCount || 0);
+    const contenidoModelo = d.candidates?.[0]?.content;
+    const llamadas = (contenidoModelo?.parts || []).filter(p => p.functionCall);
+    const final = llamadas.find(p => p.functionCall.name === 'proponer_respuesta');
+    if (final) { propuesta = final.functionCall.args || {}; break; }
+    if (!llamadas.length) break;
+    contenidos.push(contenidoModelo);
+    const respuestas = [];
+    for (const p of llamadas) {
+      const { name, args } = p.functionCall;
+      if (name === 'buscar_productos') {
+        const out = await buscarProductosBot(args?.consulta);
+        productosVistos.push(...out.productos);
+        respuestas.push({ functionResponse: { name, response: out } });
+      } else respuestas.push({ functionResponse: { name, response: { error: 'Herramienta desconocida.' } } });
+    }
+    contenidos.push({ role: 'user', parts: respuestas });
+  }
+  if (!propuesta) throw new Error('La IA no entregó una propuesta de respuesta.');
+  return { propuesta, productosVistos, tokensIn, tokensOut };
+}
+
 async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quien = 'sistema', forzar = false, limiteMs = 45000 } = {}) {
   const inicio = Date.now();
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
@@ -9996,54 +10052,25 @@ async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quie
     }
   }
 
-  const system = construirSystemBot({ conocimiento: cfg.conocimiento, horario: cfg.horario, primeraRespuestaBot: !usados.length, ejemplos });
+  // Entrenamiento del negocio: preguntas modelo (las más parecidas a lo último que escribió el cliente) y saludo de bienvenida en la primera respuesta.
+  // Lo que escribió el equipo en las respuestas modelo y en el saludo también cuenta como "respaldado" para la revisión de precios y enlaces.
+  await asegurarTablaEjemplosBot(sql);
+  const textoReciente = msgs.filter(m => m.direccion === 'in').slice(-3).map(m => m.contenido_texto || '').join(' ');
+  const preguntasModelo = elegirPreguntasModelo(await listarEjemplos(sql, { soloActivos: true }), textoReciente);
+  const aplicaSaludo = !usados.length && cfg.saludo.activo && (cfg.saludo.cuando === 'siempre' || dentroDeHorarioBot(new Date(), cfg.horario));
+  const conocimientoRevision = [cfg.conocimiento, cfg.reglasExtra, aplicaSaludo ? cfg.saludo.texto : '', ...preguntasModelo.map(e => e.respuesta)].filter(Boolean).join('\n');
+  const system = construirSystemBot({
+    conocimiento: cfg.conocimiento, horario: cfg.horario, primeraRespuestaBot: !usados.length, ejemplos,
+    tono: cfg.tono, reglasExtra: cfg.reglasExtra, saludo: aplicaSaludo ? cfg.saludo.texto : '', preguntasModelo,
+  });
   const ctxIA = await armarContenidoConversacionParaIA(sql, conversacionId, { maxMensajes: 25, maxImagenes: 3 });
   const datosIA = [conv.categoria && `categoría ${conv.categoria}`, conv.producto && `producto ${conv.producto}`, conv.marca && `marca ${conv.marca}`, conv.modelo && `modelo ${conv.modelo}`, conv.especificaciones && `especificaciones ${conv.especificaciones}`].filter(Boolean).join(', ');
   const encabezadoIA = `${conv.resumen ? `Resumen previo de la conversación: ${conv.resumen}\n` : ''}${datosIA ? `Datos detectados por el análisis automático (pueden estar equivocados; contrástalos con las fotos y con lo que dijo el cliente): ${datosIA}\n` : ''}${ctxIA && ctxIA.imagenesCliente ? `El cliente envió ${ctxIA.imagenesCliente} ${ctxIA.imagenesCliente === 1 ? 'imagen' : 'imágenes'}${ctxIA.imagenesLeidas ? ' y te adjunto las más recientes: léelas, no se las pidas de nuevo' : ' (no se pudieron abrir aquí; no se las pidas de nuevo, escala)'}.\n` : ''}\nConversación (lo más reciente al final):`;
   const promptPartes = fusionarTextosIA([{ type: 'text', text: encabezadoIA }, ...(ctxIA ? ctxIA.partes : []), { type: 'text', text: '\nEscribe la respuesta al último mensaje del cliente.' }]);
 
-  // Conversación con Gemini (function calling): el modelo puede pedir buscar_productos varias veces y termina con proponer_respuesta.
-  // El contenido que devuelve el modelo se reenvía tal cual (incluye las "thought signatures" que exigen los modelos Gemini 3).
-  const contenidos = [{ role: 'user', parts: mapearContenidoAGemini(promptPartes) }];
-  const productosVistos = [];
-  let tokensIn = 0, tokensOut = 0, propuesta = null;
-  for (let ronda = 0; ronda < 5 && !propuesta; ronda++) {
-    const restante = limiteMs - (Date.now() - inicio);
-    if (restante < 8000) throw new Error('Se acabó el tiempo antes de terminar la respuesta.');
-    const r = await fetchConTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${modeloBot()}:generateContent`, {
-      method: 'POST', headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: system }] },
-        contents: contenidos,
-        tools: [{ function_declarations: HERRAMIENTAS_BOT_GEMINI }],
-        tool_config: { function_calling_config: { mode: 'ANY' } },
-        generationConfig: { maxOutputTokens: 4096 },
-      }),
-    }, Math.min(30000, restante));
-    if (!r.ok) throw errorGemini(r.status, await r.text().catch(() => ''));
-    const d = await r.json();
-    tokensIn += d.usageMetadata?.promptTokenCount || 0;
-    tokensOut += (d.usageMetadata?.candidatesTokenCount || 0) + (d.usageMetadata?.thoughtsTokenCount || 0);
-    const contenidoModelo = d.candidates?.[0]?.content;
-    const llamadas = (contenidoModelo?.parts || []).filter(p => p.functionCall);
-    const final = llamadas.find(p => p.functionCall.name === 'proponer_respuesta');
-    if (final) { propuesta = final.functionCall.args || {}; break; }
-    if (!llamadas.length) break;
-    contenidos.push(contenidoModelo);
-    const respuestas = [];
-    for (const p of llamadas) {
-      const { name, args } = p.functionCall;
-      if (name === 'buscar_productos') {
-        const out = await buscarProductosBot(args?.consulta);
-        productosVistos.push(...out.productos);
-        respuestas.push({ functionResponse: { name, response: out } });
-      } else respuestas.push({ functionResponse: { name, response: { error: 'Herramienta desconocida.' } } });
-    }
-    contenidos.push({ role: 'user', parts: respuestas });
-  }
-  if (!propuesta) throw new Error('La IA no entregó una propuesta de respuesta.');
+  const { propuesta, productosVistos, tokensIn, tokensOut } = await correrIABot({ system, promptPartes, apiKey, limiteMs: limiteMs - (Date.now() - inicio) });
 
-  const p = normalizarPropuesta(propuesta, { productos: productosVistos, conocimiento: cfg.conocimiento });
+  const p = normalizarPropuesta(propuesta, { productos: productosVistos, conocimiento: conocimientoRevision });
   await sql`UPDATE whatsapp_bot_borradores SET estado = 'reemplazado' WHERE conversacion_id = ${conversacionId} AND estado = 'pendiente';`;
   const { rows } = await sql`
     INSERT INTO whatsapp_bot_borradores (conversacion_id, mensaje_cliente_id, mensaje_cliente_en, texto, confianza, escalar, motivo_escalamiento, resumen, alertas, productos, modelo_ia, tokens_entrada, tokens_salida, origen, creado_por)
@@ -10113,9 +10140,13 @@ async function manejarWhatsappBotEstado(req, res, sesion) {
 }
 
 // Conversaciones cuyo último mensaje es del cliente, llegó dentro del horario del bot, en las últimas 24 h y sin borrador todavía.
-async function candidatosLoteBot(sql, horario, omitir = []) {
+// Con el saludo en modo "siempre" también entran las conversaciones nuevas que llegaron dentro del horario del equipo y aún no tienen respuesta del negocio.
+async function candidatosLoteBot(sql, cfg, omitir = []) {
+  const horario = cfg.horario;
+  const saludoSiempre = cfg.saludo?.activo === true && cfg.saludo?.cuando === 'siempre';
   const { rows } = await sql.query(
-    `SELECT c.id, ult.id AS mensaje_id, ult.marca_tiempo
+    `SELECT c.id, ult.id AS mensaje_id, ult.marca_tiempo,
+            NOT EXISTS (SELECT 1 FROM whatsapp_mensajes o WHERE o.conversacion_id = c.id AND o.direccion = 'out') AS sin_respuesta
      FROM whatsapp_conversaciones c
      JOIN LATERAL (SELECT id, direccion, marca_tiempo FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id ORDER BY marca_tiempo DESC LIMIT 1) ult ON true
      WHERE ult.direccion = 'in' AND ult.marca_tiempo > now() - interval '24 hours'
@@ -10124,7 +10155,7 @@ async function candidatosLoteBot(sql, horario, omitir = []) {
      ORDER BY ult.marca_tiempo ASC LIMIT 300;`,
     [omitir.map(Number).filter(Number.isInteger)]
   );
-  return rows.filter(r => dentroDeHorarioBot(new Date(r.marca_tiempo), horario));
+  return rows.filter(r => dentroDeHorarioBot(new Date(r.marca_tiempo), horario) || (saludoSiempre && r.sin_respuesta));
 }
 
 // Prepara borradores en tandas (cada llamada procesa los que alcance en ~40 s; el navegador repite hasta terminar y muestra el %).
@@ -10137,7 +10168,7 @@ async function manejarWhatsappBotLote(req, res, sesion) {
     if (cfg.modo === 'apagado') return res.status(200).json({ error: MENSAJES_ERROR_BOT.bot_apagado });
     if (!(process.env.GEMINI_API_KEY || '').trim()) return res.status(200).json({ error: MENSAJES_ERROR_BOT.sin_api_key });
     const omitir = Array.isArray(req.body?.omitir) ? req.body.omitir : [];
-    const candidatos = await candidatosLoteBot(sql, cfg.horario, omitir);
+    const candidatos = await candidatosLoteBot(sql, cfg, omitir);
     const inicio = Date.now();
     const procesadas = [], errores = [];
     for (const c of candidatos) {
@@ -10159,20 +10190,33 @@ async function manejarWhatsappBotConfig(req, res, sesion) {
     await asegurarTablaWhatsapp(sql);
     if (req.method === 'POST') {
       if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede cambiar la configuración del bot.' });
-      const { modo, horario, conocimiento } = req.body || {};
+      const { modo, horario, conocimiento, tono, reglasExtra, saludo } = req.body || {};
       if (!MODOS_BOT.includes(modo)) return res.status(400).json({ error: 'Modo inválido.' });
       let horarioOk;
       try { horarioOk = validarHorario(horario); } catch (e) { return res.status(400).json({ error: e.message }); }
       const texto = String(conocimiento || '').trim();
       if (texto.length < 20 || texto.length > 8000) return res.status(400).json({ error: 'La base de conocimiento debe tener entre 20 y 8000 caracteres.' });
+      // Tono, reglas propias y saludo (panel del bot). Son opcionales: el panel antiguo de la bandeja no los manda y no debe borrarlos.
+      let extra = null;
+      if (tono !== undefined || reglasExtra !== undefined || saludo !== undefined) {
+        const t = String(tono ?? '').trim(), rg = String(reglasExtra ?? '').trim();
+        if (t.length > LIMITES_BOT.tono) return res.status(400).json({ error: `Las indicaciones de tono admiten hasta ${LIMITES_BOT.tono} caracteres.` });
+        if (rg.length > LIMITES_BOT.reglasExtra) return res.status(400).json({ error: `Las reglas adicionales admiten hasta ${LIMITES_BOT.reglasExtra} caracteres.` });
+        const sa = { activo: saludo?.activo === true, cuando: SALUDO_CUANDO.includes(saludo?.cuando) ? saludo.cuando : 'fuera_horario', texto: String(saludo?.texto ?? '').trim() };
+        if (sa.texto.length > LIMITES_BOT.saludo) return res.status(400).json({ error: `El saludo admite hasta ${LIMITES_BOT.saludo} caracteres.` });
+        if (sa.activo && sa.texto.length < 10) return res.status(400).json({ error: 'Para activar el saludo, escríbelo (al menos 10 caracteres).' });
+        extra = { t, rg, sa };
+      }
       await asegurarTablaWhatsappBot(sql);
       await sql`UPDATE whatsapp_bot_config SET modo = ${modo}, horario = ${JSON.stringify(horarioOk)}::jsonb, conocimiento = ${texto}, actualizado_por = ${sesion.nombre || sesion.email || null}, actualizado_en = now() WHERE id = 1;`;
+      if (extra) await sql`UPDATE whatsapp_bot_config SET tono = ${extra.t || null}, reglas_extra = ${extra.rg || null}, saludo_activo = ${extra.sa.activo}, saludo_cuando = ${extra.sa.cuando}, saludo_texto = ${extra.sa.texto || null} WHERE id = 1;`;
     } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     const cfg = await leerConfigBot(sql);
     return res.status(200).json({
       ...cfg, esAdmin: sesion.rol === 'admin', apiKeyConfigurada: !!(process.env.GEMINI_API_KEY || '').trim(), modelo: modeloBot(),
       ahoraAtiendeBot: dentroDeHorarioBot(new Date(), cfg.horario), huecos: huecosDelHorario(cfg.horario),
       conocimientoDefecto: CONOCIMIENTO_DEFECTO, horarioDefecto: HORARIO_BOT_DEFECTO,
+      saludoDefecto: SALUDO_DEFECTO, reglasBase: REGLAS_NO_PROMETER, limites: LIMITES_BOT,
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error con la configuración del bot', detail: String(err) });
@@ -10203,10 +10247,21 @@ async function manejarWhatsappBotResumen(req, res, _sesion) {
       [dias]
     );
     const r = rows[0];
-    const candidatos = await candidatosLoteBot(sql, cfg.horario);
+    const candidatos = await candidatosLoteBot(sql, cfg);
     const decididos = r.enviado_igual + r.enviado_editado + r.descartado;
+    // Por qué el bot pide ejecutivo y qué revisiones automáticas lo frenan (para saber qué enseñarle).
+    const { rows: motivos } = await sql.query(
+      `SELECT left(motivo_escalamiento, 110) AS motivo, COUNT(*)::int AS n FROM whatsapp_bot_borradores
+       WHERE escalar AND COALESCE(motivo_escalamiento, '') <> '' AND creado_en >= now() - make_interval(days => $1::int) AND estado <> 'reemplazado'
+       GROUP BY 1 ORDER BY n DESC, 1 LIMIT 8;`, [dias]);
+    const { rows: alertas } = await sql.query(
+      `SELECT split_part(a, ':', 1) AS alerta, COUNT(*)::int AS n FROM whatsapp_bot_borradores, jsonb_array_elements_text(COALESCE(alertas, '[]'::jsonb)) a
+       WHERE creado_en >= now() - make_interval(days => $1::int) AND estado <> 'reemplazado'
+       GROUP BY 1 ORDER BY n DESC, 1 LIMIT 6;`, [dias]);
+    await asegurarTablaEjemplosBot(sql);
+    const { rows: [ej] } = await sql.query('SELECT COUNT(*) FILTER (WHERE activo)::int AS activos, COUNT(*)::int AS total FROM whatsapp_bot_ejemplos;');
     return res.status(200).json({
-      dias, ...r, porPreparar: candidatos.length,
+      dias, ...r, porPreparar: candidatos.length, motivosEscalamiento: motivos, alertasRevision: alertas, ejemplosActivos: ej.activos, ejemplosTotal: ej.total,
       pctUsadosTalCual: decididos ? Math.round((r.enviado_igual / decididos) * 1000) / 10 : null,
       pctUsadosEditados: decididos ? Math.round((r.enviado_editado / decididos) * 1000) / 10 : null,
       pctDescartados: decididos ? Math.round((r.descartado / decididos) * 1000) / 10 : null,
@@ -10214,6 +10269,71 @@ async function manejarWhatsappBotResumen(req, res, _sesion) {
     });
   } catch (err) {
     return res.status(500).json({ error: 'Error calculando el resumen del bot', detail: String(err) });
+  }
+}
+
+// Preguntas y respuestas modelo del bot (panel de entrenamiento). Cualquier usuario las crea, corrige y activa o desactiva;
+// borrarlas del todo es solo de administrador.
+async function manejarWhatsappBotEjemplos(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaEjemplosBot(sql);
+    const esAdmin = sesion.rol === 'admin';
+    const usuario = sesion.nombre || sesion.email || null;
+    if (req.method !== 'GET') {
+      if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+      const b = req.body || {};
+      const accion = String(b.accion || (b.id ? 'actualizar' : 'crear'));
+      let r;
+      if (accion === 'crear') r = await crearEjemplo(sql, b, usuario);
+      else if (accion === 'actualizar') r = await actualizarEjemplo(sql, b.id, b, usuario);
+      else if (accion === 'activar') r = await cambiarActivoEjemplo(sql, b.id, b.activo === true, usuario);
+      else if (accion === 'eliminar') {
+        if (!esAdmin) return res.status(403).json({ error: 'Solo un administrador puede borrar un ejemplo. Puedes desactivarlo.' });
+        r = await eliminarEjemplo(sql, b.id);
+      } else return res.status(400).json({ error: 'Acción inválida.' });
+      if (!r.ok) return res.status(r.estado).json({ error: r.error });
+    }
+    return res.status(200).json({ ejemplos: await listarEjemplos(sql), esAdmin });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error con las preguntas y respuestas modelo', detail: String(err) });
+  }
+}
+
+// Probador: el equipo escribe como si fuera el cliente y ve qué respondería el bot (misma IA, catálogo, reglas, saludo y preguntas modelo que en las
+// conversaciones reales). No guarda nada, no toca ninguna conversación y no envía ningún mensaje.
+async function manejarWhatsappBotProbar(req, res, _sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) return res.status(200).json({ error: MENSAJES_ERROR_BOT.sin_api_key });
+  const crudos = Array.isArray(req.body?.mensajes) ? req.body.mensajes : [];
+  const mensajes = crudos.slice(-16).map(m => ({ rol: m?.rol === 'bot' ? 'bot' : 'cliente', texto: String(m?.texto || '').trim().slice(0, 1500) })).filter(m => m.texto);
+  if (!mensajes.length || mensajes[mensajes.length - 1].rol !== 'cliente') return res.status(400).json({ error: 'El último mensaje de la prueba debe ser del cliente.' });
+  try {
+    const sql = await getSql();
+    const cfg = await leerConfigBot(sql);
+    await asegurarTablaEjemplosBot(sql);
+    // "Fuera de horario" (por defecto) simula un momento dentro de las ventanas del bot; "ahora" usa la hora real.
+    const ahora = req.body?.contexto === 'ahora' ? new Date() : (momentoDentroDeHorario(new Date(), cfg.horario) || new Date());
+    const primera = !mensajes.some(m => m.rol === 'bot');
+    const textoReciente = mensajes.filter(m => m.rol === 'cliente').slice(-3).map(m => m.texto).join(' ');
+    const preguntasModelo = elegirPreguntasModelo(await listarEjemplos(sql, { soloActivos: true }), textoReciente);
+    const aplicaSaludo = primera && cfg.saludo.activo && (cfg.saludo.cuando === 'siempre' || dentroDeHorarioBot(ahora, cfg.horario));
+    const conocimientoRevision = [cfg.conocimiento, cfg.reglasExtra, aplicaSaludo ? cfg.saludo.texto : '', ...preguntasModelo.map(e => e.respuesta)].filter(Boolean).join('\n');
+    const system = construirSystemBot({
+      conocimiento: cfg.conocimiento, ahora, horario: cfg.horario, primeraRespuestaBot: primera,
+      tono: cfg.tono, reglasExtra: cfg.reglasExtra, saludo: aplicaSaludo ? cfg.saludo.texto : '', preguntasModelo,
+    });
+    const transcripcion = mensajes.map(m => `${m.rol === 'bot' ? 'Asistente' : 'Cliente'}: ${m.texto}`).join('\n');
+    const promptPartes = [{ type: 'text', text: `Esta es una conversación de PRUEBA escrita por el equipo (no hay fotos ni datos del cliente en Bsale).\n\nConversación (lo más reciente al final):\n${transcripcion}\n\nEscribe la respuesta al último mensaje del cliente.` }];
+    const { propuesta, productosVistos, tokensIn, tokensOut } = await correrIABot({ system, promptPartes, apiKey, limiteMs: 45000 });
+    const p = normalizarPropuesta(propuesta, { productos: productosVistos, conocimiento: conocimientoRevision });
+    return res.status(200).json({
+      ok: true, propuesta: p, productos: productosVistos.slice(0, 10), tokensEntrada: tokensIn, tokensSalida: tokensOut, modelo: modeloBot(),
+      simulacion: { ahora: ahora.toISOString(), dentroDelHorarioDelBot: dentroDeHorarioBot(ahora, cfg.horario), saludoAplicado: aplicaSaludo, preguntasModeloUsadas: preguntasModelo.length },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'No se pudo probar el bot', detail: String(err.message || err).slice(0, 400) });
   }
 }
 

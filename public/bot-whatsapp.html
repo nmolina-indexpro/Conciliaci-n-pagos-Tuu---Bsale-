@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Bot WhatsApp — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;-webkit-font-smoothing:antialiased;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:26px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:25px;letter-spacing:0.2px;margin:0 0 5px 0;}
+  h1 span{color:var(--primary);}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin:0 0 4px 0;}
+  h3{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;margin:18px 0 4px 0;}
+  .sub{color:var(--muted);font-size:13px;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+
+  input[type="text"], input[type="time"], select, textarea{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:8px 10px;border-radius:9px;font-size:13px;}
+  input[type="text"]{width:100%;}
+  textarea{width:100%;min-height:80px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;line-height:1.45;resize:vertical;}
+  textarea.mono{font-family:'IBM Plex Mono',monospace;font-size:12px;}
+  input:focus, select:focus, textarea:focus{outline:none;border-color:var(--primary);}
+  input:disabled, select:disabled, textarea:disabled{background:var(--surface-2);color:var(--muted);cursor:not-allowed;}
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);text-decoration:none;display:inline-block;}
+  .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.active{background:var(--primary-dim);border-color:var(--primary);color:var(--primary-dark);}
+  .btn-danger:hover:not(:disabled){border-color:var(--red);color:var(--red);}
+  .btn-compact{padding:7px 12px;font-size:12px;}
+
+  .toolbar{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;}
+  .filtros{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);}
+  label.cmp{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin:12px 0 4px;}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin-bottom:20px;}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);}
+  .kpi .lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+  .kpi .big{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:700;margin-top:4px;}
+  .kpi .nota{font-size:11px;color:var(--muted);margin-top:3px;}
+
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;}
+  .tab-panel{display:none;}
+  .tab-panel.visible{display:block;}
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;}
+  .seccion-head > *{min-width:0;}
+  .dos-col{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+  @media (max-width:1000px){.dos-col{grid-template-columns:1fr;}}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tabla-wrap{overflow-x:auto;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:top;}
+  td.resp{min-width:260px;white-space:pre-wrap;}
+  td.preg{min-width:180px;}
+  tr.fila-off td:not(:last-child){opacity:.55;}
+  .acciones{display:flex;gap:6px;flex-wrap:wrap;}
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;display:inline-block;}
+  .badge.verde{background:var(--green-bg);color:var(--green);}
+  .badge.gris{background:var(--surface-2);color:var(--muted);}
+  .badge.ambar{background:var(--amber-dim);color:var(--amber);}
+  .badge.azul{background:var(--blue-bg);color:var(--blue);}
+  .badge.rojo{background:var(--red-bg);color:var(--red);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:10px 0;}
+  .note-box{background:var(--blue-bg);border:1px solid #C3D9FB;border-radius:12px;padding:12px 16px;font-size:12.5px;margin-bottom:14px;color:var(--text);}
+  .note-box.err{background:var(--red-bg);border-color:#F5B5B5;}
+  .note-box.ok{background:var(--green-bg);border-color:#B8E2C4;}
+  .note-box.warn{background:var(--amber-dim);border-color:#F2D3A0;}
+  .desde{font-size:11.5px;color:var(--muted);}
+  .contador{font-size:11px;color:var(--muted);text-align:right;}
+  .contador.pasado{color:var(--red);font-weight:700;}
+  code{font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--surface-2);padding:1px 6px;border-radius:5px;}
+  details{margin-top:10px;font-size:12.5px;}
+  details summary{cursor:pointer;color:var(--primary-dark);font-weight:600;}
+  details pre{white-space:pre-wrap;background:var(--surface-2);border-radius:10px;padding:10px 12px;font-size:12px;font-family:'IBM Plex Mono',monospace;margin:8px 0 0;}
+
+  /* Probador */
+  .chat{display:flex;flex-direction:column;gap:8px;min-height:170px;max-height:560px;overflow-y:auto;padding:14px;background:var(--surface-2);border-radius:12px;margin:12px 0;}
+  .burbuja{max-width:78%;padding:9px 12px;border-radius:12px;font-size:13px;line-height:1.45;white-space:pre-wrap;word-break:break-word;}
+  .burbuja.cliente{align-self:flex-end;background:var(--primary-dim);border:1px solid #BFE0DC;}
+  .burbuja.bot{align-self:flex-start;background:#fff;border:1px solid var(--line);}
+  .burbuja small{display:block;font-size:10.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;}
+  .meta-bot{align-self:flex-start;max-width:78%;font-size:12px;color:var(--text);background:#fff;border:1px dashed var(--line);border-radius:10px;padding:9px 11px;}
+  .meta-bot .fila{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:5px;}
+  .meta-bot ul{margin:4px 0 6px;padding-left:18px;}
+  .chat-vacio{color:var(--muted);font-size:13px;margin:auto;text-align:center;}
+  .chat-entrada{display:flex;gap:10px;align-items:flex-end;}
+  .chat-entrada textarea{min-height:56px;}
+  .ideas{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+  .idea{background:var(--surface);border:1px solid var(--line);color:var(--muted);font-family:'Plus Jakarta Sans',sans-serif;font-weight:500;font-size:12px;padding:5px 10px;border-radius:999px;cursor:pointer;}
+  .idea:hover{border-color:var(--primary);color:var(--primary);}
+
+  /* Horario */
+  .ventana{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin:6px 0;}
+  .ventana label{font-size:12px;display:flex;align-items:center;gap:3px;}
+  .ventana .esp{flex:1;}
+  .huecos{background:var(--surface-2);border-radius:10px;padding:10px 12px;font-size:12px;margin-top:8px;}
+  .editor{border:1.5px solid var(--primary);background:var(--primary-dim);border-radius:12px;padding:14px 16px;margin-bottom:16px;}
+  .editor.oculto{display:none;}
+  @media (max-width:700px){ body{padding:16px 14px 40px;} .burbuja,.meta-bot{max-width:92%;} .chat-entrada{flex-direction:column;align-items:stretch;} }
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+<link rel="stylesheet" href="comercial-movil.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="mailing.html" id="navMailing" style="display:none;">✉️ Mailing</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+          <a href="contabilidad.html">Contabilidad</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo" data-requiere="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion" data-requiere="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis" data-requiere="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm" data-requiere="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex" data-requiere="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
+          <a href="compras.html#comparador" data-requiere="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+          <a href="pedidos-pantallas.html">Productos a pedido</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="detalle-ventas.html">Detalle de ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html">Modelos compatibles</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="tickets.html">Tickets ERP (ex Zoho Desk)</a>
+          <a href="chat-en-vivo.html">Chat en vivo (ex SalesIQ)</a>
+          <a href="soporte-indexpro.html">IndexPro</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+          <a href="electronica.html">Electrónica</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="frecuencia-precio.html">Frecuencia y precio</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="search-console.html">Search Console</a>
+          <a href="instagram.html">Instagram</a>
+          <a href="comparativo-ventas.html">Comparativo de ventas</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <div class="toolbar">
+    <div>
+      <h1>Bot <span>WhatsApp</span></h1>
+      <div class="sub">Entrena, configura y prueba al asistente de WhatsApp. Hoy <b>redacta borradores</b> que un ejecutivo revisa: no envía nada solo. Todos pueden probarlo y proponer preguntas modelo; la configuración la cambia un administrador.</div>
+    </div>
+    <div class="filtros">
+      <a class="btn-ghost btn-compact" href="clientes-whatsapp.html">← Conversaciones</a>
+      <select id="selDias" aria-label="Período del rendimiento"><option value="7">7 días</option><option value="30" selected>30 días</option><option value="90">90 días</option></select>
+      <button type="button" class="btn-primary btn-compact" id="btnActualizar">Actualizar</button>
+    </div>
+  </div>
+
+  <div id="avisos"></div>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="tabs" id="tabs">
+    <button type="button" class="btn-ghost" data-tab="probador">🧪 Probador</button>
+    <button type="button" class="btn-ghost" data-tab="preguntas">📚 Preguntas y respuestas</button>
+    <button type="button" class="btn-ghost" data-tab="configuracion">⚙️ Configuración</button>
+    <button type="button" class="btn-ghost" data-tab="rendimiento">📈 Rendimiento</button>
+  </div>
+
+  <!-- ===== Probador ===== -->
+  <div class="tab-panel" id="tab-probador">
+    <div class="seccion">
+      <div class="seccion-head">
+        <div>
+          <h2>Probador</h2>
+          <div class="sub">Escribe como si fueras un cliente y mira qué respondería el bot, con el mismo catálogo, reglas, saludo y preguntas modelo que usa en las conversaciones reales. <b>No se guarda nada ni se envía ningún mensaje.</b></div>
+        </div>
+        <div class="filtros">
+          <select id="pruebaContexto" aria-label="Momento a simular">
+            <option value="fuera">Simular: fuera de horario (atiende el bot)</option>
+            <option value="ahora">Simular: ahora (hora real)</option>
+          </select>
+          <button type="button" class="btn-ghost btn-compact" id="btnNuevaPrueba">Nueva prueba</button>
+        </div>
+      </div>
+      <div class="chat" id="chat"></div>
+      <div class="chat-entrada">
+        <textarea id="pruebaTexto" rows="2" maxlength="1500" placeholder="Escribe el mensaje del cliente… (Ctrl+Enter para enviar)"></textarea>
+        <button type="button" class="btn-primary" id="btnProbar">Enviar al bot</button>
+      </div>
+      <div class="desde" id="pruebaMsg" style="margin-top:6px;"></div>
+      <div class="ideas" id="ideas"></div>
+    </div>
+  </div>
+
+  <!-- ===== Preguntas y respuestas ===== -->
+  <div class="tab-panel" id="tab-preguntas">
+    <div class="seccion">
+      <div class="seccion-head">
+        <div>
+          <h2>Preguntas y respuestas modelo</h2>
+          <div class="sub">Casos típicos con la respuesta que quieres que dé el bot. Las usa como guía de contenido y de estilo: si un cliente pregunta algo parecido, responde con eso adaptado. <b>Precio, stock y enlace de un producto siempre salen del catálogo</b>, no de acá. Cualquiera puede crear y corregir; borrar del todo es solo de administrador (puedes desactivarlas).</div>
+        </div>
+        <div class="filtros">
+          <button type="button" class="btn-primary btn-compact" id="btnNuevoEjemplo">➕ Nueva</button>
+        </div>
+      </div>
+
+      <div class="editor oculto" id="editor">
+        <h2 id="editorTitulo">Nueva pregunta modelo</h2>
+        <label class="cmp" for="edPregunta">Qué pregunta o situación plantea el cliente</label>
+        <textarea id="edPregunta" rows="2" maxlength="300" placeholder="Ej.: ¿Hacen despacho a regiones? / Cliente pide instalación de una batería"></textarea>
+        <div class="contador" id="cntPregunta"></div>
+        <label class="cmp" for="edRespuesta">Cómo debe responder el bot</label>
+        <textarea id="edRespuesta" rows="5" maxlength="900" placeholder="Escribe la respuesta tal como la enviarías: breve, con el tono de IndexStore."></textarea>
+        <div class="contador" id="cntRespuesta"></div>
+        <label class="cmp" for="edEtiquetas">Etiquetas (opcional; ayudan a encontrar la pregunta)</label>
+        <input type="text" id="edEtiquetas" maxlength="120" placeholder="Ej.: envío, regiones, despacho">
+        <div class="filtros" style="margin-top:12px;">
+          <button type="button" class="btn-primary" id="btnGuardarEjemplo">Guardar</button>
+          <button type="button" class="btn-ghost" id="btnCancelarEjemplo">Cancelar</button>
+          <span class="desde" id="edMsg"></span>
+        </div>
+      </div>
+
+      <div class="filtros" style="margin-bottom:10px;">
+        <input type="text" id="buscarEjemplo" placeholder="Buscar en preguntas, respuestas o etiquetas…" style="max-width:340px;">
+        <label class="chk"><input type="checkbox" id="verInactivas" checked> Mostrar desactivadas</label>
+      </div>
+      <div id="ejemplosEstado" class="empty-note">Cargando…</div>
+      <div class="tabla-wrap"><table id="tEjemplos"></table></div>
+      <details>
+        <summary>¿Cómo las usa el bot?</summary>
+        <div class="sub" style="margin-top:6px;">En cada respuesta, el bot recibe las preguntas modelo activas (si son muchas, las 8 más parecidas a lo que escribió el cliente). Si en una respuesta modelo escribes un precio o un enlace, el bot puede repetirlo; por eso conviene no poner precios de productos acá, solo condiciones generales (envíos, garantía, instalación, horarios).</div>
+      </details>
+    </div>
+  </div>
+
+  <!-- ===== Configuración ===== -->
+  <div class="tab-panel" id="tab-configuracion">
+    <div id="cfgAviso"></div>
+    <div class="seccion">
+      <div class="seccion-head"><div><h2>Modo y horario</h2><div class="sub">Cuándo atiende el bot. Hora de Chile.</div></div><span id="cfgBadgeModo"></span></div>
+      <label class="cmp" for="cfgModo">Modo</label>
+      <select id="cfgModo"><option value="sombra">Sombra: redacta borradores, el ejecutivo revisa y envía</option><option value="apagado">Apagado</option></select>
+      <label class="cmp">Ventanas en que atiende el bot</label>
+      <div id="cfgHorario"></div>
+      <div class="filtros" id="cfgHorarioAcciones"><button type="button" class="btn-ghost btn-compact" id="btnAgregarVentana">➕ Agregar ventana</button></div>
+      <div class="desde" style="margin-top:6px;">Cada ventana vale para los días marcados. Si "hasta" es menor que "desde", la ventana sigue después de la medianoche (lun–vie 19:35 → 08:30 cubre también la madrugada del día siguiente).</div>
+      <div id="cfgHuecos"></div>
+    </div>
+
+    <div class="seccion">
+      <div class="seccion-head"><div><h2>Saludo de bienvenida (primera respuesta)</h2><div class="sub">El bot abre su primer mensaje de la conversación con este saludo. Con "siempre", también prepara la primera respuesta dentro del horario del equipo.</div></div></div>
+      <label class="chk"><input type="checkbox" id="cfgSaludoActivo"> Usar saludo de bienvenida</label>
+      <label class="cmp" for="cfgSaludoCuando">Cuándo</label>
+      <select id="cfgSaludoCuando"><option value="fuera_horario">Solo cuando atiende el bot (fuera de horario)</option><option value="siempre">Siempre (también dentro del horario del equipo)</option></select>
+      <label class="cmp" for="cfgSaludoTexto">Texto del saludo</label>
+      <textarea id="cfgSaludoTexto" rows="3" maxlength="500"></textarea>
+      <div class="contador" id="cntSaludo"></div>
+      <div class="filtros"><button type="button" class="btn-ghost btn-compact" id="btnSaludoDefecto">↺ Restaurar el saludo inicial</button></div>
+    </div>
+
+    <div class="seccion">
+      <div class="seccion-head"><div><h2>Tono y reglas del negocio</h2><div class="sub">Instrucciones propias, además de las reglas de seguridad que siempre se cumplen.</div></div></div>
+      <label class="cmp" for="cfgTono">Tono (opcional)</label>
+      <textarea id="cfgTono" rows="2" maxlength="600" placeholder="Ej.: Cercano y breve. Tutea. Usa máximo un emoji por mensaje."></textarea>
+      <div class="contador" id="cntTono"></div>
+      <label class="cmp" for="cfgReglas">Reglas adicionales (opcional)</label>
+      <textarea id="cfgReglas" rows="4" maxlength="3000" placeholder="Ej.: Si preguntan por Mac, deriva siempre a un ejecutivo. No hables de la competencia."></textarea>
+      <div class="contador" id="cntReglas"></div>
+      <details>
+        <summary>Reglas de seguridad que siempre se cumplen (no se pueden quitar)</summary>
+        <pre id="reglasBase"></pre>
+        <div class="sub" style="margin-top:6px;">Además: todo precio o enlace que escriba el bot debe venir del catálogo o de lo escrito acá; si no, la respuesta se marca y pide ejecutivo. Reclamos, garantías en curso, servicio técnico, facturas, empresas, audios y documentos se derivan a un ejecutivo.</div>
+      </details>
+    </div>
+
+    <div class="seccion">
+      <div class="seccion-head"><div><h2>Base de conocimiento</h2><div class="sub">Lo que el bot puede afirmar: dirección, garantías, instalación, envíos, medios de pago, etc. <b>Lo que no esté escrito acá, el bot no lo afirma</b>: avisa que lo confirma un ejecutivo.</div></div></div>
+      <textarea id="cfgConocimiento" class="mono" rows="10" maxlength="8000"></textarea>
+      <div class="contador" id="cntConocimiento"></div>
+      <div class="filtros"><button type="button" class="btn-ghost btn-compact" id="btnConocimientoDefecto">↺ Restaurar el texto inicial</button></div>
+    </div>
+
+    <div class="filtros" id="cfgGuardarFila">
+      <button type="button" class="btn-primary" id="btnGuardarCfg">💾 Guardar configuración</button>
+      <span class="desde" id="cfgMsg"></span>
+    </div>
+  </div>
+
+  <!-- ===== Rendimiento ===== -->
+  <div class="tab-panel" id="tab-rendimiento">
+    <div class="seccion">
+      <div class="seccion-head"><div><h2>Qué tan útiles son los borradores</h2><div class="sub" id="rendSub"></div></div></div>
+      <div class="kpis" id="rendKpis"></div>
+    </div>
+    <div class="dos-col">
+      <div class="seccion">
+        <h2>Por qué pide ejecutivo</h2>
+        <div class="sub" style="margin-bottom:8px;">Motivos más frecuentes en los borradores que el bot no se atreve a cerrar. Sirven para decidir qué preguntas modelo o reglas agregar.</div>
+        <div class="tabla-wrap"><table id="tMotivos"></table></div>
+      </div>
+      <div class="seccion">
+        <h2>Qué frena la revisión automática</h2>
+        <div class="sub" style="margin-bottom:8px;">Precios, enlaces o promesas que la revisión marcó en el texto del bot.</div>
+        <div class="tabla-wrap"><table id="tAlertas"></table></div>
+      </div>
+    </div>
+    <div class="note-box">Para preparar de una vez los borradores de las conversaciones que llegaron fuera de horario, usa el botón <b>🤖 Bot nocturno</b> en <a href="clientes-whatsapp.html">Conversaciones</a>.</div>
+  </div>
+
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="etiquetas-botones.js"></script>
+<script src="menu-herramientas.js"></script>
+<script src="comercial-movil.js"></script>
+<script src="tablas-ordenables.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtNum = n => Math.round(n || 0).toLocaleString('es-CL');
+const pctTxt = n => n == null ? '—' : String(n).replace('.', ',') + '%';
+const fmtFechaHora = iso => iso ? new Date(iso).toLocaleString('es-CL', { timeZone:'America/Santiago', day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false }) : '—';
+const DIAS_ORDEN = [1, 2, 3, 4, 5, 6, 0];
+const DIA_CORTO = { 0:'Dom', 1:'Lun', 2:'Mar', 3:'Mié', 4:'Jue', 5:'Vie', 6:'Sáb' };
+const DIA_LARGO = { 0:'domingo', 1:'lunes', 2:'martes', 3:'miércoles', 4:'jueves', 5:'viernes', 6:'sábado' };
+const IDEAS = [
+  'Hola, necesito una pantalla para mi notebook HP 250 G7',
+  'Buenas, ¿dónde están ubicados y hasta qué hora atienden?',
+  '¿Hacen instalación de la batería? ¿Cuánto demora?',
+  'Mi cargador Lenovo dejó de funcionar, ¿tienen uno de 65W?',
+  'Compré una pantalla hace una semana y viene con una línea, quiero un reclamo',
+];
+
+// Estado de la página
+const E = { cfg: null, resumen: null, ejemplos: [], horario: [], editandoId: null, origenEditor: 'manual', chat: [], probando: false, esAdmin: false };
+
+async function api(recurso, { method = 'GET', body = null, query = '' } = {}){
+  const res = await fetch('/api/negocio?recurso=' + recurso + query, {
+    method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined,
+  });
+  let d = {};
+  try{ d = await res.json(); }catch(_){ /* respuesta sin JSON */ }
+  if(!res.ok || d.error) throw new Error(d.error || d.detail || ('Error ' + res.status));
+  return d;
+}
+
+async function cargarSesionUsuario(){
+  try{
+    const res = await fetch('/api/auth-session');
+    if(!res.ok) return;
+    const u = await res.json();
+    $('userBox').innerHTML = `<span>Hola, <b>${esc(u.nombre || u.email)}</b></span>`;
+    if(u.rol === 'admin'){ const nav = $('navUsuarios'); if(nav) nav.style.display = ''; }
+    if(typeof aplicarRestriccionesUsuario === 'function') aplicarRestriccionesUsuario(u.rol);
+    if(typeof aplicarRestriccionPaginas === 'function') aplicarRestriccionPaginas(u.paginas);
+  }catch(err){ /* silencioso */ }
+}
+async function cerrarSesion(){
+  await fetch('/api/auth-session', { method: 'DELETE' });
+  location.href = '/login.html';
+}
+
+// ---------- Pestañas ----------
+function mostrarTab(nombre){
+  if(!['probador', 'preguntas', 'configuracion', 'rendimiento'].includes(nombre)) nombre = 'probador';
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('visible', p.id === 'tab-' + nombre));
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === nombre));
+  try{ history.replaceState(null, '', '#' + nombre); }catch(_){ /* sin historial */ }
+}
+
+// ---------- Carga ----------
+async function cargarTodo(){
+  const dias = $('selDias').value;
+  $('avisos').innerHTML = '';
+  try{
+    const [cfg, resumen, ej] = await Promise.all([
+      api('whatsapp-bot-config'),
+      api('whatsapp-bot-resumen', { query: '&dias=' + encodeURIComponent(dias) }).catch(() => null),
+      api('whatsapp-bot-ejemplos'),
+    ]);
+    E.cfg = cfg; E.resumen = resumen; E.ejemplos = ej.ejemplos || []; E.esAdmin = !!cfg.esAdmin;
+    E.horario = JSON.parse(JSON.stringify(cfg.horario));
+    renderAvisos(); renderKpis(); renderConfig(); renderEjemplos(); renderRendimiento(); renderChat();
+  }catch(err){
+    $('avisos').innerHTML = `<div class="note-box err">No se pudo cargar el panel del bot: ${esc(err.message)}</div>`;
+  }
+}
+
+function renderAvisos(){
+  const a = [];
+  if(!E.cfg.apiKeyConfigurada) a.push('<b>Falta la GEMINI_API_KEY</b> en el servidor: sin ella el bot no puede redactar ni se puede probar.');
+  if(E.cfg.modo === 'apagado') a.push('El bot está <b>apagado</b>: no prepara borradores (el probador sí funciona).');
+  if(!E.esAdmin) a.push('Puedes probar el bot y crear o corregir preguntas modelo. La configuración la cambia un administrador.');
+  $('avisos').innerHTML = a.length ? `<div class="note-box warn">${a.join('<br>')}</div>` : '';
+}
+
+function kpi(lbl, big, nota){ return `<div class="kpi"><div class="lbl">${esc(lbl)}</div><div class="big">${big}</div><div class="nota">${nota || ''}</div></div>`; }
+function renderKpis(){
+  const c = E.cfg, r = E.resumen;
+  $('kpis').innerHTML = [
+    kpi('Ahora atiende', c.ahoraAtiendeBot ? 'Bot' : 'Equipo', c.ahoraAtiendeBot ? 'dentro del horario del bot' : 'fuera del horario del bot'),
+    kpi('Modo', c.modo === 'apagado' ? 'Apagado' : 'Sombra', c.modo === 'apagado' ? 'no prepara borradores' : 'redacta; nada se envía solo'),
+    kpi('Preguntas modelo', r ? fmtNum(r.ejemplosActivos) : fmtNum(E.ejemplos.filter(e => e.activo).length), r ? `${fmtNum(r.ejemplosTotal)} en total` : 'activas'),
+    kpi('Saludo de bienvenida', c.saludo.activo ? 'Activo' : 'Apagado', c.saludo.activo ? (c.saludo.cuando === 'siempre' ? 'siempre' : 'solo fuera de horario') : 'configurable abajo'),
+    r ? kpi('Se usan tal cual', pctTxt(r.pctUsadosTalCual), `de ${fmtNum(r.decididos)} decididos · ${r.dias} días`) : '',
+    r ? kpi('Por preparar', fmtNum(r.porPreparar), 'mensajes del bot sin borrador (24 h)') : '',
+  ].join('');
+}
+
+// ---------- Probador ----------
+function renderChat(){
+  const chat = $('chat');
+  if(!E.chat.length){
+    chat.innerHTML = '<div class="chat-vacio">Aún no hay mensajes. Escribe abajo o elige una idea para empezar.</div>';
+    return;
+  }
+  chat.innerHTML = E.chat.map((m, i) => {
+    if(m.rol === 'cliente') return `<div class="burbuja cliente"><small>Cliente</small>${esc(m.texto)}</div>`;
+    const x = m.meta || {};
+    const conf = { alta: 'verde', media: 'ambar', baja: 'rojo' }[x.confianza] || 'gris';
+    const sin = x.escalar || x.confianza !== 'alta' || (x.alertas || []).length;
+    const prods = (x.productos || []).slice(0, 5).map(p => `<li>${esc(p.titulo)} — ${p.precio == null ? 'sin precio' : '$' + fmtNum(p.precio)} · stock ${esc(p.stock)}${p.publicado ? '' : ' · no publicado'}</li>`).join('');
+    const sim = x.simulacion || {};
+    return `<div class="burbuja bot"><small>Bot</small>${esc(m.texto)}</div>
+      <div class="meta-bot">
+        <div class="fila">
+          <span class="badge ${conf}">Confianza ${esc(x.confianza || '—')}</span>
+          ${x.escalar ? '<span class="badge rojo">Pide ejecutivo</span>' : '<span class="badge verde">Sin pedir ejecutivo</span>'}
+          ${sim.saludoAplicado ? '<span class="badge azul">Con saludo de bienvenida</span>' : ''}
+          ${sim.preguntasModeloUsadas ? `<span class="badge gris">${fmtNum(sim.preguntasModeloUsadas)} preguntas modelo en juego</span>` : ''}
+        </div>
+        ${x.motivo ? `<div><b>Motivo:</b> ${esc(x.motivo)}</div>` : ''}
+        ${(x.alertas || []).length ? `<div><b>Revisión automática:</b><ul>${x.alertas.map(a => `<li>${esc(a)}</li>`).join('')}</ul></div>` : ''}
+        ${x.resumen ? `<div><b>Resumen para el ejecutivo:</b> ${esc(x.resumen)}</div>` : ''}
+        ${prods ? `<div><b>Productos que consultó:</b><ul>${prods}</ul></div>` : ''}
+        ${sin ? '<div class="desde" style="margin-top:4px;">Con esta confianza o estas alertas, el bot no enviaría la respuesta solo: quedaría como borrador pendiente y avisaría a un ejecutivo.</div>' : ''}
+        <div class="acciones" style="margin-top:6px;">
+          <button type="button" class="btn-ghost btn-compact" onclick="guardarComoModelo(${i})">📚 Guardar como respuesta modelo</button>
+          <span class="desde" style="align-self:center;">${fmtNum(x.tokens)} tokens · ${esc(x.modelo || '')} · simulado ${sim.dentroDelHorarioDelBot ? 'dentro' : 'fuera'} del horario del bot</span>
+        </div>
+      </div>`;
+  }).join('');
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function enviarPrueba(){
+  if(E.probando) return;
+  const txt = $('pruebaTexto').value.trim();
+  if(!txt) return;
+  E.chat.push({ rol: 'cliente', texto: txt });
+  $('pruebaTexto').value = '';
+  renderChat();
+  E.probando = true; $('btnProbar').disabled = true;
+  $('pruebaMsg').textContent = 'El bot está pensando… (puede tardar hasta 30 segundos)';
+  try{
+    const d = await api('whatsapp-bot-probar', {
+      method: 'POST',
+      body: { mensajes: E.chat.map(m => ({ rol: m.rol, texto: m.texto })), contexto: $('pruebaContexto').value === 'ahora' ? 'ahora' : 'fuera' },
+    });
+    E.chat.push({ rol: 'bot', texto: d.propuesta.texto, meta: { ...d.propuesta, productos: d.productos, simulacion: d.simulacion, tokens: (d.tokensEntrada || 0) + (d.tokensSalida || 0), modelo: d.modelo } });
+    $('pruebaMsg').textContent = '';
+  }catch(err){
+    E.chat.pop(); $('pruebaTexto').value = txt;
+    $('pruebaMsg').innerHTML = `<span style="color:var(--red)">${esc(err.message)}</span>`;
+  }finally{
+    E.probando = false; $('btnProbar').disabled = false; renderChat();
+  }
+}
+function nuevaPrueba(){ E.chat = []; $('pruebaMsg').textContent = ''; renderChat(); $('pruebaTexto').focus(); }
+function guardarComoModelo(i){
+  const bot = E.chat[i]; if(!bot) return;
+  const previos = [];
+  for(let k = i - 1; k >= 0 && E.chat[k].rol === 'cliente'; k--) previos.unshift(E.chat[k].texto);
+  mostrarTab('preguntas');
+  abrirEditor({ pregunta: previos.join(' / ').slice(0, 300), respuesta: bot.texto.slice(0, 900), origen: 'probador' });
+}
+
+// ---------- Preguntas y respuestas ----------
+const ORIGEN_TXT = { manual: 'A mano', probador: 'Del probador', correccion: 'De una corrección' };
+function renderEjemplos(){
+  const q = $('buscarEjemplo').value.trim().toLowerCase();
+  const verInactivas = $('verInactivas').checked;
+  const lista = E.ejemplos.filter(e => (verInactivas || e.activo) && (!q || `${e.pregunta} ${e.respuesta} ${e.etiquetas}`.toLowerCase().includes(q)));
+  const estado = $('ejemplosEstado');
+  if(!E.ejemplos.length){ estado.style.display = ''; estado.textContent = 'Todavía no hay preguntas modelo. Crea la primera con «➕ Nueva» o desde una prueba del bot.'; }
+  else if(!lista.length){ estado.style.display = ''; estado.textContent = 'Ninguna coincide con la búsqueda.'; }
+  else estado.style.display = 'none';
+  $('tEjemplos').innerHTML = lista.length ? `<thead><tr><th>Estado</th><th>Pregunta del cliente</th><th>Respuesta del bot</th><th>Etiquetas</th><th>Origen</th><th>Última edición</th><th data-sin-orden>Acciones</th></tr></thead><tbody>${lista.map(e => `
+    <tr class="${e.activo ? '' : 'fila-off'}">
+      <td data-valor="${e.activo ? 1 : 0}"><span class="badge ${e.activo ? 'verde' : 'gris'}">${e.activo ? 'Activa' : 'Desactivada'}</span></td>
+      <td class="preg">${esc(e.pregunta)}</td>
+      <td class="resp">${esc(e.respuesta)}</td>
+      <td>${esc(e.etiquetas)}</td>
+      <td>${esc(ORIGEN_TXT[e.origen] || e.origen)}</td>
+      <td data-valor="${esc(e.actualizadoEn)}"><small>${esc(e.actualizadoPor || '—')}<br>${esc(fmtFechaHora(e.actualizadoEn))}</small></td>
+      <td><div class="acciones">
+        <button type="button" class="btn-ghost btn-compact" onclick="editarEjemplo(${Number(e.id)})">✏️ Editar</button>
+        <button type="button" class="btn-ghost btn-compact" onclick="activarEjemplo(${Number(e.id)}, ${e.activo ? 'false' : 'true'})">${e.activo ? 'Desactivar' : 'Activar'}</button>
+        ${E.esAdmin ? `<button type="button" class="btn-ghost btn-compact btn-danger" onclick="borrarEjemplo(${Number(e.id)})">🗑</button>` : ''}
+      </div></td>
+    </tr>`).join('')}</tbody>` : '';
+}
+function actualizarContadores(){
+  const set = (idCnt, idCampo, max) => { const n = $(idCampo).value.length; const c = $(idCnt); c.textContent = `${n} de ${max}`; c.classList.toggle('pasado', n > max); };
+  set('cntPregunta', 'edPregunta', 300); set('cntRespuesta', 'edRespuesta', 900);
+  set('cntSaludo', 'cfgSaludoTexto', 500); set('cntTono', 'cfgTono', 600); set('cntReglas', 'cfgReglas', 3000); set('cntConocimiento', 'cfgConocimiento', 8000);
+}
+function abrirEditor(d = {}){
+  E.editandoId = d.id || null; E.origenEditor = d.origen || 'manual';
+  $('editorTitulo').textContent = E.editandoId ? 'Corregir pregunta modelo' : 'Nueva pregunta modelo';
+  $('edPregunta').value = d.pregunta || ''; $('edRespuesta').value = d.respuesta || ''; $('edEtiquetas').value = d.etiquetas || '';
+  $('edMsg').textContent = '';
+  $('editor').classList.remove('oculto');
+  actualizarContadores();
+  $('edPregunta').focus();
+  $('editor').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function cerrarEditor(){ $('editor').classList.add('oculto'); E.editandoId = null; }
+function editarEjemplo(id){
+  const e = E.ejemplos.find(x => x.id === id); if(!e) return;
+  abrirEditor({ id: e.id, pregunta: e.pregunta, respuesta: e.respuesta, etiquetas: e.etiquetas, origen: e.origen });
+}
+async function guardarEjemplo(){
+  const btn = $('btnGuardarEjemplo'), msg = $('edMsg');
+  btn.disabled = true; msg.textContent = 'Guardando…';
+  try{
+    const d = await api('whatsapp-bot-ejemplos', { method: 'POST', body: {
+      accion: E.editandoId ? 'actualizar' : 'crear', id: E.editandoId, pregunta: $('edPregunta').value, respuesta: $('edRespuesta').value,
+      etiquetas: $('edEtiquetas').value, origen: E.origenEditor,
+    } });
+    E.ejemplos = d.ejemplos; cerrarEditor(); renderEjemplos(); renderKpis();
+  }catch(err){ msg.innerHTML = `<span style="color:var(--red)">${esc(err.message)}</span>`; }
+  finally{ btn.disabled = false; }
+}
+async function activarEjemplo(id, activo){
+  try{ const d = await api('whatsapp-bot-ejemplos', { method: 'POST', body: { accion: 'activar', id, activo } }); E.ejemplos = d.ejemplos; renderEjemplos(); renderKpis(); }
+  catch(err){ alert(err.message); }
+}
+async function borrarEjemplo(id){
+  if(!confirm('¿Borrar esta pregunta modelo? No se puede deshacer (también puedes desactivarla).')) return;
+  try{ const d = await api('whatsapp-bot-ejemplos', { method: 'POST', body: { accion: 'eliminar', id } }); E.ejemplos = d.ejemplos; renderEjemplos(); renderKpis(); }
+  catch(err){ alert(err.message); }
+}
+
+// ---------- Configuración ----------
+function lineasHuecos(huecos){
+  const grupos = new Map(), lineas = [];
+  for(const h of huecos){
+    if(h.desdeDia === h.hastaDia){ const k = `${h.desde}|${h.hasta}`; if(!grupos.has(k)) grupos.set(k, { h, dias: [] }); grupos.get(k).dias.push(DIA_LARGO[h.desdeDia]); }
+    else lineas.push(`${DIA_LARGO[h.desdeDia]} ${h.desde} → ${DIA_LARGO[h.hastaDia]} ${h.hasta} (${String(h.horas).replace('.', ',')} h)`);
+  }
+  for(const g of grupos.values()){
+    const d = g.dias.length > 1 ? g.dias.slice(0, -1).join(', ') + ' y ' + g.dias[g.dias.length - 1] : g.dias[0];
+    lineas.unshift(`${d} ${g.h.desde} → ${g.h.hasta} (${String(g.h.horas).replace('.', ',')} h)`);
+  }
+  return lineas;
+}
+function renderHorario(){
+  const dis = E.esAdmin ? '' : 'disabled';
+  $('cfgHorario').innerHTML = E.horario.map((v, i) => `
+    <div class="ventana">
+      ${DIAS_ORDEN.map(d => `<label><input type="checkbox" ${v.dias.includes(d) ? 'checked' : ''} ${dis} onchange="toggleDia(${i}, ${d})">${DIA_CORTO[d]}</label>`).join('')}
+      <span class="esp"></span>
+      <label>desde <input type="time" value="${esc(v.desde)}" ${dis} onchange="cambiarHora(${i}, 'desde', this.value)"></label>
+      <label>hasta <input type="time" value="${esc(v.hasta)}" ${dis} onchange="cambiarHora(${i}, 'hasta', this.value)"></label>
+      ${E.esAdmin && E.horario.length > 1 ? `<button type="button" class="btn-ghost btn-compact" title="Quitar ventana" onclick="quitarVentana(${i})">🗑</button>` : ''}
+    </div>`).join('');
+}
+function toggleDia(i, d){ const v = E.horario[i]; v.dias = v.dias.includes(d) ? v.dias.filter(x => x !== d) : [...v.dias, d].sort(); }
+function cambiarHora(i, campo, valor){ E.horario[i][campo] = valor; }
+function quitarVentana(i){ E.horario.splice(i, 1); renderHorario(); }
+function agregarVentana(){ E.horario.push({ dias: [1, 2, 3, 4, 5], desde: '20:00', hasta: '08:00' }); renderHorario(); }
+
+function renderConfig(){
+  const c = E.cfg, dis = !E.esAdmin;
+  $('cfgBadgeModo').innerHTML = c.modo === 'apagado' ? '<span class="badge rojo">apagado</span>' : '<span class="badge verde">modo sombra</span>';
+  $('cfgModo').value = c.modo;
+  $('cfgSaludoActivo').checked = c.saludo.activo; $('cfgSaludoCuando').value = c.saludo.cuando; $('cfgSaludoTexto').value = c.saludo.texto;
+  $('cfgTono').value = c.tono; $('cfgReglas').value = c.reglasExtra; $('cfgConocimiento').value = c.conocimiento;
+  $('reglasBase').textContent = c.reglasBase;
+  ['cfgModo', 'cfgSaludoActivo', 'cfgSaludoCuando', 'cfgSaludoTexto', 'cfgTono', 'cfgReglas', 'cfgConocimiento', 'btnAgregarVentana', 'btnSaludoDefecto', 'btnConocimientoDefecto'].forEach(id => { $(id).disabled = dis; });
+  $('cfgGuardarFila').style.display = E.esAdmin ? '' : 'none';
+  $('cfgHorarioAcciones').style.display = E.esAdmin ? '' : 'none';
+  $('cfgAviso').innerHTML = dis ? '<div class="note-box">Solo un administrador puede cambiar esta configuración. Puedes revisarla.</div>' : '';
+  $('cfgHuecos').innerHTML = c.huecos && c.huecos.length ? `<div class="huecos">Tramos en que el bot <b>no</b> atiende (hay equipo, o nadie):<br>${lineasHuecos(c.huecos).map(t => '• ' + esc(t)).join('<br>')}</div>` : '';
+  renderHorario(); actualizarContadores();
+}
+async function guardarConfig(){
+  const btn = $('btnGuardarCfg'), msg = $('cfgMsg');
+  btn.disabled = true; msg.textContent = 'Guardando…';
+  try{
+    await api('whatsapp-bot-config', { method: 'POST', body: {
+      modo: $('cfgModo').value, horario: E.horario, conocimiento: $('cfgConocimiento').value, tono: $('cfgTono').value, reglasExtra: $('cfgReglas').value,
+      saludo: { activo: $('cfgSaludoActivo').checked, cuando: $('cfgSaludoCuando').value, texto: $('cfgSaludoTexto').value },
+    } });
+    await cargarTodo();
+    $('cfgMsg').textContent = '✓ Guardado';
+  }catch(err){ msg.innerHTML = `<span style="color:var(--red)">${esc(err.message)}</span>`; }
+  finally{ btn.disabled = !E.esAdmin; }
+}
+
+// ---------- Rendimiento ----------
+function renderRendimiento(){
+  const r = E.resumen;
+  if(!r){ $('rendSub').textContent = 'No se pudo leer el rendimiento ahora.'; $('rendKpis').innerHTML = ''; $('tMotivos').innerHTML = ''; $('tAlertas').innerHTML = ''; return; }
+  $('rendSub').textContent = `Últimos ${r.dias} días. Un borrador "se usa tal cual" cuando el ejecutivo lo envía sin cambiarlo.`;
+  $('rendKpis').innerHTML = [
+    kpi('Borradores', fmtNum(r.total), `${fmtNum(r.escalados)} piden ejecutivo`),
+    kpi('Tal cual', pctTxt(r.pctUsadosTalCual), `de ${fmtNum(r.decididos)} decididos`),
+    kpi('Editados', pctTxt(r.pctUsadosEditados), 'enviados con cambios'),
+    kpi('Descartados', pctTxt(r.pctDescartados), 'no sirvieron'),
+    kpi('Confianza alta', fmtNum(r.alta), `${fmtNum(r.media)} media · ${fmtNum(r.baja)} baja`),
+    kpi('Tokens por borrador', fmtNum((r.tokens_entrada_prom || 0) + (r.tokens_salida_prom || 0)), esc(E.cfg.modelo)),
+  ].join('');
+  const tabla = (el, filas, col) => { $(el).innerHTML = filas && filas.length ? `<thead><tr><th>${col}</th><th>Veces</th></tr></thead><tbody>${filas.map(f => `<tr><td>${esc(f.motivo || f.alerta)}</td><td>${fmtNum(f.n)}</td></tr>`).join('')}</tbody>` : '<tbody><tr><td class="empty-note">Sin datos en el período.</td></tr></tbody>'; };
+  tabla('tMotivos', r.motivosEscalamiento, 'Motivo'); tabla('tAlertas', r.alertasRevision, 'Revisión');
+}
+
+// ---------- Eventos ----------
+document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => mostrarTab(b.dataset.tab)));
+$('btnActualizar').addEventListener('click', cargarTodo);
+$('selDias').addEventListener('change', cargarTodo);
+$('btnProbar').addEventListener('click', enviarPrueba);
+$('btnNuevaPrueba').addEventListener('click', nuevaPrueba);
+$('pruebaTexto').addEventListener('keydown', e => { if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); enviarPrueba(); } });
+$('ideas').innerHTML = IDEAS.map((t, i) => `<button type="button" class="idea" data-i="${i}">${esc(t)}</button>`).join('');
+$('ideas').addEventListener('click', e => { const b = e.target.closest('.idea'); if(b){ $('pruebaTexto').value = IDEAS[Number(b.dataset.i)]; $('pruebaTexto').focus(); } });
+$('btnNuevoEjemplo').addEventListener('click', () => abrirEditor());
+$('btnCancelarEjemplo').addEventListener('click', cerrarEditor);
+$('btnGuardarEjemplo').addEventListener('click', guardarEjemplo);
+$('buscarEjemplo').addEventListener('input', renderEjemplos);
+$('verInactivas').addEventListener('change', renderEjemplos);
+$('btnAgregarVentana').addEventListener('click', agregarVentana);
+$('btnGuardarCfg').addEventListener('click', guardarConfig);
+$('btnSaludoDefecto').addEventListener('click', () => { if(E.cfg){ $('cfgSaludoTexto').value = E.cfg.saludoDefecto; actualizarContadores(); } });
+$('btnConocimientoDefecto').addEventListener('click', () => {
+  if(E.cfg && confirm('¿Reemplazar el texto por el inicial? Se pierden los cambios que no hayas guardado.')){ $('cfgConocimiento').value = E.cfg.conocimientoDefecto; actualizarContadores(); }
+});
+['edPregunta', 'edRespuesta', 'cfgSaludoTexto', 'cfgTono', 'cfgReglas', 'cfgConocimiento'].forEach(id => $(id).addEventListener('input', actualizarContadores));
+
+mostrarTab((location.hash || '').replace('#', '') || 'probador');
+cargarSesionUsuario();
+cargarTodo();
+</script>
+</body>
+</html>

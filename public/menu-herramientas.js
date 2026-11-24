@@ -64,6 +64,21 @@ document.addEventListener('DOMContentLoaded', () => {
   if(activo && activo.scrollIntoView) activo.scrollIntoView({ block:'nearest', inline:'center' });
 });
 
+// Enlace "Bot WhatsApp" (entrenamiento y pruebas) en el desplegable Comercial, junto a WhatsApp. Se agrega acá, una sola vez, y no en el nav de
+// cada página. Corre antes de que la página aplique los permisos del perfil (aplicarRestriccionPaginas), que lo oculta a quien no tenga la página.
+function agregarEnlaceBotWhatsapp(){
+  const comercial = document.getElementById('navComercial');
+  if(!comercial || comercial.querySelector('a[href="bot-whatsapp.html"]')) return;
+  const wa = comercial.querySelector('a[href="clientes-whatsapp.html"]');
+  if(!wa) return;
+  const a = document.createElement('a');
+  a.href = 'bot-whatsapp.html';
+  a.textContent = 'Bot WhatsApp';
+  if(/bot-whatsapp\.html$/.test(location.pathname)){ a.classList.add('active'); wa.classList.remove('active'); }
+  wa.insertAdjacentElement('afterend', a);
+}
+if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', agregarEnlaceBotWhatsapp); else agregarEnlaceBotWhatsapp();
+
 // "Actualizaciones ERP" (resumen de hoy y cambios) es solo para administradores,
 // igual que el acceso a Usuarios: cada página muestra #navUsuarios cuando la
 // sesión es admin, y este enlace lo acompaña sin tocar el código de cada página.
