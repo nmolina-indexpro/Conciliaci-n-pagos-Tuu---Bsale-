@@ -1,0 +1,207 @@
+[
+  {
+    "pregunta": "Hola, necesito un cargador para mi notebook HP 240 G6",
+    "respuesta": "¡Hola! Veo que necesitas un cargador para tu HP 240 G6.\n\nTrabajamos con cargadores originales y alternativos de alta calidad, según el modelo, y puedes probarlo en nuestra tienda sin costo ni compromiso. Estamos a pasos del Metro Pedro de Valdivia y enviamos a todo Chile.\n\n¿Prefieres probarlo en tienda o necesitas envío?",
+    "etiquetas": "cargador, consulta inicial, probar en tienda"
+  },
+  {
+    "pregunta": "Necesito un cargador pero no sé cuál comprar",
+    "respuesta": "Te ayudo a elegir el correcto. En los cargadores importan el modelo del notebook, el voltaje, el amperaje y el tipo de punta, y no todos de una misma marca sirven.\n\n¿Me envías el modelo exacto de tu notebook o una foto de la etiqueta de tu cargador original?",
+    "etiquetas": "cargador, compatibilidad, etiqueta, voltaje"
+  },
+  {
+    "pregunta": "¿Qué pasa si uso un cargador con otro voltaje?",
+    "respuesta": "Un cargador con voltaje o amperaje distinto puede dañar la batería o la placa del notebook. Por eso validamos la compatibilidad antes de ofrecerte uno.\n\n¿Me envías el modelo de tu notebook o una foto de la etiqueta del cargador original?",
+    "etiquetas": "cargador, voltaje, amperaje, daño"
+  },
+  {
+    "pregunta": "¿Puedo probar el cargador antes de llevármelo?",
+    "respuesta": "Sí, puedes probarlo en tu equipo en nuestra tienda, sin costo ni compromiso de compra. Estamos en La Concepción 81, Of. 1904, Providencia, a pasos del Metro Pedro de Valdivia.\n\n¿Qué día te acomoda venir?",
+    "etiquetas": "cargador, probar, tienda, sin compromiso"
+  },
+  {
+    "pregunta": "Necesito cambiar la batería de mi notebook Lenovo",
+    "respuesta": "¡Hola! Podemos ayudarte con la batería de tu Lenovo y también con la instalación.\n\nPara validar la compatibilidad, ¿me envías el modelo exacto de tu notebook o una foto de la etiqueta de la batería?",
+    "etiquetas": "batería, lenovo, consulta inicial, instalación"
+  },
+  {
+    "pregunta": "Mi batería está hinchada",
+    "respuesta": "Gracias por avisar, es importante actuar con cuidado. Te recomiendo dejar de usar y de cargar el notebook, y no manipular ni presionar la batería.\n\nLo mejor es que la evalúe un técnico. ¿Me indicas la marca y el modelo del equipo para orientarte con la revisión?",
+    "etiquetas": "batería hinchada, seguridad, evaluación técnica"
+  },
+  {
+    "pregunta": "Mi notebook no carga, ¿será la batería?",
+    "respuesta": "Puede ser la batería, pero también el cargador o la parte electrónica del equipo, así que no conviene asumirlo sin revisarlo.\n\n¿Me cuentas la marca y el modelo del notebook y si el cargador enciende alguna luz al conectarlo?",
+    "etiquetas": "no carga, batería, cargador, diagnóstico"
+  },
+  {
+    "pregunta": "¿Instalan la batería si la compro con ustedes?",
+    "respuesta": "Sí, la instalamos en el momento y, si la batería la compras con nosotros, la instalación tiene descuento. Si la compraste en otro lugar también la instalamos, pero con el valor completo del servicio. En MacBook con batería pegada puede tardar entre 24 y 72 horas.\n\n¿Necesitas solo la batería o prefieres que hagamos el cambio en tienda?",
+    "etiquetas": "batería, instalación, macbook, descuento"
+  },
+  {
+    "pregunta": "¿Cuánto dura una batería nueva?",
+    "respuesta": "En promedio, una batería nueva dura entre 1 y 2 años, según el uso. Las baterías son consumibles y se desgastan con el tiempo.\n\n¿Para qué modelo de notebook la estás buscando?",
+    "etiquetas": "batería, duración, desgaste"
+  },
+  {
+    "pregunta": "Necesito una pantalla para un HP 240 G6",
+    "respuesta": "¡Hola! Veo que necesitas una pantalla para tu HP 240 G6.\n\nUn mismo modelo puede llevar distintas versiones (HD o Full HD, conector de 30 o 40 pines), así que valido la compatibilidad antes de ofrecerte una.\n\n¿Me envías el modelo exacto que aparece en la etiqueta del equipo o una foto de la pantalla actual?",
+    "etiquetas": "pantalla, hp, consulta inicial, compatibilidad, 30 pines, 40 pines"
+  },
+  {
+    "pregunta": "¿Las pantallas tienen garantía?",
+    "respuesta": "Sí. Las pantallas de notebook tienen 2 años de garantía por fallas de fábrica, como manchas o líneas que no se hayan producido por golpes, líquidos o manipulación. Las de segunda selección tienen 6 meses.\n\n¿Necesitas solo la pantalla o también la instalación?",
+    "etiquetas": "pantalla, garantía, 24 meses, segunda selección"
+  },
+  {
+    "pregunta": "Mi pantalla tiene líneas o manchas, ¿qué hago?",
+    "respuesta": "Cuando la pantalla tiene líneas o manchas, normalmente es daño del panel y requiere cambio de pantalla.\n\nPara confirmarlo y validar el modelo, ¿me envías la marca y modelo de tu notebook y una foto de la pantalla encendida?",
+    "etiquetas": "pantalla, líneas, manchas, panel, diagnóstico"
+  },
+  {
+    "pregunta": "¿Hacen el cambio de pantalla el mismo día?",
+    "respuesta": "Sí, en la mayoría de los casos hacemos el cambio de pantalla de notebook en el momento, de lunes a sábado, según la disponibilidad del modelo. Cambiar la pantalla no afecta tus archivos.\n\n¿Me confirmas el modelo exacto para revisar que lo tengamos?",
+    "etiquetas": "pantalla, instalación, mismo día, en el momento"
+  },
+  {
+    "pregunta": "Mi notebook gamer se calienta demasiado",
+    "respuesta": "Para equipos así contamos con limpieza interna avanzada, que incluye el sistema de refrigeración. El sobrecalentamiento puede venir del polvo, la pasta térmica o los ventiladores, y hay que evaluar el equipo antes de prometer un resultado.\n\n¿Me indicas la marca y el modelo para orientarte con el servicio que corresponde?",
+    "etiquetas": "limpieza, gamer, sobrecalentamiento, pasta térmica, mantenimiento"
+  },
+  {
+    "pregunta": "Mi notebook hace mucho ruido y se apaga solo, ¿una limpieza lo arregla?",
+    "respuesta": "Ruido de ventilador y apagados suelen deberse al polvo o a la pasta térmica, y una limpieza interna ayuda en muchos casos. No todas las fallas se solucionan solo con limpieza, por eso conviene revisar el equipo.\n\n¿Qué marca y modelo es, y cuánto tiempo lleva sin mantenimiento?",
+    "etiquetas": "limpieza, ventilador, apagados, mantenimiento preventivo"
+  },
+  {
+    "pregunta": "Se quebró una bisagra de mi notebook",
+    "respuesta": "Reparamos bisagras de notebook. Según el daño, puede bastar reparar los anclajes o puede ser necesario cambiar algún componente, como la carcasa.\n\n¿Me envías una foto del daño y el modelo del equipo?",
+    "etiquetas": "bisagra, reparación, anclaje, carcasa"
+  },
+  {
+    "pregunta": "Mi notebook no enciende",
+    "respuesta": "Para saber por qué no enciende hay que revisarlo en nuestro servicio técnico; puede ser el cargador, la batería o la parte electrónica.\n\n¿Me cuentas la marca y el modelo, y si pasó algo antes (golpe, líquido, corte de luz)? Con eso un técnico te orienta.",
+    "etiquetas": "no enciende, electrónica, servicio técnico, diagnóstico"
+  },
+  {
+    "pregunta": "¿Tiene costo el diagnóstico?",
+    "respuesta": "Sí, el diagnóstico tiene un costo de $15.000 y, si el equipo se repara con nosotros, se descuenta del valor de la reparación. Demora entre 2 y 7 días hábiles, según la disponibilidad de repuestos.\n\n¿Qué marca y modelo es tu notebook y qué falla presenta?",
+    "etiquetas": "diagnóstico, costo, servicio técnico"
+  },
+  {
+    "pregunta": "¿Tienen esa pantalla? No la veo en la web",
+    "respuesta": "Por ahora no manejamos ese modelo en nuestro catálogo, pero podemos consultar con nuestros proveedores si lo tienen disponible.\n\n¿Para cuándo lo necesitas? Si un proveedor nacional lo tiene, normalmente podría estar entre 1 y 3 días, y te avisamos apenas lo confirmemos.",
+    "etiquetas": "sin stock, a pedido, proveedor, no disponible"
+  },
+  {
+    "pregunta": "Necesito un repuesto que ustedes no venden",
+    "respuesta": "Cuéntame qué repuesto necesitas y podemos consultar con nuestros proveedores si se puede conseguir.\n\n¿Me indicas marca y modelo del equipo, el nombre o código del repuesto y para cuándo lo necesitas?",
+    "etiquetas": "a pedido, repuesto, proveedor, cotización"
+  },
+  {
+    "pregunta": "Está muy caro",
+    "respuesta": "Te entiendo. Más allá del precio, te cuento lo que incluye: garantía por fallas de fábrica, validación de compatibilidad antes de comprar y la opción de instalarlo con nosotros. En los cargadores puedes probarlo en tienda sin compromiso.\n\nSi quieres, también revisamos si hay un alternativo de alta calidad para tu modelo. ¿Te muestro esa opción?",
+    "etiquetas": "objeción, precio, caro, alternativo"
+  },
+  {
+    "pregunta": "Encontré uno más barato en otro lugar",
+    "respuesta": "Es válido comparar. Para que sea parejo, revisa que el producto sea para tu modelo exacto, que indique si es original o alternativo, y qué garantía tiene y quién responde si falla.\n\nSi me envías el enlace o el detalle de lo que encontraste, lo comparamos contigo. ¿Lo revisamos?",
+    "etiquetas": "objeción, competencia, más barato, comparar"
+  },
+  {
+    "pregunta": "¿Es original?",
+    "respuesta": "Trabajamos con productos originales y alternativos de alta calidad, según el modelo y la disponibilidad. En cada producto te indicamos cuál es, y un alternativo nunca se presenta como original.\n\n¿Para qué notebook lo necesitas y prefieres original o alternativo?",
+    "etiquetas": "original, alternativo, objeción"
+  },
+  {
+    "pregunta": "¿Qué diferencia hay con uno alternativo?",
+    "respuesta": "Un producto original lo fabrica la marca del notebook. Uno alternativo lo fabrica otra empresa para funcionar con tu equipo, normalmente a menor precio y con su propia garantía. En baterías y cargadores, nuestra marca Daxis es un alternativo de alta calidad, con garantía extendida de 12 meses. Lo importante es validar el modelo, el voltaje y la capacidad.\n\n¿Me envías el modelo de tu notebook para mostrarte las opciones que tenemos?",
+    "etiquetas": "original, alternativo, daxis, diferencia, precio"
+  },
+  {
+    "pregunta": "¿Hacen descuentos?",
+    "respuesta": "Por este medio no puedo ofrecerte descuentos: los precios son los publicados en la web. Si compras para tu empresa o en cantidad, un ejecutivo puede revisar una cotización.\n\n¿Lo necesitas para uso personal o para una empresa?",
+    "etiquetas": "descuento, objeción, empresa, cotización"
+  },
+  {
+    "pregunta": "¿Tienen despacho gratuito?",
+    "respuesta": "El retiro en tienda es gratis. También despachamos a todo Chile con Starken, Bluexpress u OTS; el costo del despacho te lo confirma un ejecutivo.\n\n¿Prefieres retiro en tienda o despacho?",
+    "etiquetas": "despacho, envío, retiro, gratis"
+  },
+  {
+    "pregunta": "¿Cuánto demora la instalación?",
+    "respuesta": "No te quiero prometer un tiempo exacto sin ver el equipo. En la mayoría de los casos, el cambio de pantalla de notebook lo hacemos en el momento, según la disponibilidad del modelo.\n\n¿Qué marca y modelo es tu notebook?",
+    "etiquetas": "instalación, tiempo, demora, en el momento"
+  },
+  {
+    "pregunta": "¿Puedo llevar mi notebook ahora?",
+    "respuesta": "Sí, puedes venir a La Concepción 81, Of. 1904, Providencia, a pasos del Metro Pedro de Valdivia. Atendemos de lunes a sábado: lunes y martes de 9:30 a 18:30, miércoles y jueves de 9:30 a 19:30, viernes de 9:30 a 17:30 y sábado de 10:00 a 14:00.\n\nPara revisar que tengamos el repuesto, ¿me indicas marca y modelo del equipo?",
+    "etiquetas": "tienda, horario, visita, dirección"
+  },
+  {
+    "pregunta": "¿Tienen estacionamiento?",
+    "respuesta": "Ese dato prefiero que te lo confirme un ejecutivo para no darte información incorrecta. Estamos en La Concepción 81, Of. 1904, Piso 19, Providencia, a pasos del Metro Pedro de Valdivia.\n\n¿Vienes en auto o prefieres que te enviemos el producto?",
+    "etiquetas": "estacionamiento, tienda, dato no confirmado, derivar"
+  },
+  {
+    "pregunta": "¿Puedo pagar con tarjeta?",
+    "respuesta": "Sí, aceptamos todos los medios de pago.\n\n¿Prefieres retirar y pagar en tienda o comprar por la web y que te lo enviemos?",
+    "etiquetas": "pago, tarjeta, medios de pago"
+  },
+  {
+    "pregunta": "¿Emiten factura?",
+    "respuesta": "Sí, emitimos boleta o factura. Si compras por la web, ingresa bien tus datos de facturación en el formulario: si quedan incorrectos, el sistema emite boleta automáticamente.\n\n¿La compra es para una empresa?",
+    "etiquetas": "factura, boleta, empresa, documento"
+  },
+  {
+    "pregunta": "¿Tienen stock?",
+    "respuesta": "Para confirmarte el stock necesito saber el modelo exacto: la disponibilidad depende de cada producto y no quiero darte información equivocada.\n\n¿Me indicas la marca y modelo de tu notebook?",
+    "etiquetas": "stock, disponibilidad, modelo exacto"
+  },
+  {
+    "pregunta": "¿Sirve para mi modelo?",
+    "respuesta": "Para asegurarlo hay que validar la compatibilidad con el modelo exacto, no solo con el tamaño o el nombre comercial del notebook.\n\n¿Me envías el modelo que aparece en la etiqueta del equipo o una foto?",
+    "etiquetas": "compatibilidad, modelo, validar"
+  },
+  {
+    "pregunta": "¿Qué pasa si no es compatible?",
+    "respuesta": "Por eso validamos la compatibilidad antes de comprar. Si compras en la web tienes 10 días corridos de derecho a retracto, y si compras en tienda sin poder confirmar la compatibilidad, también tienes 10 días corridos por cortesía. El producto debe volver sin uso, con el sello de IndexStore intacto y en su embalaje original.\n\n¿Me envías el modelo para dejarlo validado antes?",
+    "etiquetas": "compatibilidad, retracto, devolución, 10 días"
+  },
+  {
+    "pregunta": "¿Puedo devolverlo?",
+    "respuesta": "Sí, dentro de 10 días corridos desde que lo recibes (compras web). El producto debe volver sin uso, con el sello de IndexStore intacto y en su embalaje original completo; cada devolución se revisa caso a caso.\n\nPara iniciarla, debes ingresar un Ticket de Post-Venta en https://www.indexstore.cl/pages/postventa con tu número de orden, boleta o factura. Es el único canal para que no se pierda información.",
+    "etiquetas": "devolución, retracto, post-venta, ticket"
+  },
+  {
+    "pregunta": "Compré una pantalla y viene fallando, quiero hacer válida la garantía",
+    "respuesta": "Lamento el inconveniente. Para gestionar la garantía, ingresa un Ticket de Post-Venta en https://www.indexstore.cl/pages/postventa con tu número de orden, boleta o factura. Es el canal oficial y así el equipo ve todo en un solo lugar; te recomendamos no repetir el caso por otros medios.\n\nUn ejecutivo revisará tu caso.",
+    "etiquetas": "garantía, reclamo, post-venta, ticket, derivar"
+  },
+  {
+    "pregunta": "¿Puedo instalarlo yo?",
+    "respuesta": "Se puede, pero el cambio requiere cuidado con los conectores y los anclajes: si algo queda forzado o dañado en la instalación, la garantía no lo cubre. Si prefieres, lo instalamos nosotros en la tienda.\n\n¿Quieres que te lo instalemos?",
+    "etiquetas": "instalar yo, garantía, instalación, cuidado"
+  },
+  {
+    "pregunta": "Lo voy a pensar",
+    "respuesta": "Claro, tómate tu tiempo. Para que lo decidas tranquilo: si es un cargador puedes probarlo en la tienda sin compromiso y, si compras por la web, tienes 10 días corridos de retracto.\n\n¿Hay algo que te falte para decidir, como compatibilidad, garantía o tiempos de entrega?",
+    "etiquetas": "objeción, lo voy a pensar, retracto, indecisión"
+  },
+  {
+    "pregunta": "Te aviso después",
+    "respuesta": "Dale, sin apuro. Cuando quieras retomarlo, escríbenos con el modelo de tu notebook y seguimos desde donde quedamos.",
+    "etiquetas": "objeción, te aviso, cierre, sin presión"
+  },
+  {
+    "pregunta": "Voy a cotizar en otro lugar",
+    "respuesta": "Está bien, es buena idea comparar. Al hacerlo, fíjate en que el producto sea para tu modelo exacto, si es original o alternativo, la garantía y si incluye instalación. Nosotros validamos la compatibilidad antes de venderte y estamos a pasos del Metro Pedro de Valdivia.\n\nSi quieres, te dejo la información del modelo que buscas para que la compares. ¿Cuál es?",
+    "etiquetas": "objeción, cotizar en otro lugar, competencia, comparar"
+  },
+  {
+    "pregunta": "Soy técnico, ¿venden al por mayor?",
+    "respuesta": "Sí, atendemos a técnicos, servicios técnicos y empresas, con repuestos originales y de nuestra marca Daxis, y opciones de compra mayorista con envíos a todo Chile. Más información en https://www.indexstore.cl/pages/venta-empresa\n\n¿Qué productos necesitas y en qué cantidad aproximada? Un ejecutivo te prepara la cotización.",
+    "etiquetas": "empresa, técnico, mayorista, daxis, b2b, derivar"
+  }
+]

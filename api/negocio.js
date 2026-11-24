@@ -95,8 +95,9 @@ import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
 import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, detalleWaClics, numeroConectado as numeroConectadoWaAds, asegurarWaClicsAdsUnaVez as asegurarWaClicsAdsUnaVezWaAds, sqlOrigenGoogleAds, atribuirClics as atribuirClicsWaAds, borrarClicsDePrueba as borrarClicsDePruebaWaAds, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
-import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto, elegirPreguntasModelo, momentoDentroDeHorario, SALUDO_CUANDO, SALUDO_DEFECTO, LIMITES_BOT, REGLAS_NO_PROMETER } from '../lib/whatsapp-bot.js';
-import { asegurarTablaEjemplosBot, listarEjemplos, crearEjemplo, actualizarEjemplo, cambiarActivoEjemplo, eliminarEjemplo } from '../lib/whatsapp-bot-ejemplos.js';
+import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto, elegirPreguntasModelo, momentoDentroDeHorario, SALUDO_CUANDO, SALUDO_DEFECTO, LIMITES_BOT, REGLAS_NO_PROMETER, PROTOCOLO_COMERCIAL, revisarPropuesta, limpiarSaltosDeLinea } from '../lib/whatsapp-bot.js';
+import { asegurarTablaCandidatosBot, crearCandidatoCorreccion, crearCandidatoConversacion, listarCandidatos, resumenCandidatos, aprobarCandidato, rechazarCandidato, extraerIntercambio, anonimizarTexto, CATEGORIAS_KB, RIESGOS_CANDIDATO } from '../lib/whatsapp-bot-aprendizaje.js';
+import { asegurarTablaEjemplosBot, listarEjemplos, crearEjemplo, actualizarEjemplo, cambiarActivoEjemplo, eliminarEjemplo, importarEjemplos } from '../lib/whatsapp-bot-ejemplos.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
 import { configML, firmarEstado, verificarEstado, urlAutorizacion, asegurarTablaMercadoLibre, leerConexion, borrarConexion, conectarConCodigo, probarLectura, lectorML } from '../lib/mercadolibre.js';
 import { asegurarTablaCotizacionesEliminadas, eliminarCotizaciones, anularCotizacionesDuplicadas, listarEliminadas, MOTIVO_ANULADA_BSALE } from '../lib/cotizaciones-limpieza.js';
@@ -451,6 +452,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-bot-lote') return manejarWhatsappBotLote(req, res, sesion);
   if (recurso === 'whatsapp-bot-ejemplos') return manejarWhatsappBotEjemplos(req, res, sesion);
   if (recurso === 'whatsapp-bot-probar') return manejarWhatsappBotProbar(req, res, sesion);
+  if (recurso === 'whatsapp-bot-aprendizaje') return manejarWhatsappBotAprendizaje(req, res, sesion);
   if (recurso === 'whatsapp-analizar') return manejarWhatsappAnalizar(req, res, sesion);
   if (recurso === 'whatsapp-analizar-pendientes') return manejarWhatsappAnalizarPendientes(req, res, sesion);
   if (recurso === 'whatsapp-reanalizar-desactualizadas') return manejarWhatsappReanalizarDesactualizadas(req, res, sesion);
@@ -10129,11 +10131,15 @@ async function manejarWhatsappBotEstado(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaWhatsappBot(sql);
-    const { rows } = await sql`SELECT id, texto FROM whatsapp_bot_borradores WHERE id = ${id};`;
+    const { rows } = await sql`SELECT id, texto, conversacion_id, mensaje_cliente_id FROM whatsapp_bot_borradores WHERE id = ${id};`;
     if (!rows[0]) return res.status(404).json({ error: 'Borrador no encontrado' });
     const textoFinal = String(req.body?.textoFinal || '').trim().slice(0, 2000);
     const estado = accion === 'enviado' ? (mismoTexto(textoFinal, rows[0].texto) ? 'enviado_igual' : 'enviado_editado') : accion;
     await sql`UPDATE whatsapp_bot_borradores SET estado = ${estado}, texto_final = ${accion === 'enviado' ? textoFinal : null}, resuelto_por = ${sesion.nombre || sesion.email || null}, resuelto_en = now() WHERE id = ${id};`;
+    // Paso 2 (aprendizaje): un borrador que el ejecutivo corrigió antes de enviarlo queda como caso candidato (anonimizado) para revisar. Nunca debe romper el envío.
+    if (estado === 'enviado_editado') {
+      try { await registrarCorreccionBot(sql, rows[0], textoFinal); } catch (e) { console.warn('[bot-aprendizaje] no se pudo registrar la corrección', e.message); }
+    }
     return res.status(200).json({ ok: true, estado });
   } catch (err) {
     return res.status(500).json({ error: 'Error actualizando el borrador', detail: String(err) });
@@ -10286,6 +10292,12 @@ async function manejarWhatsappBotEjemplos(req, res, sesion) {
       const b = req.body || {};
       const accion = String(b.accion || (b.id ? 'actualizar' : 'crear'));
       let r;
+      if (accion === 'importar') {
+        if (!esAdmin) return res.status(403).json({ error: 'Solo un administrador puede importar ejemplos.' });
+        r = await importarEjemplos(sql, b.ejemplos, usuario);
+        if (!r.ok) return res.status(r.estado).json({ error: r.error });
+        return res.status(200).json({ ejemplos: await listarEjemplos(sql), esAdmin, resultado: r.resultado });
+      }
       if (accion === 'crear') r = await crearEjemplo(sql, b, usuario);
       else if (accion === 'actualizar') r = await actualizarEjemplo(sql, b.id, b, usuario);
       else if (accion === 'activar') r = await cambiarActivoEjemplo(sql, b.id, b.activo === true, usuario);
@@ -10335,6 +10347,178 @@ async function manejarWhatsappBotProbar(req, res, _sesion) {
     });
   } catch (err) {
     return res.status(500).json({ error: 'No se pudo probar el bot', detail: String(err.message || err).slice(0, 400) });
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// APRENDIZAJE DEL BOT (paso 2). Dos fuentes de casos candidatos que una persona revisa antes de que pasen a ser preguntas modelo:
+//  · correcciones: el ejecutivo editó el borrador del bot antes de enviarlo (se registran solas, ver manejarWhatsappBotEstado);
+//  · conversaciones reales: la IA analiza intercambios del historial (anonimizados) y propone respuesta optimizada, problema y regla.
+// Lógica pura, anonimización y tablas: lib/whatsapp-bot-aprendizaje.js. Nada llega al bot sin aprobación humana.
+// ══════════════════════════════════════════════════════════════════════
+
+// Un borrador del bot que el ejecutivo corrigió: se guarda anonimizado (lo que escribió el cliente, el borrador y el texto enviado).
+async function registrarCorreccionBot(sql, borrador, textoFinal) {
+  await asegurarTablaCandidatosBot(sql);
+  const { rows: contacto } = await sql`SELECT ct.nombre FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id WHERE c.id = ${borrador.conversacion_id};`;
+  const { rows: msgs } = borrador.mensaje_cliente_id
+    ? await sql`SELECT contenido_texto FROM whatsapp_mensajes WHERE conversacion_id = ${borrador.conversacion_id} AND direccion = 'in' AND COALESCE(contenido_texto, '') <> ''
+                AND marca_tiempo <= (SELECT marca_tiempo FROM whatsapp_mensajes WHERE id = ${borrador.mensaje_cliente_id}) ORDER BY marca_tiempo DESC LIMIT 3;`
+    : await sql`SELECT contenido_texto FROM whatsapp_mensajes WHERE conversacion_id = ${borrador.conversacion_id} AND direccion = 'in' AND COALESCE(contenido_texto, '') <> '' ORDER BY marca_tiempo DESC LIMIT 3;`;
+  const mensajeCliente = msgs.map(m => m.contenido_texto).reverse().join('\n');
+  await crearCandidatoCorreccion(sql, {
+    conversacionId: borrador.conversacion_id, borradorId: borrador.id, mensajeCliente, textoBot: borrador.texto, textoFinal,
+    nombres: [contacto[0]?.nombre],
+  });
+}
+
+const HERRAMIENTA_CASO = {
+  name: 'registrar_caso',
+  description: 'Registra el análisis del intercambio como caso de entrenamiento. Se llama una sola vez.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      util: { type: 'boolean', description: 'false si el intercambio no sirve para entrenar (saludo suelto, spam, tema ajeno a IndexStore, conversación personal, información insuficiente).' },
+      pregunta_generalizada: { type: 'string', description: 'Lo que pidió el cliente, reescrito en general y sin datos personales (conserva marca y modelo si ayudan). Máximo 300 caracteres.' },
+      respuesta_optimizada: { type: 'string', description: 'Cómo debería responder el asistente, con saltos de línea reales. Máximo 900 caracteres.' },
+      problema: { type: 'string', description: 'Qué hizo bien o mal la respuesta del ejecutivo y qué oportunidad comercial había. Máximo 300 caracteres.' },
+      regla: { type: 'string', description: 'Una instrucción generalizable para el asistente. Máximo 250 caracteres.' },
+      categoria: { type: 'string', enum: CATEGORIAS_KB, description: 'Módulo de la base de conocimiento al que pertenece el caso.' },
+      riesgo: { type: 'string', enum: RIESGOS_CANDIDATO, description: 'Qué tan grave sería equivocarse en este tipo de caso.' },
+    },
+    required: ['util'],
+  },
+};
+const HERRAMIENTA_CASO_GEMINI = { name: HERRAMIENTA_CASO.name, description: HERRAMIENTA_CASO.description, parameters: convertirSchemaAGemini(HERRAMIENTA_CASO.input_schema) };
+
+function construirSystemAnalisisCaso(conocimiento) {
+  return `Eres el analista de entrenamiento del asistente comercial de IndexStore. Recibes UN intercambio real de WhatsApp entre un cliente y un ejecutivo, ya anonimizado ([cliente], [teléfono], [enlace]…). Conviértelo en un caso de entrenamiento con la herramienta registrar_caso.
+
+REGLA DE ORO: la respuesta_optimizada solo puede afirmar lo que está en la BASE DE CONOCIMIENTO de abajo. NO escribas precios, stock, enlaces de productos, plazos ni garantías que no estén ahí: el asistente consulta el catálogo en vivo para precio, stock y enlace, así que no uses las cifras ni los enlaces de la conversación. Donde el ejecutivo dio un dato que no está en la base, la respuesta optimizada no lo repite y dice que se verifica. No copies datos personales.
+
+La respuesta_optimizada debe seguir este protocolo comercial:
+${PROTOCOLO_COMERCIAL}
+
+BASE DE CONOCIMIENTO:
+${conocimiento}`;
+}
+
+async function llamarGeminiCaso(system, prompt, apiKey) {
+  const r = await fetchConTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${modeloBot()}:generateContent`, {
+    method: 'POST', headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      tools: [{ function_declarations: [HERRAMIENTA_CASO_GEMINI] }],
+      tool_config: { function_calling_config: { mode: 'ANY', allowed_function_names: [HERRAMIENTA_CASO.name] } },
+      generationConfig: { maxOutputTokens: 4096 },
+    }),
+  }, 25000);
+  if (!r.ok) throw errorGemini(r.status, await r.text().catch(() => ''));
+  const d = await r.json();
+  const llamada = (d.candidates?.[0]?.content?.parts || []).find(p => p.functionCall);
+  if (!llamada) throw new Error('Gemini no devolvió el análisis del caso');
+  return llamada.functionCall.args || {};
+}
+
+// Analiza un intercambio real (ya anonimizado) y devuelve los campos del candidato. La revisión automática marca de riesgo alto lo que traiga precios o enlaces no respaldados.
+async function analizarCasoBot({ cfg, cliente, respuesta, apiKey, nombres }) {
+  const limpiar = (s, max) => anonimizarTexto(limpiarSaltosDeLinea(s), { nombres }).slice(0, max);
+  const a = await llamarGeminiCaso(
+    construirSystemAnalisisCaso(cfg.conocimiento),
+    `Mensaje del cliente:\n${cliente}\n\nRespuesta del ejecutivo:\n${respuesta}`,
+    apiKey
+  );
+  const util = a.util !== false && !!String(a.respuesta_optimizada || '').trim();
+  const propuesta = limpiar(a.respuesta_optimizada, 900);
+  const alertas = util ? revisarPropuesta({ texto: propuesta, productos: [], conocimiento: cfg.conocimiento }) : [];
+  return {
+    util, preguntaPropuesta: limpiar(a.pregunta_generalizada, 300) || cliente, respuestaPropuesta: propuesta,
+    problema: limpiar(a.problema, 300), regla: limpiar(a.regla, 250),
+    categoria: CATEGORIAS_KB.includes(a.categoria) ? a.categoria : 'otro',
+    riesgo: alertas.length ? 'alto' : (RIESGOS_CANDIDATO.includes(a.riesgo) ? a.riesgo : 'medio'), alertas,
+  };
+}
+
+// Conversaciones de los últimos 180 días con algo que enseñar y que aún no se analizaron: el cliente escribió algo con contenido y un ejecutivo respondió con
+// algo más que un saludo. Primero las que terminaron en venta, después las más recientes.
+const DONDE_POR_ANALIZAR = `c.iniciada_en > now() - interval '180 days' AND ct.es_demo = false
+  AND NOT EXISTS (SELECT 1 FROM whatsapp_bot_candidatos x WHERE x.conversacion_id = c.id AND x.tipo = 'conversacion')
+  AND EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'in' AND length(COALESCE(m.contenido_texto, '')) >= 15)
+  AND EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'out' AND length(COALESCE(m.contenido_texto, '')) >= 60)
+  AND NOT (c.id = ANY($1::int[]))`;
+async function contarPorAnalizar(sql, omitir = []) {
+  const { rows } = await sql.query(`SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id WHERE ${DONDE_POR_ANALIZAR};`, [omitir.map(Number).filter(Number.isInteger)]);
+  return rows[0].n;
+}
+
+// Procesa una tanda (cada llamada alcanza lo que pueda en ~28 s; el navegador repite y muestra el %).
+async function extraerCasosReales(sql, { lote = 6, omitir = [] } = {}) {
+  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) return { error: MENSAJES_ERROR_BOT.sin_api_key };
+  const cfg = await leerConfigBot(sql);
+  const ids = omitir.map(Number).filter(Number.isInteger);
+  const totalAntes = await contarPorAnalizar(sql, ids);
+  const { rows: candidatas } = await sql.query(
+    `SELECT c.id, ct.nombre FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id WHERE ${DONDE_POR_ANALIZAR}
+     ORDER BY c.venta_detectada DESC, c.iniciada_en DESC LIMIT $2;`, [ids, Math.min(10, Math.max(1, Number(lote) || 6))]);
+  const inicio = Date.now();
+  let propuestos = 0, descartados = 0;
+  const errores = [];
+  for (const c of candidatas) {
+    if (Date.now() - inicio > 28000) break;
+    try {
+      const { rows: msgs } = await sql`SELECT direccion, tipo, contenido_texto FROM whatsapp_mensajes WHERE conversacion_id = ${c.id} ORDER BY marca_tiempo ASC LIMIT 14;`;
+      const par = extraerIntercambio(msgs);
+      if (!par) {
+        await crearCandidatoConversacion(sql, { conversacionId: c.id, mensajeCliente: '(sin intercambio útil)', util: false });
+        descartados++; continue;
+      }
+      const nombres = [c.nombre];
+      const cliente = anonimizarTexto(par.cliente, { nombres }).slice(0, 1200);
+      const respuesta = anonimizarTexto(par.respuesta, { nombres }).slice(0, 1500);
+      const a = await analizarCasoBot({ cfg, cliente, respuesta, apiKey, nombres });
+      await crearCandidatoConversacion(sql, {
+        conversacionId: c.id, mensajeCliente: cliente, respuestaOriginal: respuesta, modeloIa: modeloBot(), ...a,
+      });
+      if (a.util) propuestos++; else descartados++;
+    } catch (err) { errores.push({ id: c.id, error: String(err.message || err).slice(0, 200) }); }
+  }
+  const procesadas = propuestos + descartados;
+  return { ok: true, totalAntes, propuestos, descartados, errores, procesadas, pendientes: Math.max(0, totalAntes - procesadas - errores.length) };
+}
+
+async function manejarWhatsappBotAprendizaje(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    await asegurarTablaCandidatosBot(sql);
+    await asegurarTablaEjemplosBot(sql);
+    const esAdmin = sesion.rol === 'admin';
+    const usuario = sesion.nombre || sesion.email || null;
+    if (req.method === 'POST') {
+      const b = req.body || {};
+      const accion = String(b.accion || '');
+      if (accion === 'aprobar') {
+        const r = await aprobarCandidato(sql, b.id, { pregunta: b.pregunta, respuesta: b.respuesta, etiquetas: b.etiquetas }, usuario);
+        if (!r.ok) return res.status(r.estado).json({ error: r.error });
+      } else if (accion === 'rechazar') {
+        const r = await rechazarCandidato(sql, b.id, usuario, b.nota);
+        if (!r.ok) return res.status(r.estado).json({ error: r.error });
+      } else if (accion === 'extraer') {
+        if (!esAdmin) return res.status(403).json({ error: 'Solo un administrador puede analizar conversaciones reales.' });
+        const r = await extraerCasosReales(sql, { omitir: Array.isArray(b.omitir) ? b.omitir : [] });
+        if (r.error) return res.status(200).json({ error: r.error });
+        return res.status(200).json(r);
+      } else return res.status(400).json({ error: 'Acción inválida.' });
+    } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const estado = String((req.method === 'POST' ? req.body?.estadoLista : req.query.estado) || 'pendiente');
+    const tipo = String((req.method === 'POST' ? req.body?.tipoLista : req.query.tipo) || '');
+    return res.status(200).json({
+      candidatos: await listarCandidatos(sql, { estado, tipo }), resumen: await resumenCandidatos(sql), porAnalizar: await contarPorAnalizar(sql), esAdmin,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error con el aprendizaje del bot', detail: String(err.message || err).slice(0, 400) });
   }
 }
 

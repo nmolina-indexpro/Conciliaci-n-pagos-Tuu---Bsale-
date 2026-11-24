@@ -121,6 +121,12 @@
   .huecos{background:var(--surface-2);border-radius:10px;padding:10px 12px;font-size:12px;margin-top:8px;}
   .editor{border:1.5px solid var(--primary);background:var(--primary-dim);border-radius:12px;padding:14px 16px;margin-bottom:16px;}
   .editor.oculto{display:none;}
+  /* Aprendizaje */
+  .caso{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;background:var(--surface);}
+  .caso-head{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;}
+  .caso-head a{font-size:12px;color:var(--primary-dark);}
+  .caja{background:var(--surface-2);border-radius:9px;padding:9px 11px;font-size:12.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word;}
+  .caso.resuelto{background:var(--surface-2);}
   @media (max-width:700px){ body{padding:16px 14px 40px;} .burbuja,.meta-bot{max-width:92%;} .chat-entrada{flex-direction:column;align-items:stretch;} }
 </style>
 <meta name="theme-color" content="#0F766E">
@@ -255,6 +261,7 @@
   <div class="tabs" id="tabs">
     <button type="button" class="btn-ghost" data-tab="probador">🧪 Probador</button>
     <button type="button" class="btn-ghost" data-tab="preguntas">📚 Preguntas y respuestas</button>
+    <button type="button" class="btn-ghost" data-tab="aprendizaje">🎓 Aprendizaje <span class="badge rojo" id="apPend" style="display:none;margin-left:4px;"></span></button>
     <button type="button" class="btn-ghost" data-tab="configuracion">⚙️ Configuración</button>
     <button type="button" class="btn-ghost" data-tab="rendimiento">📈 Rendimiento</button>
   </div>
@@ -294,9 +301,11 @@
           <div class="sub">Casos típicos con la respuesta que quieres que dé el bot. Las usa como guía de contenido y de estilo: si un cliente pregunta algo parecido, responde con eso adaptado. <b>Precio, stock y enlace de un producto siempre salen del catálogo</b>, no de acá. Cualquiera puede crear y corregir; borrar del todo es solo de administrador (puedes desactivarlas).</div>
         </div>
         <div class="filtros">
+          <button type="button" class="btn-ghost btn-compact" id="btnCargarCasos" style="display:none;" title="Carga los casos de entrenamiento iniciales (objeciones, cargadores, baterías, pantallas, servicios). Los que ya existan se omiten.">📥 Cargar casos iniciales</button>
           <button type="button" class="btn-primary btn-compact" id="btnNuevoEjemplo">➕ Nueva</button>
         </div>
       </div>
+      <div id="importMsg"></div>
 
       <div class="editor oculto" id="editor">
         <h2 id="editorTitulo">Nueva pregunta modelo</h2>
@@ -325,6 +334,36 @@
         <summary>¿Cómo las usa el bot?</summary>
         <div class="sub" style="margin-top:6px;">En cada respuesta, el bot recibe las preguntas modelo activas (si son muchas, las 8 más parecidas a lo que escribió el cliente). Si en una respuesta modelo escribes un precio o un enlace, el bot puede repetirlo; por eso conviene no poner precios de productos acá, solo condiciones generales (envíos, garantía, instalación, horarios).</div>
       </details>
+    </div>
+  </div>
+
+  <!-- ===== Aprendizaje ===== -->
+  <div class="tab-panel" id="tab-aprendizaje">
+    <div class="seccion">
+      <div class="seccion-head">
+        <div>
+          <h2>Aprendizaje: casos para revisar</h2>
+          <div class="sub">El bot aprende de dos fuentes: las <b>correcciones</b> que hacen tus ejecutivos a sus borradores antes de enviarlos (llegan solas) y las <b>conversaciones reales</b> del historial, que la IA analiza y propone convertir en casos. Todo está anonimizado (teléfonos, correos, RUT, nombres). <b>Nada pasa al bot hasta que una persona lo aprueba</b>: al aprobar se crea una pregunta y respuesta modelo, que puedes editar antes.</div>
+        </div>
+      </div>
+      <div class="kpis" id="apKpis"></div>
+      <div id="apExtraer" style="display:none;">
+        <h3>Analizar conversaciones reales</h3>
+        <div class="sub">La IA toma conversaciones de los últimos 180 días (primero las que terminaron en venta), saca el intercambio entre el cliente y el ejecutivo, lo anonimiza y propone una respuesta optimizada, el problema detectado y una regla. Usa tokens de Gemini; puedes pedir pocas para probar.</div>
+        <div class="filtros" style="margin-top:8px;">
+          <label for="apCantidad" class="sub">Cuántas:</label>
+          <select id="apCantidad"><option value="12">12</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select>
+          <button type="button" class="btn-primary btn-compact" id="btnExtraer">▶ Analizar conversaciones</button>
+          <span class="desde" id="apProgreso"></span>
+        </div>
+        <div id="apBarra" style="display:none;height:9px;background:var(--line);border-radius:5px;overflow:hidden;margin:8px 0;"><div id="apRelleno" style="height:100%;width:0;background:var(--primary);transition:width .3s;"></div></div>
+        <div id="apDetalle" class="desde"></div>
+      </div>
+      <div class="filtros" style="margin:14px 0 10px;">
+        <select id="apEstado" aria-label="Estado"><option value="pendiente">Pendientes de revisar</option><option value="aprobado">Aprobados</option><option value="rechazado">Rechazados</option></select>
+        <select id="apTipo" aria-label="Origen"><option value="">Todos los orígenes</option><option value="correccion">Correcciones de ejecutivos</option><option value="conversacion">Conversaciones reales</option></select>
+      </div>
+      <div id="apLista"></div>
     </div>
   </div>
 
@@ -457,7 +496,7 @@ async function cerrarSesion(){
 
 // ---------- Pestañas ----------
 function mostrarTab(nombre){
-  if(!['probador', 'preguntas', 'configuracion', 'rendimiento'].includes(nombre)) nombre = 'probador';
+  if(!['probador', 'preguntas', 'aprendizaje', 'configuracion', 'rendimiento'].includes(nombre)) nombre = 'probador';
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('visible', p.id === 'tab-' + nombre));
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === nombre));
   try{ history.replaceState(null, '', '#' + nombre); }catch(_){ /* sin historial */ }
@@ -476,6 +515,7 @@ async function cargarTodo(){
     E.cfg = cfg; E.resumen = resumen; E.ejemplos = ej.ejemplos || []; E.esAdmin = !!cfg.esAdmin;
     E.horario = JSON.parse(JSON.stringify(cfg.horario));
     renderAvisos(); renderKpis(); renderConfig(); renderEjemplos(); renderRendimiento(); renderChat();
+    cargarAprendizaje();
   }catch(err){
     $('avisos').innerHTML = `<div class="note-box err">No se pudo cargar el panel del bot: ${esc(err.message)}</div>`;
   }
@@ -571,8 +611,24 @@ function guardarComoModelo(i){
 }
 
 // ---------- Preguntas y respuestas ----------
-const ORIGEN_TXT = { manual: 'A mano', probador: 'Del probador', correccion: 'De una corrección' };
+const ORIGEN_TXT = { manual: 'A mano', probador: 'Del probador', correccion: 'De una corrección', importado: 'Caso inicial', conversacion: 'De una conversación real' };
+async function cargarCasosIniciales(){
+  const msg = $('importMsg'), btn = $('btnCargarCasos');
+  btn.disabled = true; msg.innerHTML = '<div class="note-box">Leyendo los casos iniciales…</div>';
+  try{
+    const res = await fetch('/bot-casos-iniciales.json');
+    if(!res.ok) throw new Error('No se pudo leer el archivo de casos iniciales.');
+    const casos = await res.json();
+    if(!confirm(`Se van a cargar hasta ${casos.length} preguntas y respuestas modelo (las que ya existan con la misma pregunta se omiten). ¿Continuar?`)){ msg.innerHTML = ''; return; }
+    const d = await api('whatsapp-bot-ejemplos', { method: 'POST', body: { accion: 'importar', ejemplos: casos } });
+    E.ejemplos = d.ejemplos; renderEjemplos(); renderKpis();
+    const r = d.resultado;
+    msg.innerHTML = `<div class="note-box ok">Listo: <b>${fmtNum(r.importados)}</b> casos cargados${r.omitidos ? `, ${fmtNum(r.omitidos)} omitidos porque ya existían` : ''}${r.errores.length ? `, <b>${r.errores.length}</b> con error (${esc(r.errores.slice(0, 3).map(e => 'fila ' + e.fila + ': ' + e.error).join(' · '))})` : ''}. Pruébalos en el Probador.</div>`;
+  }catch(err){ msg.innerHTML = `<div class="note-box err">${esc(err.message)}</div>`; }
+  finally{ btn.disabled = false; }
+}
 function renderEjemplos(){
+  $('btnCargarCasos').style.display = E.esAdmin ? '' : 'none';
   const q = $('buscarEjemplo').value.trim().toLowerCase();
   const verInactivas = $('verInactivas').checked;
   const lista = E.ejemplos.filter(e => (verInactivas || e.activo) && (!q || `${e.pregunta} ${e.respuesta} ${e.etiquetas}`.toLowerCase().includes(q)));
@@ -711,6 +767,100 @@ function renderRendimiento(){
   tabla('tMotivos', r.motivosEscalamiento, 'Motivo'); tabla('tAlertas', r.alertasRevision, 'Revisión');
 }
 
+// ---------- Aprendizaje ----------
+const AP = { candidatos: [], resumen: null, porAnalizar: 0, esAdmin: false, extrayendo: false };
+const TIPO_TXT = { correccion: 'Corrección de un ejecutivo', conversacion: 'Conversación real' };
+const RIESGO_BADGE = { alto: 'rojo', medio: 'ambar', bajo: 'verde' };
+const VACIO_APRENDIZAJE = {
+  pendiente: 'No hay casos pendientes. Las correcciones de tus ejecutivos aparecen solas cuando editan un borrador del bot antes de enviarlo; los casos de conversaciones reales se generan con «Analizar conversaciones».',
+  aprobado: 'Todavía no hay casos aprobados.', rechazado: 'No hay casos rechazados.',
+};
+function aplicarAprendizaje(d){ AP.candidatos = d.candidatos || []; AP.resumen = d.resumen; AP.porAnalizar = d.porAnalizar || 0; if(d.esAdmin !== undefined) AP.esAdmin = !!d.esAdmin; renderAprendizaje(); }
+async function cargarAprendizaje(){
+  try{ aplicarAprendizaje(await api('whatsapp-bot-aprendizaje', { query: '&estado=' + encodeURIComponent($('apEstado').value) + '&tipo=' + encodeURIComponent($('apTipo').value) })); }
+  catch(err){ $('apLista').innerHTML = `<div class="note-box err">${esc(err.message)}</div>`; }
+}
+function casoHtml(c){
+  const id = Number(c.id), pend = c.estado === 'pendiente', esCorr = c.tipo === 'correccion';
+  return `<div class="caso ${pend ? '' : 'resuelto'}" id="caso-${id}">
+    <div class="caso-head">
+      <span class="badge ${esCorr ? 'azul' : 'gris'}">${esc(TIPO_TXT[c.tipo] || c.tipo)}</span>
+      ${c.categoria ? `<span class="badge gris">${esc(c.categoria)}</span>` : ''}
+      ${c.riesgo ? `<span class="badge ${RIESGO_BADGE[c.riesgo] || 'gris'}">Riesgo ${esc(c.riesgo)}</span>` : ''}
+      ${c.estado === 'aprobado' ? '<span class="badge verde">Aprobado</span>' : c.estado === 'rechazado' ? '<span class="badge gris">Rechazado</span>' : ''}
+      <span class="desde">${esc(fmtFechaHora(c.creadoEn))}</span>
+      ${c.conversacionId ? `<a href="clientes-whatsapp.html?abrirConversacion=${Number(c.conversacionId)}" target="_blank" rel="noopener">Ver conversación ↗</a>` : ''}
+    </div>
+    <div class="dos-col">
+      <div>
+        <label class="cmp">El cliente escribió</label><div class="caja">${esc(c.mensajeCliente)}</div>
+        <label class="cmp">${esCorr ? 'El bot propuso' : 'El ejecutivo respondió'}</label><div class="caja">${esc(c.respuestaOriginal) || '—'}</div>
+        ${c.problema ? `<label class="cmp">${esCorr ? 'Qué cambió el ejecutivo' : 'Problema detectado'}</label><div class="caja">${esc(c.problema)}</div>` : ''}
+        ${c.regla ? `<label class="cmp">Regla de aprendizaje</label><div class="caja">${esc(c.regla)}</div>` : ''}
+      </div>
+      <div>
+        <label class="cmp" for="apP-${id}">Pregunta modelo${pend ? ' (editable)' : ''}</label>
+        <textarea id="apP-${id}" rows="2" maxlength="300" ${pend ? '' : 'disabled'}></textarea>
+        <label class="cmp" for="apR-${id}">${esCorr ? 'Respuesta que envió el ejecutivo' : 'Respuesta optimizada propuesta'}${pend ? ' (editable)' : ''}</label>
+        <textarea id="apR-${id}" rows="8" maxlength="900" ${pend ? '' : 'disabled'}></textarea>
+        ${(c.alertas || []).length ? `<div class="note-box warn" style="margin-top:8px;"><b>Revisión automática:</b> ${esc(c.alertas.join('; '))}. Corrige el texto antes de aprobar.</div>` : ''}
+        ${c.nota ? `<div class="desde" style="margin-top:6px;">${esc(c.nota)}${c.resueltoPor ? ' · ' + esc(c.resueltoPor) : ''}</div>` : (!pend && c.resueltoPor ? `<div class="desde" style="margin-top:6px;">${esc(c.resueltoPor)}</div>` : '')}
+        ${pend ? `<div class="acciones" style="margin-top:10px;"><button type="button" class="btn-primary btn-compact" onclick="aprobarCaso(${id})">✅ Aprobar como respuesta modelo</button><button type="button" class="btn-ghost btn-compact btn-danger" onclick="rechazarCaso(${id})">❌ Rechazar</button><span class="desde" id="apMsg-${id}"></span></div>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+function renderAprendizaje(){
+  const r = AP.resumen || {}, pend = r.pendientes || 0;
+  const b = $('apPend'); b.style.display = pend ? '' : 'none'; b.textContent = pend;
+  $('apKpis').innerHTML = [
+    kpi('Pendientes de revisar', fmtNum(pend), `${fmtNum(r.pendientes_correccion)} correcciones · ${fmtNum(r.pendientes_conversacion)} de conversaciones`),
+    kpi('Aprobados', fmtNum(r.aprobados), 'ya son preguntas modelo'),
+    kpi('Rechazados', fmtNum(r.rechazados), 'incluye los que la IA descartó'),
+    kpi('Conversaciones por analizar', fmtNum(AP.porAnalizar), 'de los últimos 180 días'),
+  ].join('');
+  $('apExtraer').style.display = AP.esAdmin ? '' : 'none';
+  $('apLista').innerHTML = AP.candidatos.length ? AP.candidatos.map(casoHtml).join('') : `<div class="empty-note">${esc(VACIO_APRENDIZAJE[$('apEstado').value] || '')}</div>`;
+  // Los textos editables se asignan por DOM, sin interpolarlos en el HTML.
+  AP.candidatos.forEach(c => { const p = $('apP-' + c.id), x = $('apR-' + c.id); if(p) p.value = c.preguntaPropuesta; if(x) x.value = c.respuestaPropuesta; });
+}
+async function resolverCaso(id, cuerpo, msgFallo){
+  const msg = $('apMsg-' + id); if(msg) msg.textContent = 'Guardando…';
+  try{
+    aplicarAprendizaje(await api('whatsapp-bot-aprendizaje', { method: 'POST', body: { ...cuerpo, id, estadoLista: $('apEstado').value, tipoLista: $('apTipo').value } }));
+    const e = await api('whatsapp-bot-ejemplos'); E.ejemplos = e.ejemplos; renderEjemplos(); renderKpis();
+  }catch(err){ const m = $('apMsg-' + id); if(m) m.innerHTML = `<span style="color:var(--red)">${esc(err.message)}</span>`; }
+}
+function aprobarCaso(id){ return resolverCaso(id, { accion: 'aprobar', pregunta: $('apP-' + id).value, respuesta: $('apR-' + id).value }); }
+function rechazarCaso(id){ if(confirm('¿Rechazar este caso? Dejará de aparecer entre los pendientes.')) return resolverCaso(id, { accion: 'rechazar' }); }
+
+// Tandas resumibles con progreso en % (cada llamada analiza las conversaciones que alcance en ~30 s).
+async function extraerCasos(){
+  if(AP.extrayendo) return;
+  AP.extrayendo = true;
+  const btn = $('btnExtraer'), prog = $('apProgreso'), barra = $('apBarra'), relleno = $('apRelleno'), det = $('apDetalle');
+  const cantidad = Number($('apCantidad').value) || 12;
+  btn.disabled = true; barra.style.display = 'block'; relleno.style.width = '0'; det.textContent = '';
+  const omitir = []; let total = null, hechas = 0, propuestos = 0, descartados = 0; const errores = [];
+  try{
+    for(let vuelta = 0; vuelta < 40; vuelta++){
+      const d = await api('whatsapp-bot-aprendizaje', { method: 'POST', body: { accion: 'extraer', omitir } });
+      if(total === null) total = Math.min(cantidad, d.totalAntes);
+      hechas += d.procesadas; propuestos += d.propuestos; descartados += d.descartados;
+      for(const e of d.errores){ omitir.push(e.id); errores.push(e); }
+      const revisadas = total ? Math.min(total, hechas + errores.length) : 0;
+      const pct = total ? Math.min(100, Math.round((revisadas / total) * 100)) : 100;
+      relleno.style.width = pct + '%';
+      prog.textContent = total ? `${pct}% — ${fmtNum(revisadas)} de ${fmtNum(total)} conversaciones analizadas` : 'No hay conversaciones por analizar.';
+      if(!total || hechas + errores.length >= total || d.pendientes === 0 || (d.procesadas === 0 && d.errores.length === 0)) break;
+    }
+    const motivos = [...new Set(errores.map(e => e.error))].slice(0, 3);
+    if(hechas === 0 && errores.length) det.innerHTML = `<b style="color:var(--red);">No se analizó ninguna.</b> ${esc(motivos.join(' · '))}`;
+    else det.innerHTML = `Listo: <b>${fmtNum(propuestos)}</b> casos propuestos para revisar${descartados ? `, ${fmtNum(descartados)} descartados por no servir para entrenar` : ''}${errores.length ? `, <b>${errores.length}</b> con error (${esc(motivos.join(' · '))})` : ''}.`;
+  }catch(err){ det.innerHTML = `<span style="color:var(--red)">${esc(err.message)}</span>`; }
+  finally{ AP.extrayendo = false; btn.disabled = false; cargarAprendizaje(); }
+}
+
 // ---------- Eventos ----------
 document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => mostrarTab(b.dataset.tab)));
 $('btnActualizar').addEventListener('click', cargarTodo);
@@ -721,6 +871,10 @@ $('pruebaTexto').addEventListener('keydown', e => { if(e.key === 'Enter' && (e.c
 $('ideas').innerHTML = IDEAS.map((t, i) => `<button type="button" class="idea" data-i="${i}">${esc(t)}</button>`).join('');
 $('ideas').addEventListener('click', e => { const b = e.target.closest('.idea'); if(b){ $('pruebaTexto').value = IDEAS[Number(b.dataset.i)]; $('pruebaTexto').focus(); } });
 $('btnNuevoEjemplo').addEventListener('click', () => abrirEditor());
+$('btnCargarCasos').addEventListener('click', cargarCasosIniciales);
+$('apEstado').addEventListener('change', cargarAprendizaje);
+$('apTipo').addEventListener('change', cargarAprendizaje);
+$('btnExtraer').addEventListener('click', extraerCasos);
 $('btnCancelarEjemplo').addEventListener('click', cerrarEditor);
 $('btnGuardarEjemplo').addEventListener('click', guardarEjemplo);
 $('buscarEjemplo').addEventListener('input', renderEjemplos);
