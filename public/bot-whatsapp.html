@@ -438,6 +438,11 @@
         <div class="tabla-wrap"><table id="tAlertas"></table></div>
       </div>
     </div>
+    <div class="seccion">
+      <h2>Etapas de las conversaciones</h2>
+      <div class="sub" style="margin-bottom:8px;">En qué etapa comercial quedó cada conversación que pasó por el bot (la última que propuso). Sirve para ver dónde se atascan las ventas.</div>
+      <div class="tabla-wrap"><table id="tEtapas"></table></div>
+    </div>
     <div class="note-box">Para preparar de una vez los borradores de las conversaciones que llegaron fuera de horario, usa el botón <b>🤖 Bot nocturno</b> en <a href="clientes-whatsapp.html">Conversaciones</a>.</div>
   </div>
 
@@ -567,6 +572,7 @@ function renderChat(){
         ${x.motivo ? `<div><b>Motivo:</b> ${esc(x.motivo)}</div>` : ''}
         ${(x.alertas || []).length ? `<div><b>Revisión automática:</b><ul>${x.alertas.map(a => `<li>${esc(a)}</li>`).join('')}</ul></div>` : ''}
         ${x.resumen ? `<div><b>Resumen para el ejecutivo:</b> ${esc(x.resumen)}</div>` : ''}
+        ${fichaSolicitudHtml(x.etapa, x.solicitud)}
         ${prods ? `<div><b>Productos que consultó:</b><ul>${prods}</ul></div>` : ''}
         ${sin ? '<div class="desde" style="margin-top:4px;">Con esta confianza o estas alertas, el bot no enviaría la respuesta solo: quedaría como borrador pendiente y avisaría a un ejecutivo.</div>' : ''}
         <div class="acciones" style="margin-top:6px;">
@@ -765,6 +771,27 @@ function renderRendimiento(){
   ].join('');
   const tabla = (el, filas, col) => { $(el).innerHTML = filas && filas.length ? `<thead><tr><th>${col}</th><th>Veces</th></tr></thead><tbody>${filas.map(f => `<tr><td>${esc(f.motivo || f.alerta)}</td><td>${fmtNum(f.n)}</td></tr>`).join('')}</tbody>` : '<tbody><tr><td class="empty-note">Sin datos en el período.</td></tr></tbody>'; };
   tabla('tMotivos', r.motivosEscalamiento, 'Motivo'); tabla('tAlertas', r.alertasRevision, 'Revisión');
+  const cat = r.etapasCatalogo || [], total = (r.etapas || []).reduce((a, e) => a + e.n, 0);
+  $('tEtapas').innerHTML = (r.etapas || []).length
+    ? `<thead><tr><th>Etapa</th><th>Qué significa</th><th>Conversaciones</th><th>%</th></tr></thead><tbody>${r.etapas.map(e => {
+        const c = cat.find(x => x.clave === e.clave) || {};
+        return `<tr><td>${esc(c.etiqueta || e.clave)}</td><td>${esc(c.descripcion || '')}</td><td>${fmtNum(e.n)}</td><td>${total ? pctTxt(Math.round(e.n / total * 1000) / 10) : '—'}</td></tr>`;
+      }).join('')}</tbody>`
+    : '<tbody><tr><td class="empty-note">Todavía no hay conversaciones con etapa: aparecen cuando el bot prepara borradores.</td></tr></tbody>';
+}
+
+// Etapa comercial y datos de la solicitud (probador y rendimiento).
+function etiquetaEtapa(clave){
+  const c = ((E.resumen && E.resumen.etapasCatalogo) || []).find(x => x.clave === clave);
+  return c ? c.etiqueta : String(clave || '').replace(/_/g, ' ');
+}
+function fichaSolicitudHtml(etapa, s){
+  if(!etapa && !s) return '';
+  const nd = v => v && v !== 'no_definido';
+  const dato = (etq, v) => nd(v) ? `<span class="badge gris">${esc(etq)}: ${esc(String(v).replace('_', ' '))}</span>` : '';
+  const chips = s ? [dato('Producto', s.producto), dato('Marca', s.marca), dato('Modelo', s.modelo), dato('Detalles', s.especificaciones), dato('Para cuándo', s.urgencia), dato('Entrega', s.entrega), dato('Prefiere', s.preferencia), dato('Cliente', s.tipo_cliente), dato('Nombre', s.nombre)].join(' ') : '';
+  const falta = s && (s.datos_faltantes || []).length ? `<div style="margin-top:3px;"><b>Falta preguntar:</b> ${esc(s.datos_faltantes.join(', '))}</div>` : '';
+  return `<div style="margin:4px 0;">${etapa ? `<span class="badge azul">📍 ${esc(etiquetaEtapa(etapa))}</span> ` : ''}${chips}${falta}</div>`;
 }
 
 // ---------- Aprendizaje ----------

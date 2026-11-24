@@ -4,7 +4,7 @@ Actualizado: 24-nov-2026. El comportamiento de cada protocolo está en `PROTOCOL
 
 ## 1. Estados de una conversación
 
-El ERP ya guarda estado, categoría, resultado e intención de cada conversación (análisis IA). Los estados del brief se mapean así; los marcados «nuevo» requieren desarrollo (paso 3).
+El ERP ya guarda estado, categoría, resultado e intención de cada conversación (análisis IA). **Desde el paso 3 (24-nov-2026)** el bot propone en cada borrador la **etapa comercial** (las 16 de esta tabla, claves en `ETAPAS_COMERCIALES`) y va armando la **ficha de la solicitud** (producto, marca, modelo, detalles, para cuándo, retiro o despacho, original o alternativo, tipo de cliente, nombre y «qué falta preguntar»), siempre solo con lo que el cliente dijo. Ambas se ven en la tarjeta del borrador, en el probador y, como distribución, en Rendimiento. La columna «En el ERP» indica lo que ya existía antes.
 
 | Estado | Qué significa | Lo que hace el asistente | En el ERP |
 |---|---|---|---|
@@ -73,7 +73,7 @@ Reglas comunes: no diagnosticar, no asegurar compatibilidad por tamaño, no inve
 | 2.º | ~24 h | **No** (fuera de la ventana) | Plantilla aprobada por Meta |
 | Último | 48-72 h | **No** | Plantilla aprobada por Meta |
 
-Antes de automatizar el 2.º y el último: aprobar el nombre visible del número (hoy limita los mensajes iniciados por el negocio) y crear y aprobar 2 plantillas (categoría y costo por definir con Meta). Medir tasa de respuesta, ventas posteriores y solicitudes de no contacto por seguimiento.
+Antes de automatizar el 2.º y el último: aprobar el nombre visible del número (hoy limita los mensajes iniciados por el negocio) y crear y aprobar las plantillas. Textos listos y pasos en [meta-plantillas.md](meta-plantillas.md). Medir tasa de respuesta, ventas posteriores y solicitudes de no contacto por seguimiento.
 
 **Mensajes base (primer seguimiento, dentro de las 24 h):**
 - Cargador: «¡Hola! Te escribo por el cargador que estuvimos revisando. Recuerda que puedes probarlo en nuestra tienda sin costo ni compromiso. ¿Te acomoda venir o prefieres que coordinemos el envío?»
@@ -96,8 +96,8 @@ Cubiertas en los casos cargables (precio, competencia, original o alternativo, g
 
 Los **graba una persona**; el asistente no genera audios ni suplanta a un ejecutivo. Duración 30-35 s (45-75 palabras), sin «quedo atento», con una pregunta final. Reemplazar nombre del cliente y del ejecutivo.
 - **Cargadores:** «Hola, [cliente]. [Ejecutivo] de IndexStore por acá. Vi que necesitas un cargador para tu [modelo]. Tenemos opciones originales y alternativas de alta calidad a distintos precios, y puedes probarlo en nuestra tienda sin costo ni compromiso. Estamos a pasos del Metro Pedro de Valdivia y enviamos a todo Chile. ¿Prefieres probarlo o necesitas envío?»
-- **Pantallas** (solo con disponibilidad y beneficios confirmados): «Hola, [cliente]. [Ejecutivo] de IndexStore por acá. Vi que necesitas una pantalla para tu [modelo]. La tenemos disponible, con dos años de garantía, y podemos instalarla en el momento. Estamos a pasos del Metro Pedro de Valdivia. ¿Prefieres que la instalemos o necesitas que te la enviemos?»
+- **Pantallas** (solo con disponibilidad y beneficios confirmados): «Hola, [cliente]. [Ejecutivo] de IndexStore por acá. Vi que necesitas una pantalla para tu [modelo]. La tenemos disponible, con dos años de garantía, y podemos instalarla en unos 15 a 25 minutos. Estamos a pasos del Metro Pedro de Valdivia. ¿Prefieres que la instalemos o necesitas que te la enviemos?»
 - **Baterías:** «Hola, [cliente]. [Ejecutivo] de IndexStore por acá. Vi que necesitas una batería para tu notebook. Revisamos las opciones originales y alternativas de alta calidad para tu equipo y también hacemos la instalación. Cuéntame, ¿necesitas solo la batería o prefieres que hagamos el cambio?»
 - **Mantenimiento:** «Hola, [cliente]. [Ejecutivo] de IndexStore por acá. Vi que consultas por un mantenimiento. Tenemos limpieza interna estándar y avanzada, según el equipo. Cuéntame, ¿qué modelo de notebook tienes para recomendarte el servicio adecuado?»
 
-(El guion de pantallas dice «en el momento» y no «15 a 20 minutos» mientras no se valide el tiempo.)
+(El tiempo de instalación de pantalla es de 15 a 25 minutos, confirmado por IndexStore el 24-nov-2026; solo se dice cuando la disponibilidad y la garantía están confirmadas.)

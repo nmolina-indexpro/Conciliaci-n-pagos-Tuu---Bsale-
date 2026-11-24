@@ -1350,6 +1350,22 @@ async function cargarBorradorBot(id){
   }catch(err){ /* sin bot: la bandeja funciona igual */ }
   botModo = null; botBorradorActual = null;
 }
+// Etapa comercial y ficha de la solicitud que el bot dedujo de la conversación (solo lo que el cliente dijo; lo demás queda como «falta»).
+function botSolicitudHtml(b){
+  const s = b.solicitud;
+  if(!b.etapaEtiqueta && !s) return '';
+  const nd = v => v && v !== 'no_definido';
+  const dato = (etq, v) => nd(v) ? `<span class="badge b-gris" title="${escapeHtml(etq)}">${escapeHtml(etq)}: ${escapeHtml(String(v).replace('_', ' '))}</span>` : '';
+  const chips = s ? [
+    dato('Producto', s.producto), dato('Marca', s.marca), dato('Modelo', s.modelo), dato('Detalles', s.especificaciones), dato('Para cuándo', s.urgencia),
+    dato('Entrega', s.entrega), dato('Prefiere', s.preferencia), dato('Cliente', s.tipo_cliente), dato('Nombre', s.nombre),
+  ].join('') : '';
+  const falta = s && (s.datos_faltantes || []).length ? `<div class="sub" style="font-size:11.5px;margin-top:3px;">❓ Falta preguntar: ${escapeHtml(s.datos_faltantes.join(', '))}</div>` : '';
+  return `<div style="margin-top:6px;">
+    ${b.etapaEtiqueta ? `<span class="badge b-azul" title="Etapa comercial propuesta por el bot">📍 ${escapeHtml(b.etapaEtiqueta)}</span>` : ''}
+    ${chips ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px;">${chips}</div>` : ''}${falta}
+  </div>`;
+}
 function botBorradorHtml(convId){
   const b = botBorradorActual;
   if(!b || b.conversacionId !== convId) return '';
@@ -1362,6 +1378,7 @@ function botBorradorHtml(convId){
         <div style="margin:4px 0 6px;display:flex;gap:6px;flex-wrap:wrap;"><span class="badge ${conf[0]}">${escapeHtml(conf[1])}</span>${b.escalar ? '<span class="badge b-rojo">👤 Requiere ejecutivo</span>' : ''}</div>
         <div style="white-space:pre-wrap;">${escapeHtml(b.texto)}</div>
         ${b.resumen ? `<div class="sub" style="margin-top:6px;font-size:11.5px;">📝 ${escapeHtml(b.resumen)}</div>` : ''}
+        ${botSolicitudHtml(b)}
         ${b.motivo ? `<div class="sub" style="margin-top:4px;font-size:11.5px;color:var(--red);">⚠ ${escapeHtml(b.motivo)}</div>` : ''}
         ${productos ? `<details style="margin-top:6px;font-size:11.5px;"><summary>Productos que consultó en el catálogo</summary><ul style="margin:4px 0 0 16px;padding:0;">${productos}</ul></details>` : ''}
       </div>

@@ -20,7 +20,7 @@ Convención: ✅ confirmado en fuente oficial · ⚠️ contradictorio o no conf
 | Envío express en Santiago | ⏸️ | **Pausado** (confirmado por IndexStore el 24-nov-2026). El bot no lo ofrece ni lo menciona |
 | Retiro en tienda gratis, 3 meses | ✅ | Política de envío |
 | Diagnóstico $15.000, 2-7 días hábiles, descuento si se repara | ✅ | Reglamento y preguntas frecuentes |
-| Tiempo de instalación de pantalla en minutos | ⚠️ | 15-20 min (brief), 20-25 min (texto anterior del bot y respuesta rápida «PantallaDISPONIBLE» del equipo), «en el momento» (sitio). El bot dice «en el momento, según disponibilidad» y no da minutos |
+| Tiempo de instalación de pantalla | ✅ | **15 a 25 minutos aproximadamente**, con el equipo completo (confirmado por IndexStore el 24-nov-2026). La respuesta rápida «PantallaDISPONIBLE» del equipo dice 20 a 25: conviene alinearla |
 | Instalación gratuita de pantalla | ✅ | Ficha del catálogo «Instalación gratuita de pantalla (exclusivo clientes)»; condiciones exactas por validar |
 | Baterías: instalación con descuento si se compra con nosotros; MacBook pegada 24-72 h | ✅ | Preguntas frecuentes |
 | Cargadores se pueden probar en tienda | ✅ | Preguntas frecuentes |
@@ -46,7 +46,7 @@ Cada módulo: objetivo, información oficial, reglas, derivación y pendientes. 
 
 **KB-05 Baterías.** Por modelo, part number, voltaje y capacidad. Originales y alternativos de alta calidad (los Daxis lo son). Instalación con descuento si se compra con nosotros. Duración promedio 1-2 años. Desgaste natural no cubierto por garantía. **Hinchada:** dejar de usar y cargar, no manipular, evaluación técnica. No diagnosticar batería mala solo porque no carga.
 
-**KB-06 Pantallas.** Un modelo puede llevar varias pantallas (HD/Full HD, IPS/TN, 30/40 pines, táctil). Nunca asegurar compatibilidad por tamaño. Cambio en el momento de lunes a sábado según disponibilidad (solo notebooks). Garantía 24 meses; segunda selección 6 y sin cubrir lo estético informado. Líneas o manchas: normalmente panel dañado. Pendiente: tiempo de instalación; condiciones exactas de la instalación gratuita; contenido de «Resolución de mi pantalla».
+**KB-06 Pantallas.** Un modelo puede llevar varias pantallas (HD/Full HD, IPS/TN, 30/40 pines, táctil). Nunca asegurar compatibilidad por tamaño. Cambio en el momento de lunes a sábado según disponibilidad (solo notebooks); la instalación demora 15 a 25 minutos aproximadamente con el equipo completo. Garantía 24 meses; segunda selección 6 y sin cubrir lo estético informado. Líneas o manchas: normalmente panel dañado. Pendiente: condiciones exactas de la instalación gratuita; contenido de «Resolución de mi pantalla».
 
 **KB-07 Teclados y repuestos.** Instalación de teclado en el catálogo; el bot consulta precio y alcance en vivo. Pendiente: política de garantía de teclados y otros repuestos.
 
@@ -83,7 +83,7 @@ Cada módulo: objetivo, información oficial, reglas, derivación y pendientes. 
 ## Contradicciones y datos desactualizados detectados
 
 1. Horario: **resuelto** (vale el del pie del sitio). Faltan corregir la Política de envío y la respuesta rápida «bisagras» del equipo, que dicen otra cosa.
-2. Tiempo de instalación de pantalla: 15-20 min (brief), 20-25 min (respuesta rápida «PantallaDISPONIBLE» que hoy envía el equipo) o «en el momento» (sitio). Mientras no se defina, el bot no da minutos.
+2. Tiempo de instalación de pantalla: **resuelto** (15 a 25 minutos). Falta alinear la respuesta rápida «PantallaDISPONIBLE» del equipo, que dice 20 a 25.
 3. Envío express en Santiago: **pausado**; el bot ya no lo menciona.
 4. Vocabulario: **resuelto** («alternativo de alta calidad» para Daxis, «alternativo» para los demás no originales).
 5. Garantía de baterías no Daxis: sin plazo publicado.

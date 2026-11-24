@@ -86,6 +86,6 @@ Dos fuentes de **casos candidatos**, que van a Comercial → Bot WhatsApp → �
 | 1 | Panel: probador, preguntas modelo, saludo, tono, reglas, rendimiento | Hecho |
 | 1b | Base oficial, protocolo comercial y 41 casos iniciales | Hecho (este documento) |
 | 2 | Correcciones de ejecutivos → casos candidatos; análisis de conversaciones reales anonimizadas; pestaña «Aprendizaje» para aprobar | Hecho (24-nov-2026) |
-| 3 | Estados de la conversación, datos de la solicitud, aprobación del nombre visible y plantillas | Pendiente |
+| 3 | Etapas comerciales y ficha de la solicitud (hecho en el ERP); nombre visible y plantillas de Meta (textos y pasos en [meta-plantillas.md](meta-plantillas.md), **lo hace IndexStore en Meta**) | Código hecho; Meta pendiente |
 | 4 | Envío automático con reglas (fuera de horario, confianza alta, sin alertas) | Pendiente |
 | 5 | Cotización express desde el bot | Pendiente |

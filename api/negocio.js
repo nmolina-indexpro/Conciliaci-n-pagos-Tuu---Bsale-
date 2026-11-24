@@ -95,7 +95,7 @@ import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
 import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, detalleWaClics, numeroConectado as numeroConectadoWaAds, asegurarWaClicsAdsUnaVez as asegurarWaClicsAdsUnaVezWaAds, sqlOrigenGoogleAds, atribuirClics as atribuirClicsWaAds, borrarClicsDePrueba as borrarClicsDePruebaWaAds, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
-import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto, elegirPreguntasModelo, momentoDentroDeHorario, SALUDO_CUANDO, SALUDO_DEFECTO, LIMITES_BOT, REGLAS_NO_PROMETER, PROTOCOLO_COMERCIAL, revisarPropuesta, limpiarSaltosDeLinea } from '../lib/whatsapp-bot.js';
+import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto, elegirPreguntasModelo, momentoDentroDeHorario, SALUDO_CUANDO, SALUDO_DEFECTO, LIMITES_BOT, REGLAS_NO_PROMETER, PROTOCOLO_COMERCIAL, revisarPropuesta, limpiarSaltosDeLinea, fusionarSolicitud, solicitudTieneDatos, sanitizarSolicitud, ETAPAS_COMERCIALES } from '../lib/whatsapp-bot.js';
 import { asegurarTablaCandidatosBot, crearCandidatoCorreccion, crearCandidatoConversacion, listarCandidatos, resumenCandidatos, aprobarCandidato, rechazarCandidato, extraerIntercambio, anonimizarTexto, CATEGORIAS_KB, RIESGOS_CANDIDATO } from '../lib/whatsapp-bot-aprendizaje.js';
 import { asegurarTablaEjemplosBot, listarEjemplos, crearEjemplo, actualizarEjemplo, cambiarActivoEjemplo, eliminarEjemplo, importarEjemplos } from '../lib/whatsapp-bot-ejemplos.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
@@ -10018,6 +10018,7 @@ async function buscarProductosBot(consulta) {
 const DTO_BORRADOR_BOT = b => ({
   id: b.id, conversacionId: b.conversacion_id, texto: b.texto, confianza: b.confianza, escalar: !!b.escalar, motivo: b.motivo_escalamiento || '',
   resumen: b.resumen || '', alertas: b.alertas || [], productos: b.productos || [], estado: b.estado, origen: b.origen, creadoEn: b.creado_en,
+  etapa: b.etapa || '', etapaEtiqueta: ETAPAS_COMERCIALES.find(e => e.clave === b.etapa)?.etiqueta || '', solicitud: b.solicitud ? sanitizarSolicitud(b.solicitud) : null,
 });
 
 // Conversación con Gemini (function calling): el modelo puede pedir buscar_productos varias veces y termina con proponer_respuesta.
@@ -10087,7 +10088,7 @@ async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quie
   }
 
   const { rows: convRows } = await sql`
-    SELECT c.categoria, c.producto, c.marca, c.modelo, a.resumen, a.problema_cliente, a.especificaciones
+    SELECT c.categoria, c.producto, c.marca, c.modelo, c.solicitud_bot, a.resumen, a.problema_cliente, a.especificaciones
     FROM whatsapp_conversaciones c LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id WHERE c.id = ${conversacionId};`;
   const conv = convRows[0] || {};
   const { rows: usados } = await sql`SELECT 1 FROM whatsapp_bot_borradores WHERE conversacion_id = ${conversacionId} AND estado IN ('enviado_igual', 'enviado_editado') LIMIT 1;`;
@@ -10118,7 +10119,10 @@ async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quie
   });
   const ctxIA = await armarContenidoConversacionParaIA(sql, conversacionId, { maxMensajes: 25, maxImagenes: 3 });
   const datosIA = [conv.categoria && `categoría ${conv.categoria}`, conv.producto && `producto ${conv.producto}`, conv.marca && `marca ${conv.marca}`, conv.modelo && `modelo ${conv.modelo}`, conv.especificaciones && `especificaciones ${conv.especificaciones}`].filter(Boolean).join(', ');
-  const encabezadoIA = `${conv.resumen ? `Resumen previo de la conversación: ${conv.resumen}\n` : ''}${datosIA ? `Datos detectados por el análisis automático (pueden estar equivocados; contrástalos con las fotos y con lo que dijo el cliente): ${datosIA}\n` : ''}${ctxIA && ctxIA.imagenesCliente ? `El cliente envió ${ctxIA.imagenesCliente} ${ctxIA.imagenesCliente === 1 ? 'imagen' : 'imágenes'}${ctxIA.imagenesLeidas ? ' y te adjunto las más recientes: léelas, no se las pidas de nuevo' : ' (no se pudieron abrir aquí; no se las pidas de nuevo, escala)'}.\n` : ''}\nConversación (lo más reciente al final):`;
+  // Lo que el bot ya dedujo antes de esta conversación (para no volver a preguntarlo): solo los datos con valor.
+  const solPrevia = conv.solicitud_bot ? sanitizarSolicitud(conv.solicitud_bot) : null;
+  const datosPrevios = solPrevia ? Object.entries(solPrevia).filter(([k, v]) => k !== 'datos_faltantes' && v && v !== 'no_definido').map(([k, v]) => `${k.replace('_', ' ')}: ${v}`).join('; ') : '';
+  const encabezadoIA = `${datosPrevios ? `Datos de la solicitud que ya se identificaron antes (no los vuelvas a pedir; si el cliente los cambió, usa lo nuevo): ${datosPrevios}\n` : ''}${conv.resumen ? `Resumen previo de la conversación: ${conv.resumen}\n` : ''}${datosIA ? `Datos detectados por el análisis automático (pueden estar equivocados; contrástalos con las fotos y con lo que dijo el cliente): ${datosIA}\n` : ''}${ctxIA && ctxIA.imagenesCliente ? `El cliente envió ${ctxIA.imagenesCliente} ${ctxIA.imagenesCliente === 1 ? 'imagen' : 'imágenes'}${ctxIA.imagenesLeidas ? ' y te adjunto las más recientes: léelas, no se las pidas de nuevo' : ' (no se pudieron abrir aquí; no se las pidas de nuevo, escala)'}.\n` : ''}\nConversación (lo más reciente al final):`;
   const promptPartes = fusionarTextosIA([{ type: 'text', text: encabezadoIA }, ...(ctxIA ? ctxIA.partes : []), { type: 'text', text: '\nEscribe la respuesta al último mensaje del cliente.' }]);
 
   const { propuesta, productosVistos, tokensIn, tokensOut } = await correrIABot({ system, promptPartes, apiKey, limiteMs: limiteMs - (Date.now() - inicio) });
@@ -10126,10 +10130,17 @@ async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quie
   const p = normalizarPropuesta(propuesta, { productos: productosVistos, conocimiento: conocimientoRevision });
   await sql`UPDATE whatsapp_bot_borradores SET estado = 'reemplazado' WHERE conversacion_id = ${conversacionId} AND estado = 'pendiente';`;
   const { rows } = await sql`
-    INSERT INTO whatsapp_bot_borradores (conversacion_id, mensaje_cliente_id, mensaje_cliente_en, texto, confianza, escalar, motivo_escalamiento, resumen, alertas, productos, modelo_ia, tokens_entrada, tokens_salida, origen, creado_por)
+    INSERT INTO whatsapp_bot_borradores (conversacion_id, mensaje_cliente_id, mensaje_cliente_en, texto, confianza, escalar, motivo_escalamiento, resumen, alertas, productos, modelo_ia, tokens_entrada, tokens_salida, origen, creado_por, etapa, solicitud)
     VALUES (${conversacionId}, ${ultimo.direccion === 'in' ? ultimo.id : null}, ${ultimo.direccion === 'in' ? ultimo.marca_tiempo : null}, ${p.texto}, ${p.confianza}, ${p.escalar}, ${p.motivo || null}, ${p.resumen || null},
-            ${JSON.stringify(p.alertas)}::jsonb, ${JSON.stringify(productosVistos.slice(0, 10))}::jsonb, ${modeloBot()}, ${tokensIn}, ${tokensOut}, ${origen}, ${quien})
+            ${JSON.stringify(p.alertas)}::jsonb, ${JSON.stringify(productosVistos.slice(0, 10))}::jsonb, ${modeloBot()}, ${tokensIn}, ${tokensOut}, ${origen}, ${quien},
+            ${p.etapa || null}, ${solicitudTieneDatos(p.solicitud) || p.solicitud.datos_faltantes.length ? JSON.stringify(p.solicitud) : null}::jsonb)
     RETURNING *;`;
+  // La conversación guarda la última etapa y la ficha acumulada de la solicitud (un dato vacío no borra uno anterior). Es información auxiliar: si falla, el borrador igual sirve.
+  try {
+    const ficha = fusionarSolicitud(conv.solicitud_bot, p.solicitud);
+    await sql`UPDATE whatsapp_conversaciones SET etapa_comercial = COALESCE(${p.etapa || null}, etapa_comercial), etapa_comercial_en = CASE WHEN ${p.etapa || null}::text IS NULL THEN etapa_comercial_en ELSE now() END,
+              solicitud_bot = ${JSON.stringify(ficha)}::jsonb WHERE id = ${conversacionId};`;
+  } catch (err) { console.warn('[bot] no se pudo guardar la etapa de la conversación', err.message); }
   return { ok: true, borrador: DTO_BORRADOR_BOT(rows[0]) };
 }
 
@@ -10315,10 +10326,14 @@ async function manejarWhatsappBotResumen(req, res, _sesion) {
       `SELECT split_part(a, ':', 1) AS alerta, COUNT(*)::int AS n FROM whatsapp_bot_borradores, jsonb_array_elements_text(COALESCE(alertas, '[]'::jsonb)) a
        WHERE creado_en >= now() - make_interval(days => $1::int) AND estado <> 'reemplazado'
        GROUP BY 1 ORDER BY n DESC, 1 LIMIT 6;`, [dias]);
+    // En qué etapa comercial quedaron las conversaciones que pasaron por el bot (la última propuesta por el bot en cada una).
+    const { rows: etapas } = await sql.query(
+      `SELECT etapa_comercial AS clave, COUNT(*)::int AS n FROM whatsapp_conversaciones
+       WHERE etapa_comercial IS NOT NULL AND etapa_comercial_en >= now() - make_interval(days => $1::int) GROUP BY 1 ORDER BY n DESC;`, [dias]);
     await asegurarTablaEjemplosBot(sql);
     const { rows: [ej] } = await sql.query('SELECT COUNT(*) FILTER (WHERE activo)::int AS activos, COUNT(*)::int AS total FROM whatsapp_bot_ejemplos;');
     return res.status(200).json({
-      dias, ...r, porPreparar: candidatos.length, motivosEscalamiento: motivos, alertasRevision: alertas, ejemplosActivos: ej.activos, ejemplosTotal: ej.total,
+      dias, ...r, porPreparar: candidatos.length, motivosEscalamiento: motivos, alertasRevision: alertas, etapas, etapasCatalogo: ETAPAS_COMERCIALES, ejemplosActivos: ej.activos, ejemplosTotal: ej.total,
       pctUsadosTalCual: decididos ? Math.round((r.enviado_igual / decididos) * 1000) / 10 : null,
       pctUsadosEditados: decididos ? Math.round((r.enviado_editado / decididos) * 1000) / 10 : null,
       pctDescartados: decididos ? Math.round((r.descartado / decididos) * 1000) / 10 : null,
@@ -10897,6 +10912,9 @@ async function manejarWhatsappDiagnosticoMeta(req, res, sesion) {
   salida.cuentas = [];
   for (const wabaId of wabaIds) {
     const c = { waba_id: wabaId, datos: await graph(`${wabaId}?fields=name,account_review_status,business_verification_status,currency,timezone_id`, auth), numeros: await graph(`${wabaId}/phone_numbers?fields=id,display_phone_number,status,platform_type`, auth) };
+    // Plantillas de mensaje que ya existen en la cuenta (solo lectura): sirven para saber qué se puede usar fuera de las 24 h.
+    const pl = await graph(`${wabaId}/message_templates?fields=name,status,category,language&limit=50`, auth);
+    c.plantillas = pl.data ? pl.data.map(p => ({ nombre: p.name, estado: p.status, categoria: p.category, idioma: p.language })) : pl;
     if (req.query.suscribir === '1') c.suscripcion_hecha = await graph(`${wabaId}/subscribed_apps`, { method: 'POST', ...auth });
     const s = await graph(`${wabaId}/subscribed_apps`, auth);
     c.apps_suscritas = s.data ? s.data.map(a => ({ id: a.whatsapp_business_api_data?.id, nombre: a.whatsapp_business_api_data?.name, es_la_app_esperada: String(a.whatsapp_business_api_data?.id) === appIdEsperado, webhook_propio: a.override_callback_uri || null })) : s;

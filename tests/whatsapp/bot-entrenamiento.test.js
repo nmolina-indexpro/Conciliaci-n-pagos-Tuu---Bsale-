@@ -8,6 +8,7 @@ import { asegurarTablaWhatsappBot } from '../../lib/db.js';
 import {
   construirSystemBot, elegirPreguntasModelo, momentoDentroDeHorario, dentroDeHorarioBot, normalizarPropuesta, limpiarSaltosDeLinea,
   HORARIO_BOT_DEFECTO, SALUDO_DEFECTO, CONOCIMIENTO_DEFECTO,
+  ETAPAS_COMERCIALES, CLAVES_ETAPA, HERRAMIENTAS_BOT, sanitizarSolicitud, fusionarSolicitud, solicitudTieneDatos,
 } from '../../lib/whatsapp-bot.js';
 import {
   asegurarTablaEjemplosBot, listarEjemplos, crearEjemplo, actualizarEjemplo, cambiarActivoEjemplo, eliminarEjemplo,
@@ -187,6 +188,79 @@ test('la migración de la configuración del bot agrega tono, reglas y saludo si
   } finally { await db.close(); }
 });
 
+// ---------- Etapas comerciales y ficha de la solicitud (paso 3) ----------
+
+test('las 16 etapas comerciales del brief existen y el prompt y la herramienta las ofrecen', () => {
+  assert.equal(ETAPAS_COMERCIALES.length, 16);
+  assert.equal(new Set(CLAVES_ETAPA).size, 16);
+  for (const clave of ['consulta_inicial', 'producto_a_pedido', 'cotizacion_enviada', 'recontactacion_pendiente', 'venta_concretada', 'derivado_a_ejecutivo', 'posventa', 'conversacion_perdida']) assert.ok(CLAVES_ETAPA.includes(clave), clave);
+  const s = construirSystemBot({ ...base });
+  assert.match(s, /ETAPA Y DATOS DE LA SOLICITUD/);
+  for (const clave of CLAVES_ETAPA) assert.ok(s.includes(clave), `el prompt no menciona ${clave}`);
+  assert.match(s, /nunca lo supongas ni lo inventes/);
+  const propiedades = HERRAMIENTAS_BOT.find(h => h.name === 'proponer_respuesta').input_schema.properties;
+  assert.deepEqual(propiedades.etapa.enum, CLAVES_ETAPA);
+  for (const campo of ['producto', 'marca', 'modelo', 'urgencia', 'entrega', 'preferencia', 'datos_faltantes']) assert.ok(propiedades.solicitud.properties[campo], campo);
+});
+
+test('sanitizarSolicitud solo deja valores válidos y acotados', () => {
+  const s = sanitizarSolicitud({
+    producto: '  pantalla  ', marca: 'HP', modelo: 'x'.repeat(500), urgencia: 'para hoy', entrega: 'camión', tipo_cliente: 'empresa', preferencia: 'alternativo',
+    datos_faltantes: ['modelo exacto', '', 'retiro o despacho', 7, 'y'.repeat(200)], extra: 'no debe pasar',
+  });
+  assert.equal(s.producto, 'pantalla');
+  assert.equal(s.modelo.length, 120);
+  assert.equal(s.entrega, 'no_definido', 'valor fuera de la lista');
+  assert.equal(s.tipo_cliente, 'empresa');
+  assert.equal(s.preferencia, 'alternativo');
+  assert.equal(s.datos_faltantes.length, 4);
+  assert.equal(s.datos_faltantes[3].length, 60);
+  assert.ok(!('extra' in s));
+  assert.deepEqual(sanitizarSolicitud(null), { producto: '', marca: '', modelo: '', especificaciones: '', urgencia: '', nombre: '', entrega: 'no_definido', tipo_cliente: 'no_definido', preferencia: 'no_definido', datos_faltantes: [] });
+});
+
+test('fusionarSolicitud acumula datos: lo nuevo reemplaza, lo vacío no borra y lo que falta se recalcula', () => {
+  const antes = { producto: 'pantalla', marca: 'HP', modelo: '240 G6', entrega: 'retiro', datos_faltantes: ['para cuándo'] };
+  const f = fusionarSolicitud(antes, { modelo: '250 G7', urgencia: 'hoy', datos_faltantes: [] });
+  assert.equal(f.producto, 'pantalla');
+  assert.equal(f.marca, 'HP');
+  assert.equal(f.modelo, '250 G7', 'el cliente corrigió el modelo');
+  assert.equal(f.urgencia, 'hoy');
+  assert.equal(f.entrega, 'retiro', 'un no_definido nuevo no borra lo anterior');
+  assert.deepEqual(f.datos_faltantes, []);
+  assert.equal(fusionarSolicitud(null, null).producto, '');
+  assert.equal(solicitudTieneDatos({}), false);
+  assert.equal(solicitudTieneDatos({ marca: 'Dell' }), true);
+  assert.equal(solicitudTieneDatos({ entrega: 'despacho' }), true);
+});
+
+test('normalizarPropuesta devuelve la etapa y la ficha ya validadas', () => {
+  const p = normalizarPropuesta({ texto: 'Hola, ¿me envías el modelo exacto?', confianza: 'alta', escalar: false, etapa: 'identificacion_pendiente', solicitud: { producto: 'cargador', marca: 'Lenovo', entrega: 'inventada', datos_faltantes: ['modelo exacto'] } },
+    { productos: [], conocimiento: CONOCIMIENTO_DEFECTO });
+  assert.equal(p.etapa, 'identificacion_pendiente');
+  assert.equal(p.solicitud.marca, 'Lenovo');
+  assert.equal(p.solicitud.entrega, 'no_definido');
+  assert.deepEqual(p.solicitud.datos_faltantes, ['modelo exacto']);
+  const q = normalizarPropuesta({ texto: 'Hola', confianza: 'media', escalar: false, etapa: 'etapa_que_no_existe' }, { productos: [], conocimiento: '' });
+  assert.equal(q.etapa, '');
+  assert.equal(solicitudTieneDatos(q.solicitud), false);
+});
+
+test('los borradores del bot guardan la etapa y la ficha en columnas nuevas', async () => {
+  const { db, sql } = await crearBase();
+  try {
+    await sql`CREATE TABLE whatsapp_conversaciones (id SERIAL PRIMARY KEY);`;
+    await asegurarTablaWhatsappBot(sql);
+    const { rows } = await sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'whatsapp_bot_borradores' AND column_name IN ('etapa', 'solicitud') ORDER BY column_name;`;
+    assert.deepEqual(rows.map(r => r.column_name), ['etapa', 'solicitud']);
+    await sql`INSERT INTO whatsapp_conversaciones DEFAULT VALUES;`;
+    await sql`INSERT INTO whatsapp_bot_borradores (conversacion_id, texto, etapa, solicitud) VALUES (1, 'hola', 'producto_disponible', ${JSON.stringify({ producto: 'pantalla', marca: 'HP' })}::jsonb);`;
+    const { rows: [b] } = await sql`SELECT etapa, solicitud FROM whatsapp_bot_borradores WHERE conversacion_id = 1;`;
+    assert.equal(b.etapa, 'producto_disponible');
+    assert.equal(b.solicitud.marca, 'HP');
+  } finally { await db.close(); }
+});
+
 // ---------- Entrenamiento comercial (brief del 24-nov-2026) ----------
 
 test('la base de conocimiento oficial cabe en el panel y trae los datos confirmados del sitio', () => {
@@ -198,7 +272,7 @@ test('la base de conocimiento oficial cabe en el panel y trae los datos confirma
   assert.match(CONOCIMIENTO_DEFECTO, /envío express está pausado por ahora: no lo ofrezcas ni lo menciones/);
   assert.match(CONOCIMIENTO_DEFECTO, /alternativos de alta calidad/);
   assert.ok(!/\bcompatibles?\b/i.test(CONOCIMIENTO_DEFECTO.replace(/compatibilidad/gi, '')), 'el conocimiento no usa «compatible» como nombre de producto');
-  assert.match(CONOCIMIENTO_DEFECTO, /No indiques cuántos minutos demora la instalación/);
+  assert.match(CONOCIMIENTO_DEFECTO, /entre 15 y 25 minutos aproximadamente/);
   const precios = [...CONOCIMIENTO_DEFECTO.matchAll(/\$\s?[\d.]+/g)].map(m => m[0]);
   assert.deepEqual(precios, ['$15.000'], 'el único precio permitido es el del diagnóstico');
 });
@@ -226,7 +300,7 @@ test('los casos iniciales son válidos, sin muletillas prohibidas ni datos no co
     assert.ok(!/\bcompatibles?\b/i.test(v.respuesta), `caso ${i + 1} usa «compatible» como nombre de producto (se dice «alternativo»): ${v.pregunta}`);
     for (const m of v.respuesta.matchAll(/\$\s?[\d.]+/g)) assert.equal(m[0], '$15.000', `caso ${i + 1} cita un precio no confirmado: ${m[0]}`);
     for (const m of v.respuesta.matchAll(/https?:\/\/[^\s)]+/g)) assert.ok(urlsOficiales.includes(m[0].replace(/[.,;!?]+$/, '')), `caso ${i + 1} cita un enlace no oficial: ${m[0]}`);
-    assert.ok(!/\b\d+\s*(a|-)\s*\d+\s*minutos\b/.test(t), `caso ${i + 1} promete minutos de instalación`);
+    for (const m of t.matchAll(/\b(\d+)\s*(?:a|y|-)\s*(\d+)\s*minutos\b/g)) assert.deepEqual([m[1], m[2]], ['15', '25'], `caso ${i + 1} cita minutos distintos del tiempo confirmado (15 a 25)`);
     assert.ok(!v.respuesta.includes('\\n'), 'los saltos de línea deben ser reales, no la secuencia \\n');
   }
 });
