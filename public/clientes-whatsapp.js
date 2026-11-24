@@ -790,7 +790,7 @@ function initConversaciones(){
     <div id="vistaBandejaConv" class="bandeja-layout wa-app">
       <div class="panel-lista activa" id="panelLista">
         <div class="wa-header">
-          <span class="wa-titulo">Chats</span>
+          <span class="wa-titulo">Chat WhatsApp</span>
           <div class="wa-acciones">
             <button class="wa-icono" id="btnFiltrosWa" onclick="toggleFiltrosConv()" title="Filtros" aria-label="Filtros">${WA_ICONO.filtro}</button>
             <button class="wa-icono" id="btnBotWa" onclick="abrirPanelBot()" title="Bot nocturno: redacta respuestas fuera del horario de atención (modo sombra: tú revisas y envías)" aria-label="Bot nocturno">${WA_ICONO.bot}</button>

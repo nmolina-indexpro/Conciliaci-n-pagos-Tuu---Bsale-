@@ -192,7 +192,7 @@
   .view-toggle button.activo{background:var(--surface);color:var(--primary);box-shadow:var(--shadow);}
 
   /* ventana de la app: tres columnas pegadas, sin tarjetas, separadas por una línea (lista | chat | info del contacto) */
-  .bandeja-layout{display:grid;grid-template-columns:minmax(320px,30%) minmax(0,1fr);height:calc(100vh - 175px);min-height:560px;background:#fff;border:1px solid #D1D7DB;box-shadow:0 6px 18px rgba(11,20,26,.14);overflow:hidden;}
+  .bandeja-layout{display:grid;grid-template-columns:minmax(320px,30%) minmax(0,1fr);height:calc(100vh - 125px);min-height:560px;background:#fff;border:1px solid #D1D7DB;box-shadow:0 6px 18px rgba(11,20,26,.14);overflow:hidden;}
   .bandeja-layout.ficha-abierta{grid-template-columns:minmax(320px,30%) minmax(0,1fr) minmax(320px,30%);}
   .panel-lista, .panel-chat, .panel-ficha-bandeja{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:#fff;}
   .panel-chat{border-left:1px solid var(--wa-linea);background:var(--wa-fondo);}
@@ -498,12 +498,6 @@
     <div class="user-box" id="userBox"></div>
   </header>
 
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-    <div>
-      <h1>💬 Clientes WhatsApp</h1>
-      <div class="sub">Conversaciones, seguimiento comercial y analítica de WhatsApp Business.</div>
-    </div>
-  </div>
   <div id="avisoConfig"></div>
 
   <div id="vistaDashboard" class="vista-modulo"></div>
