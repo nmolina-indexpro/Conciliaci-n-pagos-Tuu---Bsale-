@@ -474,6 +474,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-recontacto-clasificar-ia') return manejarWhatsappRecontactoClasificarIA(req, res, sesion);
   if (recurso === 'whatsapp-usuarios') return manejarWhatsappUsuarios(req, res, sesion);
   if (recurso === 'whatsapp-respuestas-rapidas') return manejarWhatsappRespuestasRapidas(req, res, sesion);
+  if (recurso === 'whatsapp-marcar-leida') return manejarWhatsappMarcarLeida(req, res, sesion);
   if (recurso === 'whatsapp-debug-categoria') return manejarWhatsappDebugCategoria(req, res, sesion);
   if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
   if (recurso === 'compra-agil-ordenes') return manejarCompraAgilOrdenes(req, res, sesion);
@@ -9111,6 +9112,28 @@ async function manejarWhatsappUsuarios(req, res, sesion) {
   }
 }
 
+// Marca una conversación como leída (al abrirla, o cuando llega un mensaje mientras está abierta). Compartido por todo el equipo, como en WhatsApp Business.
+// Se guarda GREATEST(ahora, último mensaje) para que un mensaje con hora algo adelantada (reloj de Meta) tampoco quede como no leído.
+async function manejarWhatsappMarcarLeida(req, res, _sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const id = parseInt(req.body?.id, 10);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Falta id' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const { rows } = await sql`
+      UPDATE whatsapp_conversaciones
+      SET leida_hasta = GREATEST(now(), COALESCE((SELECT MAX(m.marca_tiempo) FROM whatsapp_mensajes m WHERE m.conversacion_id = whatsapp_conversaciones.id), now()))
+      WHERE id = ${id}
+      RETURNING leida_hasta;
+    `;
+    if (!rows.length) return res.status(404).json({ error: 'Conversación no encontrada' });
+    return res.status(200).json({ ok: true, leidaHasta: new Date(rows[0].leida_hasta).toISOString() });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al marcar la conversación como leída', detail: String(err) });
+  }
+}
+
 // Respuestas rápidas ("/" en la conversación). Todos los usuarios con acceso a WhatsApp las leen y las usan;
 // solo un administrador las crea, edita o elimina (así el equipo comparte los mismos textos, sin versiones sueltas).
 async function manejarWhatsappRespuestasRapidas(req, res, sesion) {
@@ -9453,6 +9476,19 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
 
+    if (req.method === 'GET' && req.query.ping) {
+      // Chequeo liviano para la actualización automática de la bandeja: una "huella" que cambia cuando llega o se envía un mensaje, se edita una
+      // conversación o alguien la marca como leída. El navegador solo recarga la lista completa cuando la huella cambia.
+      const { rows: p } = await sql`
+        SELECT (SELECT MAX(marca_tiempo) FROM whatsapp_mensajes) AS mensajes,
+               (SELECT MAX(updated_at) FROM whatsapp_conversaciones) AS editadas,
+               (SELECT MAX(leida_hasta) FROM whatsapp_conversaciones) AS leidas,
+               (SELECT COUNT(*)::int FROM whatsapp_conversaciones) AS total;
+      `;
+      const f = x => (x ? new Date(x).getTime() : 0);
+      return res.status(200).json({ huella: [f(p[0].mensajes), f(p[0].editadas), f(p[0].leidas), p[0].total].join('-') });
+    }
+
     if (req.method === 'GET') {
       // El listado real SÍ filtra por la pestaña activa (query.vista), pero
       // los contadores de las pestañas/indicadores deben verse TODOS con
@@ -9509,7 +9545,7 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
            c.id, c.iniciada_en, c.estado, c.intencion, c.categoria, c.producto, c.marca, c.modelo,
            ${primeraRespuestaRealSQL()} AS primera_respuesta_segundos, c.resultado, c.motivo_perdida, c.venta_detectada, c.venta_monto,
            c.requiere_seguimiento, c.seguimiento_en, c.seguimiento_estado, c.seguimiento_observaciones, c.cantidad_mensajes, c.ultimo_mensaje_resumen,
-           c.responsable_id, c.vendedor_detectado, c.campos_editados_manualmente,
+           c.responsable_id, c.vendedor_detectado, c.campos_editados_manualmente, c.leida_hasta,
            c.shopify_producto_url, c.shopify_producto_titulo, c.shopify_producto_confianza,
            c.bsale_documento_numero, c.bsale_documento_tipo, c.bsale_documento_monto, c.bsale_documento_fecha, c.bsale_documento_url,
            c.fuente_tipo, c.fuente_titulo, c.fuente_url, c.fuente_id, c.fuente_ref, c.fuente_utm_source,
@@ -9537,7 +9573,9 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
              OR EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.marca_tiempo > a.updated_at)
            )) AS analisis_desactualizado
          ${sqlBase}
-         ORDER BY c.iniciada_en DESC
+         -- Como en WhatsApp: arriba la conversación con el mensaje más reciente (antes se ordenaba por cuándo empezó, y una conversación
+         -- antigua que recibía un mensaje nuevo quedaba enterrada en la lista).
+         ORDER BY COALESCE((SELECT MAX(m.marca_tiempo) FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id), c.iniciada_en) DESC, c.id DESC
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
         paramsConPaginacion
       );
@@ -9667,6 +9705,7 @@ function mapearConversacionWhatsapp(r) {
     camposEditadosManualmente: r.campos_editados_manualmente || [],
     ultimoMensajeDireccion: r.ultimo_mensaje_direccion || null,
     ultimoMensajeEn: r.ultimo_mensaje_en ? new Date(r.ultimo_mensaje_en).toISOString() : null,
+    leidaHasta: r.leida_hasta ? new Date(r.leida_hasta).toISOString() : null, // hasta cuándo se dio por vista (ver whatsapp-marcar-leida)
     shopifyProductoUrl: r.shopify_producto_url,
     shopifyProductoTitulo: r.shopify_producto_titulo,
     shopifyProductoConfianza: r.shopify_producto_confianza,
@@ -9711,30 +9750,41 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
     const conv = convRows[0];
     if (!conv) return res.status(404).json({ error: 'Conversación no encontrada' });
 
-    const { rows: contactoRows } = await sql`
+    // Las consultas no dependen unas de otras: se lanzan juntas (antes eran ~12 viajes a la base uno tras otro y la conversación tardaba en abrirse).
+    // Lo único encadenado es contacto -> cliente de Bsale -> cotizaciones, que corre en paralelo con todo lo demás.
+    await asegurarWaClicsAdsUnaVezWaAds(sql);
+    const pContacto = sql`
       SELECT ct.*, (SELECT COUNT(*)::int FROM whatsapp_conversaciones WHERE contacto_id = ct.id) AS total_conversaciones_real
       FROM whatsapp_contactos ct WHERE ct.id = ${conv.contacto_id};
     `;
+    const pBsale = pContacto.then(async ({ rows }) => {
+      const cb = await buscarClienteBsalePorTelefono(sql, rows[0]?.telefono);
+      const cot = await cotizacionesDelClienteWhatsapp(sql, rows[0]?.telefono, cb ? cb.id : null);
+      return { clienteBsale: cb, cotizacionesCliente: cot };
+    });
+    const [
+      { rows: contactoRows }, { clienteBsale, cotizacionesCliente }, { rows: adsRows }, { rows: mensajes }, { rows: analisisRows },
+      { rows: auditoria }, { rows: etiquetas }, { rows: ventaRows }, { rows: notasInternas },
+    ] = await Promise.all([
+      pContacto,
+      pBsale,
+      sql.query(`SELECT ${sqlOrigenGoogleAds('c')} AS ads_origen FROM whatsapp_conversaciones c WHERE c.id = $1`, [id]),
+      sql`SELECT * FROM whatsapp_mensajes WHERE conversacion_id = ${id} ORDER BY marca_tiempo ASC;`,
+      sql`SELECT * FROM whatsapp_analisis_ia WHERE conversacion_id = ${id};`,
+      sql`SELECT * FROM whatsapp_auditoria WHERE conversacion_id = ${id} ORDER BY created_at DESC LIMIT 30;`,
+      sql`
+        SELECT e.nombre FROM whatsapp_conversacion_etiquetas ce
+        JOIN whatsapp_etiquetas e ON e.id = ce.etiqueta_id
+        WHERE ce.conversacion_id = ${id};
+      `,
+      sql`SELECT * FROM whatsapp_ventas WHERE conversacion_id = ${id} ORDER BY created_at DESC LIMIT 1;`,
+      sql`
+        SELECT n.id, n.texto, n.created_at, u.nombre AS autor_nombre
+        FROM whatsapp_notas_internas n LEFT JOIN usuarios u ON u.id = n.usuario_id
+        WHERE n.conversacion_id = ${id} ORDER BY n.created_at ASC;
+      `,
+    ]);
     const contacto = contactoRows[0];
-    const clienteBsale = await buscarClienteBsalePorTelefono(sql, contacto?.telefono);
-    const cotizacionesCliente = await cotizacionesDelClienteWhatsapp(sql, contacto?.telefono, clienteBsale ? clienteBsale.id : null);
-
-    await asegurarWaClicsAdsUnaVezWaAds(sql);
-    const { rows: adsRows } = await sql.query(`SELECT ${sqlOrigenGoogleAds('c')} AS ads_origen FROM whatsapp_conversaciones c WHERE c.id = $1`, [id]);
-    const { rows: mensajes } = await sql`SELECT * FROM whatsapp_mensajes WHERE conversacion_id = ${id} ORDER BY marca_tiempo ASC;`;
-    const { rows: analisisRows } = await sql`SELECT * FROM whatsapp_analisis_ia WHERE conversacion_id = ${id};`;
-    const { rows: auditoria } = await sql`SELECT * FROM whatsapp_auditoria WHERE conversacion_id = ${id} ORDER BY created_at DESC LIMIT 30;`;
-    const { rows: etiquetas } = await sql`
-      SELECT e.nombre FROM whatsapp_conversacion_etiquetas ce
-      JOIN whatsapp_etiquetas e ON e.id = ce.etiqueta_id
-      WHERE ce.conversacion_id = ${id};
-    `;
-    const { rows: ventaRows } = await sql`SELECT * FROM whatsapp_ventas WHERE conversacion_id = ${id} ORDER BY created_at DESC LIMIT 1;`;
-    const { rows: notasInternas } = await sql`
-      SELECT n.id, n.texto, n.created_at, u.nombre AS autor_nombre
-      FROM whatsapp_notas_internas n LEFT JOIN usuarios u ON u.id = n.usuario_id
-      WHERE n.conversacion_id = ${id} ORDER BY n.created_at ASC;
-    `;
 
     // Ventana de 24h de WhatsApp: solo se puede mandar texto libre si el
     // cliente escribió dentro de las últimas 24h desde su último mensaje

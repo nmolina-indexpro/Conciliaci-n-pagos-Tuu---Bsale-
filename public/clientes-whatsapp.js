@@ -840,6 +840,7 @@ function initConversaciones(){
   $('buscadorBandeja').addEventListener('input', debounce(() => { convState.q = $('buscadorBandeja').value.trim(); convState.page = 1; cargarConversaciones(); }, 350));
   $('buscadorConv').addEventListener('input', debounce(() => { convState.q = $('buscadorConv').value.trim(); convState.page = 1; cargarConversaciones(); }, 350));
   cargarConversaciones();
+  iniciarActualizacionEnVivo();
 }
 
 function cambiarVistaConv(vistaUI){
@@ -860,6 +861,7 @@ function cambiarVistaConv(vistaUI){
   } else {
     $('buscadorBandeja').value = convState.q;
     actualizarListaBandeja({ conversaciones: convState.ultimaData || [], contadores: convState.contadores });
+    cargarConversaciones({ silencioso: true }); // al volver a la bandeja se trae lo que pasó mientras estaba en la tabla
   }
 }
 
@@ -920,13 +922,16 @@ function renderChipFiltroMotivo(){
     </div>`;
 }
 
-async function cargarConversaciones(){
+// opts.silencioso: actualización automática en segundo plano -- si falla no se toca lo que ya se ve (no se reemplaza la lista por un mensaje de error)
+async function cargarConversaciones(opts){
+  const silencioso = !!(opts && opts.silencioso === true);
   const params = new URLSearchParams({ page: convState.page, pageSize: convState.pageSize, q: convState.q });
   if (convState.vista) params.set('vista', convState.vista);
   for (const [k, v] of Object.entries(convState.filtros)) if (v) params.set(k, v);
   try{
     const res = await fetch('/api/negocio?recurso=whatsapp-conversaciones&' + params.toString());
     const data = await res.json();
+    if (silencioso && (!res.ok || data.error)) return;
     if (!res.ok || data.error) {
       const msg = escapeHtml(data.error || 'Error al cargar.');
       $('tablaConv').innerHTML = `<tr><td colspan="17" class="empty-note">${msg}</td></tr>`;
@@ -939,6 +944,7 @@ async function cargarConversaciones(){
     else { actualizarListaBandeja(data); }
     renderChipFiltroMotivo();
   }catch(err){
+    if (silencioso) return;
     const msg = 'Error: ' + escapeHtml(err.message);
     $('tablaConv').innerHTML = `<tr><td colspan="17" class="empty-note">${msg}</td></tr>`;
     $('listaItemsBandeja').innerHTML = `<p class="empty-note" style="padding:16px;">${msg}</p>`;
@@ -997,17 +1003,32 @@ function fmtTelefonoLista(tel){
   const m = /^56(9)(\d{4})(\d{4})$/.exec(d);
   return m ? `+56 ${m[1]} ${m[2]} ${m[3]}` : '+' + d;
 }
+function conversacionNoLeida(c){
+  if (c.ultimoMensajeDireccion !== 'in' || !c.ultimoMensajeEn) return false;
+  return !c.leidaHasta || new Date(c.ultimoMensajeEn).getTime() > new Date(c.leidaHasta).getTime();
+}
+// Da por leída la conversación: se refleja al instante en la lista (sin esperar al servidor) y se guarda para todo el equipo
+function marcarLeidaConversacion(id){
+  const c = (convState.ultimaData || []).find(x => x.id === id);
+  if (c && conversacionNoLeida(c)) {
+    c.leidaHasta = new Date().toISOString();
+    const fila = document.querySelector(`#listaItemsBandeja .item-conv[data-id="${id}"]`);
+    if (fila) { fila.classList.remove('no-leido'); fila.querySelector('.item-pendiente')?.remove(); }
+  }
+  fetch('/api/negocio?recurso=whatsapp-marcar-leida', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
+    .then(r => r.json()).then(d => { if (d && d.leidaHasta && c) c.leidaHasta = d.leidaHasta; }).catch(() => { /* se reintenta al abrirla de nuevo */ });
+}
 function itemConvHtml(c){
   const info = estadoAtencionInfo(c);
   const alerta = alertaPrincipalInfo(c);
   const seleccionado = conversacionSeleccionadaId === c.id;
-  // "No leído" estilo WhatsApp: el cliente escribió y nadie ha respondido todavía (el último mensaje es suyo)
-  const esperaRespuesta = ['pendiente', 'vencida', 'en_atencion'].includes(info.clave);
+  // "No leído" estilo WhatsApp: el último mensaje es del cliente y llegó después de la última vez que alguien abrió la conversación
+  const esperaRespuesta = conversacionNoLeida(c);
   const nombre = c.clienteNombre || fmtTelefonoLista(c.clienteTelefono) || 'Sin nombre';
   const responsable = c.responsableNombre || (c.vendedorDetectado ? c.vendedorDetectado + ' 🤖' : 'Sin asignar');
   const etiquetas = [responsable, c.categoria ? (CATEGORIA_LABEL[c.categoria] || c.categoria) : '', c.googleAds ? 'Google Ads' : ''].filter(Boolean).join(' · ');
   return `
-    <div class="item-conv ${seleccionado ? 'seleccionado' : ''} ${esperaRespuesta ? 'no-leido' : ''}" onclick="seleccionarConversacionBandeja(${c.id})">
+    <div class="item-conv ${seleccionado ? 'seleccionado' : ''} ${esperaRespuesta ? 'no-leido' : ''}" data-id="${c.id}" onclick="seleccionarConversacionBandeja(${c.id})">
       <div class="avatar-chip">${WA_AVATAR}</div>
       <div class="item-cuerpo">
         <div class="item-top-row">
@@ -1043,27 +1064,70 @@ function actualizarListaBandeja(data){
 async function seleccionarConversacionBandeja(id){
   conversacionSeleccionadaId = id;
   sugerenciaIaActual = null;
-  document.querySelectorAll('#listaItemsBandeja .item-conv').forEach(el => el.classList.remove('seleccionado'));
+  cerrarMenuRapidas();
+  // Respuesta inmediata al clic: la fila queda marcada, pasa a leída y (en el celular) se abre el panel del chat sin esperar al servidor
+  document.querySelectorAll('#listaItemsBandeja .item-conv').forEach(el => el.classList.toggle('seleccionado', Number(el.dataset.id) === id));
   $('panelChat').innerHTML = '<div class="sin-seleccion">Cargando conversación…</div>';
-  await cargarDetalleBandeja(id, { forzarScroll: true });
+  marcarLeidaConversacion(id);
   if (window.matchMedia('(max-width:860px)').matches) mostrarPanelMovil('chat');
+  await cargarDetalleBandeja(id, { forzarScroll: true });
+}
+const leidaLocal = {}; // {[conversacionId]: ms} -- última vez que este navegador dio por leída la conversación
+// Si llegó un mensaje del cliente mientras la conversación está abierta y a la vista, se da por leído (como en WhatsApp)
+function revisarLeidaAbierta(){
+  const d = detalleBandejaActual;
+  if (!d || document.hidden || d.conversacion.id !== conversacionSeleccionadaId) return;
+  const ult = (d.mensajes || [])[(d.mensajes || []).length - 1];
+  if (!ult || ult.direccion !== 'in') return;
+  const t = new Date(ult.marcaTiempo).getTime();
+  const vista = Math.max(d.conversacion.leidaHasta ? new Date(d.conversacion.leidaHasta).getTime() : 0, leidaLocal[d.conversacion.id] || 0);
+  if (t > vista) marcarLeidaConversacion(d.conversacion.id);
 }
 async function cargarDetalleBandeja(id, opts){
   try{
-    const res = await fetch('/api/negocio?recurso=whatsapp-conversacion-detalle&id=' + id);
+    // El borrador del bot se pide a la vez que la conversación (antes esperaba a que terminara la primera para empezar la segunda)
+    const [res] = await Promise.all([fetch('/api/negocio?recurso=whatsapp-conversacion-detalle&id=' + id), cargarBorradorBot(id)]);
     const data = await res.json();
+    if (id !== conversacionSeleccionadaId) return; // mientras cargaba se abrió otra conversación: esta respuesta ya no corresponde
     if (!res.ok || data.error) { $('panelChat').innerHTML = `<div class="sin-seleccion">${escapeHtml(data.error || 'No se pudo cargar.')}</div>`; return; }
     detalleBandejaActual = data;
-    await cargarBorradorBot(id);
     renderChatBandeja(data, opts || {});
     renderFichaBandeja(data);
-    const idx = (convState.ultimaData || []).findIndex(c => c.id === id);
-    const items = document.querySelectorAll('#listaItemsBandeja .item-conv');
-    items.forEach(el => el.classList.remove('seleccionado'));
-    if (idx >= 0 && items[idx]) items[idx].classList.add('seleccionado');
+    revisarLeidaAbierta();
+    document.querySelectorAll('#listaItemsBandeja .item-conv').forEach(el => el.classList.toggle('seleccionado', Number(el.dataset.id) === id));
   }catch(err){
-    $('panelChat').innerHTML = `<div class="sin-seleccion">Error: ${escapeHtml(err.message)}</div>`;
+    if (id === conversacionSeleccionadaId) $('panelChat').innerHTML = `<div class="sin-seleccion">Error: ${escapeHtml(err.message)}</div>`;
   }
+}
+
+// ---------------- Actualización automática (la bandeja se mantiene al día sin recargar la página) ----------------
+// Cada 10 s se pide una "huella" liviana; solo si cambió (mensaje nuevo, edición, lectura) se recarga la lista y, si hay un mensaje nuevo en la
+// conversación abierta, esa conversación. Se pausa con la pestaña oculta, en otra vista del módulo o en la vista Tabla.
+let huellaConversaciones = null, actualizandoEnVivo = false;
+async function actualizarConversacionesEnVivo(){
+  if (actualizandoEnVivo || document.hidden || convState.vistaUI !== 'bandeja') return;
+  const vista = $('vistaConversaciones');
+  if (!vista || !vista.classList.contains('activa')) return;
+  actualizandoEnVivo = true;
+  try{
+    const r = await fetch('/api/negocio?recurso=whatsapp-conversaciones&ping=1');
+    const d = await r.json();
+    if (!r.ok || !d.huella) return;
+    const cambio = huellaConversaciones !== null && d.huella !== huellaConversaciones;
+    huellaConversaciones = d.huella;
+    if (!cambio) return;
+    await cargarConversaciones({ silencioso: true });
+    const id = conversacionSeleccionadaId, det = detalleBandejaActual;
+    const enLista = id && (convState.ultimaData || []).find(c => c.id === id);
+    const ultimoVisto = det && det.mensajes && det.mensajes.length ? new Date(det.mensajes[det.mensajes.length - 1].marcaTiempo).getTime() : 0;
+    if (enLista && enLista.ultimoMensajeEn && new Date(enLista.ultimoMensajeEn).getTime() > ultimoVisto) await cargarDetalleBandeja(id, {});
+  }catch(err){ /* sin conexión por un momento: se reintenta en el próximo ciclo */ }
+  finally{ actualizandoEnVivo = false; }
+}
+function iniciarActualizacionEnVivo(){
+  if (window.__waEnVivo) return;
+  window.__waEnVivo = setInterval(actualizarConversacionesEnVivo, 10000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { actualizarConversacionesEnVivo(); revisarLeidaAbierta(); } });
 }
 // Mezcla mensajes reales + notas internas en un solo hilo cronológico --
 // las notas se distinguen visualmente (fondo ámbar punteado) y nunca se
@@ -1103,6 +1167,11 @@ function renderChatBandeja(data, opts){
   const hiloViejo = $('chatHiloWrap');
   const scrollViejo = hiloViejo ? hiloViejo.scrollTop : null;
   const alFondoAntes = hiloViejo ? (hiloViejo.scrollTop + hiloViejo.clientHeight >= hiloViejo.scrollHeight - 60) : true;
+
+  // Si se está escribiendo y la conversación se redibuja (mensaje nuevo, por ejemplo), el cursor y el foco se quedan donde estaban
+  const taActiva = document.activeElement;
+  const teniaFoco = !!taActiva && taActiva.id === 'composerBandeja' + c.id;
+  const selIni = teniaFoco ? taActiva.selectionStart : 0, selFin = teniaFoco ? taActiva.selectionEnd : 0;
 
   const hilo = hiloCombinadoHtml(data.mensajes, data.notasInternas);
 
@@ -1164,7 +1233,9 @@ function renderChatBandeja(data, opts){
     ${sugerenciaHtml}
     <div class="chat-composer-wrap ${composerClase}">${composerHtml}</div>
   `;
-  const taNueva = $('composerBandeja' + c.id); if (taNueva) autoAltoComposer(taNueva);
+  const taNueva = $('composerBandeja' + c.id);
+  if (taNueva) autoAltoComposer(taNueva);
+  if (teniaFoco && taNueva) { taNueva.focus(); try { taNueva.setSelectionRange(selIni, selFin); } catch (e) { /* sin selección */ } }
 
   const hiloNuevo = $('chatHiloWrap');
   if (hiloNuevo) {
