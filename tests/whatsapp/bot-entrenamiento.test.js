@@ -305,6 +305,26 @@ test('los casos iniciales son válidos, sin muletillas prohibidas ni datos no co
   }
 });
 
+test('el estado de un pedido NO se manda al ticket: se revisa internamente; el ticket es para garantías, devoluciones y pedidos dañados', () => {
+  // regla del protocolo y dato de la base de conocimiento
+  assert.match(PROTOCOLO_COMERCIAL, /Estado de un pedido[\s\S]*NO lo mandes al Ticket de Post-Venta/);
+  assert.match(PROTOCOLO_COMERCIAL, /revisaremos internamente el caso y le responderemos en unos minutos, en horario hábil/);
+  assert.match(PROTOCOLO_COMERCIAL, /No inventes el estado del pedido, la fecha de llegada ni el courier/);
+  assert.match(PROTOCOLO_COMERCIAL, /pedidos que llegaron incompletos o dañados/);
+  assert.match(CONOCIMIENTO_DEFECTO, /NO va al ticket: se revisa internamente/);
+  assert.ok(construirSystemBot({ ...base }).includes('consulta por el estado de un pedido (se revisa internamente, sin enviarlo al ticket)'));
+  // casos de entrenamiento
+  const estado = CASOS.filter(c => /\bpedido\b/i.test(c.pregunta) && !/incompleto/i.test(c.pregunta));
+  assert.ok(estado.length >= 3, 'hay casos de estado de pedido');
+  for (const c of estado) {
+    assert.ok(!/postventa|ticket/i.test(c.respuesta), `no debe mandar al ticket: ${c.pregunta}`);
+    assert.match(c.respuesta, /internamente|número de (tu )?pedido/i, `debe revisar internamente o pedir el número: ${c.pregunta}`);
+  }
+  assert.ok(estado.some(c => /en horario hábil/.test(c.respuesta)));
+  const dañado = CASOS.find(c => /incompleto/i.test(c.pregunta));
+  assert.ok(dañado && dañado.respuesta.includes('https://www.indexstore.cl/pages/postventa'), 'el pedido incompleto sí va al ticket');
+});
+
 test('importarEjemplos carga los casos iniciales, omite los repetidos y reporta las filas malas', async () => {
   const { db, sql } = await crearBase();
   try {

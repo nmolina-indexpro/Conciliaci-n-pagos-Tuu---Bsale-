@@ -60,7 +60,7 @@ Cada módulo: objetivo, información oficial, reglas, derivación y pendientes. 
 
 **KB-12 Precios y disponibilidad.** Siempre en vivo (Shopify y Bsale). Stock en 0, no publicado o «sin dato»: no se ofrece como disponible; un ejecutivo confirma. Para servicios el stock no aplica.
 
-**KB-13 Garantías.** Ver matriz. Tabla maestra por marca y SKU: ❓ pendiente. Causales de rechazo: sello roto, daño físico, humedad, cargador incompatible, desgaste, cambio por gusto personal. Reclamos y garantías: Ticket de Post-Venta + ejecutivo.
+**KB-13 Garantías.** Ver matriz. Tabla maestra por marca y SKU: ❓ pendiente. Causales de rechazo: sello roto, daño físico, humedad, cargador incompatible, desgaste, cambio por gusto personal. Reclamos y garantías: Ticket de Post-Venta + ejecutivo. **Estado de un pedido que no llega: no va al ticket**, se revisa internamente y se responde en unos minutos, en horario hábil.
 
 **KB-14 Despachos y retiros.** Starken, Bluexpress u OTS vía Sendu; corte 11:00; RM 2-4 días hábiles, regiones 3-5, zonas extremas hasta 9; sin horario de entrega programable; el cliente debe verificar el paquete y no recibirlo si viene dañado; 72 horas para reportar daños; retiro en tienda gratis con aviso «Listo para retiro», plazo 3 meses. Costo del envío: lo confirma un ejecutivo.
 
@@ -91,4 +91,5 @@ Cada módulo: objetivo, información oficial, reglas, derivación y pendientes. 
 
 ## Registro de cambios
 
+- 24-nov-2026 (tarde): horario oficial confirmado; envío express pausado; vocabulario «alternativo»; instalación de pantalla 15 a 25 min; **estado de un pedido** se revisa internamente (no va al ticket) y se agregan 4 casos de pedidos.
 - 24-nov-2026: se reemplaza el conocimiento inicial por los datos oficiales del sitio; se retira «envío express» y los minutos de instalación; se agrega el protocolo comercial, el ticket de post-venta y 41 casos de arranque.
