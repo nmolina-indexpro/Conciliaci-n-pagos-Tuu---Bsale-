@@ -194,6 +194,13 @@
   .r-det dt{font-weight:700;font-size:11px;color:var(--primary);text-transform:uppercase;letter-spacing:.4px;margin-top:12px;}
   .r-det dd{margin:2px 0 0;font-size:13.5px;line-height:1.55;}
   .r-det textarea{width:100%;font-family:inherit;font-size:13px;padding:8px;border:1.5px solid var(--line);border-radius:8px;}
+  .r-vistas{display:flex;gap:6px;margin:12px 0 4px;}
+  .r-ent h4{font-size:11px;font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:.4px;margin:14px 0 4px;}
+  .r-ent ul{margin:0;padding-left:18px;font-size:13px;line-height:1.5;}
+  .r-ent .r-bloque{font-weight:700;font-size:12px;color:var(--primary);margin:16px 0 2px;padding-top:8px;border-top:1.5px solid var(--line);}
+  .r-ent .r-preg{margin:8px 0 10px;font-size:13px;line-height:1.5;}
+  .r-ent .r-preg p{margin:2px 0;font-size:12.5px;}
+  .r-ent .r-ref{font-size:11px;color:var(--muted);}
   @media (max-width:720px){ .filtros input[type="text"]{width:100%;} }
 </style>
 <meta name="theme-color" content="#0F766E">
@@ -445,7 +452,7 @@
       <div class="sub">Pega una lista en formato JSON o carga el archivo. Si un postulante ya existe (mismo identificador de Indeed o mismo correo), se actualiza sin duplicarlo ni cambiar su enlace.</div>
       <input type="file" id="rcArchivo" accept=".json,application/json" style="margin-bottom:8px;">
       <textarea id="rcJson" rows="8" style="width:100%;font-family:'IBM Plex Mono',monospace;font-size:12px;padding:10px;border:1.5px solid var(--line);border-radius:8px;" placeholder='[{"nombre":"Ana Pérez","email":"ana@correo.cl","telefono":"+56 9 1234 5678","ubicacion":"Santiago","fecha_postulacion":"2026-11-20","indeed_id":"abc123","respuestas":{"experiencia":"4"}}]'></textarea>
-      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><button type="button" class="btn-primary" id="btnImportar">Importar</button><button type="button" class="btn-ghost" id="btnNuevoR">+ Agregar uno a mano</button><span id="rcImpMsg" class="sub" style="margin:0;"></span></div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><button type="button" class="btn-primary" id="btnImportar">Importar</button><button type="button" class="btn-ghost" id="btnEntrevistasR" title="El JSON debe ser una lista de {nombre, entrevista}">Cargar como entrevistas propuestas</button><button type="button" class="btn-ghost" id="btnNuevoR">+ Agregar uno a mano</button><span id="rcImpMsg" class="sub" style="margin:0;"></span></div>
     </div>
   </div>
 
@@ -761,7 +768,7 @@ function renderListaR(){
         '<td><select class="estado-sel e-' + (p.estado === 'agendado' ? 'comprada' : p.estado === 'descartado' ? 'pendiente' : p.estado === 'nuevo' ? 'pendiente' : 'cotizando') + '" onchange="actualizarR(' + p.id + ',{estado:this.value})">' + Object.keys(ESTADOS_R).map(k => '<option value="' + k + '"' + (k === p.estado ? ' selected' : '') + '>' + ESTADOS_R[k] + '</option>').join('') + '</select></td>' +
         '<td data-valor="' + (p.reserva_inicio || '') + '" style="white-space:nowrap;">' + (p.reserva_inicio ? '<b>' + escapeHtml(fmtRFecha(p.reserva_inicio)) + ' ' + escapeHtml(fmtRHora(p.reserva_inicio)) + '</b><small style="display:block;font-size:11px;color:' + (p.reserva_enlace ? 'var(--green)' : 'var(--red)') + ';">' + (p.reserva_enlace ? '✓ Con enlace de videollamada' : 'Falta el enlace de videollamada') + '</small>' : '<span class="h-quien">Sin agendar</span>') + '</td>' +
         '<td><div class="r-acc"><button type="button" class="btn-ver" onclick="copiarEnlaceR(' + p.id + ')">Copiar enlace</button><button type="button" class="btn-ver" onclick="copiarMensajeR(' + p.id + ')">Copiar mensaje</button></div></td>' +
-        '<td><button type="button" class="btn-ver" onclick="verPostulanteR(' + p.id + ')">Ver</button></td></tr>';
+        '<td><div class="r-acc"><button type="button" class="btn-ver" onclick="verPostulanteR(' + p.id + ')">Ver</button>' + (p.entrevista ? '<button type="button" class="btn-ver" onclick="verPostulanteR(' + p.id + ',\'entrevista\')">Entrevista</button>' : '') + '</div></td></tr>';
     }).join('') + '</tbody>';
   $('vacioR').style.display = d.postulantes.length ? 'none' : '';
 }
@@ -773,11 +780,11 @@ async function actualizarR(id, cambios){
   try{ await apiR({ accion: 'actualizar', id, ...cambios }); RC.datos = await apiR(); renderR(); avisoR('Guardado ✓', 'ok'); }
   catch(e){ avisoR('No se guardó: ' + e.message, 'err'); renderR(); }
 }
-function verPostulanteR(id){
+function verPostulanteR(id, vista){
   const p = postR(id); if(!p) return; const r = p.respuestas || {};
   const preg = { experiencia: 'Años de experiencia en placas de notebook', smd: 'Reemplazo de SMD con microscopio y aire caliente', esquemas: 'Esquemas y boardview' };
   $('modalCuerpo').innerHTML = '<h2 id="modalTitulo">' + escapeHtml(p.nombre) + '</h2><div class="meta"><span class="badge-nivel pend">' + escapeHtml(ESTADOS_R[p.estado] || p.estado) + '</span>' + (p.estado_indeed ? '<span class="badge-nivel pend">En Indeed: ' + escapeHtml(p.estado_indeed) + '</span>' : '') + (p.reserva_inicio ? '<span class="badge-nivel n1">Entrevista: ' + escapeHtml(fmtRFecha(p.reserva_inicio) + ' ' + fmtRHora(p.reserva_inicio)) + '</span>' : '') + '</div>' +
-    '<dl class="r-det"><dt>Contacto</dt><dd>' + (p.email ? escapeHtml(p.email) : '<i>Sin correo</i>') + (p.telefono ? ' · ' + escapeHtml(p.telefono) : '') + '<br>' + escapeHtml(p.ubicacion || '') + '</dd>' +
+    '<div class="r-vistas"><button type="button" class="tab" id="rvFicha" onclick="vistaDetalleR(\'ficha\')">Ficha</button><button type="button" class="tab" id="rvEntrevista" onclick="vistaDetalleR(\'entrevista\')">Entrevista propuesta' + (p.entrevista ? '' : ' (sin cargar)') + '</button></div><div id="rdFicha"><dl class="r-det"><dt>Contacto</dt><dd>' + (p.email ? escapeHtml(p.email) : '<i>Sin correo</i>') + (p.telefono ? ' · ' + escapeHtml(p.telefono) : '') + '<br>' + escapeHtml(p.ubicacion || '') + '</dd>' +
     '<dt>Postuló</dt><dd>' + (p.fecha_postulacion ? p.fecha_postulacion.split('-').reverse().join('-') : '—') + ' · ' + escapeHtml(p.cargo || '') + (urlSegura(p.url_perfil) ? ' · <a href="' + escapeHtml(urlSegura(p.url_perfil)) + '" target="_blank" rel="noopener noreferrer">Ver en Indeed ↗</a>' : '') + '</dd>' +
     Object.keys(preg).filter(k => r[k]).map(k => '<dt>' + preg[k] + '</dt><dd>' + escapeHtml(r[k]) + '</dd>').join('') +
     (p.resumen ? '<dt>Resumen del CV</dt><dd>' + escapeHtml(p.resumen) + '</dd>' : '') +
@@ -787,8 +794,52 @@ function verPostulanteR(id){
     '<dt>Enlace personal de agenda</dt><dd style="word-break:break-all;"><a href="' + escapeHtml(p.enlace) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(p.enlace) + '</a></dd></dl>' +
     '<div class="acciones"><button type="button" class="btn-primary" onclick="guardarDetalleR(' + p.id + ')">Guardar</button><button type="button" class="btn-ghost" onclick="copiarMensajeR(' + p.id + ')">Copiar mensaje</button>' +
     (p.reserva_inicio ? '<button type="button" class="btn-ghost" onclick="cancelarReservaR(' + p.id + ')">Cancelar su entrevista</button>' : '') +
-    '<button type="button" class="btn-ghost" onclick="regenerarR(' + p.id + ')">Nuevo enlace</button><button type="button" class="btn-ghost" style="color:var(--red)" onclick="eliminarR(' + p.id + ')">Eliminar</button></div>';
-  $('modalEle').classList.add('abierto');
+    '<button type="button" class="btn-ghost" onclick="regenerarR(' + p.id + ')">Nuevo enlace</button><button type="button" class="btn-ghost" style="color:var(--red)" onclick="eliminarR(' + p.id + ')">Eliminar</button></div></div><div id="rdEntrevista" style="display:none;">' + entrevistaHtmlR(p) + '</div>';
+  $('modalEle').classList.add('abierto'); vistaDetalleR(vista === 'entrevista' ? 'entrevista' : 'ficha');
+}
+// ---- Entrevista propuesta (guion de 15 a 20 minutos por postulante) ----
+function vistaDetalleR(v){
+  $('rdFicha').style.display = v === 'ficha' ? '' : 'none'; $('rdEntrevista').style.display = v === 'entrevista' ? '' : 'none';
+  $('rvFicha').classList.toggle('activa', v === 'ficha'); $('rvEntrevista').classList.toggle('activa', v === 'entrevista');
+}
+const BLOQUE_ENT_R = c => /^N/.test(c) ? 'Núcleo técnico, igual para todos · 8 min' : c === 'P3' ? 'Brecha de su perfil · 3 min' : 'Su experiencia · 5 min';
+function entrevistaHtmlR(p){
+  const e = p.entrevista, h = escapeHtml;
+  if(!e) return '<div class="empty-note">Este postulante todavía no tiene entrevista propuesta. Se carga desde la pestaña Importar con «Cargar como entrevistas propuestas».</div>';
+  const lista = (t, a) => a && a.length ? '<h4>' + t + '</h4><ul>' + a.map(x => '<li>' + h(x) + '</li>').join('') + '</ul>' : '';
+  let bloque = '';
+  const preguntas = (e.preguntas || []).map(q => { const b = BLOQUE_ENT_R(q.cod); const cab = b !== bloque ? '<div class="r-bloque">' + h(b) + '</div>' : ''; bloque = b;
+    return cab + '<div class="r-preg"><div><b>' + h(q.cod) + '.</b> <b>' + h(q.texto) + '</b>' + (q.ref ? ' <span class="r-ref">(' + h(q.ref) + ')</span>' : '') + '</div><p><b>Esperamos oír:</b> ' + h(q.espera) + '</p><p><b>Señales de alerta:</b> ' + h(q.alerta) + '</p><p><b>Puntaje:</b> ☐ 0 &nbsp; ☐ 1 &nbsp; ☐ 2</p></div>'; }).join('');
+  return '<div class="r-ent"><div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;"><button type="button" class="btn-primary" onclick="copiarEntrevistaR(' + p.id + ')">Copiar entrevista</button><button type="button" class="btn-ghost" onclick="imprimirEntrevistaR(' + p.id + ')">Imprimir</button></div>' +
+    '<div style="font-size:12.5px;color:var(--muted);">Entrevista de 15 a 20 minutos: apertura 2 · su experiencia 5 · núcleo técnico 8 · brecha 3 · cierre 2. Cada pregunta vale 0, 1 o 2 (máximo 12): con 10 o más y sin banderas rojas avanza a la prueba práctica.' + (e.encaje ? ' <b>Encaje preliminar según el CV: ' + h(e.encaje) + '.</b>' : '') + '</div>' +
+    (e.perfil && e.perfil.length ? '<h4>Perfil</h4><dl class="r-det" style="margin:0;">' + e.perfil.map(f => '<dt style="margin-top:6px;">' + h(f[0]) + '</dt><dd>' + h(f[1]) + '</dd>').join('') + '</dl>' : '') +
+    lista('Antes de la entrevista', e.antes) + lista('Lo que suma', e.fortalezas) + lista('Lo que hay que aclarar', e.dudas) + preguntas + lista('Cierre · 2 min', e.cierre) + '</div>';
+}
+function textoEntrevistaR(p){
+  const e = p.entrevista; if(!e) return '';
+  const L = ['ENTREVISTA PROPUESTA · ' + p.nombre, 'Duración: 15 a 20 minutos (apertura 2 · su experiencia 5 · núcleo técnico 8 · brecha 3 · cierre 2)'];
+  if(e.encaje) L.push('Encaje preliminar según el CV: ' + e.encaje);
+  const sec = (t, a) => { if(a && a.length){ L.push('', t.toUpperCase()); a.forEach(x => L.push('- ' + x)); } };
+  if(e.perfil && e.perfil.length){ L.push('', 'PERFIL'); e.perfil.forEach(f => L.push(f[0] + ': ' + f[1])); }
+  sec('Antes de la entrevista', e.antes); sec('Lo que suma', e.fortalezas); sec('Lo que hay que aclarar', e.dudas);
+  let bloque = '';
+  (e.preguntas || []).forEach(q => { const b = BLOQUE_ENT_R(q.cod); if(b !== bloque){ L.push('', b.toUpperCase()); bloque = b; } L.push('', q.cod + '. ' + q.texto + (q.ref ? ' (' + q.ref + ')' : ''), '   Esperamos oír: ' + q.espera, '   Señales de alerta: ' + q.alerta, '   Puntaje: [ ] 0   [ ] 1   [ ] 2'); });
+  sec('Cierre · 2 min', e.cierre);
+  return L.join('\n');
+}
+function copiarEntrevistaR(id){ const p = postR(id); if(p) copiarR(textoEntrevistaR(p), 'Entrevista de ' + p.nombre.split(' ')[0] + ' copiada'); }
+function imprimirEntrevistaR(id){
+  const p = postR(id); if(!p || !p.entrevista) return;
+  const w = window.open('', '_blank'); if(!w){ avisoR('El navegador bloqueó la ventana: permite ventanas emergentes para imprimir', 'err'); return; }
+  w.document.write('<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Entrevista · ' + escapeHtml(p.nombre) + '</title><style>body{font-family:Arial,sans-serif;font-size:11px;color:#111;margin:18px;line-height:1.45}h1{font-size:16px;margin:0 0 4px}h4{font-size:10px;text-transform:uppercase;color:#0b2a5b;margin:12px 0 3px}ul{margin:0;padding-left:16px}dt{font-weight:700;font-size:10px;text-transform:uppercase;color:#0b2a5b;margin-top:5px}dd{margin:1px 0 0}.r-bloque{font-weight:700;color:#0b2a5b;border-top:1px solid #999;margin-top:12px;padding-top:5px}.r-preg{margin:6px 0 8px;page-break-inside:avoid}.r-preg p{margin:1px 0}.r-ref{color:#555;font-size:10px}button{display:none}</style></head><body><h1>Entrevista · ' + escapeHtml(p.nombre) + '</h1>' + entrevistaHtmlR(p) + '</body></html>');
+  w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
+}
+async function cargarEntrevistasR(){
+  let lista; try{ lista = JSON.parse($('rcJson').value); }catch(e){ $('rcImpMsg').textContent = 'El texto no es un JSON válido.'; return; }
+  if(!Array.isArray(lista)) lista = [lista];
+  $('rcImpMsg').textContent = 'Cargando…';
+  try{ const d = await apiR({ accion: 'entrevistas', items: lista }); $('rcImpMsg').textContent = d.guardadas + ' entrevistas cargadas' + (d.errores.length ? ' · ' + d.errores.length + ' con error: ' + d.errores.join('; ') : ''); $('rcJson').value = ''; RC.datos = await apiR(); renderR(); }
+  catch(e){ $('rcImpMsg').textContent = 'No se cargó: ' + e.message; }
 }
 async function guardarEnlaceR(id, avisar){
   const p = postR(id), enlace = $('rdVideo').value.trim();
@@ -887,7 +938,7 @@ async function cerrarSesion(){
   document.querySelectorAll('#tabs .tab').forEach(b => b.addEventListener('click', () => irTab(b.dataset.tab)));
   document.querySelectorAll('#subtabsR .tab').forEach(b => b.addEventListener('click', () => { RC.sub = b.dataset.sub; renderR(); }));
   ['buscarR', 'fEstadoR'].forEach(id => $(id).addEventListener(id === 'buscarR' ? 'input' : 'change', renderListaR));
-  $('btnGuardarCfg').addEventListener('click', guardarConfigR); $('btnImportar').addEventListener('click', importarR); $('btnNuevoR').addEventListener('click', nuevoR);
+  $('btnGuardarCfg').addEventListener('click', guardarConfigR); $('btnImportar').addEventListener('click', importarR); $('btnNuevoR').addEventListener('click', nuevoR); $('btnEntrevistasR').addEventListener('click', cargarEntrevistasR);
   $('rcArchivo').addEventListener('change', e => { const f = e.target.files[0]; if(f){ const rd = new FileReader(); rd.onload = () => { $('rcJson').value = String(rd.result || ''); }; rd.readAsText(f); } });
   window.addEventListener('hashchange', () => irTab(location.hash.slice(1)));
   irTab(location.hash.slice(1));

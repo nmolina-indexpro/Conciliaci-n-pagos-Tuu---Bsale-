@@ -215,3 +215,27 @@ test('el enlace vence 3 días después de terminada la entrevista y no filtra de
     assert.equal(rr.codigo, 500); assert.ok(!JSON.stringify(rr.cuerpo).includes('secreta'));
   } finally { await t.cerrar(); }
 });
+
+test('entrevistas propuestas: se cargan por nombre, se validan y llegan al administrador', async () => {
+  const t = await montar();
+  try {
+    await t.admin({ accion: 'importar', postulantes: [{ nombre: 'Ana Pérez', email: 'ana@correo.cl' }, { nombre: 'Beto Rojas', email: 'beto@correo.cl' }] });
+    const q = [{ cod: 'P1', texto: 'Cuéntame una reparación', espera: 'Un caso concreto', alerta: 'Respuesta vaga' }, { cod: 'N1', texto: 'Equipo que no enciende', espera: 'Método', alerta: 'Cambia piezas', ref: 'Lecciones 8 y 21' }];
+    const ent = { encaje: 'Alto', perfil: [['Formación', 'Técnico']], fortalezas: ['Mucha práctica'], dudas: ['Plazo'], antes: [], preguntas: q, cierre: ['Renta'] };
+    let r = await t.admin({ accion: 'entrevistas', items: [{ nombre: 'ana pérez', entrevista: ent }, { nombre: 'No Existe', entrevista: ent }, { nombre: 'Beto Rojas', entrevista: { preguntas: [] } }, { nombre: 'Beto Rojas' }] });
+    assert.equal(r.codigo, 200); assert.equal(r.cuerpo.guardadas, 1); assert.equal(r.cuerpo.errores.length, 3);
+    const lista = (await t.admin(null)).cuerpo.postulantes, ana = lista.find(p => p.nombre === 'Ana Pérez'), beto = lista.find(p => p.nombre === 'Beto Rojas');
+    assert.equal(ana.entrevista.encaje, 'Alto'); assert.equal(ana.entrevista.preguntas.length, 2); assert.equal(ana.entrevista.preguntas[1].ref, 'Lecciones 8 y 21'); assert.equal(beto.entrevista, null);
+    // por id, y null la quita
+    r = await t.admin({ accion: 'entrevistas', items: [{ id: beto.id, entrevista: ent }, { id: ana.id, entrevista: null }] });
+    assert.equal(r.cuerpo.guardadas, 2);
+    const l2 = (await t.admin(null)).cuerpo.postulantes; assert.equal(l2.find(p => p.id === ana.id).entrevista, null); assert.equal(l2.find(p => p.id === beto.id).entrevista.fortalezas[0], 'Mucha práctica');
+    // reimportar al postulante no borra su entrevista
+    await t.admin({ accion: 'importar', postulantes: [{ nombre: 'Beto Rojas', email: 'beto@correo.cl' }] });
+    assert.ok((await t.admin(null)).cuerpo.postulantes.find(p => p.id === beto.id).entrevista);
+    // solo administradores; la agenda pública nunca la muestra
+    assert.equal((await t.admin({ accion: 'entrevistas', items: [{ id: beto.id, entrevista: ent }] }, { rol: 'usuario' })).codigo, 403);
+    const tok = new URL(beto.enlace).searchParams.get('t'); assert.ok(!JSON.stringify((await t.pub('GET', { t: tok })).cuerpo).includes('Mucha práctica'));
+    assert.equal((await t.admin({ accion: 'entrevistas', items: [] })).codigo, 400);
+  } finally { await t.cerrar(); }
+});
