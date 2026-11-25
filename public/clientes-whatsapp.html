@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/png" href="/favicon.png">
-<title>Clientes WhatsApp — IndexStore</title>
+<title>Chat WhatsApp — IndexStore</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -475,6 +475,25 @@
   .rr-form textarea{min-height:150px;resize:vertical;width:100%;line-height:1.45;}
   .rr-form .rr-contador{font-size:11.5px;color:var(--muted);text-align:right;}
   .rr-acciones{display:flex;gap:8px;flex-wrap:wrap;}
+
+  /* ================= Chat a pantalla completa (como WhatsApp Web) ================= */
+  html, body{height:100%;overflow:hidden;}
+  html body{padding:0 !important;margin:0;background:#fff;}
+  html body .wrap{height:100vh;height:100dvh;max-width:none;display:flex;flex-direction:column;margin:0;}
+  #vistaConversaciones{margin-top:0 !important;flex:1;min-height:0;display:flex;flex-direction:column;}
+  #vistaConversaciones .bandeja-toolbar{padding:8px 16px;margin:0;background:#fff;border-bottom:1px solid var(--line);}
+  #vistaConversaciones #chipFiltroMotivo{padding:0 16px;flex-shrink:0;}
+  #vistaConversaciones .filtros-panel{margin:0;border-radius:0;border-left:0;border-right:0;padding:10px 16px;flex-shrink:0;}
+  #vistaBandejaConv{flex:1;height:auto;min-height:0;border:none;box-shadow:none;border-radius:0;grid-template-rows:minmax(0,1fr);}
+  #vistaTablaConv{flex:1;min-height:0;overflow:auto;padding:12px 16px 24px;background:var(--bg);}
+  #vistaTablaConv .seccion{margin-bottom:0;}
+  .menu-flotante .menu-emoji{width:20px;text-align:center;font-size:16px;flex-shrink:0;}
+  .menu-sep{height:1px;background:#E9EDEF;margin:4px 0;}
+  @media (max-width:860px){
+    #vistaBandejaConv{display:flex;flex-direction:column;}
+    .panel-lista{height:auto;min-height:0;flex:1;}
+    .panel-lista.activa{display:flex;}
+  }
 </style>
 <meta name="theme-color" content="#0F766E">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -484,157 +503,8 @@
 </head>
 <body>
 <div class="wrap">
-
-  <header>
-    <div class="header-left">
-      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
-      <div class="menu-herramientas" id="menuHerramientas">
-        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
-        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
-        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
-        <a href="mailing.html" id="navMailing" style="display:none;">✉️ Mailing</a>
-        <a href="reportar-error.html">🆘 Ayuda</a>
-        <a href="guia-uso.html">📘 Guía de uso</a>
-        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
-      </div>
-      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
-    </div>
-    <nav class="page-nav">
-      <a href="home.html">Home</a>
-      <div class="nav-dropdown">
-        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
-        <div class="nav-dropdown-menu" id="navFinanzas">
-          <a href="index.html">Flujo de Caja</a>
-          <a href="conciliacion.html">Conciliación</a>
-          <a href="contabilidad.html">Contabilidad</a>
-        </div>
-      </div>
-      <div class="nav-dropdown">
-        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
-        <div class="nav-dropdown-menu" id="navCompras">
-          <a href="compras.html#resumen">Resumen</a>
-          <a href="compras.html#catalogo" data-requiere="compras.html#catalogo">Catálogo completo</a>
-          <a href="compras.html#recomendacion" data-requiere="compras.html#recomendacion">Recomendación con presupuesto</a>
-          <a href="compras.html#daxis" data-requiere="compras.html#daxis">Importación Daxis</a>
-          <a href="compras.html#dm" data-requiere="compras.html#dm">Compras DM</a>
-          <a href="compras.html#intcomex" data-requiere="compras.html#intcomex">Compras Intcomex</a>
-          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
-          <a href="compras.html#comparador" data-requiere="compras.html#comparador">Comparativa de cotizaciones</a>
-          <a href="alertas-stock.html">Alertas de Stock</a>
-          <a href="productos-en-transito.html">Productos en tránsito</a>
-          <a href="pedidos-pantallas.html">Productos a pedido</a>
-        </div>
-      </div>
-      <div class="nav-dropdown">
-        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
-        <div class="nav-dropdown-menu" id="navComercial">
-          <a href="oportunidades-comerciales.html">Ventas</a>
-          <a href="detalle-ventas.html">Detalle de ventas</a>
-          <a href="cotizaciones-clientes.html">Cotizaciones</a>
-          <a href="compra-agil.html">Compra Ágil</a>
-          <a href="metas-de-venta.html">Metas de venta</a>
-          <a href="clientes-whatsapp.html" class="active">WhatsApp</a>
-          <a href="llamadas.html">Llamadas</a>
-          <a href="indexscale.html">IndexScale</a>
-          <a href="modelos-compatibles.html">Modelos compatibles</a>
-        </div>
-      </div>
-      <div class="nav-dropdown">
-        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
-        <div class="nav-dropdown-menu" id="navSoporte">
-          <a href="tickets.html">Tickets ERP (ex Zoho Desk)</a>
-          <a href="chat-en-vivo.html">Chat en vivo (ex SalesIQ)</a>
-          <a href="soporte-indexpro.html">IndexPro</a>
-          <a href="reportar-error.html">Reportar error</a>
-        </div>
-      </div>
-      <div class="nav-dropdown">
-        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
-        <div class="nav-dropdown-menu" id="navServicioTecnico">
-          <a href="servicio-tecnico.html">Servicio Técnico</a>
-          <a href="identificacion-modelos.html">Identificación de Modelos</a>
-          <a href="electronica.html">Electrónica</a>
-        </div>
-      </div>
-      <div class="nav-dropdown">
-        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
-        <div class="nav-dropdown-menu" id="navSitioWeb">
-          <a href="sitio-web.html#resumen">Resumen</a>
-          <a href="sitio-web.html#stock">Stock oculto</a>
-          <a href="sitio-web.html#precios">Precios</a>
-          <a href="sitio-web.html#skus">SKU de referencia</a>
-          <a href="sitio-web.html#envio">Cotizador de envío</a>
-          <a href="sitio-web.html#filtros">Filtros por marca</a>
-          <a href="sitio-web.html#compat">Compatibilidad</a>
-          <a href="sitio-web.html#modelos">Modelos detectados</a>
-          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
-          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
-        </div>
-      </div>
-      <div class="nav-dropdown">
-        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
-        <div class="nav-dropdown-menu" id="navAnalisis">
-          <a href="analisis.html">Análisis</a>
-          <a href="productos-estancados.html">Productos estancados</a>
-          <a href="frecuencia-precio.html">Frecuencia y precio</a>
-          <a href="google-analytics.html">Google Analytics</a>
-          <a href="google-ads.html">Google Ads</a>
-          <a href="search-console.html">Search Console</a>
-          <a href="instagram.html">Instagram</a>
-          <a href="comparativo-ventas.html">Comparativo de ventas</a>
-          <a href="productos-nuevos.html">Productos Nuevos</a>
-          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
-        </div>
-      </div>
-    </nav>
-    <div class="user-box" id="userBox"></div>
-  </header>
-
-  <div id="avisoConfig"></div>
-
-  <div id="vistaDashboard" class="vista-modulo"></div>
+  <!-- Chat de WhatsApp a pantalla completa: sin menú, sin logo y sin pestañas. Dashboard, clientes, analítica y configuración viven en Configuración WhatsApp (configuracion-whatsapp.html); se llega desde el menú de tres puntos de la lista. -->
   <div id="vistaConversaciones" class="vista-modulo activa"></div>
-  <div id="vistaClientes" class="vista-modulo"></div>
-  <div id="vistaAnalitica" class="vista-modulo"></div>
-
-  <!-- Pestañas del módulo: abajo, para que el panel de chats quede arriba, completo, justo bajo el título -->
-  <div class="tabs-modulo" id="tabsModulo">
-    <button class="tab-modulo activo" data-vista="conversaciones" onclick="cambiarVistaModulo('conversaciones')">💬 Conversaciones</button>
-    <button class="tab-modulo" data-vista="dashboard" onclick="cambiarVistaModulo('dashboard')">📊 Dashboard</button>
-    <button class="tab-modulo" data-vista="clientes" onclick="cambiarVistaModulo('clientes')">👥 Clientes</button>
-    <button class="tab-modulo" data-vista="analitica" onclick="cambiarVistaModulo('analitica')">📈 Analítica</button>
-  </div>
-
-  <!-- Configuración del módulo: acciones de análisis (solo administrador) y respuestas rápidas ("/" en la conversación) -->
-  <details class="config-wa" id="seccionConfigWa">
-    <summary>⚙️ Configuración <span class="sub">Respuestas rápidas, etiquetas y herramientas de análisis</span></summary>
-    <div class="config-cuerpo">
-      <div class="config-bloque">
-        <h3>⚡ Respuestas rápidas</h3>
-        <p class="sub">Textos guardados para contestar más rápido. En una conversación escribe <b>/</b> y elige una (también con el ícono ⚡ junto a la caja de texto): se inserta el texto, lo revisas y lo envías.</p>
-        <div id="panelRespuestasRapidas"><p class="sub">Cargando…</p></div>
-      </div>
-      <div class="config-bloque">
-        <h3>🏷️ Etiquetas</h3>
-        <p class="sub">Para clasificar los chats, como en WhatsApp Business. Se asignan desde el menú de cada chat (flecha ˅ o clic derecho) y se puede filtrar la bandeja por etiqueta.</p>
-        <div id="panelEtiquetasWa"><p class="sub">Cargando…</p></div>
-      </div>
-      <div class="config-bloque" id="accionesDemo" style="display:none;">
-        <h3>🤖 Análisis y actualización de datos</h3>
-        <p class="sub">Procesos en lote para ordenar y completar las conversaciones. Solo los ve un administrador.</p>
-        <div class="config-acciones">
-          <button class="btn-primary btn-compact" onclick="analizarRecientesIA()" id="btnAnalizarRecientes">🤖 Analizar recientes (12h)</button>
-          <button class="btn-ghost btn-compact" onclick="analizarPendientesIA()" id="btnAnalizarPendientes">🤖 Analizar pendientes</button>
-          <button class="btn-ghost btn-compact" onclick="reanalizarDesactualizadas()" id="btnReanalizarDesactualizadas">🔄 Reanalizar desactualizadas</button>
-          <button class="btn-ghost btn-compact" onclick="actualizarShopifyEnLote()" id="btnActualizarShopify">🛒 Actualizar Shopify</button>
-          <button class="btn-ghost btn-compact" onclick="buscarVentasBsaleEnLote()" id="btnBuscarVentasBsale">🧾 Buscar ventas (Bsale/Shopify)</button>
-          <button class="btn-ghost btn-compact" onclick="reclasificarCierres()" id="btnReclasificarCierres" title="Cierres cordiales (&quot;ok&quot;, &quot;gracias&quot;) pasan a &quot;Consulta resuelta&quot;, y las conversaciones a las que ya se les envió el enlace del producto o una oferta dejan de contar como pérdida y pasan a &quot;Cotización&quot;, y las que recibieron el enlace de reseña de Google (la compra se concretó) pasan a &quot;Venta&quot;">✅ Reclasificar cierres, conversiones y ventas</button>
-          <button class="btn-ghost btn-compact" onclick="reanalizarProductoNoDisponible()" id="btnReanalizarProductoNoDisponible" title="Reanaliza las conversaciones marcadas como &quot;Otro&quot; o &quot;Producto incompatible&quot;, por si ahora corresponden al nuevo motivo &quot;Producto/marca que no vendemos&quot;">🔎 Reanalizar "no disponible"</button>
-        </div>
-      </div>
-    </div>
-  </details>
-
 </div>
 
 <div class="modal-backdrop" id="modalConversacion" onclick="if(event.target===this) cerrarModalConversacion()">
@@ -668,21 +538,18 @@
 
 <script src="restriccion-usuario.js"></script>
 <script src="etiquetas-botones.js"></script>
-<script src="menu-herramientas.js"></script>
 <script src="comercial-movil.js"></script>
 <script src="clientes-whatsapp.js"></script>
 <script src="whatsapp-motivos.js"></script>
 <script src="whatsapp-bot.js"></script>
 <script src="navegacion-historial.js"></script>
 <script>
-// Atrás/Adelante: pestaña del módulo, conversación abierta y panel de análisis de un motivo
+// Atrás/Adelante: conversación abierta en el modal (vista Tabla)
 Nav.iniciar({
   dimensiones: {
-    vista: { actual: () => ((document.querySelector('.tab-modulo.activo') || {}).dataset || {}).vista || 'dashboard', aplicar: v => cambiarVistaModulo(v) },
     conversacion: { actual: () => ($('modalConversacion').classList.contains('abierto') ? conversacionAbiertaId : null), aplicar: v => { if(v) abrirConversacion(v, null); else cerrarModalConversacion(); }, reemplazar: true },
-    motivo: { actual: () => { const p = document.getElementById('panelMotivo'); if(!(p && p.classList.contains('abierto'))) return null; return motivoPanel.tipo === 'categoria' ? 'categoria:' + motivoPanel.categoria : 'motivo:' + motivoPanel.motivo; }, aplicar: v => { if(!v) cerrarPanelMotivo(); else if(v.startsWith('categoria:')) abrirPanelCategoria(v.slice(10)); else abrirPanelMotivo(v.replace(/^motivo:/, '')); } },
   },
-  envolver: ['cambiarVistaModulo', 'abrirConversacion', 'cerrarModalConversacion', 'abrirPanelMotivo', 'abrirPanelCategoria', 'cerrarPanelMotivo'],
+  envolver: ['abrirConversacion', 'cerrarModalConversacion'],
 });
 cargarSesionUsuario();
 </script>

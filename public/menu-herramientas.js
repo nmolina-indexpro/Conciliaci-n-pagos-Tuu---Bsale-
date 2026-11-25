@@ -79,6 +79,27 @@ function agregarEnlaceBotWhatsapp(){
 }
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', agregarEnlaceBotWhatsapp); else agregarEnlaceBotWhatsapp();
 
+// Enlace "Configuración WhatsApp" (dashboard, clientes, analítica, respuestas rápidas, etiquetas) en el desplegable Comercial, junto a Bot WhatsApp.
+// El chat (WhatsApp) ahora es una pantalla completa sin menú: todo lo demás del módulo vive en esta página. Mismo criterio que arriba: se agrega acá una sola
+// vez y la página aplica los permisos del perfil (aplicarRestriccionPaginas) para ocultarlo a quien no tenga la página.
+function agregarEnlaceConfiguracionWhatsapp(){
+  const comercial = document.getElementById('navComercial');
+  if(!comercial || comercial.querySelector('a[href="configuracion-whatsapp.html"]')) return;
+  const chat = comercial.querySelector('a[href="clientes-whatsapp.html"]');
+  if(chat && chat.textContent.trim() === 'WhatsApp') chat.textContent = 'Chat WhatsApp'; // junto a "Bot WhatsApp" y "Configuración WhatsApp"
+  const ancla = comercial.querySelector('a[href="bot-whatsapp.html"]') || chat;
+  if(!ancla) return;
+  const a = document.createElement('a');
+  a.href = 'configuracion-whatsapp.html';
+  a.textContent = 'Configuración WhatsApp';
+  if(/configuracion-whatsapp\.html$/.test(location.pathname)){
+    comercial.querySelectorAll('a.active').forEach(x => x.classList.remove('active'));
+    a.classList.add('active');
+  }
+  ancla.insertAdjacentElement('afterend', a);
+}
+if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', agregarEnlaceConfiguracionWhatsapp); else agregarEnlaceConfiguracionWhatsapp();
+
 // "Actualizaciones ERP" (resumen de hoy y cambios) es solo para administradores,
 // igual que el acceso a Usuarios: cada página muestra #navUsuarios cuando la
 // sesión es admin, y este enlace lo acompaña sin tocar el código de cada página.

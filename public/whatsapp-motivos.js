@@ -21,6 +21,8 @@ function enlaceTelefonoPm(telefono, conversacionId){
 // Cierra el panel de análisis y abre esa conversación en la bandeja de Conversaciones (la misma pantalla de siempre).
 function verConversacionEnErp(id){
   if(!id) return;
+  // Desde Configuración WhatsApp las conversaciones viven en la página del chat.
+  if(!document.getElementById('vistaConversaciones')){ location.href = 'clientes-whatsapp.html?abrirConversacion=' + Number(id); return; }
   // El panel se cierra a mano (sin pasar por cerrarPanelMotivo): esa función está envuelta por el historial del navegador y, al cerrar
   // lo recién abierto, dispara un history.back() asíncrono que devolvía la pantalla a Analítica después de abrir la conversación.
   const fondo = document.getElementById('fondoPanelMotivo'), panel = document.getElementById('panelMotivo');

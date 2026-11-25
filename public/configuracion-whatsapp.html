@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Configuración WhatsApp — IndexStore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F3; --surface:#FFFFFF; --surface-2:#F1F3EC; --line:#E3E7DC;
+    --text:#1F2A24; --muted:#6B7568;
+    --primary:#0F766E; --primary-dark:#0B5C55; --primary-dim:#E3F2F0;
+    --amber:#D97706; --amber-dim:#FDF0DC;
+    --green:#15803D; --green-bg:#E3F6E8;
+    --red:#DC2626; --red-bg:#FCE8E8;
+    --blue:#2563EB; --blue-bg:#E4ECFD;
+    --purple:#7C3AED; --purple-bg:#EFE7FD;
+    --wa-out:#D9FDD3; --wa-in:#FFFFFF;
+    --shadow:0 1px 2px rgba(31,42,36,.05), 0 4px 12px rgba(31,42,36,.05);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans', sans-serif;padding:24px 32px 50px 32px;}
+  .wrap{max-width:none;margin:0;}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:22px;gap:16px;}
+  .logo{height:42px;display:block;justify-self:start;}
+  .header-left{display:flex;align-items:center;gap:12px;position:relative;}
+  .page-nav{display:flex;gap:2px;background:var(--surface-2);padding:4px;border-radius:10px;justify-self:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:none;}
+  .page-nav::-webkit-scrollbar{display:none;}
+  .page-nav a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:0.1px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:7px;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+  .page-nav a.active{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .page-nav a:hover:not(.active){color:var(--text);background:rgba(0,0,0,.04);}
+  .user-box{justify-self:end;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);}
+  .user-box b{color:var(--text);}
+  .btn-logout{background:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;margin:0 0 6px;}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:0 0 4px;}
+  .sub{color:var(--muted);font-size:13px;}
+
+  /* ---- pestañas principales (punto 28) ---- */
+  .tabs-modulo{display:flex;gap:4px;background:var(--surface-2);padding:4px;border-radius:11px;margin:18px 0 20px;overflow-x:auto;}
+  #vistaDashboard, #vistaConversaciones, #vistaClientes, #vistaAnalitica{margin-top:14px;}
+  .tab-modulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;color:var(--muted);background:none;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;white-space:nowrap;flex-shrink:0;}
+  .tab-modulo.activo{background:var(--surface);color:var(--primary);box-shadow:var(--shadow);}
+  .vista-modulo{display:none;}
+  .vista-modulo.activa{display:block;}
+
+  .seccion{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow);margin-bottom:20px;}
+  .seccion-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+
+  button{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;border:none;border-radius:9px;padding:10px 16px;cursor:pointer;}
+  button:disabled{opacity:0.5;cursor:not-allowed;}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:var(--shadow);}
+  .btn-primary:hover:not(:disabled){background:var(--primary-dark);}
+  .btn-ghost{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);}
+  .btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary);}
+  .btn-ghost.activo{background:var(--primary-dim);color:var(--primary);border-color:var(--primary);}
+  .btn-compact{font-size:11.5px;padding:7px 12px;}
+  .btn-danger{background:var(--red-bg);color:var(--red);}
+
+  input,select,textarea{background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;padding:9px 12px;border-radius:9px;font-size:13px;}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);}
+  .date-field{display:flex;align-items:center;gap:8px;}
+  .date-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;}
+  label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;display:block;margin-bottom:5px;}
+
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+  @media (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr);}}
+  .card{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
+  .card .lbl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:7px;}
+  .card .big{font-family:'IBM Plex Mono',monospace;font-size:23px;font-weight:600;color:var(--text);}
+  .card .cmp{font-size:11.5px;font-weight:700;margin-top:4px;}
+  .card .cmp.up{color:var(--green);} .card .cmp.down{color:var(--red);} .card .cmp.flat{color:var(--muted);}
+  .card.destacada{background:var(--primary-dim);border-color:var(--primary);}
+
+  .tabla-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;font-size:10px;padding:9px;border-bottom:2px solid var(--line);background:var(--surface-2);white-space:nowrap;}
+  th.ordenable{cursor:pointer;user-select:none;}
+  th.ordenable:hover{color:var(--primary);}
+  td{padding:9px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  th.amount, td.amount{text-align:right;}
+  .amount{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  tr.fila-clic{cursor:pointer;}
+  tr.fila-clic:hover{background:var(--surface-2);}
+  .empty-note{color:var(--muted);font-size:12.5px;padding:12px 0;}
+
+  .badge{font-family:'Space Grotesk',sans-serif;font-size:10.5px;padding:3px 10px;border-radius:999px;font-weight:700;white-space:nowrap;}
+  .badge.b-verde{background:var(--green-bg);color:var(--green);}
+  .badge.b-ambar{background:var(--amber-dim);color:var(--amber);}
+  .badge.b-rojo{background:var(--red-bg);color:var(--red);}
+  .badge.b-azul{background:var(--blue-bg);color:var(--blue);}
+  .badge.b-gris{background:var(--surface-2);color:var(--muted);}
+  .badge.b-morado{background:var(--purple-bg);color:var(--purple);}
+
+  /* Semáforo comercial (punto 14): color + texto/ícono, nunca solo color */
+  .semaforo{display:inline-flex;align-items:center;gap:5px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+  .semaforo.alta{background:var(--green-bg);color:var(--green);}
+  .semaforo.media{background:var(--amber-dim);color:var(--amber);}
+  .semaforo.baja{background:#FDECD8;color:#C2540A;}
+  .semaforo.muybaja{background:var(--red-bg);color:var(--red);}
+
+  .etiqueta-chip{display:inline-block;background:var(--surface-2);border:1px solid var(--line);color:var(--text);font-size:10.5px;padding:2px 8px;border-radius:999px;margin:0 3px 3px 0;}
+
+  .filtros-panel{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:14px;}
+  .filtros-panel .campo{display:flex;flex-direction:column;gap:4px;min-width:150px;}
+  .buscador-wrap{position:relative;flex:1;min-width:220px;}
+  .buscador-wrap input{width:100%;padding-left:32px;}
+  .buscador-wrap .icono-buscar{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px;}
+
+  /* Modal genérico (usado en varias pestañas para detalle) */
+  .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(31,42,36,.5);z-index:100;align-items:center;justify-content:center;padding:16px;}
+  .modal-backdrop.abierto{display:flex;}
+  .modal-box{background:var(--surface);border-radius:14px;max-width:620px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 8px 30px rgba(31,42,36,.25);}
+  .modal-box.ancho{max-width:1100px;}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface);z-index:2;}
+  .modal-head h2{font-size:15px;margin:0;}
+
+  /* Visor de imagen ampliada (clic en una foto del hilo) -- por encima del
+     modal de conversación (z-index más alto), se abre sobre él. */
+  .lightbox-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;align-items:center;justify-content:center;padding:24px;cursor:zoom-out;}
+  .lightbox-backdrop.abierto{display:flex;}
+  .lightbox-backdrop img{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:6px;box-shadow:0 8px 40px rgba(0,0,0,.5);}
+  .lightbox-cerrar{position:fixed;top:16px;right:20px;background:none;border:none;color:#fff;font-size:28px;cursor:pointer;line-height:1;}
+  .modal-cerrar{background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer;line-height:1;}
+  .modal-body{padding:18px 20px;}
+
+  /* ---- Detalle de conversación estilo WhatsApp (punto 11/12) ---- */
+  .detalle-conv{display:grid;grid-template-columns:1.3fr 1fr;gap:0;min-height:520px;}
+  @media (max-width:860px){.detalle-conv{grid-template-columns:1fr;}}
+  .columna-hilo{display:flex;flex-direction:column;max-height:70vh;}
+  .composer-hilo{display:flex;gap:8px;padding:8px 10px;background:#F0F2F5;border-top:none;flex-shrink:0;align-items:flex-end;}
+  .composer-hilo textarea{flex:1;resize:none;font-family:'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;padding:9px 12px;border-radius:8px;border:none;background:#fff;max-height:80px;}
+  .composer-hilo .btn-enviar{align-self:flex-end;background:#00A884;border-radius:18px;}
+  .panel-ficha{padding:16px 18px;border-left:1px solid var(--line);overflow-y:auto;max-height:70vh;}
+  @media (max-width:860px){.panel-ficha{border-left:none;border-top:1px solid var(--line);}}
+  .ficha-grupo{margin-bottom:16px;}
+  .ficha-grupo h3{font-family:'Space Grotesk',sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:0 0 8px;}
+  .ficha-fila{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--line);}
+  .ficha-fila:last-child{border-bottom:none;}
+  .ficha-fila b{color:var(--text);text-align:right;}
+
+  .alerta-chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;margin:0 6px 6px 0;}
+  .alerta-chip.demorada{background:var(--amber-dim);color:var(--amber);}
+  .alerta-chip.critica{background:var(--red-bg);color:var(--red);}
+  .alerta-chip.oportunidad{background:var(--green-bg);color:var(--green);}
+  .alerta-chip.seguimiento{background:var(--blue-bg);color:var(--blue);}
+
+  .barra-chart{display:flex;align-items:flex-end;gap:4px;height:124px;padding-top:6px;}
+  .barra-chart .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0;}
+  .barra-chart .col .bar{width:100%;background:var(--primary);border-radius:4px 4px 0 0;min-height:2px;}
+  .barra-chart .col .lbl-x{font-size:9px;line-height:1.2;text-align:center;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+
+  .barra-horizontal{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+  .barra-horizontal .nombre{width:150px;flex-shrink:0;font-size:12px;}
+  .barra-horizontal .pista{flex:1;background:var(--surface-2);border-radius:6px;height:18px;overflow:hidden;}
+  .barra-horizontal .pista .relleno{height:100%;background:var(--primary);border-radius:6px;}
+  .barra-horizontal .valor{width:60px;text-align:right;flex-shrink:0;font-size:11.5px;font-family:'IBM Plex Mono',monospace;}
+
+  .embudo{display:flex;flex-direction:column;gap:6px;max-width:420px;}
+
+  .lista-clientes-analitica{max-height:280px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;}
+  .lista-clientes-analitica .fila-cliente-analitica{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:7px 12px;font-size:12.5px;border-bottom:1px solid var(--line);}
+  .lista-clientes-analitica .fila-cliente-analitica:last-child{border-bottom:none;}
+  .lista-clientes-analitica .nombre-cliente-analitica{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .lista-clientes-analitica .dato-cliente-analitica{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11px;flex-shrink:0;}
+  .embudo .paso{background:var(--primary-dim);border-radius:8px;padding:10px 16px;font-size:12.5px;display:flex;justify-content:space-between;align-items:baseline;}
+  .embudo .paso b{font-family:'IBM Plex Mono',monospace;}
+  .embudo .paso .paso-valor{display:flex;align-items:baseline;gap:7px;}
+  .embudo .paso .pct-total{color:var(--muted);font-size:10.5px;font-family:'IBM Plex Mono',monospace;}
+  .embudo .flecha{text-align:center;color:var(--muted);font-size:11px;}
+
+  /* ================= Bandeja estilo WhatsApp Business (Web) =================
+     Colores, medidas y tipografía de WhatsApp Web / WhatsApp Business para que los ejecutivos se sientan en una app que ya conocen:
+     fuente Segoe UI / Helvetica, verde #00A884, burbujas de salida #D9FDD3, panel gris #F0F2F5, fondo del chat #EFEAE2. */
+  .wa-app{--wa-verde:#00A884;--wa-verde-osc:#008069;--wa-texto:#111B21;--wa-gris:#667781;--wa-icono:#54656F;--wa-panel:#F0F2F5;--wa-linea:#E9EDEF;--wa-fondo:#EFEAE2;--wa-azul-tick:#53BDEB;}
+  .wa-app, .wa-app *, .modal-box .burbuja, .modal-box .burbuja *{font-family:'Segoe UI','Helvetica Neue',Helvetica,'Lucida Grande',Arial,Ubuntu,sans-serif;}
+  .wa-app button{font-weight:400;font-size:14px;letter-spacing:0;}
+  .wa-app .btn-primary{background:var(--wa-verde);color:#fff;box-shadow:none;border-radius:18px;font-weight:600;}
+  .wa-app .btn-primary:hover:not(:disabled){background:var(--wa-verde-osc);}
+  .wa-app .btn-ghost{background:#fff;color:var(--wa-icono);border:1px solid #D1D7DB;border-radius:18px;font-weight:500;}
+  .wa-app .btn-ghost:hover:not(:disabled){border-color:var(--wa-verde);color:var(--wa-verde-osc);}
+  .wa-app .badge{font-family:inherit;}
+
+  /* barra de vistas: solo se ve en la vista Tabla (en la bandeja, esos botones están en la cabecera de la lista, como en WhatsApp) */
+  .bandeja-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+  .view-toggle{display:flex;gap:2px;background:var(--surface-2);padding:3px;border-radius:9px;}
+  .view-toggle button{background:none;color:var(--muted);padding:7px 14px;font-size:12px;border-radius:7px;}
+  .view-toggle button.activo{background:var(--surface);color:var(--primary);box-shadow:var(--shadow);}
+
+  /* ventana de la app: tres columnas pegadas, sin tarjetas, separadas por una línea (lista | chat | info del contacto) */
+  .bandeja-layout{display:grid;grid-template-columns:minmax(320px,30%) minmax(0,1fr);height:calc(100vh - 125px);min-height:560px;background:#fff;border:1px solid #D1D7DB;box-shadow:0 6px 18px rgba(11,20,26,.14);overflow:hidden;}
+  .bandeja-layout.ficha-abierta{grid-template-columns:minmax(320px,30%) minmax(0,1fr) minmax(320px,30%);}
+  .panel-lista, .panel-chat, .panel-ficha-bandeja{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:#fff;}
+  .panel-chat{border-left:1px solid var(--wa-linea);background:var(--wa-fondo);}
+  .panel-ficha-bandeja{display:none;background:var(--wa-panel);border-left:1px solid #D1D7DB;}
+  .bandeja-layout.ficha-abierta .panel-ficha-bandeja{display:flex;}
+  @media (max-width:1280px){
+    .bandeja-layout, .bandeja-layout.ficha-abierta{grid-template-columns:minmax(300px,36%) minmax(0,1fr);}
+    .bandeja-layout.ficha-abierta .panel-ficha-bandeja{display:none;}
+    .panel-ficha-bandeja.abierta-movil{display:flex !important;position:fixed;inset:0 0 0 auto;z-index:150;width:100%;max-width:420px;box-shadow:-8px 0 24px rgba(0,0,0,.18);}
+  }
+  @media (max-width:860px){
+    .bandeja-layout, .bandeja-layout.ficha-abierta{display:block;height:auto;border:none;box-shadow:none;}
+    .panel-lista, .panel-chat{display:none;height:calc(100vh - 230px);min-height:460px;}
+    .panel-lista.activa, .panel-chat.activa{display:flex;}
+    .panel-ficha-bandeja.abierta-movil{max-width:none;}
+  }
+
+  /* cabeceras (59 px, gris WhatsApp) e íconos redondos */
+  .wa-header{display:flex;align-items:center;justify-content:space-between;gap:10px;height:59px;padding:10px 16px;background:var(--wa-panel);flex-shrink:0;}
+  .panel-lista .wa-header{background:#fff;height:62px;padding:10px 8px 4px 16px;}
+  .wa-titulo{font-size:22px;font-weight:700;color:var(--wa-texto);letter-spacing:-.2px;}
+  .wa-acciones{display:flex;align-items:center;gap:2px;flex-shrink:0;}
+  .wa-icono{width:40px;height:40px;border-radius:50%;background:none;border:none;color:var(--wa-icono);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;position:relative;flex-shrink:0;}
+  .wa-icono:hover:not(:disabled){background:rgba(11,20,26,.07);}
+  .wa-icono svg{width:24px;height:24px;fill:currentColor;}
+  .wa-icono:disabled{opacity:.4;cursor:not-allowed;}
+  .wa-icono.activo{color:var(--wa-verde-osc);}
+  .wa-icono.nota-activa{color:#7A5209;background:#FFE9A8;}
+  .wa-icono.verde svg{fill:var(--wa-verde);}
+  .wa-icono.pensando svg{animation:wa-pulso 1s ease-in-out infinite;}
+  @keyframes wa-pulso{0%,100%{opacity:1;}50%{opacity:.3;}}
+
+  /* búsqueda y filtros rápidos (Todos / Pendientes / Mías) */
+  .wa-buscador{padding:7px 12px 6px;background:#fff;flex-shrink:0;}
+  .wa-buscador-caja{display:flex;align-items:center;gap:14px;height:35px;background:var(--wa-panel);border-radius:8px;padding:0 12px 0 14px;color:var(--wa-icono);}
+  .wa-buscador-caja:focus-within{box-shadow:inset 0 -2px 0 var(--wa-verde);}
+  .wa-buscador-caja svg{width:18px;height:18px;fill:currentColor;flex-shrink:0;}
+  .wa-buscador-caja input{flex:1;min-width:0;border:none;background:none;outline:none;font-size:14px;color:var(--wa-texto);padding:0;border-radius:0;}
+  .wa-buscador-caja input::placeholder{color:var(--wa-gris);}
+  .wa-chips{display:flex;gap:6px;flex-wrap:wrap;padding:6px 12px 10px;background:#fff;flex-shrink:0;}
+  .lista-indicadores, .lista-tabs{display:contents;}
+  .wa-chip{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 12px;border:none;border-radius:15px;background:var(--wa-panel);color:var(--wa-icono);font-size:14px;cursor:pointer;white-space:nowrap;}
+  .wa-chip:hover{background:#E4E8EB;}
+  .wa-chip.activo{background:#D9FDD3;color:var(--wa-verde-osc);font-weight:600;}
+  .wa-chip .n{font-size:12.5px;color:var(--wa-gris);}
+  .wa-chip.activo .n{color:var(--wa-verde-osc);}
+  .wa-chip.rojo .n{color:#D93025;font-weight:600;}
+
+  /* lista de chats */
+  .lista-items{flex:1;overflow-y:auto;background:#fff;}
+  .item-conv{display:flex;align-items:center;gap:15px;padding:7px 15px;min-height:72px;box-sizing:border-box;cursor:pointer;position:relative;background:#fff;}
+  .item-conv:hover{background:#F5F6F6;}
+  .item-conv.seleccionado{background:var(--wa-panel);}
+  .item-conv::after{content:'';position:absolute;left:79px;right:0;bottom:0;border-bottom:1px solid var(--wa-linea);}
+  .avatar-chip{width:49px;height:49px;border-radius:50%;background:#DFE5E7;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;}
+  .avatar-chip svg{width:100%;height:100%;fill:#fff;transform:scale(1.08) translateY(6%);}
+  .chat-head .avatar-chip{width:40px;height:40px;}
+  .item-cuerpo{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding-top:1px;}
+  .item-top-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+  .item-nombre{font-size:17px;font-weight:400;color:var(--wa-texto);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .item-tiempo{font-size:12px;color:var(--wa-gris);flex-shrink:0;white-space:nowrap;}
+  .item-conv.no-leido .item-tiempo{color:#1FA855;font-weight:500;}
+  .item-fila2{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .item-mensaje{font-size:14px;color:var(--wa-gris);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:3px;min-width:0;}
+  .item-mensaje svg{width:16px;height:11px;flex-shrink:0;}
+  .item-conv.no-leido .item-mensaje{color:var(--wa-texto);}
+  .item-pendiente{width:12px;height:12px;border-radius:50%;background:#25D366;flex-shrink:0;}
+  .item-etiquetas{font-size:12px;color:var(--wa-gris);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .lista-paginacion{padding:6px 14px;border-top:1px solid var(--wa-linea);display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--wa-gris);flex-shrink:0;background:#fff;}
+  .lista-paginacion .btn-ghost{border-radius:50%;width:28px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;}
+
+  /* conversación abierta */
+  .chat-head{display:flex;align-items:center;justify-content:space-between;gap:10px;height:59px;padding:10px 16px;background:var(--wa-panel);flex-shrink:0;flex-wrap:nowrap;border-bottom:none;}
+  .chat-head-id{display:flex;align-items:center;gap:13px;min-width:0;flex:1;cursor:pointer;}
+  .chat-head-id h2{font-size:16px;font-weight:400;color:var(--wa-texto);margin:0;line-height:21px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .chat-head-sub{font-size:13px;color:var(--wa-gris);line-height:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .chat-head-acciones{display:flex;align-items:center;gap:2px;flex-shrink:0;flex-wrap:nowrap;}
+  .btn-volver-lista{display:none;}
+  @media (max-width:860px){.btn-volver-lista{display:inline-flex;}}
+  .chat-alerta-pendiente{background:#FFF3C4;color:#54656F;font-size:13px;padding:7px 16px;display:flex;align-items:center;gap:7px;flex-shrink:0;}
+  .chat-hilo-wrap, .panel-hilo{flex:1;min-height:0;overflow-y:auto;padding:14px 6% 12px;display:flex;flex-direction:column;background-color:var(--wa-fondo);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23000' stroke-opacity='.055' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='20' y='24' width='22' height='16' rx='4'/%3E%3Cpath d='M26 40l-3 7 9-7'/%3E%3Ccircle cx='96' cy='34' r='9'/%3E%3Cpath d='M92 34h8M96 30v8'/%3E%3Cpath d='M160 22l5 10 11 1-8 8 2 11-10-5-10 5 2-11-8-8 11-1z'/%3E%3Cpath d='M30 96q10-12 20 0t20 0'/%3E%3Crect x='110' y='88' width='24' height='18' rx='3'/%3E%3Cpath d='M110 92l12 8 12-8'/%3E%3Cpath d='M176 96a10 10 0 1 0 0 .1M171 96l3 3 6-6'/%3E%3Cpath d='M24 160h26M24 168h18M24 176h22'/%3E%3Ccircle cx='96' cy='168' r='10'/%3E%3Cpath d='M96 162v6l4 3'/%3E%3Cpath d='M150 150l12 14-12 14M170 158v12'/%3E%3Cpath d='M190 196l6-6 6 6-6 6z'/%3E%3C/g%3E%3C/svg%3E");}
+  .chat-hilo-wrap{gap:0;}
+  .panel-hilo{gap:0;}
+  .fecha-sep{align-self:center;background:#fff;color:var(--wa-icono);font-size:12.5px;line-height:21px;padding:5px 12px 4px;border-radius:7.5px;box-shadow:0 1px .5px rgba(11,20,26,.13);margin:12px 0 10px;text-transform:uppercase;}
+
+  /* burbujas: blancas (entrada) y verde claro (salida), con cola en el primer mensaje de cada tanda */
+  .burbuja{max-width:65%;min-width:60px;padding:6px 7px 8px 9px;border-radius:7.5px;font-size:14.2px;line-height:19px;color:var(--wa-texto,#111B21);position:relative;box-shadow:0 1px .5px rgba(11,20,26,.13);word-wrap:break-word;overflow-wrap:anywhere;white-space:pre-wrap;margin-bottom:2px;}
+  .burbuja::after{content:'';display:block;clear:both;}
+  .burbuja.in{background:#fff;align-self:flex-start;}
+  .burbuja.out{background:#D9FDD3;align-self:flex-end;}
+  .burbuja.cola{margin-top:9px;}
+  .burbuja.cola.in{border-top-left-radius:0;}
+  .burbuja.cola.out{border-top-right-radius:0;}
+  .burbuja.cola.in::before{content:'';position:absolute;top:0;left:-8px;width:8px;height:13px;background:#fff;clip-path:polygon(100% 0,100% 100%,0 0);}
+  .burbuja.cola.out::before{content:'';position:absolute;top:0;right:-8px;width:8px;height:13px;background:#D9FDD3;clip-path:polygon(0 0,100% 0,0 100%);}
+  .burbuja .hora{float:right;display:inline-flex;align-items:center;gap:3px;margin:6px 0 -4px 12px;font-size:11px;line-height:15px;color:var(--wa-gris,#667781);text-align:right;}
+  .burbuja .hora svg{width:16px;height:11px;}
+  .burbuja .tipo-media{font-size:13px;color:var(--wa-gris,#667781);font-style:italic;}
+  .burbuja img{border-radius:6px;}
+  .tick{fill:none;stroke:#667781;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  .tick.leido{stroke:#53BDEB;}
+  .tick.fallo{stroke:#D93025;}
+  .nota-interna-burbuja{align-self:center;max-width:80%;background:#FFF3C4;border-radius:7.5px;box-shadow:0 1px .5px rgba(11,20,26,.13);padding:6px 10px 5px;font-size:13.5px;line-height:19px;color:#54656F;margin:8px 0;white-space:pre-wrap;}
+  .nota-interna-burbuja .nota-autor{font-weight:600;font-size:12px;display:block;margin-bottom:1px;color:#7A5209;}
+  .nota-interna-burbuja .hora{display:block;text-align:right;font-size:11px;color:var(--wa-gris,#667781);}
+
+  /* sugerencias de IA / bot: tarjeta blanca sobre el chat */
+  .chat-ia-sugerencia{margin:8px 16px 0;background:#fff;border-left:4px solid var(--wa-verde);border-radius:8px;box-shadow:0 1px .5px rgba(11,20,26,.13);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;flex-shrink:0;}
+  .chat-ia-sugerencia .txt{font-size:13.5px;color:var(--wa-texto);flex:1;min-width:200px;}
+  .chat-ia-sugerencia .txt b{display:block;font-size:12.5px;color:var(--wa-verde-osc);margin-bottom:2px;}
+  .chat-bot-borrador{border-left-color:var(--wa-verde);}
+  .chat-bot-borrador.escala{border-left-color:#D93025;background:#FFF5F5;}
+
+  /* barra para escribir: gris, caja blanca redondeada, ícono de enviar verde */
+  .chat-composer-wrap{background:var(--wa-panel);flex-shrink:0;display:flex;align-items:flex-end;gap:4px;padding:6px 10px;min-height:62px;}
+  .chat-composer-wrap.modo-nota{background:#FFF1BC;}
+  .composer-herramientas{display:flex;align-items:center;gap:0;flex-shrink:0;padding-bottom:1px;}
+  .composer-caja{flex:1;min-width:0;background:#fff;border-radius:8px;padding:9px 12px;margin:0 4px;align-self:center;}
+  .modo-nota .composer-caja{background:#FFFBE3;}
+  .composer-caja textarea{display:block;width:100%;border:none;outline:none;resize:none;background:transparent;font-size:15px;line-height:20px;color:var(--wa-texto);padding:0;max-height:100px;min-height:20px;border-radius:0;}
+  .composer-caja textarea::placeholder{color:var(--wa-gris);}
+  .composer-enviar{align-self:center;}
+  .composer-aviso-nota{position:absolute;}
+  .composer-cerrado{background:var(--wa-panel);padding:14px 22px;font-size:13.5px;line-height:19px;color:var(--wa-icono);text-align:center;flex-shrink:0;width:100%;}
+  .chat-composer-wrap.cerrado{display:block;padding:0;min-height:0;}
+
+  /* pantalla sin conversación elegida */
+  .sin-seleccion{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;height:100%;background:var(--wa-panel);color:var(--wa-icono);font-size:14px;text-align:center;padding:30px;border-bottom:6px solid var(--wa-verde);}
+  .sin-seleccion svg{width:84px;height:84px;fill:#C5CBCE;}
+  .sin-seleccion .sin-titulo{font-size:30px;font-weight:300;color:#41525D;}
+
+  /* info del contacto (panel de la derecha): bloques blancos sobre gris, como en WhatsApp */
+  .ficha-bandeja-head{display:flex;align-items:center;gap:18px;height:59px;padding:10px 16px;background:var(--wa-panel);flex-shrink:0;border-bottom:none;}
+  .ficha-bandeja-head h2{font-size:16px;font-weight:400;color:var(--wa-texto);margin:0;}
+  .ficha-bandeja-body{flex:1;overflow-y:auto;background:var(--wa-panel);padding:0 0 12px;}
+  .wa-perfil{background:#fff;display:flex;flex-direction:column;align-items:center;gap:6px;padding:26px 20px 18px;margin-bottom:10px;box-shadow:0 1px 3px rgba(11,20,26,.08);}
+  .wa-perfil .avatar-grande{width:200px;height:200px;max-width:60%;border-radius:50%;background:#DFE5E7;overflow:hidden;display:flex;align-items:center;justify-content:center;}
+  .wa-perfil .avatar-grande svg{width:100%;height:100%;fill:#fff;transform:scale(1.08) translateY(6%);}
+  .wa-perfil .nombre{font-size:22px;color:var(--wa-texto);margin-top:10px;text-align:center;word-break:break-word;}
+  .wa-perfil .telefono{font-size:16px;color:var(--wa-gris);}
+  .wa-perfil .telefono a{color:var(--wa-gris);text-decoration:none;}
+  .wa-perfil .telefono a:hover{color:var(--wa-verde-osc);}
+  .wa-app select, .wa-app input, .wa-app textarea{font-family:inherit;}
+  .ficha-grupo{background:#fff;padding:14px 20px 12px;margin:0 0 10px;box-shadow:0 1px 3px rgba(11,20,26,.08);}
+  .ficha-grupo h3{font-size:14px;font-weight:400;color:var(--wa-gris);margin:0 0 8px;text-transform:none;letter-spacing:0;}
+  .ficha-fila{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:6px 0;border-bottom:none;}
+  .ficha-fila span{color:var(--wa-gris);}
+  .ficha-fila b{color:var(--wa-texto);font-weight:400;text-align:right;}
+  .ficha-colapsable{background:#fff;padding:2px 20px 6px;margin:0 0 10px;border-top:none;box-shadow:0 1px 3px rgba(11,20,26,.08);}
+  .ficha-colapsable summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;font-size:14px;text-transform:none;letter-spacing:0;color:var(--wa-gris);padding:10px 0;}
+  .ficha-colapsable summary::-webkit-details-marker{display:none;}
+  .ficha-colapsable summary::after{content:'▾';}
+  .ficha-colapsable[open] summary::after{content:'▴';}
+  .btn-cerrar-panel-movil{display:none;}
+
+  .overlay-ficha-movil{display:none;}
+  @media (max-width:1280px){.overlay-ficha-movil.abierto{display:block;position:fixed;inset:0;background:rgba(11,20,26,.4);z-index:140;}}
+
+  /* respuestas rápidas: lista que se abre sobre la barra de escribir al teclear "/" (igual que en WhatsApp Business) */
+  .chat-composer-wrap, .composer-hilo{position:relative;}
+  .menu-rapidas{position:absolute;left:10px;right:10px;bottom:calc(100% + 4px);max-height:min(320px,45vh);overflow-y:auto;background:#fff;border-radius:10px;box-shadow:0 2px 14px rgba(11,20,26,.28);z-index:30;padding:6px 0;font-family:'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;}
+  .menu-rapidas-titulo{padding:6px 16px 8px;font-size:13px;color:#667781;display:flex;align-items:center;gap:6px;}
+  .menu-rapidas-titulo svg{width:16px;height:16px;fill:#00A884;}
+  .rapida-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:0;padding:8px 16px;cursor:pointer;color:#111B21;}
+  .rapida-item:hover, .rapida-item.activa{background:#F0F2F5;}
+  .rapida-atajo{display:block;font-size:14.5px;font-weight:600;color:#008069;}
+  .rapida-texto{display:block;font-size:13px;line-height:18px;color:#667781;white-space:pre-line;max-height:36px;overflow:hidden;text-overflow:ellipsis;}
+  .menu-rapidas-vacio{padding:10px 16px 12px;font-size:13.5px;color:#667781;}
+
+  /* etiquetas con color, contador de no leídos, indicador del bot, archivadas y menú del chat */
+  .chip-etiqueta{display:inline-block;max-width:112px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:16px;padding:0 7px;border-radius:8px;font-weight:600;flex-shrink:0;vertical-align:middle;font-family:'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;}
+  .chip-etiqueta.mas{background:#E9EDEF;color:#54656F;}
+  .punto-etiqueta{display:inline-block;width:12px;height:12px;border-radius:50%;flex-shrink:0;}
+  .wa-chip svg{width:16px;height:16px;fill:currentColor;}
+  .wa-chip .punto-etiqueta{width:10px;height:10px;}
+  .item-mensaje{flex:1;}
+  .item-etiquetas{display:flex;align-items:center;gap:4px;min-width:0;}
+  .item-etiquetas-txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;}
+  .item-indicadores{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+  .item-contador{min-width:20px;height:20px;border-radius:10px;background:#25D366;color:#fff;font-size:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;box-sizing:border-box;}
+  .item-contador.punto{min-width:12px;width:12px;height:12px;padding:0;}
+  .item-bot{display:inline-flex;align-items:center;}
+  .item-bot svg{width:18px;height:18px;fill:#00A884;}
+  .item-bot.en-curso svg{fill:#E39B00;animation:wa-pulso 1.6s ease-in-out infinite;}
+  .item-menu-btn{display:none;width:20px;height:20px;padding:0;background:none;border:none;color:#667781;align-items:center;justify-content:center;cursor:pointer;}
+  .item-menu-btn svg{width:20px;height:20px;fill:currentColor;}
+  .item-conv:hover .item-menu-btn{display:inline-flex;}
+  @media (hover:none){.item-menu-btn{display:inline-flex;}}
+  .item-archivadas{display:flex;align-items:center;gap:22px;height:52px;padding:0 20px 0 25px;cursor:pointer;color:#111B21;border-bottom:1px solid var(--wa-linea);}
+  .item-archivadas:hover{background:#F5F6F6;}
+  .item-archivadas svg{width:20px;height:20px;fill:#00A884;flex-shrink:0;}
+  .item-archivadas .txt{flex:1;font-size:16px;}
+  .item-archivadas .n{font-size:12px;color:#00A884;font-weight:600;}
+  .chat-head-bot{display:inline-flex;align-items:center;gap:3px;font-weight:600;}
+  .chat-head-bot svg{width:14px;height:14px;fill:currentColor;}
+  .chat-head-bot.respondida{color:#008069;}
+  .chat-head-bot.en-curso{color:#B27300;}
+  .ficha-etiquetas{display:flex;flex-wrap:wrap;gap:6px;}
+  .ficha-etiquetas .chip-etiqueta{font-size:12.5px;line-height:20px;padding:0 10px;border-radius:10px;max-width:none;}
+  .menu-flotante{position:fixed;z-index:400;min-width:220px;max-width:300px;max-height:min(70vh,460px);overflow-y:auto;background:#fff;border-radius:8px;box-shadow:0 2px 16px rgba(11,20,26,.3);padding:6px 0;font-family:'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;}
+  .menu-flotante button{display:flex;align-items:center;gap:14px;width:100%;padding:10px 20px;background:none;border:none;border-radius:0;text-align:left;font-size:14.5px;color:#3B4A54;cursor:pointer;font-weight:400;}
+  .menu-flotante button:hover{background:#F5F6F6;}
+  .menu-flotante button svg{width:20px;height:20px;fill:#54656F;flex-shrink:0;}
+  .menu-flotante .flecha{margin-left:auto;font-size:18px;color:#667781;}
+  .menu-flotante .nom{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .menu-flotante .check{color:#00A884;font-weight:700;width:16px;text-align:right;}
+  .menu-flotante .n{font-size:12px;color:#667781;}
+  .menu-flotante .menu-etiqueta.activa{background:#F0F2F5;}
+  .menu-titulo{padding:8px 20px 6px;font-size:13px;color:#667781;}
+  .menu-vacio{padding:12px 20px;font-size:13.5px;color:#667781;}
+  .toast-wa{position:fixed;left:24px;bottom:24px;z-index:500;display:flex;align-items:center;gap:18px;background:#263238;color:#fff;padding:13px 18px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.35);font-size:14.5px;font-family:'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;}
+  .toast-wa button{background:none;border:none;color:#53BDEB;font-weight:600;font-size:14.5px;cursor:pointer;padding:0;}
+  .swatches{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;}
+  .swatch{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;box-sizing:border-box;}
+  .swatch.sel{border-color:#111B21;box-shadow:inset 0 0 0 2px #fff;}
+
+  /* chat fijado "Entrenar a la IA" */
+  .avatar-ia{background:#00A884 !important;}
+  .avatar-ia svg{fill:#fff !important;transform:none !important;width:58% !important;height:58% !important;}
+  .avatar-grande.avatar-ia svg{width:55% !important;height:55% !important;}
+  .item-fijado{display:inline-flex;}
+  .item-fijado svg{width:16px;height:16px;fill:#8696A0;}
+  .item-entrenador{background:#F6FBF8;}
+  .ent-bienvenida{align-self:center;max-width:470px;background:#fff;border-radius:10px;box-shadow:0 1px .5px rgba(11,20,26,.13);padding:18px 22px;text-align:center;font-size:13.5px;line-height:19px;color:#54656F;margin:20px 0;display:flex;flex-direction:column;gap:8px;align-items:center;}
+  .ent-bienvenida b{color:#111B21;font-size:15px;}
+  .ent-bienvenida-ico svg{width:44px;height:44px;fill:#00A884;}
+  .ent-consejo{font-size:12.5px;color:#8696A0;}
+  .burbuja.ent-ia{max-width:min(580px,88%);}
+  .ent-autor{display:block;font-size:12px;font-weight:600;color:#008069;margin-bottom:2px;}
+  .ent-img{display:block;max-width:300px;width:100%;max-height:300px;object-fit:cover;border-radius:6px;cursor:zoom-in;margin-bottom:4px;}
+  .ent-texto{white-space:pre-wrap;}
+  .burbuja.ent-error{background:#FFF1F0;color:#B3261E;}
+  .ent-aprendizaje{white-space:normal;margin:8px 0 2px;border:1px solid #D1D7DB;border-left:4px solid #00A884;border-radius:8px;padding:8px 10px;background:#F7FAF9;font-size:13px;line-height:18px;}
+  .ent-aprendizaje.aprobado{border-left-color:#1FA855;background:#EEF9F1;}
+  .ent-aprendizaje.rechazado{border-left-color:#B0B7BB;opacity:.65;}
+  .ent-ap-cab{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:5px;}
+  .ent-chip{background:#E9EDEF;color:#54656F;border-radius:8px;padding:0 7px;font-size:11px;line-height:17px;font-weight:600;}
+  .ent-chip.riesgo-alto{background:#FDE7E4;color:#B3261E;}
+  .ent-chip.riesgo-medio{background:#FFF1C9;color:#8A5A00;}
+  .ent-chip.riesgo-bajo{background:#DDF5E4;color:#14753A;}
+  .ent-estado{margin-left:auto;font-size:11.5px;color:#8A5A00;font-weight:600;}
+  .ent-estado.ok{color:#14753A;}
+  .ent-estado.no{color:#667781;}
+  .ent-ap-r{white-space:pre-wrap;margin-top:4px;}
+  .ent-ap-regla{margin-top:5px;color:#54656F;font-style:italic;}
+  .ent-ap-alerta{margin-top:5px;color:#B3261E;font-size:12.5px;}
+  .ent-ap-acciones{display:flex;gap:8px;align-items:center;margin-top:7px;flex-wrap:wrap;}
+  .ent-ap-acciones button{border:none;background:#00A884;color:#fff;border-radius:14px;padding:4px 12px;font-size:12.5px;font-weight:600;cursor:pointer;}
+  .ent-ap-acciones button.sec{background:#fff;color:#54656F;border:1px solid #D1D7DB;}
+  .ent-ap-acciones a{font-size:12.5px;color:#008069;}
+  .ent-pensando .puntos{display:inline-flex;gap:4px;padding:5px 2px;}
+  .ent-pensando i{width:7px;height:7px;border-radius:50%;background:#8696A0;animation:wa-pulso 1s ease-in-out infinite;}
+  .ent-pensando i:nth-child(2){animation-delay:.2s;}
+  .ent-pensando i:nth-child(3){animation-delay:.4s;}
+  .ent-previa{display:flex;align-items:center;gap:12px;background:#F0F2F5;padding:8px 16px;border-top:1px solid #E9EDEF;flex-shrink:0;font-size:13px;color:#54656F;}
+  .ent-previa img{height:56px;max-width:120px;object-fit:cover;border-radius:6px;}
+  .ent-previa span{flex:1;}
+  .ent-pasos{margin:0;padding-left:18px;font-size:13.5px;line-height:19px;color:#3B4A54;}
+  .ent-pasos li{margin-bottom:5px;}
+  a.wa-icono{text-decoration:none;}
+
+  /* sección de configuración (acordeón al final de la página) */
+  .config-wa{margin-top:22px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);}
+  .config-wa>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:15px 20px;font-weight:700;font-size:15px;}
+  .config-wa>summary::-webkit-details-marker{display:none;}
+  .config-wa>summary .sub{font-weight:400;font-size:12px;flex:1;}
+  .config-wa>summary::after{content:'▾';margin-left:auto;color:var(--muted);}
+  .config-wa[open]>summary::after{content:'▴';}
+  .config-cuerpo{padding:0 20px 20px;}
+  .config-bloque{border-top:1px solid var(--line);padding:16px 0 4px;}
+  .config-bloque h3{margin:0 0 4px;font-size:14px;}
+  .config-bloque>.sub{margin:0 0 12px;}
+  .config-acciones{display:flex;flex-wrap:wrap;gap:8px;}
+  .rr-tabla td{vertical-align:top;font-size:13px;}
+  .rr-atajo{font-weight:700;color:#008069;white-space:nowrap;}
+  .rr-texto{white-space:pre-line;max-height:4.6em;overflow:hidden;color:var(--muted);min-width:240px;}
+  .rr-form{margin-top:14px;padding:14px;background:var(--surface-2);border-radius:12px;display:grid;gap:10px;}
+  .rr-form .rr-atajo-caja{display:flex;align-items:center;gap:6px;}
+  .rr-form .rr-atajo-caja span{font-size:18px;font-weight:700;color:#008069;}
+  .rr-form textarea{min-height:150px;resize:vertical;width:100%;line-height:1.45;}
+  .rr-form .rr-contador{font-size:11.5px;color:var(--muted);text-align:right;}
+  .rr-acciones{display:flex;gap:8px;flex-wrap:wrap;}
+
+  /* ================= Configuración WhatsApp ================= */
+  .cfg-wa-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+  .cfg-wa-acciones{display:flex;gap:8px;flex-wrap:wrap;}
+  .cfg-wa-acciones a{text-decoration:none;display:inline-block;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;padding:9px 16px;border-radius:9px;}
+  .config-pagina{padding-top:4px;}
+  .config-pagina .config-bloque:first-child{border-top:none;}
+</style>
+<meta name="theme-color" content="#0F766E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="responsive.css">
+<link rel="stylesheet" href="comercial-movil.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <button class="btn-settings" onclick="toggleMenuHerramientas(event)" title="Configuración">⚙️</button>
+      <div class="menu-herramientas" id="menuHerramientas">
+        <a href="usuarios.html" id="navUsuarios" style="display:none;">👤 Usuarios</a>
+        <a href="actualizaciones-erp.html" id="navActualizaciones" style="display:none;">🔄 Actualizaciones ERP</a>
+        <a href="mercadolibre.html" id="navMercadoLibre" style="display:none;">🛒 Mercado Libre</a>
+        <a href="mailing.html" id="navMailing" style="display:none;">✉️ Mailing</a>
+        <a href="reportar-error.html">🆘 Ayuda</a>
+        <a href="guia-uso.html">📘 Guía de uso</a>
+        <a href="#" onclick="cerrarSesion(); return false;">🚪 Cerrar sesión</a>
+      </div>
+      <img src="https://cdn.shopify.com/s/files/1/0522/7436/4595/files/logo_y_slogan_-_bco_Mesa_de_trabajo_2.png?v=1768595366" alt="IndexStore" class="logo">
+    </div>
+    <nav class="page-nav">
+      <a href="home.html">Home</a>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navFinanzas')">Finanzas ▾</button>
+        <div class="nav-dropdown-menu" id="navFinanzas">
+          <a href="index.html">Flujo de Caja</a>
+          <a href="conciliacion.html">Conciliación</a>
+          <a href="contabilidad.html">Contabilidad</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navCompras')">Compras ▾</button>
+        <div class="nav-dropdown-menu" id="navCompras">
+          <a href="compras.html#resumen">Resumen</a>
+          <a href="compras.html#catalogo" data-requiere="compras.html#catalogo">Catálogo completo</a>
+          <a href="compras.html#recomendacion" data-requiere="compras.html#recomendacion">Recomendación con presupuesto</a>
+          <a href="compras.html#daxis" data-requiere="compras.html#daxis">Importación Daxis</a>
+          <a href="compras.html#dm" data-requiere="compras.html#dm">Compras DM</a>
+          <a href="compras.html#intcomex" data-requiere="compras.html#intcomex">Compras Intcomex</a>
+          <a href="compras.html#insumos" data-requiere="insumos-servicio-tecnico.html">Insumos servicio técnico</a>
+          <a href="compras.html#comparador" data-requiere="compras.html#comparador">Comparativa de cotizaciones</a>
+          <a href="alertas-stock.html">Alertas de Stock</a>
+          <a href="productos-en-transito.html">Productos en tránsito</a>
+          <a href="pedidos-pantallas.html">Productos a pedido</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn active" onclick="toggleNavDropdown(event,'navComercial')">Comercial ▾</button>
+        <div class="nav-dropdown-menu" id="navComercial">
+          <a href="oportunidades-comerciales.html">Ventas</a>
+          <a href="detalle-ventas.html">Detalle de ventas</a>
+          <a href="cotizaciones-clientes.html">Cotizaciones</a>
+          <a href="compra-agil.html">Compra Ágil</a>
+          <a href="metas-de-venta.html">Metas de venta</a>
+          <a href="clientes-whatsapp.html" class="active">WhatsApp</a>
+          <a href="llamadas.html">Llamadas</a>
+          <a href="indexscale.html">IndexScale</a>
+          <a href="modelos-compatibles.html">Modelos compatibles</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSoporte')">Soporte ▾</button>
+        <div class="nav-dropdown-menu" id="navSoporte">
+          <a href="tickets.html">Tickets ERP (ex Zoho Desk)</a>
+          <a href="chat-en-vivo.html">Chat en vivo (ex SalesIQ)</a>
+          <a href="soporte-indexpro.html">IndexPro</a>
+          <a href="reportar-error.html">Reportar error</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navServicioTecnico')">Servicio Técnico ▾</button>
+        <div class="nav-dropdown-menu" id="navServicioTecnico">
+          <a href="servicio-tecnico.html">Servicio Técnico</a>
+          <a href="identificacion-modelos.html">Identificación de Modelos</a>
+          <a href="electronica.html">Electrónica</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navSitioWeb')">Sitio Web ▾</button>
+        <div class="nav-dropdown-menu" id="navSitioWeb">
+          <a href="sitio-web.html#resumen">Resumen</a>
+          <a href="sitio-web.html#stock">Stock oculto</a>
+          <a href="sitio-web.html#precios">Precios</a>
+          <a href="sitio-web.html#skus">SKU de referencia</a>
+          <a href="sitio-web.html#envio">Cotizador de envío</a>
+          <a href="sitio-web.html#filtros">Filtros por marca</a>
+          <a href="sitio-web.html#compat">Compatibilidad</a>
+          <a href="sitio-web.html#modelos">Modelos detectados</a>
+          <a href="sitio-web.html#buscador" data-requiere="buscador-ia.html">Buscador IA</a>
+          <a href="sitio-web.html#descuentos" data-requiere="descuentos-web.html">Descuentos web</a>
+        </div>
+      </div>
+      <div class="nav-dropdown">
+        <button type="button" class="nav-dropdown-btn" onclick="toggleNavDropdown(event,'navAnalisis')">Análisis ▾</button>
+        <div class="nav-dropdown-menu" id="navAnalisis">
+          <a href="analisis.html">Análisis</a>
+          <a href="productos-estancados.html">Productos estancados</a>
+          <a href="frecuencia-precio.html">Frecuencia y precio</a>
+          <a href="google-analytics.html">Google Analytics</a>
+          <a href="google-ads.html">Google Ads</a>
+          <a href="search-console.html">Search Console</a>
+          <a href="instagram.html">Instagram</a>
+          <a href="comparativo-ventas.html">Comparativo de ventas</a>
+          <a href="productos-nuevos.html">Productos Nuevos</a>
+          <a href="ejecutivos-whatsapp.html">Ejecutivos WhatsApp</a>
+        </div>
+      </div>
+    </nav>
+    <div class="user-box" id="userBox"></div>
+  </header>
+
+  <div class="cfg-wa-head">
+    <div>
+      <h1>⚙️ Configuración WhatsApp</h1>
+      <div class="sub">Dashboard, clientes y analítica del chat de WhatsApp Business, y su configuración (respuestas rápidas, etiquetas y herramientas de análisis).</div>
+    </div>
+    <div class="cfg-wa-acciones">
+      <a class="btn-primary" href="clientes-whatsapp.html">💬 Abrir el chat</a>
+      <a class="btn-ghost" href="bot-whatsapp.html">🤖 Bot WhatsApp</a>
+    </div>
+  </div>
+  <div id="avisoConfig"></div>
+
+  <div class="tabs-modulo" id="tabsModulo">
+    <button class="tab-modulo activo" data-vista="dashboard" onclick="cambiarVistaModulo('dashboard')">📊 Dashboard</button>
+    <button class="tab-modulo" data-vista="clientes" onclick="cambiarVistaModulo('clientes')">👥 Clientes</button>
+    <button class="tab-modulo" data-vista="analitica" onclick="cambiarVistaModulo('analitica')">📈 Analítica</button>
+    <button class="tab-modulo" data-vista="configuracion" onclick="cambiarVistaModulo('configuracion')">⚙️ Configuración</button>
+  </div>
+
+  <div id="vistaDashboard" class="vista-modulo"></div>
+  <div id="vistaClientes" class="vista-modulo"></div>
+  <div id="vistaAnalitica" class="vista-modulo"></div>
+
+  <!-- Configuración del chat: respuestas rápidas ("/" en la conversación), etiquetas y herramientas de análisis en lote (solo administrador) -->
+  <div id="vistaConfiguracion" class="vista-modulo">
+    <div class="seccion config-pagina">
+      <div class="config-bloque">
+        <h3>⚡ Respuestas rápidas</h3>
+        <p class="sub">Textos guardados para contestar más rápido. En una conversación escribe <b>/</b> y elige una (también con el ícono ⚡ junto a la caja de texto): se inserta el texto, lo revisas y lo envías.</p>
+        <div id="panelRespuestasRapidas"><p class="sub">Cargando…</p></div>
+      </div>
+      <div class="config-bloque">
+        <h3>🏷️ Etiquetas</h3>
+        <p class="sub">Para clasificar los chats, como en WhatsApp Business. Se asignan desde el menú de cada chat (flecha ˅ o clic derecho) y se puede filtrar la bandeja por etiqueta.</p>
+        <div id="panelEtiquetasWa"><p class="sub">Cargando…</p></div>
+      </div>
+      <div class="config-bloque" id="accionesDemo" style="display:none;">
+        <h3>🤖 Análisis y actualización de datos</h3>
+        <p class="sub">Procesos en lote para ordenar y completar las conversaciones. Solo los ve un administrador.</p>
+        <div class="config-acciones">
+          <button class="btn-primary btn-compact" onclick="analizarRecientesIA()" id="btnAnalizarRecientes">🤖 Analizar recientes (12h)</button>
+          <button class="btn-ghost btn-compact" onclick="analizarPendientesIA()" id="btnAnalizarPendientes">🤖 Analizar pendientes</button>
+          <button class="btn-ghost btn-compact" onclick="reanalizarDesactualizadas()" id="btnReanalizarDesactualizadas">🔄 Reanalizar desactualizadas</button>
+          <button class="btn-ghost btn-compact" onclick="actualizarShopifyEnLote()" id="btnActualizarShopify">🛒 Actualizar Shopify</button>
+          <button class="btn-ghost btn-compact" onclick="buscarVentasBsaleEnLote()" id="btnBuscarVentasBsale">🧾 Buscar ventas (Bsale/Shopify)</button>
+          <button class="btn-ghost btn-compact" onclick="reclasificarCierres()" id="btnReclasificarCierres" title="Cierres cordiales (&quot;ok&quot;, &quot;gracias&quot;) pasan a &quot;Consulta resuelta&quot;, y las conversaciones a las que ya se les envió el enlace del producto o una oferta dejan de contar como pérdida y pasan a &quot;Cotización&quot;, y las que recibieron el enlace de reseña de Google (la compra se concretó) pasan a &quot;Venta&quot;">✅ Reclasificar cierres, conversiones y ventas</button>
+          <button class="btn-ghost btn-compact" onclick="reanalizarProductoNoDisponible()" id="btnReanalizarProductoNoDisponible" title="Reanaliza las conversaciones marcadas como &quot;Otro&quot; o &quot;Producto incompatible&quot;, por si ahora corresponden al nuevo motivo &quot;Producto/marca que no vendemos&quot;">🔎 Reanalizar "no disponible"</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="modal-backdrop" id="modalConversacion" onclick="if(event.target===this) cerrarModalConversacion()">
+  <div class="modal-box ancho">
+    <div class="modal-head">
+      <h2 id="modalConvTitulo">Conversación</h2>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button class="btn-ghost btn-compact" id="btnConvAnterior" onclick="irConversacionAdyacente(-1)" title="Conversación anterior en la lista">← Anterior</button>
+        <button class="btn-ghost btn-compact" id="btnConvSiguiente" onclick="irConversacionAdyacente(1)" title="Conversación siguiente en la lista">Siguiente →</button>
+        <button class="modal-cerrar" title="Cerrar" aria-label="Cerrar" onclick="cerrarModalConversacion()">✕</button>
+      </div>
+    </div>
+    <div class="modal-body" id="modalConvBody"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modalCliente" onclick="if(event.target===this) cerrarModalCliente()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2 id="modalClienteTitulo">Cliente</h2>
+      <button class="modal-cerrar" title="Cerrar" aria-label="Cerrar" onclick="cerrarModalCliente()">✕</button>
+    </div>
+    <div class="modal-body" id="modalClienteBody"></div>
+  </div>
+</div>
+
+<div class="lightbox-backdrop" id="lightboxImagen" onclick="cerrarImagenAmpliada()">
+  <button class="lightbox-cerrar" title="Cerrar imagen" aria-label="Cerrar imagen" onclick="cerrarImagenAmpliada()">✕</button>
+  <img id="lightboxImagenImg" src="" alt="Imagen ampliada">
+</div>
+
+<script src="restriccion-usuario.js"></script>
+<script src="etiquetas-botones.js"></script>
+<script src="menu-herramientas.js"></script>
+<script src="comercial-movil.js"></script>
+<script src="clientes-whatsapp.js"></script>
+<script src="whatsapp-motivos.js"></script>
+<script src="whatsapp-bot.js"></script>
+<script src="navegacion-historial.js"></script>
+<script>
+// Atrás/Adelante: pestaña del módulo, conversación abierta y panel de análisis de un motivo
+Nav.iniciar({
+  dimensiones: {
+    vista: { actual: () => ((document.querySelector('.tab-modulo.activo') || {}).dataset || {}).vista || 'dashboard', aplicar: v => cambiarVistaModulo(v) },
+    conversacion: { actual: () => ($('modalConversacion').classList.contains('abierto') ? conversacionAbiertaId : null), aplicar: v => { if(v) abrirConversacion(v, null); else cerrarModalConversacion(); }, reemplazar: true },
+    motivo: { actual: () => { const p = document.getElementById('panelMotivo'); if(!(p && p.classList.contains('abierto'))) return null; return motivoPanel.tipo === 'categoria' ? 'categoria:' + motivoPanel.categoria : 'motivo:' + motivoPanel.motivo; }, aplicar: v => { if(!v) cerrarPanelMotivo(); else if(v.startsWith('categoria:')) abrirPanelCategoria(v.slice(10)); else abrirPanelMotivo(v.replace(/^motivo:/, '')); } },
+  },
+  envolver: ['cambiarVistaModulo', 'abrirConversacion', 'cerrarModalConversacion', 'abrirPanelMotivo', 'abrirPanelCategoria', 'cerrarPanelMotivo'],
+});
+cargarSesionUsuario();
+</script>
+<script src="tablas-ordenables.js"></script>
+</body>
+</html>

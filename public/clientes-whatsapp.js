@@ -308,30 +308,41 @@ async function cargarSesionUsuario(){
     if(!res.ok) return;
     const u = await res.json();
     rolActual = u.rol;
-    $('userBox').innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
+    paginasPermitidas = u.paginas;
+    const userBox = $('userBox'); // solo existe en Configuración WhatsApp: el chat no tiene encabezado
+    if (userBox) userBox.innerHTML = `<span>Hola, <b>${escapeHtml(u.nombre || u.email)}</b></span>`;
     if (typeof aplicarRestriccionesUsuario === 'function') aplicarRestriccionesUsuario(u.rol);
     if (typeof aplicarRestriccionPaginas === 'function') aplicarRestriccionPaginas(u.paginas);
     if(u.rol === 'admin'){
       const nav = $('navUsuarios');
       if (nav) nav.style.display = '';
-      $('accionesDemo').style.display = '';
+      const acciones = $('accionesDemo');
+      if (acciones) acciones.style.display = '';
     }
     cargarUsuariosActivos();
     cargarRespuestasRapidas();
     cargarEtiquetasWa();
     if (u.rol === 'admin') cargarEntrenador(false); // chat fijado "Entrenar a la IA" (solo administradores)
-    // Vínculo real desde Cotizaciones y ventas (coincidencia de teléfono) --
-    // ?abrirConversacion=123 abre directo la bandeja en esa conversación en
-    // vez del Dashboard por defecto.
-    const idDesdeUrl = new URLSearchParams(location.search).get('abrirConversacion');
-    if (idDesdeUrl) {
+    const params = new URLSearchParams(location.search);
+    if (esPaginaChat()) {
+      // Página del chat (pantalla completa). ?abrirConversacion=123 (vínculo desde Cotizaciones y ventas, por teléfono) abre esa conversación;
+      // ?motivoPerdida=... llega desde Analítica (en Configuración WhatsApp) y filtra por ese motivo de pérdida.
+      const motivo = params.get('motivoPerdida');
+      if (motivo) { convState.filtros = { motivoPerdida: motivo }; convState.filtroMotivoLabel = params.get('motivoLabel') || MOTIVO_PERDIDA_LABEL[motivo] || motivo; }
       cambiarVistaModulo('conversaciones');
-      seleccionarConversacionBandeja(Number(idDesdeUrl));
+      const idDesdeUrl = params.get('abrirConversacion');
+      if (idDesdeUrl) seleccionarConversacionBandeja(Number(idDesdeUrl));
     } else {
-      cambiarVistaModulo('conversaciones'); // la página abre en la bandeja de conversaciones
+      // Configuración WhatsApp: Dashboard, Clientes, Analítica y Configuración (el # de la dirección elige la pestaña)
+      const hash = (location.hash || '').replace('#', '');
+      cambiarVistaModulo(['dashboard', 'clientes', 'analitica', 'configuracion'].includes(hash) ? hash : 'dashboard');
     }
   }catch(err){ /* silencioso */ }
 }
+let paginasPermitidas = null; // páginas del perfil del usuario (null = sin restricción)
+const paginaPermitida = href => !Array.isArray(paginasPermitidas) || paginasPermitidas.includes(href);
+// El chat (clientes-whatsapp.html) y la configuración (configuracion-whatsapp.html) comparten este archivo: el chat es la página que tiene la bandeja.
+const esPaginaChat = () => !!document.getElementById('vistaConversaciones');
 async function cerrarSesion(){
   await fetch('/api/auth-session', { method: 'DELETE' });
   location.href = '/login.html';
@@ -366,7 +377,9 @@ function cambiarVistaModulo(vista){
   document.querySelectorAll('.tab-modulo').forEach(b => b.classList.toggle('activo', b.dataset.vista === vista));
   document.querySelectorAll('.vista-modulo').forEach(v => v.classList.remove('activa'));
   const nombreVista = 'vista' + vista.charAt(0).toUpperCase() + vista.slice(1);
-  $(nombreVista).classList.add('activa');
+  const elVista = $(nombreVista);
+  if (!elVista) return; // esa vista no existe en esta página (cada página tiene las suyas)
+  elVista.classList.add('activa');
   if (!vistasCargadas.has(vista)) {
     vistasCargadas.add(vista);
     if (vista === 'dashboard') initDashboard();
@@ -527,6 +540,7 @@ const WA_ICONO = {
   archivar: '<svg viewBox="0 0 24 24"><path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z"/></svg>',
   desarchivar: '<svg viewBox="0 0 24 24"><path d="M20.55 5.22l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.15.55L3.46 5.22C3.17 5.57 3 6.01 3 6.5V19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.49-.17-.93-.45-1.28zM12 9.5l5.5 5.5H14v2h-4v-2H6.5L12 9.5zM5.12 5l.82-1h12l.93 1H5.12z"/></svg>',
   chevron: '<svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>',
+  menu: '<svg viewBox="0 0 24 24"><path d="M12 7a2 2 0 1 0-.001-4.001A2 2 0 0 0 12 7zm0 2a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 9zm0 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 15z"/></svg>',
   fijar: '<svg viewBox="0 0 24 24"><path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>',
 };
 const WA_AVATAR ='<svg viewBox="0 0 212 212"><path d="M106 106c-17.5 0-31.7-14.2-31.7-31.7S88.5 42.6 106 42.6s31.7 14.2 31.7 31.7S123.5 106 106 106zm0 15.8c-29.4 0-88.9 14.8-88.9 44.4v22.2h177.8v-22.2c0-29.6-59.5-44.4-88.9-44.4z"/></svg>';
@@ -616,7 +630,21 @@ function mostrarMenuFlotante(x, y, html){
   m.style.left = Math.max(8, Math.min(x, window.innerWidth - r.width - 8)) + 'px';
   m.style.top = Math.max(8, Math.min(y, window.innerHeight - r.height - 8)) + 'px';
 }
-document.addEventListener('mousedown', e => { if (!(e.target.closest && e.target.closest('#menuFlotante, .item-menu-btn, #chipEtiquetas, .btn-etiquetar-wa'))) cerrarMenuFlotante(); });
+document.addEventListener('mousedown', e => { if (!(e.target.closest && e.target.closest('#menuFlotante, .item-menu-btn, #chipEtiquetas, .btn-etiquetar-wa, .btn-menu-wa'))) cerrarMenuFlotante(); });
+
+// Menú de tres puntos del chat: el chat ocupa toda la pantalla y no tiene el menú del ERP, así que desde acá se sale a las otras secciones.
+function abrirMenuPrincipalWa(ev){
+  ev.stopPropagation();
+  if (document.getElementById('menuFlotante')) { cerrarMenuFlotante(); return; }
+  const r = ev.currentTarget.getBoundingClientRect();
+  const enlace = (href, emoji, texto) => paginaPermitida(href.split('#')[0]) ? `<button onclick="location.href='${href}'"><span class="menu-emoji">${emoji}</span><span>${texto}</span></button>` : '';
+  mostrarMenuFlotante(r.right - 260, r.bottom + 6, `
+    ${enlace('configuracion-whatsapp.html', '⚙️', 'Configuración, dashboard y analítica')}
+    ${enlace('bot-whatsapp.html', '🤖', 'Bot de WhatsApp')}
+    <div class="menu-sep"></div>
+    ${enlace('home.html', '🏠', 'Volver al ERP')}
+    <button onclick="cerrarSesion()"><span class="menu-emoji">🚪</span><span>Cerrar sesión</span></button>`);
+}
 document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarMenuFlotante(); });
 document.addEventListener('scroll', e => { if (!(e.target && e.target.closest && e.target.closest('#menuFlotante'))) cerrarMenuFlotante(); }, true);
 
@@ -1295,6 +1323,7 @@ function initConversaciones(){
             <button class="wa-icono" id="btnFiltrosWa" onclick="toggleFiltrosConv()" title="Filtros" aria-label="Filtros">${WA_ICONO.filtro}</button>
             <button class="wa-icono" id="btnBotWa" onclick="abrirPanelBot()" title="Bot nocturno: redacta respuestas fuera del horario de atención (modo sombra: tú revisas y envías)" aria-label="Bot nocturno">${WA_ICONO.bot}</button>
             <button class="wa-icono" id="btnTablaWa" onclick="cambiarVistaConv('tabla')" title="Ver como tabla (supervisión)" aria-label="Ver como tabla">${WA_ICONO.tabla}</button>
+            <button class="wa-icono btn-menu-wa" id="btnMenuWa" onclick="abrirMenuPrincipalWa(event)" title="Menú" aria-label="Menú">${WA_ICONO.menu}</button>
           </div>
         </div>
         <div class="wa-buscador">
@@ -2970,6 +2999,11 @@ function renderTablaMotivos(motivos){
 // ya listo. Si la pestaña ya estaba cargada, cambiarVistaModulo no hace
 // nada más -> hay que recargar a mano.
 function irAConversacionesConMotivo(motivo){
+  // Desde Configuración WhatsApp (Analítica) las conversaciones están en la otra página: se va al chat con el filtro en la dirección.
+  if (!esPaginaChat()) {
+    location.href = 'clientes-whatsapp.html?' + new URLSearchParams({ motivoPerdida: motivo, motivoLabel: MOTIVO_PERDIDA_LABEL[motivo] || motivo }).toString();
+    return;
+  }
   const yaEstabaCargada = vistasCargadas.has('conversaciones');
   convState.filtros = { motivoPerdida: motivo };
   convState.filtroMotivoLabel = MOTIVO_PERDIDA_LABEL[motivo] || motivo;
