@@ -8,7 +8,7 @@ import { asegurarTablaWhatsappBot } from '../../lib/db.js';
 import {
   construirSystemBot, elegirPreguntasModelo, momentoDentroDeHorario, dentroDeHorarioBot, normalizarPropuesta, limpiarSaltosDeLinea,
   HORARIO_BOT_DEFECTO, SALUDO_DEFECTO, CONOCIMIENTO_DEFECTO,
-  ETAPAS_COMERCIALES, CLAVES_ETAPA, HERRAMIENTAS_BOT, sanitizarSolicitud, fusionarSolicitud, solicitudTieneDatos,
+  ETAPAS_COMERCIALES, CLAVES_ETAPA, HERRAMIENTAS_BOT, sanitizarSolicitud, fusionarSolicitud, solicitudTieneDatos, finVentanaActual,
 } from '../../lib/whatsapp-bot.js';
 import {
   asegurarTablaEjemplosBot, listarEjemplos, crearEjemplo, actualizarEjemplo, cambiarActivoEjemplo, eliminarEjemplo,
@@ -115,6 +115,25 @@ test('momentoDentroDeHorario encuentra un instante dentro de las ventanas del bo
   assert.equal(momentoDentroDeHorario(new Date(), [{ dias: [1], desde: '10:00', hasta: '10:05' }]) instanceof Date, true);
 });
 
+test('finVentanaActual informa el minuto exacto en que vuelve el equipo, sin importar a qué minuto se consulte', () => {
+  // Chile está en UTC-3 en noviembre. Lun-vie 19:35 → 08:30, sáb 15:00 → 23:30, dom 09:00 → 15:30.
+  const miercolesNoche = ['2026-11-26T01:00:00Z', '2026-11-26T01:03:00Z', '2026-11-26T01:07:30Z', '2026-11-26T08:29:00Z', '2026-11-26T11:29:59Z']; // 22:00, 22:03, 22:07, 05:29, 08:29 (hora Chile)
+  for (const iso of miercolesNoche) {
+    const f = finVentanaActual(new Date(iso));
+    assert.equal(f.hora, '08:30', `a las ${iso} dio ${f.hora}`);
+  }
+  assert.deepEqual(finVentanaActual(new Date('2026-11-26T01:03:00Z')), { hora: '08:30', dia: 'mañana' }, 'miércoles 22:03');
+  assert.deepEqual(finVentanaActual(new Date('2026-11-25T11:12:00Z')), { hora: '08:30', dia: 'hoy' }, 'miércoles 08:12 (sigue la ventana de la noche anterior)');
+  assert.deepEqual(finVentanaActual(new Date('2026-11-28T19:07:00Z')), { hora: '23:30', dia: 'hoy' }, 'sábado 16:07');
+  assert.deepEqual(finVentanaActual(new Date('2026-11-28T01:07:00Z')), { hora: '08:30', dia: 'mañana' }, 'viernes 22:07 → sábado 08:30');
+  assert.equal(finVentanaActual(new Date('2026-11-25T15:00:00Z')), null, 'miércoles 12:00: atiende el equipo');
+  // también con una hora de término que no cae en múltiplos de 5
+  const raro = [{ dias: [1, 2, 3, 4, 5], desde: '19:35', hasta: '08:32' }];
+  assert.equal(finVentanaActual(new Date('2026-11-26T01:03:00Z'), raro).hora, '08:32');
+  // y el prompt lo dice igual
+  assert.match(construirSystemBot({ ...base, ahora: new Date('2026-11-26T01:03:00Z') }), /vuelve mañana a las 08:30\./);
+});
+
 test('lo que escribió el equipo en una respuesta modelo cuenta como respaldado en la revisión de precios y enlaces', () => {
   const texto = 'Los despachos salen por Starken, $3.990. Más info en https://indexstore.cl/envios';
   const sin = normalizarPropuesta({ texto, confianza: 'alta', escalar: false }, { productos: [], conocimiento: CONOCIMIENTO_DEFECTO });
@@ -216,7 +235,9 @@ test('sanitizarSolicitud solo deja valores válidos y acotados', () => {
   assert.equal(s.datos_faltantes.length, 4);
   assert.equal(s.datos_faltantes[3].length, 60);
   assert.ok(!('extra' in s));
-  assert.deepEqual(sanitizarSolicitud(null), { producto: '', marca: '', modelo: '', especificaciones: '', urgencia: '', nombre: '', entrega: 'no_definido', tipo_cliente: 'no_definido', preferencia: 'no_definido', datos_faltantes: [] });
+  assert.equal(sanitizarSolicitud({ pedido: '#39281 ' }).pedido, '39281', 'el pedido queda solo con dígitos');
+  assert.equal(sanitizarSolicitud({ pedido: '12345678901234' }).pedido.length, 9);
+  assert.deepEqual(sanitizarSolicitud(null), { producto: '', marca: '', modelo: '', especificaciones: '', urgencia: '', nombre: '', pedido: '', entrega: 'no_definido', tipo_cliente: 'no_definido', preferencia: 'no_definido', datos_faltantes: [] });
 });
 
 test('fusionarSolicitud acumula datos: lo nuevo reemplaza, lo vacío no borra y lo que falta se recalcula', () => {
@@ -314,7 +335,7 @@ test('el estado de un pedido NO se manda al ticket: se revisa internamente; el t
   assert.match(CONOCIMIENTO_DEFECTO, /NO va al ticket: se revisa internamente/);
   assert.ok(construirSystemBot({ ...base }).includes('consulta por el estado de un pedido (se revisa internamente, sin enviarlo al ticket)'));
   // casos de entrenamiento
-  const estado = CASOS.filter(c => /\bpedido\b/i.test(c.pregunta) && !/incompleto/i.test(c.pregunta));
+  const estado = CASOS.filter(c => /estado del pedido/i.test(c.etiquetas));
   assert.ok(estado.length >= 3, 'hay casos de estado de pedido');
   for (const c of estado) {
     assert.ok(!/postventa|ticket/i.test(c.respuesta), `no debe mandar al ticket: ${c.pregunta}`);
@@ -323,6 +344,39 @@ test('el estado de un pedido NO se manda al ticket: se revisa internamente; el t
   assert.ok(estado.some(c => /en horario hábil/.test(c.respuesta)));
   const dañado = CASOS.find(c => /incompleto/i.test(c.pregunta));
   assert.ok(dañado && dañado.respuesta.includes('https://www.indexstore.cl/pages/postventa'), 'el pedido incompleto sí va al ticket');
+});
+
+test('buscar_pedido: la herramienta existe, el protocolo la usa y la revisión exige que los números de seguimiento vengan de ella', () => {
+  const t = HERRAMIENTAS_BOT.find(h => h.name === 'buscar_pedido');
+  assert.ok(t, 'falta la herramienta buscar_pedido');
+  assert.deepEqual(t.input_schema.required, ['numero_pedido']);
+  assert.ok(!('telefono' in t.input_schema.properties), 'la IA no puede poner el teléfono: lo pone el servidor');
+  assert.match(t.description, /solo devuelve datos si el pedido es de este mismo cliente/i);
+  assert.match(PROTOCOLO_COMERCIAL, /llama a la herramienta buscar_pedido/);
+  assert.match(PROTOCOLO_COMERCIAL, /TAL COMO VIENEN/);
+  assert.match(PROTOCOLO_COMERCIAL, /Con verificado=false nunca confirmes ni descartes que el pedido existe/);
+  assert.match(PROTOCOLO_COMERCIAL, /no digas que ya lo revisaste si no usaste la herramienta/);
+
+  const texto = 'Tu pedido N° 39281 ya salió con Starken. Tu número de seguimiento es STK123456789 y lo puedes revisar aquí: https://www.starken.cl/seguimiento?codigo=STK123456789';
+  const sinHerramienta = normalizarPropuesta({ texto, confianza: 'alta', escalar: false }, { conocimiento: CONOCIMIENTO_DEFECTO });
+  assert.equal(sinHerramienta.escalar, true, 'inventó un seguimiento: se fuerza a escalar');
+  assert.ok(sinHerramienta.alertas.some(a => /Número no verificado: STK123456789/.test(a)));
+  assert.ok(sinHerramienta.alertas.some(a => /Enlace no verificado/.test(a)));
+
+  const conHerramienta = normalizarPropuesta({ texto, confianza: 'alta', escalar: false },
+    { conocimiento: CONOCIMIENTO_DEFECTO, urlsExtra: ['https://www.starken.cl/seguimiento?codigo=STK123456789'], seguimientos: ['STK123456789', '39281'] });
+  assert.deepEqual(conHerramienta.alertas, []);
+  assert.equal(conHerramienta.escalar, false);
+
+  // un número distinto al que entregó la herramienta se marca aunque el enlace sea válido
+  const otro = normalizarPropuesta({ texto: texto.replace('STK123456789', 'STK999999999').replace('?codigo=STK999999999', '?codigo=STK123456789'), confianza: 'alta', escalar: false },
+    { conocimiento: CONOCIMIENTO_DEFECTO, urlsExtra: ['https://www.starken.cl/seguimiento?codigo=STK123456789'], seguimientos: ['STK123456789'] });
+  assert.ok(otro.alertas.some(a => /Número no verificado: STK999999999/.test(a)));
+
+  // lo normal no dispara la revisión: teléfono de la tienda, números de pedido cortos, códigos de producto, precios y minutos
+  const normal = normalizarPropuesta({ texto: 'Para tu HP 250 G7 con batería L12L4A02, la pantalla cuesta $74.900. Escríbenos al +56 9 9315 5114 o llama al 56222311946. Pedido 39281, 15 a 25 minutos.', confianza: 'alta', escalar: false },
+    { productos: [{ precio: 74900 }], conocimiento: CONOCIMIENTO_DEFECTO });
+  assert.deepEqual(normal.alertas.filter(a => /Número/.test(a)), []);
 });
 
 test('importarEjemplos carga los casos iniciales, omite los repetidos y reporta las filas malas', async () => {

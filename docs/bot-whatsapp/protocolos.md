@@ -31,10 +31,15 @@ El ERP ya guarda estado, categoría, resultado e intención de cada conversació
 Llega mensaje del cliente
 ├─ ¿Pide ejecutivo / reclamo / devolución / garantía en curso / molesto / empresa / precio especial?
 │    └─ SÍ → mensaje breve de espera + enlace del Ticket (si es post-venta) + resumen al ejecutivo → FIN
-├─ ¿Pregunta por el ESTADO de un pedido («aún no me llega», «dónde está»)?
-│    └─ SÍ → NO va al ticket: empatía + repetir el N.º de pedido (o pedirlo) + «revisaremos internamente el caso y te responderemos
-│            en unos minutos, en horario hábil» (fuera de horario: «apenas retomemos la atención») + avisar al ejecutivo con el N.º → FIN
-│            (decisión de IndexStore, 24-nov-2026; el bot nunca inventa el estado, la fecha ni el courier)
+├─ ¿Pregunta por el ESTADO de un pedido («aún no me llega», «dónde está»)?  → NO va al ticket (decisión de IndexStore, 24-nov-2026)
+│    ├─ ¿Dio el N.º de pedido? → buscar_pedido (Shopify), con el teléfono del WhatsApp puesto por el servidor
+│    │    ├─ Pedido de este cliente y con seguimiento → entrega courier, N.º de seguimiento y enlace TAL COMO VIENEN (sin fechas)
+│    │    └─ Resto (no verificado / inexistente / sin seguimiento / cancelado / pago pendiente / Shopify caído) → respuesta de revisión interna
+│    │         (con «no verificado» NO se confirma ni se descarta que el pedido exista)
+│    └─ No lo dio → pedir el N.º de pedido
+│    Revisión interna = empatía + repetir el N.º + «revisaremos internamente el caso y te responderemos en unos minutos, en horario hábil»
+│    (fuera de horario: «apenas retomemos la atención», con la hora exacta de regreso) + avisar al ejecutivo con el N.º → FIN
+│    El bot nunca inventa el estado, la fecha ni el courier.
 ├─ ¿Es post-venta (garantía, devolución, cambio de documento, pedido incompleto o dañado)?  → explicar política + Ticket de Post-Venta + avisar
 ├─ ¿Qué categoría?  cargador · batería · pantalla · limpieza · bisagra · falla electrónica · servicio · otro
 │    ├─ ¿Tengo modelo exacto? (texto o foto)

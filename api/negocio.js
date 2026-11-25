@@ -100,6 +100,7 @@ import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionE
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
 import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, detalleWaClics, numeroConectado as numeroConectadoWaAds, asegurarWaClicsAdsUnaVez as asegurarWaClicsAdsUnaVezWaAds, sqlOrigenGoogleAds, atribuirClics as atribuirClicsWaAds, borrarClicsDePrueba as borrarClicsDePruebaWaAds, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
 import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto, elegirPreguntasModelo, momentoDentroDeHorario, SALUDO_CUANDO, SALUDO_DEFECTO, LIMITES_BOT, REGLAS_NO_PROMETER, PROTOCOLO_COMERCIAL, revisarPropuesta, limpiarSaltosDeLinea, fusionarSolicitud, solicitudTieneDatos, sanitizarSolicitud, ETAPAS_COMERCIALES } from '../lib/whatsapp-bot.js';
+import { consultarPedidoParaCliente } from '../lib/whatsapp-pedidos.js';
 import { asegurarTablaCandidatosBot, crearCandidatoCorreccion, crearCandidatoConversacion, listarCandidatos, resumenCandidatos, aprobarCandidato, rechazarCandidato, extraerIntercambio, anonimizarTexto, CATEGORIAS_KB, RIESGOS_CANDIDATO } from '../lib/whatsapp-bot-aprendizaje.js';
 import { asegurarTablaEjemplosBot, listarEjemplos, crearEjemplo, actualizarEjemplo, cambiarActivoEjemplo, eliminarEjemplo, importarEjemplos } from '../lib/whatsapp-bot-ejemplos.js';
 import { PATRON_RESENA, hayResena } from '../lib/whatsapp-resena.js';
@@ -10074,15 +10075,38 @@ const DTO_BORRADOR_BOT = b => ({
   id: b.id, conversacionId: b.conversacion_id, texto: b.texto, confianza: b.confianza, escalar: !!b.escalar, motivo: b.motivo_escalamiento || '',
   resumen: b.resumen || '', alertas: b.alertas || [], productos: b.productos || [], estado: b.estado, origen: b.origen, creadoEn: b.creado_en,
   etapa: b.etapa || '', etapaEtiqueta: ETAPAS_COMERCIALES.find(e => e.clave === b.etapa)?.etiqueta || '', solicitud: b.solicitud ? sanitizarSolicitud(b.solicitud) : null,
+  consultasPedido: Array.isArray(b.consultas_pedido) ? b.consultas_pedido : [],
 });
 
 // Conversación con Gemini (function calling): el modelo puede pedir buscar_productos varias veces y termina con proponer_respuesta.
 // El contenido que devuelve el modelo se reenvía tal cual (incluye las "thought signatures" que exigen los modelos Gemini 3).
 // Lo usan los borradores de las conversaciones y el probador del panel del bot (que no guarda nada).
-async function correrIABot({ system, promptPartes, apiKey, limiteMs }) {
+// Consulta de un pedido en Shopify para el bot (ver lib/whatsapp-pedidos.js): solo entrega datos si el teléfono del WhatsApp del cliente calza con el del
+// pedido. El teléfono lo pone el servidor, nunca la IA. Si Shopify falla o el permiso read_orders no alcanza, se responde como «no disponible».
+const PEDIDO_NO_DISPONIBLE = { verificado: false, instruccion: 'La consulta de pedidos no está disponible ahora: dile con empatía que revisaremos internamente el caso y le responderemos en unos minutos, en horario hábil. Deja escalar=true.' };
+async function buscarPedidoBot(numero, telefonoCliente) {
+  try {
+    const acceso = await obtenerAccesoShopify();
+    if (!acceso) return { ...PEDIDO_NO_DISPONIBLE };
+    return await consultarPedidoParaCliente((q, v) => shopifyGraphQLConReintento(acceso.domain, acceso.accessToken, q, v), numero, telefonoCliente);
+  } catch (err) {
+    console.warn('[whatsapp-bot] no se pudo consultar el pedido', String(err.message || err).slice(0, 200));
+    return { ...PEDIDO_NO_DISPONIBLE };
+  }
+}
+
+// De los pedidos consultados: los enlaces y números que sí vinieron de Shopify (para la revisión determinista del texto) y la auditoría (sin datos personales).
+const resumenPedidosVistos = pv => ({
+  urlsExtra: pv.flatMap(p => (p.envios || []).map(e => e.enlace)).filter(Boolean),
+  seguimientos: [...pv.flatMap(p => (p.envios || []).map(e => e.numero_seguimiento)), ...pv.map(p => p.numero_pedido)].filter(Boolean),
+  auditoria: pv.map(p => ({ numero: p.numero_pedido || null, verificado: !!p.verificado, seguimiento: !!p.tiene_seguimiento })),
+});
+
+async function correrIABot({ system, promptPartes, apiKey, limiteMs, telefonoCliente = '' }) {
   const inicio = Date.now();
   const contenidos = [{ role: 'user', parts: mapearContenidoAGemini(promptPartes) }];
   const productosVistos = [];
+  const pedidosVistos = [];
   let tokensIn = 0, tokensOut = 0, propuesta = null;
   for (let ronda = 0; ronda < 5 && !propuesta; ronda++) {
     const restante = limiteMs - (Date.now() - inicio);
@@ -10114,12 +10138,19 @@ async function correrIABot({ system, promptPartes, apiKey, limiteMs }) {
         const out = await buscarProductosBot(args?.consulta);
         productosVistos.push(...out.productos);
         respuestas.push({ functionResponse: { name, response: out } });
+      } else if (name === 'buscar_pedido') {
+        // Máximo 2 consultas por respuesta: la IA no puede recorrer números de pedido.
+        const out = pedidosVistos.length >= 2
+          ? { verificado: false, instruccion: 'Ya consultaste dos pedidos en esta respuesta: no consultes más; di que revisaremos internamente el caso.' }
+          : await buscarPedidoBot(args?.numero_pedido, telefonoCliente);
+        if (pedidosVistos.length < 2) pedidosVistos.push({ ...out, numero_pedido: out.numero_pedido || String(args?.numero_pedido || '').replace(/\D/g, '').slice(0, 9) || null });
+        respuestas.push({ functionResponse: { name, response: out } });
       } else respuestas.push({ functionResponse: { name, response: { error: 'Herramienta desconocida.' } } });
     }
     contenidos.push({ role: 'user', parts: respuestas });
   }
   if (!propuesta) throw new Error('La IA no entregó una propuesta de respuesta.');
-  return { propuesta, productosVistos, tokensIn, tokensOut };
+  return { propuesta, productosVistos, pedidosVistos, tokensIn, tokensOut };
 }
 
 async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quien = 'sistema', forzar = false, limiteMs = 45000 } = {}) {
@@ -10143,8 +10174,8 @@ async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quie
   }
 
   const { rows: convRows } = await sql`
-    SELECT c.categoria, c.producto, c.marca, c.modelo, c.solicitud_bot, a.resumen, a.problema_cliente, a.especificaciones
-    FROM whatsapp_conversaciones c LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id WHERE c.id = ${conversacionId};`;
+    SELECT c.categoria, c.producto, c.marca, c.modelo, c.solicitud_bot, a.resumen, a.problema_cliente, a.especificaciones, ct.whatsapp_id
+    FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id WHERE c.id = ${conversacionId};`;
   const conv = convRows[0] || {};
   const { rows: usados } = await sql`SELECT 1 FROM whatsapp_bot_borradores WHERE conversacion_id = ${conversacionId} AND estado IN ('enviado_igual', 'enviado_editado') LIMIT 1;`;
 
@@ -10180,15 +10211,17 @@ async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quie
   const encabezadoIA = `${datosPrevios ? `Datos de la solicitud que ya se identificaron antes (no los vuelvas a pedir; si el cliente los cambió, usa lo nuevo): ${datosPrevios}\n` : ''}${conv.resumen ? `Resumen previo de la conversación: ${conv.resumen}\n` : ''}${datosIA ? `Datos detectados por el análisis automático (pueden estar equivocados; contrástalos con las fotos y con lo que dijo el cliente): ${datosIA}\n` : ''}${ctxIA && ctxIA.imagenesCliente ? `El cliente envió ${ctxIA.imagenesCliente} ${ctxIA.imagenesCliente === 1 ? 'imagen' : 'imágenes'}${ctxIA.imagenesLeidas ? ' y te adjunto las más recientes: léelas, no se las pidas de nuevo' : ' (no se pudieron abrir aquí; no se las pidas de nuevo, escala)'}.\n` : ''}\nConversación (lo más reciente al final):`;
   const promptPartes = fusionarTextosIA([{ type: 'text', text: encabezadoIA }, ...(ctxIA ? ctxIA.partes : []), { type: 'text', text: '\nEscribe la respuesta al último mensaje del cliente.' }]);
 
-  const { propuesta, productosVistos, tokensIn, tokensOut } = await correrIABot({ system, promptPartes, apiKey, limiteMs: limiteMs - (Date.now() - inicio) });
+  const { propuesta, productosVistos, pedidosVistos, tokensIn, tokensOut } = await correrIABot({ system, promptPartes, apiKey, limiteMs: limiteMs - (Date.now() - inicio), telefonoCliente: conv.whatsapp_id });
 
-  const p = normalizarPropuesta(propuesta, { productos: productosVistos, conocimiento: conocimientoRevision });
+  const ped = resumenPedidosVistos(pedidosVistos);
+  const p = normalizarPropuesta(propuesta, { productos: productosVistos, conocimiento: conocimientoRevision, urlsExtra: ped.urlsExtra, seguimientos: ped.seguimientos });
   await sql`UPDATE whatsapp_bot_borradores SET estado = 'reemplazado' WHERE conversacion_id = ${conversacionId} AND estado = 'pendiente';`;
   const { rows } = await sql`
-    INSERT INTO whatsapp_bot_borradores (conversacion_id, mensaje_cliente_id, mensaje_cliente_en, texto, confianza, escalar, motivo_escalamiento, resumen, alertas, productos, modelo_ia, tokens_entrada, tokens_salida, origen, creado_por, etapa, solicitud)
+    INSERT INTO whatsapp_bot_borradores (conversacion_id, mensaje_cliente_id, mensaje_cliente_en, texto, confianza, escalar, motivo_escalamiento, resumen, alertas, productos, modelo_ia, tokens_entrada, tokens_salida, origen, creado_por, etapa, solicitud, consultas_pedido)
     VALUES (${conversacionId}, ${ultimo.direccion === 'in' ? ultimo.id : null}, ${ultimo.direccion === 'in' ? ultimo.marca_tiempo : null}, ${p.texto}, ${p.confianza}, ${p.escalar}, ${p.motivo || null}, ${p.resumen || null},
             ${JSON.stringify(p.alertas)}::jsonb, ${JSON.stringify(productosVistos.slice(0, 10))}::jsonb, ${modeloBot()}, ${tokensIn}, ${tokensOut}, ${origen}, ${quien},
-            ${p.etapa || null}, ${solicitudTieneDatos(p.solicitud) || p.solicitud.datos_faltantes.length ? JSON.stringify(p.solicitud) : null}::jsonb)
+            ${p.etapa || null}, ${solicitudTieneDatos(p.solicitud) || p.solicitud.datos_faltantes.length ? JSON.stringify(p.solicitud) : null}::jsonb,
+            ${ped.auditoria.length ? JSON.stringify(ped.auditoria) : null}::jsonb)
     RETURNING *;`;
   // La conversación guarda la última etapa y la ficha acumulada de la solicitud (un dato vacío no borra uno anterior). Es información auxiliar: si falla, el borrador igual sirve.
   try {
@@ -10459,10 +10492,13 @@ async function manejarWhatsappBotProbar(req, res, _sesion) {
     });
     const transcripcion = mensajes.map(m => `${m.rol === 'bot' ? 'Asistente' : 'Cliente'}: ${m.texto}`).join('\n');
     const promptPartes = [{ type: 'text', text: `Esta es una conversación de PRUEBA escrita por el equipo (no hay fotos ni datos del cliente en Bsale).\n\nConversación (lo más reciente al final):\n${transcripcion}\n\nEscribe la respuesta al último mensaje del cliente.` }];
-    const { propuesta, productosVistos, tokensIn, tokensOut } = await correrIABot({ system, promptPartes, apiKey, limiteMs: 45000 });
-    const p = normalizarPropuesta(propuesta, { productos: productosVistos, conocimiento: conocimientoRevision });
+    // Teléfono del cliente simulado: solo sirve para probar la consulta de pedidos (el pedido debe ser de ese teléfono). Sin él, el bot responde como si no pudiera verificarlo.
+    const telefono = String(req.body?.telefono || '').replace(/[^\d+]/g, '').slice(0, 20);
+    const { propuesta, productosVistos, pedidosVistos, tokensIn, tokensOut } = await correrIABot({ system, promptPartes, apiKey, limiteMs: 45000, telefonoCliente: telefono });
+    const ped = resumenPedidosVistos(pedidosVistos);
+    const p = normalizarPropuesta(propuesta, { productos: productosVistos, conocimiento: conocimientoRevision, urlsExtra: ped.urlsExtra, seguimientos: ped.seguimientos });
     return res.status(200).json({
-      ok: true, propuesta: p, productos: productosVistos.slice(0, 10), tokensEntrada: tokensIn, tokensSalida: tokensOut, modelo: modeloBot(),
+      ok: true, propuesta: p, productos: productosVistos.slice(0, 10), pedidos: ped.auditoria, tokensEntrada: tokensIn, tokensSalida: tokensOut, modelo: modeloBot(),
       simulacion: { ahora: ahora.toISOString(), dentroDelHorarioDelBot: dentroDeHorarioBot(ahora, cfg.horario), saludoAplicado: aplicaSaludo, preguntasModeloUsadas: preguntasModelo.length },
     });
   } catch (err) {

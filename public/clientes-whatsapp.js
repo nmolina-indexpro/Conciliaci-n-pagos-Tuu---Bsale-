@@ -1633,13 +1633,15 @@ function botSolicitudHtml(b){
   const nd = v => v && v !== 'no_definido';
   const dato = (etq, v) => nd(v) ? `<span class="badge b-gris" title="${escapeHtml(etq)}">${escapeHtml(etq)}: ${escapeHtml(String(v).replace('_', ' '))}</span>` : '';
   const chips = s ? [
-    dato('Producto', s.producto), dato('Marca', s.marca), dato('Modelo', s.modelo), dato('Detalles', s.especificaciones), dato('Para cuándo', s.urgencia),
+    dato('Pedido', s.pedido), dato('Producto', s.producto), dato('Marca', s.marca), dato('Modelo', s.modelo), dato('Detalles', s.especificaciones), dato('Para cuándo', s.urgencia),
     dato('Entrega', s.entrega), dato('Prefiere', s.preferencia), dato('Cliente', s.tipo_cliente), dato('Nombre', s.nombre),
   ].join('') : '';
   const falta = s && (s.datos_faltantes || []).length ? `<div class="sub" style="font-size:11.5px;margin-top:3px;">❓ Falta preguntar: ${escapeHtml(s.datos_faltantes.join(', '))}</div>` : '';
+  const consulta = (b.consultasPedido || []).length
+    ? `<div class="sub" style="font-size:11.5px;margin-top:3px;">📦 Consultó en Shopify: ${b.consultasPedido.map(p => `pedido ${escapeHtml(String(p.numero || '?'))} → ${p.verificado ? (p.seguimiento ? 'verificado, con seguimiento' : 'verificado, sin seguimiento') : 'no verificado (no se entregó ningún dato)'}`).join(' · ')}</div>` : '';
   return `<div style="margin-top:6px;">
     ${b.etapaEtiqueta ? `<span class="badge b-azul" title="Etapa comercial propuesta por el bot">📍 ${escapeHtml(b.etapaEtiqueta)}</span>` : ''}
-    ${chips ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px;">${chips}</div>` : ''}${falta}
+    ${chips ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px;">${chips}</div>` : ''}${falta}${consulta}
   </div>`;
 }
 function botBorradorHtml(convId){

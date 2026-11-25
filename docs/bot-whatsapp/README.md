@@ -64,7 +64,8 @@ Cliente ─ WhatsApp ─► Cloud API (Meta) ─► webhook del ERP ─► guard
 - **Hoy:** catálogo, precio, variantes, enlaces y descripción (Shopify); stock por SKU (Bsale); datos del cliente por teléfono (Bsale, informativo); análisis de cada conversación (categoría, producto, marca, modelo) y análisis de pérdidas.
 - **Paso 3:** guardar en la conversación los datos de la solicitud (marca, modelo, producto, urgencia, retiro o despacho) y el estado de la conversación.
 - **Paso 5:** crear la cotización express desde el bot (`lib/cotizacion-web.js`), con confirmación explícita del cliente y tope diario.
-- **Pendiente de acceso:** estado de pedidos y compatibilidades técnicas (hoy no hay tabla maestra).
+- **Seguimiento de pedidos (24-nov-2026):** cuando el cliente da su número de pedido, el bot lo consulta en Shopify (`buscar_pedido`, `lib/whatsapp-pedidos.js`) y entrega courier, número de seguimiento y enlace. **Regla de privacidad:** solo entrega datos si el pedido es del mismo teléfono de WhatsApp (últimos 9 dígitos; el teléfono lo pone el servidor, nunca la IA). Si no calza, o el pedido no existe, la respuesta es idéntica y no se confirma ni se descarta nada. Nunca sale nombre, correo ni dirección. Máximo 2 consultas por respuesta. Cada consulta queda auditada en el borrador (número, verificado, con seguimiento). La revisión automática marca como riesgo alto cualquier número de seguimiento o enlace que el texto traiga y que no haya venido de la herramienta. Requiere el permiso `read_orders` de la app de Shopify (y `read_all_orders` para pedidos de más de 60 días); si falta, el bot responde con la revisión interna.
+- **Pendiente de acceso:** compatibilidades técnicas (hoy no hay tabla maestra).
 
 ## 6. Mejora continua
 

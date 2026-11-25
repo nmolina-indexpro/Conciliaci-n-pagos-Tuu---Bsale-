@@ -275,6 +275,7 @@
           <div class="sub">Escribe como si fueras un cliente y mira qué respondería el bot, con el mismo catálogo, reglas, saludo y preguntas modelo que usa en las conversaciones reales. <b>No se guarda nada ni se envía ningún mensaje.</b></div>
         </div>
         <div class="filtros">
+          <input type="text" id="pruebaTelefono" placeholder="Teléfono del cliente (opcional)" maxlength="20" style="max-width:210px;" title="Solo para probar el seguimiento de pedidos: el bot entrega datos de un pedido únicamente si es de este teléfono. Ej.: 56912345678">
           <select id="pruebaContexto" aria-label="Momento a simular">
             <option value="fuera">Simular: fuera de horario (atiende el bot)</option>
             <option value="ahora">Simular: ahora (hora real)</option>
@@ -573,6 +574,7 @@ function renderChat(){
         ${(x.alertas || []).length ? `<div><b>Revisión automática:</b><ul>${x.alertas.map(a => `<li>${esc(a)}</li>`).join('')}</ul></div>` : ''}
         ${x.resumen ? `<div><b>Resumen para el ejecutivo:</b> ${esc(x.resumen)}</div>` : ''}
         ${fichaSolicitudHtml(x.etapa, x.solicitud)}
+        ${(x.pedidos || []).length ? `<div>📦 <b>Consultó en Shopify:</b> ${x.pedidos.map(p => `pedido ${esc(p.numero || '?')} → ${p.verificado ? (p.seguimiento ? 'verificado, con seguimiento' : 'verificado, sin seguimiento') : 'no verificado (no se entregó ningún dato)'}`).join(' · ')}</div>` : ''}
         ${prods ? `<div><b>Productos que consultó:</b><ul>${prods}</ul></div>` : ''}
         ${sin ? '<div class="desde" style="margin-top:4px;">Con esta confianza o estas alertas, el bot no enviaría la respuesta solo: quedaría como borrador pendiente y avisaría a un ejecutivo.</div>' : ''}
         <div class="acciones" style="margin-top:6px;">
@@ -596,9 +598,9 @@ async function enviarPrueba(){
   try{
     const d = await api('whatsapp-bot-probar', {
       method: 'POST',
-      body: { mensajes: E.chat.map(m => ({ rol: m.rol, texto: m.texto })), contexto: $('pruebaContexto').value === 'ahora' ? 'ahora' : 'fuera' },
+      body: { mensajes: E.chat.map(m => ({ rol: m.rol, texto: m.texto })), contexto: $('pruebaContexto').value === 'ahora' ? 'ahora' : 'fuera', telefono: $('pruebaTelefono').value.trim() },
     });
-    E.chat.push({ rol: 'bot', texto: d.propuesta.texto, meta: { ...d.propuesta, productos: d.productos, simulacion: d.simulacion, tokens: (d.tokensEntrada || 0) + (d.tokensSalida || 0), modelo: d.modelo } });
+    E.chat.push({ rol: 'bot', texto: d.propuesta.texto, meta: { ...d.propuesta, productos: d.productos, pedidos: d.pedidos || [], simulacion: d.simulacion, tokens: (d.tokensEntrada || 0) + (d.tokensSalida || 0), modelo: d.modelo } });
     $('pruebaMsg').textContent = '';
   }catch(err){
     E.chat.pop(); $('pruebaTexto').value = txt;
@@ -789,7 +791,7 @@ function fichaSolicitudHtml(etapa, s){
   if(!etapa && !s) return '';
   const nd = v => v && v !== 'no_definido';
   const dato = (etq, v) => nd(v) ? `<span class="badge gris">${esc(etq)}: ${esc(String(v).replace('_', ' '))}</span>` : '';
-  const chips = s ? [dato('Producto', s.producto), dato('Marca', s.marca), dato('Modelo', s.modelo), dato('Detalles', s.especificaciones), dato('Para cuándo', s.urgencia), dato('Entrega', s.entrega), dato('Prefiere', s.preferencia), dato('Cliente', s.tipo_cliente), dato('Nombre', s.nombre)].join(' ') : '';
+  const chips = s ? [dato('Pedido', s.pedido), dato('Producto', s.producto), dato('Marca', s.marca), dato('Modelo', s.modelo), dato('Detalles', s.especificaciones), dato('Para cuándo', s.urgencia), dato('Entrega', s.entrega), dato('Prefiere', s.preferencia), dato('Cliente', s.tipo_cliente), dato('Nombre', s.nombre)].join(' ') : '';
   const falta = s && (s.datos_faltantes || []).length ? `<div style="margin-top:3px;"><b>Falta preguntar:</b> ${esc(s.datos_faltantes.join(', '))}</div>` : '';
   return `<div style="margin:4px 0;">${etapa ? `<span class="badge azul">📍 ${esc(etiquetaEtapa(etapa))}</span> ` : ''}${chips}${falta}</div>`;
 }

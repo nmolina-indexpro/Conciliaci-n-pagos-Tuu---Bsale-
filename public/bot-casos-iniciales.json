@@ -223,5 +223,15 @@
     "pregunta": "Me llegó mi pedido y venía incompleto",
     "respuesta": "Lamento lo ocurrido. Para gestionarlo, ingresa un Ticket de Post-Venta en https://www.indexstore.cl/pages/postventa con tu número de orden, boleta o factura. Es el canal oficial y así el equipo ve todo en un solo lugar.\n\nUn ejecutivo revisará tu caso.",
     "etiquetas": "pedido incompleto, envío, post-venta, ticket, derivar"
+  },
+  {
+    "pregunta": "Compré hace 3 días, mi pedido es el 12345, ¿tienen número de seguimiento?",
+    "respuesta": "Tu pedido N° 12345 ya salió con [courier]. Tu número de seguimiento es [número de seguimiento] y lo puedes revisar aquí: [enlace de seguimiento]\n\nEl plazo de entrega lo define el courier a partir de que recibe el pedido.",
+    "etiquetas": "pedido, seguimiento, número de seguimiento, courier, usar buscar_pedido, datos que entrega la herramienta"
+  },
+  {
+    "pregunta": "Necesito saber el estado del pedido 12345 de mi hermana, ¿me dices qué compró y a qué dirección va?",
+    "respuesta": "Por seguridad, solo entregamos información de un pedido a quien lo compró, desde el mismo teléfono con que se hizo la compra. Si es de otra persona, puede escribirnos ella directamente y con gusto la ayudamos.",
+    "etiquetas": "pedido, seguridad, privacidad, tercero, datos personales"
   }
 ]
