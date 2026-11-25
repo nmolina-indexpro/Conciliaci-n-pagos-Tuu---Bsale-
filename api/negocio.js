@@ -100,7 +100,7 @@ import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
 import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, detalleWaClics, numeroConectado as numeroConectadoWaAds, asegurarWaClicsAdsUnaVez as asegurarWaClicsAdsUnaVezWaAds, sqlOrigenGoogleAds, atribuirClics as atribuirClicsWaAds, borrarClicsDePrueba as borrarClicsDePruebaWaAds, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
-import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto, elegirPreguntasModelo, momentoDentroDeHorario, SALUDO_CUANDO, SALUDO_DEFECTO, LIMITES_BOT, REGLAS_NO_PROMETER, PROTOCOLO_COMERCIAL, revisarPropuesta, limpiarSaltosDeLinea, normalizarNumerosPrueba, esNumeroDePrueba, evaluarEnvioAutomatico, TOPE_DIARIO_DEFECTO, TOPE_DIARIO_MAX, SILENCIO_EJECUTIVO_HORAS, fusionarSolicitud, solicitudTieneDatos, sanitizarSolicitud, ETAPAS_COMERCIALES } from '../lib/whatsapp-bot.js';
+import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto, elegirPreguntasModelo, momentoDentroDeHorario, SALUDO_CUANDO, SALUDO_DEFECTO, LIMITES_BOT, REGLAS_NO_PROMETER, PROTOCOLO_COMERCIAL, revisarPropuesta, limpiarSaltosDeLinea, normalizarNumerosPrueba, esNumeroDePrueba, evaluarEnvioAutomatico, TOPE_DIARIO_DEFECTO, TOPE_DIARIO_MAX, SILENCIO_EJECUTIVO_MINUTOS, fusionarSolicitud, solicitudTieneDatos, sanitizarSolicitud, ETAPAS_COMERCIALES } from '../lib/whatsapp-bot.js';
 import { consultarPedidoParaCliente } from '../lib/whatsapp-pedidos.js';
 import { asegurarTablaCandidatosBot, crearCandidatoCorreccion, crearCandidatoConversacion, listarCandidatos, resumenCandidatos, aprobarCandidato, rechazarCandidato, extraerIntercambio, anonimizarTexto, CATEGORIAS_KB, RIESGOS_CANDIDATO } from '../lib/whatsapp-bot-aprendizaje.js';
 import { asegurarTablaEjemplosBot, listarEjemplos, crearEjemplo, actualizarEjemplo, cambiarActivoEjemplo, eliminarEjemplo, importarEjemplos } from '../lib/whatsapp-bot-ejemplos.js';
@@ -10423,7 +10423,7 @@ async function armarRespuestaConfigBot(sql, sesion) {
     envioConfigurado: !!(process.env.WHATSAPP_ACCESS_TOKEN || '').trim() && !!(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim(),
     ahoraAtiendeBot: dentroDeHorarioBot(new Date(), cfg.horario), huecos: huecosDelHorario(cfg.horario),
     conocimientoDefecto: CONOCIMIENTO_DEFECTO, horarioDefecto: HORARIO_BOT_DEFECTO,
-    saludoDefecto: SALUDO_DEFECTO, reglasBase: REGLAS_NO_PROMETER, limites: LIMITES_BOT, topeDiarioMax: TOPE_DIARIO_MAX, silencioHoras: SILENCIO_EJECUTIVO_HORAS,
+    saludoDefecto: SALUDO_DEFECTO, reglasBase: REGLAS_NO_PROMETER, limites: LIMITES_BOT, topeDiarioMax: TOPE_DIARIO_MAX, silencioMinutos: SILENCIO_EJECUTIVO_MINUTOS,
     automaticos: recientes.map(r => ({ id: r.id, conversacionId: r.conversacion_id, estado: r.estado, confianza: r.confianza, escalar: !!r.escalar, resultado: r.auto_resultado || '', creadoEn: r.creado_en })),
   };
 }
@@ -10635,10 +10635,10 @@ async function atenderConversacionConBot(sql, conversacionId, cfg) {
   if (!waId || !esNumeroDePrueba(waId, cfg.numerosPrueba)) return; // cliente real: solo borradores (modo sombra), nada que enviar
 
   const { rows: [m] } = await sql.query(
-    `SELECT EXISTS (SELECT 1 FROM whatsapp_mensajes WHERE conversacion_id = $1 AND direccion = 'out' AND COALESCE(origen, '') <> 'bot' AND marca_tiempo > now() - make_interval(hours => $2::int)) AS humano,
+    `SELECT EXISTS (SELECT 1 FROM whatsapp_mensajes WHERE conversacion_id = $1 AND direccion = 'out' AND COALESCE(origen, '') <> 'bot' AND marca_tiempo > now() - make_interval(mins => $2::int)) AS humano,
             (SELECT COUNT(*)::int FROM whatsapp_bot_borradores WHERE estado = 'enviado_automatico' AND creado_en > now() - interval '24 hours') AS hoy,
             (SELECT COUNT(*)::int FROM whatsapp_bot_borradores WHERE estado = 'enviado_automatico' AND conversacion_id = $1 AND creado_en > now() - interval '1 hour') AS hora;`,
-    [conversacionId, SILENCIO_EJECUTIVO_HORAS]);
+    [conversacionId, SILENCIO_EJECUTIVO_MINUTOS]);
   const reglas = { modo: cfg.modo, esNumeroPrueba: true, enviadosHoy: m.hoy, topeDiario: cfg.topeDiario, enviadosUltimaHora: m.hora, hayRespuestaHumanaReciente: !!m.humano };
   // Primero las reglas que no dependen de la IA (así no se gastan tokens si igual no se va a enviar).
   const previo = evaluarEnvioAutomatico({ ...reglas, borrador: { texto: 'x', confianza: 'alta', alertas: [] } });

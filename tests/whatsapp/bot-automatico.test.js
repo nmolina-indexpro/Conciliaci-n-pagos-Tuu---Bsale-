@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   MODOS_BOT, normalizarNumerosPrueba, esNumeroDePrueba, evaluarEnvioAutomatico, normalizarPropuesta, CONOCIMIENTO_DEFECTO,
-  TOPE_DIARIO_DEFECTO, TOPE_POR_HORA_CONVERSACION, SILENCIO_EJECUTIVO_HORAS,
+  TOPE_DIARIO_DEFECTO, TOPE_POR_HORA_CONVERSACION, SILENCIO_EJECUTIVO_MINUTOS,
 } from '../../lib/whatsapp-bot.js';
 
 const bueno = { texto: 'Hola, ¿me envías el modelo exacto?', confianza: 'alta', alertas: [] };
@@ -82,7 +82,7 @@ test('ante cualquier duda NO se envía y se explica por qué', () => {
   no({ modo: 'apagado' }, /no está en modo prueba/);
   no({ modo: 'automatico' }, /no está en modo prueba/);
   no({ esNumeroPrueba: false }, /no está en la lista de prueba/);
-  no({ hayRespuestaHumanaReciente: true }, new RegExp(`menos de ${SILENCIO_EJECUTIVO_HORAS} horas: el bot se calla`));
+  no({ hayRespuestaHumanaReciente: true }, /menos de (1 minuto|\d+ minutos): el bot se calla/);
   no({ enviadosHoy: TOPE_DIARIO_DEFECTO }, /tope diario de 30/);
   no({ enviadosHoy: 5, topeDiario: 5 }, /tope diario de 5/);
   no({ enviadosUltimaHora: TOPE_POR_HORA_CONVERSACION }, /en la última hora/);

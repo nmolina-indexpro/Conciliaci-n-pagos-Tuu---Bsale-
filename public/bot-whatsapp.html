@@ -395,7 +395,7 @@
         <ul style="margin:6px 0 0;padding-left:18px;line-height:1.55;">
           <li>Solo responde a los números de la lista, a <b>cualquier hora</b>. A los demás clientes no les envía nada.</li>
           <li>Envía únicamente si la revisión automática lo deja pasar: <b>confianza alta y sin alertas</b>. Si duda, deja un borrador pendiente (se ve en la conversación) y anota el motivo abajo.</li>
-          <li>Se calla si un ejecutivo escribió en esa conversación en las últimas <span id="estSilencio">3</span> horas, y respeta el tope diario y un máximo de 6 respuestas por hora en cada conversación.</li>
+          <li>Se calla si un ejecutivo escribió en esa conversación en las últimos <span id="estSilencio">1 minuto</span>, y respeta el tope diario y un máximo de 6 respuestas por hora en cada conversación.</li>
           <li>Sus mensajes salen identificados como del bot y no cuentan como respuestas de un ejecutivo en las métricas.</li>
         </ul>
       </div>
@@ -780,7 +780,7 @@ function renderEstado(){
   $('cfgNumerosPrueba').value = (c.numerosPrueba || []).join('\n');
   $('cfgTopeDiario').value = c.topeDiario;
   $('cfgNumerosPrueba').disabled = dis; $('cfgTopeDiario').disabled = dis;
-  $('estSilencio').textContent = c.silencioHoras || 3;
+  { const mins = Number(c.silencioMinutos) || 1; $('estSilencio').textContent = mins === 1 ? '1 minuto' : (mins % 60 === 0 ? `${mins / 60} horas` : `${mins} minutos`); }
   const filas = c.automaticos || [];
   $('tAuto').innerHTML = filas.length
     ? `<thead><tr><th>Fecha</th><th>Conversación</th><th>Resultado</th><th>Confianza</th></tr></thead><tbody>${filas.map(f => `<tr>
