@@ -101,7 +101,7 @@ import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
 import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, detalleWaClics, numeroConectado as numeroConectadoWaAds, asegurarWaClicsAdsUnaVez as asegurarWaClicsAdsUnaVezWaAds, sqlOrigenGoogleAds, atribuirClics as atribuirClicsWaAds, borrarClicsDePrueba as borrarClicsDePruebaWaAds, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
-import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto, elegirPreguntasModelo, momentoDentroDeHorario, SALUDO_CUANDO, SALUDO_DEFECTO, LIMITES_BOT, REGLAS_NO_PROMETER, PROTOCOLO_COMERCIAL, revisarPropuesta, limpiarSaltosDeLinea, normalizarNumerosPrueba, esNumeroDePrueba, evaluarEnvioAutomatico, TOPE_DIARIO_DEFECTO, TOPE_DIARIO_MAX, SILENCIO_EJECUTIVO_MINUTOS, fusionarSolicitud, solicitudTieneDatos, sanitizarSolicitud, ETAPAS_COMERCIALES } from '../lib/whatsapp-bot.js';
+import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto, elegirPreguntasModelo, momentoDentroDeHorario, SALUDO_CUANDO, SALUDO_DEFECTO, LIMITES_BOT, REGLAS_NO_PROMETER, PROTOCOLO_COMERCIAL, revisarPropuesta, limpiarSaltosDeLinea, normalizarNumerosPrueba, esNumeroDePrueba, evaluarEnvioAutomatico, TOPE_DIARIO_DEFECTO, TOPE_DIARIO_MAX, SILENCIO_EJECUTIVO_MINUTOS, SILENCIO_EJECUTIVO_PRODUCCION_MINUTOS, fusionarSolicitud, solicitudTieneDatos, sanitizarSolicitud, ETAPAS_COMERCIALES } from '../lib/whatsapp-bot.js';
 import { consultarPedidoParaCliente } from '../lib/whatsapp-pedidos.js';
 import { asegurarTablaCandidatosBot, crearCandidatoCorreccion, crearCandidatoConversacion, listarCandidatos, resumenCandidatos, aprobarCandidato, rechazarCandidato, extraerIntercambio, anonimizarTexto, CATEGORIAS_KB, RIESGOS_CANDIDATO } from '../lib/whatsapp-bot-aprendizaje.js';
 import { asegurarTablaEjemplosBot, listarEjemplos, crearEjemplo, actualizarEjemplo, cambiarActivoEjemplo, eliminarEjemplo, importarEjemplos } from '../lib/whatsapp-bot-ejemplos.js';
@@ -10403,9 +10403,10 @@ async function cambiarModoBot(sql, body, sesion) {
   let numeros = null, tope = null;
   try { if (body.numerosPrueba !== undefined) numeros = normalizarNumerosPrueba(body.numerosPrueba); } catch (e) { return { ok: false, estado: 400, error: e.message }; }
   if (body.topeDiario !== undefined) { const v = validarTopeDiario(body.topeDiario); if (!v.ok) return { ok: false, estado: 400, error: v.error }; tope = v.tope; }
-  if (modo === 'prueba') {
+  if (modo === 'prueba' || modo === 'activo') {
     const actual = await leerConfigBot(sql);
-    if (!(numeros ?? actual.numerosPrueba).length) return { ok: false, estado: 400, error: 'Agrega al menos un número de prueba antes de activar este modo.' };
+    // El modo activo responde a todos los clientes: no necesita números de prueba (solo el modo prueba los exige).
+    if (modo === 'prueba' && !(numeros ?? actual.numerosPrueba).length) return { ok: false, estado: 400, error: 'Agrega al menos un número de prueba antes de activar este modo.' };
     if (!(process.env.GEMINI_API_KEY || '').trim()) return { ok: false, estado: 400, error: 'Falta la GEMINI_API_KEY en el servidor: el bot no puede redactar.' };
     if (!(process.env.WHATSAPP_ACCESS_TOKEN || '').trim() || !(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim()) return { ok: false, estado: 400, error: 'Faltan WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID en el servidor: el bot no puede enviar.' };
   }
@@ -10426,7 +10427,7 @@ async function armarRespuestaConfigBot(sql, sesion) {
     envioConfigurado: !!(process.env.WHATSAPP_ACCESS_TOKEN || '').trim() && !!(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim(),
     ahoraAtiendeBot: dentroDeHorarioBot(new Date(), cfg.horario), huecos: huecosDelHorario(cfg.horario),
     conocimientoDefecto: CONOCIMIENTO_DEFECTO, horarioDefecto: HORARIO_BOT_DEFECTO,
-    saludoDefecto: SALUDO_DEFECTO, reglasBase: REGLAS_NO_PROMETER, limites: LIMITES_BOT, topeDiarioMax: TOPE_DIARIO_MAX, silencioMinutos: SILENCIO_EJECUTIVO_MINUTOS,
+    saludoDefecto: SALUDO_DEFECTO, reglasBase: REGLAS_NO_PROMETER, limites: LIMITES_BOT, topeDiarioMax: TOPE_DIARIO_MAX, silencioMinutos: SILENCIO_EJECUTIVO_MINUTOS, silencioProduccionMinutos: SILENCIO_EJECUTIVO_PRODUCCION_MINUTOS,
     automaticos: recientes.map(r => ({ id: r.id, conversacionId: r.conversacion_id, estado: r.estado, confianza: r.confianza, escalar: !!r.escalar, resultado: r.auto_resultado || '', creadoEn: r.creado_en })),
   };
 }
@@ -10605,9 +10606,10 @@ async function manejarWhatsappBotProbar(req, res, _sesion) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// ENVÍO AUTOMÁTICO DEL BOT (modo prueba). Cuando llega un mensaje de un NÚMERO DE PRUEBA, el bot prepara la respuesta y la envía solo si la revisión
+// ENVÍO AUTOMÁTICO DEL BOT (modo prueba y modo activo). Cuando llega un mensaje, el bot prepara la respuesta y la envía solo si la revisión
 // la deja pasar (confianza alta, sin alertas), no hay un ejecutivo conversando y no se superaron los topes. Todo lo demás queda como borrador
-// pendiente, con el motivo guardado en auto_resultado. A los clientes que no están en la lista no se les envía nada: siguen en modo sombra.
+// pendiente, con el motivo guardado en auto_resultado. Modo prueba: solo números de la lista (a cualquier hora), los demás siguen en sombra.
+// Modo activo («Activar ahora»): todos los clientes, solo dentro del horario del bot (los números de prueba, a cualquier hora).
 // Las reglas de decisión son puras y están probadas en lib/whatsapp-bot.js (evaluarEnvioAutomatico). Los mensajes del bot se guardan con origen
 // 'bot' para no mezclarlos con las respuestas de los ejecutivos (métricas, ejemplos y aprendizaje).
 // ══════════════════════════════════════════════════════════════════════
@@ -10635,14 +10637,18 @@ async function enviarTextoBot(sql, conversacionId, waId, texto) {
 async function atenderConversacionConBot(sql, conversacionId, cfg) {
   const { rows: contacto } = await sql`SELECT ct.whatsapp_id FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id WHERE c.id = ${conversacionId};`;
   const waId = contacto[0]?.whatsapp_id;
-  if (!waId || !esNumeroDePrueba(waId, cfg.numerosPrueba)) return; // cliente real: solo borradores (modo sombra), nada que enviar
+  if (!waId) return;
+  const esPrueba = esNumeroDePrueba(waId, cfg.numerosPrueba);
+  if (cfg.modo === 'prueba' && !esPrueba) return; // cliente real en modo prueba: solo borradores (modo sombra), nada que enviar
+  // Clientes reales (modo activo): el bot se calla más tiempo cuando una persona ya está conversando. Con números de prueba, 1 minuto para poder probar.
+  const silencioMinutos = cfg.modo === 'activo' && !esPrueba ? SILENCIO_EJECUTIVO_PRODUCCION_MINUTOS : SILENCIO_EJECUTIVO_MINUTOS;
 
   const { rows: [m] } = await sql.query(
     `SELECT EXISTS (SELECT 1 FROM whatsapp_mensajes WHERE conversacion_id = $1 AND direccion = 'out' AND COALESCE(origen, '') <> 'bot' AND marca_tiempo > now() - make_interval(mins => $2::int)) AS humano,
             (SELECT COUNT(*)::int FROM whatsapp_bot_borradores WHERE estado = 'enviado_automatico' AND creado_en > now() - interval '24 hours') AS hoy,
             (SELECT COUNT(*)::int FROM whatsapp_bot_borradores WHERE estado = 'enviado_automatico' AND conversacion_id = $1 AND creado_en > now() - interval '1 hour') AS hora;`,
-    [conversacionId, SILENCIO_EJECUTIVO_MINUTOS]);
-  const reglas = { modo: cfg.modo, esNumeroPrueba: true, enviadosHoy: m.hoy, topeDiario: cfg.topeDiario, enviadosUltimaHora: m.hora, hayRespuestaHumanaReciente: !!m.humano };
+    [conversacionId, silencioMinutos]);
+  const reglas = { modo: cfg.modo, esNumeroPrueba: esPrueba, enviadosHoy: m.hoy, topeDiario: cfg.topeDiario, enviadosUltimaHora: m.hora, hayRespuestaHumanaReciente: !!m.humano, dentroDeHorario: dentroDeHorarioBot(new Date(), cfg.horario), silencioMinutos };
   // Primero las reglas que no dependen de la IA (así no se gastan tokens si igual no se va a enviar).
   const previo = evaluarEnvioAutomatico({ ...reglas, borrador: { texto: 'x', confianza: 'alta', alertas: [] } });
   if (!previo.enviar) { console.log(`[whatsapp-bot-auto] conversación ${conversacionId}: no responde. ${previo.motivo}`); return; }
@@ -10671,7 +10677,7 @@ async function atenderConversacionConBot(sql, conversacionId, cfg) {
 async function responderConBotAutomatico(sql, ids) {
   if (!ids || !ids.size) return;
   const cfg = await leerConfigBot(sql);
-  if (cfg.modo !== 'prueba' || !(process.env.GEMINI_API_KEY || '').trim()) return;
+  if ((cfg.modo !== 'prueba' && cfg.modo !== 'activo') || !(process.env.GEMINI_API_KEY || '').trim()) return;
   let restantes = 2;
   for (const id of ids) {
     if (restantes-- <= 0) break;

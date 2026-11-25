@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   MODOS_BOT, normalizarNumerosPrueba, esNumeroDePrueba, evaluarEnvioAutomatico, normalizarPropuesta, CONOCIMIENTO_DEFECTO,
-  TOPE_DIARIO_DEFECTO, TOPE_POR_HORA_CONVERSACION, SILENCIO_EJECUTIVO_MINUTOS,
+  TOPE_DIARIO_DEFECTO, TOPE_POR_HORA_CONVERSACION, SILENCIO_EJECUTIVO_MINUTOS, SILENCIO_EJECUTIVO_PRODUCCION_MINUTOS,
 } from '../../lib/whatsapp-bot.js';
 
 const bueno = { texto: 'Hola, ¿me envías el modelo exacto?', confianza: 'alta', alertas: [] };
@@ -40,9 +40,26 @@ test('la migración agrega los números de prueba, el tope diario y el resultado
   } finally { await db.close(); }
 });
 
-test('los modos del bot son apagado, sombra y prueba; todavía no existe un modo que responda a todos los clientes', () => {
-  assert.deepEqual(MODOS_BOT, ['apagado', 'sombra', 'prueba']);
-  assert.ok(!MODOS_BOT.includes('automatico'));
+test('los modos del bot son apagado, sombra, prueba y activo (este último responde a todos los clientes)', () => {
+  assert.deepEqual(MODOS_BOT, ['apagado', 'sombra', 'prueba', 'activo']);
+});
+
+test('modo activo: responde a cualquier cliente solo dentro del horario del bot; los números de prueba, a cualquier hora', () => {
+  const activo = { ...base, modo: 'activo', esNumeroPrueba: false, dentroDeHorario: true };
+  assert.equal(evaluarEnvioAutomatico(activo).enviar, true);
+  const fuera = evaluarEnvioAutomatico({ ...activo, dentroDeHorario: false });
+  assert.equal(fuera.enviar, false);
+  assert.match(fuera.motivo, /Fuera del horario del bot/);
+  assert.equal(evaluarEnvioAutomatico({ ...activo, esNumeroPrueba: true, dentroDeHorario: false }).enviar, true);
+  // las demás protecciones siguen valiendo
+  assert.equal(evaluarEnvioAutomatico({ ...activo, borrador: { ...bueno, confianza: 'media' } }).enviar, false);
+  assert.equal(evaluarEnvioAutomatico({ ...activo, borrador: { ...bueno, alertas: ['Precio no verificado'] } }).enviar, false);
+  assert.equal(evaluarEnvioAutomatico({ ...activo, enviadosHoy: 30 }).enviar, false);
+  const humano = evaluarEnvioAutomatico({ ...activo, hayRespuestaHumanaReciente: true, silencioMinutos: SILENCIO_EJECUTIVO_PRODUCCION_MINUTOS });
+  assert.equal(humano.enviar, false);
+  assert.match(humano.motivo, /menos de 3 horas/);
+  // modo prueba: un cliente que no está en la lista no recibe nada, aunque sea horario del bot
+  assert.equal(evaluarEnvioAutomatico({ ...base, esNumeroPrueba: false, dentroDeHorario: true }).enviar, false);
 });
 
 test('normalizarNumerosPrueba acepta varios formatos, quita repetidos y valida', () => {

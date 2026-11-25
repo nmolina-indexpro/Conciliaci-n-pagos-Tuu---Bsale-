@@ -127,6 +127,7 @@
   .modo span{font-size:12px;color:var(--muted);line-height:1.4;}
   .modo.activo{border-color:var(--primary);background:var(--primary-dim);}
   .banner-prueba{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--amber-dim);border:1.5px solid #F2D3A0;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px;}
+  .banner-prueba.banner-activo{background:var(--primary-dim);border-color:var(--primary);}
   /* Aprendizaje */
   .caso{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;background:var(--surface);}
   .caso-head{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;}
@@ -252,7 +253,7 @@
   <div class="toolbar">
     <div>
       <h1>Bot <span>WhatsApp</span></h1>
-      <div class="sub">Entrena, configura y prueba al asistente de WhatsApp. Hoy <b>redacta borradores</b> que un ejecutivo revisa: no envía nada solo. Todos pueden probarlo y proponer preguntas modelo; la configuración la cambia un administrador.</div>
+      <div class="sub">Entrena, configura y prueba al asistente de WhatsApp. En modo sombra <b>redacta borradores</b> que un ejecutivo revisa; con el bot <b>activo</b> responde solo a los clientes dentro de su horario. Todos pueden probarlo y proponer preguntas modelo; la configuración la cambia un administrador.</div>
     </div>
     <div class="filtros">
       <a class="btn-ghost btn-compact" href="clientes-whatsapp.html">← Conversaciones</a>
@@ -381,24 +382,31 @@
     <div class="seccion" id="secEstado">
       <div class="seccion-head"><div><h2>Estado del bot</h2><div class="sub">Actívalo o apágalo cuando quieras: el cambio se aplica desde el siguiente mensaje que llegue.</div></div><span id="cfgBadgeModo"></span></div>
       <div class="modos" id="modos">
+        <div class="modo" data-modo="activo"><b>✅ Activo</b><span>Responde <b>automáticamente</b> a los clientes que escriben dentro del horario del bot (ver «Horario» más abajo).</span><button type="button" class="btn-primary btn-compact" data-cambiar="activo">Activar ahora</button></div>
         <div class="modo" data-modo="apagado"><b>⛔ Apagado</b><span>No hace nada: ni borradores ni respuestas.</span><button type="button" class="btn-ghost btn-compact btn-danger" data-cambiar="apagado">Apagar ahora</button></div>
-        <div class="modo" data-modo="sombra"><b>📝 Sombra</b><span>Redacta borradores y tú los revisas y envías. <b>No envía nada solo.</b></span><button type="button" class="btn-ghost btn-compact" data-cambiar="sombra">Poner en sombra</button></div>
-        <div class="modo" data-modo="prueba"><b>🧪 Prueba</b><span>Responde <b>automáticamente</b> solo a los números de prueba. Los demás clientes quedan en sombra.</span><button type="button" class="btn-primary btn-compact" data-cambiar="prueba">Activar modo prueba</button></div>
       </div>
-      <h3>Números de prueba</h3>
-      <textarea id="cfgNumerosPrueba" rows="3" placeholder="56912345678"></textarea>
-      <div class="desde">Tu WhatsApp personal u otros de tu equipo: uno por línea, con código de país y sin signos (máximo 10). Escríbele al número del negocio desde uno de ellos y el bot te responde solo.</div>
       <label class="cmp" for="cfgTopeDiario">Tope de respuestas automáticas por día</label>
       <input type="number" id="cfgTopeDiario" min="1" max="500" style="max-width:130px;">
       <div class="note-box" style="margin-top:12px;">
-        <b>Cómo funciona el modo prueba</b>
+        <b>Cómo funciona el bot activo</b>
         <ul style="margin:6px 0 0;padding-left:18px;line-height:1.55;">
-          <li>Solo responde a los números de la lista, a <b>cualquier hora</b>. A los demás clientes no les envía nada.</li>
+          <li>Responde a <b>todos los clientes que escriben dentro del horario del bot</b>. Fuera de ese horario atiende el equipo y el bot no envía nada.</li>
           <li>Envía únicamente si la revisión automática lo deja pasar: <b>confianza alta y sin alertas</b>. Si duda, deja un borrador pendiente (se ve en la conversación) y anota el motivo abajo.</li>
-          <li>Se calla si un ejecutivo escribió en esa conversación en las últimos <span id="estSilencio">1 minuto</span>, y respeta el tope diario y un máximo de 6 respuestas por hora en cada conversación.</li>
+          <li>Se calla si un ejecutivo escribió en esa conversación en las últimas <span id="estSilencioProd">3 horas</span>, y respeta el tope diario y un máximo de 6 respuestas por hora en cada conversación.</li>
+          <li>Lo que atiende solo el bot queda como <b>sin leer</b> en el chat (con el ícono del bot) hasta que una persona lo abra o responda.</li>
           <li>Sus mensajes salen identificados como del bot y no cuentan como respuestas de un ejecutivo en las métricas.</li>
         </ul>
       </div>
+      <details id="otrosModos" style="margin-top:14px;">
+        <summary style="cursor:pointer;font-weight:600;">Otros modos: sombra y prueba</summary>
+        <div class="modos" style="margin-top:10px;">
+          <div class="modo" data-modo="sombra"><b>📝 Sombra</b><span>Redacta borradores y tú los revisas y envías. <b>No envía nada solo.</b></span><button type="button" class="btn-ghost btn-compact" data-cambiar="sombra">Poner en sombra</button></div>
+          <div class="modo" data-modo="prueba"><b>🧪 Prueba</b><span>Responde <b>automáticamente</b> solo a los números de prueba. Los demás clientes quedan en sombra.</span><button type="button" class="btn-ghost btn-compact" data-cambiar="prueba">Activar modo prueba</button></div>
+        </div>
+        <h3>Números de prueba</h3>
+        <textarea id="cfgNumerosPrueba" rows="3" placeholder="56912345678"></textarea>
+        <div class="desde">Tu WhatsApp personal u otros de tu equipo: uno por línea, con código de país y sin signos (máximo 10). Escríbele al número del negocio desde uno de ellos y el bot te responde solo, <b>a cualquier hora</b> (también con el bot activo). Se calla si un ejecutivo escribió hace menos de <span id="estSilencio">1 minuto</span>.</div>
+      </details>
       <h3>Actividad automática reciente</h3>
       <div class="tabla-wrap"><table id="tAuto"></table></div>
     </div>
@@ -561,12 +569,15 @@ function renderAvisos(){
   const a = [];
   if(!E.cfg.apiKeyConfigurada) a.push('<b>Falta la GEMINI_API_KEY</b> en el servidor: sin ella el bot no puede redactar ni se puede probar.');
   if(E.cfg.modo === 'apagado') a.push('El bot está <b>apagado</b>: no prepara borradores (el probador sí funciona).');
-  if(E.cfg.modo === 'prueba' && !E.cfg.envioConfigurado) a.push('<b>Faltan las credenciales de WhatsApp</b> (WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID) en el servidor: el bot no podrá enviar.');
+  if((E.cfg.modo === 'prueba' || E.cfg.modo === 'activo') && !E.cfg.envioConfigurado) a.push('<b>Faltan las credenciales de WhatsApp</b> (WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID) en el servidor: el bot no podrá enviar.');
   if(!E.esAdmin) a.push('Puedes probar el bot y crear o corregir preguntas modelo. La configuración la cambia un administrador.');
   $('avisos').innerHTML = a.length ? `<div class="note-box warn">${a.join('<br>')}</div>` : '';
   // Mientras el bot responde solo, se ve en TODAS las pestañas, con el botón para apagarlo al instante.
   const n = (E.cfg.numerosPrueba || []).length;
-  $('bannerModo').innerHTML = E.cfg.modo === 'prueba'
+  const apagar = E.esAdmin ? '<button type="button" class="btn-ghost btn-compact btn-danger" onclick="cambiarModo(\'apagado\')">⛔ Apagar ahora</button>' : '';
+  $('bannerModo').innerHTML = E.cfg.modo === 'activo'
+    ? `<div class="banner-prueba banner-activo"><span>✅ <b>Bot activo:</b> responde <b>automáticamente</b> por WhatsApp a los clientes que escriben dentro del horario del bot. ${E.cfg.ahoraAtiendeBot ? 'Ahora mismo está <b>atendiendo el bot</b>.' : 'Ahora atiende el equipo; el bot responderá cuando empiece su horario.'}</span>${apagar}</div>`
+    : E.cfg.modo === 'prueba'
     ? `<div class="banner-prueba"><span>🧪 <b>Modo prueba activo:</b> el bot responde <b>automáticamente</b> por WhatsApp a ${n} número${n === 1 ? '' : 's'} de prueba. A los demás clientes no les envía nada.</span>${E.esAdmin ? '<button type="button" class="btn-ghost btn-compact btn-danger" onclick="cambiarModo(\'apagado\')">⛔ Apagar ahora</button>' : ''}</div>`
     : '';
 }
@@ -770,17 +781,21 @@ const MODO_TXT = {
   apagado: { corto: 'Apagado', nota: 'no hace nada', badge: '<span class="badge rojo">⛔ apagado</span>' },
   sombra: { corto: 'Sombra', nota: 'redacta; nada se envía solo', badge: '<span class="badge verde">📝 modo sombra</span>' },
   prueba: { corto: 'Prueba', nota: 'responde solo a números de prueba', badge: '<span class="badge ambar">🧪 modo prueba</span>' },
+  activo: { corto: 'Activo', nota: 'responde solo a los clientes, en el horario del bot', badge: '<span class="badge verde">✅ bot activo</span>' },
 };
 const RESULTADO_AUTO = { enviado_automatico: 'Enviado' };
 function renderEstado(){
   const c = E.cfg, dis = !E.esAdmin;
   $('cfgBadgeModo').innerHTML = (MODO_TXT[c.modo] || {}).badge || '';
-  document.querySelectorAll('#modos .modo').forEach(el => el.classList.toggle('activo', el.dataset.modo === c.modo));
-  document.querySelectorAll('#modos [data-cambiar]').forEach(b => { b.disabled = dis || b.dataset.cambiar === c.modo; });
+  document.querySelectorAll('#secEstado .modo').forEach(el => el.classList.toggle('activo', el.dataset.modo === c.modo));
+  document.querySelectorAll('#secEstado [data-cambiar]').forEach(b => { b.disabled = dis || b.dataset.cambiar === c.modo; });
+  if(c.modo === 'sombra' || c.modo === 'prueba') $('otrosModos').open = true; // si está en uno de los otros modos, se ve cuál
   $('cfgNumerosPrueba').value = (c.numerosPrueba || []).join('\n');
   $('cfgTopeDiario').value = c.topeDiario;
   $('cfgNumerosPrueba').disabled = dis; $('cfgTopeDiario').disabled = dis;
-  { const mins = Number(c.silencioMinutos) || 1; $('estSilencio').textContent = mins === 1 ? '1 minuto' : (mins % 60 === 0 ? `${mins / 60} horas` : `${mins} minutos`); }
+  const txtMin = mins => mins === 1 ? '1 minuto' : (mins % 60 === 0 ? `${mins / 60} horas` : `${mins} minutos`);
+  $('estSilencio').textContent = txtMin(Number(c.silencioMinutos) || 1);
+  $('estSilencioProd').textContent = txtMin(Number(c.silencioProduccionMinutos) || 180);
   const filas = c.automaticos || [];
   $('tAuto').innerHTML = filas.length
     ? `<thead><tr><th>Fecha</th><th>Conversación</th><th>Resultado</th><th>Confianza</th></tr></thead><tbody>${filas.map(f => `<tr>
@@ -788,18 +803,23 @@ function renderEstado(){
         <td><a href="clientes-whatsapp.html?abrirConversacion=${Number(f.conversacionId)}" target="_blank" rel="noopener">#${Number(f.conversacionId)} ↗</a></td>
         <td>${f.estado === 'enviado_automatico' ? '<span class="badge verde">Enviado</span> ' : '<span class="badge gris">No enviado</span> '}${esc(f.resultado || '')}</td>
         <td>${esc(f.confianza || '—')}${f.escalar ? ' · pide ejecutivo' : ''}</td></tr>`).join('')}</tbody>`
-    : '<tbody><tr><td class="empty-note">Todavía no hay actividad automática. Cuando actives el modo prueba y escribas desde un número de la lista, aparecerá aquí lo que hizo el bot y por qué.</td></tr></tbody>';
+    : '<tbody><tr><td class="empty-note">Todavía no hay actividad automática. Cuando el bot esté activo (o en modo prueba) y llegue un mensaje, aparecerá aquí lo que hizo el bot y por qué.</td></tr></tbody>';
 }
 async function cambiarModo(modo){
   const c = E.cfg;
   const body = { soloModo: modo };
+  if(modo === 'activo'){
+    const ahora = c.ahoraAtiendeBot ? 'Ahora mismo está dentro del horario del bot, así que empezará a responder desde el próximo mensaje.' : 'Ahora mismo atiende el equipo: el bot empezará a responder cuando comience su horario.';
+    if(!confirm(`Se va a ACTIVAR el bot: responderá AUTOMÁTICAMENTE por WhatsApp a los clientes que escriban dentro del horario del bot. ${ahora} Solo envía si tiene confianza alta; si duda, deja un borrador. Tope: ${Number($('cfgTopeDiario').value) || c.topeDiario} respuestas por día. Puedes apagarlo cuando quieras con «Apagar ahora». ¿Continuar?`)) return;
+    body.topeDiario = Number($('cfgTopeDiario').value);
+  }
   if(modo === 'prueba'){
     const n = $('cfgNumerosPrueba').value.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean).length;
     if(!n){ alert('Agrega al menos un número de prueba (tu WhatsApp personal, por ejemplo) antes de activar el modo prueba.'); return; }
     if(!confirm(`Se va a activar el modo prueba: el bot responderá AUTOMÁTICAMENTE por WhatsApp a ${n} número${n === 1 ? '' : 's'} de prueba, a cualquier hora. A los demás clientes no les envía nada. Puedes apagarlo cuando quieras. ¿Continuar?`)) return;
     body.numerosPrueba = $('cfgNumerosPrueba').value; body.topeDiario = Number($('cfgTopeDiario').value);
   } // apagar o pasar a sombra nunca depende de los demás campos: así el interruptor no puede fallar por un dato mal escrito
-  document.querySelectorAll('#modos [data-cambiar]').forEach(b => { b.disabled = true; });
+  document.querySelectorAll('#secEstado [data-cambiar]').forEach(b => { b.disabled = true; });
   try{
     E.cfg = await api('whatsapp-bot-config', { method: 'POST', body });
     renderAvisos(); renderKpis(); renderEstado();
@@ -843,7 +863,7 @@ function renderRendimiento(){
     kpi('Tal cual', pctTxt(r.pctUsadosTalCual), `de ${fmtNum(r.decididos)} decididos`),
     kpi('Editados', pctTxt(r.pctUsadosEditados), 'enviados con cambios'),
     kpi('Descartados', pctTxt(r.pctDescartados), 'no sirvieron'),
-    kpi('Enviados automáticamente', fmtNum(r.enviado_automatico), 'modo prueba, solo a números de prueba'),
+    kpi('Enviados automáticamente', fmtNum(r.enviado_automatico), 'respuestas que el bot envió solo'),
     kpi('Confianza alta', fmtNum(r.alta), `${fmtNum(r.media)} media · ${fmtNum(r.baja)} baja`),
     kpi('Tokens por borrador', fmtNum((r.tokens_entrada_prom || 0) + (r.tokens_salida_prom || 0)), esc(E.cfg.modelo)),
   ].join('');
@@ -986,7 +1006,7 @@ $('buscarEjemplo').addEventListener('input', renderEjemplos);
 $('verInactivas').addEventListener('change', renderEjemplos);
 $('btnAgregarVentana').addEventListener('click', agregarVentana);
 $('btnGuardarCfg').addEventListener('click', guardarConfig);
-document.querySelectorAll('#modos [data-cambiar]').forEach(b => b.addEventListener('click', () => cambiarModo(b.dataset.cambiar)));
+document.querySelectorAll('#secEstado [data-cambiar]').forEach(b => b.addEventListener('click', () => cambiarModo(b.dataset.cambiar)));
 $('btnSaludoDefecto').addEventListener('click', () => { if(E.cfg){ $('cfgSaludoTexto').value = E.cfg.saludoDefecto; actualizarContadores(); } });
 $('btnConocimientoDefecto').addEventListener('click', () => {
   if(E.cfg && confirm('¿Reemplazar el texto por el inicial? Se pierden los cambios que no hayas guardado.')){ $('cfgConocimiento').value = E.cfg.conocimientoDefecto; actualizarContadores(); }

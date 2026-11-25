@@ -62,6 +62,19 @@ test('marcar como leída deja la conversación leída aunque el mensaje venga co
   await db.close();
 });
 
+test('lo que respondió solo el bot sigue sin leer hasta que una persona responde o abre la conversación', async () => {
+  const { db, sql } = await crearBase();
+  await asegurarTablaWhatsapp(sql);
+  const { sqlNoLeidos } = await import('../../lib/whatsapp-bandeja.js');
+  const id = await crearConversacion(sql, '7', '2026-11-24T10:00:00Z', [{ en: '2026-11-24T10:00:00Z', dir: 'in' }]);
+  const noLeidos = async () => (await sql.query(`SELECT ${sqlNoLeidos('c')} AS n FROM whatsapp_conversaciones c WHERE c.id = $1`, [id])).rows[0].n;
+  await sql`INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, contenido_texto) VALUES (${id}, 'bot-1', '2026-11-24T10:01:00Z', 'out', 'bot', 'respuesta del bot');`;
+  assert.equal(await noLeidos(), 1, 'la respuesta del bot no da por atendido al cliente');
+  await sql`INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, contenido_texto) VALUES (${id}, 'persona-1', '2026-11-24T10:05:00Z', 'out', 'erp', 'respuesta de una persona');`;
+  assert.equal(await noLeidos(), 0, 'una respuesta de una persona sí lo da por atendido');
+  await db.close();
+});
+
 test('la bandeja se ordena por el último mensaje, no por cuándo empezó la conversación', async () => {
   const { db, sql } = await crearBase();
   await asegurarTablaWhatsapp(sql);
