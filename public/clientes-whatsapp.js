@@ -319,6 +319,7 @@ async function cargarSesionUsuario(){
     cargarUsuariosActivos();
     cargarRespuestasRapidas();
     cargarEtiquetasWa();
+    if (u.rol === 'admin') cargarEntrenador(false); // chat fijado "Entrenar a la IA" (solo administradores)
     // Vínculo real desde Cotizaciones y ventas (coincidencia de teléfono) --
     // ?abrirConversacion=123 abre directo la bandeja en esa conversación en
     // vez del Dashboard por defecto.
@@ -526,6 +527,7 @@ const WA_ICONO = {
   archivar: '<svg viewBox="0 0 24 24"><path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z"/></svg>',
   desarchivar: '<svg viewBox="0 0 24 24"><path d="M20.55 5.22l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.15.55L3.46 5.22C3.17 5.57 3 6.01 3 6.5V19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.49-.17-.93-.45-1.28zM12 9.5l5.5 5.5H14v2h-4v-2H6.5L12 9.5zM5.12 5l.82-1h12l.93 1H5.12z"/></svg>',
   chevron: '<svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>',
+  fijar: '<svg viewBox="0 0 24 24"><path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>',
 };
 const WA_AVATAR ='<svg viewBox="0 0 212 212"><path d="M106 106c-17.5 0-31.7-14.2-31.7-31.7S88.5 42.6 106 42.6s31.7 14.2 31.7 31.7S123.5 106 106 106zm0 15.8c-29.4 0-88.9 14.8-88.9 44.4v22.2h177.8v-22.2c0-29.6-59.5-44.4-88.9-44.4z"/></svg>';
 const WA_TICK = {
@@ -799,6 +801,259 @@ async function eliminarEtiquetaWa(id){
     renderListaIndicadores(convState.contadores);
     cargarConversaciones({ silencioso: true });
   }catch(err){ alert(err.message); }
+}
+
+// ---------------- Chat "Entrenar a la IA" (fijado arriba de la lista; solo administradores) ----------------
+// El administrador le manda textos y capturas; Gemini responde qué aprendió y cada aprendizaje queda como caso por aprobar en Bot WhatsApp > Aprendizaje.
+// Nada llega al bot sin aprobación (se puede aprobar acá mismo si la revisión automática no encontró problemas).
+const ENTRENADOR_ID = 'entrenador';
+let entrenador = { mensajes: [], resumen: null, cargado: false, enviando: false, borrador: '', imagenPendiente: null };
+const entrenadorActivo = () => conversacionSeleccionadaId === ENTRENADOR_ID;
+const mostrarEntrenadorEnLista = () => rolActual === 'admin' && !convState.archivadas && !convState.q && !convState.etiqueta && convState.vista === 'todas';
+const urlImagenEntrenador = id => '/api/negocio?recurso=whatsapp-entrenador&imagen=' + encodeURIComponent(id);
+
+function entrenadorFilaHtml(){
+  const r = entrenador.resumen || {};
+  const pend = r.pendientes || 0;
+  const previa = r.ultimoTexto ? `${r.ultimoRol === 'usuario' ? WA_TICK.enviado : ''}<span style="overflow:hidden;text-overflow:ellipsis;">${escapeHtml(r.ultimoTexto)}</span>` : '<span style="overflow:hidden;text-overflow:ellipsis;">Enséñale con textos y capturas de pantalla</span>';
+  return `
+    <div class="item-conv item-entrenador ${entrenadorActivo() ? 'seleccionado' : ''}" data-id="${ENTRENADOR_ID}" onclick="abrirEntrenador()">
+      <div class="avatar-chip avatar-ia">${WA_ICONO.bot}</div>
+      <div class="item-cuerpo">
+        <div class="item-top-row"><span class="item-nombre">Entrenar a la IA</span><span class="item-tiempo">${r.ultimoEn ? horaLista(r.ultimoEn) : ''}</span></div>
+        <div class="item-fila2">
+          <div class="item-mensaje">${previa}</div>
+          <div class="item-indicadores">${pend > 0 ? `<span class="item-contador" title="${pend} aprendizaje(s) esperan tu aprobación">${pend}</span>` : ''}<span class="item-fijado" title="Chat fijado">${WA_ICONO.fijar}</span></div>
+        </div>
+        <div class="item-etiquetas"><span class="chip-etiqueta" style="background:#00A884;color:#fff;">IA</span><span class="item-etiquetas-txt">Lo que aprende queda para tu aprobación</span></div>
+      </div>
+    </div>`;
+}
+function repintarFilaEntrenador(){
+  const fila = document.querySelector('#listaItemsBandeja .item-entrenador');
+  if (fila) fila.outerHTML = entrenadorFilaHtml();
+}
+
+async function cargarEntrenador(dibujar, forzarScroll = true){
+  try{
+    const r = await fetch('/api/negocio?recurso=whatsapp-entrenador');
+    const d = await r.json();
+    if (r.ok && !d.error) { entrenador.mensajes = d.mensajes || []; entrenador.resumen = d.resumen || null; entrenador.cargado = true; entrenador.apiKey = d.apiKeyConfigurada !== false; }
+  }catch(err){ /* sin conexión: se muestra lo que haya */ }
+  repintarFilaEntrenador();
+  if (dibujar && entrenadorActivo()) { renderEntrenador({ forzarScroll }); renderFichaEntrenador(); }
+}
+
+async function abrirEntrenador(){
+  conversacionSeleccionadaId = ENTRENADOR_ID;
+  detalleBandejaActual = null; sugerenciaIaActual = null;
+  cerrarMenuRapidas(); cerrarMenuFlotante();
+  document.querySelectorAll('#listaItemsBandeja .item-conv').forEach(el => el.classList.toggle('seleccionado', el.dataset.id === ENTRENADOR_ID));
+  if (window.matchMedia('(max-width:860px)').matches) mostrarPanelMovil('chat');
+  renderEntrenador({ forzarScroll: true });
+  renderFichaEntrenador();
+  await cargarEntrenador(true);
+}
+
+function entrenadorBurbujaHtml(m, cola){
+  const hora = `<span class="hora">${fmtHora(m.creadoEn)}</span>`;
+  if (m.rol === 'usuario') {
+    const img = m.conImagen ? `<img class="ent-img" src="${m.urlLocal ? m.urlLocal : urlImagenEntrenador(m.id)}" alt="Captura" loading="lazy" onclick="event.stopPropagation(); abrirImagenAmpliada(this.src)">` : '';
+    return `<div class="burbuja out${cola ? ' cola' : ''}">${m.usuario ? `<span class="ent-autor">${escapeHtml(m.usuario)}</span>` : ''}${img}${m.texto ? `<span class="ent-texto">${escapeHtml(m.texto)}</span>` : ''}${hora}</div>`;
+  }
+  const tarjetas = (m.aprendizajes || []).map(entrenadorAprendizajeHtml).join('');
+  return `<div class="burbuja in ent-ia${cola ? ' cola' : ''}${m.esError ? ' ent-error' : ''}"><span class="ent-texto">${escapeHtml(m.texto)}</span>${tarjetas}${hora}</div>`;
+}
+function entrenadorAprendizajeHtml(a){
+  const pend = a.estado === 'pendiente';
+  const estado = a.estado === 'aprobado' ? '<span class="ent-estado ok">✓ Aprobada: el asistente ya la usa</span>' : a.estado === 'rechazado' ? '<span class="ent-estado no">Descartada</span>' : '<span class="ent-estado">Por aprobar</span>';
+  const acciones = !pend ? '' : (a.alertas && a.alertas.length
+    ? `<div class="ent-ap-acciones"><a href="bot-whatsapp.html#aprendizaje" target="_blank" rel="noopener">Corregir y aprobar en Aprendizaje ↗</a></div>`
+    : `<div class="ent-ap-acciones"><button type="button" onclick="decidirAprendizajeEntrenador(${a.id}, 'aprobar')">✓ Aprobar</button><button type="button" class="sec" onclick="decidirAprendizajeEntrenador(${a.id}, 'rechazar')">✕ Descartar</button><a href="bot-whatsapp.html#aprendizaje" target="_blank" rel="noopener">Editar ↗</a></div>`);
+  return `
+    <div class="ent-aprendizaje ${escapeHtml(a.estado)}">
+      <div class="ent-ap-cab">${a.categoria ? `<span class="ent-chip">${escapeHtml(a.categoria)}</span>` : ''}${a.riesgo ? `<span class="ent-chip riesgo-${escapeHtml(a.riesgo)}">Riesgo ${escapeHtml(a.riesgo)}</span>` : ''}${estado}</div>
+      <div class="ent-ap-p"><b>Cliente pregunta:</b> ${escapeHtml(a.pregunta)}</div>
+      <div class="ent-ap-r"><b>Respuesta modelo:</b>\n${escapeHtml(a.respuesta)}</div>
+      ${a.regla ? `<div class="ent-ap-regla">📌 ${escapeHtml(a.regla)}</div>` : ''}
+      ${a.alertas && a.alertas.length ? `<div class="ent-ap-alerta">⚠ Revisión automática: ${escapeHtml(a.alertas.join('; '))}</div>` : ''}
+      ${acciones}
+    </div>`.replace(/>\s+</g, '><').trim(); // sin saltos de línea sueltos entre etiquetas (la burbuja respeta los saltos de línea del texto)
+}
+function entrenadorHiloHtml(){
+  const lista = entrenador.mensajes;
+  const bienvenida = `<div class="ent-bienvenida">
+    <div class="ent-bienvenida-ico">${WA_ICONO.bot}</div>
+    <b>Entrena a tu asistente</b>
+    <div>Mándale textos o capturas de pantalla (conversaciones reales, páginas de productos, políticas) y dile qué está bien, qué está mal y cómo se debe responder. Él te cuenta qué aprendió y lo que propone queda <b>pendiente de tu aprobación</b>: nada llega a los clientes sin que lo apruebes.</div>
+    <div class="ent-consejo">Pega una captura con Ctrl+V, arrástrala aquí o usa el clip. Evita incluir datos personales de clientes.</div>
+  </div>`;
+  let diaPrevio = null, rolPrevio = null;
+  const burbujas = lista.map(m => {
+    let sep = '';
+    const dia = claveDiaChile(m.creadoEn);
+    if (dia !== diaPrevio) { sep = `<div class="fecha-sep">${escapeHtml(etiquetaDia(m.creadoEn))}</div>`; diaPrevio = dia; rolPrevio = null; }
+    const cola = m.rol !== rolPrevio; rolPrevio = m.rol;
+    return sep + entrenadorBurbujaHtml(m, cola);
+  }).join('');
+  const pensando = entrenador.enviando ? `<div class="burbuja in cola ent-pensando"><span class="puntos"><i></i><i></i><i></i></span></div>` : '';
+  return (lista.length ? '' : bienvenida) + burbujas + pensando;
+}
+function entrenadorPreviaHtml(){
+  const img = entrenador.imagenPendiente;
+  return img ? `<div class="ent-previa"><img src="${img.url}" alt="Captura adjunta"><span>Captura lista para enviar</span><button type="button" class="wa-icono" onclick="quitarImagenEntrenador()" title="Quitar la captura" aria-label="Quitar la captura">${WA_ICONO.cerrar}</button></div>` : '';
+}
+function renderEntrenador(opts){
+  opts = opts || {};
+  const viejo = $('chatHiloWrap');
+  const alFondo = !viejo || (viejo.scrollTop + viejo.clientHeight >= viejo.scrollHeight - 60);
+  const scrollViejo = viejo ? viejo.scrollTop : 0;
+  const ta0 = $('entrenadorTexto');
+  const teniaFoco = !!ta0 && document.activeElement === ta0;
+  if (ta0) entrenador.borrador = ta0.value;
+  $('panelChat').innerHTML = `
+    <div class="chat-head">
+      <button class="wa-icono btn-volver-lista" onclick="mostrarPanelMovil('lista')" title="Volver a la lista" aria-label="Volver a la lista">${WA_ICONO.volver}</button>
+      <div class="chat-head-id" onclick="toggleFicha()" title="Ver cómo funciona">
+        <div class="avatar-chip avatar-ia">${WA_ICONO.bot}</div>
+        <div style="min-width:0;"><h2>Entrenar a la IA</h2><div class="chat-head-sub">Enséñale con textos y capturas · lo que aprende queda para tu aprobación</div></div>
+      </div>
+      <div class="chat-head-acciones">
+        <a class="wa-icono" href="bot-whatsapp.html#aprendizaje" target="_blank" rel="noopener" title="Revisar todo lo aprendido (Bot WhatsApp > Aprendizaje)" aria-label="Revisar lo aprendido">${WA_ICONO.resolver}</a>
+        <button class="wa-icono ${fichaAbierta() ? 'activo' : ''}" id="btnInfoWa" onclick="toggleFicha()" title="Cómo funciona" aria-label="Cómo funciona">${WA_ICONO.info}</button>
+      </div>
+    </div>
+    ${entrenador.apiKey === false ? '<div class="chat-alerta-pendiente">⚠️ Falta la clave de Gemini en el servidor: la IA no puede responder todavía.</div>' : ''}
+    <div class="chat-hilo-wrap" id="chatHiloWrap">${entrenadorHiloHtml()}</div>
+    ${entrenadorPreviaHtml()}
+    <div class="chat-composer-wrap" id="entrenadorComposer">
+      <div class="composer-herramientas"><button class="wa-icono" onclick="document.getElementById('entrenadorArchivo').click()" title="Adjuntar una captura (también puedes pegarla con Ctrl+V o arrastrarla)" aria-label="Adjuntar una captura">${WA_ICONO.adjuntar}</button></div>
+      <div class="composer-caja"><textarea id="entrenadorTexto" rows="1" placeholder="Escribe, o pega una captura con Ctrl+V…" oninput="autoAltoComposer(this)" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); enviarEntrenador();}" onpaste="pegarEnEntrenador(event)" ${entrenador.enviando ? 'disabled' : ''}>${escapeHtml(entrenador.borrador)}</textarea></div>
+      <button class="wa-icono verde composer-enviar" id="btnEntrenadorEnviar" onclick="enviarEntrenador()" ${entrenador.enviando ? 'disabled' : ''} title="Enviar" aria-label="Enviar">${WA_ICONO.enviar}</button>
+      <input type="file" id="entrenadorArchivo" accept="image/*" style="display:none;" onchange="adjuntarArchivoEntrenador(this.files[0]); this.value='';">
+    </div>`;
+  const hilo = $('chatHiloWrap');
+  if (hilo) hilo.scrollTop = (opts.forzarScroll || alFondo) ? hilo.scrollHeight : scrollViejo;
+  const ta = $('entrenadorTexto');
+  if (ta) { autoAltoComposer(ta); if (teniaFoco && !entrenador.enviando) ta.focus(); }
+}
+// Ficha ("Info. del contacto") del chat de entrenamiento: cómo funciona y el estado de lo aprendido
+function renderFichaEntrenador(){
+  const r = entrenador.resumen || {};
+  $('panelFichaBandeja').innerHTML = `
+    <div class="ficha-bandeja-head">
+      <button class="wa-icono" title="Cerrar" aria-label="Cerrar" onclick="toggleFicha(false)">${WA_ICONO.cerrar}</button>
+      <h2>Entrenar a la IA</h2>
+    </div>
+    <div class="ficha-bandeja-body">
+      <div class="wa-perfil"><div class="avatar-grande avatar-ia">${WA_ICONO.bot}</div><div class="nombre">Asistente IA</div><div class="telefono">Chat de entrenamiento</div></div>
+      <div class="ficha-grupo">
+        <h3>Cómo funciona</h3>
+        <ol class="ent-pasos">
+          <li>Escríbele o mándale una captura (una conversación real, una página de producto, una política).</li>
+          <li>Él responde qué entendió y propone <b>preguntas y respuestas modelo</b> con su regla.</li>
+          <li>Tú las apruebas (acá mismo o en <a href="bot-whatsapp.html#aprendizaje" target="_blank" rel="noopener">Aprendizaje</a>). Recién ahí el asistente las usa en sus borradores.</li>
+        </ol>
+      </div>
+      <div class="ficha-grupo">
+        <h3>Estado</h3>
+        <div class="ficha-fila"><span>Por aprobar</span><b>${fmtNum(r.pendientes || 0)}</b></div>
+        <div class="ficha-fila"><span>Aprobadas</span><b>${fmtNum(r.aprobados || 0)}</b></div>
+        <a class="btn-ghost btn-compact" style="display:inline-block;margin-top:8px;text-decoration:none;" href="bot-whatsapp.html#aprendizaje" target="_blank" rel="noopener">Abrir Aprendizaje ↗</a>
+      </div>
+      <div class="ficha-grupo">
+        <h3>Consejos</h3>
+        <ul class="ent-pasos">
+          <li>Una cosa por mensaje; dile qué estaba mal y cómo debió responder.</li>
+          <li>Los precios y enlaces de productos no se guardan: el asistente los consulta en vivo.</li>
+          <li>Se quitan teléfonos, correos y nombres, pero evita mandar capturas con datos personales.</li>
+          <li>Las capturas se guardan en este chat; las ve solo un administrador.</li>
+        </ul>
+      </div>
+    </div>`;
+}
+
+// ---- Capturas: pegar, arrastrar o adjuntar; se reducen en el navegador antes de enviarlas ----
+async function prepararImagenEntrenador(archivo){
+  if (!archivo || !/^image\//.test(archivo.type)) throw new Error('Adjunta una imagen (JPG, PNG o WebP).');
+  let origen, ancho, alto;
+  try { origen = await createImageBitmap(archivo); ancho = origen.width; alto = origen.height; }
+  catch (e) {
+    origen = await new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => mal(new Error('No se pudo leer la imagen.')); i.src = URL.createObjectURL(archivo); });
+    ancho = origen.naturalWidth; alto = origen.naturalHeight;
+  }
+  const escala = Math.min(1, 1600 / Math.max(ancho, alto));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(ancho * escala)); c.height = Math.max(1, Math.round(alto * escala));
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(origen, 0, 0, c.width, c.height);
+  let calidad = 0.85, url;
+  do { url = c.toDataURL('image/jpeg', calidad); calidad -= 0.1; } while (url.length * 0.75 > 1000000 && calidad > 0.3);
+  if (url.length * 0.75 > 1150000) throw new Error('La imagen es demasiado pesada incluso reducida. Recórtala e inténtalo de nuevo.');
+  return { mime: 'image/jpeg', datos: url.split(',')[1], url };
+}
+async function adjuntarArchivoEntrenador(archivo){
+  if (!archivo || entrenador.enviando) return;
+  try{ entrenador.imagenPendiente = await prepararImagenEntrenador(archivo); renderEntrenador(); const t = $('entrenadorTexto'); if (t) t.focus(); }
+  catch(err){ alert(err.message); }
+}
+function pegarEnEntrenador(ev){
+  const item = [...(ev.clipboardData?.items || [])].find(i => i.kind === 'file' && /^image\//.test(i.type));
+  if (!item) return; // texto normal: se pega como siempre
+  ev.preventDefault();
+  adjuntarArchivoEntrenador(item.getAsFile());
+}
+function quitarImagenEntrenador(){ entrenador.imagenPendiente = null; renderEntrenador(); }
+// Arrastrar una captura sobre el chat
+document.addEventListener('dragover', e => { if (entrenadorActivo() && e.target.closest && e.target.closest('#panelChat')) e.preventDefault(); });
+document.addEventListener('drop', e => {
+  if (!entrenadorActivo() || !(e.target.closest && e.target.closest('#panelChat'))) return;
+  e.preventDefault();
+  const f = [...(e.dataTransfer?.files || [])].find(x => /^image\//.test(x.type));
+  if (f) adjuntarArchivoEntrenador(f);
+});
+
+async function enviarEntrenador(){
+  if (entrenador.enviando) return;
+  const ta = $('entrenadorTexto');
+  const texto = ((ta && ta.value) || '').trim();
+  const img = entrenador.imagenPendiente;
+  if (!texto && !img) return;
+  entrenador.enviando = true; entrenador.borrador = ''; entrenador.imagenPendiente = null;
+  if (ta) ta.value = ''; // si no, el redibujado volvería a leer lo escrito
+  entrenador.mensajes.push({ id: 'tmp', rol: 'usuario', texto, conImagen: !!img, urlLocal: img ? img.url : null, creadoEn: new Date().toISOString(), aprendizajes: [] });
+  renderEntrenador({ forzarScroll: true });
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-entrenador', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texto, imagen: img ? { mime: img.mime, datos: img.datos } : undefined }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || d.error) throw new Error(d.error || 'No se pudo enviar el mensaje.');
+    entrenador.mensajes = d.mensajes || []; entrenador.resumen = d.resumen || null;
+  }catch(err){
+    // el mensaje no llegó a guardarse: se devuelve lo escrito para reintentar
+    entrenador.mensajes = entrenador.mensajes.filter(m => m.id !== 'tmp');
+    entrenador.borrador = texto; entrenador.imagenPendiente = img;
+    alert(err.message);
+  }
+  entrenador.enviando = false;
+  repintarFilaEntrenador();
+  if (entrenadorActivo()) { renderEntrenador({ forzarScroll: true }); renderFichaEntrenador(); const t = $('entrenadorTexto'); if (t) t.focus(); }
+}
+// Aprobar o descartar un aprendizaje sin salir del chat (usa el mismo flujo de Bot WhatsApp > Aprendizaje)
+async function decidirAprendizajeEntrenador(id, accion){
+  let cuerpo = { accion, id };
+  if (accion === 'aprobar') {
+    const a = entrenador.mensajes.flatMap(m => m.aprendizajes || []).find(x => x.id === id);
+    if (!a) return;
+    cuerpo = { accion, id, pregunta: a.pregunta, respuesta: a.respuesta };
+  }
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-bot-aprendizaje', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || d.error) throw new Error(d.error || 'No se pudo completar la acción.');
+  }catch(err){ alert(err.message); }
+  await cargarEntrenador(true, false);
 }
 
 // ---------------- Respuestas rápidas ("/" en la conversación, como en WhatsApp Business) ----------------
@@ -1323,7 +1578,7 @@ function actualizarListaBandeja(data){
   const filaArch = (!convState.archivadas && nArch > 0)
     ? `<div class="item-archivadas" onclick="abrirArchivadas()" title="Chats archivados: vuelven solos a la bandeja si el cliente escribe">${WA_ICONO.archivar}<span class="txt">Archivadas</span><span class="n">${fmtNum(nArch)}</span></div>` : '';
   const vacio = convState.archivadas ? 'No hay chats archivados.' : (convState.etiqueta ? 'No hay chats con esa etiqueta.' : 'No hay conversaciones que calcen con los filtros.');
-  $('listaItemsBandeja').innerHTML = filaArch + (lista.length ? lista.map(itemConvHtml).join('') : `<p class="empty-note" style="padding:16px;">${vacio}</p>`);
+  $('listaItemsBandeja').innerHTML = filaArch + (mostrarEntrenadorEnLista() ? entrenadorFilaHtml() : '') + (lista.length ? lista.map(itemConvHtml).join('') : `<p class="empty-note" style="padding:16px;">${vacio}</p>`);
   $('listaPaginacionBandeja').innerHTML = `
     <span>${fmtNum(convState.total)} conversación(es)${convState.totalPaginas > 1 ? ` · pág. ${convState.page}/${convState.totalPaginas}` : ''}</span>
     <span>

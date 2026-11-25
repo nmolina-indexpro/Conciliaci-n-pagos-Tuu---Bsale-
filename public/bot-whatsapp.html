@@ -362,7 +362,7 @@
       </div>
       <div class="filtros" style="margin:14px 0 10px;">
         <select id="apEstado" aria-label="Estado"><option value="pendiente">Pendientes de revisar</option><option value="aprobado">Aprobados</option><option value="rechazado">Rechazados</option></select>
-        <select id="apTipo" aria-label="Origen"><option value="">Todos los orígenes</option><option value="correccion">Correcciones de ejecutivos</option><option value="conversacion">Conversaciones reales</option></select>
+        <select id="apTipo" aria-label="Origen"><option value="">Todos los orígenes</option><option value="correccion">Correcciones de ejecutivos</option><option value="conversacion">Conversaciones reales</option><option value="entrenador">Enseñado en el chat de entrenamiento</option></select>
       </div>
       <div id="apLista"></div>
     </div>
@@ -619,7 +619,7 @@ function guardarComoModelo(i){
 }
 
 // ---------- Preguntas y respuestas ----------
-const ORIGEN_TXT = { manual: 'A mano', probador: 'Del probador', correccion: 'De una corrección', importado: 'Caso inicial', conversacion: 'De una conversación real' };
+const ORIGEN_TXT = { manual: 'A mano', probador: 'Del probador', correccion: 'De una corrección', importado: 'Caso inicial', conversacion: 'De una conversación real', entrenador: 'Enseñado en el chat de entrenamiento' };
 async function cargarCasosIniciales(){
   const msg = $('importMsg'), btn = $('btnCargarCasos');
   btn.disabled = true; msg.innerHTML = '<div class="note-box">Leyendo los casos iniciales…</div>';
@@ -798,7 +798,7 @@ function fichaSolicitudHtml(etapa, s){
 
 // ---------- Aprendizaje ----------
 const AP = { candidatos: [], resumen: null, porAnalizar: 0, esAdmin: false, extrayendo: false };
-const TIPO_TXT = { correccion: 'Corrección de un ejecutivo', conversacion: 'Conversación real' };
+const TIPO_TXT = { correccion: 'Corrección de un ejecutivo', conversacion: 'Conversación real', entrenador: 'Enseñado por el administrador' };
 const RIESGO_BADGE = { alto: 'rojo', medio: 'ambar', bajo: 'verde' };
 const VACIO_APRENDIZAJE = {
   pendiente: 'No hay casos pendientes. Las correcciones de tus ejecutivos aparecen solas cuando editan un borrador del bot antes de enviarlo; los casos de conversaciones reales se generan con «Analizar conversaciones».',
@@ -822,9 +822,9 @@ function casoHtml(c){
     </div>
     <div class="dos-col">
       <div>
-        <label class="cmp">El cliente escribió</label><div class="caja">${esc(c.mensajeCliente)}</div>
-        <label class="cmp">${esCorr ? 'El bot propuso' : 'El ejecutivo respondió'}</label><div class="caja">${esc(c.respuestaOriginal) || '—'}</div>
-        ${c.problema ? `<label class="cmp">${esCorr ? 'Qué cambió el ejecutivo' : 'Problema detectado'}</label><div class="caja">${esc(c.problema)}</div>` : ''}
+        <label class="cmp">${c.tipo === 'entrenador' ? 'Pregunta típica de un cliente' : 'El cliente escribió'}</label><div class="caja">${esc(c.mensajeCliente)}</div>
+        ${c.tipo === 'entrenador' ? '' : `<label class="cmp">${esCorr ? 'El bot propuso' : 'El ejecutivo respondió'}</label><div class="caja">${esc(c.respuestaOriginal) || '—'}</div>`}
+        ${c.problema ? `<label class="cmp">${esCorr ? 'Qué cambió el ejecutivo' : c.tipo === 'entrenador' ? 'Cómo se enseñó' : 'Problema detectado'}</label><div class="caja">${esc(c.problema)}</div>` : ''}
         ${c.regla ? `<label class="cmp">Regla de aprendizaje</label><div class="caja">${esc(c.regla)}</div>` : ''}
       </div>
       <div>
@@ -843,7 +843,7 @@ function renderAprendizaje(){
   const r = AP.resumen || {}, pend = r.pendientes || 0;
   const b = $('apPend'); b.style.display = pend ? '' : 'none'; b.textContent = pend;
   $('apKpis').innerHTML = [
-    kpi('Pendientes de revisar', fmtNum(pend), `${fmtNum(r.pendientes_correccion)} correcciones · ${fmtNum(r.pendientes_conversacion)} de conversaciones`),
+    kpi('Pendientes de revisar', fmtNum(pend), `${fmtNum(r.pendientes_correccion)} correcciones · ${fmtNum(r.pendientes_conversacion)} de conversaciones · ${fmtNum(r.pendientes_entrenador)} del chat de entrenamiento`),
     kpi('Aprobados', fmtNum(r.aprobados), 'ya son preguntas modelo'),
     kpi('Rechazados', fmtNum(r.rechazados), 'incluye los que la IA descartó'),
     kpi('Conversaciones por analizar', fmtNum(AP.porAnalizar), 'de los últimos 180 días'),

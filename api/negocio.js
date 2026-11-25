@@ -13,6 +13,7 @@ import {
   asegurarBandejaWhatsapp, listarEtiquetas, crearEtiqueta, actualizarEtiqueta, eliminarEtiqueta, asignarEtiqueta, marcarLeidaYSincronizar, accionConversacion,
   sqlArchivada, sqlNoLeidos, sqlBotEstado, sqlEtiquetasJson, COLORES_ETIQUETA,
 } from '../lib/whatsapp-bandeja.js';
+import { asegurarTablaEntrenador, procesarMensajeEntrenador, listarMensajes as listarMensajesEntrenador, obtenerImagen as obtenerImagenEntrenador, resumenEntrenador } from '../lib/whatsapp-entrenador.js';
 
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaIndexscaleLeadsWeb, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, asegurarTablaDescuentosWeb, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
 import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, validarEmbudo as validarEmbudoBuscadorIa, validarDescuentoEvento as validarDescuentoEventoBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
@@ -481,6 +482,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-respuestas-rapidas') return manejarWhatsappRespuestasRapidas(req, res, sesion);
   if (recurso === 'whatsapp-marcar-leida') return manejarWhatsappMarcarLeida(req, res, sesion);
   if (recurso === 'whatsapp-bandeja') return manejarWhatsappBandeja(req, res, sesion);
+  if (recurso === 'whatsapp-entrenador') return manejarWhatsappEntrenador(req, res, sesion);
   if (recurso === 'whatsapp-debug-categoria') return manejarWhatsappDebugCategoria(req, res, sesion);
   if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
   if (recurso === 'compra-agil-ordenes') return manejarCompraAgilOrdenes(req, res, sesion);
@@ -9167,6 +9169,45 @@ async function manejarWhatsappBandeja(req, res, sesion) {
     return res.status(200).json({ etiquetas: await listarEtiquetas(sql), colores: COLORES_ETIQUETA, esAdmin });
   } catch (err) {
     return res.status(500).json({ error: 'Error en la bandeja de WhatsApp', detail: String(err) });
+  }
+}
+
+// Chat "Entrenar a la IA" (fijado arriba de la lista de chats): el administrador le manda textos y capturas, Gemini responde qué aprendió y los aprendizajes quedan como
+// casos pendientes de aprobar en Bot WhatsApp > Aprendizaje (nada llega al bot sin aprobación). Solo administradores. Lógica en lib/whatsapp-entrenador.js.
+//   GET                -> { mensajes, resumen, apiKeyConfigurada }
+//   GET ?imagen=ID     -> la captura de un mensaje (bytes)
+//   POST { texto, imagen: { mime, datos } }  -> guarda el mensaje, consulta a Gemini y devuelve el chat actualizado
+async function manejarWhatsappEntrenador(req, res, sesion) {
+  try {
+    if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede usar el chat de entrenamiento.' });
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    await asegurarTablaEntrenador(sql);
+    if (req.method === 'GET' && req.query.imagen) {
+      const img = await obtenerImagenEntrenador(sql, req.query.imagen);
+      if (!img) return res.status(404).json({ error: 'La imagen ya no existe.' });
+      res.setHeader('Content-Type', img.mime);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      return res.status(200).end(img.bytes);
+    }
+    let aprendizajes = 0;
+    if (req.method === 'POST') {
+      const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+      if (!apiKey) return res.status(200).json({ error: 'Falta la GEMINI_API_KEY en el servidor: la IA no puede responder.' });
+      const cfg = await leerConfigBot(sql);
+      try {
+        const r = await procesarMensajeEntrenador(sql, {
+          usuario: sesion.nombre || sesion.email || null, entrada: req.body || {},
+          config: { conocimiento: cfg.conocimiento, tono: cfg.tono, reglasExtra: cfg.reglasExtra }, apiKey, modelo: modeloBot(),
+        });
+        aprendizajes = r.aprendizajes;
+      } catch (err) {
+        return res.status(400).json({ error: String(err.message || err) }); // el mensaje no sirve (vacío, imagen inválida o demasiado grande)
+      }
+    } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(200).json({ mensajes: await listarMensajesEntrenador(sql), resumen: await resumenEntrenador(sql), aprendizajes, apiKeyConfigurada: !!(process.env.GEMINI_API_KEY || '').trim() });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en el chat de entrenamiento', detail: String(err.message || err).slice(0, 300) });
   }
 }
 
