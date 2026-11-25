@@ -100,7 +100,7 @@ import { asegurarTablasBsaleSync, asegurarTablasEmisionBsale, recursoBsaleSeguro
 import { obtenerSuscriptoresEmail, notificacionDebeEnviarse, marcarNotificacionEnviada, TIPOS_NOTIFICACION } from '../lib/notificaciones.js';
 import { faltanVariablesGoogleAds, generarResumenGoogleAds, armarCorreoGoogleAds } from '../lib/google-ads-resumen.js';
 import { validarClic as validarClicWaAds, guardarClic as guardarClicWaAds, asegurarTablaWaClicsAds, vincularMensajes as vincularMensajesWaAds, subirConversiones as subirConversionesWaAds, detalleWaClics, numeroConectado as numeroConectadoWaAds, asegurarWaClicsAdsUnaVez as asegurarWaClicsAdsUnaVezWaAds, sqlOrigenGoogleAds, atribuirClics as atribuirClicsWaAds, borrarClicsDePrueba as borrarClicsDePruebaWaAds, faltanVariablesConversion as faltanVariablesConversionWaAds, RETENCION_DIAS as RETENCION_WA_ADS } from '../lib/whatsapp-ads-conversiones.js';
-import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto, elegirPreguntasModelo, momentoDentroDeHorario, SALUDO_CUANDO, SALUDO_DEFECTO, LIMITES_BOT, REGLAS_NO_PROMETER, PROTOCOLO_COMERCIAL, revisarPropuesta, limpiarSaltosDeLinea, fusionarSolicitud, solicitudTieneDatos, sanitizarSolicitud, ETAPAS_COMERCIALES } from '../lib/whatsapp-bot.js';
+import { MODOS_BOT, HORARIO_BOT_DEFECTO, CONOCIMIENTO_DEFECTO, validarHorario, dentroDeHorarioBot, huecosDelHorario, construirSystemBot, HERRAMIENTAS_BOT, normalizarPropuesta, mismoTexto, elegirPreguntasModelo, momentoDentroDeHorario, SALUDO_CUANDO, SALUDO_DEFECTO, LIMITES_BOT, REGLAS_NO_PROMETER, PROTOCOLO_COMERCIAL, revisarPropuesta, limpiarSaltosDeLinea, normalizarNumerosPrueba, esNumeroDePrueba, evaluarEnvioAutomatico, TOPE_DIARIO_DEFECTO, TOPE_DIARIO_MAX, SILENCIO_EJECUTIVO_HORAS, fusionarSolicitud, solicitudTieneDatos, sanitizarSolicitud, ETAPAS_COMERCIALES } from '../lib/whatsapp-bot.js';
 import { consultarPedidoParaCliente } from '../lib/whatsapp-pedidos.js';
 import { asegurarTablaCandidatosBot, crearCandidatoCorreccion, crearCandidatoConversacion, listarCandidatos, resumenCandidatos, aprobarCandidato, rechazarCandidato, extraerIntercambio, anonimizarTexto, CATEGORIAS_KB, RIESGOS_CANDIDATO } from '../lib/whatsapp-bot-aprendizaje.js';
 import { asegurarTablaEjemplosBot, listarEjemplos, crearEjemplo, actualizarEjemplo, cambiarActivoEjemplo, eliminarEjemplo, importarEjemplos } from '../lib/whatsapp-bot-ejemplos.js';
@@ -8622,6 +8622,7 @@ async function manejarWhatsappWebhook(req, res) {
     let mensajesProcesados = 0;
     const conversacionesTocadas = new Set(); // para el análisis IA automático, ver más abajo
     const conversacionesConImagen = new Set(); // conversaciones que recibieron una foto en esta llamada (ver el análisis IA automático más abajo)
+    const conversacionesConEntrante = new Set(); // conversaciones que recibieron un mensaje DEL CLIENTE en esta llamada (las respuestas del equipo no cuentan): las atiende el bot en modo prueba
     for (const entrada of entradas) {
       for (const cambio of (entrada.changes || [])) {
         const valor = cambio.value || {};
@@ -8701,6 +8702,7 @@ async function manejarWhatsappWebhook(req, res) {
           await sql`UPDATE whatsapp_contactos SET ultima_conversacion_en = now(), updated_at = now() WHERE id = ${contacto.id};`;
           mensajesProcesados++;
           conversacionesTocadas.add(conversacion.id);
+          conversacionesConEntrante.add(conversacion.id);
           if (tipo === 'imagen' && mediaRef) conversacionesConImagen.add(conversacion.id);
         }
 
@@ -8751,6 +8753,10 @@ async function manejarWhatsappWebhook(req, res) {
         }
       }
     }
+
+    // Bot automático (modo prueba): responde solo a los números de prueba. Va antes del análisis IA para que la respuesta salga lo antes posible.
+    // Aislado: nunca debe tumbar la respuesta 200 al webhook.
+    try { await responderConBotAutomatico(sql, conversacionesConEntrante); } catch (err) { console.error('[whatsapp-webhook] error en el bot automático', err); }
 
     // Análisis IA automático (pedido por el usuario): se dispara para cada
     // conversación que recibió mensajes nuevos en esta llamada.
@@ -10044,7 +10050,7 @@ const HERRAMIENTAS_BOT_GEMINI = HERRAMIENTAS_BOT.map(t => ({ name: t.name, descr
 
 async function leerConfigBot(sql) {
   await asegurarTablaWhatsappBot(sql);
-  const { rows } = await sql`SELECT modo, horario, conocimiento, tono, reglas_extra, saludo_activo, saludo_cuando, saludo_texto, actualizado_por, actualizado_en FROM whatsapp_bot_config WHERE id = 1;`;
+  const { rows } = await sql`SELECT modo, horario, conocimiento, tono, reglas_extra, saludo_activo, saludo_cuando, saludo_texto, numeros_prueba, tope_diario, actualizado_por, actualizado_en FROM whatsapp_bot_config WHERE id = 1;`;
   const r = rows[0] || {};
   let horario = HORARIO_BOT_DEFECTO;
   try { if (r.horario) horario = validarHorario(r.horario); } catch { /* horario guardado inválido: se usa el de por defecto */ }
@@ -10060,6 +10066,8 @@ async function leerConfigBot(sql) {
       cuando: SALUDO_CUANDO.includes(r.saludo_cuando) ? r.saludo_cuando : 'fuera_horario',
       texto: String(r.saludo_texto || '').trim() || SALUDO_DEFECTO,
     },
+    numerosPrueba: (() => { try { return normalizarNumerosPrueba(Array.isArray(r.numeros_prueba) ? r.numeros_prueba : []); } catch { return []; } })(),
+    topeDiario: Number.isInteger(r.tope_diario) && r.tope_diario > 0 ? Math.min(TOPE_DIARIO_MAX, r.tope_diario) : TOPE_DIARIO_DEFECTO,
     actualizadoPor: r.actualizado_por || null, actualizadoEn: r.actualizado_en || null,
   };
 }
@@ -10218,14 +10226,14 @@ async function generarBorradorBot(sql, conversacionId, { origen = 'manual', quie
     SELECT c.categoria, c.producto, c.marca, c.modelo, c.solicitud_bot, a.resumen, a.problema_cliente, a.especificaciones, ct.whatsapp_id
     FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id LEFT JOIN whatsapp_analisis_ia a ON a.conversacion_id = c.id WHERE c.id = ${conversacionId};`;
   const conv = convRows[0] || {};
-  const { rows: usados } = await sql`SELECT 1 FROM whatsapp_bot_borradores WHERE conversacion_id = ${conversacionId} AND estado IN ('enviado_igual', 'enviado_editado') LIMIT 1;`;
+  const { rows: usados } = await sql`SELECT 1 FROM whatsapp_bot_borradores WHERE conversacion_id = ${conversacionId} AND estado IN ('enviado_igual', 'enviado_editado', 'enviado_automatico') LIMIT 1;`;
 
   // Ejemplos reales de ficha completa del equipo en la misma categoría: el bot imita el estilo, no copia precios (lo revisa revisarPropuesta).
   const ejemplos = [];
   if (conv.categoria) {
     const { rows: salientes } = await sql`
       SELECT m.contenido_texto FROM whatsapp_mensajes m JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id
-      WHERE c.categoria = ${conv.categoria} AND m.direccion = 'out' AND m.contenido_texto IS NOT NULL AND length(m.contenido_texto) > 150
+      WHERE c.categoria = ${conv.categoria} AND m.direccion = 'out' AND COALESCE(m.origen, '') <> 'bot' AND m.contenido_texto IS NOT NULL AND length(m.contenido_texto) > 150
         AND m.marca_tiempo > now() - interval '120 days' ORDER BY m.marca_tiempo DESC LIMIT 80;`;
     for (const s of salientes) {
       if (ejemplos.length >= 2) break;
@@ -10381,14 +10389,63 @@ async function manejarWhatsappBotLote(req, res, sesion) {
   }
 }
 
+// Valida el tope diario de respuestas automáticas: entero entre 1 y TOPE_DIARIO_MAX.
+const validarTopeDiario = v => { const t = Number(v); return Number.isInteger(t) && t >= 1 && t <= TOPE_DIARIO_MAX ? { ok: true, tope: t } : { ok: false, error: `El tope diario debe ser un número entre 1 y ${TOPE_DIARIO_MAX}.` }; };
+
+// Interruptor rápido: cambia SOLO el modo del bot (y, si vienen, los números de prueba y el tope) sin tocar el resto de la configuración. Es lo que usan los botones
+// «Apagar» y «Activar modo prueba» del panel: funciona en cualquier momento y se aplica al siguiente mensaje que llegue.
+async function cambiarModoBot(sql, body, sesion) {
+  const modo = body.soloModo;
+  if (!MODOS_BOT.includes(modo)) return { ok: false, estado: 400, error: 'Modo inválido.' };
+  let numeros = null, tope = null;
+  try { if (body.numerosPrueba !== undefined) numeros = normalizarNumerosPrueba(body.numerosPrueba); } catch (e) { return { ok: false, estado: 400, error: e.message }; }
+  if (body.topeDiario !== undefined) { const v = validarTopeDiario(body.topeDiario); if (!v.ok) return { ok: false, estado: 400, error: v.error }; tope = v.tope; }
+  if (modo === 'prueba') {
+    const actual = await leerConfigBot(sql);
+    if (!(numeros ?? actual.numerosPrueba).length) return { ok: false, estado: 400, error: 'Agrega al menos un número de prueba antes de activar este modo.' };
+    if (!(process.env.GEMINI_API_KEY || '').trim()) return { ok: false, estado: 400, error: 'Falta la GEMINI_API_KEY en el servidor: el bot no puede redactar.' };
+    if (!(process.env.WHATSAPP_ACCESS_TOKEN || '').trim() || !(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim()) return { ok: false, estado: 400, error: 'Faltan WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID en el servidor: el bot no puede enviar.' };
+  }
+  await asegurarTablaWhatsappBot(sql);
+  await sql`UPDATE whatsapp_bot_config SET modo = ${modo}, actualizado_por = ${sesion.nombre || sesion.email || null}, actualizado_en = now() WHERE id = 1;`;
+  if (numeros !== null) await sql`UPDATE whatsapp_bot_config SET numeros_prueba = ${JSON.stringify(numeros)}::jsonb WHERE id = 1;`;
+  if (tope !== null) await sql`UPDATE whatsapp_bot_config SET tope_diario = ${tope} WHERE id = 1;`;
+  console.log(`[whatsapp-bot] modo cambiado a "${modo}" por ${sesion.nombre || sesion.email || 'admin'}`);
+  return { ok: true };
+}
+
+// Lo que ve el panel: la configuración completa, el estado del servidor (clave de IA y credenciales de envío) y la actividad automática reciente.
+async function armarRespuestaConfigBot(sql, sesion) {
+  const cfg = await leerConfigBot(sql);
+  const { rows: recientes } = await sql`SELECT id, conversacion_id, estado, confianza, escalar, auto_resultado, creado_en FROM whatsapp_bot_borradores WHERE origen = 'auto' ORDER BY creado_en DESC LIMIT 10;`;
+  return {
+    ...cfg, esAdmin: sesion.rol === 'admin', apiKeyConfigurada: !!(process.env.GEMINI_API_KEY || '').trim(), modelo: modeloBot(),
+    envioConfigurado: !!(process.env.WHATSAPP_ACCESS_TOKEN || '').trim() && !!(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim(),
+    ahoraAtiendeBot: dentroDeHorarioBot(new Date(), cfg.horario), huecos: huecosDelHorario(cfg.horario),
+    conocimientoDefecto: CONOCIMIENTO_DEFECTO, horarioDefecto: HORARIO_BOT_DEFECTO,
+    saludoDefecto: SALUDO_DEFECTO, reglasBase: REGLAS_NO_PROMETER, limites: LIMITES_BOT, topeDiarioMax: TOPE_DIARIO_MAX, silencioHoras: SILENCIO_EJECUTIVO_HORAS,
+    automaticos: recientes.map(r => ({ id: r.id, conversacionId: r.conversacion_id, estado: r.estado, confianza: r.confianza, escalar: !!r.escalar, resultado: r.auto_resultado || '', creadoEn: r.creado_en })),
+  };
+}
+
 async function manejarWhatsappBotConfig(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
     if (req.method === 'POST') {
       if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede cambiar la configuración del bot.' });
-      const { modo, horario, conocimiento, tono, reglasExtra, saludo } = req.body || {};
+      if (req.body?.soloModo !== undefined) {
+        const r = await cambiarModoBot(sql, req.body, sesion);
+        if (!r.ok) return res.status(r.estado).json({ error: r.error });
+        return res.status(200).json(await armarRespuestaConfigBot(sql, sesion));
+      }
+      const { modo, horario, conocimiento, tono, reglasExtra, saludo, numerosPrueba, topeDiario } = req.body || {};
       if (!MODOS_BOT.includes(modo)) return res.status(400).json({ error: 'Modo inválido.' });
+      // Números de prueba y tope diario: opcionales (el panel antiguo de la bandeja no los manda y no deben borrarse).
+      let numerosNuevos = null, topeNuevo = null;
+      try { if (numerosPrueba !== undefined) numerosNuevos = normalizarNumerosPrueba(numerosPrueba); } catch (e) { return res.status(400).json({ error: e.message }); }
+      if (topeDiario !== undefined) { const v = validarTopeDiario(topeDiario); if (!v.ok) return res.status(400).json({ error: v.error }); topeNuevo = v.tope; }
+      if (modo === 'prueba' && !(numerosNuevos ?? (await leerConfigBot(sql)).numerosPrueba).length) return res.status(400).json({ error: 'Agrega al menos un número de prueba antes de activar el modo prueba.' });
       let horarioOk;
       try { horarioOk = validarHorario(horario); } catch (e) { return res.status(400).json({ error: e.message }); }
       const texto = String(conocimiento || '').trim();
@@ -10407,14 +10464,10 @@ async function manejarWhatsappBotConfig(req, res, sesion) {
       await asegurarTablaWhatsappBot(sql);
       await sql`UPDATE whatsapp_bot_config SET modo = ${modo}, horario = ${JSON.stringify(horarioOk)}::jsonb, conocimiento = ${texto}, actualizado_por = ${sesion.nombre || sesion.email || null}, actualizado_en = now() WHERE id = 1;`;
       if (extra) await sql`UPDATE whatsapp_bot_config SET tono = ${extra.t || null}, reglas_extra = ${extra.rg || null}, saludo_activo = ${extra.sa.activo}, saludo_cuando = ${extra.sa.cuando}, saludo_texto = ${extra.sa.texto || null} WHERE id = 1;`;
+      if (numerosNuevos !== null) await sql`UPDATE whatsapp_bot_config SET numeros_prueba = ${JSON.stringify(numerosNuevos)}::jsonb WHERE id = 1;`;
+      if (topeNuevo !== null) await sql`UPDATE whatsapp_bot_config SET tope_diario = ${topeNuevo} WHERE id = 1;`;
     } else if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-    const cfg = await leerConfigBot(sql);
-    return res.status(200).json({
-      ...cfg, esAdmin: sesion.rol === 'admin', apiKeyConfigurada: !!(process.env.GEMINI_API_KEY || '').trim(), modelo: modeloBot(),
-      ahoraAtiendeBot: dentroDeHorarioBot(new Date(), cfg.horario), huecos: huecosDelHorario(cfg.horario),
-      conocimientoDefecto: CONOCIMIENTO_DEFECTO, horarioDefecto: HORARIO_BOT_DEFECTO,
-      saludoDefecto: SALUDO_DEFECTO, reglasBase: REGLAS_NO_PROMETER, limites: LIMITES_BOT,
-    });
+    return res.status(200).json(await armarRespuestaConfigBot(sql, sesion));
   } catch (err) {
     return res.status(500).json({ error: 'Error con la configuración del bot', detail: String(err) });
   }
@@ -10433,6 +10486,7 @@ async function manejarWhatsappBotResumen(req, res, _sesion) {
               COUNT(*) FILTER (WHERE estado = 'enviado_editado')::int AS enviado_editado,
               COUNT(*) FILTER (WHERE estado = 'descartado')::int AS descartado,
               COUNT(*) FILTER (WHERE estado = 'insertado')::int AS insertado,
+              COUNT(*) FILTER (WHERE estado = 'enviado_automatico')::int AS enviado_automatico,
               COUNT(*) FILTER (WHERE estado = 'pendiente')::int AS pendiente,
               COUNT(*) FILTER (WHERE escalar)::int AS escalados,
               COUNT(*) FILTER (WHERE confianza = 'alta')::int AS alta,
@@ -10548,6 +10602,81 @@ async function manejarWhatsappBotProbar(req, res, _sesion) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// ENVÍO AUTOMÁTICO DEL BOT (modo prueba). Cuando llega un mensaje de un NÚMERO DE PRUEBA, el bot prepara la respuesta y la envía solo si la revisión
+// la deja pasar (confianza alta, sin alertas), no hay un ejecutivo conversando y no se superaron los topes. Todo lo demás queda como borrador
+// pendiente, con el motivo guardado en auto_resultado. A los clientes que no están en la lista no se les envía nada: siguen en modo sombra.
+// Las reglas de decisión son puras y están probadas en lib/whatsapp-bot.js (evaluarEnvioAutomatico). Los mensajes del bot se guardan con origen
+// 'bot' para no mezclarlos con las respuestas de los ejecutivos (métricas, ejemplos y aprendizaje).
+// ══════════════════════════════════════════════════════════════════════
+
+async function enviarTextoBot(sql, conversacionId, waId, texto) {
+  const accessToken = (process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+  const phoneNumberId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+  if (!accessToken || !phoneNumberId) return { ok: false, error: 'Faltan las credenciales de WhatsApp en el servidor.' };
+  const textoLimpio = String(texto).trim().slice(0, 4096);
+  const r = await fetchConTimeout(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+    method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to: waId, type: 'text', text: { body: textoLimpio } }),
+  }, 15000);
+  const cuerpo = await r.json().catch(() => ({}));
+  if (!r.ok) return { ok: false, error: cuerpo.error?.message || `Meta HTTP ${r.status}` };
+  await sql`
+    INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto)
+    VALUES (${conversacionId}, ${cuerpo.messages?.[0]?.id || null}, ${new Date().toISOString()}, 'out', 'bot', 'texto', ${textoLimpio})
+    ON CONFLICT (whatsapp_message_id) DO NOTHING;`;
+  // No se toca la "primera respuesta" ni el responsable: esas métricas son de las personas.
+  await sql`UPDATE whatsapp_conversaciones SET cantidad_mensajes = cantidad_mensajes + 1, ultimo_mensaje_resumen = ${textoLimpio.slice(0, 140)}, updated_at = now() WHERE id = ${conversacionId};`;
+  return { ok: true, texto: textoLimpio };
+}
+
+async function atenderConversacionConBot(sql, conversacionId, cfg) {
+  const { rows: contacto } = await sql`SELECT ct.whatsapp_id FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id WHERE c.id = ${conversacionId};`;
+  const waId = contacto[0]?.whatsapp_id;
+  if (!waId || !esNumeroDePrueba(waId, cfg.numerosPrueba)) return; // cliente real: solo borradores (modo sombra), nada que enviar
+
+  const { rows: [m] } = await sql.query(
+    `SELECT EXISTS (SELECT 1 FROM whatsapp_mensajes WHERE conversacion_id = $1 AND direccion = 'out' AND COALESCE(origen, '') <> 'bot' AND marca_tiempo > now() - make_interval(hours => $2::int)) AS humano,
+            (SELECT COUNT(*)::int FROM whatsapp_bot_borradores WHERE estado = 'enviado_automatico' AND creado_en > now() - interval '24 hours') AS hoy,
+            (SELECT COUNT(*)::int FROM whatsapp_bot_borradores WHERE estado = 'enviado_automatico' AND conversacion_id = $1 AND creado_en > now() - interval '1 hour') AS hora;`,
+    [conversacionId, SILENCIO_EJECUTIVO_HORAS]);
+  const reglas = { modo: cfg.modo, esNumeroPrueba: true, enviadosHoy: m.hoy, topeDiario: cfg.topeDiario, enviadosUltimaHora: m.hora, hayRespuestaHumanaReciente: !!m.humano };
+  // Primero las reglas que no dependen de la IA (así no se gastan tokens si igual no se va a enviar).
+  const previo = evaluarEnvioAutomatico({ ...reglas, borrador: { texto: 'x', confianza: 'alta', alertas: [] } });
+  if (!previo.enviar) { console.log(`[whatsapp-bot-auto] conversación ${conversacionId}: no responde. ${previo.motivo}`); return; }
+
+  const r = await generarBorradorBot(sql, conversacionId, { origen: 'auto', quien: 'Bot automático', limiteMs: 40000 });
+  if (!r.ok || r.reutilizado) { console.log(`[whatsapp-bot-auto] conversación ${conversacionId}: no hay borrador nuevo (${r.motivo || 'ya existía uno pendiente'}).`); return; }
+  const b = r.borrador;
+  const anotar = async motivo => { await sql`UPDATE whatsapp_bot_borradores SET auto_resultado = ${String(motivo).slice(0, 300)} WHERE id = ${b.id};`; console.log(`[whatsapp-bot-auto] conversación ${conversacionId}: ${motivo}`); };
+
+  const dec = evaluarEnvioAutomatico({ ...reglas, borrador: b });
+  if (!dec.enviar) return anotar(`No se envió: ${dec.motivo}`);
+
+  // Mientras la IA pensaba, ¿respondió una persona o llegó otro mensaje del cliente? Entonces esta respuesta ya no corresponde: queda como borrador.
+  const { rows: [ult] } = await sql`SELECT id, direccion FROM whatsapp_mensajes WHERE conversacion_id = ${conversacionId} ORDER BY marca_tiempo DESC, id DESC LIMIT 1;`;
+  const { rows: [bd] } = await sql`SELECT mensaje_cliente_id FROM whatsapp_bot_borradores WHERE id = ${b.id};`;
+  if (!ult || ult.direccion !== 'in' || (bd?.mensaje_cliente_id && ult.id !== bd.mensaje_cliente_id)) return anotar('No se envió: la conversación cambió mientras el bot preparaba la respuesta (otro mensaje o una respuesta de una persona).');
+
+  const envio = await enviarTextoBot(sql, conversacionId, waId, b.texto);
+  if (!envio.ok) return anotar(`No se envió: error al enviar por WhatsApp (${envio.error}).`);
+  await sql`UPDATE whatsapp_bot_borradores SET estado = 'enviado_automatico', texto_final = ${envio.texto}, resuelto_por = 'Bot automático', resuelto_en = now(), auto_resultado = ${`Enviado. ${dec.motivo}`} WHERE id = ${b.id};`;
+  await sql`INSERT INTO whatsapp_auditoria (conversacion_id, usuario_email, accion, detalle) VALUES (${conversacionId}, 'Bot automático', 'bot_mensaje_enviado', ${`Envió: "${envio.texto.slice(0, 80)}${envio.texto.length > 80 ? '…' : ''}"`});`;
+  console.log(`[whatsapp-bot-auto] conversación ${conversacionId}: respuesta enviada.`);
+}
+
+// Se llama desde el webhook con las conversaciones que recibieron un mensaje del cliente. Máximo 2 por llamada (el webhook tiene un tiempo limitado).
+async function responderConBotAutomatico(sql, ids) {
+  if (!ids || !ids.size) return;
+  const cfg = await leerConfigBot(sql);
+  if (cfg.modo !== 'prueba' || !(process.env.GEMINI_API_KEY || '').trim()) return;
+  let restantes = 2;
+  for (const id of ids) {
+    if (restantes-- <= 0) break;
+    try { await atenderConversacionConBot(sql, id, cfg); } catch (err) { console.error('[whatsapp-bot-auto] error en la conversación', id, err); }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // APRENDIZAJE DEL BOT (paso 2). Dos fuentes de casos candidatos que una persona revisa antes de que pasen a ser preguntas modelo:
 //  · correcciones: el ejecutivo editó el borrador del bot antes de enviarlo (se registran solas, ver manejarWhatsappBotEstado);
 //  · conversaciones reales: la IA analiza intercambios del historial (anonimizados) y propone respuesta optimizada, problema y regla.
@@ -10642,7 +10771,7 @@ async function analizarCasoBot({ cfg, cliente, respuesta, apiKey, nombres }) {
 const DONDE_POR_ANALIZAR = `c.iniciada_en > now() - interval '180 days' AND ct.es_demo = false
   AND NOT EXISTS (SELECT 1 FROM whatsapp_bot_candidatos x WHERE x.conversacion_id = c.id AND x.tipo = 'conversacion')
   AND EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'in' AND length(COALESCE(m.contenido_texto, '')) >= 15)
-  AND EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'out' AND length(COALESCE(m.contenido_texto, '')) >= 60)
+  AND EXISTS (SELECT 1 FROM whatsapp_mensajes m WHERE m.conversacion_id = c.id AND m.direccion = 'out' AND COALESCE(m.origen, '') <> 'bot' AND length(COALESCE(m.contenido_texto, '')) >= 60)
   AND NOT (c.id = ANY($1::int[]))`;
 async function contarPorAnalizar(sql, omitir = []) {
   const { rows } = await sql.query(`SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones c JOIN whatsapp_contactos ct ON ct.id = c.contacto_id WHERE ${DONDE_POR_ANALIZAR};`, [omitir.map(Number).filter(Number.isInteger)]);
@@ -10665,7 +10794,7 @@ async function extraerCasosReales(sql, { lote = 6, omitir = [] } = {}) {
   for (const c of candidatas) {
     if (Date.now() - inicio > 28000) break;
     try {
-      const { rows: msgs } = await sql`SELECT direccion, tipo, contenido_texto FROM whatsapp_mensajes WHERE conversacion_id = ${c.id} ORDER BY marca_tiempo ASC LIMIT 14;`;
+      const { rows: msgs } = await sql`SELECT direccion, tipo, contenido_texto, origen FROM whatsapp_mensajes WHERE conversacion_id = ${c.id} ORDER BY marca_tiempo ASC LIMIT 14;`;
       const par = extraerIntercambio(msgs);
       if (!par) {
         await crearCandidatoConversacion(sql, { conversacionId: c.id, mensajeCliente: '(sin intercambio útil)', util: false });

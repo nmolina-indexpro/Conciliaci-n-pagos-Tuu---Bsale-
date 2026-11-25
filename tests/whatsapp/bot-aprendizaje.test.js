@@ -95,7 +95,7 @@ test('candidatos: una corrección por borrador, conversación analizada una sola
     assert.equal((await listarCandidatos(sql, { estado: 'rechazado' })).length, 1);
 
     let r = await resumenCandidatos(sql);
-    assert.deepEqual({ ...r }, { pendientes: 2, pendientes_correccion: 1, pendientes_conversacion: 1, aprobados: 0, rechazados: 1 });
+    assert.deepEqual({ ...r }, { pendientes: 2, pendientes_correccion: 1, pendientes_conversacion: 1, pendientes_entrenador: 0, aprobados: 0, rechazados: 1 });
 
     // aprobar con el texto editado por la persona
     const a = await aprobarCandidato(sql, idIa, { pregunta: pend[0].preguntaPropuesta, respuesta: 'Para validar el cargador correcto, ¿me envías el modelo exacto de tu notebook?' }, 'Ana');
@@ -113,7 +113,7 @@ test('candidatos: una corrección por borrador, conversación analizada una sola
 
     assert.equal((await rechazarCandidato(sql, id1, 'Luis')).estado, 404, 'ya aprobado');
     r = await resumenCandidatos(sql);
-    assert.deepEqual({ ...r }, { pendientes: 0, pendientes_correccion: 0, pendientes_conversacion: 0, aprobados: 2, rechazados: 1 });
+    assert.deepEqual({ ...r }, { pendientes: 0, pendientes_correccion: 0, pendientes_conversacion: 0, pendientes_entrenador: 0, aprobados: 2, rechazados: 1 });
     assert.ok((await listarCandidatos(sql, { estado: 'aprobado' })).every(c => c.ejemploId && c.resueltoPor));
   } finally { await db.close(); }
 });

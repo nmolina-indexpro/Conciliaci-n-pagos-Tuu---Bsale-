@@ -43,7 +43,7 @@ function lineasHuecosBot(huecos){
 function renderPanelBot(){
   const c = botPanel.cfg, r = botPanel.resumen, admin = c.esAdmin;
   const dis = admin ? '' : 'disabled';
-  const modoBadge = c.modo === 'apagado' ? '<span class="pm-badge no">apagado</span>' : '<span class="pm-badge ok">modo sombra</span>';
+  const modoBadge = c.modo === 'apagado' ? '<span class="pm-badge no">apagado</span>' : c.modo === 'prueba' ? '<span class="pm-badge ok">modo prueba</span>' : '<span class="pm-badge ok">modo sombra</span>';
   const avisos = [];
   if(!c.apiKeyConfigurada) avisos.push('<b>Falta la GEMINI_API_KEY</b> en el servidor: sin ella el bot no puede redactar.');
   if(!admin) avisos.push('Solo un administrador puede cambiar la configuración. Tú puedes preparar respuestas y ver el rendimiento.');
@@ -70,7 +70,7 @@ function renderPanelBot(){
   const horario = seccionPm('🕒 Modo y horario', `
       <div class="pm-acciones" style="align-items:center;">
         <label for="botModo" style="font-size:12px;font-weight:600;">Modo</label>
-        <select id="botModo" ${dis}><option value="sombra" ${c.modo === 'sombra' ? 'selected' : ''}>Sombra: redacta, tú revisas y envías</option><option value="apagado" ${c.modo === 'apagado' ? 'selected' : ''}>Apagado</option></select>
+        <select id="botModo" ${dis}><option value="sombra" ${c.modo === 'sombra' ? 'selected' : ''}>Sombra: redacta, tú revisas y envías</option><option value="apagado" ${c.modo === 'apagado' ? 'selected' : ''}>Apagado</option><option value="prueba" ${c.modo === 'prueba' ? 'selected' : ''}>Prueba: responde solo a los números de prueba (se configura en Comercial → Bot WhatsApp)</option></select>
         ${modoBadge}
       </div>
       <div id="botHorario"></div>

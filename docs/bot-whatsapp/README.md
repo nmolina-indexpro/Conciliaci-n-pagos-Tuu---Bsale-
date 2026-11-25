@@ -79,6 +79,26 @@ Dos fuentes de **casos candidatos**, que van a Comercial → Bot WhatsApp → �
 - **Privacidad:** antes de guardar o mostrar, se reemplazan teléfonos, correos, RUT, números largos, el nombre del cliente y los enlaces que no son de indexstore.cl. Aun así conviene leer cada caso antes de aprobarlo.
 - **Límites:** cada conversación se analiza una sola vez; las que no sirven (saludo suelto, spam, sin respuesta útil) quedan como rechazadas y no se vuelven a analizar. Cuesta tokens de Gemini: se puede probar con 12.
 
+## 6c. Estado del bot y modo prueba (25-nov-2026)
+
+En Comercial → Bot WhatsApp → Configuración → **Estado del bot** hay tres modos, que un administrador cambia cuando quiera (se aplica al siguiente mensaje que llegue):
+- **Apagado:** no hace nada.
+- **Sombra:** redacta borradores y una persona los revisa y envía. No envía nada solo.
+- **Prueba:** además **responde solo**, pero únicamente a los **números de prueba** (hasta 10, por ejemplo el WhatsApp personal de quien prueba) y a cualquier hora. Los demás clientes quedan en sombra: no reciben nada automático.
+
+Cuando el modo prueba está activo, un aviso visible en todas las pestañas lo indica y trae el botón «Apagar ahora». Apagar o volver a sombra nunca depende de los demás campos del formulario, para que el interruptor no pueda fallar.
+
+**Cuándo envía (reglas, `evaluarEnvioAutomatico`):** número de la lista de prueba, borrador con **confianza alta y sin alertas** de la revisión automática. Si duda, no envía: deja el borrador pendiente (se ve en la conversación) y anota el motivo en «Actividad automática reciente».
+**Cuándo se calla:** si una persona escribió en esa conversación en las últimas 3 horas; si se alcanzó el tope diario (por defecto 30, configurable hasta 500); si ya hubo 6 respuestas automáticas en esa conversación en la última hora; si mientras la IA preparaba la respuesta llegó otro mensaje del cliente o alguien respondió.
+**Cómo queda registrado:** el mensaje se guarda con origen `bot` (no cuenta como respuesta de un ejecutivo en las métricas, no se usa como ejemplo de estilo ni se aprende de él), el borrador pasa a `enviado_automatico` y se anota en la auditoría de la conversación.
+**Prueba real:** escribe desde un número de la lista al número del negocio. Si no responde, mira «Actividad automática reciente» y los registros de Vercel (`[whatsapp-bot-auto]`), que dicen por qué.
+
+**Antes de crear un modo que responda a todos los clientes** (hoy no existe a propósito) hay que resolver:
+1. La bandeja marca «pendiente» según quién escribió el último mensaje: un caso que el bot responde pero que necesita a una persona dejaría de verse como pendiente. Hace falta una alerta «el bot pidió un ejecutivo».
+2. Las métricas de «Ejecutivos WhatsApp» que cuentan mensajes salientes deben separar los del bot.
+3. El «no contactar» (si el cliente responde NO, el bot nunca vuelve a escribirle).
+4. Plantillas aprobadas por Meta y nombre visible aprobado (ver [meta-plantillas.md](meta-plantillas.md)).
+
 ## 7. Hoja de ruta
 
 | Paso | Contenido | Estado |
@@ -88,5 +108,5 @@ Dos fuentes de **casos candidatos**, que van a Comercial → Bot WhatsApp → �
 | 1b | Base oficial, protocolo comercial y 41 casos iniciales | Hecho (este documento) |
 | 2 | Correcciones de ejecutivos → casos candidatos; análisis de conversaciones reales anonimizadas; pestaña «Aprendizaje» para aprobar | Hecho (24-nov-2026) |
 | 3 | Etapas comerciales y ficha de la solicitud (hecho en el ERP); nombre visible y plantillas de Meta (textos y pasos en [meta-plantillas.md](meta-plantillas.md), **lo hace IndexStore en Meta**) | Código hecho; Meta pendiente |
-| 4 | Envío automático con reglas (fuera de horario, confianza alta, sin alertas) | Pendiente |
+| 4 | Envío automático con reglas (confianza alta, sin alertas, tope, se calla si escribe una persona) | **Modo prueba hecho** (solo números de prueba); para todos los clientes: pendiente, ver §6c |
 | 5 | Cotización express desde el bot | Pendiente |
