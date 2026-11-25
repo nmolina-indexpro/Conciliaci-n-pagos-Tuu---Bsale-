@@ -27,6 +27,30 @@ siguen sin comprarse, el recordatorio **se repite cada 3 días**. En cuanto el p
 tránsito, recibidos, entregados y cancelados no generan recordatorio. Editar otros datos (proveedor, notas, etc.) no reinicia la cuenta, solo el cambio de estado.
 Si no hay ningún pedido que cumpla no sale correo. «Enviar prueba» en Usuarios > Notificaciones manda un ejemplo con los pendientes que haya (o datos de ejemplo).
 
+## Consultar precio (cuando el vendedor todavía no tiene el precio)
+
+En «Anotar pedido» se marca la casilla **«Todavía no tengo el precio: consultar precio»**. El producto queda en el estado **Consultar precio** y sale un correo al administrador
+(notificación «Producto a pedido: consulta de precio nueva»). Después:
+
+1. El administrador cotiza y anota en el pedido (Ver / editar → «Precio al cliente») el **precio que se le entrega al cliente, con IVA incluido**. Solo un administrador puede
+   anotar el precio; todos lo ven en la columna **Precio al cliente (IVA incl.)** de la lista (mientras falta aparece «Por cotizar»).
+2. Cuando el cliente acepta, se usa **«Cliente acepta»** (o «El cliente acepta: pasar a pendiente de compra» en la ventana del pedido). **No se puede pasar a Pendiente de compra
+   sin precio.** Desde ahí corren los días de espera prometidos y sale el aviso de «ejecutar la compra».
+3. Si el cliente no lo quiere, se cancela. Un pedido pendiente de compra también puede volver a «Consultar precio».
+
+## Foto de referencia y comentario
+
+Al lado del producto (en el formulario y en la ventana del pedido) hay una caja **Foto de referencia**: se sube o se toma una foto (por ejemplo, la estructura de la pantalla, el
+conector o cualquier detalle) y se escribe un **comentario de la foto**. El navegador la reduce antes de subirla (JPG/PNG/WebP, máximo 1,5 MB). La foto y el comentario se ven en la
+columna **Producto** de la lista; al hacer clic en la foto se abre en grande. Se puede cambiar o quitar cuando se quiera.
+
+## Avisos de cada cambio
+
+Cada vez que se guarda un cambio en un pedido —de estado, un precio, una foto o cualquier dato, por mínimo que sea— sale un correo («Producto a pedido: cada cambio en un pedido») a los
+inscritos en esa notificación (Usuarios > Notificaciones > Compras): nmolina@indexpro.cl y, por defecto, Nathalia; se pueden sumar o quitar personas. El correo dice qué cambió y quién lo hizo,
+**sin montos** (del precio solo dice si se anotó, se modificó o se quitó). Guardar sin cambiar nada no manda correo. Cuando un pedido pasa de «Consultar precio» a «Pendiente de compra» salen
+dos correos: el del cambio y el aviso de ejecutar la compra.
+
 ## Lista de pedidos (segunda pestaña)
 
 Estados: **Pendiente de compra → Comprado → En tránsito → Recibido, por entregar → Entregado** (o **Cancelado**). Se puede saltar pasos y volver atrás.

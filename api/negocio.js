@@ -48,9 +48,10 @@ import { armarResumenSemanal, mesesParaActualizar as mesesResumenVentas, rangoNe
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
 import { armarCorreoCotizacionWebNueva, avisarCotizacionWebNueva } from '../lib/correo-cotizacion-web.js';
 import { META_LIMPIEZAS_MENSUAL, limpiezasPorVendedor, vincularVendedor as vincularVendedorMeta } from '../lib/metas-servicios.js';
-import { DIAS_ESTIMADOS_DEFECTO as DIAS_PEDIDO_PANTALLA, listarPedidos as listarPedidosPP, leerPedido as leerPedidoPP, resumirPedidos as resumirPedidosPP, aplicarCambios as aplicarCambiosPP, crearPedido as crearPedidoPP, reclamarAviso as reclamarAvisoPP, asegurarTablaPedidosPantalla, pedidosParaRecordar as pedidosParaRecordarPP, reclamarRecordatorios as reclamarRecordatoriosPP, soltarRecordatorios as soltarRecordatoriosPP } from '../lib/pedidos-pantalla.js';
+import { DIAS_ESTIMADOS_DEFECTO as DIAS_PEDIDO_PANTALLA, listarPedidos as listarPedidosPP, leerPedido as leerPedidoPP, resumirPedidos as resumirPedidosPP, aplicarCambios as aplicarCambiosPP, crearPedido as crearPedidoPP, reclamarAviso as reclamarAvisoPP, reclamarAvisoPrecio as reclamarAvisoPrecioPP, asegurarTablaPedidosPantalla, pedidosParaRecordar as pedidosParaRecordarPP, reclamarRecordatorios as reclamarRecordatoriosPP, soltarRecordatorios as soltarRecordatoriosPP } from '../lib/pedidos-pantalla.js';
 import { buscarProductos as buscarProductosCatalogoPP } from '../lib/pedidos-pantalla-catalogo.js';
-import { armarCorreoPedidoPantalla, armarCorreoRecordatorioPedidosPantalla } from '../lib/correo-pedido-pantalla.js';
+import { armarCorreoPedidoPantalla, armarCorreoRecordatorioPedidosPantalla, armarCorreoConsultaPrecio, armarCorreoCambioPedido } from '../lib/correo-pedido-pantalla.js';
+import { leerFotoPedido } from '../lib/pedidos-pantalla-foto.js';
 import { armarCorreoInsumosCriticos } from '../lib/correo-insumo.js';
 import { armarIndicadores as armarIndicadoresHome } from '../lib/home-indicadores.js';
 import { filaDesdeBsale as filaContabilidadDesdeBsale, tipoDte, signoDte, CATEGORIAS as CATEGORIAS_CONTABILIDAD, CATEGORIA_IDS as CATEGORIA_IDS_CONTABILIDAD, categoriaEfectiva, resumir as resumirContabilidad, analizarContabilidad } from '../lib/contabilidad.js';
@@ -5766,6 +5767,8 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'transito-envio-nuevo': manejarTransitoEnvioNuevoPrueba,
       'cotizacion-web-nueva': manejarCotizacionWebNuevaPrueba,
       'pedido-pantalla-nuevo': manejarPedidoPantallaPrueba,
+      'producto-consulta-precio': manejarConsultaPrecioPrueba,
+      'pedido-pantalla-cambio': manejarCambioPedidoPrueba,
       'pedido-pantalla-recordatorio': manejarPedidosPantallaRecordatorio,
       'insumos-stock-critico': manejarInsumoCriticoPrueba,
       'nas-informe-revision': manejarNasBackupInformeCron,
@@ -19334,6 +19337,30 @@ async function avisarPedidosPantalla(sql, filas) {
   return enviados;
 }
 
+// Envía el correo `armar(...)` a los inscritos de la notificación `tipo` y guarda el último correo. Nunca hace fallar el guardado del pedido.
+async function enviarAvisoPedido(sql, tipo, armar) {
+  try {
+    await asegurarTablaNotificaciones(sql);
+    if (!(await notificacionDebeEnviarse(sql, tipo))) return 0;
+    const destinatarios = await obtenerSuscriptoresEmail(sql, tipo);
+    const { asunto, html } = armar();
+    let ok = 0;
+    for (const para of destinatarios) { const r = await enviarCorreo({ para, asunto, html }); if (r && r.enviado) ok++; }
+    if (ok > 0) await marcarNotificacionEnviada(sql, tipo, { asunto, html });
+    return ok;
+  } catch (e) { console.warn('[pedidos-pantalla] aviso ' + tipo + ':', e.message); return 0; }
+}
+// Un vendedor anotó un producto sin precio: se avisa una sola vez (reclamarAvisoPrecio) para que se cotice.
+async function avisarConsultaPrecio(sql, p) {
+  try { if (!(await reclamarAvisoPrecioPP(sql, p.id))) return 0; } catch (e) { return 0; }
+  return enviarAvisoPedido(sql, 'producto-consulta-precio', () => armarCorreoConsultaPrecio(p, { urlBase: URL_BASE_APP }));
+}
+// Cada cambio guardado en un pedido (estado, precio, foto o cualquier dato) avisa a los inscritos en 'pedido-pantalla-cambio'.
+async function avisarCambioPedido(sql, p, cambios, usuario) {
+  if (!cambios || !cambios.length) return 0;
+  return enviarAvisoPedido(sql, 'pedido-pantalla-cambio', () => armarCorreoCambioPedido(p, cambios, { urlBase: URL_BASE_APP, usuario }));
+}
+
 async function manejarPedidosPantalla(req, res, sesion) {
   try {
     const sql = await getSql();
@@ -19342,6 +19369,19 @@ async function manejarPedidosPantalla(req, res, sesion) {
     const vista = (f) => ({ ...f, costo_compra: esAdmin ? f.costo_compra : undefined });
 
     if (req.method === 'GET') {
+      if (req.query.foto !== undefined) {
+        // Foto de referencia que subió el vendedor (la sesión ya la exige el middleware). El navegador la guarda en caché: la dirección lleva la fecha de la foto (&v=).
+        const idFoto = Number(req.query.foto);
+        if (!Number.isInteger(idFoto) || idFoto <= 0) return res.status(400).json({ error: 'Pedido no válido' });
+        await asegurarTablaPedidosPantalla(sql);
+        const f = await leerFotoPedido(sql, idFoto);
+        if (!f) return res.status(404).json({ error: 'Este pedido no tiene foto' });
+        res.setHeader('Content-Type', f.tipo);
+        res.setHeader('Content-Length', String(f.buffer.length));
+        res.setHeader('Cache-Control', 'private, max-age=86400');
+        res.setHeader('Content-Disposition', 'inline');
+        return res.status(200).end(f.buffer);
+      }
       if (req.query.buscar !== undefined) {
         // Búsqueda de productos del catálogo (SKU, modelo y foto) para el formulario; el tope evita ráfagas de consultas a Shopify mientras se escribe.
         const limite = limitarMemoria('pp-buscar:' + (sesion.uid || sesion.email), 60, 60000);
@@ -19360,14 +19400,21 @@ async function manejarPedidosPantalla(req, res, sesion) {
       if (!Number.isInteger(Number(id))) return res.status(400).json({ error: 'Falta el pedido' });
       const r = await aplicarCambiosPP(sql, Number(id), cambios, { usuario, esAdmin });
       if (r.error) return res.status(r.status || 400).json({ error: r.error });
-      return res.status(200).json({ ok: true, pedido: vista(await leerPedidoPP(sql, Number(id))) });
+      const completo = await leerPedidoPP(sql, Number(id));
+      // Cada cambio que se guarda avisa a los inscritos en la notificación de cambios; y si el pedido sale de "consultar precio" hacia "pendiente de compra" también sale el aviso de compra.
+      let avisos = 0;
+      if (r.cambios && r.cambios.length) {
+        avisos += await avisarCambioPedido(sql, completo, r.cambios, usuario);
+        if (r.anterior === 'consultar_precio' && completo.estado === 'pendiente_compra') avisos += await avisarPedidosPantalla(sql, [completo]);
+      }
+      return res.status(200).json({ ok: true, pedido: vista(completo), avisos });
     }
 
     if (req.method === 'POST') {
       const r = await crearPedidoPP(sql, req.body || {}, { usuario });
       if (r.error) return res.status(r.status || 400).json({ error: r.error });
       const completo = await leerPedidoPP(sql, r.fila.id);
-      const avisos = await avisarPedidosPantalla(sql, [completo]);
+      const avisos = completo.estado === 'consultar_precio' ? await avisarConsultaPrecio(sql, completo) : await avisarPedidosPantalla(sql, [completo]);
       return res.status(200).json({ ok: true, pedido: vista(completo), avisos });
     }
     return res.status(405).json({ error: 'Method not allowed' });
@@ -19393,6 +19440,27 @@ async function manejarPedidoPantallaPrueba(req, res) {
     return res.status(200).json({ error: 'No se pudo armar el correo de prueba', detail: String(e.message || e).slice(0, 200) });
   }
 }
+// "Enviar prueba" de las notificaciones de consulta de precio y de cambios: arman el correo con el pedido más reciente (o con uno de ejemplo) y lo mandan solo a quien lo pidió.
+async function pruebaCorreoProducto(req, res, tipo) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaPedidosPantalla(sql);
+    const { rows } = await sql.query('SELECT id FROM pedidos_pantalla ORDER BY creado_en DESC LIMIT 1');
+    const real = rows[0] ? await leerPedidoPP(sql, rows[0].id) : null;
+    const p = real || { id: 1, cliente_nombre: 'Cliente de ejemplo', cliente_telefono: '+56 9 1234 5678', cliente_comuna: 'Providencia', modelo: 'HP Pavilion 15-eg0010la', producto_sku: 'PNORMAL156LED30', estado: 'consultar_precio', foto_comentario: 'Conector abajo a la izquierda', tiene_foto: true, actualizado_por: 'Usuario de ejemplo' };
+    const { asunto, html } = tipo === 'consulta'
+      ? armarCorreoConsultaPrecio(p, { urlBase: URL_BASE_APP, ejemplo: !real })
+      : armarCorreoCambioPedido(p, ['Estado: Consultar precio → Pendiente de compra', 'Precio al cliente (con IVA): se anotó', 'Foto adjunta: se agregó'], { urlBase: URL_BASE_APP, usuario: p.actualizado_por || 'Usuario de ejemplo', ejemplo: !real });
+    const r = await enviarCorreo({ para: String(req.query.para || ''), asunto: '[PRUEBA] ' + asunto, html });
+    return res.status(200).json({ ok: true, enviado: !!(r && r.enviado), motivo: r && r.motivo });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo armar el correo de prueba', detail: String(e.message || e).slice(0, 200) });
+  }
+}
+const manejarConsultaPrecioPrueba = (req, res) => pruebaCorreoProducto(req, res, 'consulta');
+const manejarCambioPedidoPrueba = (req, res) => pruebaCorreoProducto(req, res, 'cambio');
 // Cron diario (13:10 UTC): recordatorio de pedidos que llevan 3 o más días pendientes de compra, repetido cada 3 días hasta que se marquen como comprados.
 // Un solo correo con todos. Solo sale si hay pedidos. ?probar=1&para=... ("Enviar prueba") manda lo que haya sin marcar nada (o un ejemplo si no hay pedidos).
 async function manejarPedidosPantallaRecordatorio(req, res) {

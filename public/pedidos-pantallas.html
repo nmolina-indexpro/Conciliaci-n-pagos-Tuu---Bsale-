@@ -105,7 +105,7 @@
   th.fp-proy{background:#D2EAE6;color:var(--primary-dark);}
   .fp-resumen{font-size:12.5px;color:var(--muted);margin:6px 0 10px;}
 
-  .pp-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:0 0 18px;}
+  .pp-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:0 0 18px;}
   @media (max-width:1000px){.pp-kpis{grid-template-columns:repeat(2,1fr);}}
   .pp-kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;cursor:pointer;box-shadow:var(--shadow);}
   .pp-kpi:hover{border-color:var(--primary);}
@@ -146,6 +146,20 @@
   .pp-elegido img{width:88px;height:88px;object-fit:contain;border-radius:8px;background:#fff;}
   .pp-prodcelda{display:flex;gap:10px;align-items:center;min-width:220px;}
   .pp-foto{width:44px;height:44px;object-fit:contain;border-radius:6px;background:var(--surface-2);flex:none;}
+  /* Foto de referencia que sube el vendedor (al lado del producto) y cómo se ve en la columna Producto */
+  .pp-prodlayout{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;align-items:start;}
+  @media (max-width:820px){.pp-prodlayout{grid-template-columns:1fr;}}
+  .pp-fotobox{border:1px dashed var(--line);border-radius:12px;padding:10px 12px;background:var(--surface-2);display:flex;flex-direction:column;gap:8px;}
+  .pp-fotobox > label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;}
+  .pp-fotoprev{min-height:120px;border-radius:10px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--muted);font-size:12.5px;text-align:center;padding:6px;}
+  .pp-fotoprev img{max-width:100%;max-height:200px;object-fit:contain;display:block;cursor:zoom-in;}
+  .pp-fotobox textarea{width:100%;font-size:12.5px;}
+  .pp-fotobox .pp-fotoacc{display:flex;gap:6px;flex-wrap:wrap;}
+  .pp-adjunta{display:flex;gap:8px;align-items:flex-start;margin-top:8px;padding-top:6px;border-top:1px dashed var(--line);max-width:300px;}
+  .pp-adjunta img{width:56px;height:56px;object-fit:cover;border-radius:6px;background:var(--surface-2);flex:none;cursor:zoom-in;}
+  .pp-adjunta span{font-size:12px;color:var(--muted);line-height:1.35;white-space:normal;}
+  .pp-precio-sin{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:700;background:var(--amber-dim);color:var(--amber);white-space:nowrap;}
+  .pp-consulta-check{background:var(--amber-dim);border:1px solid var(--amber);border-radius:12px;padding:10px 14px;margin:0 0 12px;}
   .pp-factura{display:inline-block;margin-top:3px;padding:1px 8px;border-radius:999px;background:var(--blue-bg);color:var(--blue);font-size:11px;font-weight:700;}
   .pp-sin{color:var(--muted);font-size:12px;}
   .pp-filtros{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;}
@@ -153,10 +167,12 @@
   .pp-mensaje{display:none;position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:200;max-width:90vw;padding:10px 18px;border-radius:10px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.2);}
   .pp-mensaje.ok{background:#1F2A24;color:#fff;} .pp-mensaje.error{background:var(--red);color:#fff;}
   .pp-estado{display:inline-block;padding:2px 10px;border-radius:999px;font-weight:700;font-size:11px;white-space:nowrap;background:var(--surface-2);color:var(--muted);}
+  .pp-e-consultar_precio{background:#EFE7FB;color:#6B3FB5;}
   .pp-e-pendiente_compra{background:var(--amber-dim);color:var(--amber);} .pp-e-comprado{background:var(--blue-bg);color:var(--blue);}
   .pp-e-en_transito{background:var(--primary-dim);color:var(--primary);} .pp-e-recibido{background:var(--green-bg);color:var(--green);}
   .pp-e-cancelado{background:var(--red-bg);color:var(--red);}
   tr.pp-pendiente_compra td{background:#FFFBF2;}
+  tr.pp-consultar_precio td{background:#FBF8FF;}
   .pp-mal{color:var(--red);font-weight:600;font-size:12px;}
   #ppModal{width:min(820px,100%);}
   .pp-error{color:var(--red);font-size:12.5px;min-height:16px;margin:6px 0;}
@@ -298,6 +314,7 @@
       <div><label for="ppEstado">Mostrar</label>
         <select id="ppEstado" onchange="pintarTabla()">
           <option value="activos">Pedidos activos</option>
+          <option value="consultar_precio">Consultar precio</option>
           <option value="pendiente_compra">Pendientes de compra</option>
           <option value="comprado">Comprados</option>
           <option value="en_transito">En tránsito</option>
@@ -326,18 +343,19 @@
 <script>
 const $ = id => document.getElementById(id);
 let rolActual = 'usuario', datos = { pedidos: [], resumen: null, esAdmin: false, diasPorDefecto: 20 };
-const ETIQUETA = { pendiente_compra: 'Pendiente de compra', comprado: 'Comprado', en_transito: 'En tránsito', recibido: 'Recibido, por entregar', entregado: 'Entregado', cancelado: 'Cancelado' };
-const ORDEN_ESTADO = { pendiente_compra: 0, comprado: 1, en_transito: 2, recibido: 3, entregado: 4, cancelado: 5 };
-const ACTIVOS = ['pendiente_compra', 'comprado', 'en_transito', 'recibido'];
+const ETIQUETA = { consultar_precio: 'Consultar precio', pendiente_compra: 'Pendiente de compra', comprado: 'Comprado', en_transito: 'En tránsito', recibido: 'Recibido, por entregar', entregado: 'Entregado', cancelado: 'Cancelado' };
+const ORDEN_ESTADO = { consultar_precio: 0, pendiente_compra: 1, comprado: 2, en_transito: 3, recibido: 4, entregado: 5, cancelado: 6 };
+const ACTIVOS = ['consultar_precio', 'pendiente_compra', 'comprado', 'en_transito', 'recibido'];
 const MEDIOS = { link_pago: 'Link de pago', transferencia: 'Transferencia', shopify: 'Shopify' };
 // Mismos cambios de estado que permite el servidor (lib/pedidos-pantalla.js): [estado, texto del botón, ¿pide confirmar?]
 const TRANSICIONES = {
-  pendiente_compra: [['comprado', '🛒 Marcar comprado'], ['en_transito', '🚚 Pasar a en tránsito'], ['cancelado', 'Cancelar pedido', true]],
+  consultar_precio: [['pendiente_compra', '✅ El cliente acepta: pasar a pendiente de compra'], ['cancelado', 'Cancelar pedido', true]],
+  pendiente_compra: [['comprado', '🛒 Marcar comprado'], ['en_transito', '🚚 Pasar a en tránsito'], ['consultar_precio', 'Volver a consultar precio'], ['cancelado', 'Cancelar pedido', true]],
   comprado: [['en_transito', '🚚 Pasar a en tránsito'], ['recibido', '📦 Marcar recibido'], ['pendiente_compra', 'Volver a pendiente'], ['cancelado', 'Cancelar pedido', true]],
   en_transito: [['recibido', '📦 Marcar recibido'], ['comprado', 'Volver a comprado'], ['cancelado', 'Cancelar pedido', true]],
   recibido: [['entregado', '✔ Marcar entregado'], ['en_transito', 'Volver a en tránsito']],
   entregado: [['recibido', 'Reabrir']],
-  cancelado: [['pendiente_compra', 'Reabrir como pendiente']],
+  cancelado: [['pendiente_compra', 'Reabrir como pendiente'], ['consultar_precio', 'Reabrir como consulta de precio']],
 };
 const DIAS_RAPIDOS = [15, 18, 20, 22, 25];
 
@@ -417,11 +435,17 @@ async function recargar(){
 function pintarKpis(){
   const r = datos.resumen, p = r.porEstado;
   const nPend = p.pendiente_compra || 0;
-  $('ppAlerta').innerHTML = nPend
-    ? `<div class="pp-alerta">🔔 <b>${nPend} pedido${nPend === 1 ? '' : 's'} pendiente${nPend === 1 ? '' : 's'} de compra al proveedor.</b>${r.pendienteMasAntiguoDias != null ? ` El más antiguo lleva ${r.pendienteMasAntiguoDias} día${r.pendienteMasAntiguoDias === 1 ? '' : 's'} esperando.` : ''} <button class="btn-primary" onclick="filtrarEstado('pendiente_compra')">Ver pendientes de compra</button></div>`
-    : '';
+  const nCons = p.consultar_precio || 0, sinPrecio = r.consultasSinPrecio || 0;
+  $('ppAlerta').innerHTML =
+    (nCons
+      ? `<div class="pp-alerta">💲 <b>${nCons} consulta${nCons === 1 ? '' : 's'} de precio.</b>${sinPrecio ? ` ${sinPrecio} sin precio todavía${r.consultaMasAntiguaDias ? ` (la más antigua lleva ${r.consultaMasAntiguaDias} día${r.consultaMasAntiguaDias === 1 ? '' : 's'})` : ''}.` : ' Todas tienen precio: falta que el cliente acepte.'} <button class="btn-primary" onclick="filtrarEstado('consultar_precio')">Ver consultas de precio</button></div>`
+      : '') +
+    (nPend
+      ? `<div class="pp-alerta">🔔 <b>${nPend} pedido${nPend === 1 ? '' : 's'} pendiente${nPend === 1 ? '' : 's'} de compra al proveedor.</b>${r.pendienteMasAntiguoDias != null ? ` El más antiguo lleva ${r.pendienteMasAntiguoDias} día${r.pendienteMasAntiguoDias === 1 ? '' : 's'} esperando.` : ''} <button class="btn-primary" onclick="filtrarEstado('pendiente_compra')">Ver pendientes de compra</button></div>`
+      : '');
   const tarjeta = (titulo, n, sub, cls, estado) => `<div class="pp-kpi ${cls || ''}" onclick="filtrarEstado('${estado}')" title="Ver estos pedidos"><span>${titulo}</span><b>${fmtNum(n)}</b><small>${sub || ''}</small></div>`;
   $('ppKpis').innerHTML =
+    tarjeta('Consultar precio', nCons, sinPrecio ? `${sinPrecio} sin precio todavía` : 'esperando al cliente', sinPrecio ? 'alerta' : '', 'consultar_precio') +
     tarjeta('Pendientes de compra', nPend, r.vencidos ? `${r.vencidos} ya pasaron la fecha prometida` : 'falta comprarlos', nPend ? 'alerta' : '', 'pendiente_compra') +
     tarjeta('Comprados', p.comprado || 0, 'esperando salida del proveedor', '', 'comprado') +
     tarjeta('En tránsito', p.en_transito || 0, r.atrasados ? `${r.atrasados} con la llegada atrasada` : 'viniendo a Chile', r.atrasados ? 'aviso' : '', 'en_transito') +
@@ -430,7 +454,7 @@ function pintarKpis(){
 }
 
 // ---------- Formulario (sirve para anotar un pedido nuevo y para editar uno) ----------
-const resultadosBusqueda = {}, temporizadores = {};
+const resultadosBusqueda = {}, temporizadores = {}, fotosNuevas = {}, fotoQuitada = {};
 function campo(pref, id, etiqueta, valor, { tipo = 'text', extra = '', ancho = '' } = {}){
   return `<div class="pp-campo ${ancho}"><label for="${pref}_${id}">${etiqueta}</label><input type="${tipo}" id="${pref}_${id}" value="${escapeHtml(valor ?? '')}" ${extra}></div>`;
 }
@@ -440,7 +464,11 @@ function formularioHtml(pref, p){
   const abonoSi = !!p.abono_realizado;
   const fact = !!p.requiere_factura;
   const fuera = !!p.fuera_catalogo;
-  return `
+  // Foto de referencia: en un pedido que ya existe se muestra la guardada (la dirección lleva la fecha para que el navegador no use una versión vieja).
+  fotosNuevas[pref] = null; fotoQuitada[pref] = false;
+  const fotoGuardada = p.tiene_foto && p.id ? `/api/negocio?recurso=pedidos-pantalla&foto=${p.id}&v=${encodeURIComponent(p.foto_actualizada_en || '')}` : '';
+  const consulta = pref === 'n' ? `<div class="pp-consulta-check"><label class="pp-check" style="margin:0;"><input type="checkbox" id="${pref}_consulta"> <b>Todavía no tengo el precio:</b> consultar precio (se anota ahora y el administrador lo cotiza; después se pasa a pendiente de compra)</label></div>` : '';
+  return consulta + `
     <fieldset class="pp-seccion"><legend>1. Cliente</legend>
       <div class="pp-grid">
         ${campo(pref, 'nombre', 'Nombre del cliente *', p.cliente_nombre, { extra: 'maxlength="120" autocomplete="off"' })}
@@ -459,6 +487,7 @@ function formularioHtml(pref, p){
     </fieldset>
 
     <fieldset class="pp-seccion"><legend>2. Producto</legend>
+     <div class="pp-prodlayout"><div>
       <label class="pp-check"><input type="checkbox" id="${pref}_fuera" ${fuera ? 'checked' : ''} onchange="alternarFuera('${pref}')"> Este producto <b>no está en el catálogo</b> (lo anoto a mano)</label>
       <div class="pp-campo" id="${pref}_bloqueCatalogo" style="${fuera ? 'display:none;' : ''}"><label for="${pref}_buscar">Buscar en el catálogo de la tienda (por SKU, nombre o modelo)</label>
         <input type="text" id="${pref}_buscar" placeholder="Ej: pavilion 15, PSLIM156, cargador, batería…" autocomplete="off" oninput="programarBusqueda('${pref}')">
@@ -472,6 +501,16 @@ function formularioHtml(pref, p){
         ${campo(pref, 'parte', 'N° de parte / referencia (opcional)', p.numero_parte, { extra: 'maxlength="120"' })}
       </div>
       <div class="pp-nota">Elige el producto de la lista y se llenan el nombre, el SKU y la foto. Si no está en el catálogo, marca la casilla de arriba y descríbelo a mano.</div>
+     </div>
+     <div class="pp-fotobox">
+        <label for="${pref}_fotocom">📷 Foto de referencia (opcional)</label>
+        <div class="pp-fotoprev" id="${pref}_fotoprev" data-guardada="${escapeHtml(fotoGuardada)}">${fotoGuardada ? `<img src="${escapeHtml(fotoGuardada)}" alt="Foto adjunta" onclick="window.open(this.src, '_blank')">` : 'Sin foto. Sirve para ver la estructura de la pantalla, el conector o cualquier detalle.'}</div>
+        <input type="file" id="${pref}_fotofile" accept="image/*" style="display:none;" onchange="elegirFoto('${pref}', this)">
+        <div class="pp-fotoacc"><button type="button" class="btn-ghost btn-compact" onclick="$('${pref}_fotofile').click()">📷 Subir o tomar foto</button> <button type="button" class="btn-ghost btn-compact" id="${pref}_fotoquitar" style="${fotoGuardada ? '' : 'display:none;'}" onclick="quitarFotoAdjunta('${pref}')">Quitar foto</button></div>
+        <textarea id="${pref}_fotocom" rows="3" maxlength="500" placeholder="Comentario de la foto (ej.: conector abajo a la izquierda, 40 pines, marco delgado)">${escapeHtml(p.foto_comentario || '')}</textarea>
+        <div id="${pref}_fotoerr" class="pp-error" style="margin:0;"></div>
+      </div>
+     </div>
     </fieldset>
 
     <fieldset class="pp-seccion"><legend>3. Abono y tiempo de espera</legend>
@@ -493,6 +532,49 @@ function poner(id, v){ const e = $(id); if(e) e.value = v; }
 function marcarChips(pref){
   const v = Number(($(pref + '_dias') || {}).value);
   document.querySelectorAll('#' + pref + '_dias ~ .pp-chip').forEach(b => b.classList.toggle('activo', Number(b.dataset.d) === v));
+}
+// ---------- Foto de referencia ----------
+// La foto se reduce en el navegador (máx. 1280 px, JPG) antes de subirla: pesa ~150 KB y no se pasa del tope del servidor.
+function reducirImagen(archivo, maxLado = 1280){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(archivo);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const esc = Math.min(1, maxLado / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(img.width * esc)); c.height = Math.max(1, Math.round(img.height * esc));
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      let q = 0.82, d = c.toDataURL('image/jpeg', q);
+      while(d.length > 1500000 && q > 0.4){ q -= 0.1; d = c.toDataURL('image/jpeg', q); }
+      d.length > 1900000 ? reject(new Error('La foto sigue siendo demasiado grande. Prueba con otra.')) : resolve(d);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo leer la foto (usa JPG, PNG o WebP).')); };
+    img.src = url;
+  });
+}
+async function elegirFoto(pref, input){
+  const f = input.files && input.files[0]; input.value = '';
+  const err = $(pref + '_fotoerr'); err.textContent = '';
+  if(!f) return;
+  if(!/^image\//.test(f.type)){ err.textContent = 'El archivo debe ser una imagen.'; return; }
+  try{
+    const d = await reducirImagen(f);
+    fotosNuevas[pref] = d; fotoQuitada[pref] = false;
+    $(pref + '_fotoprev').innerHTML = `<img src="${d}" alt="Foto nueva" onclick="window.open(this.src, '_blank')">`;
+    $(pref + '_fotoquitar').style.display = '';
+  }catch(e){ err.textContent = e.message; }
+}
+function quitarFotoAdjunta(pref){
+  const guardada = $(pref + '_fotoprev').dataset.guardada;
+  if(fotosNuevas[pref] && guardada){ // se arrepiente de la foto nueva: vuelve a mostrar la que ya estaba guardada
+    fotosNuevas[pref] = null; fotoQuitada[pref] = false;
+    $(pref + '_fotoprev').innerHTML = `<img src="${escapeHtml(guardada)}" alt="Foto adjunta" onclick="window.open(this.src, '_blank')">`;
+    return;
+  }
+  fotosNuevas[pref] = null; fotoQuitada[pref] = !!guardada;
+  $(pref + '_fotoprev').innerHTML = 'Sin foto. Sirve para ver la estructura de la pantalla, el conector o cualquier detalle.';
+  $(pref + '_fotoquitar').style.display = 'none';
+  const com = $(pref + '_fotocom'); if(com && fotoQuitada[pref]) com.value = '';
 }
 // Producto que no está en el catálogo: se oculta el buscador y el SKU, se limpia lo que se había elegido de la tienda y el nombre se escribe a mano.
 function alternarFuera(pref){
@@ -516,6 +598,8 @@ function leerFormulario(pref){
     cliente_nombre: v('nombre'), cliente_telefono: v('tel'), cliente_email: v('email'), cliente_comuna: v('comuna'),
     requiere_factura: factura, fact_rut: factura ? v('rut') : '', fact_razon_social: factura ? v('razon') : '', fact_giro: factura ? v('giro') : '', fact_direccion: factura ? v('direccion') : '', fact_comuna: factura ? v('comunaFact') : '',
     modelo: v('modelo'), producto_sku: v('sku'), producto_imagen: v('imagen'), producto_url: v('url'), fuera_catalogo: $(pref + '_fuera').checked, numero_parte: v('parte'),
+    foto_comentario: v('fotocom'), ...(fotosNuevas[pref] ? { foto_base64: fotosNuevas[pref] } : {}), ...(fotoQuitada[pref] ? { quitar_foto: true } : {}),
+    ...($(pref + '_consulta') && $(pref + '_consulta').checked ? { estado: 'consultar_precio' } : {}),
     abono_realizado: abono, abono: abono ? v('monto') : '', abono_medio: abono ? v('medio') : '', dias_estimados: v('dias'), nota_interna: v('nota'),
   };
 }
@@ -579,7 +663,7 @@ async function guardarNuevo(){
     await recargar();
     $('ppEstado').value = 'activos'; $('ppBuscar').value = '';
     verTab('lista');
-    mostrarMensaje(`Pedido ${numeroPedido(d.pedido.id)} anotado: ${d.pedido.cliente_nombre} · ${d.pedido.modelo}.`, 'ok');
+    mostrarMensaje(`${d.pedido.estado === 'consultar_precio' ? 'Consulta de precio' : 'Pedido'} ${numeroPedido(d.pedido.id)} anotad${d.pedido.estado === 'consultar_precio' ? 'a' : 'o'}: ${d.pedido.cliente_nombre} · ${d.pedido.modelo}.`, 'ok');
   }catch(err){ $('nError').textContent = err.message; $('nError').scrollIntoView({ block: 'center', behavior: 'smooth' }); }
   finally{ b.disabled = false; }
 }
@@ -587,12 +671,19 @@ async function guardarNuevo(){
 // ---------- Lista ----------
 function celdaEspera(p){
   if(!p.dias_estimados) return '<td data-valor=""><span class="sub" style="margin:0;">—</span></td>';
+  if(p.estado === 'consultar_precio') return `<td data-valor=""><b>${p.dias_estimados} días</b><br><span class="sub" style="margin:0;">corren desde que el cliente acepte</span></td>`;
   let estado = '';
   if(['pendiente_compra', 'comprado', 'en_transito'].includes(p.estado) && p.fecha_prometida){
     const d = diasEntre(hoyChile(), String(p.fecha_prometida).slice(0, 10));
     estado = d < 0 ? `<br><span class="pp-mal">pasó la fecha hace ${-d} día${d === -1 ? '' : 's'}</span>` : d === 0 ? '<br><b>vence hoy</b>' : `<br><span class="sub" style="margin:0;">faltan ${d} día${d === 1 ? '' : 's'}</span>`;
   }
   return `<td data-valor="${escapeHtml(p.fecha_prometida || '')}"><b>${p.dias_estimados} días</b>${p.fecha_prometida ? '<br><span class="sub" style="margin:0;">hasta el ' + fechaCorta(p.fecha_prometida) + '</span>' : ''}${estado}</td>`;
+}
+// Foto de referencia del vendedor + su comentario, dentro de la columna Producto (la foto abre en grande en otra pestaña).
+function adjuntaCelda(p){
+  if(!p.tiene_foto && !p.foto_comentario) return '';
+  const url = `/api/negocio?recurso=pedidos-pantalla&foto=${p.id}&v=${encodeURIComponent(p.foto_actualizada_en || '')}`;
+  return `<div class="pp-adjunta">${p.tiene_foto ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="Ver la foto en grande"><img src="${escapeHtml(url)}" alt="Foto adjunta" loading="lazy"></a>` : ''}<span>${p.foto_comentario ? '📝 ' + escapeHtml(p.foto_comentario) : '<i>Foto sin comentario</i>'}</span></div>`;
 }
 function celdaCompra(p){
   if(!p.proveedor && !p.fecha_eta && !['comprado', 'en_transito', 'recibido', 'entregado'].includes(p.estado)) return '<td data-valor=""><span class="sub" style="margin:0;">—</span></td>';
@@ -603,7 +694,18 @@ function celdaCompra(p){
   }else if(p.fecha_eta) llegada = `<br>llegada ${fechaCorta(p.fecha_eta)}`;
   return `<td data-valor="${escapeHtml(p.fecha_eta || '')}">${escapeHtml(p.proveedor || 'Sin proveedor')}${p.referencia_compra ? ' · <span class="sub" style="margin:0;">' + escapeHtml(p.referencia_compra) + '</span>' : ''}${llegada}</td>`;
 }
+// Precio que se le entrega al cliente (con IVA incluido): lo anota un administrador; todos lo ven.
+function celdaPrecio(p){
+  const n = Number(p.precio_cliente) || 0;
+  if(n > 0) return `<td class="amount" data-valor="${n}"><b>${fmtMoneda(n)}</b><br><span class="sub" style="margin:0;">IVA incluido</span></td>`;
+  if(p.estado === 'consultar_precio') return '<td class="amount" data-valor="0"><span class="pp-precio-sin">⏳ Por cotizar</span></td>';
+  return '<td class="amount" data-valor="-1"><span class="sub" style="margin:0;">—</span></td>';
+}
 function botonRapido(p){
+  if(p.estado === 'consultar_precio'){
+    if(!(Number(p.precio_cliente) > 0)) return datos.esAdmin ? `<button class="btn-primary btn-compact" onclick="abrirModal(${p.id}, 'precio')">Anotar precio</button>` : '';
+    return `<button class="btn-primary btn-compact" onclick="cambiarEstado(${p.id}, 'pendiente_compra')" title="El cliente aceptó el precio">Cliente acepta</button>`;
+  }
   const sig = { pendiente_compra: ['__comprar', 'Marcar comprado'], comprado: ['en_transito', 'En tránsito'], en_transito: ['recibido', 'Marcar recibido'], recibido: ['entregado', 'Marcar entregado'] }[p.estado];
   if(!sig) return '';
   return sig[0] === '__comprar'
@@ -619,16 +721,16 @@ function pintarTabla(){
     $('ppTabla').innerHTML = '<p class="empty-note">' + (datos.pedidos.length ? 'No hay pedidos con ese filtro.' : 'Todavía no hay pedidos. Usa «Anotar pedido» para ingresar el primero.') + '</p>';
     return;
   }
-  $('ppTabla').innerHTML = '<table id="tablaPedidos"><thead><tr><th>N°</th><th>Cliente</th><th>Producto</th><th class="amount">Abono</th><th>Espera dicha al cliente</th><th>Estado</th><th>Compra al proveedor</th><th data-sin-orden>Acciones</th></tr></thead><tbody>' +
+  $('ppTabla').innerHTML = '<table id="tablaPedidos"><thead><tr><th>N°</th><th>Cliente</th><th>Producto</th><th class="amount">Precio al cliente (IVA incl.)</th><th class="amount">Abono</th><th>Espera dicha al cliente</th><th>Estado</th><th>Compra al proveedor</th><th data-sin-orden>Acciones</th></tr></thead><tbody>' +
     filas.map(p => {
       const wa = telefonoWa(p.cliente_telefono);
       const cliente = `<b>${escapeHtml(p.cliente_nombre || 'Sin nombre')}</b>${p.cliente_telefono ? '<br>' + (wa ? `<a href="https://wa.me/${wa}" target="_blank" rel="noopener noreferrer" title="Escribir por WhatsApp">💬 ${escapeHtml(p.cliente_telefono)}</a>` : escapeHtml(p.cliente_telefono)) : ''}${p.cliente_email ? '<br><span class="sub" style="margin:0;">' + escapeHtml(p.cliente_email) + '</span>' : ''}${p.cliente_comuna ? '<br><span class="sub" style="margin:0;">' + escapeHtml(p.cliente_comuna) + '</span>' : ''}${p.requiere_factura ? `<br><span class="pp-factura" title="${escapeHtml((p.fact_razon_social || '') + ' · ' + (p.fact_rut || ''))}">🧾 Factura</span>` : ''}`;
       const foto = p.producto_imagen ? `<img class="pp-foto" src="${escapeHtml(fotoMini(p.producto_imagen, 96))}" alt="" loading="lazy">` : '<span class="pp-foto pp-sinfoto">📦</span>';
-      const producto = `<div class="pp-prodcelda">${foto}<div><b>${escapeHtml(p.modelo || 'Sin producto')}</b>${p.producto_sku ? '<br><span class="sub" style="margin:0;">SKU ' + escapeHtml(p.producto_sku) + '</span>' : ''}${p.fuera_catalogo ? '<br><span class="sub" style="margin:0;">fuera de catálogo</span>' : ''}${p.numero_parte ? '<br><span class="sub" style="margin:0;">N° ' + escapeHtml(p.numero_parte) + '</span>' : ''}</div></div>`;
+      const producto = `<div class="pp-prodcelda">${foto}<div><b>${escapeHtml(p.modelo || 'Sin producto')}</b>${p.producto_sku ? '<br><span class="sub" style="margin:0;">SKU ' + escapeHtml(p.producto_sku) + '</span>' : ''}${p.fuera_catalogo ? '<br><span class="sub" style="margin:0;">fuera de catálogo</span>' : ''}${p.numero_parte ? '<br><span class="sub" style="margin:0;">N° ' + escapeHtml(p.numero_parte) + '</span>' : ''}</div></div>${adjuntaCelda(p)}`;
       const abono = p.abono_realizado ? `<b>${fmtMoneda(p.abono)}</b><br><span class="sub" style="margin:0;">${escapeHtml(MEDIOS[p.abono_medio] || '')}</span>` : '<span class="pp-sin">Sin abono</span>';
       return `<tr class="pp-${escapeHtml(p.estado)}"><td data-valor="${p.id}"><b>${numeroPedido(p.id)}</b><br><span class="sub" style="margin:0;">${fechaCorta(p.fecha_pedido)}</span></td>` +
         `<td data-valor="${escapeHtml(p.cliente_nombre || '')}">${cliente}</td><td data-valor="${escapeHtml(p.modelo || '')}">${producto}</td>` +
-        `<td class="amount" data-valor="${p.abono_realizado ? Number(p.abono) || 0 : 0}">${abono}</td>` + celdaEspera(p) +
+        celdaPrecio(p) + `<td class="amount" data-valor="${p.abono_realizado ? Number(p.abono) || 0 : 0}">${abono}</td>` + celdaEspera(p) +
         `<td data-valor="${ORDEN_ESTADO[p.estado] ?? 9}"><span class="pp-estado pp-e-${escapeHtml(p.estado)}">${escapeHtml(ETIQUETA[p.estado] || p.estado)}</span></td>` + celdaCompra(p) +
         `<td style="white-space:nowrap;">${botonRapido(p)} <button class="btn-ghost btn-compact" onclick="abrirModal(${p.id})">Ver / editar</button></td></tr>`;
     }).join('') + '</tbody></table>';
@@ -640,6 +742,9 @@ function mensajeWa(p){
   const n = (p.cliente_nombre || '').split(' ')[0] || '';
   const modelo = p.modelo || 'tu producto';
   if(p.estado === 'comprado' || p.estado === 'en_transito') return `Hola ${n}, te escribimos de IndexStore: tu pedido (${modelo}) ya fue comprado${p.estado === 'en_transito' ? ' y viene en camino' : ''}.` + (p.fecha_eta ? ` Estimamos que llega cerca del ${fechaCorta(p.fecha_eta)}.` : '') + ' Te avisamos apenas lo tengamos.';
+  if(p.estado === 'consultar_precio') return Number(p.precio_cliente) > 0
+    ? `Hola ${n}, te escribimos de IndexStore por el producto que consultaste (${modelo}). El precio es ${fmtMoneda(p.precio_cliente)} con IVA incluido, con un plazo estimado de unos ${p.dias_estimados || datos.diasPorDefecto} días. ¿Lo dejamos pedido?`
+    : `Hola ${n}, te escribimos de IndexStore: estamos consultando el precio de ${modelo} y te respondemos apenas lo tengamos.`;
   if(p.estado === 'recibido') return `Hola ${n}, ya llegó tu pedido (${modelo}). Puedes pasar a retirarlo o coordinamos el envío.`;
   return `Hola ${n}, te escribimos de IndexStore por tu pedido (${modelo}). El plazo estimado es de unos ${p.dias_estimados || datos.diasPorDefecto} días.`;
 }
@@ -654,6 +759,14 @@ function abrirModal(id, paraComprar){
     <h3>${numeroPedido(p.id)} · ${escapeHtml(p.cliente_nombre || 'Sin nombre')} <span class="pp-estado pp-e-${escapeHtml(p.estado)}">${escapeHtml(ETIQUETA[p.estado] || p.estado)}</span></h3>
     <div class="sub" style="margin-bottom:12px;">Anotado el ${fechaCorta(p.fecha_pedido)}${p.actualizado_por ? ' · última edición: ' + escapeHtml(p.actualizado_por) : ''}${wa ? ` · <a href="https://wa.me/${wa}?text=${encodeURIComponent(mensajeWa(p))}" target="_blank" rel="noopener noreferrer">💬 Escribirle por WhatsApp</a>` : ''}</div>
     ${formularioHtml('e', p)}
+    <fieldset class="pp-seccion"><legend>3b. Precio al cliente</legend>
+      ${esAdmin
+        ? `<div class="pp-grid">${campo('e', 'precio', 'Precio que se le entrega al cliente (IVA incluido)', p.precio_cliente != null ? Math.round(Number(p.precio_cliente)) : '', { tipo: 'number', extra: 'min="1" step="1" placeholder="Ej: 59990"' })}</div>
+           <div class="pp-nota">${p.estado === 'consultar_precio' ? 'El vendedor espera este precio. Anótalo y avísale; cuando el cliente acepte, usa «El cliente acepta».' : 'Se muestra a todos los vendedores en la lista.'}${p.precio_cliente_por ? ` Anotado por ${escapeHtml(p.precio_cliente_por)}.` : ''}</div>`
+        : (Number(p.precio_cliente) > 0
+            ? `<p style="margin:0;font-size:15px;"><b>${fmtMoneda(p.precio_cliente)}</b> <span class="sub" style="margin:0;">IVA incluido${p.precio_cliente_por ? ' · anotado por ' + escapeHtml(p.precio_cliente_por) : ''}</span></p>`
+            : '<p class="sub" style="margin:0;">Todavía sin precio: lo anota un administrador.</p>')}
+    </fieldset>
     <fieldset class="pp-seccion"><legend>4. Compra al proveedor</legend>
       <div class="pp-grid">
         ${campo('e', 'prov', 'Proveedor', p.proveedor, { extra: 'maxlength="120" placeholder="Dónde se compra"' })}
@@ -668,13 +781,14 @@ function abrirModal(id, paraComprar){
     <details style="margin-top:12px;"><summary class="sub" style="cursor:pointer;margin:0;">Historial (${(p.historial || []).length})</summary><ul class="pp-historial">${historial}</ul></details>`;
   mostrarElegido('e'); marcarChips('e');
   $('ppModalOverlay').classList.add('open');
-  if(paraComprar) setTimeout(() => { const f = $('e_prov'); if(f) f.focus(); }, 80);
+  if(paraComprar) setTimeout(() => { const f = $(paraComprar === 'precio' ? 'e_precio' : 'e_prov'); if(f) f.focus(); }, 80);
 }
 function cerrarModal(){ $('ppModalOverlay').classList.remove('open'); modalId = null; }
 function cuerpoModal(){
   const c = leerFormulario('e');
   c.proveedor = $('e_prov').value; c.referencia_compra = $('e_ref').value; c.fecha_eta = $('e_eta').value;
   if($('e_costo')) c.costo_compra = $('e_costo').value;
+  if($('e_precio')) c.precio_cliente = $('e_precio').value;
   return c;
 }
 async function enviarCambios(cuerpo){
