@@ -9,6 +9,10 @@
 // Se elige el recurso con ?recurso=criticos, ?recurso=reportes o
 // ?recurso=zoho-tickets.
 import { asegurarTablaRespuestasRapidas, listarRespuestas, crearRespuesta, actualizarRespuesta, eliminarRespuesta } from '../lib/whatsapp-respuestas-rapidas.js';
+import {
+  asegurarBandejaWhatsapp, listarEtiquetas, crearEtiqueta, actualizarEtiqueta, eliminarEtiqueta, asignarEtiqueta, marcarLeidaYSincronizar, accionConversacion,
+  sqlArchivada, sqlNoLeidos, sqlBotEstado, sqlEtiquetasJson, COLORES_ETIQUETA,
+} from '../lib/whatsapp-bandeja.js';
 
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaIndexscaleLeadsWeb, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, asegurarTablaDescuentosWeb, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
 import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, validarEmbudo as validarEmbudoBuscadorIa, validarDescuentoEvento as validarDescuentoEventoBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
@@ -475,6 +479,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-usuarios') return manejarWhatsappUsuarios(req, res, sesion);
   if (recurso === 'whatsapp-respuestas-rapidas') return manejarWhatsappRespuestasRapidas(req, res, sesion);
   if (recurso === 'whatsapp-marcar-leida') return manejarWhatsappMarcarLeida(req, res, sesion);
+  if (recurso === 'whatsapp-bandeja') return manejarWhatsappBandeja(req, res, sesion);
   if (recurso === 'whatsapp-debug-categoria') return manejarWhatsappDebugCategoria(req, res, sesion);
   if (recurso === 'whatsapp-media') return manejarWhatsappMedia(req, res, sesion);
   if (recurso === 'compra-agil-ordenes') return manejarCompraAgilOrdenes(req, res, sesion);
@@ -9121,16 +9126,46 @@ async function manejarWhatsappMarcarLeida(req, res, _sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
-    const { rows } = await sql`
-      UPDATE whatsapp_conversaciones
-      SET leida_hasta = GREATEST(now(), COALESCE((SELECT MAX(m.marca_tiempo) FROM whatsapp_mensajes m WHERE m.conversacion_id = whatsapp_conversaciones.id), now()))
-      WHERE id = ${id}
-      RETURNING leida_hasta;
-    `;
-    if (!rows.length) return res.status(404).json({ error: 'Conversación no encontrada' });
-    return res.status(200).json({ ok: true, leidaHasta: new Date(rows[0].leida_hasta).toISOString() });
+    await asegurarBandejaWhatsapp(sql);
+    // Además de guardarla en el ERP, avisa a WhatsApp que el chat fue leído (si había mensajes sin leer y están las credenciales de Meta)
+    const r = await marcarLeidaYSincronizar(sql, id, {
+      accessToken: (process.env.WHATSAPP_ACCESS_TOKEN || '').trim(),
+      phoneNumberId: (process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim(),
+    });
+    if (!r.ok) return res.status(r.estado).json({ error: r.error });
+    return res.status(200).json({ ok: true, leidaHasta: r.leidaHasta, whatsapp: r.whatsapp });
   } catch (err) {
     return res.status(500).json({ error: 'Error al marcar la conversación como leída', detail: String(err) });
+  }
+}
+
+// Bandeja estilo WhatsApp Business: archivar, "marcar como no leído" y etiquetas con color.
+//   GET                                   -> { etiquetas, colores, esAdmin }
+//   POST { accion: 'archivar'|'desarchivar'|'no_leida', id }
+//   POST { accion: 'etiqueta', id, etiquetaId, asignar }               (cualquier usuario: etiquetar una conversación)
+//   POST { accion: 'etiqueta-crear'|'etiqueta-editar'|'etiqueta-eliminar', ... }   (solo administrador: administrar las etiquetas)
+async function manejarWhatsappBandeja(req, res, sesion) {
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    await asegurarBandejaWhatsapp(sql);
+    const esAdmin = sesion.rol === 'admin';
+    if (req.method === 'POST') {
+      const b = req.body || {};
+      const accion = String(b.accion || '');
+      let r;
+      if (accion === 'etiqueta') r = await asignarEtiqueta(sql, b.id, b.etiquetaId, b.asignar !== false, sesion.nombre || sesion.email || null);
+      else if (['etiqueta-crear', 'etiqueta-editar', 'etiqueta-eliminar'].includes(accion)) {
+        if (!esAdmin) return res.status(403).json({ error: 'Solo un administrador puede administrar las etiquetas.' });
+        r = accion === 'etiqueta-crear' ? await crearEtiqueta(sql, b) : accion === 'etiqueta-editar' ? await actualizarEtiqueta(sql, b.etiquetaId, b) : await eliminarEtiqueta(sql, b.etiquetaId);
+      } else r = await accionConversacion(sql, b.id, accion);
+      if (!r.ok) return res.status(r.estado).json({ error: r.error });
+      return res.status(200).json({ ok: true, etiquetasConversacion: r.etiquetas, etiquetas: await listarEtiquetas(sql), colores: COLORES_ETIQUETA, esAdmin });
+    }
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(200).json({ etiquetas: await listarEtiquetas(sql), colores: COLORES_ETIQUETA, esAdmin });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error en la bandeja de WhatsApp', detail: String(err) });
   }
 }
 
@@ -9404,6 +9439,12 @@ function armarFiltrosConversacionesWhatsapp(query, sesion) {
   else if (query.vista === 'mias' && sesion?.uid) cond.push(`c.responsable_id = ${p(sesion.uid)}`);
   // 'todas' o vacío: sin condición extra.
 
+  // Bandeja estilo WhatsApp (bandeja=1): las archivadas salen de la lista y se ven aparte (archivadas=1). La tabla de supervisión no manda "bandeja" y ve todo.
+  if (query.bandeja === '1') cond.push(query.archivadas === '1' ? sqlArchivada('c') : `NOT ${sqlArchivada('c')}`);
+  if (query.etiqueta && Number.isInteger(Number(query.etiqueta))) {
+    cond.push(`EXISTS (SELECT 1 FROM whatsapp_conversacion_etiquetas ce WHERE ce.conversacion_id = c.id AND ce.etiqueta_id = ${p(Number(query.etiqueta))})`);
+  }
+
   if (query.desde) cond.push(`c.iniciada_en >= ${p(query.desde + 'T00:00:00')}`);
   if (query.hasta) cond.push(`c.iniciada_en <= ${p(query.hasta + 'T23:59:59')}`);
   if (query.estado) cond.push(`c.estado = ${p(query.estado)}`);
@@ -9475,6 +9516,8 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
   try {
     const sql = await getSql();
     await asegurarTablaWhatsapp(sql);
+    await asegurarBandejaWhatsapp(sql);
+    if (req.method === 'GET' && !req.query.ping) await asegurarTablaWhatsappBot(sql); // la lista consulta los borradores del bot (indicador del bot)
 
     if (req.method === 'GET' && req.query.ping) {
       // Chequeo liviano para la actualización automática de la bandeja: una "huella" que cambia cuando llega o se envía un mensaje, se edita una
@@ -9545,7 +9588,8 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
            c.id, c.iniciada_en, c.estado, c.intencion, c.categoria, c.producto, c.marca, c.modelo,
            ${primeraRespuestaRealSQL()} AS primera_respuesta_segundos, c.resultado, c.motivo_perdida, c.venta_detectada, c.venta_monto,
            c.requiere_seguimiento, c.seguimiento_en, c.seguimiento_estado, c.seguimiento_observaciones, c.cantidad_mensajes, c.ultimo_mensaje_resumen,
-           c.responsable_id, c.vendedor_detectado, c.campos_editados_manualmente, c.leida_hasta,
+           c.responsable_id, c.vendedor_detectado, c.campos_editados_manualmente, c.leida_hasta, c.no_leida_manual,
+           ${sqlNoLeidos('c')} AS no_leidos, ${sqlArchivada('c')} AS archivada, ${sqlBotEstado('c')} AS bot_estado, ${sqlEtiquetasJson('c')} AS etiquetas_json,
            c.shopify_producto_url, c.shopify_producto_titulo, c.shopify_producto_confianza,
            c.bsale_documento_numero, c.bsale_documento_tipo, c.bsale_documento_monto, c.bsale_documento_fecha, c.bsale_documento_url,
            c.fuente_tipo, c.fuente_titulo, c.fuente_url, c.fuente_id, c.fuente_ref, c.fuente_utm_source,
@@ -9581,10 +9625,12 @@ async function manejarWhatsappConversaciones(req, res, sesion) {
       );
 
       const ct = contadorRows[0] || {};
+      const { rows: archRows } = await sql.query(`SELECT COUNT(*)::int AS n FROM whatsapp_conversaciones c WHERE ${sqlArchivada('c')}`);
       return res.status(200).json({
         conversaciones: rows.map(mapearConversacionWhatsapp),
         total, page, pageSize, totalPaginas: Math.max(1, Math.ceil(total / pageSize)),
         contadores: {
+          archivadas: archRows[0]?.n || 0,
           pendientes: ct.pendientes || 0, mias: ct.mias || 0, todas: ct.todas || 0,
           sinAsignar: ct.sin_asignar || 0, seguimientosHoyOVencidos: ct.seguimientos_hoy_o_vencidos || 0,
         },
@@ -9706,6 +9752,11 @@ function mapearConversacionWhatsapp(r) {
     ultimoMensajeDireccion: r.ultimo_mensaje_direccion || null,
     ultimoMensajeEn: r.ultimo_mensaje_en ? new Date(r.ultimo_mensaje_en).toISOString() : null,
     leidaHasta: r.leida_hasta ? new Date(r.leida_hasta).toISOString() : null, // hasta cuándo se dio por vista (ver whatsapp-marcar-leida)
+    noLeidos: r.no_leidos || 0, // mensajes del cliente sin leer ni responder
+    noLeidaManual: r.no_leida_manual === true, // "marcar como no leído" a mano
+    archivada: r.archivada === true,
+    botEstado: r.bot_estado || null, // 'en_curso' (borrador del bot pendiente) | 'respondida' (se contestó con el bot) | null
+    etiquetas: Array.isArray(r.etiquetas_json) ? r.etiquetas_json : [], // [{ id, nombre, color }]
     shopifyProductoUrl: r.shopify_producto_url,
     shopifyProductoTitulo: r.shopify_producto_titulo,
     shopifyProductoConfianza: r.shopify_producto_confianza,
@@ -9753,6 +9804,8 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
     // Las consultas no dependen unas de otras: se lanzan juntas (antes eran ~12 viajes a la base uno tras otro y la conversación tardaba en abrirse).
     // Lo único encadenado es contacto -> cliente de Bsale -> cotizaciones, que corre en paralelo con todo lo demás.
     await asegurarWaClicsAdsUnaVezWaAds(sql);
+    await asegurarBandejaWhatsapp(sql);
+    await asegurarTablaWhatsappBot(sql);
     const pContacto = sql`
       SELECT ct.*, (SELECT COUNT(*)::int FROM whatsapp_conversaciones WHERE contacto_id = ct.id) AS total_conversaciones_real
       FROM whatsapp_contactos ct WHERE ct.id = ${conv.contacto_id};
@@ -9764,7 +9817,7 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
     });
     const [
       { rows: contactoRows }, { clienteBsale, cotizacionesCliente }, { rows: adsRows }, { rows: mensajes }, { rows: analisisRows },
-      { rows: auditoria }, { rows: etiquetas }, { rows: ventaRows }, { rows: notasInternas },
+      { rows: auditoria }, { rows: etiquetas }, { rows: ventaRows }, { rows: notasInternas }, { rows: bandejaRows },
     ] = await Promise.all([
       pContacto,
       pBsale,
@@ -9773,9 +9826,9 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
       sql`SELECT * FROM whatsapp_analisis_ia WHERE conversacion_id = ${id};`,
       sql`SELECT * FROM whatsapp_auditoria WHERE conversacion_id = ${id} ORDER BY created_at DESC LIMIT 30;`,
       sql`
-        SELECT e.nombre FROM whatsapp_conversacion_etiquetas ce
+        SELECT e.id, e.nombre, COALESCE(e.color, '#8696A0') AS color FROM whatsapp_conversacion_etiquetas ce
         JOIN whatsapp_etiquetas e ON e.id = ce.etiqueta_id
-        WHERE ce.conversacion_id = ${id};
+        WHERE ce.conversacion_id = ${id} ORDER BY e.orden, e.nombre;
       `,
       sql`SELECT * FROM whatsapp_ventas WHERE conversacion_id = ${id} ORDER BY created_at DESC LIMIT 1;`,
       sql`
@@ -9783,6 +9836,7 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
         FROM whatsapp_notas_internas n LEFT JOIN usuarios u ON u.id = n.usuario_id
         WHERE n.conversacion_id = ${id} ORDER BY n.created_at ASC;
       `,
+      sql.query(`SELECT ${sqlArchivada('c')} AS archivada, ${sqlNoLeidos('c')} AS no_leidos, ${sqlBotEstado('c')} AS bot_estado FROM whatsapp_conversaciones c WHERE c.id = $1`, [id]),
     ]);
     const contacto = contactoRows[0];
 
@@ -9798,7 +9852,8 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
 
     return res.status(200).json({
       conversacion: {
-        ...mapearConversacionWhatsapp({ ...conv, ads_origen: adsRows[0]?.ads_origen || null, primera_respuesta_segundos: conv.primera_respuesta_segundos ?? primeraRespuestaDesdeMensajes(mensajes), cliente_nombre: contacto?.nombre, cliente_telefono: contacto?.telefono, probabilidad_compra: analisisRows[0]?.probabilidad_compra }),
+        ...mapearConversacionWhatsapp({ ...conv, ads_origen: adsRows[0]?.ads_origen || null, primera_respuesta_segundos: conv.primera_respuesta_segundos ?? primeraRespuestaDesdeMensajes(mensajes), cliente_nombre: contacto?.nombre, cliente_telefono: contacto?.telefono, probabilidad_compra: analisisRows[0]?.probabilidad_compra,
+          archivada: bandejaRows[0]?.archivada, no_leidos: bandejaRows[0]?.no_leidos, bot_estado: bandejaRows[0]?.bot_estado, etiquetas_json: etiquetas }),
         pedidoAsociado: conv.pedido_asociado,
       },
       ventanaAbierta, ventanaExpiraEn,

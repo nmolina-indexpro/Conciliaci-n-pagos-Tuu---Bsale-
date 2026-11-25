@@ -318,6 +318,7 @@ async function cargarSesionUsuario(){
     }
     cargarUsuariosActivos();
     cargarRespuestasRapidas();
+    cargarEtiquetasWa();
     // Vínculo real desde Cotizaciones y ventas (coincidencia de teléfono) --
     // ?abrirConversacion=123 abre directo la bandeja en esa conversación en
     // vez del Dashboard por defecto.
@@ -488,6 +489,8 @@ async function cargarDashboard(){
 // servidor, solo re-renderiza lo ya cargado (convState.ultimaData).
 let convState = {
   page: 1, pageSize: 200, q: '', filtros: {}, orden: 'fecha_desc', total: 0, totalPaginas: 1,
+  archivadas: false, // true: la bandeja muestra solo los chats archivados
+  etiqueta: null, // id de la etiqueta por la que se filtra la bandeja
   vista: 'todas', // pestaña de la bandeja (arranca en Todas): pendientes | mias | todas
   vistaUI: 'bandeja', // bandeja | tabla
   columnasExtendidas: false,
@@ -519,8 +522,12 @@ const WA_ICONO = {
   sugerir: '<svg viewBox="0 0 24 24"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25L19 9zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12l-5.5-2.5zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25L19 15z"/></svg>',
   nota: '<svg viewBox="0 0 24 24"><path d="M19 3H4.99C3.89 3 3 3.9 3 5l.01 14c0 1.1.89 2 1.99 2h10l6-6V5c0-1.1-.9-2-2-2zM7 8h10v2H7V8zm5 6H7v-2h5v2zm2 5.5V14h5.5L14 19.5z"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>',
+  etiqueta: '<svg viewBox="0 0 24 24"><path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/></svg>',
+  archivar: '<svg viewBox="0 0 24 24"><path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z"/></svg>',
+  desarchivar: '<svg viewBox="0 0 24 24"><path d="M20.55 5.22l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.15.55L3.46 5.22C3.17 5.57 3 6.01 3 6.5V19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.49-.17-.93-.45-1.28zM12 9.5l5.5 5.5H14v2h-4v-2H6.5L12 9.5zM5.12 5l.82-1h12l.93 1H5.12z"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>',
 };
-const WA_AVATAR = '<svg viewBox="0 0 212 212"><path d="M106 106c-17.5 0-31.7-14.2-31.7-31.7S88.5 42.6 106 42.6s31.7 14.2 31.7 31.7S123.5 106 106 106zm0 15.8c-29.4 0-88.9 14.8-88.9 44.4v22.2h177.8v-22.2c0-29.6-59.5-44.4-88.9-44.4z"/></svg>';
+const WA_AVATAR ='<svg viewBox="0 0 212 212"><path d="M106 106c-17.5 0-31.7-14.2-31.7-31.7S88.5 42.6 106 42.6s31.7 14.2 31.7 31.7S123.5 106 106 106zm0 15.8c-29.4 0-88.9 14.8-88.9 44.4v22.2h177.8v-22.2c0-29.6-59.5-44.4-88.9-44.4z"/></svg>';
 const WA_TICK = {
   enviado: '<svg viewBox="0 0 16 11" class="tick" aria-label="Enviado"><path d="M1.5 5.8 4.8 9 10.5 1.8"/></svg>',
   entregado: '<svg viewBox="0 0 16 11" class="tick" aria-label="Entregado"><path d="M1 5.8 4.2 9 9.8 1.8M6 7.4 7.2 9 13.5 1.2"/></svg>',
@@ -558,6 +565,241 @@ function etiquetaDia(iso){
   return d.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric', timeZone: TZ_CHILE });
 }
 const SIN_SELECCION_HTML = `<div class="sin-seleccion">${WA_ICONO.chat}<div class="sin-titulo">Conversaciones de WhatsApp</div><div>Selecciona un chat de la lista para ver los mensajes y responder.</div></div>`;
+
+// ---------------- Bandeja: archivados, etiquetas y menú del chat (como en WhatsApp Business) ----------------
+let etiquetasWa = [], coloresEtiqueta = [], bandejaEsAdmin = false;
+let ewFormAbierto = false, ewEditandoId = null, ewBorrador = { nombre: '', color: '#3FC1B0' };
+let menuFlotantePos = { x: 0, y: 0 };
+
+async function cargarEtiquetasWa(){
+  try{
+    const r = await fetch('/api/negocio?recurso=whatsapp-bandeja');
+    const d = await r.json();
+    if (r.ok && !d.error) { etiquetasWa = d.etiquetas || []; coloresEtiqueta = d.colores || []; bandejaEsAdmin = !!d.esAdmin; }
+  }catch(err){ /* sin etiquetas: la bandeja funciona igual */ }
+  if ($('listaIndicadores')) renderListaIndicadores(convState.contadores);
+  if (!ewFormAbierto) renderPanelEtiquetasWa(); // no se redibuja mientras alguien edita una etiqueta
+}
+async function bandejaPost(cuerpo){
+  const res = await fetch('/api/negocio?recurso=whatsapp-bandeja', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok || d.error) throw new Error(d.error || 'No se pudo completar la acción.');
+  if (d.etiquetas) { etiquetasWa = d.etiquetas; coloresEtiqueta = d.colores || coloresEtiqueta; }
+  return d;
+}
+// La conversación puede estar en la lista, en el detalle abierto o en las dos: se busca en ambos sitios
+const convPorId = id => (convState.ultimaData || []).find(c => c.id === id) || (detalleBandejaActual && detalleBandejaActual.conversacion.id === id ? detalleBandejaActual.conversacion : null);
+// Aplica un cambio a la conversación en pantalla (lista y detalle) sin esperar al servidor
+function cambiarLocal(id, cambios){
+  const enLista = (convState.ultimaData || []).find(c => c.id === id);
+  if (enLista) Object.assign(enLista, cambios);
+  if (detalleBandejaActual && detalleBandejaActual.conversacion.id === id) Object.assign(detalleBandejaActual.conversacion, cambios);
+  repintarFila(id);
+}
+function repintarFila(id){
+  const c = (convState.ultimaData || []).find(x => x.id === id);
+  const fila = document.querySelector(`#listaItemsBandeja .item-conv[data-id="${id}"]`);
+  if (c && fila) fila.outerHTML = itemConvHtml(c);
+}
+
+// ---- Menú flotante (clic derecho o flecha de la fila, selector de etiquetas, filtro de etiquetas) ----
+function cerrarMenuFlotante(){ const m = document.getElementById('menuFlotante'); if (m) m.remove(); }
+function mostrarMenuFlotante(x, y, html){
+  cerrarMenuFlotante();
+  menuFlotantePos = { x, y };
+  const m = document.createElement('div');
+  m.id = 'menuFlotante'; m.className = 'menu-flotante'; m.innerHTML = html;
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(x, window.innerWidth - r.width - 8)) + 'px';
+  m.style.top = Math.max(8, Math.min(y, window.innerHeight - r.height - 8)) + 'px';
+}
+document.addEventListener('mousedown', e => { if (!(e.target.closest && e.target.closest('#menuFlotante, .item-menu-btn, #chipEtiquetas, .btn-etiquetar-wa'))) cerrarMenuFlotante(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarMenuFlotante(); });
+document.addEventListener('scroll', e => { if (!(e.target && e.target.closest && e.target.closest('#menuFlotante'))) cerrarMenuFlotante(); }, true);
+
+function abrirMenuChat(ev, id){
+  if (ev.preventDefault) ev.preventDefault();
+  if (ev.stopPropagation) ev.stopPropagation();
+  const c = convPorId(id);
+  if (!c) return;
+  const noLeida = conversacionNoLeida(c);
+  mostrarMenuFlotante(ev.clientX, ev.clientY, `
+    <button onclick="accionChat(${id}, '${c.archivada ? 'desarchivar' : 'archivar'}')">${c.archivada ? WA_ICONO.desarchivar : WA_ICONO.archivar}<span>${c.archivada ? 'Desarchivar chat' : 'Archivar chat'}</span></button>
+    <button onclick="accionChat(${id}, '${noLeida ? 'leida' : 'no_leida'}')">${WA_ICONO.chat}<span>${noLeida ? 'Marcar como leído' : 'Marcar como no leído'}</span></button>
+    <button onclick="abrirSelectorEtiquetas(${id}, menuFlotantePos.x, menuFlotantePos.y)">${WA_ICONO.etiqueta}<span>Etiquetar chat</span><span class="flecha">›</span></button>`);
+}
+async function accionChat(id, accion, sinAviso){
+  cerrarMenuFlotante();
+  if (accion === 'leida') { marcarLeidaConversacion(id); return; }
+  if (accion === 'no_leida') {
+    cambiarLocal(id, { noLeidaManual: true });
+    try{ await bandejaPost({ accion: 'no_leida', id }); }
+    catch(err){ cambiarLocal(id, { noLeidaManual: false }); alert(err.message); }
+    return;
+  }
+  const archivar = accion === 'archivar';
+  // La fila sale (o entra) de la lista al instante; el servidor confirma y se vuelve a pedir la lista en silencio
+  const fila = document.querySelector(`#listaItemsBandeja .item-conv[data-id="${id}"]`);
+  if (fila) fila.remove();
+  convState.contadores = { ...convState.contadores, archivadas: Math.max(0, ((convState.contadores || {}).archivadas || 0) + (archivar ? 1 : -1)) };
+  cambiarLocal(id, { archivada: archivar });
+  if (id === conversacionSeleccionadaId && detalleBandejaActual) renderChatBandeja(detalleBandejaActual, {});
+  try{
+    await bandejaPost({ accion, id });
+    if (!sinAviso) mostrarToast(archivar ? 'Chat archivado' : 'Chat desarchivado', 'Deshacer', () => accionChat(id, archivar ? 'desarchivar' : 'archivar', true));
+  }catch(err){ alert(err.message); }
+  cargarConversaciones({ silencioso: true });
+}
+function mostrarToast(texto, accionTexto, accionFn){
+  const previo = document.getElementById('toastWa'); if (previo) previo.remove();
+  const t = document.createElement('div');
+  t.id = 'toastWa'; t.className = 'toast-wa';
+  t.innerHTML = `<span>${escapeHtml(texto)}</span>${accionTexto ? `<button type="button">${escapeHtml(accionTexto)}</button>` : ''}`;
+  if (accionTexto) t.querySelector('button').onclick = () => { t.remove(); accionFn(); };
+  document.body.appendChild(t);
+  setTimeout(() => { if (t.parentNode) t.remove(); }, 6000);
+}
+
+// ---- Etiquetar un chat ----
+function abrirSelectorEtiquetas(id, x, y){
+  const c = convPorId(id);
+  if (!c) return;
+  if (!etiquetasWa.length) { mostrarMenuFlotante(x, y, '<div class="menu-vacio">Todavía no hay etiquetas. Un administrador las crea en Configuración, al final de la página.</div>'); return; }
+  const marcadas = new Set((c.etiquetas || []).map(e => e.id));
+  mostrarMenuFlotante(x, y, `<div class="menu-titulo">Etiquetar chat</div>` + etiquetasWa.map(e => `
+    <button class="menu-etiqueta" onclick="alternarEtiquetaChat(${id}, ${e.id})"><span class="punto-etiqueta" style="background:${escapeHtml(e.color)};"></span><span class="nom">${escapeHtml(e.nombre)}</span><span class="check">${marcadas.has(e.id) ? '✓' : ''}</span></button>`).join(''));
+}
+function abrirSelectorEtiquetasDesdeBoton(ev, id){
+  ev.stopPropagation();
+  if (document.getElementById('menuFlotante')) { cerrarMenuFlotante(); return; }
+  const r = ev.currentTarget.getBoundingClientRect();
+  abrirSelectorEtiquetas(id, r.right - 240, r.bottom + 6);
+}
+async function alternarEtiquetaChat(id, etiquetaId){
+  const c = convPorId(id), e = etiquetasWa.find(x => x.id === etiquetaId);
+  if (!c || !e) return;
+  const antes = c.etiquetas || [];
+  const tiene = antes.some(x => x.id === etiquetaId);
+  const orden = x => etiquetasWa.findIndex(y => y.id === x.id);
+  const despues = (tiene ? antes.filter(x => x.id !== etiquetaId) : [...antes, { id: e.id, nombre: e.nombre, color: e.color }]).sort((a, b) => orden(a) - orden(b));
+  cambiarLocal(id, { etiquetas: despues });
+  abrirSelectorEtiquetas(id, menuFlotantePos.x, menuFlotantePos.y);
+  refrescarFichaEtiquetas(id);
+  try{
+    const d = await bandejaPost({ accion: 'etiqueta', id, etiquetaId, asignar: !tiene });
+    cambiarLocal(id, { etiquetas: d.etiquetasConversacion || despues });
+  }catch(err){
+    cambiarLocal(id, { etiquetas: antes });
+    alert(err.message);
+  }
+  if (document.getElementById('menuFlotante')) abrirSelectorEtiquetas(id, menuFlotantePos.x, menuFlotantePos.y);
+  refrescarFichaEtiquetas(id);
+}
+// La ficha ("Info. del contacto") muestra las etiquetas del chat abierto: se vuelve a dibujar cuando cambian
+function refrescarFichaEtiquetas(id){
+  if (detalleBandejaActual && detalleBandejaActual.conversacion.id === id && id === conversacionSeleccionadaId) renderFichaBandeja(detalleBandejaActual);
+}
+
+// ---- Filtrar la bandeja por etiqueta ----
+function abrirMenuFiltroEtiquetas(ev){
+  ev.stopPropagation();
+  if (document.getElementById('menuFlotante')) { cerrarMenuFlotante(); return; }
+  const r = ev.currentTarget.getBoundingClientRect();
+  mostrarMenuFlotante(r.left, r.bottom + 6, `<div class="menu-titulo">Filtrar por etiqueta</div>` +
+    (convState.etiqueta ? `<button onclick="filtrarPorEtiqueta(null)">${WA_ICONO.cerrar}<span>Quitar filtro</span></button>` : '') +
+    (etiquetasWa.length ? etiquetasWa.map(e => `
+      <button class="menu-etiqueta ${convState.etiqueta === e.id ? 'activa' : ''}" onclick="filtrarPorEtiqueta(${e.id})"><span class="punto-etiqueta" style="background:${escapeHtml(e.color)};"></span><span class="nom">${escapeHtml(e.nombre)}</span><span class="n">${fmtNum(e.total)}</span></button>`).join('')
+      : '<div class="menu-vacio">Todavía no hay etiquetas.</div>'));
+}
+function filtrarPorEtiqueta(id){
+  cerrarMenuFlotante();
+  convState.etiqueta = id; convState.page = 1;
+  cargarConversaciones();
+}
+
+// ---- Administración de etiquetas (sección Configuración) ----
+function renderPanelEtiquetasWa(){
+  const p = $('panelEtiquetasWa');
+  if (!p) return;
+  const filas = etiquetasWa.map(e => `
+    <tr>
+      <td>${chipEtiquetaHtml(e)}</td>
+      <td data-valor="${e.total}">${fmtNum(e.total)}</td>
+      ${bandejaEsAdmin ? `<td style="white-space:nowrap;"><button class="btn-ghost btn-compact" onclick="editarEtiquetaWa(${e.id})">✏️ Editar</button> <button class="btn-ghost btn-compact" onclick="eliminarEtiquetaWa(${e.id})">🗑️ Eliminar</button></td>` : ''}
+    </tr>`).join('');
+  const tabla = etiquetasWa.length ? `
+    <div class="tabla-wrap"><table class="rr-tabla">
+      <thead><tr><th>Etiqueta</th><th>Chats</th>${bandejaEsAdmin ? '<th data-sin-orden>Acciones</th>' : ''}</tr></thead>
+      <tbody>${filas}</tbody>
+    </table></div>` : '<p class="sub">Todavía no hay etiquetas.</p>';
+  const form = bandejaEsAdmin ? (ewFormAbierto ? `
+    <div class="rr-form" id="ewForm">
+      <b>${ewEditandoId ? 'Editar etiqueta' : 'Nueva etiqueta'}</b>
+      <div><label class="sub">Nombre</label><input type="text" id="ewNombre" maxlength="40" placeholder="Garantía" value="${escapeHtml(ewBorrador.nombre)}" oninput="ewBorrador.nombre = this.value; actualizarVistaPreviaEtiqueta()"></div>
+      <div><label class="sub">Color</label>
+        <div class="swatches">${coloresEtiqueta.map(c => `<button type="button" class="swatch ${c.toUpperCase() === ewBorrador.color.toUpperCase() ? 'sel' : ''}" style="background:${c};" title="${c}" onclick="elegirColorEtiquetaWa('${c}')"></button>`).join('')}</div></div>
+      <div><span class="sub">Así se verá: </span><span id="ewVistaPrevia"></span></div>
+      <div class="rr-acciones">
+        <button class="btn-primary btn-compact" id="btnEwGuardar" onclick="guardarEtiquetaWa()">Guardar</button>
+        <button class="btn-ghost btn-compact" onclick="cerrarFormEtiquetaWa()">Cancelar</button>
+        <span id="ewMensaje" class="sub" style="align-self:center;"></span>
+      </div>
+    </div>` : `<div style="margin-top:12px;"><button class="btn-primary btn-compact" onclick="nuevaEtiquetaWa()">➕ Nueva etiqueta</button></div>`)
+    : '<p class="sub" style="margin-top:10px;">Solo un administrador puede crear o editar etiquetas. Cualquier ejecutivo puede etiquetar un chat desde el menú del chat (flecha ˅ o clic derecho).</p>';
+  p.innerHTML = tabla + form;
+  actualizarVistaPreviaEtiqueta();
+}
+function actualizarVistaPreviaEtiqueta(){
+  const v = $('ewVistaPrevia');
+  if (v) v.innerHTML = chipEtiquetaHtml({ nombre: ewBorrador.nombre.trim() || 'Etiqueta', color: ewBorrador.color });
+}
+function abrirFormEtiquetaWa(){
+  ewFormAbierto = true;
+  renderPanelEtiquetasWa();
+  const f = $('ewForm'); if (f) f.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  const i = $('ewNombre'); if (i) i.focus();
+}
+function nuevaEtiquetaWa(){ ewEditandoId = null; ewBorrador = { nombre: '', color: coloresEtiqueta[4] || '#3FC1B0' }; abrirFormEtiquetaWa(); }
+function editarEtiquetaWa(id){
+  const e = etiquetasWa.find(x => x.id === id);
+  if (!e) return;
+  ewEditandoId = id; ewBorrador = { nombre: e.nombre, color: e.color };
+  abrirFormEtiquetaWa();
+}
+function cerrarFormEtiquetaWa(){ ewFormAbierto = false; ewEditandoId = null; renderPanelEtiquetasWa(); }
+function elegirColorEtiquetaWa(color){
+  ewBorrador.color = color;
+  document.querySelectorAll('#ewForm .swatch').forEach(b => b.classList.toggle('sel', b.title.toUpperCase() === color.toUpperCase()));
+  actualizarVistaPreviaEtiqueta();
+}
+async function guardarEtiquetaWa(){
+  const btn = $('btnEwGuardar'), msg = $('ewMensaje');
+  if (btn) btn.disabled = true;
+  if (msg) { msg.textContent = 'Guardando…'; msg.style.color = ''; }
+  try{
+    await bandejaPost({ accion: ewEditandoId ? 'etiqueta-editar' : 'etiqueta-crear', etiquetaId: ewEditandoId, nombre: ewBorrador.nombre, color: ewBorrador.color });
+    ewFormAbierto = false; ewEditandoId = null;
+    renderPanelEtiquetasWa();
+    renderListaIndicadores(convState.contadores);
+    cargarConversaciones({ silencioso: true }); // las filas muestran el nombre y el color nuevos
+  }catch(err){
+    if (msg) { msg.textContent = err.message; msg.style.color = 'var(--red, #D93025)'; }
+    if (btn) btn.disabled = false;
+  }
+}
+async function eliminarEtiquetaWa(id){
+  const e = etiquetasWa.find(x => x.id === id);
+  if (!e || !confirm(`¿Eliminar la etiqueta «${e.nombre}»? Se quita de ${e.total} chat(s). Esta acción no se puede deshacer.`)) return;
+  try{
+    await bandejaPost({ accion: 'etiqueta-eliminar', etiquetaId: id });
+    if (convState.etiqueta === id) convState.etiqueta = null;
+    if (ewEditandoId === id) { ewFormAbierto = false; ewEditandoId = null; }
+    renderPanelEtiquetasWa();
+    renderListaIndicadores(convState.contadores);
+    cargarConversaciones({ silencioso: true });
+  }catch(err){ alert(err.message); }
+}
 
 // ---------------- Respuestas rápidas ("/" en la conversación, como en WhatsApp Business) ----------------
 // Se guardan en la base (tabla whatsapp_respuestas_rapidas) y se administran en la sección Configuración, al final de la página.
@@ -790,8 +1032,11 @@ function initConversaciones(){
     <div id="vistaBandejaConv" class="bandeja-layout wa-app">
       <div class="panel-lista activa" id="panelLista">
         <div class="wa-header">
-          <span class="wa-titulo">Chat WhatsApp</span>
-          <div class="wa-acciones">
+          <div style="display:flex;align-items:center;gap:4px;min-width:0;">
+            <button class="wa-icono" id="btnVolverArchivadas" style="display:none;" onclick="cerrarArchivadas()" title="Volver a los chats" aria-label="Volver a los chats">${WA_ICONO.volver}</button>
+            <span class="wa-titulo" id="waTituloLista">Chat WhatsApp</span>
+          </div>
+          <div class="wa-acciones" id="accionesListaWa">
             <button class="wa-icono" id="btnFiltrosWa" onclick="toggleFiltrosConv()" title="Filtros" aria-label="Filtros">${WA_ICONO.filtro}</button>
             <button class="wa-icono" id="btnBotWa" onclick="abrirPanelBot()" title="Bot nocturno: redacta respuestas fuera del horario de atención (modo sombra: tú revisas y envías)" aria-label="Bot nocturno">${WA_ICONO.bot}</button>
             <button class="wa-icono" id="btnTablaWa" onclick="cambiarVistaConv('tabla')" title="Ver como tabla (supervisión)" aria-label="Ver como tabla">${WA_ICONO.tabla}</button>
@@ -927,6 +1172,11 @@ async function cargarConversaciones(opts){
   const silencioso = !!(opts && opts.silencioso === true);
   const params = new URLSearchParams({ page: convState.page, pageSize: convState.pageSize, q: convState.q });
   if (convState.vista) params.set('vista', convState.vista);
+  if (convState.vistaUI === 'bandeja') { // la bandeja esconde los archivados (se ven en "Archivadas"); la tabla de supervisión ve todo
+    params.set('bandeja', '1');
+    if (convState.archivadas) params.set('archivadas', '1');
+    if (convState.etiqueta) params.set('etiqueta', convState.etiqueta);
+  }
   for (const [k, v] of Object.entries(convState.filtros)) if (v) params.set(k, v);
   try{
     const res = await fetch('/api/negocio?recurso=whatsapp-conversaciones&' + params.toString());
@@ -955,8 +1205,10 @@ function irPaginaConv(p){ convState.page = p; cargarConversaciones(); }
 // ---------------- Bandeja: lista (izquierda) ----------------
 function renderListaIndicadores(contadores){
   const c = contadores || {};
+  const et = convState.etiqueta ? etiquetasWa.find(e => e.id === convState.etiqueta) : null;
   $('listaIndicadores').innerHTML = `
     <button class="wa-chip" onclick="filtrarSinAsignar()" title="Conversaciones sin responsable asignado">Sin asignar <span class="n">${fmtNum(c.sinAsignar)}</span></button>
+    <button class="wa-chip ${et ? 'activo' : ''}" id="chipEtiquetas" onclick="abrirMenuFiltroEtiquetas(event)" title="Filtrar por etiqueta">${et ? `<span class="punto-etiqueta" style="background:${et.color};"></span>${escapeHtml(et.nombre)}` : `${WA_ICONO.etiqueta} Etiquetas`}</button>
   `;
 }
 function renderListaTabs(contadores){
@@ -1003,32 +1255,39 @@ function fmtTelefonoLista(tel){
   const m = /^56(9)(\d{4})(\d{4})$/.exec(d);
   return m ? `+56 ${m[1]} ${m[2]} ${m[3]}` : '+' + d;
 }
-function conversacionNoLeida(c){
-  if (c.ultimoMensajeDireccion !== 'in' || !c.ultimoMensajeEn) return false;
-  return !c.leidaHasta || new Date(c.ultimoMensajeEn).getTime() > new Date(c.leidaHasta).getTime();
-}
+// Sin leer = mensajes del cliente que nadie abrió ni respondió (el servidor los cuenta), o marcada a mano como "no leída"
+function conversacionNoLeida(c){ return (c.noLeidos || 0) > 0 || c.noLeidaManual === true; }
 // Da por leída la conversación: se refleja al instante en la lista (sin esperar al servidor) y se guarda para todo el equipo
 function marcarLeidaConversacion(id){
-  const c = (convState.ultimaData || []).find(x => x.id === id);
-  if (c && conversacionNoLeida(c)) {
-    c.leidaHasta = new Date().toISOString();
-    const fila = document.querySelector(`#listaItemsBandeja .item-conv[data-id="${id}"]`);
-    if (fila) { fila.classList.remove('no-leido'); fila.querySelector('.item-pendiente')?.remove(); }
-  }
+  const c = convPorId(id);
+  leidaLocal[id] = Date.now();
+  if (c && conversacionNoLeida(c)) cambiarLocal(id, { noLeidos: 0, noLeidaManual: false, leidaHasta: new Date().toISOString() });
   fetch('/api/negocio?recurso=whatsapp-marcar-leida', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
     .then(r => r.json()).then(d => { if (d && d.leidaHasta && c) c.leidaHasta = d.leidaHasta; }).catch(() => { /* se reintenta al abrirla de nuevo */ });
 }
+// Texto legible (oscuro o blanco) sobre el color de una etiqueta
+function colorTextoSobre(hex){
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || ''));
+  if (!m) return '#fff';
+  const [r, g, b] = [m[1], m[2], m[3]].map(x => parseInt(x, 16));
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 165 ? '#111B21' : '#fff';
+}
+const chipEtiquetaHtml = e => `<span class="chip-etiqueta" style="background:${escapeHtml(e.color)};color:${colorTextoSobre(e.color)};" title="${escapeHtml(e.nombre)}">${escapeHtml(e.nombre)}</span>`;
 function itemConvHtml(c){
-  const info = estadoAtencionInfo(c);
   const alerta = alertaPrincipalInfo(c);
   const seleccionado = conversacionSeleccionadaId === c.id;
-  // "No leído" estilo WhatsApp: el último mensaje es del cliente y llegó después de la última vez que alguien abrió la conversación
-  const esperaRespuesta = conversacionNoLeida(c);
+  const noLeido = conversacionNoLeida(c);
   const nombre = c.clienteNombre || fmtTelefonoLista(c.clienteTelefono) || 'Sin nombre';
   const responsable = c.responsableNombre || (c.vendedorDetectado ? c.vendedorDetectado + ' 🤖' : 'Sin asignar');
-  const etiquetas = [responsable, c.categoria ? (CATEGORIA_LABEL[c.categoria] || c.categoria) : '', c.googleAds ? 'Google Ads' : ''].filter(Boolean).join(' · ');
+  const detalle = [responsable, c.categoria ? (CATEGORIA_LABEL[c.categoria] || c.categoria) : '', c.googleAds ? 'Google Ads' : ''].filter(Boolean).join(' · ');
+  const et = c.etiquetas || [];
+  const chips = et.slice(0, 2).map(chipEtiquetaHtml).join('') + (et.length > 2 ? `<span class="chip-etiqueta mas" title="${escapeHtml(et.slice(2).map(e => e.nombre).join(', '))}">+${et.length - 2}</span>` : '');
+  const bot = c.botEstado ? `<span class="item-bot ${c.botEstado === 'en_curso' ? 'en-curso' : 'respondida'}" title="${c.botEstado === 'en_curso' ? 'El bot preparó una respuesta que está pendiente de revisión' : 'Respondida con ayuda del bot'}">${WA_ICONO.bot}</span>` : '';
+  const contador = c.noLeidos > 0
+    ? `<span class="item-contador" title="${c.noLeidos} mensaje(s) sin leer">${c.noLeidos > 99 ? '99+' : c.noLeidos}</span>`
+    : (c.noLeidaManual ? '<span class="item-contador punto" title="Marcada como no leída"></span>' : '');
   return `
-    <div class="item-conv ${seleccionado ? 'seleccionado' : ''} ${esperaRespuesta ? 'no-leido' : ''}" data-id="${c.id}" onclick="seleccionarConversacionBandeja(${c.id})">
+    <div class="item-conv ${seleccionado ? 'seleccionado' : ''} ${noLeido ? 'no-leido' : ''}" data-id="${c.id}" onclick="seleccionarConversacionBandeja(${c.id})" oncontextmenu="abrirMenuChat(event, ${c.id}); return false;">
       <div class="avatar-chip">${WA_AVATAR}</div>
       <div class="item-cuerpo">
         <div class="item-top-row">
@@ -1037,20 +1296,34 @@ function itemConvHtml(c){
         </div>
         <div class="item-fila2">
           <div class="item-mensaje">${c.ultimoMensajeDireccion === 'out' ? WA_TICK.enviado : ''}<span style="overflow:hidden;text-overflow:ellipsis;">${escapeHtml(c.ultimoMensaje || 'Sin mensajes')}</span></div>
-          ${esperaRespuesta ? `<span class="item-pendiente" title="${escapeHtml(alerta ? alerta.texto : info.label)}"></span>` : ''}
+          <div class="item-indicadores">${bot}${contador}<button class="item-menu-btn" onclick="abrirMenuChat(event, ${c.id})" title="Más opciones" aria-label="Más opciones del chat">${WA_ICONO.chevron}</button></div>
         </div>
-        <div class="item-etiquetas" ${alerta ? `style="color:${alerta.clase === 'critica' ? '#D93025' : '#8A5A00'};"` : ''} title="${escapeHtml(alerta ? alerta.texto : etiquetas)}">${alerta ? `${alerta.icono} ${escapeHtml(alerta.texto)}` : escapeHtml(etiquetas)}</div>
+        <div class="item-etiquetas">${chips}<span class="item-etiquetas-txt" ${alerta ? `style="color:${alerta.clase === 'critica' ? '#D93025' : '#8A5A00'};"` : ''} title="${escapeHtml(alerta ? alerta.texto : detalle)}">${alerta ? `${alerta.icono} ${escapeHtml(alerta.texto)}` : escapeHtml(detalle)}</span></div>
       </div>
     </div>
   `;
 }
+function actualizarCabeceraLista(){
+  const arch = convState.archivadas;
+  const t = $('waTituloLista'), b = $('btnVolverArchivadas'), a = $('accionesListaWa'), chips = document.querySelector('#panelLista .wa-chips');
+  if (t) t.textContent = arch ? 'Archivadas' : 'Chat WhatsApp';
+  if (b) b.style.display = arch ? '' : 'none';
+  if (a) a.style.display = arch ? 'none' : '';
+  if (chips) chips.style.display = arch ? 'none' : '';
+}
+function abrirArchivadas(){ convState.archivadas = true; convState.page = 1; cargarConversaciones(); }
+function cerrarArchivadas(){ convState.archivadas = false; convState.page = 1; cargarConversaciones(); }
 function actualizarListaBandeja(data){
   renderListaIndicadores(data.contadores);
   renderListaTabs(data.contadores);
+  actualizarCabeceraLista();
   const lista = data.conversaciones || [];
-  $('listaItemsBandeja').innerHTML = lista.length
-    ? lista.map(itemConvHtml).join('')
-    : '<p class="empty-note" style="padding:16px;">No hay conversaciones que calcen con los filtros.</p>';
+  const nArch = (data.contadores || {}).archivadas || 0;
+  // Como en WhatsApp: arriba de la lista, la fila "Archivadas" con su cantidad
+  const filaArch = (!convState.archivadas && nArch > 0)
+    ? `<div class="item-archivadas" onclick="abrirArchivadas()" title="Chats archivados: vuelven solos a la bandeja si el cliente escribe">${WA_ICONO.archivar}<span class="txt">Archivadas</span><span class="n">${fmtNum(nArch)}</span></div>` : '';
+  const vacio = convState.archivadas ? 'No hay chats archivados.' : (convState.etiqueta ? 'No hay chats con esa etiqueta.' : 'No hay conversaciones que calcen con los filtros.');
+  $('listaItemsBandeja').innerHTML = filaArch + (lista.length ? lista.map(itemConvHtml).join('') : `<p class="empty-note" style="padding:16px;">${vacio}</p>`);
   $('listaPaginacionBandeja').innerHTML = `
     <span>${fmtNum(convState.total)} conversación(es)${convState.totalPaginas > 1 ? ` · pág. ${convState.page}/${convState.totalPaginas}` : ''}</span>
     <span>
@@ -1117,6 +1390,7 @@ async function actualizarConversacionesEnVivo(){
     huellaConversaciones = d.huella;
     if (!cambio) return;
     await cargarConversaciones({ silencioso: true });
+    cargarEtiquetasWa(); // cantidades de chats por etiqueta y cambios que hizo otra persona
     const id = conversacionSeleccionadaId, det = detalleBandejaActual;
     const enLista = id && (convState.ultimaData || []).find(c => c.id === id);
     const ultimoVisto = det && det.mensajes && det.mensajes.length ? new Date(det.mensajes[det.mensajes.length - 1].marcaTiempo).getTime() : 0;
@@ -1217,10 +1491,12 @@ function renderChatBandeja(data, opts){
         <div class="avatar-chip">${WA_AVATAR}</div>
         <div style="min-width:0;">
           <h2>${escapeHtml(nombreChat)}</h2>
-          <div class="chat-head-sub">${escapeHtml(ct?.nombre ? fmtTelefonoLista(ct?.telefono) : '')}${ct?.nombre && ct?.telefono ? ' · ' : ''}#${c.id}${c.categoria ? ' · ' + escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria) : ''}</div>
+          <div class="chat-head-sub">${escapeHtml(ct?.nombre ? fmtTelefonoLista(ct?.telefono) : '')}${ct?.nombre && ct?.telefono ? ' · ' : ''}#${c.id}${c.categoria ? ' · ' + escapeHtml(CATEGORIA_LABEL[c.categoria] || c.categoria) : ''}${c.botEstado ? ` · <span class="chat-head-bot ${c.botEstado === 'en_curso' ? 'en-curso' : 'respondida'}">${WA_ICONO.bot}${c.botEstado === 'en_curso' ? 'Bot: borrador pendiente' : 'Respondida con el bot'}</span>` : ''}</div>
         </div>
       </div>
       <div class="chat-head-acciones">
+        <button class="wa-icono btn-etiquetar-wa" onclick="abrirSelectorEtiquetasDesdeBoton(event, ${c.id})" title="Etiquetas del chat" aria-label="Etiquetas del chat">${WA_ICONO.etiqueta}</button>
+        <button class="wa-icono" onclick="accionChat(${c.id}, '${c.archivada ? 'desarchivar' : 'archivar'}')" title="${c.archivada ? 'Desarchivar chat' : 'Archivar chat'}" aria-label="${c.archivada ? 'Desarchivar chat' : 'Archivar chat'}">${c.archivada ? WA_ICONO.desarchivar : WA_ICONO.archivar}</button>
         ${info.clave !== 'resuelta'
           ? `<button class="wa-icono" onclick="guardarCampoConvBandeja(${c.id}, 'estado', 'cerrada')" title="Marcar como resuelta" aria-label="Resolver conversación">${WA_ICONO.resolver}</button>`
           : `<span class="badge b-gris" style="margin-right:6px;">Resuelta</span>`}
@@ -1528,10 +1804,11 @@ function renderFichaBandeja(data){
         ${!c.venta ? `<div class="ficha-fila"><span></span><b><button class="btn-ghost btn-compact" onclick="abrirAsociarVenta(${c.id}, ${Number(c.bsaleDocumentoMonto) || 0}, ${escapeHtml(JSON.stringify(String(c.bsaleDocumentoNumero || '')))})">${c.bsaleDocumentoNumero ? 'Confirmar esta venta' : 'Asociar venta'}</button></b></div>` : ''}
         ${c.motivoPerdida ? `<div class="ficha-fila"><span>Motivo de pérdida</span><b>${MOTIVO_PERDIDA_LABEL[c.motivoPerdida] || escapeHtml(c.motivoPerdida)} <span class="sub" style="font-size:9.5px;">(${origenCampoLabel(c, 'motivo_perdida')})</span></b></div>` : ''}
       </details>
-      <details class="ficha-colapsable">
-        <summary>🏷️ Etiquetas</summary>
-        <div style="padding:6px 0;">${(data.etiquetas || []).map(e => `<span class="etiqueta-chip">${escapeHtml(e)}</span>`).join('') || '<span class="sub">Sin etiquetas.</span>'}</div>
-      </details>
+      <div class="ficha-grupo">
+        <h3>Etiquetas</h3>
+        <div class="ficha-etiquetas">${(c.etiquetas || []).map(chipEtiquetaHtml).join('') || '<span class="sub">Sin etiquetas.</span>'}</div>
+        <button class="btn-ghost btn-compact btn-etiquetar-wa" style="margin-top:8px;" onclick="abrirSelectorEtiquetasDesdeBoton(event, ${c.id})">${WA_ICONO.etiqueta} Editar etiquetas</button>
+      </div>
       <details class="ficha-colapsable">
         <summary>🕓 Historial y auditoría</summary>
         <div style="padding:6px 0;">
