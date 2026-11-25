@@ -537,10 +537,12 @@ function marcarChips(pref){
 // La foto se reduce en el navegador (máx. 1280 px, JPG) antes de subirla: pesa ~150 KB y no se pasa del tope del servidor.
 function reducirImagen(archivo, maxLado = 1280){
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(archivo);
+    // Se lee como data: (y no como blob:) porque la política de seguridad del sitio (img-src en vercel.json) permite data: pero bloquea blob:.
+    const lector = new FileReader();
+    lector.onerror = () => reject(new Error('No se pudo leer la foto (usa JPG, PNG o WebP).'));
+    lector.onload = () => { img.src = lector.result; };
     const img = new Image();
     img.onload = () => {
-      URL.revokeObjectURL(url);
       const esc = Math.min(1, maxLado / Math.max(img.width, img.height));
       const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(img.width * esc)); c.height = Math.max(1, Math.round(img.height * esc));
       const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
@@ -548,8 +550,8 @@ function reducirImagen(archivo, maxLado = 1280){
       while(d.length > 1500000 && q > 0.4){ q -= 0.1; d = c.toDataURL('image/jpeg', q); }
       d.length > 1900000 ? reject(new Error('La foto sigue siendo demasiado grande. Prueba con otra.')) : resolve(d);
     };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo leer la foto (usa JPG, PNG o WebP).')); };
-    img.src = url;
+    img.onerror = () => reject(new Error('No se pudo leer la foto (usa JPG, PNG o WebP).'));
+    lector.readAsDataURL(archivo);
   });
 }
 async function elegirFoto(pref, input){
