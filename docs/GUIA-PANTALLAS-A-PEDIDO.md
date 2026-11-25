@@ -32,10 +32,15 @@ Si no hay ningún pedido que cumpla no sale correo. «Enviar prueba» en Usuario
 En «Anotar pedido» se marca la casilla **«Todavía no tengo el precio: consultar precio»**. El producto queda en el estado **Consultar precio** y sale un correo al administrador
 (notificación «Producto a pedido: consulta de precio nueva»). Después:
 
-1. El administrador cotiza y anota en el pedido (Ver / editar → «Precio al cliente») el **precio que se le entrega al cliente, con IVA incluido**. Solo un administrador puede
-   anotar el precio; todos lo ven en la columna **Precio al cliente (IVA incl.)** de la lista (mientras falta aparece «Por cotizar»).
+1. El administrador cotiza y anota en el pedido (Ver / editar → «Precio al cliente») los **precios que se le entregan al cliente, con IVA incluido**. Son dos opciones para que el cliente elija:
+   - **Precio original / alta calidad:** la pantalla de siempre, con el plazo de espera normal.
+   - **Precio alternativo / económico (opcional):** una pantalla más barata que **puede tardar 15 días o más en llegar** y que a veces viene con **algún píxel quemado o una mancha pequeña,
+     muy poco notoria**. En la lista, esa columna lo recuerda con «15+ días · posible detalle mínimo» (al pasar el mouse se lee el detalle completo).
+   Solo un administrador puede anotar los precios; todos los ven en las columnas **Precio original / alta calidad** y **Precio alternativo / económico** de la lista (mientras faltan aparece «Por cotizar»).
+   El botón de WhatsApp del pedido arma el mensaje con las dos opciones y las condiciones de la alternativa, para que el cliente decida.
 2. Cuando el cliente acepta, se usa **«Cliente acepta»** (o «El cliente acepta: pasar a pendiente de compra» en la ventana del pedido). **No se puede pasar a Pendiente de compra
-   sin precio.** Desde ahí corren los días de espera prometidos y sale el aviso de «ejecutar la compra».
+   sin al menos un precio anotado** (el original o el alternativo). Desde ahí corren los días de espera prometidos y sale el aviso de «ejecutar la compra». El sistema no guarda cuál de las dos
+   opciones eligió el cliente: eso va en la nota interna o en el abono.
 3. Si el cliente no lo quiere, se cancela. Un pedido pendiente de compra también puede volver a «Consultar precio».
 
 ## Foto de referencia y comentario

@@ -696,16 +696,18 @@ function celdaCompra(p){
   }else if(p.fecha_eta) llegada = `<br>llegada ${fechaCorta(p.fecha_eta)}`;
   return `<td data-valor="${escapeHtml(p.fecha_eta || '')}">${escapeHtml(p.proveedor || 'Sin proveedor')}${p.referencia_compra ? ' · <span class="sub" style="margin:0;">' + escapeHtml(p.referencia_compra) + '</span>' : ''}${llegada}</td>`;
 }
-// Precio que se le entrega al cliente (con IVA incluido): lo anota un administrador; todos lo ven.
-function celdaPrecio(p){
-  const n = Number(p.precio_cliente) || 0;
-  if(n > 0) return `<td class="amount" data-valor="${n}"><b>${fmtMoneda(n)}</b><br><span class="sub" style="margin:0;">IVA incluido</span></td>`;
-  if(p.estado === 'consultar_precio') return '<td class="amount" data-valor="0"><span class="pp-precio-sin">⏳ Por cotizar</span></td>';
+// Precios que se le entregan al cliente (con IVA incluido): lo anota un administrador; todos los ven. El cliente elige entre el original (alta calidad) y el alternativo (económico).
+const AVISO_ALTERNATIVO = 'Opción económica: la pantalla puede tardar 15 días o más en llegar y existe la posibilidad de que venga con algún píxel quemado o una mancha pequeña, muy poco notoria.';
+const tienePrecio = p => Number(p.precio_cliente) > 0 || Number(p.precio_alternativo) > 0;
+function celdaPrecio(p, alternativo){
+  const n = Number(alternativo ? p.precio_alternativo : p.precio_cliente) || 0;
+  if(n > 0) return `<td class="amount" data-valor="${n}"><b>${fmtMoneda(n)}</b><br><span class="sub" style="margin:0;">IVA incluido</span>${alternativo ? `<br><span class="sub pp-aviso-alt" style="margin:0;" title="${escapeHtml(AVISO_ALTERNATIVO)}">15+ días · posible detalle mínimo ⓘ</span>` : ''}</td>`;
+  if(p.estado === 'consultar_precio' && !tienePrecio(p)) return '<td class="amount" data-valor="0"><span class="pp-precio-sin">⏳ Por cotizar</span></td>';
   return '<td class="amount" data-valor="-1"><span class="sub" style="margin:0;">—</span></td>';
 }
 function botonRapido(p){
   if(p.estado === 'consultar_precio'){
-    if(!(Number(p.precio_cliente) > 0)) return datos.esAdmin ? `<button class="btn-primary btn-compact" onclick="abrirModal(${p.id}, 'precio')">Anotar precio</button>` : '';
+    if(!tienePrecio(p)) return datos.esAdmin ? `<button class="btn-primary btn-compact" onclick="abrirModal(${p.id}, 'precio')">Anotar precio</button>` : '';
     return `<button class="btn-primary btn-compact" onclick="cambiarEstado(${p.id}, 'pendiente_compra')" title="El cliente aceptó el precio">Cliente acepta</button>`;
   }
   const sig = { pendiente_compra: ['__comprar', 'Marcar comprado'], comprado: ['en_transito', 'En tránsito'], en_transito: ['recibido', 'Marcar recibido'], recibido: ['entregado', 'Marcar entregado'] }[p.estado];
@@ -723,7 +725,7 @@ function pintarTabla(){
     $('ppTabla').innerHTML = '<p class="empty-note">' + (datos.pedidos.length ? 'No hay pedidos con ese filtro.' : 'Todavía no hay pedidos. Usa «Anotar pedido» para ingresar el primero.') + '</p>';
     return;
   }
-  $('ppTabla').innerHTML = '<table id="tablaPedidos"><thead><tr><th>N°</th><th>Cliente</th><th>Producto</th><th class="amount">Precio al cliente (IVA incl.)</th><th class="amount">Abono</th><th>Espera dicha al cliente</th><th>Estado</th><th>Compra al proveedor</th><th data-sin-orden>Acciones</th></tr></thead><tbody>' +
+  $('ppTabla').innerHTML = '<table id="tablaPedidos"><thead><tr><th>N°</th><th>Cliente</th><th>Producto</th><th class="amount">Precio original / alta calidad (IVA incl.)</th><th class="amount">Precio alternativo / económico (IVA incl.)</th><th class="amount">Abono</th><th>Espera dicha al cliente</th><th>Estado</th><th>Compra al proveedor</th><th data-sin-orden>Acciones</th></tr></thead><tbody>' +
     filas.map(p => {
       const wa = telefonoWa(p.cliente_telefono);
       const cliente = `<b>${escapeHtml(p.cliente_nombre || 'Sin nombre')}</b>${p.cliente_telefono ? '<br>' + (wa ? `<a href="https://wa.me/${wa}" target="_blank" rel="noopener noreferrer" title="Escribir por WhatsApp">💬 ${escapeHtml(p.cliente_telefono)}</a>` : escapeHtml(p.cliente_telefono)) : ''}${p.cliente_email ? '<br><span class="sub" style="margin:0;">' + escapeHtml(p.cliente_email) + '</span>' : ''}${p.cliente_comuna ? '<br><span class="sub" style="margin:0;">' + escapeHtml(p.cliente_comuna) + '</span>' : ''}${p.requiere_factura ? `<br><span class="pp-factura" title="${escapeHtml((p.fact_razon_social || '') + ' · ' + (p.fact_rut || ''))}">🧾 Factura</span>` : ''}`;
@@ -732,7 +734,7 @@ function pintarTabla(){
       const abono = p.abono_realizado ? `<b>${fmtMoneda(p.abono)}</b><br><span class="sub" style="margin:0;">${escapeHtml(MEDIOS[p.abono_medio] || '')}</span>` : '<span class="pp-sin">Sin abono</span>';
       return `<tr class="pp-${escapeHtml(p.estado)}"><td data-valor="${p.id}"><b>${numeroPedido(p.id)}</b><br><span class="sub" style="margin:0;">${fechaCorta(p.fecha_pedido)}</span></td>` +
         `<td data-valor="${escapeHtml(p.cliente_nombre || '')}">${cliente}</td><td data-valor="${escapeHtml(p.modelo || '')}">${producto}</td>` +
-        celdaPrecio(p) + `<td class="amount" data-valor="${p.abono_realizado ? Number(p.abono) || 0 : 0}">${abono}</td>` + celdaEspera(p) +
+        celdaPrecio(p, false) + celdaPrecio(p, true) + `<td class="amount" data-valor="${p.abono_realizado ? Number(p.abono) || 0 : 0}">${abono}</td>` + celdaEspera(p) +
         `<td data-valor="${ORDEN_ESTADO[p.estado] ?? 9}"><span class="pp-estado pp-e-${escapeHtml(p.estado)}">${escapeHtml(ETIQUETA[p.estado] || p.estado)}</span></td>` + celdaCompra(p) +
         `<td style="white-space:nowrap;">${botonRapido(p)} <button class="btn-ghost btn-compact" onclick="abrirModal(${p.id})">Ver / editar</button></td></tr>`;
     }).join('') + '</tbody></table>';
@@ -744,9 +746,13 @@ function mensajeWa(p){
   const n = (p.cliente_nombre || '').split(' ')[0] || '';
   const modelo = p.modelo || 'tu producto';
   if(p.estado === 'comprado' || p.estado === 'en_transito') return `Hola ${n}, te escribimos de IndexStore: tu pedido (${modelo}) ya fue comprado${p.estado === 'en_transito' ? ' y viene en camino' : ''}.` + (p.fecha_eta ? ` Estimamos que llega cerca del ${fechaCorta(p.fecha_eta)}.` : '') + ' Te avisamos apenas lo tengamos.';
-  if(p.estado === 'consultar_precio') return Number(p.precio_cliente) > 0
-    ? `Hola ${n}, te escribimos de IndexStore por el producto que consultaste (${modelo}). El precio es ${fmtMoneda(p.precio_cliente)} con IVA incluido, con un plazo estimado de unos ${p.dias_estimados || datos.diasPorDefecto} días. ¿Lo dejamos pedido?`
-    : `Hola ${n}, te escribimos de IndexStore: estamos consultando el precio de ${modelo} y te respondemos apenas lo tengamos.`;
+  if(p.estado === 'consultar_precio'){
+    const orig = Number(p.precio_cliente) > 0, alt = Number(p.precio_alternativo) > 0, dias = p.dias_estimados || datos.diasPorDefecto;
+    if(orig && alt) return `Hola ${n}, te escribimos de IndexStore por el producto que consultaste (${modelo}). Tenemos dos opciones:\n\n1) Original, alta calidad: ${fmtMoneda(p.precio_cliente)} con IVA incluido, plazo estimado de unos ${dias} días.\n2) Alternativa, más económica: ${fmtMoneda(p.precio_alternativo)} con IVA incluido. Puede tardar 15 días o más en llegar y existe la posibilidad de que venga con algún píxel quemado o una mancha pequeña, muy poco notoria.\n\n¿Cuál prefieres?`;
+    if(orig) return `Hola ${n}, te escribimos de IndexStore por el producto que consultaste (${modelo}). El precio es ${fmtMoneda(p.precio_cliente)} con IVA incluido, con un plazo estimado de unos ${dias} días. ¿Lo dejamos pedido?`;
+    if(alt) return `Hola ${n}, te escribimos de IndexStore por el producto que consultaste (${modelo}). Tenemos una opción económica a ${fmtMoneda(p.precio_alternativo)} con IVA incluido. Puede tardar 15 días o más en llegar y existe la posibilidad de que venga con algún píxel quemado o una mancha pequeña, muy poco notoria. ¿Te interesa?`;
+    return `Hola ${n}, te escribimos de IndexStore: estamos consultando el precio de ${modelo} y te respondemos apenas lo tengamos.`;
+  }
   if(p.estado === 'recibido') return `Hola ${n}, ya llegó tu pedido (${modelo}). Puedes pasar a retirarlo o coordinamos el envío.`;
   return `Hola ${n}, te escribimos de IndexStore por tu pedido (${modelo}). El plazo estimado es de unos ${p.dias_estimados || datos.diasPorDefecto} días.`;
 }
@@ -763,10 +769,14 @@ function abrirModal(id, paraComprar){
     ${formularioHtml('e', p)}
     <fieldset class="pp-seccion"><legend>3b. Precio al cliente</legend>
       ${esAdmin
-        ? `<div class="pp-grid">${campo('e', 'precio', 'Precio que se le entrega al cliente (IVA incluido)', p.precio_cliente != null ? Math.round(Number(p.precio_cliente)) : '', { tipo: 'number', extra: 'min="1" step="1" placeholder="Ej: 59990"' })}</div>
-           <div class="pp-nota">${p.estado === 'consultar_precio' ? 'El vendedor espera este precio. Anótalo y avísale; cuando el cliente acepte, usa «El cliente acepta».' : 'Se muestra a todos los vendedores en la lista.'}${p.precio_cliente_por ? ` Anotado por ${escapeHtml(p.precio_cliente_por)}.` : ''}</div>`
-        : (Number(p.precio_cliente) > 0
-            ? `<p style="margin:0;font-size:15px;"><b>${fmtMoneda(p.precio_cliente)}</b> <span class="sub" style="margin:0;">IVA incluido${p.precio_cliente_por ? ' · anotado por ' + escapeHtml(p.precio_cliente_por) : ''}</span></p>`
+        ? `<div class="pp-grid">${campo('e', 'precio', 'Precio original / alta calidad (IVA incluido)', p.precio_cliente != null ? Math.round(Number(p.precio_cliente)) : '', { tipo: 'number', extra: 'min="1" step="1" placeholder="Ej: 59990"' })}
+             ${campo('e', 'precio_alt', 'Precio alternativo / económico (IVA incluido)', p.precio_alternativo != null ? Math.round(Number(p.precio_alternativo)) : '', { tipo: 'number', extra: 'min="1" step="1" placeholder="Opcional. Ej: 39990"' })}</div>
+           <div class="pp-nota">${escapeHtml(AVISO_ALTERNATIVO)} El cliente elige entre las dos opciones; con una de ellas anotada ya se puede pasar a «Pendiente de compra».</div>
+           <div class="pp-nota">${p.estado === 'consultar_precio' ? 'El vendedor espera el precio. Anótalo y avísale; cuando el cliente acepte, usa «El cliente acepta».' : 'Se muestran a todos los vendedores en la lista.'}${p.precio_cliente_por ? ` Anotado por ${escapeHtml(p.precio_cliente_por)}.` : ''}</div>`
+        : (tienePrecio(p)
+            ? `${Number(p.precio_cliente) > 0 ? `<p style="margin:0 0 6px;font-size:15px;">Original / alta calidad: <b>${fmtMoneda(p.precio_cliente)}</b> <span class="sub" style="margin:0;">IVA incluido</span></p>` : ''}
+               ${Number(p.precio_alternativo) > 0 ? `<p style="margin:0 0 6px;font-size:15px;">Alternativo / económico: <b>${fmtMoneda(p.precio_alternativo)}</b> <span class="sub" style="margin:0;">IVA incluido</span><br><span class="sub" style="margin:0;">${escapeHtml(AVISO_ALTERNATIVO)}</span></p>` : ''}
+               ${p.precio_cliente_por ? `<span class="sub" style="margin:0;">Anotado por ${escapeHtml(p.precio_cliente_por)}</span>` : ''}`
             : '<p class="sub" style="margin:0;">Todavía sin precio: lo anota un administrador.</p>')}
     </fieldset>
     <fieldset class="pp-seccion"><legend>4. Compra al proveedor</legend>
@@ -791,6 +801,7 @@ function cuerpoModal(){
   c.proveedor = $('e_prov').value; c.referencia_compra = $('e_ref').value; c.fecha_eta = $('e_eta').value;
   if($('e_costo')) c.costo_compra = $('e_costo').value;
   if($('e_precio')) c.precio_cliente = $('e_precio').value;
+  if($('e_precio_alt')) c.precio_alternativo = $('e_precio_alt').value;
   return c;
 }
 async function enviarCambios(cuerpo){
