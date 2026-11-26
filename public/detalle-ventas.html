@@ -335,7 +335,7 @@
   <div class="dv-tabs" id="dvTabs"></div>
   <div class="dv-buscar"><span>🔍</span><input type="text" id="dvBuscar" placeholder="Buscar producto por nombre o SKU…" oninput="buscarProducto(this.value)"></div>
   <div class="dv-kpis" id="dvKpis"></div>
-  <details class="dv-panel" id="dvDesglose"><summary><b>🔎 Desglose por tipo de documento</b> <span class="sub" style="margin:0;">— para conciliar con el reporte de Bsale</span></summary><div id="dvDesgloseCuerpo"></div></details>
+  <details class="dv-panel" id="dvDesglose"><summary><b>🔎 Desglose por tipo de documento</b> <span class="sub" style="margin:0;">— para conciliar con el reporte de Bsale</span></summary><div id="dvDesgloseCuerpo"></div><div id="dvConciliar" style="margin-top:12px;"></div></details>
 
   <div id="dvVistaNormal">
     <div class="dv-graficos">
@@ -651,7 +651,60 @@ function pintarKpis(d){
   $('dvKpis').innerHTML = h;
 }
 
+// ---------- conciliar con Bsale (solo administradores) ----------
+// Lee de Bsale EN VIVO los documentos del período (hasta 7 días) y los compara uno por uno con lo guardado en el ERP, para encontrar de dónde sale una diferencia con "Ventas totales" de Bsale.
+function pintarConciliarBoton(){
+  const cont = $('dvConciliar'); if(!cont) return;
+  if(!E.esAdmin){ cont.innerHTML = ''; return; }
+  if(E.conc && (E.conc.cargando || E.conc.res || E.conc.error)) return; // no pisar el resultado al repintar
+  cont.innerHTML = '<button type="button" class="btn-primary btn-compact" onclick="conciliarBsale()">🔎 Conciliar con Bsale (en vivo)</button> <span class="sub" style="margin:0;">Lee los documentos del período directo de Bsale y los compara con lo que tiene el ERP, documento por documento (hasta 7 días).</span>';
+}
+async function conciliarBsale(){
+  const cont = $('dvConciliar'); if(!E.rango || (E.conc && E.conc.cargando)) return;
+  let { desde, hasta } = E.rango, nota = '';
+  if(DV.diasEntre(desde, hasta) + 1 > 7){ desde = DV.sumarDias(hasta, -6); nota = `El período tiene más de 7 días: se concilian los últimos 7 (${DV.fechaCorta(desde)} a ${DV.fechaCorta(hasta)}). `; }
+  E.conc = { cargando: true };
+  cont.innerHTML = '<span class="dv-cargando">🔄 Leyendo los documentos de Bsale y comparando…</span>';
+  try{
+    const res = await fetch('/api/negocio?recurso=ventas-detalle-conciliar&desde=' + desde + '&hasta=' + hasta);
+    const d = await res.json();
+    E.conc = (!res.ok || d.error) ? { error: (d.detail || d.error || ('HTTP ' + res.status)) } : { res: d, nota };
+  }catch(err){ E.conc = { error: err.message }; }
+  cont.innerHTML = htmlConciliacion();
+}
+function cerrarConciliacion(){ E.conc = null; pintarConciliarBoton(); }
+function htmlConciliacion(){
+  const c = E.conc; if(!c) return '';
+  const cerrar = '<button type="button" class="btn-ghost btn-compact" onclick="cerrarConciliacion()">Cerrar</button> <button type="button" class="btn-ghost btn-compact" onclick="E.conc = null; conciliarBsale()">🔄 Volver a conciliar</button>';
+  if(c.error) return `<p class="empty-note" style="color:#a11d1d;">No se pudo conciliar: ${escapeHtml(c.error)}</p>${cerrar}`;
+  const r = c.res, mon = n => fmtMoneda(n), dif = n => `<span class="${Math.abs(n) < 1 ? 'dv-igual' : n > 0 ? 'dv-sube' : 'dv-baja'}">${n > 0 ? '+' : n < 0 ? '-' : ''}${mon(Math.abs(n))}</span>`;
+  const iva = 1.19, hallazgos = [];
+  if(r.descuentoDeLinea.diferenciaNeto >= 1) hallazgos.push(`<b>Descuentos de línea:</b> en ${fmtNum(r.descuentoDeLinea.documentos)} documentos Bsale descuenta <b>${mon(r.descuentoDeLinea.diferenciaNeto * iva)}</b> (con IVA) que el ERP no descuenta, porque calcula cada línea como cantidad × valor unitario. ${Math.abs(r.diferencia.total) >= 1 ? 'Es ' + (Math.abs(r.descuentoDeLinea.diferenciaNeto * iva - r.diferencia.total) < 2 ? '<b>exactamente</b> la diferencia.' : 'una parte de la diferencia.') : ''}`);
+  if(r.lineasVsDocumento.documentos > 0) hallazgos.push(`En ${fmtNum(r.lineasVsDocumento.documentos)} documentos el neto que informa Bsale no es la suma de sus líneas (diferencia neta ${mon(r.lineasVsDocumento.diferenciaNeto)}): puede ser un descuento o ajuste a nivel de documento.`);
+  if(r.sobrantes.length) hallazgos.push(`${fmtNum(r.sobrantes.length)} documento(s) guardados en el ERP que Bsale hoy no cuenta como venta (anulados o de un tipo que no cuenta): ${r.sobrantes.slice(0, 6).map(s => escapeHtml(s.tipo) + ' ' + escapeHtml(s.folio) + (s.vigente ? '' : ' (anulado)')).join(', ')}.`);
+  if(r.soloEnErp.length) hallazgos.push(`${fmtNum(r.soloEnErp.length)} documento(s) guardados en el ERP que Bsale ya no devuelve en esas fechas.`);
+  if(r.sinClasificar) hallazgos.push(`${fmtNum(r.sinClasificar)} documento(s) que el ERP no cuenta (por ejemplo cotizaciones).`);
+  if(r.incompleto) hallazgos.push('<b>La lectura de Bsale no alcanzó a terminar:</b> el resultado está incompleto. Prueba con menos días.');
+  if(!hallazgos.length) hallazgos.push(Math.abs(r.diferencia.total) < 1 ? '✔ Calza: el ERP y Bsale tienen la misma venta en este período.' : 'No se encontró una causa evidente; revisa la tabla de documentos con diferencia.');
+  const tipos = r.porTipo.map(t => `<tr><td>${escapeHtml(t.tipo)}${t.nc ? ' <span class="sub" style="margin:0;">(resta)</span>' : ''}</td><td class="amount">${fmtNum(t.docs)}</td><td class="amount">${mon(t.bsaleTotal)}</td><td class="amount">${mon(t.erpTotal)}</td><td class="amount">${dif(t.erpTotal - t.bsaleTotal)}</td></tr>`).join('');
+  const difs = r.diferencias.map(x => `<tr><td>${escapeHtml(x.tipo)} <b>${escapeHtml(x.folio)}</b></td><td>${escapeHtml(DV.fechaCorta(x.fecha || ''))}</td><td class="amount">${mon(x.bsaleNeto)}</td><td class="amount" title="Suma de las líneas según Bsale (ya con descuento)">${mon(x.lineas)}</td><td class="amount" title="Cantidad × valor unitario: lo que calcula el ERP al leer el mes">${mon(x.unitario)}</td><td class="amount">${mon(x.erp)}</td><td class="amount">${dif(x.diferencia)}</td></tr>`).join('');
+  return `<div class="dv-aviso" style="background:var(--surface-2);border-color:var(--primary);">
+    <b>Conciliación con Bsale</b> · ${escapeHtml(DV.etiquetaRango({ desde: r.desde, hasta: r.hasta }))} · ${fmtNum(r.documentosBsale)} documentos leídos de Bsale a las ${escapeHtml(fechaHora(r.leidoEn).slice(-5))}<br>${escapeHtml(c.nota || '')}${cerrar}</div>
+    <div class="tabla-wrap"><table><thead><tr><th></th><th class="amount">Neto</th><th class="amount">Venta total (con IVA)</th></tr></thead><tbody>
+      <tr><td><b>Bsale</b> (en vivo)</td><td class="amount">${mon(r.bsale.neto)}</td><td class="amount"><b>${mon(r.bsale.total)}</b></td></tr>
+      <tr><td><b>ERP</b> (guardado)</td><td class="amount">${mon(r.erp.neto)}</td><td class="amount"><b>${mon(r.erp.total)}</b></td></tr>
+      <tr><td><b>Diferencia</b> (ERP − Bsale)</td><td class="amount">${dif(r.diferencia.neto)}</td><td class="amount">${dif(r.diferencia.total)}</td></tr></tbody></table></div>
+    ${avisoLista('Qué explica la diferencia', hallazgos)}
+    <h4 style="margin:12px 0 4px;">Por tipo de documento</h4>
+    <div class="tabla-wrap"><table><thead><tr><th>Tipo</th><th class="amount">Documentos</th><th class="amount">Bsale</th><th class="amount">ERP</th><th class="amount">Diferencia</th></tr></thead><tbody>${tipos}</tbody></table></div>
+    ${r.nDiferencias ? `<h4 style="margin:12px 0 4px;">Documentos con diferencia (${fmtNum(r.nDiferencias)}${r.nDiferencias > r.diferencias.length ? ', se muestran los ' + r.diferencias.length + ' mayores' : ''})</h4>
+    <div class="tabla-wrap"><table><thead><tr><th>Documento</th><th>Fecha</th><th class="amount">Neto Bsale</th><th class="amount">Líneas Bsale</th><th class="amount">Cant. × unitario</th><th class="amount">ERP guardado</th><th class="amount">Dif. (ERP − Bsale)</th></tr></thead><tbody>${difs}</tbody></table></div>` : ''}
+    <div class="sub" style="margin:6px 0 0;">"Líneas Bsale" es la suma del neto de cada línea según Bsale; "Cant. × unitario" es lo que calcula el ERP. Si el segundo es mayor que el primero, hay descuentos de línea que el ERP no está descontando. Todo en neto, salvo las columnas "con IVA".</div>`;
+}
+const avisoLista = (titulo, items) => `<div class="dv-aviso" style="margin-top:10px;"><b>${titulo}</b><ul class="dv-lista-ia">${items.map(x => '<li>' + x + '</li>').join('')}</ul></div>`;
+
 function pintarDesglose(d){
+  pintarConciliarBoton();
   const filas = DV.desglosePorTipoDoc(d.actual), t = DV.totales(d.actual);
   if(!filas.length){ $('dvDesgloseCuerpo').innerHTML = '<p class="empty-note">No hay documentos en este período con los filtros elegidos.</p>'; return; }
   $('dvDesgloseCuerpo').innerHTML = '<div class="tabla-wrap"><table><thead><tr><th>Tipo de documento</th><th class="amount">Documentos</th><th class="amount">Unidades</th><th class="amount">Venta total (con IVA)</th><th class="amount" title="Qué parte de la venta real representa cada tipo de documento; las notas de crédito restan">% de la venta real</th></tr></thead><tbody>' +

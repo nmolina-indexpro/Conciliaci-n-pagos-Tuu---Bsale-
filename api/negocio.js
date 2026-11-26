@@ -44,6 +44,7 @@ import { GRUPOS_TRASPASO, todosLosSkus, evaluarTodos, resumirPendientes, decidir
 import { armarCorreoAlertasSitioWeb, armarCorreoProductosEstancados, armarCorreoLeadWeb } from '../lib/correos-notificaciones.js';
 import { asegurarTablaVentasDetalle, lineasDeDocumentos as lineasDeDocumentosDV, guardarLineas as guardarLineasDV, guardarSucursales as guardarSucursalesDV, leerDetalle as leerDetalleDV, estadoMeses as estadoMesesDV, mesesEntre as mesesEntreDV, mesValido as mesValidoDV, diaValido as diaValidoDV, MAX_MESES_CONSULTA as MAX_MESES_DV } from '../lib/detalle-ventas.js';
 import { SISTEMA_PRONOSTICO_IA, HERRAMIENTA_PRONOSTICO_IA, armarEntradaPronostico, textoParaIA as textoParaIAPronostico, normalizarAnalisisPronostico } from '../lib/detalle-ventas-pronostico-ia.js';
+import { conciliarDocumentos } from '../lib/ventas-conciliar.js';
 import { armarResumenSemanal, mesesParaActualizar as mesesResumenVentas, rangoNecesario as rangoResumenVentas, prepararLineasResumen, TIPOS_RESUMEN as TIPOS_RESUMEN_VENTAS } from '../lib/ventas-resumen-correo.js';
 import { armarCorreoEnvioTransito, debeAvisarseEnvio } from '../lib/correo-transito.js';
 import { armarCorreoCotizacionWebNueva, avisarCotizacionWebNueva } from '../lib/correo-cotizacion-web.js';
@@ -412,6 +413,7 @@ export default async function handler(req, res) {
   if (recurso === 'ventas-detalle') return manejarVentasDetalle(req, res, sesion);
   if (recurso === 'ventas-detalle-sync') return manejarVentasDetalleSync(req, res, sesion);
   if (recurso === 'ventas-detalle-hoy') return manejarVentasDetalleHoy(req, res, sesion);
+  if (recurso === 'ventas-detalle-conciliar') return manejarVentasDetalleConciliar(req, res, sesion);
   if (recurso === 'ventas-detalle-ia') return manejarVentasDetalleIA(req, res, sesion);
   if (recurso === 'comparativo-marca') return manejarComparativoMarca(req, res, sesion);
   if (recurso === 'contabilidad' || recurso === 'contabilidad-sync' || recurso === 'contabilidad-categoria' || recurso === 'contabilidad-analisis') return manejarContabilidad(req, res, sesion);
@@ -19671,6 +19673,47 @@ async function manejarVentasDetalleHoy(req, res, sesion) {
     return res.status(200).json({ ok: true, listo: true, porcentaje: 100, desde, hasta: hoy, documentos, costosListos, actualizadoEn: new Date().toISOString() });
   } catch (err) {
     return res.status(200).json({ error: 'No se pudo actualizar lo de hoy desde Bsale', detail: String(err.message || err).slice(0, 240) });
+  }
+}
+// GET ?recurso=ventas-detalle-conciliar&desde=AAAA-MM-DD&hasta=AAAA-MM-DD -> compara, documento por documento, lo que dice Bsale EN VIVO con lo guardado en ventas_detalle (lib/ventas-conciliar.js).
+// Solo administradores; hasta 7 días por consulta (lee los documentos con sus detalles directo de Bsale, sin guardar nada). Sirve para encontrar de dónde sale una diferencia con "Ventas totales" de Bsale.
+const CONCILIAR_MAX_DIAS = 7;
+async function manejarVentasDetalleConciliar(req, res, sesion) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  if (sesion.rol !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede conciliar con Bsale' });
+  const token = process.env.BSALE_ACCESS_TOKEN;
+  if (!token) return res.status(200).json({ error: 'BSALE_ACCESS_TOKEN no está configurada en el servidor' });
+  const desde = String(req.query.desde || ''), hasta = String(req.query.hasta || '');
+  if (!diaValidoDV(desde) || !diaValidoDV(hasta) || desde > hasta) return res.status(400).json({ error: 'Fechas no válidas' });
+  const epoch = (iso) => Math.floor(Date.parse(iso + 'T00:00:00Z') / 1000);
+  const dias = Math.round((epoch(hasta) - epoch(desde)) / 86400) + 1;
+  if (dias > CONCILIAR_MAX_DIAS) return res.status(400).json({ error: `Para conciliar elige un período de hasta ${CONCILIAR_MAX_DIAS} días (el elegido tiene ${dias})` });
+  const inicio = Date.now();
+  try {
+    const sql = await getSql();
+    await asegurarTablaVentasDetalle(sql);
+    const urlBase = `${BSALE_BASE}/documents.json?emissiondaterange=[${epoch(desde)},${epoch(hasta) + 86399}]&expand=[document_type,details]&limit=${PUNTOS_SYNC_LIMIT}&offset=`;
+    const docs = []; let offset = 0, total = null, completo = false, ultima = 0;
+    while (!completo && Date.now() - inicio < PUNTOS_SYNC_PRESUPUESTO_MS) {
+      const offsets = []; for (let i = 0; i < 6; i++) { const o = offset + i * PUNTOS_SYNC_LIMIT; if (total != null && o >= total) break; offsets.push(o); }
+      if (!offsets.length) { completo = true; break; }
+      const espera = offsets.length * PUNTOS_SYNC_INTERVALO_MIN_MS - (Date.now() - ultima); if (espera > 0) await new Promise((r) => setTimeout(r, espera)); ultima = Date.now();
+      const resp = await Promise.all(offsets.map(async (o) => {
+        const r = await fetchConTimeout(urlBase + o, { headers: { access_token: token } }, 15000);
+        if (!r.ok) throw new Error(`Bsale HTTP ${r.status}`);
+        return r.json();
+      }));
+      let corta = false;
+      for (const d of resp) { if (typeof d.count === 'number') total = d.count; const its = d.items || []; docs.push(...its); if (its.length < PUNTOS_SYNC_LIMIT) corta = true; }
+      offset += offsets.length * PUNTOS_SYNC_LIMIT;
+      completo = corta || (total != null && offset >= total);
+    }
+    const { rows } = await sql.query(`SELECT documento_id, sum(monto)::float AS neto FROM ventas_detalle WHERE fecha >= $1::date AND fecha <= $2::date GROUP BY documento_id`, [desde, hasta]);
+    const erpPorDoc = new Map(rows.map((r) => [Number(r.documento_id), Number(r.neto)]));
+    const resultado = conciliarDocumentos(docs, erpPorDoc, clasificarDocumentoDV);
+    return res.status(200).json({ ok: true, desde, hasta, incompleto: !completo, documentosBsale: docs.length, totalBsale: total, leidoEn: new Date().toISOString(), ...resultado });
+  } catch (err) {
+    return res.status(200).json({ error: 'No se pudo conciliar con Bsale', detail: String(err.message || err).slice(0, 240) });
   }
 }
 // POST ?recurso=ventas-detalle-ia { pronostico } -> interpretación con Gemini del pronóstico de venta del mes (la cifra la calcula la página; la IA no la cambia). Solo administradores.
