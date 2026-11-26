@@ -20019,7 +20019,7 @@ async function manejarSearchConsole(req, res, _sesion) {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     const extra = String(req.query.extra || '').split(',').map(validarRutaExtraSearchConsole).filter(Boolean).slice(0, 10);
     const pais = /^[A-Za-z]{3}$/.test(String(req.query.pais || '')) ? String(req.query.pais).toUpperCase() : (req.query.pais === 'todos' ? 'todos' : 'CHL');
-    const r = await consultarSearchConsole({ seccion: String(req.query.seccion || 'resumen'), desde: req.query.desde, hasta: req.query.hasta, pais, extra, url: req.query.url });
+    const r = await consultarSearchConsole({ seccion: String(req.query.seccion || 'resumen'), desde: req.query.desde, hasta: req.query.hasta, pais, extra, url: req.query.url, tema: req.query.tema });
     if (r.sin_configurar) return res.status(200).json({ error: 'Search Console no está configurado: faltan GOOGLE_ANALYTICS_CLIENT_EMAIL / GOOGLE_ANALYTICS_PRIVATE_KEY en Vercel (se usa la misma cuenta de servicio de Google Analytics)' });
     return res.status(200).json(r);
   } catch (err) {
