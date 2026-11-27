@@ -100,6 +100,13 @@ test('ante cualquier duda NO se envía y se explica por qué', () => {
   no({ modo: 'automatico' }, /no está en modo prueba/);
   no({ esNumeroPrueba: false }, /no está en la lista de prueba/);
   no({ hayRespuestaHumanaReciente: true }, /menos de (1 minuto|\d+ minutos): el bot se calla/);
+  // audio, video y documento: el bot no los entiende, nunca responde solo (texto y foto sí)
+  no({ tipoUltimoMensajeCliente: 'audio' }, /es un audio/);
+  no({ tipoUltimoMensajeCliente: 'video' }, /es un video/);
+  no({ tipoUltimoMensajeCliente: 'documento' }, /es un documento/);
+  no({ tipoUltimoMensajeCliente: 'sticker' }, /que el bot no entiende/);
+  assert.equal(evaluarEnvioAutomatico({ ...base, tipoUltimoMensajeCliente: 'imagen' }).enviar, true);
+  assert.equal(evaluarEnvioAutomatico({ ...base, tipoUltimoMensajeCliente: 'texto' }).enviar, true);
   no({ enviadosHoy: TOPE_DIARIO_DEFECTO }, /tope diario de 30/);
   no({ enviadosHoy: 5, topeDiario: 5 }, /tope diario de 5/);
   no({ enviadosUltimaHora: TOPE_POR_HORA_CONVERSACION }, /en la última hora/);

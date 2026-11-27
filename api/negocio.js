@@ -10673,9 +10673,10 @@ async function atenderConversacionConBot(sql, conversacionId, cfg) {
   const { rows: [m] } = await sql.query(
     `SELECT EXISTS (SELECT 1 FROM whatsapp_mensajes WHERE conversacion_id = $1 AND direccion = 'out' AND COALESCE(origen, '') <> 'bot' AND marca_tiempo > now() - make_interval(mins => $2::int)) AS humano,
             (SELECT COUNT(*)::int FROM whatsapp_bot_borradores WHERE estado = 'enviado_automatico' AND creado_en > now() - interval '24 hours') AS hoy,
-            (SELECT COUNT(*)::int FROM whatsapp_bot_borradores WHERE estado = 'enviado_automatico' AND conversacion_id = $1 AND creado_en > now() - interval '1 hour') AS hora;`,
+            (SELECT COUNT(*)::int FROM whatsapp_bot_borradores WHERE estado = 'enviado_automatico' AND conversacion_id = $1 AND creado_en > now() - interval '1 hour') AS hora,
+            (SELECT tipo FROM whatsapp_mensajes WHERE conversacion_id = $1 AND direccion = 'in' ORDER BY marca_tiempo DESC, id DESC LIMIT 1) AS tipo_ultimo;`,
     [conversacionId, silencioMinutos]);
-  const reglas = { modo: cfg.modo, esNumeroPrueba: esPrueba, enviadosHoy: m.hoy, topeDiario: cfg.topeDiario, enviadosUltimaHora: m.hora, hayRespuestaHumanaReciente: !!m.humano, dentroDeHorario: dentroDeHorarioBot(new Date(), cfg.horario), silencioMinutos };
+  const reglas = { tipoUltimoMensajeCliente: m.tipo_ultimo || 'texto', modo: cfg.modo, esNumeroPrueba: esPrueba, enviadosHoy: m.hoy, topeDiario: cfg.topeDiario, enviadosUltimaHora: m.hora, hayRespuestaHumanaReciente: !!m.humano, dentroDeHorario: dentroDeHorarioBot(new Date(), cfg.horario), silencioMinutos };
   // Primero las reglas que no dependen de la IA (así no se gastan tokens si igual no se va a enviar).
   const previo = evaluarEnvioAutomatico({ ...reglas, borrador: { texto: 'x', confianza: 'alta', alertas: [] } });
   if (!previo.enviar) { console.log(`[whatsapp-bot-auto] conversación ${conversacionId}: no responde. ${previo.motivo}`); return; }
