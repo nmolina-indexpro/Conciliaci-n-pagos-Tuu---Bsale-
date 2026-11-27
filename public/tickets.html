@@ -244,11 +244,7 @@
   body.zd{padding:0;}
   body.zd .wrap > *:not(header):not(.subbar){margin-left:14px;margin-right:14px;}
   body.zd .wrap > #vistaMetricas, body.zd .wrap > #vistaConfig, body.zd .wrap > #vistaCliente{margin-top:12px;margin-bottom:24px;}
-  .acciones-top{display:flex;gap:8px;align-items:center;justify-self:center;}
-  .btn-nuevo{background:#2563EB;color:#fff;padding:7px 14px;font-size:12.5px;border-radius:8px;}
-  .btn-nuevo:hover{background:#1D4ED8;}
-  .btn-orden{background:rgba(255,255,255,.12);color:#fff;padding:7px 12px;font-size:12.5px;border-radius:8px;}
-  .btn-orden:hover{background:rgba(255,255,255,.22);}
+  body.zd{--zd-mb:0px;} /* la barra superior (responsive.css) queda pegada a la barra fina de abajo */
   .subbar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;background:var(--surface);border-bottom:1px solid var(--line);padding:0 14px;min-height:40px;}
   .subbar-titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;} .subbar-titulo span{color:var(--primary);}
   .subbar .vistas{margin:0;gap:18px;}
@@ -258,21 +254,7 @@
   .subbar #status{flex:1;}
   .subbar-acc{display:flex;gap:8px;align-items:center;margin-left:auto;}
   body.zd .tk-app{height:calc(100vh - 118px);min-height:480px;border-radius:10px;margin-top:10px;margin-bottom:12px;}
-  @media (min-width:901px){
-    body.zd header{display:flex;align-items:center;gap:16px;background:#262F4B;border:none;margin:0;padding:0 16px;height:52px;}
-    body.zd header .header-left{gap:10px;}
-    body.zd .btn-settings{width:34px;height:34px;background:rgba(255,255,255,.1);border:none;color:#fff;}
-    body.zd .btn-settings:hover{background:rgba(255,255,255,.2);color:#fff;}
-    body.zd header .logo{height:30px;background:#fff;border-radius:7px;padding:3px 8px;}
-    body.zd .page-nav{flex:1;background:none;padding:0;border-radius:0;justify-self:stretch;gap:2px;height:100%;align-items:stretch;}
-    body.zd .page-nav a, body.zd .page-nav .nav-dropdown-btn{color:#E4E8F2;background:none;border-radius:0;box-shadow:none;font-size:13px;padding:0 12px;height:100%;display:flex;align-items:center;}
-    body.zd .page-nav a:hover, body.zd .page-nav .nav-dropdown-btn:hover{color:#fff;background:rgba(255,255,255,.08);}
-    body.zd .page-nav a.active, body.zd .page-nav .nav-dropdown-btn.active{color:#fff;background:none;box-shadow:inset 0 -3px 0 #fff;}
-    body.zd .page-nav .nav-dropdown{display:flex;align-items:stretch;}
-    body.zd .user-box{color:#C9CFE0;justify-self:auto;} body.zd .user-box b{color:#fff;}
-    body.zd .acciones-top{justify-self:auto;}
-  }
-  @media (max-width:900px){ body.zd .wrap > *:not(header):not(.subbar){margin-left:10px;margin-right:10px;} body.zd header{padding:12px 10px;margin-bottom:0;} .subbar{padding:0 10px;} .acciones-top{justify-content:center;} .btn-orden{background:var(--surface);color:var(--text);border:1.5px solid var(--line);} .btn-orden:hover{background:var(--surface-2);} }
+  @media (max-width:900px){ body.zd .wrap > *:not(header):not(.subbar){margin-left:10px;margin-right:10px;} body.zd header{margin-bottom:0;} .subbar{padding:0 10px;} }
 
   /* ---- Celular y pantallas angostas: una vista a la vez (lista -> detalle) ---- */
   @media (max-width:1100px){
@@ -406,8 +388,8 @@
       </div>
     </nav>
     <div class="acciones-top">
-      <button class="btn-orden" onclick="abrirNuevaOS()">🔧 Nueva orden de servicio</button>
-      <button class="btn-nuevo" onclick="abrirNuevo()">+ Nuevo ticket</button>
+      <button class="btn-orden" onclick="abrirNuevaOS()" title="Nueva orden de servicio">🔧 <span class="l">Nueva orden de servicio</span><span class="c">Orden</span></button>
+      <button class="btn-nuevo" onclick="abrirNuevo()" title="Nuevo ticket">+ <span class="l">Nuevo ticket</span><span class="c">Ticket</span></button>
     </div>
     <div class="user-box" id="userBox"></div>
   </header>
@@ -709,9 +691,13 @@ async function cargarLista(manual){
     // Primera carga: abrir el ticket indicado en la URL (#t=ID) o el primero de la lista (solo en pantalla ancha)
     if(!E.inicializado){
       E.inicializado = true;
-      const m = location.hash.match(/t=(\d+)/);
+      const hashInicial = location.hash;
+      const m = hashInicial.match(/t=(\d+)/);
       if(m) await abrirTicket(Number(m[1]));
       else if(window.innerWidth > 1100 && E.tickets[0]) await abrirTicket(E.tickets[0].id);
+      // Desde la barra superior de las otras páginas: tickets.html#nuevo y tickets.html#nueva-os abren el formulario correspondiente
+      if(hashInicial === '#nuevo') abrirNuevo();
+      else if(hashInicial === '#nueva-os') abrirNuevaOS();
     } else if(E.sel){ refrescarSeleccionado(true); }
   }catch(err){
     $('status').textContent = 'Error: ' + err.message; $('status').className = 'err';

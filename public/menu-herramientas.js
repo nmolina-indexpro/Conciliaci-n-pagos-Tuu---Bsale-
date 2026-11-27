@@ -117,3 +117,40 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }).observe(usuarios, { attributes: true, attributeFilter: ['style'] });
 });
+
+// ---------- Barra superior azul oscura (estilo Zoho Desk) ----------
+// Se activa sola en toda página que tenga el menú principal (<header> con .page-nav): agrega la clase "zd" al <body> (los estilos están en
+// responsive.css), mide el relleno de la página para que la barra llegue de borde a borde y suma los accesos rápidos de arriba:
+// Nuevo ticket, Nueva orden de servicio (abren el formulario en Tickets) y WhatsApp (el chat de conversaciones, en otra pestaña).
+(function(){
+  function medir(){
+    const cs = getComputedStyle(document.body);
+    document.body.style.setProperty('--zd-pt', cs.paddingTop);
+    document.body.style.setProperty('--zd-px', cs.paddingLeft);
+  }
+  function iniciar(){
+    const nav = document.querySelector('header .page-nav');
+    if(!nav) return;
+    const header = nav.closest('header');
+    document.body.classList.add('zd');
+    let acc = header.querySelector('.acciones-top');
+    if(!acc){
+      acc = document.createElement('div');
+      acc.className = 'acciones-top';
+      acc.innerHTML =
+        '<a class="btn-orden" href="tickets.html#nueva-os" title="Nueva orden de servicio">🔧 <span class="l">Nueva orden de servicio</span><span class="c">Orden</span></a>' +
+        '<a class="btn-nuevo" href="tickets.html#nuevo" title="Nuevo ticket">+ <span class="l">Nuevo ticket</span><span class="c">Ticket</span></a>';
+      const ub = header.querySelector('.user-box');
+      if(ub) header.insertBefore(acc, ub); else header.appendChild(acc);
+    }
+    if(!acc.querySelector('.btn-wa-top')){
+      const wa = document.createElement('a');
+      wa.className = 'btn-wa-top'; wa.href = 'clientes-whatsapp.html'; wa.target = '_blank'; wa.rel = 'noopener';
+      wa.title = 'Abrir el chat de conversaciones de WhatsApp (en una pestaña nueva)'; wa.textContent = '💬 WhatsApp';
+      acc.insertBefore(wa, acc.firstChild);
+    }
+    medir();
+    window.addEventListener('resize', medir);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
+})();

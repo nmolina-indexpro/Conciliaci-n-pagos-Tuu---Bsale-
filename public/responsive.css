@@ -244,3 +244,40 @@
   .card .big{ font-size: 16px; }
   .page-nav a{ padding: 8px 12px; font-size: 12px; }
 }
+
+/* ---------- Barra superior azul oscura al estilo de Zoho Desk (todas las páginas con menú) ----------
+   menu-herramientas.js agrega la clase "zd" al <body> y mide su relleno (--zd-pt arriba, --zd-px a los lados) para que la barra
+   llegue de borde a borde sin tocar el diseño propio de cada página. Solo en pantallas anchas: en celular se conserva el encabezado claro. */
+.acciones-top{ display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap; }
+.acciones-top a, .acciones-top button{
+  font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:12.5px; text-decoration:none; white-space:nowrap;
+  display:inline-flex; align-items:center; gap:5px; padding:7px 12px; border-radius:8px; border:none; cursor:pointer;
+}
+.acciones-top .c{ display:none; }
+.btn-nuevo{ background:#2563EB; color:#fff; } .btn-nuevo:hover{ background:#1D4ED8; }
+.btn-wa-top{ background:#16A34A; color:#fff; } .btn-wa-top:hover{ background:#15803D; }
+.btn-orden{ background:var(--surface); color:var(--text); border:1.5px solid var(--line) !important; } .btn-orden:hover{ background:var(--surface-2); }
+@media (min-width: 901px) {
+  body.zd header{
+    display:flex; align-items:center; gap:16px; background:#262F4B; border:none; height:52px; padding:0 16px;
+    margin:calc(-1 * var(--zd-pt, 0px)) calc(-1 * var(--zd-px, 0px)) var(--zd-mb, 18px);
+  }
+  body.zd header .header-left{ gap:10px; }
+  body.zd .btn-settings{ width:34px; height:34px; background:rgba(255,255,255,.1); border:none; color:#fff; }
+  body.zd .btn-settings:hover{ background:rgba(255,255,255,.2); color:#fff; }
+  body.zd header .logo{ height:30px; background:#fff; border-radius:7px; padding:3px 8px; }
+  body.zd .page-nav{ flex:1; background:none; padding:0; border-radius:0; justify-self:stretch; gap:2px; height:100%; align-items:stretch; }
+  body.zd .page-nav a, body.zd .page-nav .nav-dropdown-btn{
+    color:#E4E8F2; background:none; border-radius:0; box-shadow:none; font-size:13px; padding:0 12px; height:100%; display:flex; align-items:center;
+  }
+  body.zd .page-nav a:hover, body.zd .page-nav .nav-dropdown-btn:hover{ color:#fff; background:rgba(255,255,255,.08); }
+  body.zd .page-nav a.active, body.zd .page-nav .nav-dropdown-btn.active{ color:#fff; background:none; box-shadow:inset 0 -3px 0 #fff; }
+  body.zd .page-nav .nav-dropdown{ display:flex; align-items:stretch; }
+  body.zd .user-box{ color:#C9CFE0; justify-self:auto; } body.zd .user-box b{ color:#fff; }
+  body.zd .acciones-top{ flex-wrap:nowrap; }
+  body.zd .btn-orden{ background:rgba(255,255,255,.12); color:#fff; border:none !important; } body.zd .btn-orden:hover{ background:rgba(255,255,255,.22); }
+}
+/* Entre 901 y 1750 px los botones se acortan (Orden, Ticket) para que el menú tenga espacio */
+@media (min-width: 901px) and (max-width: 1750px) {
+  body.zd .acciones-top .l{ display:none; } body.zd .acciones-top .c{ display:inline; }
+}
