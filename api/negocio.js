@@ -34,6 +34,7 @@ import { manejarChatPublico, manejarChatAdmin } from '../lib/chat.js';
 import { manejarTicketsPostventa } from '../lib/tickets-postventa.js';
 import { manejarTicketsMetricas } from '../lib/tickets-metricas.js';
 import { manejarTicketsCorreo } from '../lib/tickets-correo.js';
+import { notificarTicketTI, armarCorreoTicketTI } from '../lib/tickets-aviso.js';
 import { manejarTicketsMigracion, asegurarColumnasZoho, leerParalelo as leerParaleloZoho, sincronizarParalelo as sincronizarParaleloZoho } from '../lib/tickets-zoho.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
@@ -272,7 +273,7 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'tickets-carritos-cron') return manejarTicketsCarritosCron(req, res);
   if (req.query.recurso === 'tickets-zoho-sync-cron') return manejarTicketsZohoSyncCron(req, res);
   // Correos que llegan a soporteti@indexpro.cl (los envía un Google Apps Script del buzón, con la clave TICKETS_CORREO_KEY en x-api-key). Ver lib/tickets-correo.js.
-  if (req.query.recurso === 'tickets-correo') return manejarTicketsCorreo(req, res, { getSql });
+  if (req.query.recurso === 'tickets-correo') return manejarTicketsCorreo(req, res, { getSql, notificar: notificarTicketTI });
   // Chat en vivo: lo llama el widget del sitio (navegador del visitante, sin sesión). Seguridad: origen permitido, campo trampa, tiempo mínimo, tope por IP
   // (lib/seguridad.js) y token aleatorio por conversación. Ver lib/chat.js y middleware.ts (esChatPublico).
   if (req.query.recurso === 'chat-publico') return manejarChatPublico(req, res, { getSql });
@@ -5772,6 +5773,7 @@ async function manejarNotificacionProbar(req, res, sesion) {
       'transito-envio-nuevo': manejarTransitoEnvioNuevoPrueba,
       'cotizacion-web-nueva': manejarCotizacionWebNuevaPrueba,
       'pedido-pantalla-nuevo': manejarPedidoPantallaPrueba,
+      'tickets-soporte-ti': manejarTicketTIPrueba,
       'producto-consulta-precio': manejarConsultaPrecioPrueba,
       'pedido-pantalla-cambio': manejarCambioPedidoPrueba,
       'pedido-pantalla-recordatorio': manejarPedidosPantallaRecordatorio,
@@ -19435,6 +19437,18 @@ async function manejarPedidosPantalla(req, res, sesion) {
 }
 
 // "Enviar prueba" de Usuarios > Notificaciones: manda a quien lo pidió el aviso del último pedido pendiente de compra (o un ejemplo si no hay ninguno).
+// "Enviar prueba" de la notificación 'tickets-soporte-ti': un correo de ejemplo (ticket nuevo) solo para quien apretó el botón, con [PRUEBA] en el asunto.
+async function manejarTicketTIPrueba(req, res) {
+  const secretoEsperado = process.env.CRON_SECRET;
+  if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const { asunto, html } = armarCorreoTicketTI({ evento: 'creado', ejemplo: true, ticketId: 1, numero: 27019, asunto: 'Iniciar computador nuevo', cliente: { nombre: 'Cliente de ejemplo' }, texto: 'Buenas tardes. Necesito ayuda para iniciar un computador nuevo con una cuenta local.\n\nSaludos.', fecha: new Date().toISOString(), adjuntos: 1 }, { urlBase: URL_BASE_APP });
+    const r = await enviarCorreo({ para: String(req.query.para || ''), asunto, html });
+    return res.status(200).json({ ok: true, enviado: !!(r && r.enviado), motivo: r && r.motivo });
+  } catch (e) {
+    return res.status(200).json({ error: 'No se pudo armar el correo de prueba', detail: String(e.message || e).slice(0, 200) });
+  }
+}
 async function manejarPedidoPantallaPrueba(req, res) {
   const secretoEsperado = process.env.CRON_SECRET;
   if (!secretoEsperado || (req.headers.authorization || '') !== `Bearer ${secretoEsperado}`) return res.status(401).json({ error: 'No autorizado' });

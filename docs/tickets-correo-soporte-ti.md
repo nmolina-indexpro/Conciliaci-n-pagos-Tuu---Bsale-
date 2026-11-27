@@ -26,6 +26,20 @@ El ERP los reconoce como el mismo correo (mismo remitente, mismo asunto y mismo 
 
 Los correos de Zoho traen la **descripción vacía** (el texto está en el primer mensaje): al copiar las conversaciones, ese primer mensaje pasa a ser la descripción completa del ticket, con sus saltos de línea y listas, sin el mensaje citado.
 
+## Aviso al equipo (en español, desde el ERP)
+
+Cada vez que llega un correo, el ERP avisa al equipo por correo, en español y con el diseño estándar de las notificaciones:
+
+- Ticket nuevo: asunto `Nicolás Molina ha creado un nuevo ticket · #26753 PRUEBA DE ERP`, con el mensaje del cliente.
+- Respuesta de un cliente: asunto `Nicolás Molina respondió el ticket · #26753 …` (si el ticket estaba cerrado, avisa que **se reabrió**).
+- El botón **"Ver ticket"** abre el ticket **en el ERP** (`https://erp.indexstore.cl/tickets.html#t=…`), no en Zoho.
+
+Es la notificación **"Soporte TI: un cliente creó un ticket o respondió uno…"** de **Usuarios > Notificaciones**: ahí se elige quién la recibe, se apaga, se ve el último correo y se manda una prueba.
+Parte solo con una persona; agrega al resto del equipo en ese panel. Si el correo llega por dos caminos (buzón y Zoho), se avisa una sola vez.
+
+**Zoho sigue mandando su propio aviso en inglés** ("… has submitted a new ticket") mientras el departamento INDEXPRO esté activo allá. Es un correo de Zoho y el ERP no puede cambiarlo:
+para que no lleguen dos avisos, desactiva las notificaciones de ese departamento en Zoho (Configuración > Automatización > Notificaciones, o el cambio equivalente) o espera al corte.
+
 ## Instalación (una sola vez)
 
 1. **Clave:** inventa una clave larga (por ejemplo, 40 caracteres al azar) y guárdala en Vercel como variable `TICKETS_CORREO_KEY`. Después de guardarla hay que volver a desplegar.
