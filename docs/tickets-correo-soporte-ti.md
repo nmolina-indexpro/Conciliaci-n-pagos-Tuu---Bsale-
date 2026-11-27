@@ -54,7 +54,20 @@ para que no lleguen dos avisos, desactiva las notificaciones de ese departamento
 
 La primera vez el script revisa las últimas 24 horas. Para empezar desde otra fecha, crea la propiedad `ULTIMO` con la fecha en milisegundos.
 
+## Responder por correo desde el ERP
+
+En un ticket de **Soporte TI**, el botón **✉ Responder por correo** abre el redactor con *Para* y *Asunto* (el correo del cliente y `Re: <asunto> [#N]`; se pueden cambiar). Al enviar:
+
+- El mensaje queda en la conversación como **"Correo enviado a …"** con el estado del envío: *Enviando…* → *Enviado* (o *No se pudo enviar*, con el motivo).
+- El ERP **no envía el correo él mismo**: lo deja en una cola y el script de Apps Script (el mismo que recibe) lo envía **desde soporteti@indexpro.cl** en hasta 1 minuto, dentro del mismo hilo de Gmail. Va con la firma "<tu nombre> · Soporte TI · IndexPro".
+- El `[#N]` del asunto hace que, cuando el cliente conteste, su respuesta se sume al mismo ticket (y lo reabra si estaba cerrado).
+- Si el envío falla se reintenta 3 veces; después queda en error y deja una nota en el ticket. Lo que quede "enviando" más de 10 minutos vuelve a la cola.
+- La nota **"Contacto con cliente"** del redactor normal **solo deja un registro** (para anotar una llamada o un WhatsApp): no envía nada.
+
+**Para activarlo:** pega de nuevo el contenido actualizado de `docs/apps-script-soporteti.gs` en el proyecto de Apps Script, guarda y ejecuta `procesarSoporteTI` una vez (Google pedirá el permiso adicional para **enviar correo**; acepta).
+
 ## Lo que no hace (todavía)
 
-- **No responde ni confirma al cliente por correo.** Las respuestas se siguen enviando desde Gmail o Zoho; cuando el cliente conteste, su mensaje se suma solo al ticket. Responder desde el ERP queda para más adelante.
+- No envía archivos adjuntos desde el redactor del ERP (los adjuntos del cliente sí se reciben) y solo funciona en la tiquetera Soporte TI.
+- No manda confirmación automática al cliente cuando crea un ticket.
 - Los tickets que lleguen a Zoho por otro correo (por ejemplo soporte@) siguen entrando a Zoho; durante el paralelo se copian al ERP con la sincronización de Zoho.

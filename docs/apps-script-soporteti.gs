@@ -28,7 +28,8 @@ function procesarSoporteTI() {
     var pendientes = [];
     hilos.forEach(function (hilo) {
       hilo.getMessages().forEach(function (m) {
-        if (m.getDate().getTime() > desde - SOLAPE_MS) pendientes.push({ m: m, hilo: hilo });
+        // Los correos que envía esta misma cuenta (las respuestas escritas desde el ERP) no son del cliente: no se envían como mensajes nuevos.
+        if (m.getDate().getTime() > desde - SOLAPE_MS && !esPropio(m)) pendientes.push({ m: m, hilo: hilo });
       });
     });
     pendientes.sort(function (a, b) { return a.m.getDate().getTime() - b.m.getDate().getTime(); });
@@ -45,9 +46,42 @@ function procesarSoporteTI() {
       ultimo = Math.max(ultimo, pendientes[i].m.getDate().getTime());
     }
     props.setProperty('ULTIMO', String(ultimo));
+
+    // Respuestas escritas en el ERP (ticket > "Responder por correo"): se envían desde esta cuenta.
+    try { enviarPendientes(url, clave); } catch (e) { Logger.log('Respuestas pendientes: ' + e); }
   } finally {
     lock.releaseLock();
   }
+}
+
+function esPropio(m) {
+  var de = String(m.getFrom() || '').toLowerCase();
+  var yo = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  return de.indexOf(DIRECCION) >= 0 || (yo !== '' && de.indexOf(yo) >= 0);
+}
+
+/** Pide al ERP las respuestas que el equipo escribió en un ticket y las envía como correo desde esta cuenta. Informa el resultado de cada una. */
+function enviarPendientes(url, clave) {
+  var opcionesHttp = function (cuerpo) {
+    return { method: 'post', contentType: 'application/json', headers: { 'x-api-key': clave }, muteHttpExceptions: true, payload: JSON.stringify(cuerpo) };
+  };
+  var r = UrlFetchApp.fetch(url, opcionesHttp({ accion: 'salida_pendientes' }));
+  if (r.getResponseCode() !== 200) { Logger.log('Respuestas pendientes: el ERP respondió ' + r.getResponseCode() + ': ' + r.getContentText().slice(0, 200)); return; }
+  var lista = JSON.parse(r.getContentText()).mensajes || [];
+  lista.forEach(function (x) {
+    var ok = false, error = '';
+    try {
+      var opciones = { name: 'Soporte TI · IndexPro', replyTo: DIRECCION };
+      try {
+        GmailApp.sendEmail(x.para, x.asunto, x.cuerpo, { name: opciones.name, replyTo: opciones.replyTo, from: DIRECCION });
+      } catch (e1) {
+        // Si soporteti@ no está configurada como "Enviar como" en esta cuenta, se envía con la dirección principal de la cuenta.
+        GmailApp.sendEmail(x.para, x.asunto, x.cuerpo, opciones);
+      }
+      ok = true;
+    } catch (e) { error = String((e && e.message) || e); }
+    UrlFetchApp.fetch(url, opcionesHttp({ accion: 'salida_resultado', id: x.id, ok: ok, error: error }));
+  });
 }
 
 function armarMensaje(m, hilo) {

@@ -163,6 +163,10 @@
   .composer.priv textarea{background:#FFFAEF;border-color:var(--amber-line);}
   .composer .acciones{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;}
   .composer .nota{font-size:11.5px;color:var(--muted);}
+  .composer .dos{display:grid;grid-template-columns:1fr 1.6fr;gap:10px;}
+  .campo-comp label{display:block;font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin:0 0 3px 2px;}
+  .campo-comp input{width:100%;}
+  @media (max-width:700px){.composer .dos{grid-template-columns:1fr;}}
   .vacio-main{flex:1;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;padding:30px;text-align:center;}
 
   /* ---- General ---- */
@@ -856,7 +860,14 @@ function conversaciones(d){
   items.push({ clase:'', quien: d.cliente_nombre || 'Cliente', cuando: d.creado_en, cuerpo: d.descripcion || (d.orden && d.orden.motivo_ingreso ? 'Motivo de ingreso: ' + d.orden.motivo_ingreso : '') || d.asunto || '', etiqueta:'<span class="tag-cont">' + (d.orden ? 'Ingreso del equipo' : 'Solicitud original') + '</span>', cliente:true });
   for(const e of d.eventos){
     if(e.tipo === 'comentario_interno') items.push({ clase:'privada', quien: e.autor_nombre, cuando: e.creado_en, cuerpo: e.contenido, etiqueta:'<span class="tag-priv">Privado</span>' });
-    else if(e.tipo === 'contacto_cliente') items.push({ clase:'', quien: e.autor_nombre, cuando: e.creado_en, cuerpo: e.contenido, etiqueta:'<span class="tag-cont">Contacto con cliente</span>' });
+    else if(e.tipo === 'contacto_cliente'){
+      // Respuesta escrita en el ERP para el cliente (Soporte TI): se envía por correo desde soporteti@ y su estado se muestra al lado.
+      const sal = (d.salidas || []).find(x => x.evento_id === e.id);
+      const est = !sal ? '' : sal.estado === 'enviado' ? ' <span class="badge verde">✓ Enviado</span>'
+        : sal.estado === 'error' ? ` <span class="badge rojo" title="${esc(sal.error || '')}">⚠ No se envió</span>`
+        : ' <span class="badge ambar" title="Sale en hasta 1 minuto desde soporteti@indexpro.cl">⏳ Enviando…</span>';
+      items.push({ clase:'', quien: e.autor_nombre, cuando: e.creado_en, cuerpo: e.contenido, etiqueta: `<span class="tag-cont">${sal ? 'Correo al cliente' : 'Contacto con cliente'}</span>${est}` });
+    }
     else if(e.tipo === 'adjunto'){
       const a = d.adjuntos.find(x => x.evento_id === e.id);
       items.push({ clase:'', quien: e.autor_nombre, cuando: e.creado_en, adjunto: a, cuerpo: e.contenido, etiqueta:'<span class="tag-cont">Adjunto</span>' });
@@ -969,18 +980,31 @@ function vistaConversacion(d, conv){
       ${c.adjunto ? htmlAdjunto(c.adjunto) : `<div class="conv-cuerpo">${esc(c.cuerpo)}</div>`}
     </div>`).join('');
   // El editor aparece al pulsar "Responder" o "Nota privada" (como en Zoho); abajo queda siempre la barra de acciones con "Cerrar ticket".
+  // En Soporte TI el segundo modo ya no es "Contacto con cliente" (solo un registro): es "Responder por correo", que ENVÍA el mensaje al cliente desde soporteti@indexpro.cl.
+  const esTI = d.tipo === 'soporte_ti';
+  if(esTI && E.modo === 'contacto') E.modo = 'correo';
+  const emailCliente = (d.cliente && d.cliente.email) || '';
+  const campoCorreo = E.modo !== 'correo' ? '' : `
+      <div class="dos" style="margin-bottom:8px">
+        <div class="campo-comp"><label for="correoPara">Para</label><input id="correoPara" type="email" value="${esc(E.correoPara != null ? E.correoPara : emailCliente)}" placeholder="correo del cliente"></div>
+        <div class="campo-comp"><label for="correoAsunto">Asunto</label><input id="correoAsunto" value="${esc(E.correoAsunto != null ? E.correoAsunto : 'Re: ' + (d.asunto || '').replace(/^(re|rv|fw|fwd)\s*:\s*/i, '') + ' [#' + d.numero + ']')}"></div>
+      </div>`;
+  const nota = E.modo === 'privada' ? 'Solo visible para el equipo.'
+    : E.modo === 'correo' ? 'Se envía por correo desde soporteti@indexpro.cl en hasta 1 minuto, con tu nombre como firma. Si el cliente responde, su mensaje se suma a este ticket.'
+    : 'Queda registrado en el ticket; no envía ningún mensaje al cliente.';
   const editor = !E.compOpen ? '' : `
     <div class="composer${E.modo === 'privada' ? ' priv' : ''}" id="composer">
       <div class="modos">
         <button class="modo${E.modo === 'privada' ? ' activo' : ''}" onclick="setModo('privada')">🔒 Nota privada</button>
-        <button class="modo${E.modo === 'contacto' ? ' activo' : ''}" onclick="setModo('contacto')">💬 Contacto con cliente</button>
-      </div>
-      <textarea id="txtRespuesta" rows="4" placeholder="${E.modo === 'privada' ? 'Escribe una nota interna (solo la ve el equipo)…' : 'Registra qué se habló con el cliente…'}" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){enviarRespuesta();}">${esc(E.borrador || '')}</textarea>
+        ${esTI ? `<button class="modo${E.modo === 'correo' ? ' activo' : ''}" onclick="setModo('correo')">✉ Responder por correo</button>`
+               : `<button class="modo${E.modo === 'contacto' ? ' activo' : ''}" onclick="setModo('contacto')">💬 Contacto con cliente</button>`}
+      </div>${campoCorreo}
+      <textarea id="txtRespuesta" rows="4" placeholder="${E.modo === 'privada' ? 'Escribe una nota interna (solo la ve el equipo)…' : E.modo === 'correo' ? 'Escribe la respuesta para el cliente…' : 'Registra qué se habló con el cliente…'}" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){enviarRespuesta();}">${esc(E.borrador || '')}</textarea>
       <div class="acciones">
-        <span class="nota">${E.modo === 'privada' ? 'Solo visible para el equipo.' : 'Queda registrado en el ticket; no envía ningún mensaje al cliente.'}</span>
+        <span class="nota">${nota}</span>
         <span style="display:flex;gap:8px;align-items:center">
           <button class="btn-ghost btn-compact" onclick="cerrarComposer()">Cancelar</button>
-          <button class="btn-primary btn-compact" id="btnEnviar" onclick="enviarRespuesta()">Guardar</button>
+          <button class="btn-primary btn-compact" id="btnEnviar" onclick="enviarRespuesta()">${E.modo === 'correo' ? 'Enviar correo' : 'Guardar'}</button>
         </span>
       </div>
     </div>`;
@@ -991,6 +1015,7 @@ function vistaConversacion(d, conv){
     ${editor}
     <div class="barra-accion">
       <div class="izq">
+        ${esTI ? `<button class="btn-link" onclick="abrirComposer('correo')">✉ Responder por correo</button>` : ''}
         <button class="btn-link" onclick="abrirComposer('privada')">🔒 Nota privada</button>
         <label class="btn-link" style="margin:0">📎 Adjuntar<input type="file" id="inpAdjunto" multiple style="display:none" onchange="subirArchivos(this.files)"></label>
       </div>
@@ -1068,6 +1093,19 @@ function guardarDetalle(){
 async function enviarRespuesta(){
   const x = $('txtRespuesta'); const texto = x.value.trim();
   if(!texto) return;
+  if(E.modo === 'correo'){
+    // Respuesta por correo (Soporte TI): queda en cola y sale desde soporteti@ en hasta 1 minuto; el estado ("Enviando…" / "Enviado") se ve en la conversación.
+    const para = ($('correoPara') || {}).value || '', asunto = ($('correoAsunto') || {}).value || '';
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para.trim())){ toast('Escribe un correo válido en "Para"', true); return; }
+    $('btnEnviar').disabled = true;
+    E.borrador = null; E.compOpen = false; E.correoPara = null; E.correoAsunto = null;
+    const idTicket = E.sel;
+    const ok = await aplicar({ accion:'responder', contenido: texto, para: para.trim(), asunto }, 'Correo en cola: sale en hasta 1 minuto');
+    if(!ok){ E.borrador = texto; E.compOpen = true; E.correoPara = para; E.correoAsunto = asunto; renderMain(); return; }
+    // Se vuelve a mirar el ticket para mostrar si ya se envió
+    [45000, 90000, 180000].forEach(ms => setTimeout(() => { if(E.sel === idTicket) refrescarSeleccionado(); }, ms));
+    return;
+  }
   $('btnEnviar').disabled = true;
   E.borrador = null; E.compOpen = false;
   const ok = await aplicar({ accion: E.modo === 'privada' ? 'comentario' : 'contacto', contenido: texto }, E.modo === 'privada' ? 'Nota guardada' : 'Contacto registrado');
