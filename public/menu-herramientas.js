@@ -138,7 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
       acc = document.createElement('div');
       acc.className = 'acciones-top';
       acc.innerHTML =
-        '<a class="btn-orden" href="tickets.html#nueva-os" title="Nueva orden de servicio">🔧 <span class="l">Nueva orden de servicio</span><span class="c">Orden</span></a>' +
+        '<a class="btn-orden" href="tickets.html#nueva-os" title="Nueva orden de servicio"><span class="l">Nueva orden de servicio</span><span class="c">Orden</span></a>' +
         '<a class="btn-nuevo" href="tickets.html#nuevo" title="Nuevo ticket">+ <span class="l">Nuevo ticket</span><span class="c">Ticket</span></a>';
       const ub = header.querySelector('.user-box');
       if(ub) header.insertBefore(acc, ub); else header.appendChild(acc);
@@ -146,11 +146,53 @@ document.addEventListener('DOMContentLoaded', () => {
     if(!acc.querySelector('.btn-wa-top')){
       const wa = document.createElement('a');
       wa.className = 'btn-wa-top'; wa.href = 'clientes-whatsapp.html'; wa.target = '_blank'; wa.rel = 'noopener';
-      wa.title = 'Abrir el chat de conversaciones de WhatsApp (en una pestaña nueva)'; wa.textContent = '💬 WhatsApp';
+      wa.title = 'Abrir el chat de conversaciones de WhatsApp (en una pestaña nueva)'; wa.textContent = 'WhatsApp';
       acc.insertBefore(wa, acc.firstChild);
     }
     medir();
     window.addEventListener('resize', medir);
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
+})();
+
+// ---------- Barra de submenú bajo el menú principal ----------
+// Cada página tiene su propio submenú (pestañas o módulos). Aquí se indica cuál es el de cada una para moverlo a una barra fina pegada
+// bajo la barra azul, con el título de la página a la izquierda. Si la página no tiene submenú, la barra lleva solo el título.
+(function(){
+  var TIRAS = {
+    'actualizaciones-erp':'.tabs', 'bot-whatsapp':'.tabs', 'comparativo-ventas':'.cmp-tabs', 'configuracion-whatsapp':'.tabs-modulo',
+    'cotizaciones-clientes':'.tabs-sub-cot', 'detalle-ventas':'.dv-tabs', 'electronica':'.tabs', 'google-analytics':'.ga-tabs',
+    'instagram':'.sc-tabs', 'search-console':'.sc-tabs', 'insumos-servicio-tecnico':'.tabs-insumos', 'mailing':'.tabs', 'usuarios':'.tabs',
+    'soporte-indexpro':'#tabsClientes', 'pedidos-pantallas':'.pp-tabs', 'oportunidades-comerciales':'.tabs-grandes',
+    'compras':'nav.sw-lateral', 'sitio-web':'nav.sw-lateral', 'indexscale':'nav.sw-lateral'
+  };
+  var EMOJI = /^[\s‍️]*(?:[☀-➿⭐⬆⬇⏰-⏿]|[\ud83c-\ud83e][\udc00-\udfff])[️‍⃣]*(?:[\ud83c-\ud83e][\udc00-\udfff][️‍]*)*\s*/;
+  function sinEmoji(el){
+    // quita el emoji inicial del texto de cada pestaña (las generadas por script también pasan por aquí al armarse la barra)
+    el.querySelectorAll('button, a').forEach(function(b){
+      var w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT), n;
+      while((n = w.nextNode())){ if(n.nodeValue.trim()){ n.nodeValue = n.nodeValue.replace(EMOJI, ''); break; } }
+    });
+  }
+  function armar(){
+    var header = document.querySelector('header .page-nav') && document.querySelector('header .page-nav').closest('header');
+    if(!header || document.querySelector('.subbar, .zd-sub')) return; // Tickets trae la suya
+    var pagina = location.pathname.split('/').pop().replace(/\.html$/, '') || 'index';
+    var tira = TIRAS[pagina] ? document.querySelector(TIRAS[pagina]) : null;
+    var h1 = document.querySelector('h1');
+    var titulo = h1 ? h1.textContent.replace(EMOJI, '').replace(/\s+/g, ' ').trim() : '';
+    if(pagina === 'home') return; // el inicio lleva su saludo con el nombre
+    if(!titulo) titulo = document.title.split(' — ')[0].trim();
+    if(!tira && !titulo) return;
+    var barra = document.createElement('div');
+    barra.className = 'zd-sub';
+    if(titulo){
+      var t = document.createElement('span'); t.className = 'zd-sub-titulo'; t.textContent = titulo; barra.appendChild(t);
+      if(h1 && h1.textContent.trim()) h1.classList.add('zd-oculto');
+    }
+    if(tira){ sinEmoji(tira); tira.classList.add('zd-strip'); barra.appendChild(tira); }
+    header.parentNode.insertBefore(barra, header.nextSibling);
+    document.body.style.setProperty('--zd-mb', '0px'); // la barra azul y la de submenú quedan pegadas
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', armar); else armar();
 })();

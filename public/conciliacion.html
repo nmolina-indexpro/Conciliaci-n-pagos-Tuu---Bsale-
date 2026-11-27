@@ -1236,7 +1236,7 @@ function renderResults(rCrudo){
 
     ${bsaleExtraPendientes.length > 0 || (gDeb.unmatchedBsale.length+gCred.unmatchedBsale.length) > 0 ? `
     <div class="alert-box">
-      <div class="alert-title">⚠️ Revisar: ${bsaleExtraPendientes.length} documento(s) Bsale con tarjeta sin venta POS pendientes (${fmt(bsaleExtraPendienteTotal)})</div>
+      <div class="alert-title">Revisar: ${bsaleExtraPendientes.length} documento(s) Bsale con tarjeta sin venta POS pendientes (${fmt(bsaleExtraPendienteTotal)})</div>
       <p class="alert-text">No cuentan como descuadre de caja, pero conviene confirmar el origen de cada uno. Usa 💬 para dejar un comentario y ✓ para marcarlo como revisado una vez confirmado.</p>
       ${extraHtml([...gDeb.unmatchedBsale, ...gCred.unmatchedBsale], fecha, poolTuuSueltos)}
     </div>

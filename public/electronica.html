@@ -316,7 +316,7 @@
     <div class="user-box" id="userBox"></div>
   </header>
 
-  <h1>🔌 Electrónica</h1>
+  <h1>Electrónica</h1>
   <div class="sub">Academia de electrónica de notebooks: programa de 12 semanas (lunes y miércoles lección, viernes resumen) para entender la reparación de placas madre y evaluar bien al técnico electrónico especializado. Tu avance se guarda en este navegador.</div>
 
   <div class="grid" id="kpiWrap">
@@ -329,11 +329,11 @@
   <div class="aviso">Esta página es el plan de estudio. Las lecciones y resúmenes <b>llegan por correo</b> los lunes, miércoles y viernes a las 08:00 (hora de Chile) a quienes estén suscritos en <b>Usuarios &gt; Notificaciones &gt; «Academia de Electrónica»</b> (lo gestiona un administrador). El programa completo (<b>12 semanas, 36 envíos</b>) está redactado y sale solo según el calendario. Feriados en día de envío: viernes 25-12-2026 y 01-01-2027 (son resúmenes).</div>
 
   <div class="tabs" id="tabs">
-    <button type="button" class="tab activa" data-tab="programa">📅 Programa (36 envíos)</button>
-    <button type="button" class="tab" data-tab="conceptos">📚 Conceptos (40)</button>
-    <button type="button" class="tab" data-tab="entrevista">🎤 Entrevista al técnico</button>
-    <button type="button" class="tab" data-tab="herramientas">🧰 Herramientas</button>
-    <button type="button" class="tab" data-tab="postulantes" id="tabPostulantes" hidden>👥 Postulantes</button>
+    <button type="button" class="tab activa" data-tab="programa">Programa (36 envíos)</button>
+    <button type="button" class="tab" data-tab="conceptos">Conceptos (40)</button>
+    <button type="button" class="tab" data-tab="entrevista">Entrevista al técnico</button>
+    <button type="button" class="tab" data-tab="herramientas">Herramientas</button>
+    <button type="button" class="tab" data-tab="postulantes" id="tabPostulantes" hidden>Postulantes</button>
   </div>
 
   <div class="seccion" id="tab-programa">
@@ -361,7 +361,7 @@
 
   <div class="seccion" id="tab-entrevista" style="display:none;">
     <div class="seccion-head"><div>
-      <h2>🎤 Guía rápida para entrevistar al técnico</h2>
+      <h2>Guía rápida para entrevistar al técnico</h2>
       <div class="sub" style="margin-bottom:0;">Prioriza respuestas con hipótesis, mediciones, criterios de seguridad y pruebas de resultado. Conocer las siglas no demuestra que pueda reparar una placa: la <b>prueba práctica</b> (reemplazar un SMD en una placa de práctica y diagnosticar una falla conocida) es obligatoria.</div>
     </div></div>
     <h2 style="font-family:'Space Grotesk',sans-serif;font-size:14px;margin:6px 0 8px;">Cuándo se puede evaluar cada cosa</h2>
@@ -380,7 +380,7 @@
 
   <div class="seccion" id="tab-herramientas" style="display:none;">
     <div class="seccion-head"><div>
-      <h2>🧰 Herramientas del técnico: avance de compra</h2>
+      <h2>Herramientas del técnico: avance de compra</h2>
       <div class="sub" style="margin-bottom:0;">Marca el estado de cada herramienta: <b>por cotizar</b>, <b>cotizando</b>, <b>comprada</b> o <b>ya la tiene</b>. Los cambios se guardan al instante y los ve todo el equipo. Los enlaces salieron de búsquedas en internet: confirma stock, precio y despacho antes de comprar.</div>
     </div><div class="guardado-h" id="guardadoH"></div></div>
     <div class="grid" id="kpiH">
@@ -405,7 +405,7 @@
 
   <div class="seccion" id="tab-postulantes" style="display:none;">
     <div class="seccion-head"><div>
-      <h2>👥 Postulantes y agenda de entrevistas</h2>
+      <h2>Postulantes y agenda de entrevistas</h2>
       <div class="sub" style="margin-bottom:0;">Lista de postulantes de Indeed y calendario para que cada uno elija su horario de entrevista por videollamada con su enlace personal. Solo lo ven los administradores: contiene datos personales.</div>
     </div><div class="guardado-h" id="guardadoR"></div></div>
     <div class="grid" id="kpiR">
@@ -598,7 +598,7 @@ function leccionHtml(l, e){
   const esResumen = e.tipo === 'Resumen semanal';
   const bloque = b => '<h4>' + escapeHtml(b.t) + '</h4>' + (b.li ? '<ul class="lista-l">' + b.li.map(x => '<li>' + md(x) + '</li>').join('') + '</ul>' : (b.p || []).map(x => '<p class="par-l">' + md(x) + '</p>').join(''));
   const pregs = (l.preguntas || []).map(x => '<details class="resp"><summary>' + md(x.q) + '</summary><p>' + md(x.a) + '</p></details>').join('');
-  return '<hr class="sep-l"><div class="leccion"><div class="titulo-l">📖 ' + escapeHtml(l.titulo) + ' <span class="badge-nivel pend">' + (l.lectura || e.minutos) + ' min de lectura</span></div>' +
+  return '<hr class="sep-l"><div class="leccion"><div class="titulo-l">' + escapeHtml(l.titulo) + ' <span class="badge-nivel pend">' + (l.lectura || e.minutos) + ' min de lectura</span></div>' +
     l.bloques.map((b, i) => bloque(b) + (i === 0 ? (conFoto ? componentesHtml(e.n, 'foto') : svgIntro) : '')).join('') +
     componentesHtml(e.n, 'texto') +
     (conFoto ? (l.svg ? '<h4>Imagen ilustrativa</h4><div class="svg-l">' + l.svg + '</div><div class="pie-l">' + escapeHtml(l.svgPie || '') + ((l.foto && !(COMPONENTES[e.n] || []).some(c => c.foto)) ? '<br>' + escapeHtml(l.foto) : '') + '</div>' : '') : '') +

@@ -2019,7 +2019,7 @@ const COTIZACION_ESTADO_LABEL = {
 };
 const fmtFechaDia = s => { const m = String(s || '').match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})/); return m ? m[3] + '/' + m[2] + '/' + m[1] : fmtFecha(s); }; // fecha de solo día: sin corrimiento por zona horaria
 function fichaCotizacionesHtml(lista){
-  const cab = '<div class="ficha-grupo"><h3>🧾 Cotizaciones y ventas</h3>';
+  const cab = '<div class="ficha-grupo"><h3>Cotizaciones y ventas</h3>';
   if (!lista || !lista.length) return cab + '<div class="ficha-fila"><span>Cotizaciones</span><b class="sub">Sin cotizaciones asociadas</b></div></div>';
   const fila = q => {
     const num = q.url ? `<a href="${escapeHtml(urlHttpSegura(q.url))}" target="_blank" rel="noopener">#${escapeHtml(q.numero || q.id)} ↗</a>` : `#${escapeHtml(q.numero || q.id)}`;
@@ -2070,13 +2070,13 @@ function renderFichaBandeja(data){
       </div>
       ${fichaCotizacionesHtml(data.cotizaciones)}
       <div class="ficha-grupo">
-        <h3>⚙️ Gestión</h3>
+        <h3>Gestión</h3>
         <div class="ficha-fila"><span>Estado</span><b><select onchange="guardarCampoConvBandeja(${c.id}, 'estado', this.value)" style="font-size:12px;">${WHATSAPP_ESTADOS_ATENCION_EDITABLES.map(e => `<option value="${e}" ${e === c.estado ? 'selected' : ''}>${ESTADO_LABEL[e]}</option>`).join('')}</select></b></div>
         <div class="ficha-fila"><span>Responsable</span><b><select onchange="guardarCampoConvBandeja(${c.id}, 'responsableId', this.value)" style="font-size:12px;">${opcionesResponsable(c.responsableId, false)}</select></b></div>
         <div class="ficha-fila"><span>Prioridad</span><b><select disabled style="font-size:12px;" title="Todavía no es un campo propio del sistema -- no se guarda ninguna prioridad hoy, así que no se puede editar algo que no existe."><option>Normal</option></select></b></div>
       </div>
       <div class="ficha-grupo">
-        <h3>✨ Resumen IA</h3>
+        <h3>Resumen IA</h3>
         ${ai ? `
           <div class="ficha-fila"><span>Resumen</span><b style="text-align:left;max-width:200px;">${escapeHtml(ai.resumen || 'Por confirmar')}</b></div>
           <div class="ficha-fila"><span>Intención</span><b>${ai.intencion ? escapeHtml(INTENCION_LABEL[ai.intencion] || ai.intencion) : 'Por confirmar'} <span class="sub" style="font-size:9.5px;">(${origenCampoLabel(c, 'intencion')})</span></b></div>
@@ -2086,12 +2086,12 @@ function renderFichaBandeja(data){
         ` : `<p class="sub">Sin análisis todavía. <button class="btn-ghost btn-compact" onclick="analizarConversacionIA(${c.id})">🤖 Analizar con IA</button></p>`}
       </div>
       <div class="ficha-grupo">
-        <h3>📅 Próxima acción</h3>
+        <h3>Próxima acción</h3>
         ${proximaAccionHtml}
         <button class="btn-ghost btn-compact" style="margin-top:8px;" onclick="programarSeguimientoBandeja(${c.id})">📅 Programar seguimiento</button>
       </div>
       <details class="ficha-colapsable">
-        <summary>🛒 Compras y pedidos</summary>
+        <summary>Compras y pedidos</summary>
         <div class="ficha-fila"><span>Resultado comercial</span><b><span class="badge ${resInfo.badge}">${resInfo.label}</span></b></div>
         ${c.shopifyProductoUrl ? `<div class="ficha-fila"><span>Shopify</span><b>${shopifyCellHtml(c)}</b></div>` : ''}
         <div class="ficha-fila"><span>Venta</span><b>${ventaCellHtml(c)}</b></div>
@@ -2104,7 +2104,7 @@ function renderFichaBandeja(data){
         <button class="btn-ghost btn-compact btn-etiquetar-wa" style="margin-top:8px;" onclick="abrirSelectorEtiquetasDesdeBoton(event, ${c.id})">${WA_ICONO.etiqueta} Editar etiquetas</button>
       </div>
       <details class="ficha-colapsable">
-        <summary>🕓 Historial y auditoría</summary>
+        <summary>Historial y auditoría</summary>
         <div style="padding:6px 0;">
           ${(data.auditoria || []).slice(0, 8).map(a => `<div class="ficha-fila"><span>${fmtFechaHora(a.fecha)}</span><b style="text-align:left;max-width:200px;">${escapeHtml(a.detalle)}</b></div>`).join('') || '<span class="sub">Sin registros.</span>'}
         </div>
@@ -2517,7 +2517,7 @@ function renderDetalleConversacion(data){
   const botonAnalizar = `<button class="btn-ghost btn-compact" id="btnAnalizarIA" onclick="analizarConversacionIA(${c.id})">${ai ? '🔄 Volver a analizar' : '🤖 Analizar con IA'}</button>`;
   const analisisHtml = ai ? `
     <div class="ficha-grupo">
-      <h3 style="display:flex;justify-content:space-between;align-items:center;">🤖 Análisis IA ${botonAnalizar}</h3>
+      <h3 style="display:flex;justify-content:space-between;align-items:center;">Análisis IA ${botonAnalizar}</h3>
       <div class="ficha-fila"><span>Resumen</span><b style="text-align:left;max-width:220px;">${escapeHtml(ai.resumen || '—')}</b></div>
       <div class="ficha-fila"><span>Categoría</span><b>${escapeHtml(CATEGORIA_LABEL[ai.categoria] || ai.categoria || '—')}</b></div>
       <div class="ficha-fila"><span>Problema del cliente</span><b style="text-align:left;max-width:220px;">${escapeHtml(ai.problemaCliente || '—')}</b></div>
@@ -2527,7 +2527,7 @@ function renderDetalleConversacion(data){
       <div class="ficha-fila"><span>¿IA sugiere seguimiento?</span><b>${ai.requiereSeguimiento ? 'Sí' : 'No'}</b></div>
       <div class="ficha-fila"><span>Observaciones IA</span><b style="text-align:left;max-width:220px;">${escapeHtml(ai.observaciones || '—')}</b></div>
     </div>
-  ` : `<div class="ficha-grupo"><h3 style="display:flex;justify-content:space-between;align-items:center;">🤖 Análisis IA ${botonAnalizar}</h3><p class="sub">Sin análisis todavía.</p></div>`;
+  ` : `<div class="ficha-grupo"><h3 style="display:flex;justify-content:space-between;align-items:center;">Análisis IA ${botonAnalizar}</h3><p class="sub">Sin análisis todavía.</p></div>`;
 
   // Origen REAL según Shopify (customerJourneySummary del pedido) -- cómo
   // llegó el cliente al sitio ANTES de comprar (Google Ads, orgánico,
@@ -2574,7 +2574,7 @@ function renderDetalleConversacion(data){
       </div>
       <div class="panel-ficha">
         <div class="ficha-grupo">
-          <h3>👤 Cliente</h3>
+          <h3>Cliente</h3>
           <div class="ficha-fila"><span>Nombre</span><b>${escapeHtml(ct?.nombre || 'Sin nombre')}</b></div>
           <div class="ficha-fila"><span>Teléfono</span><b>${enlaceWhatsappTelefono(ct?.telefono)}</b></div>
           <div class="ficha-fila"><span>Primera conversación</span><b>${fmtFecha(ct?.primeraConversacionEn)}</b></div>
@@ -2583,7 +2583,7 @@ function renderDetalleConversacion(data){
           ${bsaleMatchHtml(data.clienteBsale)}
         </div>
         <div class="ficha-grupo">
-          <h3>💬 Conversación actual</h3>
+          <h3>Conversación actual</h3>
           <div class="ficha-fila"><span>Fecha inicio</span><b>${fmtFechaHora(c.fecha)}</b></div>
           <div class="ficha-fila"><span>Origen</span><b>${(() => { const f = fuenteInfo(c); const contenido = `${f.icono} ${escapeHtml(f.texto)}${c.fuenteUrl ? ` <a href="${escapeHtml(urlHttpSegura(c.fuenteUrl))}" target="_blank" rel="noopener">(ver)</a>` : ''}`; const conRef = contenido + (c.fuenteRef ? ` · <span title="Número de referencia de esta conversación (viene de un anuncio o publicación de Meta). Se puede buscar en el buscador de la bandeja.">ref <b>${escapeHtml(c.fuenteRef)}</b></span>` : ''); return f.esSub ? `<span class="sub">${conRef}</span>` : conRef; })()}</b></div>
           <div class="ficha-fila"><span>Cantidad de mensajes</span><b>${fmtNum(c.cantidadMensajes)}</b></div>
@@ -2593,7 +2593,7 @@ function renderDetalleConversacion(data){
           ${c.vendedorDetectado ? `<div class="ficha-fila"><span>Vendedor detectado (IA)</span><b>${escapeHtml(c.vendedorDetectado)}${!c.responsableId ? ' <span class="sub">(sin cuenta todavía)</span>' : ''}</b></div>` : ''}
         </div>
         <div class="ficha-grupo">
-          <h3>📈 Comercial</h3>
+          <h3>Comercial</h3>
           <div class="ficha-fila"><span>Intención</span><b>${c.intencion ? escapeHtml(INTENCION_LABEL[c.intencion]||c.intencion) : '—'}</b></div>
           <div class="ficha-fila"><span>Producto / marca / modelo</span><b>${productoDisplayHtml(c)}</b></div>
           ${c.shopifyProductoUrl ? `<div class="ficha-fila"><span>Shopify</span><b>${shopifyCellHtml(c)}</b></div>` : ''}
@@ -2603,17 +2603,17 @@ function renderDetalleConversacion(data){
           ${ventaHtml}
         </div>
         <div class="ficha-grupo">
-          <h3>📌 Seguimiento</h3>
+          <h3>Seguimiento</h3>
           <div class="ficha-fila"><span>Requiere seguimiento</span><b>${c.requiereSeguimiento ? 'Sí' : 'No'}</b></div>
         </div>
         ${analisisHtml}
         <div class="ficha-grupo">
-          <h3>🏷️ Etiquetas</h3>
+          <h3>Etiquetas</h3>
           <div>${etiquetasHtml}</div>
         </div>
         ${data.auditoria && data.auditoria.length ? `
         <div class="ficha-grupo">
-          <h3>🕓 Auditoría</h3>
+          <h3>Auditoría</h3>
           ${data.auditoria.slice(0,8).map(a => `<div class="ficha-fila"><span>${fmtFechaHora(a.fecha)}</span><b style="text-align:left;max-width:220px;">${escapeHtml(a.detalle)}</b></div>`).join('')}
         </div>` : ''}
       </div>
@@ -2930,11 +2930,11 @@ function initAnalitica(){
       </div>
       <div class="grid" style="grid-template-columns:1fr 1fr;">
         <div>
-          <h3 style="margin:0 0 8px;font-size:13px;">👤 Nombres (<span id="totalClientesAnalitica">0</span>)</h3>
+          <h3 style="margin:0 0 8px;font-size:13px;">Nombres (<span id="totalClientesAnalitica">0</span>)</h3>
           <div id="listaClientesAnalitica" class="lista-clientes-analitica"></div>
         </div>
         <div>
-          <h3 style="margin:0 0 8px;font-size:13px;">📧 Con correo (<span id="totalClientesCorreoAnalitica">0</span>)</h3>
+          <h3 style="margin:0 0 8px;font-size:13px;">Con correo (<span id="totalClientesCorreoAnalitica">0</span>)</h3>
           <div id="listaClientesCorreoAnalitica" class="lista-clientes-analitica"></div>
         </div>
       </div>
@@ -3571,9 +3571,9 @@ function renderHorarios(h){
   if(!h){ el.innerHTML = '<p class="empty-note">Sin datos de horarios en este período.</p>'; return; }
   asegurarEstilosPanelMotivo();
   el.innerHTML = `
-    <h3 style="margin:0 0 6px;font-size:13px;">🕒 General (todas las categorías)</h3>
+    <h3 style="margin:0 0 6px;font-size:13px;">General (todas las categorías)</h3>
     ${histogramaHorario(h.general)}
-    <h3 style="margin:18px 0 8px;font-size:13px;">🗂️ Horario por categoría</h3>
+    <h3 style="margin:18px 0 8px;font-size:13px;">Horario por categoría</h3>
     <div id="chipsHorario" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;"></div>
     <div id="chartHorarioCategoria"></div>`;
   renderHorarioCategoria();

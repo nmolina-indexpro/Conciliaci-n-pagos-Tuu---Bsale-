@@ -243,7 +243,7 @@
     <div class="user-box" id="userBox"></div>
   </header>
 
-  <div class="section-title">📅 Calendario de pagos futuros</div>
+  <div class="section-title">Calendario de pagos futuros</div>
   <p class="empty-note">Haz clic en un día para agregar o revisar ingresos y egresos programados — reemplaza la planilla de Google Sheets que se usaba para esto.</p>
   <button class="btn-ghost btn-compact" id="btnImportarPlanilla" style="display:none;margin-bottom:12px;" onclick="importarPlanillaFlujoCaja()">📥 Importar planilla original (una sola vez)</button>
   <div class="calendario-nav">
@@ -275,14 +275,14 @@
 
   <div class="grid">
     <div class="card c-transfer">
-      <h3>🧾 Facturas por pagar</h3>
+      <h3>Facturas por pagar</h3>
       <div class="big" id="facturasSemanaTotal">$0</div>
       <div class="note" style="margin-bottom:8px;">Total con vencimiento esta semana</div>
       <div class="breakdown" id="facturasDesglose" style="flex-wrap:wrap;row-gap:4px;"></div>
       <div class="note" id="facturasNote">Según plazo por proveedor: Coimco/Intcomex 30 días, LaptopCenter 45 días. Vencimientos en fin de semana se pagan el lunes.</div>
     </div>
     <div class="card c-tuu">
-      <h3>💳 Depósito TUU proyectado</h3>
+      <h3>Depósito TUU proyectado</h3>
       <div class="big" id="tuuTotal">$0</div>
       <div class="cmp" id="tuuCmp"></div>
       <div class="breakdown">
@@ -292,20 +292,20 @@
       <div class="note" id="tuuNote">Ventas con tarjeta, se acreditan el día hábil siguiente.</div>
     </div>
     <div class="card c-cash">
-      <h3>💵 Efectivo en caja <span id="cashLabel">el día</span></h3>
+      <h3>Efectivo en caja <span id="cashLabel">el día</span></h3>
       <div class="big" id="cashTotal">$0</div>
       <div class="cmp" id="cashCmp"></div>
       <div class="note" id="cashNote">No cae solo al banco — hay que depositarlo manualmente.</div>
     </div>
     <div class="card" style="border-color:var(--line);">
-      <h3 style="color:var(--text);">📥 Total esperado en banco</h3>
+      <h3 style="color:var(--text);">Total esperado en banco</h3>
       <div class="big" id="todayBankTotal">$0</div>
       <div class="cmp" id="todayBankCmp"></div>
       <div class="note" id="todayBankNote">Transferencias + depósito TUU de ventas del día anterior.</div>
     </div>
   </div>
 
-  <div class="section-title">🧾 Registrar factura de compra</div>
+  <div class="section-title">Registrar factura de compra</div>
   <div class="card" style="margin-bottom:24px;">
     <div class="form-inline">
       <div class="campo"><label for="fcProveedor">Proveedor</label><input type="text" id="fcProveedor" placeholder="Nombre del proveedor" style="width:180px;"></div>
@@ -327,18 +327,18 @@
     <div id="fcError" style="margin-top:10px;"></div>
   </div>
 
-  <div class="section-title">📋 Facturas de compra registradas (último mes)</div>
+  <div class="section-title">Facturas de compra registradas (último mes)</div>
   <div id="facturasCompraWrap"><p class="empty-note">Cargando...</p></div>
 
-  <div class="section-title">📅 Calendario de caída de fondos (últimos y próximos días)</div>
+  <div class="section-title">Calendario de caída de fondos (últimos y próximos días)</div>
   <p class="empty-note">Cada fila es un día en que el banco debería acreditar dinero, no el día en que se vendió. Útil para proyectar disponibilidad real de caja.</p>
   <div id="calendarioWrap"><p class="empty-note">Cargando...</p></div>
 
-  <div class="section-title">🧾 Detalle de facturas que vencen esta semana</div>
+  <div class="section-title">Detalle de facturas que vencen esta semana</div>
   <p class="empty-note">Documento y monto tal como quedó registrado en la recepción de mercadería en Bsale — busca el número ahí si necesitas el documento completo.</p>
   <div id="facturasDetalleWrap"><p class="empty-note">Cargando...</p></div>
 
-  <div class="section-title">🏦 Saldo BCI</div>
+  <div class="section-title">Saldo BCI</div>
   <div class="saldo-bci-card">
     <div>
       <div class="lbl">Saldo actual (ingresado a mano)</div>

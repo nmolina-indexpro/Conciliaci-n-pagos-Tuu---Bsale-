@@ -205,7 +205,7 @@
     <div class="user-box" id="userBox"></div>
   </header>
 
-  <h1>📊 Google Analytics</h1>
+  <h1>Google Analytics</h1>
   <div class="sub">Tráfico y conversiones del sitio según Google Analytics 4 (propiedad configurada en Vercel). Si no ves datos, puede que falte configurar la cuenta de servicio.</div>
 
   <div class="filtros">
@@ -872,14 +872,14 @@ function renderGaAudiencia(d){
   $('wrapGaContenido').innerHTML = `
     <div class="note-box">ℹ "Desconocido" / "Sin determinar" es información que Google Analytics no pudo determinar para esas visitas (depende de que el sitio tenga habilitada la recopilación de señales de Google y del consentimiento de cada visitante) -- no es un dato que esta página esté ocultando. Si ese grupo es muy alto en Edad/Sexo/Ciudad, revisa en Analytics: Admin → Data Collection and Modification → Data Collection (Google Signals), y el banner de consentimiento de cookies del sitio. País, dispositivo y navegador SÍ los determina GA4 siempre, sin depender de eso.</div>
 
-    <h3 style="font-family:'Space Grotesk',sans-serif;font-size:14px;margin:20px 0 4px;">🌎 Geografía</h3>
+    <h3 style="font-family:'Space Grotesk',sans-serif;font-size:14px;margin:20px 0 4px;">Geografía</h3>
     <div style="display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:20px;margin-bottom:10px;">
       ${tablaAudienciaGA('País', d.porPais, 'País')}
       ${tablaAudienciaGA('Región', d.porRegion, 'Región')}
       ${tablaAudienciaGA('Ciudad', d.porCiudad, 'Ciudad')}
     </div>
 
-    <h3 style="font-family:'Space Grotesk',sans-serif;font-size:14px;margin:24px 0 4px;">💻 Dispositivo y navegador</h3>
+    <h3 style="font-family:'Space Grotesk',sans-serif;font-size:14px;margin:24px 0 4px;">Dispositivo y navegador</h3>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:10px;">
       <div>
         <h3 style="font-family:'Space Grotesk',sans-serif;font-size:13.5px;margin:0 0 10px;">Dispositivo</h3>
@@ -889,7 +889,7 @@ function renderGaAudiencia(d){
       ${tablaAudienciaGA('Navegador', d.porNavegador, 'Navegador')}
     </div>
 
-    <h3 style="font-family:'Space Grotesk',sans-serif;font-size:14px;margin:24px 0 4px;">🧑 Demografía</h3>
+    <h3 style="font-family:'Space Grotesk',sans-serif;font-size:14px;margin:24px 0 4px;">Demografía</h3>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
       ${tablaAudienciaGA('Edad', d.porEdad, 'Rango')}
       ${tablaAudienciaGA('Sexo', d.porGenero, 'Sexo')}

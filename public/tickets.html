@@ -388,7 +388,7 @@
       </div>
     </nav>
     <div class="acciones-top">
-      <button class="btn-orden" onclick="abrirNuevaOS()" title="Nueva orden de servicio">🔧 <span class="l">Nueva orden de servicio</span><span class="c">Orden</span></button>
+      <button class="btn-orden" onclick="abrirNuevaOS()" title="Nueva orden de servicio"><span class="l">Nueva orden de servicio</span><span class="c">Orden</span></button>
       <button class="btn-nuevo" onclick="abrirNuevo()" title="Nuevo ticket">+ <span class="l">Nuevo ticket</span><span class="c">Ticket</span></button>
     </div>
     <div class="user-box" id="userBox"></div>
@@ -1130,7 +1130,7 @@ function vistaGeneral(d){
   const primero = d.primer_contacto_en ? fmtDur(new Date(d.primer_contacto_en) - new Date(d.creado_en)) : null;
   const fin = d.cerrado ? new Date(d.cerrado_en) : Date.now();
   return `<div class="main-scroll" id="scrollMain"><div class="gen-grid">
-    <div class="gen-card"><h3>⏱ Tiempos</h3>
+    <div class="gen-card"><h3>Tiempos</h3>
       <div class="kv"><span>Creado</span><span>${fmtFechaLarga(d.creado_en)}</span></div>
       <div class="kv"><span>Primer contacto con el cliente</span><span>${primero ? 'a los ' + esc(primero) : 'Aún no'}</span></div>
       <div class="kv"><span>${d.cerrado ? 'Duración total' : 'Abierto hace'}</span><span>${esc(fmtDur(fin - new Date(d.creado_en)))}</span></div>
@@ -1138,7 +1138,7 @@ function vistaGeneral(d){
       <div class="kv"><span>Última actividad</span><span>${fmtFechaLarga(d.ultimo_movimiento_en)}</span></div>
       ${d.cerrado ? `<div class="kv"><span>Cerrado</span><span>${fmtFechaLarga(d.cerrado_en)}</span></div>` : ''}
     </div>
-    <div class="gen-card"><h3>👥 Personas que interactuaron</h3>
+    <div class="gen-card"><h3>Personas que interactuaron</h3>
       ${d.personas.length ? d.personas.map(p => `<div class="persona">${avatar(p.nombre, true)}<div style="flex:1"><b>${esc(p.nombre)}</b></div><span class="sub">${p.acciones} acci${p.acciones === 1 ? 'ón' : 'ones'}</span></div>`).join('') : '<div class="sub">Nadie del equipo ha interactuado todavía.</div>'}
       ${d.agente_nombre ? `<div class="sub" style="margin-top:10px">Propietario actual: <b>${esc(d.agente_nombre)}</b></div>` : ''}
     </div>

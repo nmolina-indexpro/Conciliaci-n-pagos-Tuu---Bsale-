@@ -139,7 +139,7 @@ async function cargarPanelMotivo(){
   const desde = $('analiticaDesde').value, hasta = $('analiticaHasta').value;
   const etiqueta = MOTIVO_PERDIDA_LABEL[motivo] || motivo;
   const yo = ++cargandoPanelMotivo;
-  $('panelMotivo').innerHTML = `<div class="pm-head"><h2>📊 ${escapeHtml(etiqueta)}</h2><span class="pm-esp"></span><button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo()">✕ Cerrar</button></div><div class="pm-cuerpo"><div class="pm-cargando">Analizando conversaciones y mensajes…</div></div>`;
+  $('panelMotivo').innerHTML = `<div class="pm-head"><h2>${escapeHtml(etiqueta)}</h2><span class="pm-esp"></span><button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo()">✕ Cerrar</button></div><div class="pm-cuerpo"><div class="pm-cargando">Analizando conversaciones y mensajes…</div></div>`;
   try{
     const res = await fetch(`/api/negocio?recurso=whatsapp-motivo-detalle&motivo=${encodeURIComponent(motivo)}&desde=${desde}&hasta=${hasta}&base=${base}`);
     const d = await res.json();
@@ -156,7 +156,7 @@ function renderPanelMotivo(d){
   const s = d.silencio, c = d.comun, e = d.especifico;
   const cabecera = `
     <div class="pm-head">
-      <h2>📊 ${escapeHtml(d.etiqueta)}</h2>
+      <h2>${escapeHtml(d.etiqueta)}</h2>
       <span class="empty-note">${escapeHtml(d.desde)} al ${escapeHtml(d.hasta)}</span>
       <span class="pm-esp"></span>
       <select id="pmBase" onchange="cambiarBasePanelMotivo(this.value)" title="Con qué fecha se ubica cada conversación dentro del período">
@@ -354,7 +354,7 @@ async function cargarPanelCategoria(){
   const desde = $('analiticaDesde').value, hasta = $('analiticaHasta').value;
   const etiqueta = CATEGORIA_LABEL[categoria] || categoria;
   const yo = ++cargandoPanelMotivo;
-  $('panelMotivo').innerHTML = `<div class="pm-head"><h2>📊 ${escapeHtml(etiqueta)}</h2><span class="pm-esp"></span><button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo()">✕ Cerrar</button></div><div class="pm-cuerpo"><div class="pm-cargando">Analizando las conversaciones de esta categoría…</div></div>`;
+  $('panelMotivo').innerHTML = `<div class="pm-head"><h2>${escapeHtml(etiqueta)}</h2><span class="pm-esp"></span><button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo()">✕ Cerrar</button></div><div class="pm-cuerpo"><div class="pm-cargando">Analizando las conversaciones de esta categoría…</div></div>`;
   try{
     const res = await fetch(`/api/negocio?recurso=whatsapp-categoria-detalle&categoria=${encodeURIComponent(categoria)}&desde=${desde}&hasta=${hasta}`);
     const d = await res.json();
@@ -375,7 +375,7 @@ function badgeResultadoPm(r){
 function renderPanelCategoria(d){
   const etiqueta = CATEGORIA_LABEL[d.categoria] || d.categoria;
   const s = d.resumen, c = d.comun, q = d.calidad || {};
-  const cabecera = `<div class="pm-head"><h2>📊 ${escapeHtml(etiqueta)}</h2><span class="empty-note">${escapeHtml(d.desde)} al ${escapeHtml(d.hasta)}</span><span class="pm-esp"></span><button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo()">✕ Cerrar</button></div>`;
+  const cabecera = `<div class="pm-head"><h2>${escapeHtml(etiqueta)}</h2><span class="empty-note">${escapeHtml(d.desde)} al ${escapeHtml(d.hasta)}</span><span class="pm-esp"></span><button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo()">✕ Cerrar</button></div>`;
   if(d.total === 0){ $('panelMotivo').innerHTML = cabecera + '<div class="pm-cuerpo"><p class="empty-note">No hay conversaciones de esta categoría en el período elegido.</p></div>'; return; }
   const notas = [];
   if(q.confiable === false) notas.push(`<b>⚠ Los tiempos de respuesta no son confiables.</b> Solo el <b>${q.pct}%</b> de las ${fmtNum(q.total)} conversaciones del período tiene alguna respuesta del negocio registrada en el ERP (lo que se contesta desde el celular no llega si la coexistencia de WhatsApp no está activa). Es confiable lo que piden los clientes, de dónde vienen y cuánto se vende.`);

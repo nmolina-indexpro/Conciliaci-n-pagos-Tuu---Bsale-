@@ -291,7 +291,7 @@
   </header>
 
   <div>
-    <h1>🚀 <span>IndexScale</span></h1>
+    <h1><span>IndexScale</span></h1>
     <div class="sub">Prospección de clientes Bsale para ofrecerles IndexScale (diseño web / optimización de e-commerce, indexscale.cl). Parte por «Mi lista de contacto»: ahí está el trabajo de cada día.</div>
   </div>
 
@@ -310,7 +310,7 @@
   <div class="seccion" id="seccionPlan">
     <div class="seccion-head">
       <div>
-        <h2>🎯 Mi lista de contacto</h2>
+        <h2>Mi lista de contacto</h2>
         <div class="sub" id="planSub">Cada día la IA elige, entre todos los clientes de Santiago y la Región Metropolitana, a quiénes conviene ofrecerles IndexScale, y te deja listo el mensaje y la guía de conversación. Nunca incluye empresas de informática, computación o tecnología. Tú solo contactas y anotas cómo te fue.</div>
       </div>
       <div class="pl-cta" id="planAcciones"></div>
@@ -318,7 +318,7 @@
     <div id="planAviso"></div>
     <div id="planProgreso"></div>
     <div id="planResumen" class="pl-resumen">
-      <h3 id="resTitulo">📊 Resumen de la lista</h3>
+      <h3 id="resTitulo">Resumen de la lista</h3>
       <div class="pl-agregar">
         <div class="pl-agregar-t">➕ ¿Conociste a un cliente que no está en la lista? Agrégalo aquí y queda en tu seguimiento</div>
         <div class="pl-agregar-f">
@@ -345,7 +345,7 @@
   <div class="seccion" id="seccionLeadsWeb">
     <div class="seccion-head">
       <div>
-        <h2>📥 Leads del sitio web <span id="badgeLeadsWebNuevos" style="display:none;background:#dc2626;color:#fff;border-radius:999px;padding:2px 10px;font-size:13px;margin-left:6px;"></span></h2>
+        <h2>Leads del sitio web <span id="badgeLeadsWebNuevos" style="display:none;background:#dc2626;color:#fff;border-radius:999px;padding:2px 10px;font-size:13px;margin-left:6px;"></span></h2>
         <div class="sub">Personas que dejaron sus datos en los formularios de indexscale.cl (contacto rápido, demo gratis y diagnósticos). Llegan solos desde el sitio; los que vienen de un anuncio de Google Ads llevan la marca 📢. Atiéndelos rápido: se prometió responder en pocas horas.</div>
       </div>
     </div>
@@ -433,7 +433,7 @@
   <div class="seccion" id="seccionIndexscaleSinSitio">
     <div class="seccion-head">
       <div>
-        <h2>🆕 Sin sitio propio — crear su tienda online</h2>
+        <h2>Sin sitio propio — crear su tienda online</h2>
         <div class="sub">Empresas clientes de Bsale cuyo correo registrado es de un proveedor gratuito (Gmail, Hotmail, Live, Yahoo, etc.) — probablemente no tienen dominio ni sitio propio todavía. Hasta 1.000, priorizando las más recientemente activas.</div>
       </div>
     </div>
@@ -482,7 +482,7 @@
   <div class="seccion" id="seccionIndexscalePotenciar">
     <div class="seccion-head">
       <div>
-        <h2>📈 Potenciar e-commerce existente</h2>
+        <h2>Potenciar e-commerce existente</h2>
         <div class="sub">Empresas clientes de Bsale cuyo correo NO es de un proveedor gratuito — probablemente ya tienen dominio/sitio propio, candidatas a optimizar/potenciar su e-commerce actual. Hasta 10.000, priorizando las más recientemente activas. El ícono 🌐 abre directo su sitio. Tener un correo con dominio propio no garantiza que haya un sitio real detrás (puede estar caído, parkeado o ser solo un logo) — usa "Verificar sitios" para revisarlo y mover automáticamente a "Sin sitio propio" los que no tengan contenido de verdad.</div>
       </div>
       <button class="btn-ghost btn-compact" id="btnVerificarSitiosIndexscale" onclick="verificarSitiosIndexscale()" style="display:none;">🔍 Verificar sitios</button>
@@ -1163,7 +1163,7 @@ function tarjetaPlan(it, esSiguiente){
       <button class="pl-btn mail" style="color:var(--green)" title="Ya revisaste su sitio y está bien optimizado: no es un cliente para IndexScale. No vuelve a salir." onclick="if(confirm('¿Marcar que ya tiene una página optimizada? No volverá a salir en ninguna lista.'))resultadoPlan(${it.id},'sitio_optimizado')">✅ Ya tiene página optimizada</button>
     </div>
     <details class="pl-guia"${esSiguiente ? ' open' : ''}>
-      <summary>📋 Guía de la conversación</summary>
+      <summary>Guía de la conversación</summary>
       <h4>Mensaje de WhatsApp (puedes editarlo)</h4>
       <textarea id="plmsg-${it.id}" oninput="mensajesPlan[${it.id}]=this.value">${escLead(msg)}</textarea>
       <h4>Si llamas, parte así</h4>

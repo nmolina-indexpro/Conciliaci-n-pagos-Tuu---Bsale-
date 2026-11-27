@@ -62,7 +62,7 @@
 
   window.abrirSimuladorPrecio = async function (ctx) {
     overlay.classList.add('open');
-    cuerpo().innerHTML = `<h3>📉 Frecuencia de venta y simulador de precio</h3><div class="sp-sub">${ESC(ctx.sku)} · ${ESC(ctx.nombre || '')}</div><p class="sp-nota">Analizando las ventas de los últimos 12 meses…</p>`;
+    cuerpo().innerHTML = `<h3>Frecuencia de venta y simulador de precio</h3><div class="sp-sub">${ESC(ctx.sku)} · ${ESC(ctx.nombre || '')}</div><p class="sp-nota">Analizando las ventas de los últimos 12 meses…</p>`;
     try {
       const res = await fetch('/api/negocio?recurso=frecuencia-precio-sku&sku=' + encodeURIComponent(ctx.sku));
       const d = await res.json();
@@ -72,14 +72,14 @@
       if (est.precioActual != null) est.precioNuevo = Math.round(est.precioActual * 0.9);
       pintar();
     } catch (err) {
-      cuerpo().innerHTML = `<h3>📉 Frecuencia de venta y simulador de precio</h3><div class="sp-sub">${ESC(ctx.sku)}</div><p class="sp-aviso sp-mal">No se pudo analizar: ${ESC(err.message)}</p>`;
+      cuerpo().innerHTML = `<h3>Frecuencia de venta y simulador de precio</h3><div class="sp-sub">${ESC(ctx.sku)}</div><p class="sp-aviso sp-mal">No se pudo analizar: ${ESC(err.message)}</p>`;
     }
   };
 
   function pintar() {
     const { ctx, datos: d } = est;
     const sinVentas = d.ventas === 0;
-    let h = `<h3>📉 Frecuencia de venta y simulador de precio</h3><div class="sp-sub">${ESC(ctx.sku)} · ${ESC(ctx.nombre || '')}</div>`;
+    let h = `<h3>Frecuencia de venta y simulador de precio</h3><div class="sp-sub">${ESC(ctx.sku)} · ${ESC(ctx.nombre || '')}</div>`;
 
     // ---- A) Cómo vende hoy ----
     h += '<h4>Cómo vende (últimos 12 meses)</h4>';

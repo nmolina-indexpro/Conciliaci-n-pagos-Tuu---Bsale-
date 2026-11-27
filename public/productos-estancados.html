@@ -203,7 +203,7 @@
     <div class="user-box" id="userBox"></div>
   </header>
 
-  <h1>📉 Productos estancados</h1>
+  <h1>Productos estancados</h1>
   <div class="sub">SKU con stock disponible hoy y sin ninguna venta en los últimos 35 días o más (incluye los que no registran ninguna venta en el período analizado, y excluye los que recibieron stock nuevo hace menos de 30 días) -- candidatos a bajar de precio, ofrecer envío gratis o publicar en Mercado Libre para liquidar stock y generar efectivo.</div>
 
   <div id="resumenMontos"></div>
@@ -217,7 +217,7 @@
   <div id="resultadosBusquedaSku"></div>
 
   <details class="envio-gratis-panel" id="panelEnvioGratis" ontoggle="if(this.open) cargarEnvioGratisShopify()" style="margin:12px 0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;">
-    <summary style="cursor:pointer;font-weight:700;">🚚 Envío gratis en Shopify <span class="sub" style="font-weight:400;">— los SKU marcados con "Envío gratis" y su etiqueta en la tienda</span></summary>
+    <summary style="cursor:pointer;font-weight:700;">Envío gratis en Shopify <span class="sub" style="font-weight:400;">— los SKU marcados con "Envío gratis" y su etiqueta en la tienda</span></summary>
     <div class="sub" style="margin:8px 0;">Al marcar "🚚 Envío gratis" en un producto, el ERP pone la etiqueta <b>envio-gratis</b> en todas las publicaciones de ese SKU en Shopify (y la quita al desmarcar). La ficha del producto muestra el aviso a partir de esa etiqueta.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
       <button class="btn-ghost" onclick="cargarEnvioGratisShopify()">↻ Ver estado en Shopify</button>
@@ -234,7 +234,7 @@
   </details>
 
   <details class="variacion-precio-panel" id="panelVariacionPrecio" ontoggle="if(this.open) cargarVariacionPrecio()" style="margin:12px 0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;">
-    <summary style="cursor:pointer;font-weight:700;">💲 Productos con bajas de precio <span class="sub" style="font-weight:400;">— los SKU marcados con "Variación de precio" y si las ventas respondieron</span></summary>
+    <summary style="cursor:pointer;font-weight:700;">Productos con bajas de precio <span class="sub" style="font-weight:400;">— los SKU marcados con "Variación de precio" y si las ventas respondieron</span></summary>
     <div class="sub" style="margin:8px 0;">Lista los productos a los que marcaste "💲 Variación de precio". Para cada uno compara lo que vendió <b>desde el día de la marca</b> con lo que vendió en <b>el mismo número de días anteriores</b>, y muestra el precio de lista de antes y de ahora (registro diario de precios de Bsale y la tienda; si aún no hay un cambio registrado, solo se conoce el de hoy). Es una guía: no separa la temporada, la competencia ni el stock.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
       <button class="btn-ghost" onclick="cargarVariacionPrecio()">↻ Actualizar</button>
@@ -244,7 +244,7 @@
   </details>
 
   <details class="orden-col-panel" id="panelOrdenColecciones" ontoggle="if(this.open) cargarOrdenColecciones()" style="margin:12px 0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;">
-    <summary style="cursor:pointer;font-weight:700;">📦 Orden de las colecciones por stock <span class="sub" style="font-weight:400;">— más stock primero, agotados al final, en todas las colecciones de Shopify</span></summary>
+    <summary style="cursor:pointer;font-weight:700;">Orden de las colecciones por stock <span class="sub" style="font-weight:400;">— más stock primero, agotados al final, en todas las colecciones de Shopify</span></summary>
     <div class="sub" style="margin:8px 0;">Shopify no trae ese orden, así que el ERP deja cada colección en <b>orden manual</b> y la reordena solo 4 veces al día (y con el botón de abajo). A igual stock se respeta el orden que ya tenía la colección. Los productos sin inventario controlado (servicios) van después de los que tienen stock y antes de los agotados. No se tocan las colecciones técnicas de las apps de búsqueda.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
       <button class="btn-ghost" onclick="cargarOrdenColecciones()">↻ Ver estado</button>
@@ -1174,7 +1174,7 @@ function renderResumenMermas(mermas){
       <div class="pct">${fmtNum(c.cantidad)} SKU · ${fmtNum(c.unidades)} unid.</div>
     </div>`).join('');
   cont.innerHTML = `
-    <h2 style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:28px 0 4px;">🗑️ Resumen de mermas</h2>
+    <h2 style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15.5px;margin:28px 0 4px;">Resumen de mermas</h2>
     <div class="sub" style="margin-bottom:14px;">Productos marcados como merma (sacados de este análisis) hasta ahora.</div>
     <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px;">
       <div class="card destacada">

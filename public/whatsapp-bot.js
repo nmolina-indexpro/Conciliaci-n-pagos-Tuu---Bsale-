@@ -12,7 +12,7 @@ function abrirPanelBot(){
   cargarPanelBot();
 }
 function cabeceraPanelBot(extra){
-  return `<div class="pm-head"><h2>🤖 Bot nocturno</h2>${extra || ''}<span class="pm-esp"></span><button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo()">✕ Cerrar</button></div>`;
+  return `<div class="pm-head"><h2>Bot nocturno</h2>${extra || ''}<span class="pm-esp"></span><button class="btn-ghost btn-compact" onclick="cerrarPanelMotivo()">✕ Cerrar</button></div>`;
 }
 async function cargarPanelBot(){
   $('panelMotivo').innerHTML = cabeceraPanelBot() + '<div class="pm-cuerpo"><div class="pm-cargando">Cargando el bot…</div></div>';
