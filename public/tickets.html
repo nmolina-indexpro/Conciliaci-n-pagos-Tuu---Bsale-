@@ -64,9 +64,12 @@
   .lista-scroll{overflow-y:auto;flex:1;min-height:0;background:var(--surface-2);padding:8px;}
   .tk-card{background:var(--surface);border:1px solid var(--line);border-left:4px solid transparent;border-radius:10px;padding:11px 12px;margin-bottom:8px;cursor:pointer;transition:box-shadow .15s,border-color .15s;}
   .tk-card:hover{box-shadow:var(--shadow);}
-  .tk-card.sel{border-left-color:var(--primary);background:var(--primary-dim);}
-  .tk-card.alerta{border-left-color:var(--amber);}
-  .tk-card.sel.alerta{border-left-color:var(--primary);}
+  /* Cada tiquetera tiene su color: borde de la tarjeta y etiqueta (azul = leads, morado = postventa, verde = servicio técnico) */
+  .tk-card.tq-lead{border-left-color:#2563EB;} .tk-card.tq-postventa{border-left-color:#7C3AED;} .tk-card.tq-servicio_tecnico{border-left-color:#15803D;}
+  .tk-card.sel{background:var(--primary-dim);box-shadow:0 0 0 2px var(--primary) inset;}
+  .tq{font-family:'Space Grotesk',sans-serif;font-size:10.5px;font-weight:700;letter-spacing:.2px;padding:2px 8px;border-radius:5px;white-space:nowrap;display:inline-block;border:1px solid transparent;}
+  .tq.lead{background:#E4ECFD;color:#1D4ED8;border-color:#C3D9FB;} .tq.postventa{background:#EFE7FD;color:#6D28D9;border-color:#D9C8F8;} .tq.servicio_tecnico{background:#E3F6E8;color:#15803D;border-color:#B8E2C4;}
+  .campo-lista label{display:block;font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:700;margin:0 0 3px 2px;}
   .tk-card .fila1{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
   .tk-card .asunto{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word;}
   .tk-card .meta{margin-top:5px;font-size:12px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
@@ -383,17 +386,18 @@
     <!-- Columna 1: lista de tickets -->
     <aside class="col-lista">
       <div class="lista-head">
-        <select id="selVista" onchange="cambiarFiltro()" aria-label="Vista">
-          <option value="abiertos">Todos los tickets abiertos</option>
-          <option value="mios">Mis tickets</option>
-          <option value="sin_asignar">Sin asignar</option>
-          <option value="sin_mov">Sin movimiento (+24 h)</option>
-          <option value="cerrados">Cerrados</option>
-          <option value="todos">Todos</option>
-        </select>
+        <div class="campo-lista"><label for="selTipo">Tiquetera</label>
+          <select id="selTipo" onchange="cambiarFiltro()" aria-label="Tiquetera">
+            <option value="">Todas las tiqueteras</option>
+          </select></div>
         <div class="fila">
-          <select id="selTipo" onchange="cambiarFiltro()" aria-label="Departamento">
-            <option value="">Todos los tipos</option>
+          <select id="selVista" onchange="cambiarFiltro()" aria-label="Vista">
+            <option value="abiertos">Abiertos</option>
+            <option value="mios">Mis tickets</option>
+            <option value="sin_asignar">Sin asignar</option>
+            <option value="sin_mov">Sin movimiento +24 h</option>
+            <option value="cerrados">Cerrados</option>
+            <option value="todos">Todos</option>
           </select>
           <select id="selOrden" onchange="renderLista()" aria-label="Orden">
             <option value="recientes">Más recientes</option>
@@ -428,7 +432,7 @@
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tituloNuevo">
     <h2 id="tituloNuevo">Nuevo ticket</h2>
     <div class="dos">
-      <div class="campo"><label for="nTipo">Tipo</label><select id="nTipo" onchange="renderCamposTipo()"></select></div>
+      <div class="campo"><label for="nTipo">Tiquetera</label><select id="nTipo" onchange="renderCamposTipo()"></select></div>
       <div class="campo"><label for="nOrigen">Origen</label><select id="nOrigen"></select></div>
     </div>
     <div class="dos">
@@ -554,6 +558,7 @@ function claseEstado(tipo, clave){
 }
 function badgeEstado(tipo, clave){ return `<span class="badge ${claseEstado(tipo, clave)}">${esc(estadoInfo(tipo, clave).etiqueta)}</span>`; }
 function etiquetaOrigen(c){ return ((E.cfg?.origenes || []).find(o => o.clave === c) || {}).etiqueta || c || '—'; }
+function pillTiquetera(c){ return '<span class="tq ' + esc(c) + '">' + esc(etiquetaTipo(c)) + '</span>'; }
 function etiquetaTipo(c){ return ((E.cfg?.tipos || []).find(o => o.clave === c) || {}).etiqueta || c; }
 function limpiaTel(t){ return String(t || '').replace(/\D/g, ''); }
 async function api(url, opciones){
@@ -605,7 +610,7 @@ async function cargarLista(manual){
     const j = await api(API + '&' + paramsLista());
     E.tickets = j.tickets; E.contadores = j.contadores; E.agentes = j.agentes; E.cfg = j.config; E.yo = j.yo;
     if(!$('selTipo').dataset.listo){
-      $('selTipo').innerHTML = '<option value="">Todos los tipos</option>' + E.cfg.tipos.map(t => `<option value="${t.clave}">${esc(t.etiqueta)}</option>`).join('');
+      $('selTipo').innerHTML = '<option value="">Todas las tiqueteras</option>' + E.cfg.tipos.map(t => `<option value="${t.clave}">${esc(t.etiqueta)}</option>`).join('');
       $('selTipo').dataset.listo = '1';
     }
     $('status').textContent = ''; $('status').className = '';
@@ -641,14 +646,14 @@ function renderLista(){
   $('listaMeta').innerHTML = `<span>${lista.length} ticket${lista.length === 1 ? '' : 's'}</span><span>${c.sinAsignar || 0} sin asignar · ${c.sinMovimiento || 0} sin movimiento</span>`;
   if(!lista.length){ $('listaScroll').innerHTML = '<div class="empty-note">No hay tickets con estos filtros.</div>'; return; }
   $('listaScroll').innerHTML = lista.map(t => `
-    <div class="tk-card${t.id === E.sel ? ' sel' : ''}${t.sin_movimiento ? ' alerta' : ''}" data-id="${t.id}" onclick="abrirTicket(${t.id})">
+    <div class="tk-card tq-${t.tipo}${t.id === E.sel ? ' sel' : ''}" data-id="${t.id}" onclick="abrirTicket(${t.id})">
       <div class="fila1">
         <div class="asunto">${esc(t.asunto || '(sin asunto)')}</div>
         ${avatar(t.agente_nombre)}
       </div>
-      <div class="meta"><span class="num">#${t.numero}</span>${t.numero_os ? `<span class="num">OS ${t.numero_os}</span>` : ''}<span>·</span><span>${esc(t.cliente_nombre || 'Sin nombre')}</span>${t.retiro_inmediato ? '<span class="badge ambar" style="padding:1px 7px;font-size:10px">Retiro inmediato</span>' : ''}</div>
+      <div class="meta">${pillTiquetera(t.tipo)}<span class="num">#${t.numero}</span>${t.numero_os ? `<span class="num">OS ${t.numero_os}</span>` : ''}<span>·</span><span>${esc(t.cliente_nombre || 'Sin nombre')}</span>${t.retiro_inmediato ? '<span class="badge ambar" style="padding:1px 7px;font-size:10px">Retiro inmediato</span>' : ''}</div>
       <div class="pie">
-        <span class="fecha">🕑 ${fmtFechaCorta(t.creado_en)}${t.sin_movimiento ? ' · sin movimiento' : ''}</span>
+        <span class="fecha"${t.sin_movimiento ? '' : ' style="color:var(--muted)"'}>🕑 ${fmtFechaCorta(t.creado_en)}${t.sin_movimiento ? ' · sin movimiento' : ''}</span>
         ${badgeEstado(t.tipo, t.estado)}
       </div>
     </div>`).join('');
@@ -711,7 +716,7 @@ function selectLista(id, lista, valor, conVacio){
 }
 function panelInfoTicket(d){
   let campos = `<div class="prop"><label>Origen</label><div class="valor">${esc(etiquetaOrigen(d.origen))}</div></div>
-    <div class="prop"><label>Tipo</label><div class="valor">${esc(etiquetaTipo(d.tipo))}</div></div>`;
+    <div class="prop"><label>Tiquetera</label><div class="valor">${pillTiquetera(d.tipo)}</div></div>`;
   if(d.tipo === 'lead'){
     const l = d.lead || {};
     campos += `<div class="prop"><label>Producto de interés</label><input id="fProducto" value="${esc(l.producto_interes || '')}" maxlength="200"></div>
@@ -916,7 +921,7 @@ function renderMain(){
       <span class="cinta" style="${cintaEstilo}">${esc(e.etiqueta)}</span>
       <div class="main-titulo"><h2>${esc(d.asunto || '(sin asunto)')}</h2>
         <div class="main-acciones">${btnImprimir}${btnWa}${btnReabrir}</div></div>
-      <div class="main-meta"><span class="num">#${d.numero}</span>${d.zoho_ticket_id ? `<a href="https://desk.zoho.com/support/indexpro/ShowHomePage.do#Cases/dv/${encodeURIComponent(d.zoho_ticket_id)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--primary);text-decoration:none" title="Abre el ticket original en Zoho Desk (conversación e historial completos)">Zoho${d.zoho_numero ? ' #' + d.zoho_numero : ''} ↗</a>` : ''}<span>${esc(d.cliente_nombre || 'Sin nombre')}</span><span>🕑 ${fmtFechaLarga(d.creado_en)}</span>
+      <div class="main-meta">${pillTiquetera(d.tipo)}<span class="num">#${d.numero}</span>${d.zoho_ticket_id ? `<a href="https://desk.zoho.com/support/indexpro/ShowHomePage.do#Cases/dv/${encodeURIComponent(d.zoho_ticket_id)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--primary);text-decoration:none" title="Abre el ticket original en Zoho Desk (conversación e historial completos)">Zoho${d.zoho_numero ? ' #' + d.zoho_numero : ''} ↗</a>` : ''}<span>${esc(d.cliente_nombre || 'Sin nombre')}</span><span>🕑 ${fmtFechaLarga(d.creado_en)}</span>
         <span class="chip-tiempo" title="Tiempo desde que se creó">${d.cerrado ? 'Duración' : 'Abierto'}: ${esc(fmtDur((d.cerrado ? new Date(d.cerrado_en) : Date.now()) - new Date(d.creado_en)))}</span>
         ${d.sin_asignar ? '<span class="badge rojo">Sin asignar</span>' : ''}${d.sin_movimiento ? '<span class="badge ambar">Sin movimiento +24 h</span>' : ''}</div>
       <div class="tabs">
@@ -1242,8 +1247,8 @@ function pintarMetricas(m, conv){
     ${kpi('Abandono en postventa', pct(m.tasaAbandono.tasa), `${m.tasaAbandono.abandonados} abandonados de ${m.tasaAbandono.abandonados + m.tasaAbandono.cerrados} cerrados`)}
     ${kpi('Lead → pedido', conv === 'cargando' ? '…' : c && c.disponible ? pct(c.tasa) : '—', c && c.disponible ? `${c.convertidos} de ${c.leads} leads (${c.dias} días)` : conv === 'cargando' ? 'calculando' : 'no disponible')}
   </div>`;
-  h += `<div class="seccion"><h3>Por tipo de ticket</h3><div class="sub">"Sin resolución" son los que se cierran sin resolverse (leads sin datos, postventa abandonada, órdenes cerradas sin entrega). El tiempo de cierre no los incluye.</div>
-    <div class="tabla-wrap"><table class="t"><thead><tr><th>Tipo</th><th class="num">Creados</th><th class="num">Sin resolver</th><th class="num">Resueltos</th><th class="num">Sin resolución</th><th class="num">Cierre promedio</th><th class="num">Cierre mediana</th></tr></thead><tbody>
+  h += `<div class="seccion"><h3>Por tiquetera</h3><div class="sub">"Sin resolución" son los que se cierran sin resolverse (leads sin datos, postventa abandonada, órdenes cerradas sin entrega). El tiempo de cierre no los incluye.</div>
+    <div class="tabla-wrap"><table class="t"><thead><tr><th>Tiquetera</th><th class="num">Creados</th><th class="num">Sin resolver</th><th class="num">Resueltos</th><th class="num">Sin resolución</th><th class="num">Cierre promedio</th><th class="num">Cierre mediana</th></tr></thead><tbody>
     ${tp.map(t => `<tr><td>${esc(t.etiqueta)}</td><td class="num">${fmtN(t.total)}</td><td class="num">${fmtN(t.abiertos)}</td><td class="num">${fmtN(t.resueltos)}</td><td class="num">${fmtN(t.sinResolucion)}</td><td class="num" data-valor="${t.cierre_prom_h ?? ''}">${fmtHoras(t.cierre_prom_h)}</td><td class="num" data-valor="${t.cierre_mediana_h ?? ''}">${fmtHoras(t.cierre_mediana_h)}</td></tr>`).join('')}
     </tbody></table></div></div>`;
   h += `<div class="dos-col"><div class="seccion"><h3>Por origen</h3><div class="sub">De dónde llegan los tickets.</div><div class="tabla-wrap"><table class="t"><thead><tr><th>Origen</th><th class="num">Total</th><th class="num">Leads</th><th class="num">Postventa</th><th class="num">Serv. técnico</th></tr></thead><tbody>
@@ -1290,8 +1295,8 @@ function pintarCliente(f){
   if(f.avisos) h += f.avisos.map(a => `<div class="nota-box">${esc(a)}</div>`).join('');
   if(f.errores.shopify) h += `<div class="nota-box err">Shopify: ${esc(f.errores.shopify)}</div>`;
   if(f.errores.bsale) h += `<div class="nota-box err">Bsale: ${esc(f.errores.bsale)}</div>`;
-  h += `<div class="seccion"><h3>Tickets</h3><div class="tabla-wrap"><table class="t"><thead><tr><th>N°</th><th>Tipo</th><th>Asunto</th><th>Estado</th><th>Creado</th></tr></thead><tbody>
-    ${f.tickets.map(t => `<tr style="cursor:pointer" onclick="verTicketDesdeCliente(${t.id})"><td class="num">#${t.numero}${t.numero_os ? ' · OS ' + t.numero_os : ''}</td><td>${esc(etiquetaTipo(t.tipo))}</td><td>${esc(t.asunto || '')}</td><td>${badgeEstado(t.tipo, t.estado)}</td><td data-valor="${esc(String(t.creado_en).slice(0, 10))}">${esc(fmtFechaLarga(t.creado_en).slice(0, 10))}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-note">Sin tickets.</td></tr>'}
+  h += `<div class="seccion"><h3>Tickets</h3><div class="tabla-wrap"><table class="t"><thead><tr><th>N°</th><th>Tiquetera</th><th>Asunto</th><th>Estado</th><th>Creado</th></tr></thead><tbody>
+    ${f.tickets.map(t => `<tr style="cursor:pointer" onclick="verTicketDesdeCliente(${t.id})"><td class="num">#${t.numero}${t.numero_os ? ' · OS ' + t.numero_os : ''}</td><td>${pillTiquetera(t.tipo)}</td><td>${esc(t.asunto || '')}</td><td>${badgeEstado(t.tipo, t.estado)}</td><td data-valor="${esc(String(t.creado_en).slice(0, 10))}">${esc(fmtFechaLarga(t.creado_en).slice(0, 10))}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-note">Sin tickets.</td></tr>'}
     </tbody></table></div></div>`;
   h += `<div class="dos-col"><div class="seccion"><h3>Pedidos de Shopify</h3><div class="tabla-wrap"><table class="t"><thead><tr><th>Pedido</th><th>Fecha</th><th>Pago</th><th>Despacho</th><th class="num">Total</th></tr></thead><tbody>
     ${f.pedidos.map(p => `<tr><td>${esc(p.nombre)}${p.cancelado ? ' <span class="badge rojo">Cancelado</span>' : ''}</td><td data-valor="${esc(String(p.creado_en).slice(0, 10))}">${esc(fmtFechaLarga(p.creado_en).slice(0, 10))}</td><td>${esc(etq(p.pago))}</td><td>${esc(etq(p.despacho))}</td><td class="num" data-valor="${p.total ?? 0}">${p.total ? '$' + fmtN(p.total) : '—'}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-note">Sin pedidos encontrados.</td></tr>'}
@@ -1354,6 +1359,14 @@ function pintarMigracion(informe){
       <button class="btn-ghost" id="btnMigSim" onclick="ejecutarMigracion(true)"${j.configurado ? '' : ' disabled'}>1. Simular (no guarda nada)</button>
       <button class="btn-primary" id="btnMigImp" onclick="ejecutarMigracion(false)"${j.configurado ? '' : ' disabled'}>2. Importar</button>
       <button class="btn-ghost btn-compact" id="btnMigStop" style="display:none" onclick="E.migCancel=true">Detener</button></div>
+    <div class="filtros-m" style="margin-top:-4px"><span class="sub">Departamentos:</span>
+      ${j.departamentos.map(d => `<label class="chk" style="display:flex;gap:5px;align-items:center;font-size:12.5px"><input type="checkbox" class="migDep" value="${esc(d.id)}" ${(E.migDeps ? E.migDeps.includes(d.id) : true) ? 'checked' : ''} onchange="E.migDeps=depsMigracion()" style="width:auto"> ${esc(d.nombre)}</label>`).join('')}
+      <label class="chk" style="display:flex;gap:5px;align-items:center;font-size:12.5px"><input type="checkbox" id="migHilos" ${E.migHilos !== false ? 'checked' : ''} onchange="E.migHilos=this.checked" style="width:auto"> Incluir las conversaciones (correos y notas internas)</label></div>
+    <div class="filtros-m"><button class="btn-ghost btn-compact" onclick="presetRespaldoST()" title="Deja marcado Servicio Técnico (Casa Matriz y retiro inmediato), desde 2021, con conversaciones">Respaldar Servicio Técnico (todo el historial)</button>
+      <span class="sub">Descargar un respaldo de:</span>
+      <select id="migRespTipo">${E.cfg.tipos.map(t => `<option value="${t.clave}"${t.clave === 'servicio_tecnico' ? ' selected' : ''}>${esc(t.etiqueta)}</option>`).join('')}<option value="">Todas las tiqueteras</option></select>
+      <button class="btn-ghost btn-compact" id="btnRespJson" onclick="descargarRespaldo('json')">Archivo completo (JSON)</button>
+      <button class="btn-ghost btn-compact" id="btnRespCsv" onclick="descargarRespaldo('csv')">Resumen (CSV para Excel)</button></div>
     <div id="migProgreso"></div><div id="migInforme">${informe || ''}</div>
     <h3 style="margin-top:18px;font-size:14px">Cuadre con Zoho</h3><div class="sub">Lo recorrido en Zoho contra lo que hay en el ERP, por departamento y estado. La importación debe cuadrar antes de pasar a la operación en paralelo.</div>
     <div class="tabla-wrap"><table class="t"><thead><tr><th>Departamento</th><th class="num">En Zoho</th><th class="num">En el ERP</th><th>Estado</th></tr></thead><tbody>
@@ -1374,7 +1387,10 @@ async function ejecutarMigracion(simular){
   if(!desde){ toast('Elige desde qué fecha migrar', true); return; }
   if(!simular && !confirm(`Se importarán a Tickets los tickets creados desde el ${desde.split('-').reverse().join('-')} en los 5 departamentos. Se puede repetir sin duplicar. ¿Continuar?`)) return;
   E.migCancel = false; ['btnMigSim', 'btnMigImp'].forEach(i => $(i).disabled = true); $('btnMigStop').style.display = '';
-  const deps = E.mig.departamentos, tot = { revisados:0, creados:0, actualizados:0, sin_cambios:0, conflictos:0, errores:[] };
+  const seleccion = depsMigracion();
+  if(!seleccion.length){ toast('Marca al menos un departamento', true); ['btnMigSim', 'btnMigImp'].forEach(i => $(i).disabled = false); $('btnMigStop').style.display = 'none'; return; }
+  const deps = E.mig.departamentos.filter(d => seleccion.includes(d.id)), tot = { revisados:0, creados:0, actualizados:0, sin_cambios:0, conflictos:0, errores:[] };
+  let conv = null;
   const informe = []; const sinEq = new Map();
   const ahora = Date.now(), t0 = new Date(desde + 'T00:00:00-03:00').getTime();
   try{
@@ -1398,10 +1414,13 @@ async function ejecutarMigracion(simular){
       }
       informe.push({ d, acum });
     }
+    // Conversaciones (correos y notas internas) de los tickets importados: solo en la importación real
+    if(!simular && !E.migCancel && $('migHilos').checked) conv = await copiarConversaciones(deps);
     $('migProgreso').innerHTML = `<div class="sub" style="margin:10px 0">${E.migCancel ? 'Detenido.' : '<b>100 %</b> — terminado.'} ${simular ? 'Simulación: no se guardó nada.' : ''}</div>`;
     const etiquetaE = (tipo, k) => estadoInfo(tipo, k).etiqueta;
     const html = `<div class="seccion" style="margin-top:12px"><h3>${simular ? 'Resultado de la simulación' : 'Resultado de la importación'}</h3>
       ${simular ? '<div class="sub">Así quedarían los tickets. Revisa los estados, los orígenes inferidos y los agentes sin usuario antes de importar.</div>' : `<div class="sub">${fmtN(tot.creados)} creados · ${fmtN(tot.actualizados)} actualizados · ${fmtN(tot.sin_cambios)} sin cambios · ${fmtN(tot.conflictos)} no copiados porque se editaron en el ERP.</div>`}
+      ${conv ? `<div class="sub">Conversaciones: ${fmtN(conv.tickets)} tickets con mensajes, ${fmtN(conv.eventos)} mensajes y notas copiados.${conv.errores ? ` <span class="badge rojo">${conv.errores} con error</span> Repite la importación para reintentarlos.` : ''} Los archivos adjuntos de Zoho no se copian.</div>` : ''}
       ${tot.errores.length ? `<div class="nota-box err">${tot.errores.length} tickets con error (ej.: ${esc(tot.errores[0].error)}). Repite la importación para reintentarlos.</div>` : ''}
       ${sinEq.size ? `<div class="nota-box">Agentes de Zoho sin usuario equivalente en el ERP (sus tickets quedan sin propietario, con una nota): <b>${esc([...sinEq.values()].join(', '))}</b>. Créalos en Usuarios con el mismo correo y vuelve a importar.</div>` : ''}
       <div class="tabla-wrap"><table class="t"><thead><tr><th>Departamento</th><th class="num">Tickets</th><th>Estados (en el ERP)</th><th>Orígenes</th></tr></thead><tbody>
@@ -1413,6 +1432,61 @@ async function ejecutarMigracion(simular){
     if(!simular){ await cargarMigracion(); $('migInforme').innerHTML = html; } else pintarMigracion(html);
   }catch(err){ $('migProgreso').innerHTML = `<div class="nota-box err" style="margin-top:10px">Se interrumpió: ${esc(err.message)}. Puedes volver a ejecutarlo: no duplica.</div>`; }
   finally{ ['btnMigSim', 'btnMigImp'].forEach(i => { const b = $(i); if(b) b.disabled = false; }); const s = $('btnMigStop'); if(s) s.style.display = 'none'; }
+}
+function depsMigracion(){ return [...document.querySelectorAll('.migDep:checked')].map(x => x.value); }
+function presetRespaldoST(){
+  const st = E.mig.departamentos.filter(d => d.tipo === 'servicio_tecnico').map(d => d.id);
+  E.migDeps = st; E.migDesde = '2021-01-01'; E.migHilos = true; pintarMigracion();
+  toast('Listo: Servicio Técnico, desde 2021, con conversaciones. Pulsa "Simular" y luego "Importar".');
+}
+// Copia los correos y notas de los tickets ya importados (de 10 en 10, con porcentaje real: copiados / pendientes al empezar)
+async function copiarConversaciones(deps){
+  let cursor = 0, total0 = null, hechos = 0, eventos = 0, errores = 0;
+  for(;;){
+    const j = await post({ accion:'hilos', depts: deps.map(d => d.id), cursor, limite: 10 }, 'tickets-migracion');
+    if(total0 == null) total0 = j.pendientes;
+    hechos += j.procesados; eventos += j.eventos; errores += (j.errores || []).length;
+    const pct = total0 ? Math.min(100, Math.round(hechos / total0 * 100)) : 100;
+    $('migProgreso').innerHTML = `<div class="sub" style="margin:10px 0 4px"><b>${pct} %</b> — copiando conversaciones: ${fmtN(hechos)} de ${fmtN(total0)} tickets · ${fmtN(eventos)} mensajes</div><div class="barra" style="height:10px"><span style="width:${pct}%"></span></div>`;
+    if(j.terminado || E.migCancel) break;
+    cursor = j.siguiente;
+  }
+  return { tickets: hechos, eventos, errores };
+}
+
+// ---------- Respaldo descargable ----------
+function csvCelda(v){ const t = String(v ?? '').replace(/\r?\n/g, ' ').trim(); return /[",;]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; }
+function bajarArchivo(nombre, contenido, tipo){
+  const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
+  const a = document.createElement('a'); a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+async function descargarRespaldo(formato){
+  const tipo = $('migRespTipo').value, botones = ['btnRespJson', 'btnRespCsv'].map(i => $(i));
+  botones.forEach(b => b.disabled = true);
+  const todos = []; let cursor = 0, total = null;
+  try{
+    for(;;){
+      const j = await api('/api/negocio?recurso=tickets-migracion&respaldo=1&limite=50&cursor=' + cursor + (tipo ? '&tipo=' + tipo : ''));
+      if(total == null) total = j.total;
+      todos.push(...j.tickets);
+      const pct = total ? Math.min(100, Math.round(todos.length / total * 100)) : 100;
+      $('migProgreso').innerHTML = `<div class="sub" style="margin:10px 0 4px"><b>${pct} %</b> — preparando el respaldo: ${fmtN(todos.length)} de ${fmtN(total)} tickets</div><div class="barra" style="height:10px"><span style="width:${pct}%"></span></div>`;
+      if(j.terminado || !j.siguiente) break;
+      cursor = j.siguiente;
+    }
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone:'America/Santiago' });
+    const nombre = 'respaldo-tickets-' + (tipo || 'todas').replace(/_/g, '-') + '-' + hoy;
+    if(formato === 'json'){
+      bajarArchivo(nombre + '.json', JSON.stringify({ generado: new Date().toISOString(), tiquetera: tipo || 'todas', total: todos.length, tickets: todos }, null, 1), 'application/json');
+    } else {
+      const cab = ['N° ticket', 'N° Zoho', 'Tiquetera', 'Estado', 'Creado', 'Cerrado', 'Cliente', 'RUT', 'Correo', 'Teléfono', 'Asunto', 'N° orden', 'Servicio', 'Equipo', 'Motivo de ingreso', 'Propietario', 'Mensajes', 'Descripción'];
+      const filas = todos.map(t => [t.numero, t.zoho_numero, etiquetaTipo(t.tipo), estadoInfo(t.tipo, t.estado).etiqueta, t.creado_en, t.cerrado_en, t.cliente && t.cliente.nombre, t.cliente && t.cliente.rut, t.cliente && t.cliente.email, t.cliente && t.cliente.telefono,
+        t.asunto, t.orden && t.orden.numero_os, t.orden && t.orden.servicio_codigo, t.orden && [t.orden.marca, t.orden.modelo].filter(Boolean).join(' '), t.orden && t.orden.motivo_ingreso, t.agente, t.eventos.filter(e => ['contacto_cliente', 'comentario_interno'].includes(e.tipo)).length, (t.descripcion || '').slice(0, 500)]);
+      bajarArchivo(nombre + '.csv', '﻿' + [cab, ...filas].map(f => f.map(csvCelda).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+    }
+    $('migProgreso').innerHTML = `<div class="sub" style="margin:10px 0">Respaldo descargado: ${fmtN(todos.length)} tickets${formato === 'json' ? ' con todos sus mensajes y movimientos' : ''}.</div>`;
+  }catch(err){ $('migProgreso').innerHTML = `<div class="nota-box err" style="margin-top:10px">No se pudo preparar el respaldo: ${esc(err.message)}</div>`; }
+  finally{ botones.forEach(b => b.disabled = false); }
 }
 async function alternarParalelo(activo){
   try{ const j = await post({ accion:'paralelo', activo }, 'tickets-migracion'); E.mig.paralelo = j.paralelo; pintarMigracion(); toast(activo ? 'Operación en paralelo encendida' : 'Operación en paralelo apagada'); }

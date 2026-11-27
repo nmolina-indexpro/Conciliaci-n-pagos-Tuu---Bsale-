@@ -19,6 +19,20 @@ Soporte TI (INDEXPRO) sigue en Zoho hasta la fase 2.
 Se traen los tickets creados desde la fecha que elijas (por defecto, 12 meses), del más nuevo al más antiguo, de a 100. **No se migran los hilos de conversación**: el ticket del ERP
 lleva un enlace "Zoho #N ↗" al original, donde queda la conversación completa mientras se mantenga la licencia.
 
+## Respaldo del historial de Servicio Técnico (27-nov-2026)
+
+Para guardar TODO lo de la tiquetera de Servicio Técnico en el ERP (Casa Matriz, que es la de Providencia, y "ST retiro inmediato"):
+
+1. Tickets > Configuración > **Migración desde Zoho Desk** > botón **"Respaldar Servicio Técnico (todo el historial)"**. Deja marcados los dos departamentos de servicio técnico, la fecha en 2021 y "Incluir las conversaciones".
+2. **Simular** y luego **Importar**. Primero trae los tickets (con su N° de orden, cliente, RUT, servicio y estado) y después, de 10 en 10 y con porcentaje, **copia las conversaciones**:
+   cada correo se guarda como "contacto con cliente" (quién lo escribió, a quién, fecha y texto, sin la cita del mensaje anterior) y cada comentario de Zoho como nota interna. Se puede repetir sin duplicar.
+3. Cuadre por departamento y estado, en la misma pantalla.
+4. **Descargar un respaldo** (archivo en tu computador): *Archivo completo (JSON)* con cada ticket, su cliente, su orden de servicio y todos los mensajes y movimientos; o *Resumen (CSV para Excel)*, una fila por ticket.
+   Sirve para cualquier tiquetera y se puede hacer cuando quieras, también después del corte.
+
+Límites: **los archivos adjuntos de Zoho no se copian** (en cada mensaje queda anotado que tenía adjuntos; las fichas de ingreso en PDF siguen solo en Zoho), y Zoho entrega como máximo ~10.000 tickets por departamento al listar.
+Un ticket migrado antes de esta versión no tiene anotado cuántos hilos tenía: al repetir la importación se actualiza y recién ahí se copian sus conversaciones.
+
 ## Lo que se comprobó con datos reales (15-nov-2026)
 
 Se leyeron tickets reales de cada departamento (solo lectura, desde el conector de Zoho Desk) y se ajustó el mapeo a lo que mostraron:
