@@ -14,6 +14,7 @@ import {
   sqlArchivada, sqlNoLeidos, sqlBotEstado, sqlEtiquetasJson, COLORES_ETIQUETA,
 } from '../lib/whatsapp-bandeja.js';
 import { asegurarTablaEntrenador, procesarMensajeEntrenador, listarMensajes as listarMensajesEntrenador, obtenerImagen as obtenerImagenEntrenador, resumenEntrenador } from '../lib/whatsapp-entrenador.js';
+import { validarEmojiReaccion, citaDeMensaje, armarCuerpoMensaje, armarCuerpoReaccion, nombreArchivoDescarga, TIPO_META_DESDE_TIPO } from '../lib/whatsapp-mensajes-accion.js';
 
 import { getSql, asegurarTablaProductosCriticos, asegurarTablaReportesError, asegurarTablaFacturasCompra, asegurarTablaBsalePuntos, asegurarTablaCotizaciones, asegurarTablaCotizacionesHistorialEstado, asegurarTablaCotizacionesCorreos, asegurarTablaCotizacionesContactos, asegurarTablaLlamadasFonoip, asegurarTablaCalendarioPagos, asegurarTablaSaldoBci, asegurarTablaIndexpro, asegurarTablaAnalisis, asegurarTablaWhatsapp, asegurarTablaCompatibilidadNotebook, asegurarTablaIdentificacionModelosPantalla, asegurarTablaProductosNuevos, asegurarTablaAlertasSitioWebCache, asegurarTablaModelosNotebookCache, asegurarTablaServiciosMensual, asegurarTablaVentasSku, asegurarTablaVentasSkuEstado, asegurarTablaComentariosLog, migrarComentariosVentasSkuLegacy, migrarComentariosClientesLegacy, asegurarTablaCompraAgil, asegurarTablaComprasDMExcluidos, asegurarTablaComparadorCompras, asegurarTablaRecomendacionCompraExcluidos, asegurarTablaProductosTransito, asegurarTablaPreferenciasUsuario, asegurarTablaComprasIntcomexExcluidos, asegurarTablaIndexscale, asegurarTablaIndexscaleLeadsWeb, asegurarTablaUsuarios, asegurarTablaNotificaciones, asegurarTablaWhatsappBot, asegurarTablaBuscadorIa, asegurarTablaEnvioConsultas, asegurarTablaEnvioEmbudo, asegurarTablaDescuentosWeb, BUSCADOR_IA_RETENCION_DIAS } from '../lib/db.js';
 import { validarRegistro as validarRegistroBuscadorIa, validarEvento as validarEventoBuscadorIa, validarEnvio as validarEnvioBuscadorIa, validarEmbudo as validarEmbudoBuscadorIa, validarDescuentoEvento as validarDescuentoEventoBuscadorIa, REGIONES_ENVIO, claveValida as claveBuscadorIaValida, clasificarVisitante, ORIGEN_ETIQUETA, UMBRAL_RAFAGA } from '../lib/buscador-ia.js';
@@ -456,6 +457,7 @@ export default async function handler(req, res) {
   if (recurso === 'whatsapp-venta') return manejarWhatsappVenta(req, res, sesion);
   if (recurso === 'whatsapp-enviar-mensaje') return manejarWhatsappEnviarMensaje(req, res, sesion);
   if (recurso === 'whatsapp-nota-interna') return manejarWhatsappNotaInterna(req, res, sesion);
+  if (recurso === 'whatsapp-mensaje-accion') return manejarWhatsappMensajeAccion(req, res, sesion);
   if (recurso === 'whatsapp-sugerir-respuesta') return manejarWhatsappSugerirRespuesta(req, res, sesion);
   if (recurso === 'whatsapp-bot-config') return manejarWhatsappBotConfig(req, res, sesion);
   if (recurso === 'whatsapp-bot-resumen') return manejarWhatsappBotResumen(req, res, sesion);
@@ -8651,6 +8653,14 @@ async function manejarWhatsappWebhook(req, res) {
           const { rows: yaProcesado } = await sql`SELECT 1 FROM whatsapp_webhook_eventos_procesados WHERE whatsapp_message_id = ${m.id};`;
           if (yaProcesado.length > 0) continue; // idempotencia (Meta puede reenviar el mismo evento)
 
+          // Una reacción del cliente (emoji sobre un mensaje) no es un mensaje: se marca en el mensaje reaccionado y no cuenta como entrante (ni lo atiende el bot).
+          // Si el cliente la quita, Meta manda la reacción sin emoji.
+          if (m.type === 'reaction' && m.reaction?.message_id) {
+            await sql`UPDATE whatsapp_mensajes SET reaccion_cliente = ${m.reaction.emoji || null} WHERE whatsapp_message_id = ${m.reaction.message_id};`;
+            await sql`INSERT INTO whatsapp_webhook_eventos_procesados (whatsapp_message_id) VALUES (${m.id}) ON CONFLICT (whatsapp_message_id) DO NOTHING;`;
+            continue;
+          }
+
           const marcaTiempo = new Date(Number(m.timestamp) * 1000);
           const infoContacto = contactosPayload.find(c => c.wa_id === m.from) || {};
           const contacto = await obtenerOCrearContactoWhatsapp(sql, m.from, infoContacto.profile?.name);
@@ -8658,8 +8668,8 @@ async function manejarWhatsappWebhook(req, res) {
           const { tipo, texto, mediaRef } = extraerContenidoMensajeWhatsapp(m);
 
           await sql`
-            INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto, media_url)
-            VALUES (${conversacion.id}, ${m.id}, ${marcaTiempo.toISOString()}, 'in', 'api', ${tipo}, ${texto}, ${mediaRef})
+            INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto, media_url, respuesta_a_wa_id)
+            VALUES (${conversacion.id}, ${m.id}, ${marcaTiempo.toISOString()}, 'in', 'api', ${tipo}, ${texto}, ${mediaRef}, ${m.context?.id || null})
             ON CONFLICT (whatsapp_message_id) DO NOTHING;
           `;
           await sql`INSERT INTO whatsapp_webhook_eventos_procesados (whatsapp_message_id) VALUES (${m.id}) ON CONFLICT (whatsapp_message_id) DO NOTHING;`;
@@ -8725,14 +8735,20 @@ async function manejarWhatsappWebhook(req, res) {
           // revés que en un mensaje entrante normal.
           const waIdCliente = m.to;
           if (!waIdCliente) continue;
+          // Reacción puesta desde la app del teléfono: se marca en el mensaje, no es un mensaje nuevo.
+          if (m.type === 'reaction' && m.reaction?.message_id) {
+            await sql`UPDATE whatsapp_mensajes SET reaccion_equipo = ${m.reaction.emoji || null} WHERE whatsapp_message_id = ${m.reaction.message_id};`;
+            await sql`INSERT INTO whatsapp_webhook_eventos_procesados (whatsapp_message_id) VALUES (${m.id}) ON CONFLICT (whatsapp_message_id) DO NOTHING;`;
+            continue;
+          }
           const marcaTiempo = new Date(Number(m.timestamp) * 1000);
           const contacto = await obtenerOCrearContactoWhatsapp(sql, waIdCliente, null);
           const conversacion = await obtenerOCrearConversacionWhatsapp(sql, contacto, marcaTiempo);
           const { tipo, texto, mediaRef } = extraerContenidoMensajeWhatsapp(m);
 
           await sql`
-            INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto, media_url)
-            VALUES (${conversacion.id}, ${m.id}, ${marcaTiempo.toISOString()}, 'out', 'app', ${tipo}, ${texto}, ${mediaRef})
+            INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto, media_url, respuesta_a_wa_id)
+            VALUES (${conversacion.id}, ${m.id}, ${marcaTiempo.toISOString()}, 'out', 'app', ${tipo}, ${texto}, ${mediaRef}, ${m.context?.id || null})
             ON CONFLICT (whatsapp_message_id) DO NOTHING;
           `;
           await sql`INSERT INTO whatsapp_webhook_eventos_procesados (whatsapp_message_id) VALUES (${m.id}) ON CONFLICT (whatsapp_message_id) DO NOTHING;`;
@@ -9928,6 +9944,10 @@ async function manejarWhatsappConversacionDetalle(req, res, sesion) {
       mensajes: mensajes.map(m => ({
         id: m.id, marcaTiempo: m.marca_tiempo, direccion: m.direccion, tipo: m.tipo,
         texto: m.contenido_texto, mediaUrl: m.media_url, estado: m.estado,
+        // Menú del mensaje: el mensaje al que responde (resumido), las reacciones y si se puede operar sobre él (tiene id de WhatsApp)
+        respuestaA: m.respuesta_a_wa_id ? citaDeMensaje(mensajes.find(x => x.whatsapp_message_id === m.respuesta_a_wa_id)) : null,
+        reaccionEquipo: m.reaccion_equipo || null, reaccionCliente: m.reaccion_cliente || null,
+        conIdWhatsapp: !!m.whatsapp_message_id,
       })),
       analisisIa: analisisRows[0] ? {
         resumen: analisisRows[0].resumen, intencion: analisisRows[0].intencion, categoria: analisisRows[0].categoria,
@@ -11242,10 +11262,17 @@ async function manejarWhatsappEnviarMensaje(req, res, sesion) {
     }
 
     const textoLimpio = String(texto).trim().slice(0, 4096);
+    // "Responder" del menú de un mensaje: el mensaje se manda citando a otro de ESTA conversación (si no calza, se envía igual, sin cita).
+    let respuestaAWaId = null;
+    const citadoId = Number(req.body?.responderAMensajeId) || 0;
+    if (citadoId) {
+      const { rows: citado } = await sql`SELECT whatsapp_message_id FROM whatsapp_mensajes WHERE id = ${citadoId} AND conversacion_id = ${conversacionId};`;
+      respuestaAWaId = citado[0]?.whatsapp_message_id || null;
+    }
     const rEnvio = await fetchConTimeout(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messaging_product: 'whatsapp', to: conv.whatsapp_id, type: 'text', text: { body: textoLimpio } }),
+      body: JSON.stringify(armarCuerpoMensaje({ para: conv.whatsapp_id, tipo: 'texto', texto: textoLimpio, respuestaAWaId })),
     }, 15000);
     const bodyEnvio = await rEnvio.json().catch(() => ({}));
     if (!rEnvio.ok) {
@@ -11256,8 +11283,8 @@ async function manejarWhatsappEnviarMensaje(req, res, sesion) {
     const whatsappMessageId = bodyEnvio.messages?.[0]?.id || null;
     const ahora = new Date();
     await sql`
-      INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto, autor_usuario_id)
-      VALUES (${conversacionId}, ${whatsappMessageId}, ${ahora.toISOString()}, 'out', 'api', 'texto', ${textoLimpio}, ${sesion.uid || null})
+      INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto, autor_usuario_id, respuesta_a_wa_id)
+      VALUES (${conversacionId}, ${whatsappMessageId}, ${ahora.toISOString()}, 'out', 'api', 'texto', ${textoLimpio}, ${sesion.uid || null}, ${respuestaAWaId})
       ON CONFLICT (whatsapp_message_id) DO NOTHING;
     `;
 
@@ -11288,6 +11315,143 @@ async function manejarWhatsappEnviarMensaje(req, res, sesion) {
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: 'Error al enviar el mensaje', detail: String(err) });
+  }
+}
+
+// ---- Menú de cada mensaje del chat (Responder / Reaccionar / Descargar / Reenviar) ----
+// Responder va por whatsapp-enviar-mensaje (con responderAMensajeId), Descargar por whatsapp-media (?descargar=1) y acá están Reaccionar y Reenviar.
+// Las dos mandan un mensaje libre, así que igual que cualquier respuesta solo valen dentro de la ventana de 24 h del cliente al que se escribe.
+// Lógica pura (cuerpos de la API, emojis, nombres de archivo): lib/whatsapp-mensajes-accion.js.
+async function postMensajeMetaWhatsapp(cuerpo) {
+  const accessToken = (process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+  const phoneNumberId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+  const r = await fetchConTimeout(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+    method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo),
+  }, 15000);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) { console.error('[whatsapp-mensaje-accion] Meta rechazó el envío', r.status, JSON.stringify(data).slice(0, 500)); return { ok: false, error: data.error?.message || `Meta HTTP ${r.status}` }; }
+  return { ok: true, id: data.messages?.[0]?.id || null };
+}
+
+// ¿El cliente de esa conversación escribió en las últimas 24 h? (misma regla que el envío normal)
+async function conversacionConVentanaAbierta(sql, conversacionId) {
+  const { rows } = await sql`SELECT MAX(marca_tiempo) AS ultimo FROM whatsapp_mensajes WHERE conversacion_id = ${conversacionId} AND direccion = 'in';`;
+  const ultimo = rows[0]?.ultimo;
+  return !!ultimo && (new Date(ultimo).getTime() + 24 * 3600000) > Date.now();
+}
+
+// Baja el archivo original de un mensaje (sin redimensionar, a diferencia de obtenerImagenWhatsapp, que es para la IA). Devuelve { buffer, mime } o null.
+async function descargarMediaOriginalWhatsapp(mediaRef) {
+  const accessToken = (process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+  if (!accessToken || !mediaRef || !String(mediaRef).startsWith('whatsapp-media-id:')) return null;
+  const mediaId = String(mediaRef).slice('whatsapp-media-id:'.length);
+  try {
+    const rInfo = await fetchConTimeout(`https://graph.facebook.com/v21.0/${mediaId}`, { headers: { Authorization: `Bearer ${accessToken}` } }, 10000);
+    if (!rInfo.ok) { console.warn('[descargarMediaOriginalWhatsapp] info', mediaId, rInfo.status); return null; }
+    const info = await rInfo.json().catch(() => ({}));
+    if (!info.url) return null;
+    const rArchivo = await fetchConTimeout(info.url, { headers: { Authorization: `Bearer ${accessToken}` } }, 20000);
+    if (!rArchivo.ok) { console.warn('[descargarMediaOriginalWhatsapp] archivo', mediaId, rArchivo.status); return null; }
+    const buffer = Buffer.from(await rArchivo.arrayBuffer());
+    if (buffer.length > 15 * 1024 * 1024) { console.warn('[descargarMediaOriginalWhatsapp] archivo muy grande', mediaId, buffer.length); return null; }
+    return { buffer, mime: String(info.mime_type || rArchivo.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim() };
+  } catch (err) { console.warn('[descargarMediaOriginalWhatsapp] error', mediaId, err); return null; }
+}
+
+// Sube un archivo a Meta para poder mandarlo (reenvío). Devuelve el id del archivo o null.
+async function subirMediaWhatsapp({ buffer, mime }) {
+  const accessToken = (process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+  const phoneNumberId = (process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+  try {
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', mime);
+    form.append('file', new Blob([buffer], { type: mime }), nombreArchivoDescarga({ tipo: 'archivo', mime }));
+    const r = await fetchConTimeout(`https://graph.facebook.com/v21.0/${phoneNumberId}/media`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body: form }, 30000);
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.id) { console.error('[subirMediaWhatsapp] Meta rechazó la subida', r.status, JSON.stringify(data).slice(0, 400)); return null; }
+    return String(data.id);
+  } catch (err) { console.error('[subirMediaWhatsapp] error', err); return null; }
+}
+
+async function manejarWhatsappMensajeAccion(req, res, sesion) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { accion } = req.body || {};
+  const mensajeId = Number(req.body?.mensajeId) || 0;
+  if (!['reaccionar', 'reenviar'].includes(accion) || !mensajeId) return res.status(400).json({ error: 'Falta la acción o el mensaje.' });
+  if (!(process.env.WHATSAPP_ACCESS_TOKEN || '').trim() || !(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim()) return res.status(200).json({ error: 'WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID no están configurados en el servidor' });
+  try {
+    const sql = await getSql();
+    await asegurarTablaWhatsapp(sql);
+    const { rows: msgRows } = await sql`
+      SELECT m.*, ct.whatsapp_id AS wa_contacto FROM whatsapp_mensajes m
+      JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id JOIN whatsapp_contactos ct ON ct.id = c.contacto_id
+      WHERE m.id = ${mensajeId};`;
+    const msg = msgRows[0];
+    if (!msg) return res.status(404).json({ error: 'El mensaje ya no existe.' });
+    const quien = sesion.nombre || sesion.email;
+
+    if (accion === 'reaccionar') {
+      if (msg.direccion !== 'in') return res.status(400).json({ error: 'Solo se puede reaccionar a los mensajes del cliente.' });
+      if (!msg.whatsapp_message_id) return res.status(400).json({ error: 'Este mensaje no tiene identificador de WhatsApp: no se puede reaccionar.' });
+      let emoji; try { emoji = validarEmojiReaccion(req.body?.emoji); } catch (e) { return res.status(400).json({ error: e.message }); }
+      if (!(await conversacionConVentanaAbierta(sql, msg.conversacion_id))) return res.status(400).json({ error: 'Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp ya no permite reaccionar.' });
+      const env = await postMensajeMetaWhatsapp(armarCuerpoReaccion({ para: msg.wa_contacto, mensajeWaId: msg.whatsapp_message_id, emoji }));
+      if (!env.ok) return res.status(502).json({ error: env.error });
+      await sql`UPDATE whatsapp_mensajes SET reaccion_equipo = ${emoji || null} WHERE id = ${mensajeId};`;
+      await sql`INSERT INTO whatsapp_auditoria (conversacion_id, usuario_email, accion, detalle) VALUES (${msg.conversacion_id}, ${quien}, 'mensaje_reaccion', ${emoji ? `Reaccionó con ${emoji}` : 'Quitó su reacción'});`;
+      return res.status(200).json({ ok: true, reaccionEquipo: emoji || null });
+    }
+
+    // Reenviar: el mismo contenido (texto o archivo) a otra conversación
+    const destinoId = Number(req.body?.conversacionDestinoId) || 0;
+    if (!destinoId) return res.status(400).json({ error: 'Elige el chat al que se reenvía.' });
+    const { rows: destRows } = await sql`
+      SELECT c.id, c.primer_mensaje_cliente_en, c.primera_respuesta_empresa_en, ct.whatsapp_id FROM whatsapp_conversaciones c
+      JOIN whatsapp_contactos ct ON ct.id = c.contacto_id WHERE c.id = ${destinoId};`;
+    const destino = destRows[0];
+    if (!destino) return res.status(404).json({ error: 'Ese chat ya no existe.' });
+    if (!(await conversacionConVentanaAbierta(sql, destino.id))) return res.status(400).json({ error: 'Ese cliente escribió hace más de 24 h: WhatsApp ya no permite mandarle un mensaje libre (se necesita una plantilla aprobada, no disponible todavía).' });
+
+    const tipo = msg.tipo || 'texto';
+    let mediaId = null, mediaRefNuevo = null;
+    if (tipo === 'texto') {
+      if (!String(msg.contenido_texto || '').trim()) return res.status(400).json({ error: 'El mensaje no tiene texto para reenviar.' });
+    } else {
+      if (!TIPO_META_DESDE_TIPO[tipo] || !msg.media_url) return res.status(400).json({ error: 'Este tipo de mensaje no se puede reenviar.' });
+      const archivo = await descargarMediaOriginalWhatsapp(msg.media_url);
+      if (!archivo) return res.status(502).json({ error: 'No se pudo obtener el archivo desde WhatsApp (puede haber vencido).' });
+      mediaId = await subirMediaWhatsapp(archivo);
+      if (!mediaId) return res.status(502).json({ error: 'WhatsApp no aceptó el archivo para reenviarlo.' });
+      mediaRefNuevo = `whatsapp-media-id:${mediaId}`;
+    }
+    let cuerpo; try { cuerpo = armarCuerpoMensaje({ para: destino.whatsapp_id, tipo, texto: msg.contenido_texto, mediaId }); } catch (e) { return res.status(400).json({ error: e.message }); }
+    const env = await postMensajeMetaWhatsapp(cuerpo);
+    if (!env.ok) return res.status(502).json({ error: env.error });
+
+    // Se registra como cualquier mensaje enviado desde el ERP (ver manejarWhatsappEnviarMensaje): primera respuesta, responsable y auditoría
+    const textoGuardado = String(msg.contenido_texto || '').trim().slice(0, tipo === 'texto' ? 4096 : 1024) || null;
+    const ahora = new Date();
+    await sql`
+      INSERT INTO whatsapp_mensajes (conversacion_id, whatsapp_message_id, marca_tiempo, direccion, origen, tipo, contenido_texto, media_url, autor_usuario_id)
+      VALUES (${destino.id}, ${env.id}, ${ahora.toISOString()}, 'out', 'api', ${tipo}, ${textoGuardado}, ${mediaRefNuevo}, ${sesion.uid || null})
+      ON CONFLICT (whatsapp_message_id) DO NOTHING;`;
+    if (destino.primer_mensaje_cliente_en && !destino.primera_respuesta_empresa_en) {
+      const segundos = Math.max(0, Math.round((ahora.getTime() - new Date(destino.primer_mensaje_cliente_en).getTime()) / 1000));
+      await sql`UPDATE whatsapp_conversaciones SET primera_respuesta_empresa_en = ${ahora.toISOString()}, primera_respuesta_segundos = ${segundos} WHERE id = ${destino.id};`;
+    }
+    await sql`
+      UPDATE whatsapp_conversaciones SET
+        cantidad_mensajes = cantidad_mensajes + 1,
+        ultimo_mensaje_resumen = ${(textoGuardado || `[${tipo}]`).slice(0, 140)},
+        estado = CASE WHEN estado = 'nueva' THEN 'abierta' ELSE estado END,
+        responsable_id = COALESCE(responsable_id, ${sesion.uid || null}),
+        updated_at = now()
+      WHERE id = ${destino.id};`;
+    await sql`INSERT INTO whatsapp_auditoria (conversacion_id, usuario_email, accion, detalle) VALUES (${destino.id}, ${quien}, 'mensaje_enviado', ${`Reenvió ${tipo === 'texto' ? `"${(textoGuardado || '').slice(0, 80)}${(textoGuardado || '').length > 80 ? '…' : ''}"` : `un archivo (${tipo})`} desde la conversación #${msg.conversacion_id}`});`;
+    return res.status(200).json({ ok: true, conversacionId: destino.id });
+  } catch (err) {
+    return res.status(500).json({ error: 'No se pudo completar la acción', detail: String(err.message || err).slice(0, 300) });
   }
 }
 
@@ -13583,6 +13747,17 @@ async function manejarWhatsappMedia(req, res, sesion) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   const { ref } = req.query;
   if (!ref) return res.status(400).json({ error: 'Falta ref' });
+  // Descargar (menú del mensaje): el archivo original tal cual, como adjunto. Las funciones de Vercel responden hasta ~4,5 MB.
+  if (req.query.descargar === '1') {
+    const archivo = await descargarMediaOriginalWhatsapp(ref);
+    if (!archivo) return res.status(404).json({ error: 'No se pudo obtener el archivo desde WhatsApp (puede haber vencido).' });
+    if (archivo.buffer.length > 4.4 * 1024 * 1024) return res.status(413).json({ error: 'El archivo pesa más de 4 MB: es demasiado grande para descargarlo desde el ERP. Ábrelo desde la app de WhatsApp.' });
+    const nombre = nombreArchivoDescarga({ tipo: String(req.query.tipo || ''), mime: archivo.mime, mensajeId: req.query.mensajeId });
+    res.setHeader('Content-Type', archivo.mime);
+    res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.status(200).send(archivo.buffer);
+  }
   const imagen = await obtenerImagenWhatsapp(ref);
   if (!imagen) return res.status(404).json({ error: 'No se pudo obtener la imagen' });
   res.setHeader('Content-Type', imagen.mediaType);

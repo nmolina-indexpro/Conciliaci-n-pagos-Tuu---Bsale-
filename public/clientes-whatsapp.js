@@ -542,6 +542,10 @@ const WA_ICONO = {
   chevron: '<svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>',
   menu: '<svg viewBox="0 0 24 24"><path d="M12 7a2 2 0 1 0-.001-4.001A2 2 0 0 0 12 7zm0 2a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 9zm0 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 12 15z"/></svg>',
   fijar: '<svg viewBox="0 0 24 24"><path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>',
+  responder: '<svg viewBox="0 0 24 24"><path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>',
+  reaccion: '<svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>',
+  descargar: '<svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>',
+  reenviar: '<svg viewBox="0 0 24 24"><path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>',
 };
 const WA_AVATAR ='<svg viewBox="0 0 212 212"><path d="M106 106c-17.5 0-31.7-14.2-31.7-31.7S88.5 42.6 106 42.6s31.7 14.2 31.7 31.7S123.5 106 106 106zm0 15.8c-29.4 0-88.9 14.8-88.9 44.4v22.2h177.8v-22.2c0-29.6-59.5-44.4-88.9-44.4z"/></svg>';
 const WA_TICK = {
@@ -1690,7 +1694,7 @@ function iniciarActualizacionEnVivo(){
 // Mezcla mensajes reales + notas internas en un solo hilo cronológico --
 // las notas se distinguen visualmente (fondo ámbar punteado) y nunca se
 // mandan por WhatsApp (ver whatsapp_notas_internas en lib/db.js).
-function hiloCombinadoHtml(mensajes, notas){
+function hiloCombinadoHtml(mensajes, notas, conMenu){
   const items = [
     ...(mensajes || []).map(m => ({ t: new Date(m.marcaTiempo).getTime(), iso: m.marcaTiempo, dir: m.direccion === 'out' ? 'out' : 'in', nota: false, html: m })),
     ...(notas || []).map(n => ({ t: new Date(n.fecha).getTime(), iso: n.fecha, dir: 'nota', nota: true, html: n })),
@@ -1704,7 +1708,7 @@ function hiloCombinadoHtml(mensajes, notas){
     if (dia !== diaPrevio) { sep = `<div class="fecha-sep">${escapeHtml(etiquetaDia(it.iso))}</div>`; diaPrevio = dia; dirPrevia = null; }
     const cola = it.dir !== dirPrevia;
     dirPrevia = it.dir;
-    return sep + (it.nota ? notaInternaHtml(it.html) : burbujaMensaje(it.html, cola));
+    return sep + (it.nota ? notaInternaHtml(it.html) : burbujaMensaje(it.html, cola, conMenu === true));
   }).join('');
 }
 function notaInternaHtml(n){
@@ -1731,7 +1735,7 @@ function renderChatBandeja(data, opts){
   const teniaFoco = !!taActiva && taActiva.id === 'composerBandeja' + c.id;
   const selIni = teniaFoco ? taActiva.selectionStart : 0, selFin = teniaFoco ? taActiva.selectionEnd : 0;
 
-  const hilo = hiloCombinadoHtml(data.mensajes, data.notasInternas);
+  const hilo = hiloCombinadoHtml(data.mensajes, data.notasInternas, true);
 
   const sugerenciaHtml = (sugerenciaIaActual && sugerenciaIaActual.conversacionId === c.id) ? `
     <div class="chat-ia-sugerencia">
@@ -1791,6 +1795,7 @@ function renderChatBandeja(data, opts){
     <div class="chat-hilo-wrap" id="chatHiloWrap">${hilo}</div>
     ${botBorradorHtml(c.id)}
     ${sugerenciaHtml}
+    ${data.ventanaAbierta ? barraRespuestaHtml(c.id, modo) : ''}
     <div class="chat-composer-wrap ${composerClase}">${composerHtml}</div>
   `;
   const taNueva = $('composerBandeja' + c.id);
@@ -1831,13 +1836,16 @@ async function accionComposerBandeja(id){
   el.disabled = true; if (btn) btn.disabled = true;
   try{
     const recurso = modo === 'nota' ? 'whatsapp-nota-interna' : 'whatsapp-enviar-mensaje';
+    const cuerpo = { conversacionId: id, texto };
+    if (modo !== 'nota' && respondiendoA[id]) cuerpo.responderAMensajeId = respondiendoA[id].id; // "Responder" del menú del mensaje: sale citando ese mensaje
     const res = await fetch('/api/negocio?recurso=' + recurso, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversacionId: id, texto }),
+      body: JSON.stringify(cuerpo),
     });
     const data = await res.json();
     if (!res.ok || data.error) { alert(data.error || 'No se pudo completar la acción.'); return; }
     borradoresComposer[id + ':' + modo] = '';
+    if (modo !== 'nota') delete respondiendoA[id];
     if(modo !== 'nota' && botInsertado[id]){ registrarEnvioBot(id, texto); }
     await cargarDetalleBandeja(id, { forzarScroll: true });
     cargarConversaciones();
@@ -2327,7 +2335,153 @@ function cerrarImagenAmpliada(){
 }
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') cerrarImagenAmpliada(); });
 
-function burbujaMensaje(m, cola){
+// ---------------- Menú de cada mensaje (Responder / Reaccionar / Descargar / Reenviar) ----------------
+// La flecha aparece al pasar el mouse sobre la burbuja (como en WhatsApp). Responder cita el mensaje al enviar, Reaccionar pone un emoji en un mensaje del
+// cliente, Descargar baja el archivo original y Reenviar lo manda a otro chat. Todo lo que manda algo a WhatsApp solo vale con la ventana de 24 h abierta.
+const EMOJIS_REACCION = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+const respondiendoA = {}; // {[conversacionId]: {id, direccion, texto}} -- el mensaje que se está citando en el compositor
+const mensajeBandeja = id => ((detalleBandejaActual && detalleBandejaActual.mensajes) || []).find(x => x.id === id) || null;
+function textoCitaMensaje(m){
+  const t = String(m.texto || '').replace(/\s+/g, ' ').trim();
+  const et = { imagen: '📷 Foto', audio: '🎤 Audio', video: '🎥 Video', documento: '📄 Documento' }[m.tipo];
+  return (t ? (et ? et + ' · ' + t : t) : (et || '[mensaje]')).slice(0, 140);
+}
+function abrirMenuMensaje(ev, id){
+  ev.stopPropagation(); ev.preventDefault();
+  const m = mensajeBandeja(id);
+  if (!m || !detalleBandejaActual) return;
+  const ventana = !!detalleBandejaActual.ventanaAbierta, conId = !!m.conIdWhatsapp;
+  const botones = [];
+  if (ventana && conId) botones.push(`<button onclick="responderAMensaje(${id})">${WA_ICONO.responder}<span>Responder</span></button>`);
+  if (ventana && conId && m.direccion === 'in') botones.push(`<button onclick="abrirReaccionesMensaje(${id})">${WA_ICONO.reaccion}<span>Reaccionar</span><span class="flecha">›</span></button>`);
+  if (m.mediaUrl) {
+    // Descargar información está restringido al administrador (ver restriccion-usuario.js): el perfil "usuario" ve la opción desactivada
+    botones.push(rolActual === 'usuario'
+      ? `<button class="btn-exportar" disabled title="Tu perfil no tiene permiso para descargar información.">${WA_ICONO.descargar}<span>Descargar</span></button>`
+      : `<button class="btn-exportar" onclick="descargarMensaje(${id})">${WA_ICONO.descargar}<span>Descargar</span></button>`);
+  }
+  const reenviable = m.tipo === 'texto' ? !!String(m.texto || '').trim() : (!!m.mediaUrl && ['imagen', 'audio', 'video', 'documento'].includes(m.tipo));
+  if (reenviable) botones.push(`<button onclick="abrirReenviar(${id})">${WA_ICONO.reenviar}<span>Reenviar</span></button>`);
+  if (!botones.length) return;
+  const r = ev.currentTarget.getBoundingClientRect();
+  mostrarMenuFlotante(r.left, r.bottom + 4, botones.join(''));
+}
+function responderAMensaje(id){
+  cerrarMenuFlotante();
+  const m = mensajeBandeja(id);
+  if (!m || !detalleBandejaActual) return;
+  const cid = detalleBandejaActual.conversacion.id;
+  composerModoActual[cid] = 'responder';
+  respondiendoA[cid] = { id, direccion: m.direccion === 'out' ? 'out' : 'in', texto: textoCitaMensaje(m) };
+  renderChatBandeja(detalleBandejaActual, {});
+  const el = $('composerBandeja' + cid); if (el) el.focus();
+}
+function cancelarRespuesta(cid){
+  delete respondiendoA[cid];
+  if (detalleBandejaActual && detalleBandejaActual.conversacion.id === cid) renderChatBandeja(detalleBandejaActual, {});
+}
+function barraRespuestaHtml(cid, modo){
+  const r = respondiendoA[cid];
+  if (!r || modo === 'nota') return '';
+  return `<div class="barra-respuesta"><div class="cuerpo de-${r.direccion}"><span class="quien">${r.direccion === 'out' ? 'Tú' : 'Cliente'}</span>${escapeHtml(r.texto)}</div><button class="wa-icono" onclick="cancelarRespuesta(${cid})" title="Cancelar la respuesta" aria-label="Cancelar la respuesta">${WA_ICONO.cerrar}</button></div>`;
+}
+function abrirReaccionesMensaje(id){
+  const m = mensajeBandeja(id);
+  if (!m) return;
+  mostrarMenuFlotante(menuFlotantePos.x, menuFlotantePos.y, `<div class="menu-reacciones">${EMOJIS_REACCION.map(e => `<button class="${e === m.reaccionEquipo ? 'activa' : ''}" onclick="reaccionarMensaje(${id}, '${e}')" aria-label="Reaccionar con ${e}">${e}</button>`).join('')}</div>${m.reaccionEquipo ? `<button onclick="reaccionarMensaje(${id}, '')"><span>Quitar mi reacción</span></button>` : ''}`);
+}
+async function reaccionarMensaje(id, emoji){
+  cerrarMenuFlotante();
+  const m = mensajeBandeja(id);
+  if (!m || !detalleBandejaActual) return;
+  if (emoji && emoji === m.reaccionEquipo) emoji = ''; // tocar la misma reacción otra vez la quita, como en WhatsApp
+  const antes = m.reaccionEquipo;
+  m.reaccionEquipo = emoji || null; renderChatBandeja(detalleBandejaActual, {});
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-mensaje-accion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'reaccionar', mensajeId: id, emoji }) });
+    const d = await res.json();
+    if (!res.ok || d.error) throw new Error(d.error || 'No se pudo enviar la reacción.');
+  }catch(err){
+    m.reaccionEquipo = antes; if (detalleBandejaActual) renderChatBandeja(detalleBandejaActual, {});
+    alert(err.message);
+  }
+}
+async function descargarMensaje(id){
+  cerrarMenuFlotante();
+  const m = mensajeBandeja(id);
+  if (!m || !m.mediaUrl) return;
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-media&descargar=1&ref=' + encodeURIComponent(m.mediaUrl) + '&tipo=' + encodeURIComponent(m.tipo) + '&mensajeId=' + id);
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'No se pudo descargar el archivo.'); }
+    const blob = await res.blob();
+    const nombre = (/filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '') || [])[1] || 'archivo';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = nombre;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }catch(err){ alert(err.message); }
+}
+// Reenviar: ventana para elegir el chat de destino (busca por nombre o teléfono entre las conversaciones)
+let reenvioMensajeId = null, reenvioTimer = null, reenvioBusqueda = 0;
+function abrirReenviar(id){
+  cerrarMenuFlotante();
+  const m = mensajeBandeja(id);
+  if (!m) return;
+  reenvioMensajeId = id;
+  cerrarReenviar();
+  const el = document.createElement('div');
+  el.id = 'modalReenviar';
+  el.innerHTML = `<div class="caja" role="dialog" aria-label="Reenviar mensaje a">
+    <div class="cab"><span>Reenviar mensaje a</span><button onclick="cerrarReenviar()" aria-label="Cerrar">×</button></div>
+    <div class="previa">${escapeHtml(textoCitaMensaje(m))}</div>
+    <input id="reenvioBuscar" type="search" placeholder="Buscar un chat por nombre o teléfono" autocomplete="off" oninput="buscarDestinosReenvio(this.value)">
+    <div class="lista" id="reenvioLista"><div class="vacio">Cargando chats…</div></div>
+  </div>`;
+  el.addEventListener('mousedown', e => { if (e.target === el) cerrarReenviar(); });
+  document.body.appendChild(el);
+  $('reenvioBuscar').focus();
+  buscarDestinosReenvio('');
+}
+function cerrarReenviar(){ const el = document.getElementById('modalReenviar'); if (el) el.remove(); clearTimeout(reenvioTimer); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarReenviar(); });
+function buscarDestinosReenvio(q){
+  clearTimeout(reenvioTimer);
+  reenvioTimer = setTimeout(async () => {
+    const mi = ++reenvioBusqueda;
+    const caja = $('reenvioLista');
+    if (!caja) return;
+    try{
+      const params = new URLSearchParams({ page: 1, pageSize: 25, q: String(q || '').trim(), bandeja: '1' });
+      const res = await fetch('/api/negocio?recurso=whatsapp-conversaciones&' + params.toString());
+      const d = await res.json();
+      if (mi !== reenvioBusqueda || !$('reenvioLista')) return; // llegó tarde: ya se escribió otra búsqueda
+      if (!res.ok || d.error) { caja.innerHTML = `<div class="vacio">${escapeHtml(d.error || 'No se pudieron cargar los chats.')}</div>`; return; }
+      const lista = d.conversaciones || [];
+      caja.innerHTML = lista.length ? lista.map(c => {
+        const nombre = c.clienteNombre || fmtTelefonoLista(c.clienteTelefono) || 'Sin nombre';
+        return `<button class="destino" onclick="reenviarMensaje(${c.id})"><div class="avatar-chip">${WA_AVATAR}</div><div><span class="nom">${escapeHtml(nombre)}</span><span class="sub">${escapeHtml(c.clienteNombre ? fmtTelefonoLista(c.clienteTelefono) : '')}${c.id === conversacionSeleccionadaId ? ' · este mismo chat' : ''}</span></div></button>`;
+      }).join('') : '<div class="vacio">No hay chats que calcen con la búsqueda.</div>';
+    }catch(err){ if (mi === reenvioBusqueda && $('reenvioLista')) $('reenvioLista').innerHTML = `<div class="vacio">Error: ${escapeHtml(err.message)}</div>`; }
+  }, q ? 300 : 0);
+}
+async function reenviarMensaje(destinoId){
+  if (!reenvioMensajeId) return;
+  const caja = $('reenvioLista');
+  if (caja) caja.innerHTML = '<div class="vacio">Reenviando…</div>';
+  try{
+    const res = await fetch('/api/negocio?recurso=whatsapp-mensaje-accion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'reenviar', mensajeId: reenvioMensajeId, conversacionDestinoId: destinoId }) });
+    const d = await res.json();
+    if (!res.ok || d.error) throw new Error(d.error || 'No se pudo reenviar el mensaje.');
+    cerrarReenviar();
+    cargarConversaciones();
+    if (destinoId === conversacionSeleccionadaId) cargarDetalleBandeja(destinoId, { forzarScroll: true });
+  }catch(err){
+    cerrarReenviar();
+    alert(err.message);
+  }
+}
+
+function burbujaMensaje(m, cola, conMenu){
   const clase = m.direccion === 'in' ? 'in' : 'out';
   let contenido;
   if (m.tipo === 'texto') {
@@ -2340,7 +2494,11 @@ function burbujaMensaje(m, cola){
   }
   // Los mensajes que enviamos muestran el tick según el estado que informa WhatsApp (enviado / entregado / leído / falló)
   const tick = clase === 'out' ? tickMensajeHtml(m.estado) : '';
-  return `<div class="burbuja ${clase}${cola === true ? ' cola' : ''}">${contenido}<span class="hora">${fmtHora(m.marcaTiempo)}${tick}</span></div>`;
+  const cita = m.respuestaA ? `<span class="cita de-${m.respuestaA.direccion}"><span class="quien">${m.respuestaA.direccion === 'out' ? 'Tú' : 'Cliente'}</span>${escapeHtml(m.respuestaA.texto)}</span>` : '';
+  const reaccion = [m.reaccionCliente, m.reaccionEquipo].filter(Boolean);
+  const reaccionHtml = reaccion.length ? `<span class="reacciones" title="${[m.reaccionCliente ? 'El cliente reaccionó ' + m.reaccionCliente : '', m.reaccionEquipo ? 'Reaccionaste ' + m.reaccionEquipo : ''].filter(Boolean).join(' · ')}">${reaccion.join('')}</span>` : '';
+  const menu = conMenu && m.id ? `<button class="btn-msg-menu" onclick="abrirMenuMensaje(event, ${m.id})" title="Opciones del mensaje" aria-label="Opciones del mensaje">${WA_ICONO.chevron}</button>` : '';
+  return `<div class="burbuja ${clase}${cola === true ? ' cola' : ''}${reaccion.length ? ' con-reaccion' : ''}">${menu}${cita}${contenido}<span class="hora">${fmtHora(m.marcaTiempo)}${tick}</span>${reaccionHtml}</div>`;
 }
 
 function bsaleMatchHtml(clienteBsale){
