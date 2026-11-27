@@ -15,6 +15,17 @@ Correo -> soporteti@indexpro.cl (Gmail) -> Google Apps Script (cada minuto) -> E
 - **No crean tickets:** rebotes (mailer-daemon), respuestas automáticas ("fuera de oficina"), correos con cabecera de envío automático y los que envía el propio buzón soporteti@.
 - Un mismo correo nunca se procesa dos veces (se recuerda por su id), aunque el script lo reenvíe.
 
+## Zoho y el buzón a la vez (no se duplican)
+
+`soporteti@indexpro.cl` hoy también entra a Zoho Desk (departamento INDEXPRO). Mientras Zoho siga recibiéndolo, cada correo llega por **dos caminos**: el buzón (script) y la copia de Zoho (sincronización en paralelo).
+El ERP los reconoce como el mismo correo (mismo remitente, mismo asunto y mismo día) y los une en **un solo ticket**, sin importar cuál llegue primero. De ahí en adelante:
+
+- Los mensajes **entrantes** del cliente se toman del buzón (llegan en 1 a 2 minutos).
+- De Zoho solo se copian las **respuestas que envió un técnico desde Zoho** y sus notas internas.
+- El ticket guarda el N° de Zoho (enlace "Zoho #N ↗") y el hilo de Gmail.
+
+Los correos de Zoho traen la **descripción vacía** (el texto está en el primer mensaje): al copiar las conversaciones, ese primer mensaje pasa a ser la descripción completa del ticket, con sus saltos de línea y listas, sin el mensaje citado.
+
 ## Instalación (una sola vez)
 
 1. **Clave:** inventa una clave larga (por ejemplo, 40 caracteres al azar) y guárdala en Vercel como variable `TICKETS_CORREO_KEY`. Después de guardarla hay que volver a desplegar.
