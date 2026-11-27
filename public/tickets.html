@@ -156,6 +156,20 @@
   .badge.zgris{background:#fff;color:#4B5548;border-color:#CBD2C6;font-weight:600;}
   .badge.znaranja{background:#FFF4E5;color:#D97706;border-color:#F3D9A8;font-weight:600;}
   .badge.zverde{background:#fff;color:#15803D;border-color:#B8E2C4;font-weight:600;}
+  /* Detalles al estilo de Zoho: título de la lista, píldoras con flecha, propietario con avatar, estado como píldora de color, hora relativa y menú de macros */
+  .lista-titulo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin:0 2px 2px;}
+  .lista-head .fila select, .lista-head > .campo-lista select{border-radius:999px;font-weight:600;font-size:12.5px;padding-left:12px;}
+  .prop-dueno{display:flex;gap:8px;align-items:center;} .prop-dueno select{flex:1;min-width:0;}
+  .sel-estado{border-radius:999px!important;font-weight:700;font-family:'Space Grotesk',sans-serif;font-size:12.5px;}
+  .sel-estado.zgris{background:#fff;color:#4B5548;border-color:#CBD2C6;} .sel-estado.znaranja{background:#FFF4E5;color:#D97706;border-color:#F3D9A8;} .sel-estado.zverde{background:#E3F6E8;color:#15803D;border-color:#B8E2C4;}
+  .conv-head .cuando .hace{margin-left:4px;color:var(--muted);opacity:.85;}
+  .ico-correo{font-size:15px;margin-right:2px;}
+  .menu-macros{position:relative;display:inline-block;}
+  .menu-macros .lista{position:absolute;bottom:calc(100% + 6px);left:0;min-width:260px;max-width:340px;max-height:260px;overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);z-index:20;padding:4px;}
+  .menu-macros .lista button{display:block;width:100%;text-align:left;background:none;border:none;border-radius:7px;padding:8px 10px;font-size:12.5px;color:var(--text);cursor:pointer;}
+  .menu-macros .lista button:hover{background:var(--surface-2);}
+  .menu-macros .lista .vacio{padding:10px;font-size:12px;color:var(--muted);}
+  .res-box textarea{width:100%;min-height:160px;}
   .composer{border-top:1px solid var(--line);background:var(--surface);padding:12px 24px 14px;}
   .composer .modos{display:flex;gap:6px;margin-bottom:8px;align-items:center;flex-wrap:wrap;}
   .composer .modo{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);padding:6px 12px;font-size:12px;}
@@ -404,6 +418,7 @@
     <!-- Columna 1: lista de tickets -->
     <aside class="col-lista">
       <div class="lista-head">
+        <div class="lista-titulo" id="listaTitulo">Tickets</div>
         <div class="campo-lista"><label for="selTipo">Tiquetera</label>
           <select id="selTipo" onchange="cambiarFiltro()" aria-label="Tiquetera">
             <option value="">Todas las tiqueteras</option>
@@ -589,6 +604,18 @@ function fmtRelativa(iso){
   const dias = Math.round((Date.now() - f.getTime()) / 86400000);
   return dias >= 1 && dias <= 30 ? `hace ${dias} ${dias === 1 ? 'día' : 'días'}` : fmtFechaCorta(iso);
 }
+// "hace 11 minutos" / "hace 3 horas" / "hace 2 días", como en los mensajes de Zoho
+function fmtHace(iso){
+  const min = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+  if(min < 1) return 'hace un momento';
+  if(min < 60) return `hace ${min} ${min === 1 ? 'minuto' : 'minutos'}`;
+  const h = Math.floor(min / 60);
+  if(h < 24) return `hace ${h} ${h === 1 ? 'hora' : 'horas'}`;
+  const d = Math.floor(h / 24);
+  if(d < 60) return `hace ${d} ${d === 1 ? 'día' : 'días'}`;
+  const m = Math.floor(d / 30);
+  return m < 12 ? `hace ${m} meses` : `hace ${Math.floor(m / 12)} ${Math.floor(m / 12) === 1 ? 'año' : 'años'}`;
+}
 function etiquetaOrigen(c){ return ((E.cfg?.origenes || []).find(o => o.clave === c) || {}).etiqueta || c || '—'; }
 function pillTiquetera(c){ return '<span class="tq ' + esc(c) + '">' + esc(etiquetaTipo(c)) + '</span>'; }
 function etiquetaTipo(c){ return ((E.cfg?.tipos || []).find(o => o.clave === c) || {}).etiqueta || c; }
@@ -675,6 +702,8 @@ function renderLista(){
   if($('selVista').value === 'sin_mov') lista = lista.filter(t => t.sin_movimiento);
   lista = ordenar(lista);
   const c = E.contadores || {};
+  const nombreVista = { abiertos:'Tickets abiertos', mios:'Mis tickets', sin_asignar:'Tickets sin asignar', sin_mov:'Sin movimiento +24 h', cerrados:'Tickets cerrados', todos:'Todos los tickets' }[$('selVista').value] || 'Tickets';
+  $('listaTitulo').textContent = `${nombreVista} (${lista.length})`;
   $('listaMeta').innerHTML = `<span>${lista.length} ticket${lista.length === 1 ? '' : 's'}</span><span>${c.sinAsignar || 0} sin asignar · ${c.sinMovimiento || 0} sin movimiento</span>`;
   if(!lista.length){ $('listaScroll').innerHTML = '<div class="empty-note">No hay tickets con estos filtros.</div>'; return; }
   $('listaScroll').innerHTML = lista.map(t => `
@@ -735,8 +764,8 @@ function panelClave(d){
   const ags = '<option value="">Sin asignar</option>' + E.agentes.map(a => `<option value="${a.id}"${a.id === d.agente_id ? ' selected' : ''}>${esc(a.nombre)}</option>`).join('');
   const pri = E.cfg.prioridades.map(p => `<option value="${p}"${p === d.prioridad ? ' selected' : ''}>${p[0].toUpperCase() + p.slice(1)}</option>`).join('');
   return `<details class="panel" open><summary>Información clave</summary><div class="cuerpo">
-    <div class="prop"><label>Propietario del ticket</label><select onchange="cambiarAgente(this.value)">${ags}</select></div>
-    <div class="prop"><label>Estado</label><select onchange="cambiarEstado(this.value)">${estados}</select></div>
+    <div class="prop"><label>Propietario del ticket</label><div class="prop-dueno">${avatar(d.agente_nombre, true)}<select onchange="cambiarAgente(this.value)">${ags}</select></div></div>
+    <div class="prop"><label>Estado</label><select class="sel-estado ${claseEstadoZoho(d.tipo, d.estado)}" onchange="cambiarEstado(this.value)">${estados}</select></div>
     <div class="prop"><label>Prioridad</label><select onchange="cambiarPrioridad(this.value)">${pri}</select></div>
     <div class="prop"><label>${d.cerrado ? 'Cerrado el' : 'Tiempo en espera'}</label>
       <div class="valor">${d.cerrado ? fmtFechaLarga(d.cerrado_en) : t.fecha}</div>
@@ -896,17 +925,29 @@ const PLANTILLAS_RESPALDO = {
   soporte_ti: 'Hola {nombre}, te escribimos de IndexPro por tu solicitud de soporte.',
   por_retirar: 'Hola {nombre}, tu equipo{orden} está listo para retirar en IndexStore. Te esperamos con tu orden de servicio y tu documento de identidad.',
 };
-function mensajeWa(d){
-  const pl = Object.assign({}, PLANTILLAS_RESPALDO, E.cfg.plantillasWa || {});
-  const clave = d.tipo === 'servicio_tecnico' && d.estado === 'por_retirar' ? 'por_retirar' : d.tipo;
+function rellenarVariables(plantilla, d){
   const v = {
     nombre: (d.cliente_nombre || '').split(/\s+/)[0],
     producto: d.producto_interes ? ' de ' + d.producto_interes : '',
     pedido: d.numero_pedido ? ' (pedido ' + d.numero_pedido + ')' : '',
     orden: d.numero_os ? ' (orden N° ' + d.numero_os + ')' : '',
   };
-  return String(pl[clave] || '').replace(/\{(nombre|producto|pedido|orden)\}/g, (_, k) => v[k]).replace(/\s+,/g, ',').replace(/Hola ,/, 'Hola,').replace(/ {2,}/g, ' ').trim();
+  return String(plantilla || '').replace(/\{(nombre|producto|pedido|orden)\}/g, (_, k) => v[k]).replace(/\s+,/g, ',').replace(/Hola ,/, 'Hola,').replace(/ {2,}/g, ' ').trim();
 }
+function mensajeWa(d){
+  const pl = Object.assign({}, PLANTILLAS_RESPALDO, E.cfg.plantillasWa || {});
+  const clave = d.tipo === 'servicio_tecnico' && d.estado === 'por_retirar' ? 'por_retirar' : d.tipo;
+  return rellenarVariables(pl[clave], d);
+}
+// "Aplicar macro": respuestas guardadas (se administran en Configuración). Al elegir una se abre el editor con el texto ya relleno.
+function alternarMacros(ev){ if(ev) ev.stopPropagation(); const m = $('listaMacros'); if(m) m.style.display = m.style.display === 'block' ? 'none' : 'block'; }
+function aplicarMacro(i){
+  const m = (E.cfg.macros || [])[i]; if(!m) return;
+  const previo = ($('txtRespuesta') || {}).value || E.borrador || '';
+  E.borrador = (previo ? previo + '\n\n' : '') + rellenarVariables(m.texto, E.d);
+  abrirComposer(E.compOpen ? E.modo : (E.d.tipo === 'soporte_ti' ? 'correo' : 'contacto'));
+}
+document.addEventListener('click', () => { const m = $('listaMacros'); if(m) m.style.display = 'none'; });
 
 // ---------- Orden de servicio impresa ----------
 function imprimirOrden(){
@@ -960,15 +1001,16 @@ function renderMain(){
       <span class="cinta" style="${cintaEstilo}">${esc(e.etiqueta)}</span>
       <div class="main-titulo"><h2>${esc(d.asunto || '(sin asunto)')}</h2>
         <div class="main-acciones">${btnImprimir}${btnWa}${btnResponder}</div></div>
-      <div class="main-meta">${pillTiquetera(d.tipo)}<span class="num">#${d.numero}</span>${d.zoho_ticket_id ? `<a href="https://desk.zoho.com/support/indexpro/ShowHomePage.do#Cases/dv/${encodeURIComponent(d.zoho_ticket_id)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--primary);text-decoration:none" title="Abre el ticket original en Zoho Desk (conversación e historial completos)">Zoho${d.zoho_numero ? ' #' + d.zoho_numero : ''} ↗</a>` : ''}<span>${esc(d.cliente_nombre || 'Sin nombre')}</span><span>🕑 ${fmtFechaLarga(d.creado_en)}</span>
+      <div class="main-meta">${d.origen === 'correo' ? '<span class="ico-correo" title="Ticket creado por correo">✉</span>' : ''}${pillTiquetera(d.tipo)}<span class="num">#${d.numero}</span>${d.zoho_ticket_id ? `<a href="https://desk.zoho.com/support/indexpro/ShowHomePage.do#Cases/dv/${encodeURIComponent(d.zoho_ticket_id)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--primary);text-decoration:none" title="Abre el ticket original en Zoho Desk (conversación e historial completos)">Zoho${d.zoho_numero ? ' #' + d.zoho_numero : ''} ↗</a>` : ''}<span>${esc(d.cliente_nombre || 'Sin nombre')}</span><span>🕑 ${fmtFechaLarga(d.creado_en)}</span>
         <span class="chip-tiempo" title="Tiempo desde que se creó">${d.cerrado ? 'Duración' : 'Abierto'}: ${esc(fmtDur((d.cerrado ? new Date(d.cerrado_en) : Date.now()) - new Date(d.creado_en)))}</span>
         ${d.sin_asignar ? '<span class="badge rojo">Sin asignar</span>' : ''}${d.sin_movimiento ? '<span class="badge ambar">Sin movimiento +24 h</span>' : ''}</div>
       <div class="tabs">
         <button class="tab${E.tab === 'conv' ? ' activa' : ''}" onclick="cambiarTab('conv')">${conv.length} conversaci${conv.length === 1 ? 'ón' : 'ones'}</button>
-        <button class="tab${E.tab === 'general' ? ' activa' : ''}" onclick="cambiarTab('general')">General</button>
+        ${[['resolucion', 'Resolución'], ['adjuntos', `Adjuntos${d.adjuntos.length ? ' (' + d.adjuntos.length + ')' : ''}`], ['actividad', 'Actividad'], ['historia', 'Historia'], ['general', 'General']]
+          .map(([k, t]) => `<button class="tab${E.tab === k ? ' activa' : ''}" onclick="cambiarTab('${k}')">${t}</button>`).join('')}
       </div>
     </div>
-    ${E.tab === 'conv' ? vistaConversacion(d, conv) : vistaGeneral(d)}`;
+    ${E.tab === 'conv' ? vistaConversacion(d, conv) : E.tab === 'resolucion' ? vistaResolucion(d) : E.tab === 'adjuntos' ? vistaAdjuntos(d) : E.tab === 'actividad' ? vistaActividad(d) : E.tab === 'historia' ? vistaHistoria(d) : vistaGeneral(d)}`;
   if(E.tab === 'conv'){
     const sc = $('scrollMain'); if(sc && !window.matchMedia('(max-width:1100px)').matches) sc.scrollTop = sc.scrollHeight;
   }
@@ -976,7 +1018,7 @@ function renderMain(){
 function vistaConversacion(d, conv){
   const lista = conv.map(c => `
     <div class="conv ${c.clase}">
-      <div class="conv-head">${avatar(c.quien, true)}<span class="quien">${esc(c.quien || 'Sistema')}</span>${c.etiqueta || ''}<span class="cuando">${fmtFechaLarga(c.cuando)}</span></div>
+      <div class="conv-head">${avatar(c.quien, true)}<span class="quien">${esc(c.quien || 'Sistema')}</span>${c.etiqueta || ''}<span class="cuando">${fmtFechaLarga(c.cuando)}<span class="hace">(${esc(fmtHace(c.cuando))})</span></span></div>
       ${c.adjunto ? htmlAdjunto(c.adjunto) : `<div class="conv-cuerpo">${esc(c.cuerpo)}</div>`}
     </div>`).join('');
   // El editor aparece al pulsar "Responder" o "Nota privada" (como en Zoho); abajo queda siempre la barra de acciones con "Cerrar ticket".
@@ -1018,6 +1060,10 @@ function vistaConversacion(d, conv){
         ${esTI ? `<button class="btn-link" onclick="abrirComposer('correo')">✉ Responder por correo</button>` : ''}
         <button class="btn-link" onclick="abrirComposer('privada')">🔒 Nota privada</button>
         <label class="btn-link" style="margin:0">📎 Adjuntar<input type="file" id="inpAdjunto" multiple style="display:none" onchange="subirArchivos(this.files)"></label>
+        <span class="menu-macros"><button class="btn-link" onclick="alternarMacros(event)">⚡ Aplicar macro</button>
+          <div class="lista" id="listaMacros" style="display:none">${(E.cfg.macros || []).length
+            ? E.cfg.macros.map((m, i) => `<button onclick="aplicarMacro(${i})" title="${esc(m.texto)}">${esc(m.nombre)}</button>`).join('')
+            : '<div class="vacio">Aún no hay macros. Un administrador las crea en Configuración.</div>'}</div></span>
       </div>
       <div>${accionCierre}</div>
     </div>`;
@@ -1030,10 +1076,41 @@ function abrirComposer(modo){
   const x = $('txtRespuesta'); if(x){ x.focus(); const sc = $('scrollMain'); if(sc) sc.scrollTop = sc.scrollHeight; }
 }
 function cerrarComposer(){ E.compOpen = false; E.borrador = null; renderMain(); }
+// Pestañas al estilo de Zoho: Resolución (cómo se resolvió), Adjuntos, Actividad (notas, contactos y archivos) e Historia (cambios del ticket).
+function vistaResolucion(d){
+  return `<div class="main-scroll" id="scrollMain"><div class="conv res-box">
+    <div class="conv-head"><span class="quien">Resolución</span><span class="cuando">Cómo se resolvió el ticket (queda visible para el equipo)</span></div>
+    <textarea id="txtResolucion" rows="7" maxlength="4000" placeholder="Describe la solución aplicada…">${esc(d.resolucion || '')}</textarea>
+    <div style="margin-top:10px;display:flex;gap:8px;align-items:center"><button class="btn-primary btn-compact" onclick="guardarResolucion()">Guardar resolución</button><span class="sub">${d.resolucion ? 'Guardada.' : 'Aún sin resolución.'}</span></div>
+  </div></div>`;
+}
+function guardarResolucion(){ return aplicar({ accion:'resolucion', resolucion: $('txtResolucion').value }, 'Resolución guardada'); }
+function vistaAdjuntos(d){
+  return `<div class="main-scroll" id="scrollMain"><div class="conv">
+    <div class="conv-head"><span class="quien">Adjuntos (${d.adjuntos.length})</span></div>
+    ${d.adjuntos.length ? d.adjuntos.map(htmlAdjunto).join('') : '<div class="sub" style="margin-bottom:10px">Sin adjuntos.</div>'}
+    <label class="btn-ghost btn-compact" style="cursor:pointer;display:inline-block;border-radius:9px;padding:7px 12px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;margin-top:8px">+ Agregar adjunto<input type="file" multiple style="display:none" onchange="subirArchivos(this.files)"></label>
+    <div class="sub" style="margin-top:6px">Máximo 3 MB por archivo (las fotos se reducen solas).</div>
+  </div></div>`;
+}
+function vistaActividad(d){
+  const ev = d.eventos.filter(e => ['comentario_interno', 'contacto_cliente', 'adjunto'].includes(e.tipo)).slice().reverse();
+  const nom = { comentario_interno:'🔒 Nota privada', contacto_cliente:'💬 Contacto con el cliente', adjunto:'📎 Adjunto' };
+  return `<div class="main-scroll" id="scrollMain"><div class="conv">
+    <div class="conv-head"><span class="quien">Actividad (${ev.length})</span><span class="cuando">Notas, contactos y archivos, lo más reciente primero</span></div>
+    ${ev.length ? ev.map(e => `<div class="hist"><div><b>${nom[e.tipo]}</b> · ${esc(String(e.contenido || '').split('\n')[0].slice(0, 160))}</div><div class="cuando">${esc(e.autor_nombre || 'Sistema')} · ${fmtFechaLarga(e.creado_en)} (${esc(fmtHace(e.creado_en))})</div></div>`).join('') : '<div class="sub">Sin actividad todavía.</div>'}
+  </div></div>`;
+}
+function filasHistoria(d){
+  const hist = d.eventos.filter(e => ['cambio_estado','asignacion','actualizacion'].includes(e.tipo));
+  return hist.length ? hist.map(h => `<div class="hist"><div>${h.tipo === 'cambio_estado' && h.estado_anterior ? `${esc(estadoInfo(d.tipo, h.estado_anterior).etiqueta)} → <b>${esc(estadoInfo(d.tipo, h.estado_nuevo).etiqueta)}</b>${h.contenido ? ' · ' + esc(h.contenido) : ''}` : esc(h.contenido || '')}</div><div class="cuando">${esc(h.autor_nombre || 'Sistema')} · ${fmtFechaLarga(h.creado_en)}</div></div>`).join('') : '<div class="sub">Sin movimientos.</div>';
+}
+function vistaHistoria(d){
+  return `<div class="main-scroll" id="scrollMain"><div class="conv"><div class="conv-head"><span class="quien">Historia del ticket</span></div>${filasHistoria(d)}</div></div>`;
+}
 function vistaGeneral(d){
   const primero = d.primer_contacto_en ? fmtDur(new Date(d.primer_contacto_en) - new Date(d.creado_en)) : null;
   const fin = d.cerrado ? new Date(d.cerrado_en) : Date.now();
-  const hist = d.eventos.filter(e => ['cambio_estado','asignacion','actualizacion'].includes(e.tipo));
   return `<div class="main-scroll" id="scrollMain"><div class="gen-grid">
     <div class="gen-card"><h3>⏱ Tiempos</h3>
       <div class="kv"><span>Creado</span><span>${fmtFechaLarga(d.creado_en)}</span></div>
@@ -1046,14 +1123,6 @@ function vistaGeneral(d){
     <div class="gen-card"><h3>👥 Personas que interactuaron</h3>
       ${d.personas.length ? d.personas.map(p => `<div class="persona">${avatar(p.nombre, true)}<div style="flex:1"><b>${esc(p.nombre)}</b></div><span class="sub">${p.acciones} acci${p.acciones === 1 ? 'ón' : 'ones'}</span></div>`).join('') : '<div class="sub">Nadie del equipo ha interactuado todavía.</div>'}
       ${d.agente_nombre ? `<div class="sub" style="margin-top:10px">Propietario actual: <b>${esc(d.agente_nombre)}</b></div>` : ''}
-    </div>
-    <div class="gen-card"><h3>📎 Adjuntos (${d.adjuntos.length})</h3>
-      ${d.adjuntos.length ? d.adjuntos.map(htmlAdjunto).join('') : '<div class="sub" style="margin-bottom:10px">Sin adjuntos.</div>'}
-      <label class="btn-ghost btn-compact" style="cursor:pointer;display:inline-block;border-radius:9px;padding:7px 12px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;margin-top:8px">+ Agregar adjunto<input type="file" multiple style="display:none" onchange="subirArchivos(this.files)"></label>
-      <div class="sub" style="margin-top:6px">Máximo 3 MB por archivo (las fotos se reducen solas).</div>
-    </div>
-    <div class="gen-card"><h3>🕘 Historial</h3>
-      ${hist.length ? hist.map(h => `<div class="hist"><div>${h.tipo === 'cambio_estado' && h.estado_anterior ? `${esc(estadoInfo(d.tipo, h.estado_anterior).etiqueta)} → <b>${esc(estadoInfo(d.tipo, h.estado_nuevo).etiqueta)}</b>${h.contenido ? ' · ' + esc(h.contenido) : ''}` : esc(h.contenido || '')}</div><div class="cuando">${esc(h.autor_nombre || 'Sistema')} · ${fmtFechaLarga(h.creado_en)}</div></div>`).join('') : '<div class="sub">Sin movimientos.</div>'}
     </div>
   </div></div>`;
 }
@@ -1423,6 +1492,9 @@ function renderConfig(){
     <div class="seccion"><h3>Plantillas de mensajes de WhatsApp</h3><div class="sub">Se rellenan al pulsar "Contactar por WhatsApp". Puedes usar <b>{nombre}</b>, <b>{producto}</b>, <b>{pedido}</b> y <b>{orden}</b>; si el dato no existe, se omite.</div>
       ${plantilla('lead', 'Lead de venta')}${plantilla('postventa', 'Postventa')}${plantilla('servicio_tecnico', 'Servicio técnico')}${plantilla('soporte_ti', 'Soporte TI')}${plantilla('por_retirar', 'Servicio técnico: equipo listo para retirar')}
       ${admin ? '<button class="btn-primary btn-compact" onclick="guardarPlantillasConfig()">Guardar plantillas</button> <span id="cfgPlMsg" class="sub"></span>' : ''}</div>
+    <div class="seccion"><h3>Macros (respuestas guardadas)</h3><div class="sub">Aparecen en "Aplicar macro" dentro del ticket y rellenan el editor. Puedes usar <b>{nombre}</b>, <b>{producto}</b>, <b>{pedido}</b> y <b>{orden}</b>.</div>
+      <div id="listaMacrosCfg">${(E.cfg.macros || []).map(m => filaMacro(m, dis)).join('')}</div>
+      ${admin ? '<button class="btn-ghost btn-compact" onclick="agregarMacro()">+ Agregar macro</button> <button class="btn-primary btn-compact" onclick="guardarMacrosConfig()">Guardar macros</button>' : ''}</div>
     ${admin ? '<div id="cfgMigracion"><div class="seccion"><h3>Migración desde Zoho Desk</h3><div class="sub">Cargando…</div></div></div>' : ''}`;
   if(admin) cargarMigracion();
 }
@@ -1601,6 +1673,18 @@ async function guardarListasConfig(){
     const j = await post({ accion:'listas_guardar', motivos: leerLista('listaMotivos'), tipos: leerLista('listaTipos') });
     E.cfg.motivosPostventa = j.motivosPostventa; E.cfg.tiposProducto = j.tiposProducto; renderConfig(); toast('Listas guardadas');
   }catch(err){ toast(err.message, true); }
+}
+function filaMacro(m, dis){
+  return `<div class="fila-macro" data-id="${esc((m && m.id) || '')}" style="border:1px solid var(--line);border-radius:10px;padding:10px;margin:10px 0;background:var(--surface-2)">
+    <input type="text" class="mNom" value="${esc((m && m.nombre) || '')}" maxlength="80" placeholder="Nombre de la macro (ej. Pedimos más datos)"${dis || ''} style="width:100%;margin-bottom:6px">
+    <textarea class="mTxt" rows="3" maxlength="2000" placeholder="Texto de la respuesta…"${dis || ''}>${esc((m && m.texto) || '')}</textarea>
+    ${dis ? '' : '<button class="btn-ghost btn-compact" style="margin-top:6px" onclick="this.closest(\'.fila-macro\').remove()">Quitar</button>'}</div>`;
+}
+function agregarMacro(){ $('listaMacrosCfg').insertAdjacentHTML('beforeend', filaMacro({}, '')); }
+async function guardarMacrosConfig(){
+  const macros = [...document.querySelectorAll('#listaMacrosCfg .fila-macro')].map(f => ({ id: f.dataset.id, nombre: f.querySelector('.mNom').value, texto: f.querySelector('.mTxt').value }));
+  try{ const j = await post({ accion:'macros_guardar', macros }); E.cfg.macros = j.macros; renderConfig(); toast('Macros guardadas'); }
+  catch(err){ toast(err.message, true); }
 }
 async function guardarPlantillasConfig(){
   const cuerpo = { accion:'plantillas_guardar' }; for(const k of ['lead', 'postventa', 'servicio_tecnico', 'soporte_ti', 'por_retirar']) cuerpo[k] = $('pl_' + k).value;
