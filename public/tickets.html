@@ -143,6 +143,19 @@
 
   .banner-wa{background:var(--green-bg);border:1px solid #B8E2C4;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;}
 
+  /* ---- Acciones del ticket al estilo de Zoho Desk: "Responder" azul arriba; abajo "Nota privada / Adjuntar" a la izquierda y "Cerrar ticket" a la derecha ---- */
+  .btn-resp{background:#2563EB;color:#fff;box-shadow:var(--shadow);padding:8px 16px;font-size:12.5px;display:inline-flex;gap:6px;align-items:center;}
+  .btn-resp:hover:not(:disabled){background:#1D4ED8;}
+  .btn-cerrar{background:#fff;color:#2563EB;border:1.5px solid #2563EB;padding:8px 18px;font-size:12.5px;}
+  .btn-cerrar:hover:not(:disabled){background:#E4ECFD;}
+  .barra-accion{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 24px;border-top:1px solid var(--line);background:var(--surface);}
+  .barra-accion .izq{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+  .btn-link{background:none;border:none;color:var(--muted);font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;padding:7px 10px;border-radius:8px;cursor:pointer;display:inline-flex;gap:6px;align-items:center;}
+  .btn-link:hover{background:var(--surface-2);color:var(--text);}
+  /* Estados con los colores de Zoho: Abierto neutro, en gestión naranja, Cerrado verde */
+  .badge.zgris{background:#fff;color:#4B5548;border-color:#CBD2C6;font-weight:600;}
+  .badge.znaranja{background:#FFF4E5;color:#D97706;border-color:#F3D9A8;font-weight:600;}
+  .badge.zverde{background:#fff;color:#15803D;border-color:#B8E2C4;font-weight:600;}
   .composer{border-top:1px solid var(--line);background:var(--surface);padding:12px 24px 14px;}
   .composer .modos{display:flex;gap:6px;margin-bottom:8px;align-items:center;flex-wrap:wrap;}
   .composer .modo{background:var(--surface);color:var(--muted);border:1.5px solid var(--line);padding:6px 12px;font-size:12px;}
@@ -225,6 +238,7 @@
     .main-head{padding:12px 14px 0;}
     .main-scroll{padding:12px 14px;}
     .composer{padding:10px 14px 12px;}
+    .barra-accion{padding:10px 14px;}
     .col-props{border-top:1px solid var(--line);border-bottom:none;}
     .cinta{position:static;display:inline-block;margin-bottom:8px;}
     .modal .dos{grid-template-columns:1fr;}
@@ -556,7 +570,21 @@ function claseEstado(tipo, clave){
   if(/^por_|extension/.test(clave)) return 'ambar';
   return 'teal';
 }
-function badgeEstado(tipo, clave){ return `<span class="badge ${claseEstado(tipo, clave)}">${esc(estadoInfo(tipo, clave).etiqueta)}</span>`; }
+// Colores de estado como en Zoho Desk (bandeja y ticket): Abierto y los que cierran sin resolver, neutro; en gestión, naranja; Cerrado/Entregado, verde.
+function claseEstadoZoho(tipo, clave){
+  const e = estadoInfo(tipo, clave);
+  if(e.sinResolucion) return 'zgris';
+  if(e.cierra) return 'zverde';
+  return clave === 'abierto' ? 'zgris' : 'znaranja';
+}
+function badgeEstado(tipo, clave, zoho){ return `<span class="badge ${zoho ? claseEstadoZoho(tipo, clave) : claseEstado(tipo, clave)}">${esc(estadoInfo(tipo, clave).etiqueta)}</span>`; }
+// Fecha corta como en la lista de Zoho: hoy la hora ("03:51 PM"), antes "hace N días".
+function fmtRelativa(iso){
+  const f = new Date(iso), hoy = d => d.toLocaleDateString('en-CA', { timeZone:'America/Santiago' });
+  if(hoy(f) === hoy(new Date())) return f.toLocaleTimeString('en-US', { timeZone:'America/Santiago', hour:'2-digit', minute:'2-digit' });
+  const dias = Math.round((Date.now() - f.getTime()) / 86400000);
+  return dias >= 1 && dias <= 30 ? `hace ${dias} ${dias === 1 ? 'día' : 'días'}` : fmtFechaCorta(iso);
+}
 function etiquetaOrigen(c){ return ((E.cfg?.origenes || []).find(o => o.clave === c) || {}).etiqueta || c || '—'; }
 function pillTiquetera(c){ return '<span class="tq ' + esc(c) + '">' + esc(etiquetaTipo(c)) + '</span>'; }
 function etiquetaTipo(c){ return ((E.cfg?.tipos || []).find(o => o.clave === c) || {}).etiqueta || c; }
@@ -653,15 +681,15 @@ function renderLista(){
       </div>
       <div class="meta">${pillTiquetera(t.tipo)}<span class="num">#${t.numero}</span>${t.numero_os ? `<span class="num">OS ${t.numero_os}</span>` : ''}<span>·</span><span>${esc(t.cliente_nombre || 'Sin nombre')}</span>${t.retiro_inmediato ? '<span class="badge ambar" style="padding:1px 7px;font-size:10px">Retiro inmediato</span>' : ''}</div>
       <div class="pie">
-        <span class="fecha"${t.sin_movimiento ? '' : ' style="color:var(--muted)"'}>🕑 ${fmtFechaCorta(t.creado_en)}${t.sin_movimiento ? ' · sin movimiento' : ''}</span>
-        ${badgeEstado(t.tipo, t.estado)}
+        <span class="fecha"${t.sin_movimiento ? '' : ' style="color:var(--muted)"'} title="Creado el ${esc(fmtFechaLarga(t.creado_en))}">🕑 ${esc(fmtRelativa(t.creado_en))}${t.sin_movimiento ? ' · sin movimiento' : ''}</span>
+        ${badgeEstado(t.tipo, t.estado, true)}
       </div>
     </div>`).join('');
 }
 
 // ---------- Detalle ----------
 async function abrirTicket(id){
-  E.sel = id; E.tab = 'conv';
+  E.sel = id; E.tab = 'conv'; E.compOpen = false; E.borrador = null;
   history.replaceState(null, '', '#t=' + id);
   document.querySelectorAll('.tk-card').forEach(el => el.classList.toggle('sel', Number(el.dataset.id) === id));
   $('app').classList.add('movil-detalle');
@@ -910,18 +938,17 @@ function renderMain(){
   const conv = conversaciones(d);
   const t = tiempoEspera(d);
   const e = estadoInfo(d.tipo, d.estado);
-  const cintaClase = claseEstado(d.tipo, d.estado);
-  const cintaEstilo = { azul:'background:#E4ECFD;color:#2563EB', ambar:'background:#FDF0DC;color:#D97706', verde:'background:#E3F6E8;color:#15803D', gris:'background:#F1F3EC;color:#6B7568', teal:'background:#E3F2F0;color:#0B5C55' }[cintaClase];
+  const cintaEstilo = { zgris:'background:#F1F3EC;color:#4B5548', znaranja:'background:#FFF3E0;color:#D97706', zverde:'background:#E3F6E8;color:#15803D' }[claseEstadoZoho(d.tipo, d.estado)];
   const tel = limpiaTel(d.cliente_telefono);
   const btnWa = (tel && !d.cerrado) ? `<button class="btn-wa btn-compact" onclick="contactarWa()">💬 Contactar por WhatsApp</button>` : '';
   const btnImprimir = d.tipo === 'servicio_tecnico' && d.orden ? `<button class="btn-ghost btn-compact" onclick="imprimirOrden()">🖨 Imprimir orden</button>` : '';
-  const btnReabrir = d.cerrado ? `<button class="btn-ghost btn-compact" onclick="cambiarEstado('abierto')">Volver a abrir ticket</button>` : '';
+  const btnResponder = `<button class="btn-resp" onclick="abrirComposer('contacto')" title="Registrar la respuesta o el contacto con el cliente (no envía ningún mensaje)">↩ Responder</button>`;
   $('colMain').innerHTML = `
     <div class="main-head">
       <button class="btn-ghost btn-compact btn-volver" onclick="volverALista()">← Volver a la lista</button>
       <span class="cinta" style="${cintaEstilo}">${esc(e.etiqueta)}</span>
       <div class="main-titulo"><h2>${esc(d.asunto || '(sin asunto)')}</h2>
-        <div class="main-acciones">${btnImprimir}${btnWa}${btnReabrir}</div></div>
+        <div class="main-acciones">${btnImprimir}${btnWa}${btnResponder}</div></div>
       <div class="main-meta">${pillTiquetera(d.tipo)}<span class="num">#${d.numero}</span>${d.zoho_ticket_id ? `<a href="https://desk.zoho.com/support/indexpro/ShowHomePage.do#Cases/dv/${encodeURIComponent(d.zoho_ticket_id)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--primary);text-decoration:none" title="Abre el ticket original en Zoho Desk (conversación e historial completos)">Zoho${d.zoho_numero ? ' #' + d.zoho_numero : ''} ↗</a>` : ''}<span>${esc(d.cliente_nombre || 'Sin nombre')}</span><span>🕑 ${fmtFechaLarga(d.creado_en)}</span>
         <span class="chip-tiempo" title="Tiempo desde que se creó">${d.cerrado ? 'Duración' : 'Abierto'}: ${esc(fmtDur((d.cerrado ? new Date(d.cerrado_en) : Date.now()) - new Date(d.creado_en)))}</span>
         ${d.sin_asignar ? '<span class="badge rojo">Sin asignar</span>' : ''}${d.sin_movimiento ? '<span class="badge ambar">Sin movimiento +24 h</span>' : ''}</div>
@@ -941,22 +968,43 @@ function vistaConversacion(d, conv){
       <div class="conv-head">${avatar(c.quien, true)}<span class="quien">${esc(c.quien || 'Sistema')}</span>${c.etiqueta || ''}<span class="cuando">${fmtFechaLarga(c.cuando)}</span></div>
       ${c.adjunto ? htmlAdjunto(c.adjunto) : `<div class="conv-cuerpo">${esc(c.cuerpo)}</div>`}
     </div>`).join('');
-  return `<div class="main-scroll" id="scrollMain">${bannerWa(d)}${lista}</div>
+  // El editor aparece al pulsar "Responder" o "Nota privada" (como en Zoho); abajo queda siempre la barra de acciones con "Cerrar ticket".
+  const editor = !E.compOpen ? '' : `
     <div class="composer${E.modo === 'privada' ? ' priv' : ''}" id="composer">
       <div class="modos">
         <button class="modo${E.modo === 'privada' ? ' activo' : ''}" onclick="setModo('privada')">🔒 Nota privada</button>
         <button class="modo${E.modo === 'contacto' ? ' activo' : ''}" onclick="setModo('contacto')">💬 Contacto con cliente</button>
       </div>
-      <textarea id="txtRespuesta" rows="3" placeholder="${E.modo === 'privada' ? 'Escribe una nota interna (solo la ve el equipo)…' : 'Registra qué se habló con el cliente…'}" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){enviarRespuesta();}">${esc(E.borrador || '')}</textarea>
+      <textarea id="txtRespuesta" rows="4" placeholder="${E.modo === 'privada' ? 'Escribe una nota interna (solo la ve el equipo)…' : 'Registra qué se habló con el cliente…'}" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){enviarRespuesta();}">${esc(E.borrador || '')}</textarea>
       <div class="acciones">
         <span class="nota">${E.modo === 'privada' ? 'Solo visible para el equipo.' : 'Queda registrado en el ticket; no envía ningún mensaje al cliente.'}</span>
         <span style="display:flex;gap:8px;align-items:center">
-          <label class="btn-ghost btn-compact" style="cursor:pointer;display:inline-block;border-radius:9px;padding:7px 12px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px">📎 Adjuntar<input type="file" id="inpAdjunto" multiple style="display:none" onchange="subirArchivos(this.files)"></label>
+          <button class="btn-ghost btn-compact" onclick="cerrarComposer()">Cancelar</button>
           <button class="btn-primary btn-compact" id="btnEnviar" onclick="enviarRespuesta()">Guardar</button>
         </span>
       </div>
     </div>`;
+  const accionCierre = d.cerrado
+    ? `<button class="btn-cerrar" onclick="cambiarEstado('abierto')">Volver a abrir ticket</button>`
+    : `<button class="btn-cerrar" onclick="cerrarTicket()" title="Cierra el ticket como ${esc(estadoCierre(d).etiqueta.toLowerCase())}">Cerrar ticket</button>`;
+  return `<div class="main-scroll" id="scrollMain">${bannerWa(d)}${lista}</div>
+    ${editor}
+    <div class="barra-accion">
+      <div class="izq">
+        <button class="btn-link" onclick="abrirComposer('privada')">🔒 Nota privada</button>
+        <label class="btn-link" style="margin:0">📎 Adjuntar<input type="file" id="inpAdjunto" multiple style="display:none" onchange="subirArchivos(this.files)"></label>
+      </div>
+      <div>${accionCierre}</div>
+    </div>`;
 }
+// Estado al que pasa "Cerrar ticket": el cierre normal de cada tiquetera (Contactado, Cerrado o Entregado), nunca uno "sin resolución".
+function estadoCierre(d){ return (E.cfg.estados[d.tipo] || []).find(e => e.cierra && !e.sinResolucion) || { clave: 'cerrado', etiqueta: 'Cerrado' }; }
+function cerrarTicket(){ cambiarEstado(estadoCierre(E.d).clave); }
+function abrirComposer(modo){
+  E.tab = 'conv'; E.modo = modo || E.modo; E.compOpen = true; renderMain();
+  const x = $('txtRespuesta'); if(x){ x.focus(); const sc = $('scrollMain'); if(sc) sc.scrollTop = sc.scrollHeight; }
+}
+function cerrarComposer(){ E.compOpen = false; E.borrador = null; renderMain(); }
 function vistaGeneral(d){
   const primero = d.primer_contacto_en ? fmtDur(new Date(d.primer_contacto_en) - new Date(d.creado_en)) : null;
   const fin = d.cerrado ? new Date(d.cerrado_en) : Date.now();
@@ -984,7 +1032,7 @@ function vistaGeneral(d){
     </div>
   </div></div>`;
 }
-function cambiarTab(t){ E.tab = t; E.borrador = null; renderMain(); }
+function cambiarTab(t){ E.tab = t; E.borrador = null; E.compOpen = false; renderMain(); }
 function setModo(m){ E.borrador = ($('txtRespuesta') || {}).value; E.modo = m; renderMain(); const x = $('txtRespuesta'); if(x) x.focus(); }
 
 // ---------- Acciones ----------
@@ -1021,9 +1069,9 @@ async function enviarRespuesta(){
   const x = $('txtRespuesta'); const texto = x.value.trim();
   if(!texto) return;
   $('btnEnviar').disabled = true;
-  E.borrador = null;
+  E.borrador = null; E.compOpen = false;
   const ok = await aplicar({ accion: E.modo === 'privada' ? 'comentario' : 'contacto', contenido: texto }, E.modo === 'privada' ? 'Nota guardada' : 'Contacto registrado');
-  if(!ok){ E.borrador = texto; renderMain(); }
+  if(!ok){ E.borrador = texto; E.compOpen = true; renderMain(); }
 }
 async function contactarWa(){
   const d = E.d, tel = limpiaTel(d.cliente_telefono);
