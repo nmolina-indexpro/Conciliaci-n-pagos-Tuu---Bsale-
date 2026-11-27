@@ -44,6 +44,10 @@ function esTicketsCarritosCronPublico(pathname, searchParams) {
 function esTicketsZohoSyncCronPublico(pathname, searchParams) {
   return pathname === '/api/negocio' && searchParams.get('recurso') === 'tickets-zoho-sync-cron';
 }
+// Correo entrante de Soporte TI: lo llama un Google Apps Script (sin sesión). La seguridad la hace el handler con TICKETS_CORREO_KEY (x-api-key).
+function esTicketsCorreoPublico(pathname, searchParams) {
+  return pathname === '/api/negocio' && searchParams.get('recurso') === 'tickets-correo';
+}
 
 // getSql también sirve en Edge (@vercel/postgres es fetch-based, sin nada
 // de Node puro) -- se usa acá abajo para revisar en vivo, en cada
@@ -272,6 +276,7 @@ export default async function middleware(req) {
     esTicketsPublicoPublico(pathname, url.searchParams) ||
     esTicketsCarritosCronPublico(pathname, url.searchParams) ||
     esTicketsZohoSyncCronPublico(pathname, url.searchParams) ||
+    esTicketsCorreoPublico(pathname, url.searchParams) ||
     esChatPublico(pathname, url.searchParams) ||
     esAuthRecuperarPasswordPublico(pathname, url.searchParams) ||
     esAuthResetearPasswordPublico(pathname, url.searchParams)

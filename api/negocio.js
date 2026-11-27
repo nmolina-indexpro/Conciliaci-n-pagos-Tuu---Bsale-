@@ -33,6 +33,7 @@ import { manejarTicketsPublico, sincronizarCarritos } from '../lib/tickets-entra
 import { manejarChatPublico, manejarChatAdmin } from '../lib/chat.js';
 import { manejarTicketsPostventa } from '../lib/tickets-postventa.js';
 import { manejarTicketsMetricas } from '../lib/tickets-metricas.js';
+import { manejarTicketsCorreo } from '../lib/tickets-correo.js';
 import { manejarTicketsMigracion, asegurarColumnasZoho, leerParalelo as leerParaleloZoho, sincronizarParalelo as sincronizarParaleloZoho } from '../lib/tickets-zoho.js';
 import { armarCorreoServicioTecnico } from '../lib/servicio-tecnico-correo.js';
 import { armarCorreoWhatsapp } from '../lib/whatsapp-resumen-correo.js';
@@ -270,6 +271,8 @@ export default async function handler(req, res) {
   if (req.query.recurso === 'tickets-publico') return manejarTicketsPublico(req, res, { getSql, gql: descuentosWebGql });
   if (req.query.recurso === 'tickets-carritos-cron') return manejarTicketsCarritosCron(req, res);
   if (req.query.recurso === 'tickets-zoho-sync-cron') return manejarTicketsZohoSyncCron(req, res);
+  // Correos que llegan a soporteti@indexpro.cl (los envía un Google Apps Script del buzón, con la clave TICKETS_CORREO_KEY en x-api-key). Ver lib/tickets-correo.js.
+  if (req.query.recurso === 'tickets-correo') return manejarTicketsCorreo(req, res, { getSql });
   // Chat en vivo: lo llama el widget del sitio (navegador del visitante, sin sesión). Seguridad: origen permitido, campo trampa, tiempo mínimo, tope por IP
   // (lib/seguridad.js) y token aleatorio por conversación. Ver lib/chat.js y middleware.ts (esChatPublico).
   if (req.query.recurso === 'chat-publico') return manejarChatPublico(req, res, { getSql });

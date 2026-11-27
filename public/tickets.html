@@ -64,11 +64,11 @@
   .lista-scroll{overflow-y:auto;flex:1;min-height:0;background:var(--surface-2);padding:8px;}
   .tk-card{background:var(--surface);border:1px solid var(--line);border-left:4px solid transparent;border-radius:10px;padding:11px 12px;margin-bottom:8px;cursor:pointer;transition:box-shadow .15s,border-color .15s;}
   .tk-card:hover{box-shadow:var(--shadow);}
-  /* Cada tiquetera tiene su color: borde de la tarjeta y etiqueta (azul = leads, morado = postventa, verde = servicio técnico) */
-  .tk-card.tq-lead{border-left-color:#2563EB;} .tk-card.tq-postventa{border-left-color:#7C3AED;} .tk-card.tq-servicio_tecnico{border-left-color:#15803D;}
+  /* Cada tiquetera tiene su color: borde de la tarjeta y etiqueta (azul = leads, morado = postventa, verde = servicio técnico, naranja = soporte TI) */
+  .tk-card.tq-lead{border-left-color:#2563EB;} .tk-card.tq-postventa{border-left-color:#7C3AED;} .tk-card.tq-servicio_tecnico{border-left-color:#15803D;} .tk-card.tq-soporte_ti{border-left-color:#D97706;}
   .tk-card.sel{background:var(--primary-dim);box-shadow:0 0 0 2px var(--primary) inset;}
   .tq{font-family:'Space Grotesk',sans-serif;font-size:10.5px;font-weight:700;letter-spacing:.2px;padding:2px 8px;border-radius:5px;white-space:nowrap;display:inline-block;border:1px solid transparent;}
-  .tq.lead{background:#E4ECFD;color:#1D4ED8;border-color:#C3D9FB;} .tq.postventa{background:#EFE7FD;color:#6D28D9;border-color:#D9C8F8;} .tq.servicio_tecnico{background:#E3F6E8;color:#15803D;border-color:#B8E2C4;}
+  .tq.lead{background:#E4ECFD;color:#1D4ED8;border-color:#C3D9FB;} .tq.postventa{background:#EFE7FD;color:#6D28D9;border-color:#D9C8F8;} .tq.servicio_tecnico{background:#E3F6E8;color:#15803D;border-color:#B8E2C4;} .tq.soporte_ti{background:#FDF0DC;color:#B45309;border-color:#F3D9A8;}
   .campo-lista label{display:block;font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:700;margin:0 0 3px 2px;}
   .tk-card .fila1{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
   .tk-card .asunto{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word;}
@@ -753,7 +753,7 @@ function panelInfoTicket(d){
       <datalist id="listaEquipos"><option>Notebook</option><option>PC de escritorio</option><option>All-in-one</option><option>Impresora</option><option>Tablet</option><option>Otro</option></datalist>`;
   }
   return `<details class="panel" open><summary>Información sobre el ticket</summary><div class="cuerpo">${campos}
-    <button class="btn-ghost btn-compact" onclick="guardarDetalle()">Guardar datos</button></div></details>`;
+    ${d.tipo === 'soporte_ti' ? '' : '<button class="btn-ghost btn-compact" onclick="guardarDetalle()">Guardar datos</button>'}</div></details>`;
 }
 
 // ---- Postventa: pedido de Shopify, documentos de Bsale y nota de crédito ----
@@ -854,6 +854,7 @@ const PLANTILLAS_RESPALDO = {
   lead: 'Hola {nombre}, te escribimos de IndexStore por tu consulta{producto}. ¿En qué podemos ayudarte?',
   postventa: 'Hola {nombre}, te escribimos de IndexStore por tu solicitud de postventa{pedido}.',
   servicio_tecnico: 'Hola {nombre}, te escribimos de IndexStore por tu equipo{orden} en servicio técnico.',
+  soporte_ti: 'Hola {nombre}, te escribimos de IndexPro por tu solicitud de soporte.',
   por_retirar: 'Hola {nombre}, tu equipo{orden} está listo para retirar en IndexStore. Te esperamos con tu orden de servicio y tu documento de identidad.',
 };
 function mensajeWa(d){
@@ -1090,7 +1091,7 @@ function abrirNuevo(){
 function cerrarNuevo(){ $('modalNuevo').classList.remove('abierto'); }
 function renderCamposTipo(){
   const t = $('nTipo').value;
-  $('camposTipo').innerHTML = t === 'lead'
+  $('camposTipo').innerHTML = t === 'soporte_ti' ? '' : t === 'lead'
     ? `<div class="campo"><label for="nProducto">Producto de interés</label><input id="nProducto" maxlength="200" placeholder="Ej.: pantalla HP Pavilion 15"></div>`
     : `<div class="dos"><div class="campo"><label for="nMotivo">Motivo</label>${selectLista('nMotivo', E.cfg.motivosPostventa, '', true)}</div>
        <div class="campo"><label for="nTipoProd">Tipo de producto</label>${selectLista('nTipoProd', E.cfg.tiposProducto, '', true)}</div></div>
@@ -1103,7 +1104,7 @@ async function crearTicket(){
   const cuerpo = { accion:'crear', tipo, origen:$('nOrigen').value, asunto:$('nAsunto').value, descripcion:$('nDesc').value, prioridad:$('nPrioridad').value,
     agente_id: $('nAgente').value || null, cliente:{ nombre:$('nNombre').value, telefono:$('nTelefono').value, email:$('nEmail').value } };
   if(tipo === 'lead') cuerpo.lead = { producto_interes: $('nProducto').value };
-  else cuerpo.postventa = { motivo:$('nMotivo').value, tipo_producto:$('nTipoProd').value, numero_pedido:$('nPedido').value };
+  else if(tipo === 'postventa') cuerpo.postventa = { motivo:$('nMotivo').value, tipo_producto:$('nTipoProd').value, numero_pedido:$('nPedido').value };
   $('btnCrear').disabled = true; $('nError').textContent = '';
   try{
     const j = await post(cuerpo);
@@ -1251,8 +1252,8 @@ function pintarMetricas(m, conv){
     <div class="tabla-wrap"><table class="t"><thead><tr><th>Tiquetera</th><th class="num">Creados</th><th class="num">Sin resolver</th><th class="num">Resueltos</th><th class="num">Sin resolución</th><th class="num">Cierre promedio</th><th class="num">Cierre mediana</th></tr></thead><tbody>
     ${tp.map(t => `<tr><td>${esc(t.etiqueta)}</td><td class="num">${fmtN(t.total)}</td><td class="num">${fmtN(t.abiertos)}</td><td class="num">${fmtN(t.resueltos)}</td><td class="num">${fmtN(t.sinResolucion)}</td><td class="num" data-valor="${t.cierre_prom_h ?? ''}">${fmtHoras(t.cierre_prom_h)}</td><td class="num" data-valor="${t.cierre_mediana_h ?? ''}">${fmtHoras(t.cierre_mediana_h)}</td></tr>`).join('')}
     </tbody></table></div></div>`;
-  h += `<div class="dos-col"><div class="seccion"><h3>Por origen</h3><div class="sub">De dónde llegan los tickets.</div><div class="tabla-wrap"><table class="t"><thead><tr><th>Origen</th><th class="num">Total</th><th class="num">Leads</th><th class="num">Postventa</th><th class="num">Serv. técnico</th></tr></thead><tbody>
-    ${m.porOrigen.length ? m.porOrigen.map(o => `<tr><td>${esc(o.etiqueta)}</td><td class="num">${fmtN(o.total)}</td><td class="num">${fmtN(o.porTipo.lead || 0)}</td><td class="num">${fmtN(o.porTipo.postventa || 0)}</td><td class="num">${fmtN(o.porTipo.servicio_tecnico || 0)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty-note">Sin tickets en el período.</td></tr>'}
+  h += `<div class="dos-col"><div class="seccion"><h3>Por origen</h3><div class="sub">De dónde llegan los tickets.</div><div class="tabla-wrap"><table class="t"><thead><tr><th>Origen</th><th class="num">Total</th><th class="num">Leads</th><th class="num">Postventa</th><th class="num">Serv. técnico</th><th class="num">Soporte TI</th></tr></thead><tbody>
+    ${m.porOrigen.length ? m.porOrigen.map(o => `<tr><td>${esc(o.etiqueta)}</td><td class="num">${fmtN(o.total)}</td><td class="num">${fmtN(o.porTipo.lead || 0)}</td><td class="num">${fmtN(o.porTipo.postventa || 0)}</td><td class="num">${fmtN(o.porTipo.servicio_tecnico || 0)}</td><td class="num">${fmtN(o.porTipo.soporte_ti || 0)}</td></tr>`).join('') : '<tr><td colspan="6" class="empty-note">Sin tickets en el período.</td></tr>'}
     </tbody></table></div></div>
     <div class="seccion"><h3>Carga por agente</h3><div class="sub">Lo abierto hoy y lo cerrado dentro del período.</div><div class="tabla-wrap"><table class="t"><thead><tr><th>Agente</th><th class="num">Abiertos hoy</th><th class="num">Sin movimiento +24 h</th><th class="num">Cerrados</th></tr></thead><tbody>
     ${m.cargaPorAgente.length ? m.cargaPorAgente.map(a => `<tr><td>${esc(a.nombre)}</td><td class="num">${fmtN(a.abiertos)}</td><td class="num">${fmtN(a.sin_movimiento)}</td><td class="num">${fmtN(a.cerrados)}</td></tr>`).join('') : '<tr><td colspan="4" class="empty-note">Sin datos.</td></tr>'}
@@ -1334,7 +1335,7 @@ function renderConfig(){
     </div>
     ${admin ? '<div style="margin-bottom:18px"><button class="btn-primary" onclick="guardarListasConfig()">Guardar listas</button> <span id="cfgListasMsg" class="sub"></span></div>' : ''}
     <div class="seccion"><h3>Plantillas de mensajes de WhatsApp</h3><div class="sub">Se rellenan al pulsar "Contactar por WhatsApp". Puedes usar <b>{nombre}</b>, <b>{producto}</b>, <b>{pedido}</b> y <b>{orden}</b>; si el dato no existe, se omite.</div>
-      ${plantilla('lead', 'Lead de venta')}${plantilla('postventa', 'Postventa')}${plantilla('servicio_tecnico', 'Servicio técnico')}${plantilla('por_retirar', 'Servicio técnico: equipo listo para retirar')}
+      ${plantilla('lead', 'Lead de venta')}${plantilla('postventa', 'Postventa')}${plantilla('servicio_tecnico', 'Servicio técnico')}${plantilla('soporte_ti', 'Soporte TI')}${plantilla('por_retirar', 'Servicio técnico: equipo listo para retirar')}
       ${admin ? '<button class="btn-primary btn-compact" onclick="guardarPlantillasConfig()">Guardar plantillas</button> <span id="cfgPlMsg" class="sub"></span>' : ''}</div>
     ${admin ? '<div id="cfgMigracion"><div class="seccion"><h3>Migración desde Zoho Desk</h3><div class="sub">Cargando…</div></div></div>' : ''}`;
   if(admin) cargarMigracion();
@@ -1353,7 +1354,7 @@ function pintarMigracion(informe){
   const j = E.mig, c = j.cuadre, p = j.paralelo || {};
   const ult = p.ultimo_resultado;
   el.innerHTML = `<div class="seccion"><h3>Migración desde Zoho Desk</h3>
-    <div class="sub">Trae los tickets de los 5 departamentos de la fase 1 (Solicitudes Venta, NAS, Post-Venta, S.Técnico y ST retiro inmediato). Soporte TI (INDEXPRO) sigue en Zoho. Se puede repetir sin duplicar: lo que ya está se actualiza, y si alguien tocó un ticket en el ERP, la copia no lo pisa.</div>
+    <div class="sub">Trae los tickets de los departamentos de Zoho Desk: Solicitudes Venta, NAS, Post-Venta, S.Técnico, ST retiro inmediato e INDEXPRO (Soporte TI). Se puede repetir sin duplicar: lo que ya está se actualiza, y si alguien tocó un ticket en el ERP, la copia no lo pisa.</div>
     ${j.configurado ? '' : '<div class="nota-box err">Zoho Desk no está configurado en el servidor (faltan ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN o ZOHO_ORG_ID en Vercel).</div>'}
     <div class="filtros-m"><div class="campo-m"><label for="migDesde">Migrar desde</label><input type="date" id="migDesde" value="${esc((E.migDesde) || fechaHaceMeses(12))}" onchange="E.migDesde=this.value"></div>
       <button class="btn-ghost" id="btnMigSim" onclick="ejecutarMigracion(true)"${j.configurado ? '' : ' disabled'}>1. Simular (no guarda nada)</button>
@@ -1362,7 +1363,8 @@ function pintarMigracion(informe){
     <div class="filtros-m" style="margin-top:-4px"><span class="sub">Departamentos:</span>
       ${j.departamentos.map(d => `<label class="chk" style="display:flex;gap:5px;align-items:center;font-size:12.5px"><input type="checkbox" class="migDep" value="${esc(d.id)}" ${(E.migDeps ? E.migDeps.includes(d.id) : true) ? 'checked' : ''} onchange="E.migDeps=depsMigracion()" style="width:auto"> ${esc(d.nombre)}</label>`).join('')}
       <label class="chk" style="display:flex;gap:5px;align-items:center;font-size:12.5px"><input type="checkbox" id="migHilos" ${E.migHilos !== false ? 'checked' : ''} onchange="E.migHilos=this.checked" style="width:auto"> Incluir las conversaciones (correos y notas internas)</label></div>
-    <div class="filtros-m"><button class="btn-ghost btn-compact" onclick="presetRespaldoST()" title="Deja marcado Servicio Técnico (Casa Matriz y retiro inmediato), desde 2021, con conversaciones">Respaldar Servicio Técnico (todo el historial)</button>
+    <div class="filtros-m"><button class="btn-ghost btn-compact" onclick="presetSoporteTI()" title="Deja marcado INDEXPRO (Soporte TI), desde 2018, con conversaciones">Importar Soporte TI (todo el historial)</button>
+      <button class="btn-ghost btn-compact" onclick="presetRespaldoST()" title="Deja marcado Servicio Técnico (Casa Matriz y retiro inmediato), desde 2021, con conversaciones">Respaldar Servicio Técnico (todo el historial)</button>
       <span class="sub">Descargar un respaldo de:</span>
       <select id="migRespTipo">${E.cfg.tipos.map(t => `<option value="${t.clave}"${t.clave === 'servicio_tecnico' ? ' selected' : ''}>${esc(t.etiqueta)}</option>`).join('')}<option value="">Todas las tiqueteras</option></select>
       <button class="btn-ghost btn-compact" id="btnRespJson" onclick="descargarRespaldo('json')">Archivo completo (JSON)</button>
@@ -1385,7 +1387,7 @@ function pintarMigracion(informe){
 async function ejecutarMigracion(simular){
   const desde = $('migDesde').value; E.migDesde = desde;
   if(!desde){ toast('Elige desde qué fecha migrar', true); return; }
-  if(!simular && !confirm(`Se importarán a Tickets los tickets creados desde el ${desde.split('-').reverse().join('-')} en los 5 departamentos. Se puede repetir sin duplicar. ¿Continuar?`)) return;
+  if(!simular && !confirm(`Se importarán a Tickets los tickets creados desde el ${desde.split('-').reverse().join('-')} en los departamentos marcados. Se puede repetir sin duplicar. ¿Continuar?`)) return;
   E.migCancel = false; ['btnMigSim', 'btnMigImp'].forEach(i => $(i).disabled = true); $('btnMigStop').style.display = '';
   const seleccion = depsMigracion();
   if(!seleccion.length){ toast('Marca al menos un departamento', true); ['btnMigSim', 'btnMigImp'].forEach(i => $(i).disabled = false); $('btnMigStop').style.display = 'none'; return; }
@@ -1434,6 +1436,11 @@ async function ejecutarMigracion(simular){
   finally{ ['btnMigSim', 'btnMigImp'].forEach(i => { const b = $(i); if(b) b.disabled = false; }); const s = $('btnMigStop'); if(s) s.style.display = 'none'; }
 }
 function depsMigracion(){ return [...document.querySelectorAll('.migDep:checked')].map(x => x.value); }
+function presetSoporteTI(){
+  const ti = E.mig.departamentos.filter(d => d.tipo === 'soporte_ti').map(d => d.id);
+  E.migDeps = ti; E.migDesde = '2018-01-01'; E.migHilos = true; pintarMigracion();
+  toast('Listo: Soporte TI (INDEXPRO), desde 2018, con conversaciones. Pulsa "Simular" y luego "Importar".');
+}
 function presetRespaldoST(){
   const st = E.mig.departamentos.filter(d => d.tipo === 'servicio_tecnico').map(d => d.id);
   E.migDeps = st; E.migDesde = '2021-01-01'; E.migHilos = true; pintarMigracion();
@@ -1510,7 +1517,7 @@ async function guardarListasConfig(){
   }catch(err){ toast(err.message, true); }
 }
 async function guardarPlantillasConfig(){
-  const cuerpo = { accion:'plantillas_guardar' }; for(const k of ['lead', 'postventa', 'servicio_tecnico', 'por_retirar']) cuerpo[k] = $('pl_' + k).value;
+  const cuerpo = { accion:'plantillas_guardar' }; for(const k of ['lead', 'postventa', 'servicio_tecnico', 'soporte_ti', 'por_retirar']) cuerpo[k] = $('pl_' + k).value;
   try{ const j = await post(cuerpo); E.cfg.plantillasWa = j.plantillasWa; renderConfig(); toast('Plantillas guardadas'); }
   catch(err){ toast(err.message, true); }
 }
